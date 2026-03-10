@@ -6,10 +6,10 @@ import {
 } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
-import telegramPrivateTransferIdl from "../../../../target/idl/telegram_private_transfer.json";
-import telegramTransferIdl from "../../../../target/idl/telegram_transfer.json";
-import telegramVerificationIdl from "../../../../target/idl/telegram_verification.json";
-import type { TelegramVerification } from "../../../../target/types/telegram_verification";
+import telegramPrivateTransferIdl from "./idl/telegram_private_transfer.json";
+import telegramTransferIdl from "./idl/telegram_transfer.json";
+import telegramVerificationIdl from "./idl/telegram_verification.json";
+import type { TelegramVerification } from "./idl/telegram_verification";
 import { SESSION_SEED_BYTES } from "./constants";
 
 export function getTelegramVerificationProgram(
