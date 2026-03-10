@@ -1,3 +1,4 @@
+import "@/polyfills";
 import "@/global.css";
 
 import { SplashAnimation } from "@/components/SplashAnimation";
