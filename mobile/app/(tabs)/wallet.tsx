@@ -7,9 +7,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ActionButton } from "@/components/wallet/ActionButton";
 import { ActivityFeed } from "@/components/wallet/ActivityFeed";
 import { ActivitySheet } from "@/components/wallet/ActivitySheet";
+import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
+import { BannerCarousel } from "@/components/wallet/BannerCarousel";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
+import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { TokensList } from "@/components/wallet/TokensList";
 import { TokensSheet } from "@/components/wallet/TokensSheet";
 import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
@@ -19,6 +22,10 @@ import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
+import {
+  getCachedBalanceBg,
+  setCachedBalanceBg,
+} from "@/lib/solana/wallet-cache";
 import { ScrollView, Text, View } from "@/tw";
 import type { Transaction } from "@/types/wallet";
 
@@ -39,6 +46,11 @@ export default function WalletScreen() {
 
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
+  const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
+  const [balanceBg, setBalanceBg] = useState<string | null>(
+    () => getCachedBalanceBg() ?? null,
+  );
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
 
@@ -63,6 +75,12 @@ export default function WalletScreen() {
     loadWalletTransactions({ force: true });
   }, [refreshBalance, loadWalletTransactions]);
 
+  const handleSwapComplete = useCallback(() => {
+    refreshBalance(true);
+    refreshTokenHoldings(true);
+    loadWalletTransactions({ force: true });
+  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
+
   const handleTransactionPress = useCallback(
     (transaction: Transaction) => {
       setSelectedTransaction(transaction);
@@ -77,6 +95,11 @@ export default function WalletScreen() {
 
   const handleShowAllActivity = useCallback(() => {
     activitySheetRef.current?.present();
+  }, []);
+
+  const handleBgSelect = useCallback((bg: string | null) => {
+    setBalanceBg(bg);
+    setCachedBalanceBg(bg);
   }, []);
 
   if (isLoading && !walletAddress) {
@@ -128,12 +151,15 @@ export default function WalletScreen() {
           <ActionButton
             icon={<ArrowLeftRight size={22} color="white" strokeWidth={2} />}
             label="Swap"
-            onPress={() => {}}
+            onPress={() => setIsSwapOpen(true)}
           />
         </View>
 
+        {/* Banner carousel */}
+        <BannerCarousel />
+
         {/* Token holdings */}
-        <View className="mt-8">
+        <View className="mt-4">
           <TokensList
             holdings={tokenHoldings}
             isLoading={isHoldingsLoading}
@@ -166,6 +192,22 @@ export default function WalletScreen() {
         open={isReceiveOpen}
         onClose={() => setIsReceiveOpen(false)}
         walletAddress={walletAddress}
+      />
+
+      <SwapSheet
+        open={isSwapOpen}
+        onClose={() => setIsSwapOpen(false)}
+        walletAddress={walletAddress}
+        tokenHoldings={tokenHoldings}
+        solPriceUsd={solPriceUsd}
+        onSwapComplete={handleSwapComplete}
+      />
+
+      <BalanceBackgroundPicker
+        open={isBgPickerOpen}
+        onClose={() => setIsBgPickerOpen(false)}
+        selectedBg={balanceBg}
+        onSelect={handleBgSelect}
       />
 
       <TokensSheet ref={tokensSheetRef} holdings={tokenHoldings} />
