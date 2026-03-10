@@ -8,6 +8,7 @@ type TokensListProps = {
   holdings: TokenHolding[];
   isLoading: boolean;
   maxItems?: number;
+  onSeeAll?: () => void;
 };
 
 function TokenRow({ holding }: { holding: TokenHolding }) {
@@ -41,7 +42,7 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
   );
 }
 
-export function TokensList({ holdings, isLoading, maxItems = 5 }: TokensListProps) {
+export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: TokensListProps) {
   const displayHoldings = holdings
     .filter((h) => h.balance > 0)
     .sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0))
@@ -72,7 +73,7 @@ export function TokensList({ holdings, isLoading, maxItems = 5 }: TokensListProp
         <TokenRow key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`} holding={holding} />
       ))}
       {holdings.filter((h) => h.balance > 0).length > maxItems && (
-        <Pressable className="px-4 py-2">
+        <Pressable className="px-4 py-2" onPress={onSeeAll}>
           <Text className="text-center text-sm font-medium text-blue-500">
             See all {holdings.filter((h) => h.balance > 0).length} tokens
           </Text>
