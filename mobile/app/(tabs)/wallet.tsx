@@ -7,8 +7,10 @@ import { ActionButton } from "@/components/wallet/ActionButton";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
+import { TokensList } from "@/components/wallet/TokensList";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
+import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
 import { ScrollView, Text, View } from "@/tw";
@@ -20,6 +22,8 @@ export default function WalletScreen() {
     useWalletBalance(walletAddress);
   const { solPriceUsd } = useSolPrice();
   const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
+  const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
+    useTokenHoldings(walletAddress);
 
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
@@ -29,8 +33,8 @@ export default function WalletScreen() {
   }, [setDisplayCurrency]);
 
   const handleRefresh = useCallback(async () => {
-    await refreshBalance(true);
-  }, [refreshBalance]);
+    await Promise.all([refreshBalance(true), refreshTokenHoldings(true)]);
+  }, [refreshBalance, refreshTokenHoldings]);
 
   const handleSendComplete = useCallback(() => {
     refreshBalance(true);
@@ -87,6 +91,14 @@ export default function WalletScreen() {
             icon={<ArrowLeftRight size={22} color="white" strokeWidth={2} />}
             label="Swap"
             onPress={() => {}}
+          />
+        </View>
+
+        {/* Token holdings */}
+        <View className="mt-8">
+          <TokensList
+            holdings={tokenHoldings}
+            isLoading={isHoldingsLoading}
           />
         </View>
       </ScrollView>
