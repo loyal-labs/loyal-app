@@ -1,7 +1,7 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
-import { MessageCircleMore, User } from "lucide-react-native";
+import { MessageCircleMore, User, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet } from "react-native";
 import Animated, {
@@ -15,6 +15,7 @@ import { Pressable, View } from "@/tw";
 
 const TAB_ICONS = {
   index: MessageCircleMore,
+  wallet: Wallet,
   profile: User,
 } as const;
 

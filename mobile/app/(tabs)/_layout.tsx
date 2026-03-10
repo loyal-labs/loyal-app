@@ -8,6 +8,10 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
       }}
-    />
+    >
+      <Tabs.Screen name="index" />
+      <Tabs.Screen name="wallet" />
+      <Tabs.Screen name="profile" />
+    </Tabs>
   );
 }
