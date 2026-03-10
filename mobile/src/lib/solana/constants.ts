@@ -28,4 +28,11 @@ export const MAX_RECENT_RECIPIENTS = 10;
 export const DISPLAY_CURRENCY_KEY = "displayCurrency";
 export const BALANCE_BG_KEY = "balanceBg";
 
-export const SESSION_SEED_BYTES = Buffer.from("tg_session");
+// Lazy-initialized to avoid top-level Buffer access before polyfills load
+let _sessionSeedBytes: Uint8Array | null = null;
+export const getSessionSeedBytes = (): Uint8Array => {
+  if (!_sessionSeedBytes) {
+    _sessionSeedBytes = Buffer.from("tg_session");
+  }
+  return _sessionSeedBytes;
+};

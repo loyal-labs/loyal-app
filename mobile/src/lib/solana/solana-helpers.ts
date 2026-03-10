@@ -10,7 +10,7 @@ import telegramPrivateTransferIdl from "./idl/telegram_private_transfer.json";
 import telegramTransferIdl from "./idl/telegram_transfer.json";
 import telegramVerificationIdl from "./idl/telegram_verification.json";
 import type { TelegramVerification } from "./idl/telegram_verification";
-import { SESSION_SEED_BYTES } from "./constants";
+import { getSessionSeedBytes } from "./constants";
 
 export function getTelegramVerificationProgram(
   provider: AnchorProvider,
@@ -23,7 +23,7 @@ export function getSessionPda(
   verificationProgram: Program<TelegramVerification>,
 ): PublicKey {
   const [sessionPda] = PublicKey.findProgramAddressSync(
-    [SESSION_SEED_BYTES, user.toBuffer()],
+    [getSessionSeedBytes(), user.toBuffer()],
     verificationProgram.programId,
   );
   return sessionPda;
