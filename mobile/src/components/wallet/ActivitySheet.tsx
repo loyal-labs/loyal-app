@@ -69,8 +69,18 @@ function TransactionRow({
 
     return (
       <Pressable onPress={onPress} className="flex-row items-center px-4 py-2">
-        <Text className="flex-1 text-sm text-neutral-400">{title}</Text>
-        <Text className="text-xs text-neutral-400">{amount}</Text>
+        <Text
+          className="flex-1 text-[13px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
+          {title}
+        </Text>
+        <Text
+          className="text-[13px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
+          {amount}
+        </Text>
       </Pressable>
     );
   }
@@ -87,8 +97,8 @@ function TransactionRow({
     const toSymbol =
       transaction.swapToSymbol || swapToHolding?.symbol || "?";
     iconElement = (
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-purple-100">
-        <ArrowLeftRight size={20} color="#9333ea" strokeWidth={1.5} />
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-purple-100">
+        <ArrowLeftRight size={28} color="#9333ea" strokeWidth={1.5} />
       </View>
     );
     title = "Swap";
@@ -108,12 +118,12 @@ function TransactionRow({
       transaction.secureAmount ??
       (transaction.tokenAmount ? parseFloat(transaction.tokenAmount) : null);
     iconElement = isSecure ? (
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-        <Shield size={20} color="#2563eb" strokeWidth={1.5} />
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+        <Shield size={28} color="#2563eb" strokeWidth={1.5} />
       </View>
     ) : (
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-orange-100">
-        <ShieldOff size={20} color="#ea580c" strokeWidth={1.5} />
+      <View className="h-12 w-12 items-center justify-center rounded-full bg-orange-100">
+        <ShieldOff size={28} color="#ea580c" strokeWidth={1.5} />
       </View>
     );
     title = isSecure ? "Shielded" : "Unshielded";
@@ -134,7 +144,7 @@ function TransactionRow({
     iconElement = (
       <RNImage
         source={{ uri: icon }}
-        style={{ width: 40, height: 40, borderRadius: 20 }}
+        style={{ width: 48, height: 48, borderRadius: 24 }}
       />
     );
     title = isIncoming ? "Received" : "Sent";
@@ -145,14 +155,17 @@ function TransactionRow({
   } else {
     iconElement = isIncoming ? (
       <View
-        className="h-10 w-10 items-center justify-center rounded-full"
+        className="h-12 w-12 items-center justify-center rounded-full"
         style={{ backgroundColor: "rgba(50, 229, 94, 0.15)" }}
       >
-        <ArrowDown size={20} color="#32e55e" strokeWidth={1.5} />
+        <ArrowDown size={28} color="#32e55e" strokeWidth={1.5} />
       </View>
     ) : (
-      <View className="h-10 w-10 items-center justify-center rounded-full bg-neutral-100">
-        <ArrowUp size={20} color="#000" strokeWidth={1.5} />
+      <View
+        className="h-12 w-12 items-center justify-center rounded-full"
+        style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
+      >
+        <ArrowUp size={28} color="#000" strokeWidth={1.5} />
       </View>
     );
     title = isIncoming ? "Received" : "Sent";
@@ -165,19 +178,27 @@ function TransactionRow({
   }
 
   return (
-    <Pressable onPress={onPress} className="flex-row items-center px-4 py-3">
+    <Pressable onPress={onPress} className="flex-row items-center px-4 py-2.5">
       {iconElement}
       <View className="ml-3 flex-1">
-        <Text className="text-sm font-medium text-black">{title}</Text>
+        <Text className="text-[16px] font-medium text-black">{title}</Text>
         {subtitle && (
-          <Text className="text-xs text-neutral-500">{subtitle}</Text>
+          <Text
+            className="text-[13px]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
+            {subtitle}
+          </Text>
         )}
       </View>
       <View className="items-end">
-        <Text className="text-sm font-medium" style={{ color: amountColor }}>
+        <Text className="text-[16px] font-medium" style={{ color: amountColor }}>
           {amount}
         </Text>
-        <Text className="text-xs text-neutral-400">
+        <Text
+          className="text-[13px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
           {formatTransactionDate(transaction.timestamp)}
         </Text>
       </View>
@@ -212,10 +233,16 @@ export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
         enableDynamicSizing={false}
       >
         <BottomSheetView className="px-4 pb-2">
-          <Text className="text-lg font-semibold text-black">
+          <Text
+            className="text-[17px] font-semibold text-black"
+            style={{ lineHeight: 22 }}
+          >
             All Activity
           </Text>
-          <Text className="text-xs text-neutral-500">
+          <Text
+            className="text-[13px]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
             {transactions.length} transaction
             {transactions.length !== 1 ? "s" : ""}
           </Text>

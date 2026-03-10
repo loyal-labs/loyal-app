@@ -15,6 +15,7 @@ import {
   TextInput as RNTextInput,
   StyleSheet,
 } from "react-native";
+import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 
 // CSS-enabled Link
 export const Link = (
@@ -81,6 +82,14 @@ export const TextInput = (
   return useCssElement(RNTextInput, props, { className: "style" });
 };
 TextInput.displayName = "CSS(TextInput)";
+
+// SafeAreaView
+export const SafeAreaView = (
+  props: React.ComponentProps<typeof RNSafeAreaView> & { className?: string }
+) => {
+  return useCssElement(RNSafeAreaView, props, { className: "style" });
+};
+SafeAreaView.displayName = "CSS(SafeAreaView)";
 
 // AnimatedScrollView
 export const AnimatedScrollView = (

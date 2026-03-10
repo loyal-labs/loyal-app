@@ -20,8 +20,13 @@ type TransactionDetailsSheetProps = {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row items-center justify-between py-2.5">
-      <Text className="text-sm text-neutral-500">{label}</Text>
-      <Text className="text-sm font-medium text-black">{value}</Text>
+      <Text
+        className="text-[15px]"
+        style={{ color: "rgba(60, 60, 67, 0.6)" }}
+      >
+        {label}
+      </Text>
+      <Text className="text-[15px] font-medium text-black">{value}</Text>
     </View>
   );
 }
@@ -73,9 +78,14 @@ export const TransactionDetailsSheet = forwardRef<
       <BottomSheetView className="px-4 pb-10">
         {/* Header */}
         <View className="items-center pb-4">
-          <Text className="text-lg font-semibold text-black">{title}</Text>
           <Text
-            className="mt-1 text-2xl font-bold"
+            className="text-[17px] font-semibold text-black"
+            style={{ lineHeight: 22 }}
+          >
+            {title}
+          </Text>
+          <Text
+            className="mt-1 text-[28px] font-bold"
             style={{ color: isIncoming ? "#32e55e" : "#000" }}
           >
             {isIncoming ? "+" : transaction.type === "outgoing" ? "\u2212" : ""}
@@ -84,7 +94,7 @@ export const TransactionDetailsSheet = forwardRef<
         </View>
 
         {/* Divider */}
-        <View className="h-px bg-neutral-200" />
+        <View className="h-px" style={{ backgroundColor: "#f2f2f7" }} />
 
         {/* Details */}
         <View className="py-2">
@@ -141,13 +151,14 @@ export const TransactionDetailsSheet = forwardRef<
         {/* Explorer link */}
         {explorerUrl && (
           <>
-            <View className="h-px bg-neutral-200" />
+            <View className="h-px" style={{ backgroundColor: "#f2f2f7" }} />
             <Pressable
               onPress={() => Linking.openURL(explorerUrl)}
-              className="mt-3 flex-row items-center justify-center gap-2 rounded-xl bg-neutral-100 py-3"
+              className="mt-3 flex-row items-center justify-center gap-2 rounded-xl py-3"
+              style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
             >
-              <ExternalLink size={16} color="#6b7280" />
-              <Text className="text-sm font-medium text-neutral-600">
+              <ExternalLink size={16} color="#f9363c" />
+              <Text className="text-[14px] font-medium" style={{ color: "#f9363c" }}>
                 View on Solscan
               </Text>
             </Pressable>

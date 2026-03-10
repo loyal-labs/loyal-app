@@ -83,12 +83,15 @@ export function ReceiveSheet({
       <BottomSheetView>
         <View className="items-center px-6 pb-12 pt-2">
           {/* Title */}
-          <Text className="mb-6 text-lg font-semibold text-black">
+          <Text
+            className="mb-6 text-[17px] font-semibold text-black"
+            style={{ lineHeight: 22 }}
+          >
             Receive
           </Text>
 
           {/* Warning */}
-          <Text className="mb-6 text-center text-sm text-neutral-500">
+          <Text className="mb-6 text-center text-[14px] text-neutral-500">
             Use to receive tokens on the Solana network only. Other assets will
             be lost forever.
           </Text>
@@ -98,13 +101,13 @@ export function ReceiveSheet({
             {walletAddress ? (
               <>
                 <QRCode value={walletAddress} size={192} />
-                <Text className="mt-4 text-center font-mono text-sm text-neutral-600">
+                <Text className="mt-4 text-center font-mono text-[14px] text-neutral-600">
                   {walletAddress}
                 </Text>
               </>
             ) : (
               <View className="h-48 w-48 items-center justify-center">
-                <Text className="text-sm text-neutral-400">No address</Text>
+                <Text className="text-[14px] text-neutral-400">No address</Text>
               </View>
             )}
           </View>
@@ -119,7 +122,7 @@ export function ReceiveSheet({
               <View className="h-14 w-14 items-center justify-center rounded-full bg-neutral-100">
                 <Copy size={24} color="#3C3C43" />
               </View>
-              <Text className="text-xs text-neutral-500">
+              <Text className="text-[12px] text-neutral-500">
                 {copied ? "Copied!" : "Copy"}
               </Text>
             </Pressable>
@@ -132,13 +135,13 @@ export function ReceiveSheet({
               <View className="h-14 w-14 items-center justify-center rounded-full bg-neutral-100">
                 <Share2 size={24} color="#3C3C43" />
               </View>
-              <Text className="text-xs text-neutral-500">Share</Text>
+              <Text className="text-[12px] text-neutral-500">Share</Text>
             </Pressable>
           </View>
 
           {/* Short address for quick reference */}
           {walletAddress && (
-            <Text className="mt-4 text-xs text-neutral-400">
+            <Text className="mt-4 text-[12px] text-neutral-400">
               {formatAddress(walletAddress)}
             </Text>
           )}

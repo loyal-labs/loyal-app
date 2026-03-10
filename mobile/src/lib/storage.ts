@@ -1,8 +1,7 @@
-import { MMKV } from "react-native-mmkv";
-
-// MMKV requires native JSI bindings from a custom dev client build.
-// When running in Expo Go or a dev client without MMKV native module,
-// fall back to in-memory Map so the app still works (without persistence).
+// Persistent key-value storage with graceful fallback.
+// react-native-mmkv v4 (Nitro Modules) can hang during import on some
+// Expo/RN configurations, so we use dynamic require() to avoid blocking
+// the entire module graph.
 
 interface StorageAdapter {
   getString(key: string): string | undefined;
@@ -14,46 +13,43 @@ interface StorageAdapter {
 }
 
 let _storage: StorageAdapter | null = null;
-let _warned = false;
+
+function createInMemoryStorage(): StorageAdapter {
+  const map = new Map<string, boolean | number | string>();
+  return {
+    getString: (key) => {
+      const v = map.get(key);
+      return typeof v === "string" ? v : undefined;
+    },
+    getNumber: (key) => {
+      const v = map.get(key);
+      return typeof v === "number" ? v : undefined;
+    },
+    getBoolean: (key) => {
+      const v = map.get(key);
+      return typeof v === "boolean" ? v : undefined;
+    },
+    set: (key, value) => {
+      map.set(key, value);
+    },
+    delete: (key) => {
+      map.delete(key);
+    },
+    contains: (key) => map.has(key),
+  };
+}
 
 function getStorage(): StorageAdapter {
   if (_storage) return _storage;
 
-  try {
-    _storage = new MMKV();
-    return _storage;
-  } catch {
-    if (!_warned) {
-      _warned = true;
-      console.warn(
-        "[storage] MMKV native module unavailable — using in-memory fallback. " +
-          "Build a dev client to enable persistent storage.",
-      );
-    }
-    const map = new Map<string, boolean | number | string>();
-    _storage = {
-      getString: (key) => {
-        const v = map.get(key);
-        return typeof v === "string" ? v : undefined;
-      },
-      getNumber: (key) => {
-        const v = map.get(key);
-        return typeof v === "number" ? v : undefined;
-      },
-      getBoolean: (key) => {
-        const v = map.get(key);
-        return typeof v === "boolean" ? v : undefined;
-      },
-      set: (key, value) => {
-        map.set(key, value);
-      },
-      delete: (key) => {
-        map.delete(key);
-      },
-      contains: (key) => map.has(key),
-    };
-    return _storage;
-  }
+  // In-memory only for now. MMKV v4 (Nitro Modules) has compatibility
+  // issues with this Expo/RN setup. Replace with AsyncStorage or
+  // downgrade MMKV to v2 if persistence is needed before a fix lands.
+  console.warn(
+    "[storage] Using in-memory storage. Data won't persist across restarts.",
+  );
+  _storage = createInMemoryStorage();
+  return _storage;
 }
 
 export const mmkv = {

@@ -23,19 +23,44 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
     : "0";
 
   return (
-    <View className="flex-row items-center px-4 py-3">
-      <RNImage
-        source={{ uri: icon }}
-        style={{ width: 40, height: 40, borderRadius: 20 }}
-      />
-      <View className="ml-3 flex-1">
-        <Text className="text-sm font-medium text-black">{holding.symbol}</Text>
-        <Text className="text-xs text-neutral-500">{holding.name}</Text>
+    <View
+      className="flex-row items-center rounded-[20px] px-4 py-2"
+      style={{ borderWidth: 2, borderColor: "#f2f2f7" }}
+    >
+      <View className="py-1.5 pr-3">
+        <RNImage
+          source={{ uri: icon }}
+          style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
+        />
       </View>
-      <View className="items-end">
-        <Text className="text-sm font-medium text-black">{balanceStr}</Text>
+      <View className="flex-1 py-2.5">
+        <Text
+          className="text-[17px] font-medium text-black"
+          style={{ letterSpacing: -0.187 }}
+        >
+          {holding.symbol}
+        </Text>
+        <Text
+          className="text-[15px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
+          {holding.name}
+        </Text>
+      </View>
+      <View className="items-end pl-3">
+        <Text
+          className="text-[17px] text-black"
+          style={{ letterSpacing: -0.187 }}
+        >
+          {balanceStr}
+        </Text>
         {valueStr ? (
-          <Text className="text-xs text-neutral-500">{valueStr}</Text>
+          <Text
+            className="text-[15px]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
+            {valueStr}
+          </Text>
         ) : null}
       </View>
     </View>
@@ -51,7 +76,12 @@ export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: Toke
   if (isLoading && displayHoldings.length === 0) {
     return (
       <View className="px-4 py-6">
-        <Text className="text-center text-sm text-neutral-400">Loading tokens...</Text>
+        <Text
+          className="text-center text-[15px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
+          Loading tokens...
+        </Text>
       </View>
     );
   }
@@ -59,25 +89,43 @@ export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: Toke
   if (displayHoldings.length === 0) {
     return (
       <View className="px-4 py-6">
-        <Text className="text-center text-sm text-neutral-400">No tokens found</Text>
+        <Text
+          className="text-center text-[15px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
+          No tokens found
+        </Text>
       </View>
     );
   }
 
+  const totalCount = holdings.filter((h) => h.balance > 0).length;
+
   return (
     <View>
-      <Text className="mb-2 px-4 text-sm font-semibold text-neutral-700">
+      <Text
+        className="px-3 pb-2 pt-3 text-[16px] font-medium text-black"
+        style={{ letterSpacing: -0.176 }}
+      >
         Tokens
       </Text>
-      {displayHoldings.map((holding) => (
-        <TokenRow key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`} holding={holding} />
-      ))}
-      {holdings.filter((h) => h.balance > 0).length > maxItems && (
-        <Pressable className="px-4 py-2" onPress={onSeeAll}>
-          <Text className="text-center text-sm font-medium text-blue-500">
-            See all {holdings.filter((h) => h.balance > 0).length} tokens
-          </Text>
-        </Pressable>
+      <View className="gap-2 px-3">
+        {displayHoldings.map((holding) => (
+          <TokenRow key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`} holding={holding} />
+        ))}
+      </View>
+      {totalCount > maxItems && (
+        <View className="mt-2 items-center px-3">
+          <Pressable
+            className="flex-row items-center gap-1.5 rounded-full px-4 py-1.5"
+            style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
+            onPress={onSeeAll}
+          >
+            <Text className="text-[15px] text-black">
+              Show All
+            </Text>
+          </Pressable>
+        </View>
       )}
     </View>
   );

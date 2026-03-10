@@ -74,7 +74,10 @@ export function BalanceCard({
   };
 
   return (
-    <View className="mx-4 mt-5 overflow-hidden rounded-3xl bg-black p-5">
+    <View
+      className="mx-4 mt-5 overflow-hidden rounded-[26px] bg-black p-5"
+      style={{ borderWidth: 2, borderColor: "rgba(255, 255, 255, 0.1)" }}
+    >
       {walletError ? (
         <View className="items-center justify-center gap-3 py-6">
           <Text className="px-4 text-center text-[15px] leading-5 text-white">
@@ -102,7 +105,10 @@ export function BalanceCard({
                 className="flex-row items-center gap-1 self-start"
               >
                 <Copy size={16} strokeWidth={1.5} color="rgba(255,255,255,0.6)" />
-                <Text className="text-[15px] text-white/60">
+                <Text
+                  className="text-[17px] text-white/60"
+                  style={{ lineHeight: 22 }}
+                >
                   {addressCopied ? "Copied!" : formatAddress(walletAddress)}
                 </Text>
               </Pressable>
@@ -121,7 +127,10 @@ export function BalanceCard({
                 <Text className="text-[40px] font-semibold leading-[48px] text-white">
                   {formatPrimary()}
                 </Text>
-                <Text className="mt-1 text-[17px] text-white/60">
+                <Text
+                  className="mt-1 text-[17px] text-white/60"
+                  style={{ lineHeight: 22 }}
+                >
                   {solPriceUsd !== null ? formatSecondary() : (
                     <ActivityIndicator size="small" color="rgba(255,255,255,0.4)" />
                   )}

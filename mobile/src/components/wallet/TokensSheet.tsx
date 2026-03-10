@@ -29,21 +29,34 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
       : "0";
 
   return (
-    <View className="flex-row items-center px-4 py-3">
+    <View className="flex-row items-center px-4 py-2.5">
       <RNImage
         source={{ uri: icon }}
-        style={{ width: 40, height: 40, borderRadius: 20 }}
+        style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
       />
       <View className="ml-3 flex-1">
-        <Text className="text-sm font-medium text-black">
+        <Text
+          className="text-[17px] font-medium text-black"
+          style={{ letterSpacing: -0.187 }}
+        >
           {holding.symbol}
         </Text>
-        <Text className="text-xs text-neutral-500">{holding.name}</Text>
+        <Text
+          className="text-[15px]"
+          style={{ color: "rgba(60, 60, 67, 0.6)" }}
+        >
+          {holding.name}
+        </Text>
       </View>
       <View className="items-end">
-        <Text className="text-sm font-medium text-black">{balanceStr}</Text>
+        <Text className="text-[17px] text-black">{balanceStr}</Text>
         {valueStr ? (
-          <Text className="text-xs text-neutral-500">{valueStr}</Text>
+          <Text
+            className="text-[15px]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
+            {valueStr}
+          </Text>
         ) : null}
       </View>
     </View>
@@ -80,8 +93,16 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
         enableDynamicSizing={false}
       >
         <BottomSheetView className="px-4 pb-2">
-          <Text className="text-lg font-semibold text-black">All Tokens</Text>
-          <Text className="text-xs text-neutral-500">
+          <Text
+            className="text-[17px] font-semibold text-black"
+            style={{ lineHeight: 22 }}
+          >
+            All Tokens
+          </Text>
+          <Text
+            className="text-[13px]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
             {displayHoldings.length} token
             {displayHoldings.length !== 1 ? "s" : ""}
           </Text>

@@ -18,11 +18,19 @@ export function ActionButton({ icon, label, onPress }: ActionButtonProps) {
   };
 
   return (
-    <Pressable className="items-center gap-1.5" onPress={handlePress}>
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-black">
+    <Pressable className="items-center gap-2" onPress={handlePress}>
+      <View
+        className="h-[52px] w-[52px] items-center justify-center rounded-full"
+        style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
+      >
         {icon}
       </View>
-      <Text className="text-xs font-medium text-neutral-600">{label}</Text>
+      <Text
+        className="text-[13px]"
+        style={{ color: "rgba(60, 60, 67, 0.6)" }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }

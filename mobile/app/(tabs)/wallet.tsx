@@ -2,8 +2,8 @@ import { BottomSheetModal } from "@gorhom/bottom-sheet";
 import { ArrowDown, ArrowLeftRight, ArrowUp } from "lucide-react-native";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
+import { LogoHeader } from "@/components/LogoHeader";
 import { ActionButton } from "@/components/wallet/ActionButton";
 import { ActivityFeed } from "@/components/wallet/ActivityFeed";
 import { ActivitySheet } from "@/components/wallet/ActivitySheet";
@@ -104,20 +104,27 @@ export default function WalletScreen() {
 
   if (isLoading && !walletAddress) {
     return (
-      <SafeAreaView
-        edges={["top"]}
-        className="flex-1 items-center justify-center bg-white"
+      <ScrollView
+        className="flex-1 bg-white"
+        contentInsetAdjustmentBehavior="automatic"
       >
-        <ActivityIndicator size="large" color="#000" />
-        <Text className="mt-3 text-sm text-neutral-500">
-          Loading wallet...
-        </Text>
-      </SafeAreaView>
+        <LogoHeader />
+        <View className="flex-1 items-center justify-center py-20">
+          <ActivityIndicator size="large" color="#000" />
+          <Text
+            className="mt-3 text-[15px]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
+            Loading wallet...
+          </Text>
+        </View>
+      </ScrollView>
     );
   }
 
   return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-white">
+    <View className="flex-1 bg-white">
+      <LogoHeader />
       <ScrollView
         className="flex-1"
         contentContainerClassName="pb-8"
@@ -139,17 +146,17 @@ export default function WalletScreen() {
         {/* Action buttons */}
         <View className="mt-6 flex-row justify-center gap-8 px-4">
           <ActionButton
-            icon={<ArrowUp size={22} color="white" strokeWidth={2} />}
+            icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
             label="Send"
             onPress={() => setIsSendOpen(true)}
           />
           <ActionButton
-            icon={<ArrowDown size={22} color="white" strokeWidth={2} />}
+            icon={<ArrowDown size={28} color="#000" strokeWidth={1.5} />}
             label="Receive"
             onPress={() => setIsReceiveOpen(true)}
           />
           <ActionButton
-            icon={<ArrowLeftRight size={22} color="white" strokeWidth={2} />}
+            icon={<ArrowLeftRight size={28} color="#000" strokeWidth={1.5} />}
             label="Swap"
             onPress={() => setIsSwapOpen(true)}
           />
@@ -159,7 +166,7 @@ export default function WalletScreen() {
         <BannerCarousel />
 
         {/* Token holdings */}
-        <View className="mt-4">
+        <View>
           <TokensList
             holdings={tokenHoldings}
             isLoading={isHoldingsLoading}
@@ -168,7 +175,7 @@ export default function WalletScreen() {
         </View>
 
         {/* Activity feed */}
-        <View className="mt-6">
+        <View>
           <ActivityFeed
             transactions={walletTransactions}
             tokenHoldings={tokenHoldings}
@@ -223,6 +230,6 @@ export default function WalletScreen() {
         ref={txDetailsSheetRef}
         transaction={selectedTransaction}
       />
-    </SafeAreaView>
+    </View>
   );
 }

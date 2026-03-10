@@ -97,7 +97,10 @@ export function BalanceBackgroundPicker({
         <View className="px-6 pb-12 pt-2">
           {/* Header */}
           <View className="mb-6 flex-row items-center justify-center">
-            <Text className="text-lg font-semibold text-black">
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
               Choose your style
             </Text>
             <Pressable className="absolute right-0" onPress={handleClose}>
@@ -140,7 +143,7 @@ export function BalanceBackgroundPicker({
                   >
                     {option.id === null && <Ban size={24} color="#999" />}
                   </View>
-                  <Text className="mt-2 text-xs text-neutral-600">
+                  <Text className="mt-2 text-[12px] text-neutral-600">
                     {option.label}
                   </Text>
                 </Pressable>
@@ -150,10 +153,11 @@ export function BalanceBackgroundPicker({
 
           {/* Done button */}
           <Pressable
-            className="items-center rounded-2xl bg-black py-4"
+            className="items-center rounded-2xl py-4"
+            style={{ backgroundColor: "#f9363c" }}
             onPress={handleDone}
           >
-            <Text className="text-base font-semibold text-white">Done</Text>
+            <Text className="text-[16px] font-semibold text-white">Done</Text>
           </Pressable>
         </View>
       </BottomSheetView>

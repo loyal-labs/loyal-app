@@ -1,11 +1,11 @@
 {
   "name": "mobile",
-  "main": "expo-router/entry",
+  "main": "./index.js",
   "version": "1.0.0",
   "scripts": {
     "start": "expo start --clear",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest"

@@ -288,7 +288,10 @@ export function SwapSheet({
                 <ArrowLeft size={24} color="#000" />
               </Pressable>
             )}
-            <Text className="text-lg font-semibold text-black">
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
               {step === "form"
                 ? "Swap"
                 : step === "confirm"
@@ -389,7 +392,7 @@ function TokenSelectorButton({
         source={{ uri: icon }}
         style={{ width: 24, height: 24, borderRadius: 12 }}
       />
-      <Text className="ml-2 text-sm font-semibold text-black">{symbol}</Text>
+      <Text className="ml-2 text-[14px] font-semibold text-black">{symbol}</Text>
       <ChevronDown size={16} color="#666" style={{ marginLeft: 4 }} />
     </Pressable>
   );
@@ -423,7 +426,7 @@ function TokenPicker({
       <View className="mb-3 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50 px-3">
         <Search size={16} color="#999" />
         <TextInput
-          className="ml-2 flex-1 py-3 text-base text-black"
+          className="ml-2 flex-1 py-3 text-[16px] text-black"
           placeholder="Search tokens"
           placeholderTextColor="#999"
           value={search}
@@ -447,14 +450,14 @@ function TokenPicker({
               style={{ width: 32, height: 32, borderRadius: 16 }}
             />
             <View className="ml-3 flex-1">
-              <Text className="text-sm font-medium text-black">
+              <Text className="text-[14px] font-medium text-black">
                 {token.symbol}
               </Text>
-              <Text className="text-xs text-neutral-500" numberOfLines={1}>
+              <Text className="text-[12px] text-neutral-500" numberOfLines={1}>
                 {token.name}
               </Text>
             </View>
-            <Text className="text-sm text-neutral-600">
+            <Text className="text-[14px] text-neutral-600">
               {token.balance.toFixed(token.decimals > 4 ? 4 : token.decimals)}
             </Text>
           </Pressable>
@@ -462,7 +465,7 @@ function TokenPicker({
       })}
 
       {filtered.length === 0 && (
-        <Text className="py-8 text-center text-sm text-neutral-400">
+        <Text className="py-8 text-center text-[14px] text-neutral-400">
           No tokens found
         </Text>
       )}
@@ -472,7 +475,7 @@ function TokenPicker({
         className="mt-2 items-center rounded-2xl bg-neutral-100 py-3"
         onPress={onCancel}
       >
-        <Text className="text-sm font-medium text-neutral-600">Cancel</Text>
+        <Text className="text-[14px] font-medium text-neutral-600">Cancel</Text>
       </Pressable>
     </>
   );
@@ -517,7 +520,7 @@ function FormStep({
   return (
     <>
       {/* From section */}
-      <Text className="mb-1.5 text-sm font-medium text-neutral-700">From</Text>
+      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">From</Text>
       <View className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
         <View className="flex-row items-center">
           <TokenSelectorButton
@@ -526,7 +529,7 @@ function FormStep({
             onPress={onFromPress}
           />
           <TextInput
-            className="ml-3 flex-1 text-right text-lg text-black"
+            className="ml-3 flex-1 text-right text-[18px] text-black"
             placeholder="0.00"
             placeholderTextColor="#999"
             value={amountStr}
@@ -537,10 +540,10 @@ function FormStep({
             className="ml-2 rounded-lg bg-neutral-200 px-3 py-1"
             onPress={onMax}
           >
-            <Text className="text-xs font-semibold text-neutral-700">MAX</Text>
+            <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
           </Pressable>
         </View>
-        <Text className="mt-1 text-xs text-neutral-400">
+        <Text className="mt-1 text-[12px] text-neutral-400">
           Balance: {fromBalance.toFixed(4)} {fromHolding?.symbol ?? ""}
           {fromHolding?.valueUsd != null && solPriceUsd
             ? ` (~$${(fromBalance * (fromHolding.priceUsd ?? 0)).toFixed(2)})`
@@ -548,7 +551,7 @@ function FormStep({
         </Text>
       </View>
       {!isValidAmount && amountStr.length > 0 && (
-        <Text className="mb-1 text-xs text-red-500">
+        <Text className="mb-1 text-[12px] text-red-500">
           {parseFloat(amountStr) > fromBalance
             ? "Insufficient balance"
             : "Enter a valid amount"}
@@ -566,7 +569,7 @@ function FormStep({
       </View>
 
       {/* To section */}
-      <Text className="mb-1.5 text-sm font-medium text-neutral-700">To</Text>
+      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">To</Text>
       <View className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
         <View className="flex-row items-center">
           <TokenSelectorButton
@@ -578,13 +581,13 @@ function FormStep({
             {isFetchingQuote ? (
               <ActivityIndicator size="small" color="#999" />
             ) : outAmount != null ? (
-              <Text className="text-lg text-black">
+              <Text className="text-[18px] text-black">
                 {outAmount.toFixed(
                   toHolding && toHolding.decimals > 4 ? 4 : (toHolding?.decimals ?? 4),
                 )}
               </Text>
             ) : (
-              <Text className="text-lg text-neutral-300">0.00</Text>
+              <Text className="text-[18px] text-neutral-300">0.00</Text>
             )}
           </View>
         </View>
@@ -592,7 +595,7 @@ function FormStep({
 
       {/* Quote info */}
       {quote && outAmount != null && (
-        <Text className="mb-1 text-xs text-neutral-400">
+        <Text className="mb-1 text-[12px] text-neutral-400">
           Price impact: {quote.priceImpactPct}% | Slippage:{" "}
           {(quote.slippageBps / 100).toFixed(2)}%
         </Text>
@@ -602,13 +605,12 @@ function FormStep({
 
       {/* Review button */}
       <Pressable
-        className={`items-center rounded-2xl py-4 ${isFormValid ? "bg-black" : "bg-neutral-300"}`}
+        className={`items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
+        style={{ backgroundColor: "#f9363c" }}
         onPress={onNext}
         disabled={!isFormValid}
       >
-        <Text
-          className={`text-base font-semibold ${isFormValid ? "text-white" : "text-neutral-500"}`}
-        >
+        <Text className="text-[16px] font-semibold text-white">
           Review
         </Text>
       </Pressable>
@@ -657,14 +659,15 @@ function ConfirmStep({
       </View>
 
       <Pressable
-        className={`items-center rounded-2xl py-4 ${isSwapping ? "bg-neutral-300" : "bg-black"}`}
+        className={`items-center rounded-2xl py-4 ${isSwapping ? "opacity-40" : ""}`}
+        style={{ backgroundColor: "#f9363c" }}
         onPress={onConfirm}
         disabled={isSwapping}
       >
         {isSwapping ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text className="text-base font-semibold text-white">
+          <Text className="text-[16px] font-semibold text-white">
             Confirm Swap
           </Text>
         )}
@@ -684,9 +687,9 @@ function Row({
 }) {
   return (
     <View className="flex-row justify-between py-1.5">
-      <Text className="text-sm text-neutral-500">{label}</Text>
+      <Text className="text-[14px] text-neutral-500">{label}</Text>
       <Text
-        className={`text-sm ${isSubtle ? "text-neutral-400" : "font-medium text-black"}`}
+        className={`text-[14px] ${isSubtle ? "text-neutral-400" : "font-medium text-black"}`}
       >
         {value}
       </Text>
@@ -718,7 +721,7 @@ function ResultStep({
     return (
       <View className="items-center py-12">
         <ActivityIndicator size="large" color="#000" />
-        <Text className="mt-4 text-base text-neutral-600">
+        <Text className="mt-4 text-[16px] text-neutral-600">
           Swapping tokens...
         </Text>
       </View>
@@ -729,17 +732,18 @@ function ResultStep({
     return (
       <View className="items-center py-8">
         <AlertCircle size={48} color="#ef4444" />
-        <Text className="mt-4 text-center text-base font-medium text-red-600">
+        <Text className="mt-4 text-center text-[16px] font-medium text-red-600">
           Swap Failed
         </Text>
-        <Text className="mt-2 text-center text-sm text-neutral-500">
+        <Text className="mt-2 text-center text-[14px] text-neutral-500">
           {swapError}
         </Text>
         <Pressable
-          className="mt-6 w-full items-center rounded-2xl bg-black py-4"
+          className="mt-6 w-full items-center rounded-2xl py-4"
+          style={{ backgroundColor: "#f9363c" }}
           onPress={onDone}
         >
-          <Text className="text-base font-semibold text-white">Done</Text>
+          <Text className="text-[16px] font-semibold text-white">Done</Text>
         </Pressable>
       </View>
     );
@@ -748,14 +752,14 @@ function ResultStep({
   return (
     <View className="items-center py-8">
       <CheckCircle2 size={48} color="#22c55e" />
-      <Text className="mt-4 text-base font-medium text-black">
+      <Text className="mt-4 text-[16px] font-medium text-black">
         {amountNum} {fromHolding?.symbol ?? ""} swapped
       </Text>
-      <Text className="mt-1 text-sm text-neutral-500">
+      <Text className="mt-1 text-[14px] text-neutral-500">
         for {outAmount?.toFixed(4) ?? "—"} {toHolding?.symbol ?? ""}
       </Text>
       {txSignature && (
-        <Text className="mt-2 text-xs text-neutral-400" numberOfLines={1}>
+        <Text className="mt-2 text-[12px] text-neutral-400" numberOfLines={1}>
           Tx: {txSignature.slice(0, 12)}...
         </Text>
       )}
@@ -763,7 +767,7 @@ function ResultStep({
         className="mt-6 w-full items-center rounded-2xl bg-black py-4"
         onPress={onDone}
       >
-        <Text className="text-base font-semibold text-white">Done</Text>
+        <Text className="text-[16px] font-semibold text-white">Done</Text>
       </Pressable>
     </View>
   );

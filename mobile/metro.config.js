@@ -30,4 +30,5 @@ config.resolver.sourceExts = [...config.resolver.sourceExts, "svg"];
 module.exports = withNativewind(config, {
   inlineVariables: false,
   globalClassNamePolyfill: false,
+  inlineRem: 16,
 });

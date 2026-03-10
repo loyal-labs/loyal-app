@@ -198,7 +198,10 @@ export function SendSheet({
                 <ArrowLeft size={24} color="#000" />
               </Pressable>
             )}
-            <Text className="text-lg font-semibold text-black">
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
               {step === "form"
                 ? "Send"
                 : step === "confirm"
@@ -288,9 +291,9 @@ function FormStep({
   return (
     <>
       {/* Recipient */}
-      <Text className="mb-1.5 text-sm font-medium text-neutral-700">To</Text>
+      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">To</Text>
       <TextInput
-        className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-base text-black"
+        className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-[16px] text-black"
         placeholder="Wallet address"
         placeholderTextColor="#999"
         value={recipient}
@@ -299,17 +302,17 @@ function FormStep({
         autoCorrect={false}
       />
       {!isValidRecipient && (
-        <Text className="mb-2 text-xs text-red-500">Invalid Solana address</Text>
+        <Text className="mb-2 text-[12px] text-red-500">Invalid Solana address</Text>
       )}
       {isValidRecipient && <View className="mb-3" />}
 
       {/* Amount */}
-      <Text className="mb-1.5 text-sm font-medium text-neutral-700">
+      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
         Amount
       </Text>
       <View className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50">
         <TextInput
-          className="flex-1 px-4 py-3 text-base text-black"
+          className="flex-1 px-4 py-3 text-[16px] text-black"
           placeholder="0.00"
           placeholderTextColor="#999"
           value={amountStr}
@@ -320,7 +323,7 @@ function FormStep({
           className="px-2 py-1"
           onPress={onToggleCurrency}
         >
-          <Text className="text-sm font-medium text-neutral-600">
+          <Text className="text-[14px] font-medium text-neutral-600">
             {currency}
           </Text>
         </Pressable>
@@ -328,11 +331,11 @@ function FormStep({
           className="mr-3 rounded-lg bg-neutral-200 px-3 py-1"
           onPress={onMax}
         >
-          <Text className="text-xs font-semibold text-neutral-700">MAX</Text>
+          <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
         </Pressable>
       </View>
       {!isValidAmount && amountStr.length > 0 && (
-        <Text className="mb-2 text-xs text-red-500">
+        <Text className="mb-2 text-[12px] text-red-500">
           {parseFloat(amountStr) > balanceInSol
             ? "Insufficient balance"
             : "Enter a valid amount"}
@@ -340,7 +343,7 @@ function FormStep({
       )}
 
       {/* Balance info */}
-      <Text className="mb-6 text-xs text-neutral-400">
+      <Text className="mb-6 text-[12px] text-neutral-400">
         Balance: {balanceInSol.toFixed(4)} SOL
         {solPriceUsd
           ? ` (~$${(balanceInSol * solPriceUsd).toFixed(2)})`
@@ -349,13 +352,12 @@ function FormStep({
 
       {/* Next button */}
       <Pressable
-        className={`items-center rounded-2xl py-4 ${isFormValid ? "bg-black" : "bg-neutral-300"}`}
+        className={`items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
+        style={{ backgroundColor: "#f9363c" }}
         onPress={onNext}
         disabled={!isFormValid}
       >
-        <Text
-          className={`text-base font-semibold ${isFormValid ? "text-white" : "text-neutral-500"}`}
-        >
+        <Text className="text-[16px] font-semibold text-white">
           Review
         </Text>
       </Pressable>
@@ -393,14 +395,15 @@ function ConfirmStep({
       </View>
 
       <Pressable
-        className={`items-center rounded-2xl py-4 ${isSending ? "bg-neutral-300" : "bg-black"}`}
+        className={`items-center rounded-2xl py-4 ${isSending ? "opacity-40" : ""}`}
+        style={{ backgroundColor: "#f9363c" }}
         onPress={onConfirm}
         disabled={isSending}
       >
         {isSending ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text className="text-base font-semibold text-white">
+          <Text className="text-[16px] font-semibold text-white">
             Confirm and Send
           </Text>
         )}
@@ -420,9 +423,9 @@ function Row({
 }) {
   return (
     <View className="flex-row justify-between py-1.5">
-      <Text className="text-sm text-neutral-500">{label}</Text>
+      <Text className="text-[14px] text-neutral-500">{label}</Text>
       <Text
-        className={`text-sm ${isSubtle ? "text-neutral-400" : "font-medium text-black"}`}
+        className={`text-[14px] ${isSubtle ? "text-neutral-400" : "font-medium text-black"}`}
       >
         {value}
       </Text>
@@ -450,7 +453,7 @@ function ResultStep({
     return (
       <View className="items-center py-12">
         <ActivityIndicator size="large" color="#000" />
-        <Text className="mt-4 text-base text-neutral-600">
+        <Text className="mt-4 text-[16px] text-neutral-600">
           Sending transaction...
         </Text>
       </View>
@@ -461,17 +464,18 @@ function ResultStep({
     return (
       <View className="items-center py-8">
         <AlertCircle size={48} color="#ef4444" />
-        <Text className="mt-4 text-center text-base font-medium text-red-600">
+        <Text className="mt-4 text-center text-[16px] font-medium text-red-600">
           Transaction Failed
         </Text>
-        <Text className="mt-2 text-center text-sm text-neutral-500">
+        <Text className="mt-2 text-center text-[14px] text-neutral-500">
           {sendError}
         </Text>
         <Pressable
-          className="mt-6 w-full items-center rounded-2xl bg-black py-4"
+          className="mt-6 w-full items-center rounded-2xl py-4"
+          style={{ backgroundColor: "#f9363c" }}
           onPress={onDone}
         >
-          <Text className="text-base font-semibold text-white">Done</Text>
+          <Text className="text-[16px] font-semibold text-white">Done</Text>
         </Pressable>
       </View>
     );
@@ -480,22 +484,23 @@ function ResultStep({
   return (
     <View className="items-center py-8">
       <CheckCircle2 size={48} color="#22c55e" />
-      <Text className="mt-4 text-base font-medium text-black">
+      <Text className="mt-4 text-[16px] font-medium text-black">
         {amountInSol.toFixed(4)} SOL sent
       </Text>
-      <Text className="mt-1 text-sm text-neutral-500">
+      <Text className="mt-1 text-[14px] text-neutral-500">
         to {recipient.slice(0, 6)}...{recipient.slice(-4)}
       </Text>
       {txSignature && (
-        <Text className="mt-2 text-xs text-neutral-400" numberOfLines={1}>
+        <Text className="mt-2 text-[12px] text-neutral-400" numberOfLines={1}>
           Tx: {txSignature.slice(0, 12)}...
         </Text>
       )}
       <Pressable
-        className="mt-6 w-full items-center rounded-2xl bg-black py-4"
+        className="mt-6 w-full items-center rounded-2xl py-4"
+        style={{ backgroundColor: "#f9363c" }}
         onPress={onDone}
       >
-        <Text className="text-base font-semibold text-white">Done</Text>
+        <Text className="text-[16px] font-semibold text-white">Done</Text>
       </Pressable>
     </View>
   );
