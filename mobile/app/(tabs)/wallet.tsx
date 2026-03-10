@@ -1,10 +1,12 @@
 import { ArrowDown, ArrowLeftRight, ArrowUp } from "lucide-react-native";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ActionButton } from "@/components/wallet/ActionButton";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
+import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
+import { SendSheet } from "@/components/wallet/SendSheet";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
@@ -19,12 +21,19 @@ export default function WalletScreen() {
   const { solPriceUsd } = useSolPrice();
   const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
 
+  const [isSendOpen, setIsSendOpen] = useState(false);
+  const [isReceiveOpen, setIsReceiveOpen] = useState(false);
+
   const handleToggleCurrency = useCallback(() => {
     setDisplayCurrency((prev) => (prev === "USD" ? "SOL" : "USD"));
   }, [setDisplayCurrency]);
 
   const handleRefresh = useCallback(async () => {
     await refreshBalance(true);
+  }, [refreshBalance]);
+
+  const handleSendComplete = useCallback(() => {
+    refreshBalance(true);
   }, [refreshBalance]);
 
   // Full-screen loading state during initial wallet init
@@ -67,12 +76,12 @@ export default function WalletScreen() {
           <ActionButton
             icon={<ArrowUp size={22} color="white" strokeWidth={2} />}
             label="Send"
-            onPress={() => {}}
+            onPress={() => setIsSendOpen(true)}
           />
           <ActionButton
             icon={<ArrowDown size={22} color="white" strokeWidth={2} />}
             label="Receive"
-            onPress={() => {}}
+            onPress={() => setIsReceiveOpen(true)}
           />
           <ActionButton
             icon={<ArrowLeftRight size={22} color="white" strokeWidth={2} />}
@@ -81,6 +90,21 @@ export default function WalletScreen() {
           />
         </View>
       </ScrollView>
+
+      <SendSheet
+        open={isSendOpen}
+        onClose={() => setIsSendOpen(false)}
+        walletAddress={walletAddress}
+        solBalanceLamports={solBalanceLamports}
+        solPriceUsd={solPriceUsd}
+        onSendComplete={handleSendComplete}
+      />
+
+      <ReceiveSheet
+        open={isReceiveOpen}
+        onClose={() => setIsReceiveOpen(false)}
+        walletAddress={walletAddress}
+      />
     </SafeAreaView>
   );
 }

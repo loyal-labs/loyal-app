@@ -1,6 +1,8 @@
 import "@/polyfills";
 import "@/global.css";
 
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+
 import { SplashAnimation } from "@/components/SplashAnimation";
 import {
   addNotificationResponseListener,
@@ -71,23 +73,25 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="auto" />
-      <Stack
-        screenOptions={{
-          headerBackButtonDisplayMode: "minimal",
-        }}
-      >
-        <Stack.Screen
-          name="(tabs)"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="login"
-          options={{ headerShown: false, presentation: "modal" }}
-        />
-        <Stack.Screen name="summaries/[groupChatId]" />
-      </Stack>
-      {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
+      <BottomSheetModalProvider>
+        <StatusBar style="auto" />
+        <Stack
+          screenOptions={{
+            headerBackButtonDisplayMode: "minimal",
+          }}
+        >
+          <Stack.Screen
+            name="(tabs)"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="login"
+            options={{ headerShown: false, presentation: "modal" }}
+          />
+          <Stack.Screen name="summaries/[groupChatId]" />
+        </Stack>
+        {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
+      </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
 }
