@@ -1,11 +1,8 @@
-// These MUST be imported before any Solana library
+// These MUST run before any Solana library import.
 
 // crypto.getRandomValues — needed by @solana/web3.js for keypair generation.
-// expo-crypto works in Expo Go without a native rebuild.
-// react-native-get-random-values v2 requires native JSI (needs dev client).
-// We try both: expo-crypto first (always available), then RNGV as fallback.
-import { getRandomValues } from "expo-crypto";
-
+// Try multiple sources because native modules may not be available until
+// a dev client is rebuilt after adding native deps.
 if (
   typeof globalThis.crypto === "undefined" ||
   typeof globalThis.crypto.getRandomValues !== "function"
@@ -14,7 +11,35 @@ if (
     // @ts-expect-error — partial crypto shim
     globalThis.crypto = {};
   }
-  globalThis.crypto.getRandomValues = getRandomValues as typeof globalThis.crypto.getRandomValues;
+
+  let polyfilled = false;
+
+  // 1. Try expo-crypto (needs native module)
+  if (!polyfilled) {
+    try {
+      const { getRandomValues } = require("expo-crypto");
+      globalThis.crypto.getRandomValues = getRandomValues;
+      polyfilled = true;
+    } catch {
+      // native module not available
+    }
+  }
+
+  // 2. Try react-native-get-random-values (needs native module)
+  if (!polyfilled) {
+    try {
+      require("react-native-get-random-values");
+      polyfilled = typeof globalThis.crypto.getRandomValues === "function";
+    } catch {
+      // native module not available
+    }
+  }
+
+  if (!polyfilled) {
+    console.error(
+      "[polyfills] crypto.getRandomValues unavailable — rebuild dev client to include native crypto modules.",
+    );
+  }
 }
 
 import { Buffer } from "buffer";
