@@ -1,4 +1,4 @@
-export type RightSidebarTab = "portfolio" | "receive" | "send" | "swap" | "sign-in";
+export type RightSidebarTab = "portfolio" | "receive" | "send" | "swap" | "sign-in" | "connect";
 
 export interface TokenRow {
   id?: string;
@@ -52,10 +52,14 @@ export type SubView =
   | null
   | "allTokens"
   | "allActivity"
+  | "allApprovals"
   | { type: "transaction"; detail: TransactionDetail; from: "portfolio" | "allActivity" }
   | { type: "tokenSelect"; field: "from" | "to" }
   | { type: "sendTokenSelect" }
-  | { type: "shieldTokenSelect" };
+  | { type: "shieldTokenSelect" }
+  | { type: "approvalReview" }
+  | { type: "accountPage"; account: "main" | "vault" }
+  | { type: "agentPage"; agentId: string; label: string; initials: string; balanceWhole: string; balanceFraction: string };
 
 export const LOYL_TOKEN: SwapToken = {
   mint: "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",

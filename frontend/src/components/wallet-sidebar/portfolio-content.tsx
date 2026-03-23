@@ -1,17 +1,15 @@
 "use client";
 
-import { Check, Copy, Eye, EyeOff } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Check, ChevronRight, Copy, Eye, EyeOff, RefreshCw, Send, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
-import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem } from "./token-row-item";
-import type {
-  ActivityRow,
-  SubView,
-  TokenRow,
-  TransactionDetail,
-} from "./types";
+import { getTokenIconUrl } from "@/lib/token-icon";
+
+import type { RightSidebarTab } from "./types";
+
+const font = "var(--font-geist-sans), sans-serif";
+const secondary = "rgba(60, 60, 67, 0.6)";
 
 const skeletonBar = (width: string, height: string) => ({
   width,
@@ -30,98 +28,47 @@ const skeletonCircle = (size: string) => ({
   animation: "skeleton-pulse 1.5s ease-in-out infinite",
 });
 
-function SkeletonTokenRow() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        padding: "10px 12px",
-        width: "100%",
-      }}
-    >
-      <div style={skeletonCircle("40px")} />
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column" as const,
-          gap: "6px",
-        }}
-      >
-        <div style={skeletonBar("80px", "14px")} />
-        <div style={skeletonBar("50px", "12px")} />
-      </div>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column" as const,
-          alignItems: "flex-end" as const,
-          gap: "6px",
-        }}
-      >
-        <div style={skeletonBar("60px", "14px")} />
-        <div style={skeletonBar("40px", "12px")} />
-      </div>
-    </div>
-  );
-}
+// Account icon mapping
+const ACCOUNT_ICONS: Record<string, string> = {
+  Main: "/purplebg.png",
+  Shielded: "/redbg.png",
+};
 
-function SkeletonActivityRow() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        padding: "10px 12px",
-        width: "100%",
-      }}
-    >
-      <div style={skeletonCircle("36px")} />
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column" as const,
-          gap: "6px",
-        }}
-      >
-        <div style={skeletonBar("100px", "14px")} />
-        <div style={skeletonBar("60px", "12px")} />
-      </div>
-      <div style={skeletonBar("50px", "14px")} />
-    </div>
-  );
-}
+// Mock approval data
+const MOCK_APPROVALS = [
+  { id: "1", action: "Send", recipient: "@alex", amount: "200.00", token: "USDC", sourceLabel: "Main" },
+  { id: "2", action: "Send", recipient: "@anastasia", amount: "15.0000", token: "SOL", sourceLabel: "Shielded" },
+  { id: "3", action: "Send", recipient: "@alex", amount: "200.00", token: "USDT", sourceLabel: "Shielded" },
+];
 
 export function PortfolioContent({
-  activityRows,
   balanceFraction,
-  balanceSolLabel,
   balanceWhole,
   isBalanceHidden,
   isLoading,
   onBalanceHiddenChange,
+  onClose,
   onDisconnect,
-  onNavigate,
-  tokenRows,
-  transactionDetails,
+  onTabChange,
+  hasVaultAccount,
+  onReviewApproval,
+  onSeeAllApprovals,
+  onOpenAccount,
   walletAddress,
   walletLabel,
 }: {
-  activityRows: ActivityRow[];
   balanceFraction: string;
-  balanceSolLabel: string;
   balanceWhole: string;
   isBalanceHidden: boolean;
   isLoading: boolean;
   onBalanceHiddenChange: (hidden: boolean) => void;
+  onClose: () => void;
   onDisconnect?: () => void;
-  onNavigate: (view: SubView) => void;
-  tokenRows: TokenRow[];
-  transactionDetails: Record<string, TransactionDetail>;
+  onTabChange: (tab: RightSidebarTab) => void;
+  hasVaultAccount: boolean;
+  onReviewApproval: () => void;
+  onSeeAllApprovals: () => void;
+  onOpenAccount: (account: "main" | "vault") => void;
   walletAddress: string | null;
   walletLabel: string;
 }) {
@@ -137,78 +84,42 @@ export function PortfolioContent({
     },
     [walletAddress]
   );
+
   if (isLoading) {
     return (
       <>
         <style jsx>{`
           @keyframes skeleton-pulse {
-            0%,
-            100% {
-              opacity: 1;
-            }
-            50% {
-              opacity: 0.4;
-            }
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
           }
         `}</style>
-
-        {/* Balance skeleton */}
-        <div
-          style={{
-            display: "flex",
-            gap: "16px",
-            alignItems: "flex-start",
-            padding: "20px 20px 12px",
-            width: "100%",
-          }}
-        >
-          <div style={skeletonCircle("64px")} />
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-            }}
-          >
+        <div style={{ padding: "8px" }}>
+          <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
             <div style={skeletonBar("100px", "16px")} />
-            <div style={skeletonBar("140px", "28px")} />
-            <div style={skeletonBar("70px", "14px")} />
+            <div style={skeletonBar("60px", "13px")} />
           </div>
         </div>
-
-        {/* Tokens skeleton */}
-        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              padding: "8px",
-              width: "100%",
-            }}
-          >
-            <div style={{ padding: "12px 12px 8px" }}>
-              <div style={skeletonBar("60px", "16px")} />
-            </div>
-            <SkeletonTokenRow />
-            <SkeletonTokenRow />
-            <SkeletonTokenRow />
+        <div style={{ padding: "8px 20px", display: "flex", flexDirection: "column", gap: "4px" }}>
+          <div style={skeletonBar("180px", "40px")} />
+          <div style={skeletonBar("120px", "14px")} />
+        </div>
+        <div style={{ padding: "8px 20px", display: "flex", gap: "16px" }}>
+          <div style={skeletonCircle("44px")} />
+          <div style={skeletonCircle("44px")} />
+          <div style={skeletonCircle("44px")} />
+          <div style={skeletonBar("120px", "44px")} />
+        </div>
+        <div style={{ flex: 1, padding: "8px" }}>
+          <div style={{ padding: "12px 12px 8px" }}>
+            <div style={skeletonBar("80px", "16px")} />
           </div>
-
-          {/* Activity skeleton */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              padding: "8px",
-              width: "100%",
-            }}
-          >
-            <div style={{ padding: "12px 12px 8px" }}>
-              <div style={skeletonBar("70px", "16px")} />
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "6px 12px" }}>
+            <div style={skeletonCircle("48px")} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, gap: "6px" }}>
+              <div style={skeletonBar("100px", "20px")} />
+              <div style={skeletonBar("40px", "13px")} />
             </div>
-            <SkeletonActivityRow />
-            <SkeletonActivityRow />
           </div>
         </div>
       </>
@@ -216,19 +127,34 @@ export function PortfolioContent({
   }
 
   return (
-    <>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <style jsx>{`
+        .portfolio-close-btn:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .portfolio-action-btn:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
+        }
+        .portfolio-shield-btn:hover {
+          background: #222 !important;
+        }
+        .portfolio-link-btn:hover {
+          opacity: 0.7;
+        }
+        .portfolio-review-btn:hover {
+          background: rgba(0, 0, 0, 0.12) !important;
+        }
+        .portfolio-account-row:hover {
+          background: rgba(0, 0, 0, 0.04) !important;
+        }
+        .portfolio-disconnect-btn:hover {
+          background: rgba(60, 60, 67, 0.1) !important;
+          color: rgba(60, 60, 67, 0.6) !important;
+        }
+      `}</style>
+
       {/* SVG pixelation filters */}
-      <svg
-        aria-hidden="true"
-        height="0"
-        style={{
-          position: "absolute",
-          width: 0,
-          height: 0,
-          overflow: "hidden",
-        }}
-        width="0"
-      >
+      <svg aria-hidden="true" height="0" style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }} width="0">
         <defs>
           <filter id="rs-pixelate-lg" x="0" y="0" width="100%" height="100%">
             <feFlood x="4" y="4" height="2" width="2" />
@@ -247,369 +173,301 @@ export function PortfolioContent({
         </defs>
       </svg>
 
-      {/* Balance section */}
-      <div
-        style={{
-          display: "flex",
-          gap: "16px",
-          alignItems: "flex-start",
-          padding: "20px 20px 12px",
-          borderRadius: "20px",
-          width: "100%",
-        }}
-      >
-        <div
-          style={{
-            width: "64px",
-            height: "64px",
-            borderRadius: "9999px",
-            border: "0.533px solid rgba(0, 0, 0, 0.08)",
-            overflow: "hidden",
-            flexShrink: 0,
-          }}
-        >
-          <Image
-            alt="Wallet"
-            height={64}
-            src="/hero-new/Wallet-Cover.png"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            width={64}
-          />
-        </div>
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "14px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "rgba(60, 60, 67, 0.6)",
-                display: "flex",
-                alignItems: "center",
-                gap: "3px",
-              }}
-            >
-              {walletLabel}
+      {/* Header: My Wallet + disconnect + settings + close */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+          <div style={{ padding: "0 12px", display: "flex", flexDirection: "column" }}>
+            <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 600, lineHeight: "20px", color: "#000" }}>
+              My Wallet
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
+                {walletLabel}
+              </span>
               {walletAddress && (
                 <button
                   onClick={handleCopyAddress}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: "1px",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
-                    transition: "color 0.15s ease",
-                    flexShrink: 0,
-                  }}
+                  style={{ background: "none", border: "none", padding: "1px", cursor: "pointer", display: "inline-flex", alignItems: "center", color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)", transition: "color 0.15s ease", flexShrink: 0 }}
                   type="button"
                 >
                   {copied ? <Check size={12} /> : <Copy size={12} />}
                 </button>
               )}
-            </span>
-            {onDisconnect && (
-              <button
-                onClick={onDisconnect}
-                style={{
-                  background: "rgba(60, 60, 67, 0.06)",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "2px 8px",
-                  fontFamily: "var(--font-geist-sans), sans-serif",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  lineHeight: "18px",
-                  color: "rgba(60, 60, 67, 0.45)",
-                  cursor: "pointer",
-                  transition: "background 0.15s ease, color 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(60, 60, 67, 0.1)";
-                  e.currentTarget.style.color = "rgba(60, 60, 67, 0.6)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(60, 60, 67, 0.06)";
-                  e.currentTarget.style.color = "rgba(60, 60, 67, 0.45)";
-                }}
-                type="button"
-              >
-                Disconnect
-              </button>
-            )}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "12px",
-            }}
-          >
-            <div style={{ borderRadius: "8px", overflow: "hidden" }}>
-              <span
-                style={{
-                  fontFamily: "var(--font-geist-sans), sans-serif",
-                  fontSize: "28px",
-                  fontWeight: 600,
-                  lineHeight: "32px",
-                  color: isBalanceHidden ? "#BBBBC0" : "#000",
-                  filter: isBalanceHidden ? "url(#rs-pixelate-lg)" : "none",
-                  transition: "filter 0.15s ease, color 0.15s ease",
-                  userSelect: isBalanceHidden ? "none" : "auto",
-                  display: "block",
-                }}
-              >
-                {balanceWhole}
-                <span
-                  style={{
-                    color: isBalanceHidden
-                      ? "#BBBBC0"
-                      : "rgba(60, 60, 67, 0.6)",
-                    transition: "color 0.15s ease",
-                  }}
-                >
-                  {balanceFraction}
-                </span>
-              </span>
             </div>
+          </div>
+          {onDisconnect && (
             <button
-              onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
+              className="portfolio-disconnect-btn"
+              onClick={onDisconnect}
               style={{
-                background: "none",
+                background: "rgba(60, 60, 67, 0.06)",
                 border: "none",
+                borderRadius: "6px",
+                padding: "2px 8px",
+                fontFamily: font,
+                fontSize: "12px",
+                fontWeight: 500,
+                lineHeight: "18px",
+                color: "rgba(60, 60, 67, 0.45)",
                 cursor: "pointer",
-                padding: 0,
-                display: "flex",
-                alignItems: "center",
+                transition: "background 0.15s ease, color 0.15s ease",
                 flexShrink: 0,
               }}
               type="button"
             >
-              {isBalanceHidden ? (
-                <EyeOff
-                  size={22}
-                  strokeWidth={1.5}
-                  style={{ color: "rgba(60, 60, 67, 0.5)" }}
-                />
-              ) : (
-                <Eye
-                  size={22}
-                  strokeWidth={1.5}
-                  style={{ color: "rgba(60, 60, 67, 0.5)" }}
-                />
-              )}
+              Disconnect
             </button>
-          </div>
-          <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", paddingLeft: "12px" }}>
+          <button
+            className="portfolio-close-btn"
+            onClick={onClose}
+            style={{ width: "36px", height: "36px", display: "flex", justifyContent: "center", alignItems: "center", background: "rgba(0, 0, 0, 0.04)", border: "none", borderRadius: "9999px", cursor: "pointer", transition: "all 0.2s ease", color: "#3C3C43" }}
+            type="button"
+          >
+            <X size={24} />
+          </button>
+        </div>
+      </div>
+
+      {/* Balance */}
+      <div style={{ padding: "8px 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ borderRadius: "8px", overflow: "hidden" }}>
             <span
               style={{
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "14px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: isBalanceHidden ? "#C8C8CC" : "rgba(60, 60, 67, 0.6)",
-                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                fontFamily: font, fontSize: "40px", fontWeight: 600, lineHeight: "48px", letterSpacing: "-0.44px",
+                color: isBalanceHidden ? "#BBBBC0" : "#000",
+                filter: isBalanceHidden ? "url(#rs-pixelate-lg)" : "none",
                 transition: "filter 0.15s ease, color 0.15s ease",
                 userSelect: isBalanceHidden ? "none" : "auto",
                 display: "block",
               }}
             >
-              {balanceSolLabel}
+              {balanceWhole}
+              <span style={{ color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)", transition: "color 0.15s ease" }}>
+                {balanceFraction}
+              </span>
             </span>
           </div>
+          <button
+            onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", flexShrink: 0 }}
+            type="button"
+          >
+            {isBalanceHidden ? (
+              <EyeOff size={22} strokeWidth={1.5} style={{ color: "rgba(60, 60, 67, 0.5)" }} />
+            ) : (
+              <Eye size={22} strokeWidth={1.5} style={{ color: "rgba(60, 60, 67, 0.5)" }} />
+            )}
+          </button>
         </div>
+        <span style={{ fontFamily: font, fontSize: "14px", fontWeight: 400, lineHeight: "20px", color: secondary }}>
+          <span style={{ color: "#34C759" }}>+0.62% ($5.67)</span> · All time
+        </span>
       </div>
 
-      {/* Scrollable content area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-        }}
-      >
-        {/* Tokens section */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "8px",
-            width: "100%",
-          }}
+      {/* Action buttons: receive, send, swap + Shield pill */}
+      <div style={{ display: "flex", gap: "16px", alignItems: "center", padding: "8px 20px" }}>
+        <button
+          className="portfolio-action-btn"
+          onClick={() => onTabChange("receive")}
+          style={{ width: "44px", height: "44px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", flexShrink: 0 }}
+          type="button"
         >
-          <div
-            style={{
-              width: "100%",
-              padding: "12px 12px 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-              }}
-            >
-              Tokens
+          <ArrowDownLeft size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
+        </button>
+        <button
+          className="portfolio-action-btn"
+          onClick={() => onTabChange("send")}
+          style={{ width: "44px", height: "44px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", flexShrink: 0 }}
+          type="button"
+        >
+          <ArrowUpRight size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
+        </button>
+        <button
+          className="portfolio-action-btn"
+          onClick={() => onTabChange("swap")}
+          style={{ width: "44px", height: "44px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", flexShrink: 0 }}
+          type="button"
+        >
+          <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
+        </button>
+        <button
+          className="portfolio-shield-btn"
+          onClick={() => onTabChange("swap")}
+          style={{ flex: 1, display: "flex", gap: "6px", alignItems: "center", justifyContent: "center", padding: "10px 16px 10px 8px", borderRadius: "9999px", background: "#000", border: "none", cursor: "pointer", transition: "background 0.15s ease" }}
+          type="button"
+        >
+          <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
+          <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#fff" }}>Shield</span>
+        </button>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+
+        {/* Accounts section */}
+        <div style={{ display: "flex", flexDirection: "column", padding: "8px" }}>
+          {/* Section header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 12px 1px" }}>
+            <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 500, lineHeight: "20px", color: "#000", letterSpacing: "-0.176px", padding: "12px 0 8px" }}>
+              Accounts
             </span>
             <button
-              onClick={() => onNavigate("allTokens")}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.7";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-              }}
+              className="portfolio-link-btn"
+              style={{ background: "none", border: "none", padding: "12px 0 8px", cursor: "pointer", fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#F9363C", transition: "opacity 0.15s ease" }}
               type="button"
             >
-              See All
+              Manage
             </button>
           </div>
 
-          {tokenRows.map((token) => (
-            <TokenRowItem
-              isBalanceHidden={isBalanceHidden}
-              key={token.id ?? token.symbol}
-              token={token}
-            />
-          ))}
-        </div>
-
-        {/* Activity section */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "8px",
-            width: "100%",
-          }}
-        >
-          <div
-            style={{
-              width: "100%",
-              padding: "12px 12px 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
+          {/* Main account */}
+          <button
+            className="portfolio-account-row"
+            onClick={() => onOpenAccount("main")}
+            style={{ display: "flex", alignItems: "center", padding: "6px 12px", borderRadius: "16px", background: "transparent", border: "none", cursor: "pointer", width: "100%", transition: "background 0.15s ease", textAlign: "left" }}
+            type="button"
           >
-            <span
-              style={{
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-              }}
-            >
-              Activity
-            </span>
-            <button
-              onClick={() => onNavigate("allActivity")}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.7";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-              }}
-              type="button"
-            >
-              See All
-            </button>
-          </div>
-
-          {activityRows.map((activity) => (
-            <ActivityRowItem
-              activity={activity}
-              isBalanceHidden={isBalanceHidden}
-              key={activity.id}
-              onClick={() =>
-                onNavigate({
-                  type: "transaction",
-                  detail: transactionDetails[activity.id],
-                  from: "portfolio",
-                })
-              }
-            />
-          ))}
-
-          {!isLoading && activityRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px 20px",
-                textAlign: "center",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "14px",
-                color: "rgba(60, 60, 67, 0.6)",
-              }}
-            >
-              No activity yet
+            <Image alt="Main" height={48} src="/purplebg.png" style={{ borderRadius: "12px", flexShrink: 0, marginRight: "12px" }} width={48} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "9px 0" }}>
+              <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                <span style={{ fontFamily: font, fontSize: "20px", fontWeight: 600, lineHeight: "24px", color: isBalanceHidden ? "#BBBBC0" : "#000", letterSpacing: "-0.22px", filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none", transition: "filter 0.15s ease, color 0.15s ease", userSelect: isBalanceHidden ? "none" : "auto", display: "block" }}>
+                  $9,267<span style={{ color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)" }}>.67</span>
+                </span>
+              </div>
+              <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
+                Main
+              </span>
             </div>
+            <ChevronRight size={24} style={{ color: "rgba(60, 60, 67, 0.3)", flexShrink: 0, marginLeft: "12px" }} />
+          </button>
+
+          {/* Vault account — only shows after bot approval */}
+          {hasVaultAccount && (
+            <button
+              className="portfolio-account-row"
+              onClick={() => onOpenAccount("vault")}
+              style={{ display: "flex", alignItems: "center", padding: "6px 12px", borderRadius: "16px", background: "transparent", border: "none", cursor: "pointer", width: "100%", transition: "background 0.15s ease", textAlign: "left" }}
+              type="button"
+            >
+              <Image alt="Vault" height={48} src="/redbg.png" style={{ borderRadius: "12px", flexShrink: 0, marginRight: "12px" }} width={48} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "9px 0" }}>
+                <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                  <span style={{ fontFamily: font, fontSize: "20px", fontWeight: 600, lineHeight: "24px", color: isBalanceHidden ? "#BBBBC0" : "#000", letterSpacing: "-0.22px", filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none", transition: "filter 0.15s ease, color 0.15s ease", userSelect: isBalanceHidden ? "none" : "auto", display: "block" }}>
+                    $7,000<span style={{ color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)" }}>.00</span>
+                  </span>
+                </div>
+                <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
+                  Vault
+                </span>
+              </div>
+              <ChevronRight size={24} style={{ color: "rgba(60, 60, 67, 0.3)", flexShrink: 0, marginLeft: "12px" }} />
+            </button>
           )}
         </div>
-      </div>
 
-      <p
-        style={{
-          fontFamily: "var(--font-geist-sans), sans-serif",
-          fontSize: "11px",
-          fontWeight: 400,
-          lineHeight: "16px",
-          color: "rgba(60, 60, 67, 0.3)",
-          textAlign: "center",
-          padding: "8px 0 12px",
-          flexShrink: 0,
-        }}
-      >
-        Token logos by Logo.dev
-      </p>
-    </>
+        {/* Approvals section */}
+        <div style={{ display: "flex", flexDirection: "column", padding: "8px" }}>
+          {/* Section header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 12px 1px" }}>
+            <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 500, lineHeight: "20px", color: "#000", letterSpacing: "-0.176px", padding: "12px 0 8px" }}>
+              Approvals
+            </span>
+            <button
+              className="portfolio-link-btn"
+              onClick={onSeeAllApprovals}
+              style={{ background: "none", border: "none", padding: "12px 0 8px", cursor: "pointer", fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#F9363C", transition: "opacity 0.15s ease" }}
+              type="button"
+            >
+              See All
+            </button>
+          </div>
+
+          {/* Approval rows */}
+          {MOCK_APPROVALS.map((approval) => (
+            <div
+              key={approval.id}
+              style={{
+                display: "flex",
+                padding: "0 12px",
+                borderRadius: "16px",
+                background: "transparent",
+              }}
+            >
+              {/* Stacked icon: token (40px) + account badge (24px) */}
+              <div style={{ position: "relative", width: "48px", height: "50px", flexShrink: 0, marginRight: "12px", marginTop: "6px", marginBottom: "6px" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt={approval.token}
+                  src={getTokenIconUrl(approval.token)}
+                  style={{ width: "40px", height: "40px", borderRadius: "9999px", objectFit: "cover", position: "absolute", top: 0, left: 0 }}
+                />
+                <div style={{ position: "absolute", bottom: 0, right: 0, width: "24px", height: "24px", borderRadius: "9999px", background: "#E8E8E8", border: "2px solid #fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Send size={12} style={{ color: "#3C3C43" }} />
+                </div>
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", paddingBottom: "2px" }}>
+                {/* Top row: action + amount */}
+                <div style={{ display: "flex", alignItems: "center", paddingTop: "1px" }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 0" }}>
+                    <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 500, lineHeight: "20px", color: "#000", letterSpacing: "-0.176px" }}>
+                      {approval.action}
+                    </span>
+                    <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
+                      to {approval.recipient}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-end", padding: "10px 0" }}>
+                    <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: isBalanceHidden ? "#BBBBC0" : "#000", filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none", transition: "filter 0.15s ease, color 0.15s ease", userSelect: isBalanceHidden ? "none" : "auto" }}>
+                      {approval.amount} {approval.token}
+                    </span>
+                    <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                      <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
+                        from
+                      </span>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt={approval.sourceLabel}
+                        src={ACCOUNT_ICONS[approval.sourceLabel] ?? "/purplebg.png"}
+                        style={{ width: "16px", height: "16px", borderRadius: "4px", objectFit: "cover" }}
+                      />
+                      <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
+                        {approval.sourceLabel}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {/* Review & Respond button */}
+                <div style={{ display: "flex", gap: "8px", paddingBottom: "11px" }}>
+                  <button
+                    className="portfolio-review-btn"
+                    onClick={onReviewApproval}
+                    style={{
+                      padding: "6px 16px",
+                      borderRadius: "9999px",
+                      background: "rgba(0, 0, 0, 0.04)",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: font,
+                      fontSize: "14px",
+                      fontWeight: 400,
+                      lineHeight: "20px",
+                      color: "#000",
+                      transition: "background 0.15s ease",
+                    }}
+                    type="button"
+                  >
+                    Review &amp; Respond
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
