@@ -9,9 +9,9 @@ use spl_associated_token_account_client::{
 
 use crate::constants::{
     DELEGATION_PROGRAM_ID_STR, IX_CREATE_PERMISSION, IX_DELEGATE, IX_DELEGATE_USERNAME_DEPOSIT,
-    IX_INITIALIZE_DEPOSIT, IX_INITIALIZE_USERNAME_DEPOSIT, IX_MODIFY_BALANCE, IX_TRANSFER_TO_USERNAME_DEPOSIT,
-    IX_UNDELEGATE, IX_UNDELEGATE_USERNAME_DEPOSIT, MAGIC_CONTEXT_ID_STR, MAGIC_PROGRAM_ID_STR,
-    PERMISSION_PROGRAM_ID_STR, PROGRAM_ID_STR,
+    IX_INITIALIZE_DEPOSIT, IX_INITIALIZE_USERNAME_DEPOSIT, IX_MODIFY_BALANCE,
+    IX_TRANSFER_TO_USERNAME_DEPOSIT, IX_UNDELEGATE, IX_UNDELEGATE_USERNAME_DEPOSIT,
+    MAGIC_CONTEXT_ID_STR, MAGIC_PROGRAM_ID_STR, PERMISSION_PROGRAM_ID_STR, PROGRAM_ID_STR,
 };
 
 pub(crate) fn build_initialize_deposit_ix(
@@ -177,7 +177,11 @@ pub(crate) fn build_delegate_username_deposit_ix(
     }
 }
 
-pub(crate) fn build_undelegate_deposit_ix(payer: Pubkey, user: Pubkey, deposit: Pubkey) -> Instruction {
+pub(crate) fn build_undelegate_deposit_ix(
+    payer: Pubkey,
+    user: Pubkey,
+    deposit: Pubkey,
+) -> Instruction {
     Instruction {
         program_id: program_id(),
         accounts: vec![
@@ -265,7 +269,11 @@ pub(crate) fn validate_username(username: &str) -> Result<()> {
 }
 
 pub(crate) fn find_deposit_pda(user: &Pubkey, mint: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(&[b"deposit_v2", user.as_ref(), mint.as_ref()], &program_id()).0
+    Pubkey::find_program_address(
+        &[b"deposit_v2", user.as_ref(), mint.as_ref()],
+        &program_id(),
+    )
+    .0
 }
 
 pub(crate) fn find_username_deposit_pda(username: &str, mint: &Pubkey) -> Pubkey {

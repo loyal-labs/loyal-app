@@ -4,6 +4,8 @@ import { ArrowDown, CheckCircle2, Copy, Loader2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+
 const TELEGRAM_CLAIM_URL = "https://t.me/askloyal_tgbot/app";
 
 export type SendTransactionData = {
@@ -272,9 +274,10 @@ export function SendTransactionWidget({
             Send Successful
           </span>
           {result?.signature && (
-            <a
+            <TrackedExternalLink
               href={`https://orbmarkets.io/tx/${result.signature}?tab=summary`}
-              rel="noopener noreferrer"
+              linkText="View on Orbmarkets"
+              source="send_transaction_widget"
               style={{
                 color: "rgba(255, 255, 255, 0.6)",
                 fontSize: "13px",
@@ -283,7 +286,7 @@ export function SendTransactionWidget({
               target="_blank"
             >
               View on Orbmarkets →
-            </a>
+            </TrackedExternalLink>
           )}
         </div>
 
@@ -308,9 +311,10 @@ export function SendTransactionWidget({
               }}
             >
               Receiver can claim at{" "}
-              <a
+              <TrackedExternalLink
                 href={TELEGRAM_CLAIM_URL}
-                rel="noopener noreferrer"
+                linkText="Telegram claim app"
+                source="send_transaction_widget"
                 style={{
                   color: "#28c281",
                   textDecoration: "none",
@@ -318,7 +322,7 @@ export function SendTransactionWidget({
                 target="_blank"
               >
                 t.me/askloyal_tgbot/app
-              </a>
+              </TrackedExternalLink>
             </span>
             <button
               onClick={handleCopyClaimUrl}
@@ -402,14 +406,15 @@ export function SendTransactionWidget({
                   }}
                 >
                   @{sendData.walletAddress} can claim at{" "}
-                  <a
+                  <TrackedExternalLink
                     href={TELEGRAM_CLAIM_URL}
-                    rel="noopener noreferrer"
+                    linkText="Telegram claim app"
+                    source="send_transaction_widget_modal"
                     style={{ color: "#28c281", textDecoration: "none" }}
                     target="_blank"
                   >
                     {TELEGRAM_CLAIM_URL}
-                  </a>
+                  </TrackedExternalLink>
                 </p>
 
                 <p

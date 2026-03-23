@@ -550,6 +550,7 @@ function SwapTransactionDetail({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -1110,6 +1111,7 @@ export function SwapContent({
         <div
           style={{
             flex: 1,
+            minHeight: 0,
             display: "flex",
             flexDirection: "column",
             gap: "16px",

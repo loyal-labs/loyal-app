@@ -521,7 +521,16 @@ export function ShieldContent({
 
     const result =
       direction === "shield"
-        ? await shieldFn(params)
+        ? await shieldFn({
+            ...params,
+            successTrackingProperties: {
+              token_symbol: token.symbol,
+              token_mint: token.mint,
+              amount: String(numericAmount),
+              usd_value: `$${usdValue}`,
+              direction,
+            },
+          })
         : await unshieldFn(params);
 
     if (result.success) {
@@ -541,6 +550,7 @@ export function ShieldContent({
     direction,
     shieldFn,
     unshieldFn,
+    usdValue,
   ]);
 
   // Report form button props to parent when chrome is managed externally

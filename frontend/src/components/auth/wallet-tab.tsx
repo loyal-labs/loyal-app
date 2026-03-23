@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
 
 const MOBILE_WALLETS = [
@@ -39,15 +41,16 @@ function MobileWalletList() {
         Open this page in your wallet&apos;s built-in browser:
       </p>
       {MOBILE_WALLETS.map((wallet) => (
-        <a
+        <TrackedExternalLink
           className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-neutral-900 text-sm transition hover:bg-neutral-50"
           href={wallet.browseUrl(currentUrl)}
           key={wallet.name}
-          rel="noopener noreferrer"
+          linkText={`Open in ${wallet.name}`}
+          source="wallet_mobile_browser_link"
         >
           <img alt={wallet.name} className="h-6 w-6" src={wallet.icon} />
           <span>Open in {wallet.name}</span>
-        </a>
+        </TrackedExternalLink>
       ))}
     </div>
   );

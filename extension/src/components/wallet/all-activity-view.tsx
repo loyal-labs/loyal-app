@@ -49,6 +49,7 @@ export function AllActivityView({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           overflowX: "hidden",
           padding: "0 8px",

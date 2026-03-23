@@ -2,6 +2,10 @@
 
 import { motion } from "motion/react";
 
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+import { usePublicEnv } from "@/contexts/public-env-context";
+import { trackFrontendLinkClick } from "@/lib/core/analytics";
+
 const socialLinks = [
   {
     name: "X",
@@ -94,6 +98,8 @@ const legalLinks = [
 ];
 
 export function Footer() {
+  const publicEnv = usePublicEnv();
+
   return (
     <footer
       id="footer-section"
@@ -127,6 +133,13 @@ export function Footer() {
               aria-label={link.name}
               href={link.url}
               key={link.name}
+              onClick={() => {
+                trackFrontendLinkClick(publicEnv, {
+                  href: link.url,
+                  linkText: link.name,
+                  source: "footer_social",
+                });
+              }}
               rel="noopener noreferrer"
               style={{
                 display: "flex",
@@ -162,10 +175,11 @@ export function Footer() {
           }}
         >
           {legalLinks.map((link) => (
-            <a
+            <TrackedExternalLink
               href={link.url}
               key={link.name}
-              rel="noopener noreferrer"
+              linkText={link.name}
+              source="footer_link"
               style={{
                 fontFamily: "var(--font-geist-sans), sans-serif",
                 fontSize: "16px",
@@ -179,7 +193,7 @@ export function Footer() {
               target="_blank"
             >
               {link.name}
-            </a>
+            </TrackedExternalLink>
           ))}
         </div>
 

@@ -10,6 +10,7 @@ import { BlogSection } from "@/components/blog-section";
 import { Footer } from "@/components/footer";
 import { HeroSection, type TimestampedMessage } from "@/components/hero-section";
 import { RoadmapSection } from "@/components/roadmap-section";
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useChatMode } from "@/contexts/chat-mode-context";
 import { isSkillsEnabled } from "@/flags";
@@ -571,9 +572,10 @@ export default function LandingPage() {
               <p style={{ margin: 0 }}>
                 You will help our cause if you report any bugs/drop your
                 feedback or ideas in our discord community:{" "}
-                <a
+                <TrackedExternalLink
                   href="https://discord.askloyal.com"
-                  rel="noopener noreferrer"
+                  linkText="Discord community"
+                  source="tester_modal"
                   style={{
                     color: "#60a5fa",
                     textDecoration: "underline",
@@ -581,7 +583,7 @@ export default function LandingPage() {
                   target="_blank"
                 >
                   https://discord.askloyal.com
-                </a>
+                </TrackedExternalLink>
               </p>
             </div>
 

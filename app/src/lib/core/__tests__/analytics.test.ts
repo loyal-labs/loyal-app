@@ -8,54 +8,53 @@ import {
   test,
 } from "bun:test";
 
-const initCalls: unknown[] = [];
-const identifyCalls: string[] = [];
+const createClientCalls: Array<Record<string, unknown>> = [];
 const trackCalls: Array<{ event: string; properties?: Record<string, unknown> }> = [];
-const registerOnceCalls: Array<Record<string, unknown>> = [];
-const registerCalls: Array<Record<string, unknown>> = [];
-const peopleSetOnceCalls: Array<Record<string, unknown>> = [];
-const peopleSetCalls: Array<Record<string, unknown>> = [];
+const identifyCalls: string[] = [];
+const setUserProfileCalls: Array<Record<string, unknown>> = [];
 
-let currentDistinctId = "$device:anon";
+let currentEventContext: Record<string, unknown> = {};
 
-const mixpanelMock = {
-  init: (...args: unknown[]) => {
-    initCalls.push(args);
+mock.module("@loyal-labs/shared/analytics", () => ({
+  createMixpanelBrowserClient: (config: Record<string, unknown>) => {
+    createClientCalls.push(config);
+    return {
+      init: async () => {},
+      setContext: (properties: Record<string, unknown>) => {
+        currentEventContext = { ...properties };
+      },
+      clearContext: () => {
+        currentEventContext = {};
+      },
+      track: (event: string, properties?: Record<string, unknown>) => {
+        trackCalls.push({
+          event,
+          properties: {
+            ...currentEventContext,
+            ...(properties ?? {}),
+          },
+        });
+      },
+      identify: (distinctId: string) => {
+        identifyCalls.push(distinctId);
+      },
+      reset: () => {},
+      setUserProfile: (properties: Record<string, unknown>) => {
+        setUserProfileCalls.push(properties);
+      },
+      setUserProfileOnce: () => {},
+      __resetForTests: () => {
+        currentEventContext = {};
+      },
+    };
   },
-  track: (event: string, properties?: Record<string, unknown>) => {
-    trackCalls.push({ event, properties });
-  },
-  identify: (distinctId: string) => {
-    identifyCalls.push(distinctId);
-    currentDistinctId = distinctId;
-  },
-  get_distinct_id: () => currentDistinctId,
-  register_once: (properties: Record<string, unknown>) => {
-    registerOnceCalls.push(properties);
-  },
-  register: (properties: Record<string, unknown>) => {
-    registerCalls.push(properties);
-  },
-  reset: mock(() => {}),
-  people: {
-    set: (properties: Record<string, unknown>) => {
-      peopleSetCalls.push(properties);
-    },
-    set_once: (properties: Record<string, unknown>) => {
-      peopleSetOnceCalls.push(properties);
-    },
-  },
-};
-
-mock.module("mixpanel-browser", () => ({
-  default: mixpanelMock,
 }));
 
 mock.module("@/lib/core/config/public", () => ({
   publicEnv: {
     mixpanelToken: "test-mixpanel-token",
     mixpanelProxyPath: "/ingest",
-    solanaEnv: "mainnet",
+    solanaEnv: "devnet",
   },
 }));
 
@@ -64,7 +63,7 @@ const SUMMARY_ID = "123e4567-e89b-12d3-a456-426614174000";
 const GROUP_CHAT_ID = "-1001234567890";
 const VALID_START_PARAM = `sf1_${GROUP_CHAT_ID}_${SUMMARY_ID}`;
 
-describe("analytics identifyTelegramUser", () => {
+describe("app analytics facade", () => {
   beforeAll(async () => {
     analytics = await import("../analytics");
   });
@@ -73,14 +72,11 @@ describe("analytics identifyTelegramUser", () => {
     (globalThis as { window?: unknown }).window = {
       location: { origin: "https://loyal.example" },
     };
-    initCalls.length = 0;
-    identifyCalls.length = 0;
+    createClientCalls.length = 0;
     trackCalls.length = 0;
-    registerOnceCalls.length = 0;
-    registerCalls.length = 0;
-    peopleSetOnceCalls.length = 0;
-    peopleSetCalls.length = 0;
-    currentDistinctId = "$device:anon";
+    identifyCalls.length = 0;
+    setUserProfileCalls.length = 0;
+    currentEventContext = {};
     analytics.__resetAnalyticsStateForTests();
   });
 
@@ -88,7 +84,24 @@ describe("analytics identifyTelegramUser", () => {
     delete (globalThis as { window?: unknown }).window;
   });
 
-  test("deduplicates identify/profile calls for the same Telegram user", () => {
+  test("applies devnet Mixpanel configuration on init", async () => {
+    await analytics.initAnalytics();
+
+    expect(createClientCalls).toEqual([
+      {
+        token: "test-mixpanel-token",
+        apiHost: "https://loyal.example/ingest",
+        debug: true,
+        persistence: "localStorage",
+        registerProperties: {
+          app_mode: "demo",
+          app_solana_env: "devnet",
+        },
+      },
+    ]);
+  });
+
+  test("deduplicates Telegram identify/profile calls for the same user", () => {
     const identity = {
       telegramId: "123456789",
       firstName: "Ada",
@@ -102,32 +115,35 @@ describe("analytics identifyTelegramUser", () => {
     analytics.identifyTelegramUser(identity);
     analytics.identifyTelegramUser(identity);
 
-    expect(initCalls).toHaveLength(1);
     expect(identifyCalls).toEqual(["tg:123456789"]);
-    expect(registerOnceCalls).toHaveLength(1);
-    expect(registerCalls).toHaveLength(1);
-    expect(peopleSetOnceCalls).toHaveLength(1);
-    expect(peopleSetCalls).toHaveLength(0);
-    expect(peopleSetOnceCalls[0]).toMatchObject({
+    expect(setUserProfileCalls).toHaveLength(1);
+    expect(setUserProfileCalls[0]).toMatchObject({
+      telegram_id: "123456789",
+      telegram_username: "ada",
       telegram_language_code: "en",
       telegram_is_premium: true,
     });
   });
 
-  test("identifies and profiles again when Telegram user changes", () => {
+  test("refreshes the Telegram profile when tracked fields change", () => {
     analytics.identifyTelegramUser({
-      telegramId: "1",
-      firstName: "First",
-      username: "first",
+      telegramId: "123456789",
+      firstName: "Ada",
+      username: "ada",
+      languageCode: "en",
     });
     analytics.identifyTelegramUser({
-      telegramId: "2",
-      firstName: "Second",
-      username: "second",
+      telegramId: "123456789",
+      firstName: "Ada",
+      username: "ada",
+      languageCode: "es",
     });
 
-    expect(identifyCalls).toEqual(["tg:1", "tg:2"]);
-    expect(peopleSetOnceCalls).toHaveLength(2);
+    expect(identifyCalls).toEqual(["tg:123456789"]);
+    expect(setUserProfileCalls).toHaveLength(2);
+    expect(setUserProfileCalls[1]).toMatchObject({
+      telegram_language_code: "es",
+    });
   });
 
   test("adds launch context to tracked events while context is set", () => {
@@ -139,16 +155,17 @@ describe("analytics identifyTelegramUser", () => {
 
     analytics.track("Page View", { path: "/telegram/wallet" });
 
-    expect(trackCalls).toHaveLength(1);
-    expect(trackCalls[0]).toEqual({
-      event: "Page View",
-      properties: {
-        start_param_raw: VALID_START_PARAM,
-        group_chat_id: GROUP_CHAT_ID,
-        summary_id: SUMMARY_ID,
-        path: "/telegram/wallet",
+    expect(trackCalls).toEqual([
+      {
+        event: "Page View",
+        properties: {
+          start_param_raw: VALID_START_PARAM,
+          group_chat_id: GROUP_CHAT_ID,
+          summary_id: SUMMARY_ID,
+          path: "/telegram/wallet",
+        },
       },
-    });
+    ]);
   });
 
   test("uses none placeholders when launch start param is missing", () => {
@@ -159,16 +176,17 @@ describe("analytics identifyTelegramUser", () => {
 
     analytics.track("Page View", { path: "/telegram/wallet" });
 
-    expect(trackCalls).toHaveLength(1);
-    expect(trackCalls[0]).toEqual({
-      event: "Page View",
-      properties: {
-        start_param_raw: "none",
-        group_chat_id: "none",
-        summary_id: "none",
-        path: "/telegram/wallet",
+    expect(trackCalls).toEqual([
+      {
+        event: "Page View",
+        properties: {
+          start_param_raw: "none",
+          group_chat_id: "none",
+          summary_id: "none",
+          path: "/telegram/wallet",
+        },
       },
-    });
+    ]);
   });
 
   test("stops attaching launch context after clear", () => {
@@ -181,12 +199,13 @@ describe("analytics identifyTelegramUser", () => {
 
     analytics.track("Page View", { path: "/telegram/wallet" });
 
-    expect(trackCalls).toHaveLength(1);
-    expect(trackCalls[0]).toEqual({
-      event: "Page View",
-      properties: {
-        path: "/telegram/wallet",
+    expect(trackCalls).toEqual([
+      {
+        event: "Page View",
+        properties: {
+          path: "/telegram/wallet",
+        },
       },
-    });
+    ]);
   });
 });

@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { memo, useEffect, useState } from "react";
 
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+
 interface BlogPost {
   title: string;
   link: string;
@@ -130,11 +132,12 @@ function BlogSectionComponent() {
                 </div>
               ))
             : posts.map((post) => (
-                <a
+                <TrackedExternalLink
                   className="blog-card"
                   href={post.link}
                   key={post.link}
-                  rel="noopener noreferrer"
+                  linkText={post.title}
+                  source="blog_card"
                   style={{
                     display: "block",
                     textDecoration: "none",
@@ -206,7 +209,7 @@ function BlogSectionComponent() {
                       {formatDate(post.pubDate)}
                     </span>
                   </div>
-                </a>
+                </TrackedExternalLink>
               ))}
         </div>
       </div>

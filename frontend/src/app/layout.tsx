@@ -2,7 +2,7 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
+import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
 import { SignInModal } from "@/components/auth/sign-in-modal";
 import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
@@ -85,6 +85,7 @@ export default function RootLayout({
                 <WalletAutoReauth />
                 <UserChatsProvider>
                   <ChatModeProvider>
+                    <AnalyticsBootstrap />
                     <Header />
                     {children}
                     <SignInModal />
@@ -95,13 +96,6 @@ export default function RootLayout({
           </WalletConnectionProvider>
         </PublicEnvProvider>
 
-        {/* Umami Analytics */}
-        <Script
-          data-website-id="461c47cb-7363-4a5b-9d83-8175ef31299f"
-          defer
-          src="https://cloud.umami.is/script.js"
-          strategy="afterInteractive"
-        />
       </body>
     </html>
   );

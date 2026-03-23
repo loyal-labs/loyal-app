@@ -7,6 +7,7 @@ import {
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
+import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { getPerEndpoints, getSolanaEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import {
@@ -22,6 +23,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { trackWalletSendCompleted } from "@/lib/core/analytics";
 import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
 
 export type PrivateSendResult = {
@@ -100,6 +102,7 @@ export function usePrivateSend() {
       recipient: string;
       recipientType: "wallet" | "telegram";
       tokenMint?: string;
+      successTrackingProperties?: AnalyticsProperties;
     }): Promise<PrivateSendResult> => {
       if (!(wallet.connected && wallet.publicKey && wallet.signTransaction)) {
         return { success: false, error: "Wallet not connected or missing signing capability" };
@@ -248,6 +251,12 @@ export function usePrivateSend() {
         }
 
         setLoading(false);
+        if (params.successTrackingProperties) {
+          trackWalletSendCompleted(publicEnv, {
+            ...params.successTrackingProperties,
+            signature,
+          });
+        }
         return { signature, success: true };
       } catch (err) {
         let errorMessage = "Private send failed";
@@ -263,7 +272,7 @@ export function usePrivateSend() {
         return { success: false, error: errorMessage };
       }
     },
-    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv.solanaEnv],
+    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv],
   );
 
   return {

@@ -37,7 +37,7 @@ export interface ChatInputProps {
   balanceFraction: string;
   balanceSolLabel: string;
   onOpenRightSidebar: (tab: RightSidebarTab) => void;
-  onOpenSignIn: () => void;
+  onOpenSignIn: (source: "hero_card") => void;
   walletAddress: string | null;
   balanceHistory: number[];
   dogCry?: boolean;
@@ -812,7 +812,7 @@ export function ChatInput(props: ChatInputProps) {
               onClick={() =>
                 props.isSignedIn
                   ? props.onOpenRightSidebar("portfolio")
-                  : props.onOpenSignIn()
+                  : props.onOpenSignIn("hero_card")
               }
               style={{
                 flex: 1,
@@ -840,7 +840,7 @@ export function ChatInput(props: ChatInputProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      props.onOpenSignIn();
+                      props.onOpenSignIn("hero_card");
                     }}
                     style={{
                       background: "none",

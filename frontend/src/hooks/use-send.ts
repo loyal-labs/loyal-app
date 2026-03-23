@@ -2,6 +2,7 @@ import {
   LoyalTransactionsClient,
   solToLamports,
 } from "@loyal-labs/transactions";
+import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import {
   useConnection,
@@ -24,6 +25,9 @@ import {
 } from "@solana/web3.js";
 import { useCallback, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
+import { trackWalletSendCompleted } from "@/lib/core/analytics";
+
 export type SendResult = {
   signature?: string;
   success: boolean;
@@ -44,6 +48,7 @@ const getTokenMint = (symbol: string): string | undefined => {
 export function useSend() {
   const { connection } = useConnection();
   const { publicKey: walletPublicKey, connected: isConnected, signTransaction, sendTransaction } = useWallet();
+  const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +59,8 @@ export function useSend() {
       recipientAddress: string,
       destinationType: "wallet" | "telegram" = "wallet",
       tokenMint?: string,
-      tokenDecimals?: number
+      tokenDecimals?: number,
+      successTrackingProperties?: AnalyticsProperties
     ): Promise<SendResult> => {
       if (!(isConnected && walletPublicKey)) {
         const error = "Wallet not connected";
@@ -132,6 +138,12 @@ export function useSend() {
 
           console.log("Telegram deposit successful:", result.signature);
           setLoading(false);
+          if (successTrackingProperties) {
+            trackWalletSendCompleted(publicEnv, {
+              ...successTrackingProperties,
+              ...(result.signature ? { signature: result.signature } : {}),
+            });
+          }
           return {
             signature: result.signature,
             success: true,
@@ -202,6 +214,12 @@ export function useSend() {
 
           console.log("Transaction confirmed!");
           setLoading(false);
+          if (successTrackingProperties) {
+            trackWalletSendCompleted(publicEnv, {
+              ...successTrackingProperties,
+              signature,
+            });
+          }
           return {
             signature,
             success: true,
@@ -336,6 +354,12 @@ export function useSend() {
 
         console.log("Transaction confirmed!");
         setLoading(false);
+        if (successTrackingProperties) {
+          trackWalletSendCompleted(publicEnv, {
+            ...successTrackingProperties,
+            signature,
+          });
+        }
         return {
           signature,
           success: true,
@@ -364,7 +388,14 @@ export function useSend() {
         return { success: false, error: errorMessage };
       }
     },
-    [isConnected, walletPublicKey, signTransaction, sendTransaction, connection]
+    [
+      isConnected,
+      walletPublicKey,
+      signTransaction,
+      sendTransaction,
+      connection,
+      publicEnv,
+    ]
   );
 
   return {

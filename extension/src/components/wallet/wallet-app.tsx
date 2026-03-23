@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import lottie from "lottie-web/build/player/lottie_light";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  Eye,
+  EyeOff,
   Settings as SettingsIcon,
   Shield,
   Wallet,
 } from "lucide-react";
+import shieldAnimationData from "~/assets/shield-animation.json";
+import confettiAnimationData from "~/assets/confetti.json";
 import type { SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
+import { PinInput } from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
 import { SendContent } from "./send-content";
@@ -99,58 +105,145 @@ function getActiveLayer(subView: SubView): number {
 }
 
 // ---------------------------------------------------------------------------
+// Shared UI atoms
+// ---------------------------------------------------------------------------
+
+function ShieldAnimation({ size = 64 }: { size?: number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const anim = lottie.loadAnimation({
+      container: containerRef.current,
+      renderer: "svg",
+      loop: false,
+      autoplay: true,
+      animationData: shieldAnimationData,
+    });
+    return () => anim.destroy();
+  }, []);
+
+  return <div ref={containerRef} style={{ width: size, height: size }} />;
+}
+
+function ConfettiOverlay({ onComplete }: { onComplete?: () => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const anim = lottie.loadAnimation({
+      container: containerRef.current,
+      renderer: "svg",
+      loop: false,
+      autoplay: true,
+      animationData: confettiAnimationData,
+    });
+    anim.addEventListener("complete", () => onComplete?.());
+    return () => anim.destroy();
+  }, [onComplete]);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: "fixed",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: 9999,
+      }}
+    />
+  );
+}
+
+function Logotype() {
+  return (
+    <svg width="49" height="20" viewBox="0 0 49 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M41.8672 0H44.8439V13.3023C44.8439 13.8837 45.1695 14.2093 45.7509 14.2093H46.6811V16.5116H44.9835C43.123 16.5116 41.8672 15.3488 41.8672 13.4186V0Z" fill="black"/>
+      <path d="M28.7366 7.95325C29.225 5.37185 31.2018 3.90674 34.2483 3.90674C37.8064 3.90674 39.6669 5.74395 39.6669 9.20906V13.4416C39.6669 14.1393 39.9692 14.3486 40.4343 14.3486H40.9227V16.5114L40.225 16.5346C39.2715 16.5579 37.318 16.5812 37.0855 14.6277C36.5041 15.8602 35.1087 16.7905 32.9692 16.7905C30.4808 16.7905 28.5273 15.4649 28.5273 13.2788C28.5273 10.9067 30.318 10.0928 33.225 9.53464L36.6669 8.86023C36.6669 6.95325 35.8529 6.04627 34.2483 6.04627C32.9227 6.04627 32.0622 6.7672 31.7832 8.11604L28.7366 7.95325ZM31.6204 13.1858C31.6204 14.023 32.3413 14.6974 33.7832 14.6974C35.4576 14.6974 36.7366 13.4649 36.7366 11.0463V10.8835L34.3878 11.3021C32.8297 11.5812 31.6204 11.7905 31.6204 13.1858Z" fill="black"/>
+      <path d="M16.6719 4.18604H19.5556L22.8579 13.3953L26.044 4.18604H28.9277L24.0207 17.8139C23.4858 19.3256 22.4858 20 20.8347 20H18.8114V17.7209H20.323C21.044 17.7209 21.3928 17.4884 21.6486 16.907L21.9975 16H21.137L16.6719 4.18604Z" fill="black"/>
+      <path d="M11.1553 16.7905C7.45767 16.7905 5.03906 14.2556 5.03906 10.3486C5.03906 6.44162 7.45767 3.90674 11.1553 3.90674C14.8298 3.90674 17.2484 6.44162 17.2484 10.3486C17.2484 14.2556 14.8298 16.7905 11.1553 16.7905ZM8.13208 10.3486C8.13208 12.8835 9.22511 14.3719 11.1553 14.3719C13.0623 14.3719 14.1786 12.8835 14.1786 10.3486C14.1786 7.81371 13.0623 6.32534 11.1553 6.32534C9.22511 6.32534 8.13208 7.81371 8.13208 10.3486Z" fill="black"/>
+      <path d="M0 0H2.97674V13.3023C2.97674 13.8837 3.30232 14.2093 3.88372 14.2093H4.81395V16.5116H3.11628C1.25581 16.5116 0 15.3488 0 13.4186V0Z" fill="black"/>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Create / Import wallet screen
 // ---------------------------------------------------------------------------
 
-function CreateWalletScreen() {
+function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create" | "import" }) {
   const { createWallet, importWallet } = useWalletContext();
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [step, setStep] = useState<"enter" | "confirm">("enter");
   const [secretKeyInput, setSecretKeyInput] = useState("");
-  const [mode, setMode] = useState<"create" | "import">("create");
+  const [showImportKey, setShowImportKey] = useState(false);
+  const [mode, setMode] = useState<"create" | "import">(initialMode);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleCreate = async () => {
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    try {
-      await createWallet(password);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create wallet");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleCreateWithPin = useCallback(
+    async (finalPin: string) => {
+      setLoading(true);
+      try {
+        await createWallet(finalPin);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to create wallet");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [createWallet],
+  );
+
+  const handlePinComplete = useCallback(
+    (enteredPin: string) => {
+      if (step === "enter") {
+        setPin(enteredPin);
+        setStep("confirm");
+        setConfirmPin("");
+        setError(null);
+      } else {
+        if (enteredPin !== pin) {
+          setError("PINs don't match");
+          setConfirmPin("");
+          return;
+        }
+        setConfirmPin(enteredPin);
+        setError(null);
+        if (mode === "import") return;
+        void handleCreateWithPin(enteredPin);
+      }
+    },
+    [step, pin, mode, handleCreateWithPin],
+  );
 
   const handleImport = async () => {
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
     try {
-      const bytes = new Uint8Array(JSON.parse(secretKeyInput));
+      const hex = secretKeyInput.trim().replace(/^0x/, "");
+      if (!hex) throw new Error("Private key cannot be empty");
+      const pairs = hex.match(/.{1,2}/g);
+      if (!pairs) throw new Error("Invalid hex format");
+      const bytes = new Uint8Array(pairs.map((b) => parseInt(b, 16)));
       setError(null);
       setLoading(true);
-      await importWallet(bytes, password);
+      await importWallet(bytes, pin);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Invalid secret key or import failed");
     } finally {
       setLoading(false);
     }
   };
+
+  const handleBack = useCallback(() => {
+    setStep("enter");
+    setConfirmPin("");
+    setPin("");
+    setError(null);
+  }, []);
+
+  const pinLabel = step === "enter" ? "Create a PIN" : "Confirm your PIN";
+  const showImportField = mode === "import" && step === "confirm" && confirmPin.length === 4 && confirmPin === pin;
 
   return (
     <div
@@ -160,31 +253,27 @@ function CreateWalletScreen() {
         alignItems: "center",
         justifyContent: "center",
         height: "100%",
-        padding: "0 24px",
-        gap: "24px",
+        padding: "0 20px",
       }}
     >
-      <Wallet size={48} style={{ color: "#F9363C" }} />
-      <span
-        style={{
-          fontFamily: "var(--font-geist-sans), sans-serif",
-          fontSize: "20px",
-          fontWeight: 600,
-          lineHeight: "28px",
-          color: "#000",
-        }}
-      >
-        Loyal Wallet
-      </span>
+      {/* Branding cluster — shield + logotype tight together */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginBottom: "32px" }}>
+        <ShieldAnimation size={80} />
+        <Logotype />
+      </div>
 
-      <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+      {/* Tab toggle */}
+      <div style={{ display: "flex", gap: "6px", width: "100%", marginBottom: "24px" }}>
         <button
           type="button"
-          onClick={() => { setMode("create"); setError(null); }}
+          onClick={() => { setMode("create"); setError(null); setStep("enter"); setPin(""); setConfirmPin(""); }}
           style={{
             flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             padding: "8px 0",
-            borderRadius: "10px",
+            borderRadius: "12px",
             border: "none",
             cursor: "pointer",
             fontFamily: "var(--font-geist-sans), sans-serif",
@@ -200,11 +289,14 @@ function CreateWalletScreen() {
         </button>
         <button
           type="button"
-          onClick={() => { setMode("import"); setError(null); }}
+          onClick={() => { setMode("import"); setError(null); setStep("enter"); setPin(""); setConfirmPin(""); }}
           style={{
             flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             padding: "8px 0",
-            borderRadius: "10px",
+            borderRadius: "12px",
             border: "none",
             cursor: "pointer",
             fontFamily: "var(--font-geist-sans), sans-serif",
@@ -220,160 +312,143 @@ function CreateWalletScreen() {
         </button>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
-        <input
-          type="password"
-          placeholder="Password (min 8 characters)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{
-            width: "100%",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "10px",
-            padding: "12px 16px",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "14px",
-            lineHeight: "20px",
-            color: "#000",
-            outline: "none",
-            boxSizing: "border-box",
-          }}
-        />
-        <input
-          type="password"
-          placeholder="Confirm password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          style={{
-            width: "100%",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "10px",
-            padding: "12px 16px",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "14px",
-            lineHeight: "20px",
-            color: "#000",
-            outline: "none",
-            boxSizing: "border-box",
-          }}
-        />
+      {/* PIN input — don't pass disabled during create loading to prevent layout shift */}
+      <PinInput
+        value={step === "enter" ? pin : confirmPin}
+        onChange={step === "enter" ? setPin : setConfirmPin}
+        onComplete={handlePinComplete}
+        error={!!error}
+        label={pinLabel}
+      />
 
-        {mode === "import" && (
-          <textarea
-            placeholder="Secret key (JSON byte array)"
-            value={secretKeyInput}
-            onChange={(e) => setSecretKeyInput(e.target.value)}
-            rows={3}
-            style={{
-              width: "100%",
-              background: "rgba(0, 0, 0, 0.04)",
-              border: "none",
-              borderRadius: "10px",
-              padding: "12px 16px",
-              fontFamily: "var(--font-geist-sans), sans-serif",
-              fontSize: "14px",
-              lineHeight: "20px",
-              color: "#000",
-              outline: "none",
-              resize: "none",
-              boxSizing: "border-box",
-            }}
-          />
-        )}
-
-        {error && (
-          <p
-            style={{
-              fontFamily: "var(--font-geist-sans), sans-serif",
-              fontSize: "13px",
-              lineHeight: "16px",
-              color: "#FF3B30",
-              textAlign: "center",
-            }}
-          >
-            {error}
-          </p>
-        )}
-
-        <button
-          type="button"
-          disabled={loading}
-          onClick={mode === "create" ? handleCreate : handleImport}
-          style={{
-            width: "100%",
-            padding: "12px 16px",
-            borderRadius: "9999px",
-            border: "none",
-            cursor: loading ? "default" : "pointer",
-            background: loading ? "#CCCDCD" : "#000",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "16px",
-            fontWeight: 400,
-            lineHeight: "20px",
-            color: "#fff",
-            textAlign: "center",
-            transition: "background 0.15s ease",
-          }}
-        >
-          {loading
-            ? "Working..."
-            : mode === "create"
-              ? "Create Wallet"
-              : "Import Wallet"}
-        </button>
-      </div>
-
-      {/* Divider */}
-      <div
+      {/* Back button — always rendered to reserve space and prevent layout shift */}
+      <button
+        type="button"
+        onClick={handleBack}
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          width: "100%",
+          marginTop: "12px",
+          background: "none",
+          border: "none",
+          cursor: step === "confirm" ? "pointer" : "default",
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "13px",
+          fontWeight: 500,
+          lineHeight: "16px",
+          color: "rgba(60, 60, 67, 0.6)",
+          padding: "4px 8px",
+          opacity: step === "confirm" && !showImportField ? 1 : 0,
+          pointerEvents: step === "confirm" && !showImportField ? "auto" : "none",
+          transition: "opacity 0.15s ease",
         }}
       >
-        <div style={{ flex: 1, height: "1px", background: "rgba(0, 0, 0, 0.1)" }} />
-        <span
+        Re-enter PIN
+      </button>
+
+      {/* Import key field + button — animated reveal after PIN is confirmed */}
+      <div
+        style={{
+          width: "100%",
+          overflow: "hidden",
+          maxHeight: showImportField ? "300px" : "0px",
+          opacity: showImportField ? 1 : 0,
+          transition: "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+        }}
+      >
+        <div style={{ width: "100%", marginTop: "16px" }}>
+          <div style={{ position: "relative", width: "100%" }}>
+            <textarea
+              placeholder="Private key (hex)"
+              value={secretKeyInput}
+              onChange={(e) => setSecretKeyInput(e.target.value)}
+              rows={4}
+              style={{
+                width: "100%",
+                background: "#fff",
+                border: "none",
+                borderRadius: "16px",
+                padding: "12px 40px 12px 16px",
+                fontFamily: showImportKey ? "monospace" : "'text-security-disc', monospace",
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "18px",
+                color: "#000",
+                outline: "none",
+                resize: "none",
+                boxSizing: "border-box",
+                wordBreak: "break-all",
+                ...(showImportKey ? {} : { WebkitTextSecurity: "disc" as never }),
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowImportKey(!showImportKey)}
+              style={{
+                position: "absolute",
+                right: "12px",
+                top: "12px",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "2px",
+                display: "flex",
+                alignItems: "center",
+                color: "rgba(60, 60, 67, 0.6)",
+              }}
+            >
+              {showImportKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Import button */}
+        {(() => {
+          const isDisabled = loading || !secretKeyInput.trim();
+          return (
+            <button
+              type="button"
+              disabled={isDisabled}
+              onClick={handleImport}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "12px 16px",
+                marginTop: "16px",
+                borderRadius: "9999px",
+                border: "none",
+                cursor: isDisabled ? "default" : "pointer",
+                background: isDisabled ? "#CCCDCD" : "#000",
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#fff",
+                textAlign: "center",
+                transition: "background 0.15s ease",
+              }}
+            >
+              {loading ? "Working..." : "Import Wallet"}
+            </button>
+          );
+        })()}
+      </div>
+
+      {error && (
+        <p
           style={{
             fontFamily: "var(--font-geist-sans), sans-serif",
             fontSize: "13px",
             lineHeight: "16px",
-            color: "rgba(60, 60, 67, 0.4)",
+            color: "#FF3B30",
+            textAlign: "center",
+            marginTop: "8px",
           }}
         >
-          or
-        </span>
-        <div style={{ flex: 1, height: "1px", background: "rgba(0, 0, 0, 0.1)" }} />
-      </div>
+          {error}
+        </p>
+      )}
 
-      {/* Connect External Wallet */}
-      <button
-        type="button"
-        onClick={() => {
-          browser.tabs.create({
-            url: browser.runtime.getURL("/connect.html"),
-          });
-        }}
-        style={{
-          width: "100%",
-          padding: "12px 16px",
-          borderRadius: "9999px",
-          border: "1px solid rgba(0, 0, 0, 0.12)",
-          cursor: "pointer",
-          background: "transparent",
-          fontFamily: "var(--font-geist-sans), sans-serif",
-          fontSize: "16px",
-          fontWeight: 400,
-          lineHeight: "20px",
-          color: "#000",
-          textAlign: "center",
-          transition: "background 0.15s ease",
-        }}
-      >
-        Connect External Wallet
-      </button>
     </div>
   );
 }
@@ -383,22 +458,27 @@ function CreateWalletScreen() {
 // ---------------------------------------------------------------------------
 
 function UnlockScreen() {
-  const { unlock, publicKey } = useWalletContext();
-  const [password, setPassword] = useState("");
+  const { unlock, publicKey, resetWallet } = useWalletContext();
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resetAction, setResetAction] = useState<"create" | "import" | null>(null);
 
-  const handleUnlock = async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      await unlock(password);
-    } catch {
-      setError("Invalid password");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleUnlock = useCallback(
+    async (enteredPin: string) => {
+      setError(null);
+      setLoading(true);
+      try {
+        await unlock(enteredPin);
+      } catch {
+        setError("Wrong PIN");
+        setPin("");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [unlock],
+  );
 
   const truncatedKey = publicKey
     ? `${publicKey.slice(0, 4)}...${publicKey.slice(-4)}`
@@ -412,95 +492,205 @@ function UnlockScreen() {
         alignItems: "center",
         justifyContent: "center",
         height: "100%",
-        padding: "0 24px",
-        gap: "24px",
+        padding: "0 20px",
       }}
     >
-      <Wallet size={48} style={{ color: "#F9363C" }} />
-      <span
-        style={{
-          fontFamily: "var(--font-geist-sans), sans-serif",
-          fontSize: "20px",
-          fontWeight: 600,
-          lineHeight: "28px",
-          color: "#000",
-        }}
-      >
-        Welcome Back
-      </span>
-      {truncatedKey && (
-        <span
+      {/* Branding cluster */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginBottom: "32px" }}>
+        <ShieldAnimation size={80} />
+        <Logotype />
+        {truncatedKey && (
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontSize: "13px",
+              lineHeight: "16px",
+              color: "rgba(60, 60, 67, 0.6)",
+              marginTop: "4px",
+            }}
+          >
+            {truncatedKey}
+          </span>
+        )}
+      </div>
+
+      {/* PIN input */}
+      <PinInput
+        value={pin}
+        onChange={setPin}
+        onComplete={handleUnlock}
+        error={!!error}
+        disabled={loading}
+        label="Enter your PIN"
+      />
+
+      {error && (
+        <p
           style={{
-            fontFamily: "monospace",
-            fontSize: "14px",
-            lineHeight: "20px",
-            color: "rgba(60, 60, 67, 0.6)",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            lineHeight: "16px",
+            color: "#FF3B30",
+            textAlign: "center",
+            marginTop: "12px",
           }}
         >
-          {truncatedKey}
-        </span>
+          {error}
+        </p>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
-        <input
-          type="password"
-          placeholder="Enter password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleUnlock();
-          }}
+      {loading && (
+        <p
           style={{
-            width: "100%",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "10px",
-            padding: "12px 16px",
             fontFamily: "var(--font-geist-sans), sans-serif",
             fontSize: "14px",
             lineHeight: "20px",
-            color: "#000",
-            outline: "none",
-            boxSizing: "border-box",
+            color: "rgba(60, 60, 67, 0.6)",
+            textAlign: "center",
+            marginTop: "12px",
           }}
-        />
+        >
+          Unlocking...
+        </p>
+      )}
 
-        {error && (
-          <p
+      {/* Reset wallet options */}
+      <div style={{ display: "flex", gap: "8px", width: "100%", marginTop: "24px" }}>
+        <button
+          type="button"
+          onClick={() => setResetAction("create")}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "10px 0",
+            borderRadius: "10px",
+            border: "none",
+            cursor: "pointer",
+            background: "rgba(255, 59, 48, 0.08)",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            fontWeight: 500,
+            lineHeight: "16px",
+            color: "#FF3B30",
+            transition: "background 0.15s ease",
+          }}
+        >
+          Create New Wallet
+        </button>
+        <button
+          type="button"
+          onClick={() => setResetAction("import")}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "10px 0",
+            borderRadius: "10px",
+            border: "none",
+            cursor: "pointer",
+            background: "rgba(255, 59, 48, 0.08)",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            fontWeight: 500,
+            lineHeight: "16px",
+            color: "#FF3B30",
+            transition: "background 0.15s ease",
+          }}
+        >
+          Import Wallet
+        </button>
+      </div>
+
+      {/* Confirmation card */}
+      <div
+        style={{
+          width: "100%",
+          maxHeight: resetAction ? "200px" : "0",
+          opacity: resetAction ? 1 : 0,
+          overflow: "hidden",
+          transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          marginTop: resetAction ? "12px" : "0",
+        }}
+      >
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: "16px",
+            border: "1px solid rgba(255, 59, 48, 0.2)",
+            padding: "16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+          }}
+        >
+          <span
             style={{
               fontFamily: "var(--font-geist-sans), sans-serif",
               fontSize: "13px",
-              lineHeight: "16px",
+              fontWeight: 500,
+              lineHeight: "18px",
               color: "#FF3B30",
               textAlign: "center",
             }}
           >
-            {error}
-          </p>
-        )}
-
-        <button
-          type="button"
-          disabled={loading}
-          onClick={handleUnlock}
-          style={{
-            width: "100%",
-            padding: "12px 16px",
-            borderRadius: "9999px",
-            border: "none",
-            cursor: loading ? "default" : "pointer",
-            background: loading ? "#CCCDCD" : "#000",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "16px",
-            fontWeight: 400,
-            lineHeight: "20px",
-            color: "#fff",
-            textAlign: "center",
-            transition: "background 0.15s ease",
-          }}
-        >
-          {loading ? "Unlocking..." : "Unlock"}
-        </button>
+            Your current wallet will be erased. Without an exported key you will lose access forever.
+          </span>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={() => {
+                const action = resetAction;
+                setResetAction(null);
+                void resetWallet(action === "import" ? "import" : "create");
+              }}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "8px 0",
+                border: "none",
+                borderRadius: "10px",
+                cursor: "pointer",
+                background: "rgba(255, 59, 48, 0.12)",
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "13px",
+                fontWeight: 500,
+                lineHeight: "16px",
+                color: "#FF3B30",
+                transition: "background 0.15s ease",
+              }}
+            >
+              I'm 100% sure
+            </button>
+            <button
+              type="button"
+              onClick={() => setResetAction(null)}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "8px 0",
+                border: "none",
+                borderRadius: "10px",
+                cursor: "pointer",
+                background: "rgba(0, 0, 0, 0.04)",
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "13px",
+                fontWeight: 500,
+                lineHeight: "16px",
+                color: "#000",
+                transition: "background 0.15s ease",
+              }}
+            >
+              Nevermind
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -543,7 +733,7 @@ function WalletInterface() {
       const t = setTimeout(() => {
         setDisplayTab(activeTab); // swap content while near-invisible
         setCrossFadeOpacity(1); // fade in
-      }, 200);
+      }, 100);
       return () => clearTimeout(t);
     }
   }, [activeTab, displayTab]);
@@ -553,11 +743,19 @@ function WalletInterface() {
     setSubView(null);
   }, []);
 
+  const handleSwapModeChange = useCallback((mode: SwapMode) => {
+    setSwapMode(mode);
+    setActiveTab(mode === "shield" ? "shield" : "swap");
+    setSubView(null);
+  }, []);
+
   const goBack = useCallback(() => {
     setSubView((current) => {
       if (current === null) return null;
       if (typeof current === "object" && current.type === "transaction") {
-        return current.from === "allActivity" ? "allActivity" : "allTokens";
+        if (current.from === "allActivity") return "allActivity";
+        if (current.from === "allTokens") return "allTokens";
+        return null;
       }
       return null;
     });
@@ -568,6 +766,7 @@ function WalletInterface() {
   }, []);
 
   const handleDone = useCallback(() => {
+    setActiveTab("portfolio");
     setSubView(null);
   }, []);
 
@@ -626,8 +825,12 @@ function WalletInterface() {
             isLoading={isLoading}
             onBalanceHiddenChange={() => void toggleBalanceHidden()}
             onNavigate={handleNavigate}
+            onSend={() => handleTabChange("send")}
+            onReceive={() => handleTabChange("receive")}
+            onSwap={() => { setSwapMode("swap"); handleTabChange("swap"); }}
+            onShield={() => { setSwapMode("shield"); handleTabChange("shield"); }}
+            onSettings={() => setShowSettings(true)}
             tokenRows={tokenRows}
-            allTokenRows={allTokenRows}
             transactionDetails={transactionDetails}
             walletAddress={walletAddress}
             walletLabel={walletLabel}
@@ -661,7 +864,7 @@ function WalletInterface() {
             onNavigate={handleNavigate}
             onDone={handleDone}
             swapMode={swapMode}
-            onSwapModeChange={setSwapMode}
+            onSwapModeChange={handleSwapModeChange}
           />
         );
       case "shield":
@@ -674,7 +877,7 @@ function WalletInterface() {
             onDone={handleDone}
             securedBalance={0}
             swapMode={swapMode}
-            onSwapModeChange={setSwapMode}
+            onSwapModeChange={handleSwapModeChange}
           />
         );
     }
@@ -796,7 +999,7 @@ function WalletInterface() {
             flexDirection: "column",
             background: activeLayer >= 1 ? "#EBEBEB" : "#F5F5F5",
             borderRadius: "20px",
-            overflow: "hidden",
+            overflow: "clip",
             transition: "background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
             ...layerStyle(0, activeLayer),
           }}
@@ -808,7 +1011,7 @@ function WalletInterface() {
               flex: 1,
               minHeight: 0,
               opacity: crossFadeOpacity,
-              transition: "opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition: "opacity 0.12s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
             {renderTabContent()}
@@ -824,7 +1027,7 @@ function WalletInterface() {
             flexDirection: "column",
             background: activeLayer >= 2 ? "#EBEBEB" : "#F5F5F5",
             borderRadius: "20px",
-            overflow: "hidden",
+            overflow: "clip",
             transition: "background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
             ...layerStyle(1, activeLayer),
           }}
@@ -855,7 +1058,7 @@ function WalletInterface() {
             flexDirection: "column",
             background: "#F5F5F5",
             borderRadius: "20px",
-            overflow: "hidden",
+            overflow: "clip",
             transform: showSettings ? "translateX(0)" : "translateX(105%)",
             opacity: showSettings ? 1 : 0,
             transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
@@ -866,80 +1069,6 @@ function WalletInterface() {
         </div>
       </div>
 
-      {/* Bottom tab bar */}
-      <nav
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-around",
-          borderTop: "1px solid rgba(0, 0, 0, 0.06)",
-          background: "#F5F5F5",
-          padding: "8px 0",
-        }}
-      >
-        {TABS.map(({ id, label, Icon }) => {
-          const isActive = activeTab === id && !showSettings;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => { handleTabChange(id); setShowSettings(false); }}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "2px",
-                padding: "4px 8px",
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                transition: "color 0.15s ease",
-                color: isActive ? "#F9363C" : "rgba(60, 60, 67, 0.4)",
-              }}
-            >
-              <Icon size={20} />
-              <span
-                style={{
-                  fontFamily: "var(--font-geist-sans), sans-serif",
-                  fontSize: "10px",
-                  fontWeight: 500,
-                  lineHeight: "12px",
-                }}
-              >
-                {label}
-              </span>
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => setShowSettings(true)}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "2px",
-            padding: "4px 8px",
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            transition: "color 0.15s ease",
-            color: showSettings ? "#F9363C" : "rgba(60, 60, 67, 0.4)",
-          }}
-        >
-          <SettingsIcon size={20} />
-          <span
-            style={{
-              fontFamily: "var(--font-geist-sans), sans-serif",
-              fontSize: "10px",
-              fontWeight: 500,
-              lineHeight: "12px",
-            }}
-          >
-            Settings
-          </span>
-        </button>
-      </nav>
     </div>
   );
 }
@@ -949,9 +1078,32 @@ function WalletInterface() {
 // ---------------------------------------------------------------------------
 
 function WalletAppInner() {
-  const { state } = useWalletContext();
+  const { state, resetMode } = useWalletContext();
+  const prevStateRef = useRef(state);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
+  const [displayState, setDisplayState] = useState(state);
 
-  if (state === "loading") {
+  useEffect(() => {
+    const prev = prevStateRef.current;
+    prevStateRef.current = state;
+
+    // Cross-fade when unlocking (locked→unlocked or noWallet→unlocked)
+    if (state === "unlocked" && (prev === "locked" || prev === "noWallet")) {
+      setTransitioning(true);
+      // Fade out the old screen, then swap content + fade in + confetti
+      const t = setTimeout(() => {
+        setDisplayState(state);
+        setTransitioning(false);
+        setShowConfetti(true);
+      }, 250);
+      return () => clearTimeout(t);
+    }
+
+    setDisplayState(state);
+  }, [state]);
+
+  if (displayState === "loading") {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
         <div
@@ -968,9 +1120,26 @@ function WalletAppInner() {
     );
   }
 
-  if (state === "noWallet") return <CreateWalletScreen />;
-  if (state === "locked") return <UnlockScreen />;
-  return <WalletInterface />;
+  const screen = displayState === "noWallet"
+    ? <CreateWalletScreen initialMode={resetMode} />
+    : displayState === "locked"
+      ? <UnlockScreen />
+      : <WalletInterface />;
+
+  return (
+    <>
+      <div
+        style={{
+          height: "100%",
+          opacity: transitioning ? 0 : 1,
+          transition: "opacity 0.25s ease",
+        }}
+      >
+        {screen}
+      </div>
+      {showConfetti && <ConfettiOverlay onComplete={() => setShowConfetti(false)} />}
+    </>
+  );
 }
 
 export default function WalletApp() {
@@ -979,6 +1148,16 @@ export default function WalletApp() {
       <style>{`
         @keyframes sidebar-spin {
           to { transform: rotate(360deg); }
+        }
+        /* Firefox: strip native button appearance and hidden inner padding/border */
+        button, input, textarea {
+          -moz-appearance: none;
+          appearance: none;
+        }
+        button::-moz-focus-inner,
+        input::-moz-focus-inner {
+          border: 0;
+          padding: 0;
         }
       `}</style>
       <div

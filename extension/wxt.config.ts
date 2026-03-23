@@ -18,10 +18,15 @@ export default defineConfig({
     ).pathname,
   },
 
-  manifest: ({ mode }) => ({
+  manifest: ({ mode, browser }) => ({
     name: mode === "development" ? "Loyal (Dev)" : "Loyal",
     description: "Solana wallet for Telegram communities",
-    permissions: ["storage", "sidePanel"],
+    permissions: [
+      "storage",
+      "idle",
+      "alarms",
+      ...(browser === "firefox" ? [] : ["sidePanel"]),
+    ],
     host_permissions: [
       "https://api.mainnet-beta.solana.com/*",
       "https://*.helius-rpc.com/*",

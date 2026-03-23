@@ -4,8 +4,13 @@ import { ArrowDownUp, ChevronRight, Globe, Send, Share, Wallet, X } from "lucide
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePrivateSend } from "@/hooks/use-private-send";
 import { useSend } from "@/hooks/use-send";
+import {
+  openTrackedLink,
+  trackWalletSendPressed,
+} from "@/lib/core/analytics";
 
 import type { ActivityRow, SubView, SwapToken, TransactionDetail } from "./types";
 
@@ -238,6 +243,7 @@ function SendTransactionDetail({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const publicEnv = usePublicEnv();
   const displayRecipient = isTgRecipient ? recipient : truncateAddress(recipient);
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -293,7 +299,14 @@ function SendTransactionDetail({
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <button
                 className="send-tx-action-btn"
-                onClick={() => signature && window.open(`https://explorer.solana.com/tx/${signature}`, "_blank")}
+                onClick={() =>
+                  signature &&
+                  openTrackedLink(publicEnv, {
+                    href: `https://explorer.solana.com/tx/${signature}`,
+                    linkText: "View in explorer",
+                    source: "send_transaction_detail",
+                  })
+                }
                 style={{ width: "48px", height: "48px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: signature ? "pointer" : "default", opacity: signature ? 1 : 0.5, transition: "background-color 0.15s ease" }}
                 type="button"
               >
@@ -350,6 +363,7 @@ export function SendContent({
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
 }) {
+  const publicEnv = usePublicEnv();
   const { executeSend } = useSend();
   const { executePrivateSend } = usePrivateSend();
   const [amount, setAmount] = useState("");
@@ -414,6 +428,17 @@ export function SendContent({
     const destinationType = isTg ? "telegram" : "wallet";
     const cleanRecipient = isTg ? recipientTrimmed.replace(/^@/, "") : recipientTrimmed;
 
+    trackWalletSendPressed(publicEnv, {
+      source: "send_confirm",
+      interaction: "confirm",
+      token_symbol: token.symbol,
+      token_mint: token.mint,
+      amount: currentAmount,
+      usd_value: currentUsd,
+      destination_type: destinationType,
+      is_private: isPrivate,
+    });
+
     let result: { success: boolean; signature?: string; error?: string };
 
     if (isPrivate) {
@@ -423,6 +448,14 @@ export function SendContent({
         recipient: cleanRecipient,
         recipientType: destinationType,
         tokenMint: token.mint,
+        successTrackingProperties: {
+          token_symbol: token.symbol,
+          token_mint: token.mint,
+          amount: currentAmount,
+          usd_value: currentUsd,
+          destination_type: destinationType,
+          is_private: isPrivate,
+        },
       });
     } else {
       result = await executeSend(
@@ -431,6 +464,15 @@ export function SendContent({
         cleanRecipient,
         destinationType,
         token.mint,
+        undefined,
+        {
+          token_symbol: token.symbol,
+          token_mint: token.mint,
+          amount: currentAmount,
+          usd_value: currentUsd,
+          destination_type: destinationType,
+          is_private: isPrivate,
+        }
       );
     }
 
@@ -467,7 +509,7 @@ export function SendContent({
       setErrorMessage(result.error);
       setPhase("error");
     }
-  }, [hasAmount, numericAmount, token.price, token.symbol, token.mint, recipientTrimmed, isTg, isPrivate, executeSend, executePrivateSend, addLocalActivity]);
+  }, [addLocalActivity, executePrivateSend, executeSend, hasAmount, isPrivate, isTg, numericAmount, publicEnv, recipientTrimmed, token.mint, token.price, token.symbol]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);

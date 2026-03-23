@@ -55,6 +55,24 @@ describe("public config", () => {
     expect(env.gridAuthBaseUrl).toBe("https://auth.askloyal.com");
   });
 
+  test("returns trimmed mixpanel config when set", () => {
+    const env = createPublicEnv({
+      NEXT_PUBLIC_MIXPANEL_TOKEN: "  token  ",
+      NEXT_PUBLIC_MIXPANEL_PROXY_PATH: " ingest-custom ",
+    });
+
+    expect(env.mixpanelToken).toBe("token");
+    expect(env.mixpanelProxyPath).toBe("/ingest-custom");
+  });
+
+  test("defaults mixpanel proxy path and git metadata when unset", () => {
+    const env = createPublicEnv({});
+
+    expect(env.mixpanelProxyPath).toBe("/ingest");
+    expect(env.gitBranch).toBe("unknown");
+    expect(env.gitCommitHash).toBe("unknown");
+  });
+
   test("defaults the solana env to devnet", () => {
     const env = createPublicEnv({});
 

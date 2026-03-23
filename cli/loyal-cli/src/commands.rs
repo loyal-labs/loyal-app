@@ -101,7 +101,11 @@ pub(crate) fn cmd_display(ctx: &AppContext, args: &TargetArgs) -> Result<()> {
             );
             println!(
                 "Delegated On Base: {}",
-                if result.delegated_on_base { "yes" } else { "no" }
+                if result.delegated_on_base {
+                    "yes"
+                } else {
+                    "no"
+                }
             );
             if let Some(amount) = result.base_amount {
                 println!("Base Amount: {}", amount);
@@ -119,9 +123,22 @@ pub(crate) fn cmd_display(ctx: &AppContext, args: &TargetArgs) -> Result<()> {
                             record.authority, ctx.validator
                         );
                     }
-                    println!("Router Delegation Owner: {}", record.owner.as_deref().unwrap_or("<missing>"));
-                    println!("Router Delegation Slot: {}", record.delegation_slot.map_or("<missing>".to_string(), |v| v.to_string()));
-                    println!("Router Delegation Lamports: {}", record.lamports.map_or("<missing>".to_string(), |v| v.to_string()));
+                    println!(
+                        "Router Delegation Owner: {}",
+                        record.owner.as_deref().unwrap_or("<missing>")
+                    );
+                    println!(
+                        "Router Delegation Slot: {}",
+                        record
+                            .delegation_slot
+                            .map_or("<missing>".to_string(), |v| v.to_string())
+                    );
+                    println!(
+                        "Router Delegation Lamports: {}",
+                        record
+                            .lamports
+                            .map_or("<missing>".to_string(), |v| v.to_string())
+                    );
                 } else {
                     println!("Router Authority: <missing delegationRecord>");
                 }
@@ -148,7 +165,13 @@ pub(crate) fn cmd_delegate(ctx: &mut AppContext, args: &TargetArgs) -> Result<()
         } => {
             let ix =
                 build_delegate_deposit_ix(ctx.signer_pubkey, user, mint, deposit, ctx.validator);
-            send_ix_with_opts(&ctx.base_client, &ctx.signer, ix, ctx.simulate, ctx.simulate_only)?
+            send_ix_with_opts(
+                &ctx.base_client,
+                &ctx.signer,
+                ix,
+                ctx.simulate,
+                ctx.simulate_only,
+            )?
         }
         Target::UsernameDeposit {
             username,
@@ -162,7 +185,13 @@ pub(crate) fn cmd_delegate(ctx: &mut AppContext, args: &TargetArgs) -> Result<()
                 deposit,
                 ctx.validator,
             );
-            send_ix_with_opts(&ctx.base_client, &ctx.signer, ix, ctx.simulate, ctx.simulate_only)?
+            send_ix_with_opts(
+                &ctx.base_client,
+                &ctx.signer,
+                ix,
+                ctx.simulate,
+                ctx.simulate_only,
+            )?
         }
     };
 
@@ -180,7 +209,13 @@ pub(crate) fn cmd_undelegate(ctx: &mut AppContext, args: &UndelegateArgs) -> Res
             deposit,
         } => {
             let ix = build_undelegate_deposit_ix(ctx.signer_pubkey, user, deposit);
-            send_ix_with_opts(&ctx.per_client, &ctx.signer, ix, ctx.simulate, ctx.simulate_only)?
+            send_ix_with_opts(
+                &ctx.per_client,
+                &ctx.signer,
+                ix,
+                ctx.simulate,
+                ctx.simulate_only,
+            )?
         }
         Target::UsernameDeposit {
             username,
@@ -199,7 +234,13 @@ pub(crate) fn cmd_undelegate(ctx: &mut AppContext, args: &UndelegateArgs) -> Res
                 mint,
                 deposit,
             );
-            send_ix_with_opts(&ctx.per_client, &ctx.signer, ix, ctx.simulate, ctx.simulate_only)?
+            send_ix_with_opts(
+                &ctx.per_client,
+                &ctx.signer,
+                ix,
+                ctx.simulate,
+                ctx.simulate_only,
+            )?
         }
     };
 
@@ -239,7 +280,14 @@ pub(crate) fn cmd_wait_state(ctx: &AppContext, args: &WaitArgs, delegated: bool)
     match ctx.output {
         crate::cli::OutputFormat::Display => {
             println!("Account: {}", account);
-            println!("State: {}", if delegated { "delegated" } else { "undelegated" });
+            println!(
+                "State: {}",
+                if delegated {
+                    "delegated"
+                } else {
+                    "undelegated"
+                }
+            );
             println!("Owner: {}", expected_owner);
         }
         crate::cli::OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&result)?),
@@ -354,7 +402,10 @@ pub(crate) fn cmd_unshield(ctx: &mut AppContext, args: &AmountArgs) -> Result<()
             ctx.commitment,
         )?;
     } else {
-        debug!("unshield: deposit {} is not delegated; skipping undelegate", deposit);
+        debug!(
+            "unshield: deposit {} is not delegated; skipping undelegate",
+            deposit
+        );
     }
 
     let user_token_account =
@@ -387,7 +438,10 @@ pub(crate) fn cmd_unshield(ctx: &mut AppContext, args: &AmountArgs) -> Result<()
     print_signature(ctx.output, modify_sig)
 }
 
-pub(crate) fn cmd_transfer_username(ctx: &mut AppContext, args: &TransferUsernameArgs) -> Result<()> {
+pub(crate) fn cmd_transfer_username(
+    ctx: &mut AppContext,
+    args: &TransferUsernameArgs,
+) -> Result<()> {
     debug!("running command: transfer_username with args {:?}", args);
     validate_username(&args.username)?;
 

@@ -1,91 +1,46 @@
-export type BentoItemVisualKey =
-  | "cardOne"
-  | "cardTwo"
-  | "cardThree"
-  | "cardFour"
-  | "cardFive"
-  | "cardFiveApp"
-  | "cardSix"
-  | "cardSeven"
-  | "cardEight"
-  | "cardNine";
-
-export type BentoItemCopy = {
-  visualKey: BentoItemVisualKey;
+export type BentoItem = {
   title: string;
   description: string;
+  animationPath: string;
+  colSpan: 1 | 2;
+  aspectRatio?: string;
 };
 
-export type BentoTabContent = {
-  label: string;
-  items: BentoItemCopy[];
-};
-
-const sectionOneItems: BentoItemCopy[] = [
+export const bentoItems: BentoItem[] = [
   {
-    visualKey: "cardOne",
     title: "Sensitive data protected",
     description:
-      "Summarize Telegram chats, run branded agents, process & talk to sensitive documents.",
+      "Summarize Telegram chats and filter signal from noise with fully encrypted AI — now in beta.",
+    animationPath: "/bento/01-Sensitive-data.json",
+    colSpan: 1,
   },
   {
-    visualKey: "cardTwo",
-    title: "Private transactions",
+    title: "Telegram anti-spam",
     description:
-      "Automate onchain workflows without leaving a trace. Powered by Arcium.",
+      "Loyal agent protects your inbox. Every person DMing you for the first time gets screened by AI and verified before they can talk to you.",
+    animationPath: "/bento/02-Anti-Spam.json",
+    colSpan: 1,
   },
   {
-    visualKey: "cardThree",
+    title: "Private transactions over Telegram",
+    description:
+      "Now you can privately send Solana and SPL tokens with minimal fees. Don't doxx your wallet address either — just use their Telegram username instead.",
+    animationPath: "/bento/03-Private-transactions.json",
+    colSpan: 1,
+    aspectRatio: "1 / 0.95",
+  },
+  {
+    title: "Community agents",
+    description:
+      "Automate repetitive tasks, post summaries in your community and protect it from spam.",
+    animationPath: "/bento/04-Community-Agents.json",
+    colSpan: 1,
+  },
+  {
     title: "Automated workflows",
     description:
       "Supercharge your wallets and save time with automated workflows.",
+    animationPath: "/bento/05-Automated workflows.json",
+    colSpan: 2,
   },
-  {
-    visualKey: "cardFour",
-    title: "Hands-off repetitive tasks",
-    description:
-      "Loyal makes sending money, paying invoices and managing your assets easy.",
-  },
-  {
-    visualKey: "cardFiveApp",
-    title: "User-owned storage",
-    description: "Your wallet = your data",
-  },
-];
-
-const sectionTwoItems: BentoItemCopy[] = [
-  {
-    visualKey: "cardSix",
-    title: "Per-query micropayments",
-    description: "Pay for what you use, no upfront costs.",
-  },
-  {
-    visualKey: "cardSeven",
-    title: "Data ownership",
-    description:
-      "Your data, your rules. No third parties, no centralization. No one can take it away.",
-  },
-  {
-    visualKey: "cardEight",
-    title: "Telegram private payments",
-    description:
-      "Transfer Solana tokens using Telegram handles, no need for a wallet. Completely private and anonymous.",
-  },
-  {
-    visualKey: "cardNine",
-    title: "Workflow builder & executor",
-    description:
-      "Help your sales team stay on top of messages, help your community builders with branded agents and conversation analytics.",
-  },
-  {
-    visualKey: "cardFive",
-    title: "Solana-native interoperability",
-    description:
-      "Call Loyal agents from your own smart contracts and automate your entire stack.",
-  },
-];
-
-export const bentoTabs: BentoTabContent[] = [
-  { label: "Applications", items: sectionOneItems },
-  { label: "Infrastructure", items: sectionTwoItems },
 ];

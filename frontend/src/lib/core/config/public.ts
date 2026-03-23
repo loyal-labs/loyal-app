@@ -40,7 +40,13 @@ export type PublicEnv = {
   swap: SwapConfig;
   skillsEnabled: boolean;
   demoRecipeEnabled: boolean;
+  mixpanelToken: string | undefined;
+  mixpanelProxyPath: string;
+  gitBranch: string;
+  gitCommitHash: string;
 };
+
+const DEFAULT_MIXPANEL_PROXY_PATH = "/ingest";
 
 function resolveTurnstileConfig(
   env: EnvSource,
@@ -99,6 +105,17 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
       getOptionalEnv(env, SKILLS_ENABLED_ENV_NAME) ?? "true"
     ),
     demoRecipeEnabled: isStrictTrue(getOptionalEnv(env, DEMO_RECIPE_ENV_NAME)),
+    mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
+    mixpanelProxyPath: (() => {
+      const value = getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_PROXY_PATH");
+      if (!value) {
+        return DEFAULT_MIXPANEL_PROXY_PATH;
+      }
+
+      return value.startsWith("/") ? value : `/${value}`;
+    })(),
+    gitBranch: getOptionalEnv(env, "NEXT_PUBLIC_GIT_BRANCH") ?? "unknown",
+    gitCommitHash: getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
   };
 }
 

@@ -23,6 +23,7 @@ export type ServerEnv = {
   databaseUrl: string;
   gridAuthBaseUrl: string | undefined;
   authSessionRs256PublicKey: string | undefined;
+  mixpanelToken: string | undefined;
 };
 
 function createChatRuntimeConfig(env: EnvSource): ChatRuntimeConfig {
@@ -47,6 +48,7 @@ export function createServerEnv(env: EnvSource): ServerEnv {
     authSessionRs256PublicKey: decodePemNewlines(
       getOptionalEnv(env, "AUTH_SESSION_RS256_PUBLIC_KEY")
     ),
+    mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
   };
 }
 

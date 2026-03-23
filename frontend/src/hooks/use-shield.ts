@@ -6,6 +6,7 @@ import {
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
+import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { getPerEndpoints, getSolanaEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import {
@@ -21,6 +22,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { trackWalletShieldCompleted } from "@/lib/core/analytics";
 import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
 
 export type ShieldResult = {
@@ -95,6 +97,7 @@ export function useShield() {
       tokenSymbol: string;
       amount: number;
       tokenMint?: string;
+      successTrackingProperties?: AnalyticsProperties;
     }): Promise<ShieldResult> => {
       if (!(wallet.connected && wallet.publicKey && wallet.signTransaction)) {
         return { success: false, error: "Wallet not connected or missing signing capability" };
@@ -180,6 +183,9 @@ export function useShield() {
         }
 
         setLoading(false);
+        if (params.successTrackingProperties) {
+          trackWalletShieldCompleted(publicEnv, params.successTrackingProperties);
+        }
         return { success: true };
       } catch (err) {
         let errorMessage = "Shield failed";
@@ -193,7 +199,7 @@ export function useShield() {
         return { success: false, error: errorMessage };
       }
     },
-    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv.solanaEnv],
+    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv],
   );
 
   const executeUnshield = useCallback(
@@ -277,7 +283,7 @@ export function useShield() {
         return { success: false, error: errorMessage };
       }
     },
-    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv.solanaEnv],
+    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv],
   );
 
   return {

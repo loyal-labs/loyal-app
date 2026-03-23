@@ -4,7 +4,12 @@ import { ArrowDownUp, ChevronRight, Globe, Share, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap } from "@/hooks/use-swap";
+import {
+  openTrackedLink,
+  trackWalletSwapPressed,
+} from "@/lib/core/analytics";
 
 import { SwapShieldTabs } from "./shield-content";
 import type { FormButtonProps, SubView, SwapMode, SwapToken } from "./types";
@@ -517,6 +522,7 @@ function SwapTransactionDetail({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const publicEnv = usePublicEnv();
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "short",
@@ -725,10 +731,11 @@ function SwapTransactionDetail({
               className="swap-tx-action-btn"
               onClick={() =>
                 signature &&
-                window.open(
-                  `https://explorer.solana.com/tx/${signature}`,
-                  "_blank"
-                )
+                openTrackedLink(publicEnv, {
+                  href: `https://explorer.solana.com/tx/${signature}`,
+                  linkText: "View in explorer",
+                  source: "swap_transaction_detail",
+                })
               }
               style={{
                 width: "48px",
@@ -866,6 +873,7 @@ export function SwapContent({
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
 }) {
+  const publicEnv = usePublicEnv();
   const {
     getQuote,
     executeSwap,
@@ -972,22 +980,43 @@ export function SwapContent({
 
   const handleConfirm = useCallback(async () => {
     if (!quote) return;
-    setResultAmount(hasAmount ? Number(toAmount.toFixed(6)).toString() : "0");
-    setResultUsd(
-      `$${
-        hasAmount
-          ? (toAmount * toToken.price).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })
-          : "0"
-      }`
-    );
+    const completedAmount = hasAmount ? Number(toAmount.toFixed(6)).toString() : "0";
+    const completedUsd = `$${
+      hasAmount
+        ? (toAmount * toToken.price).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+        : "0"
+    }`;
+
+    trackWalletSwapPressed(publicEnv, {
+      source: "swap_confirm",
+      interaction: "confirm",
+      from_symbol: fromToken.symbol,
+      from_mint: fromToken.mint,
+      to_symbol: toToken.symbol,
+      to_mint: toToken.mint,
+      from_amount: fromAmount,
+      to_amount: completedAmount,
+      usd_value: completedUsd,
+    });
+
+    setResultAmount(completedAmount);
+    setResultUsd(completedUsd);
     setResultSignature(undefined);
     setErrorMessage(undefined);
     setPhase("processing");
 
-    const result = await executeSwap();
+    const result = await executeSwap({
+      from_symbol: fromToken.symbol,
+      from_mint: fromToken.mint,
+      to_symbol: toToken.symbol,
+      to_mint: toToken.mint,
+      from_amount: fromAmount,
+      to_amount: completedAmount,
+      usd_value: completedUsd,
+    });
 
     if (result.success) {
       setResultSignature(result.signature);
@@ -998,7 +1027,7 @@ export function SwapContent({
       setErrorMessage(result.error);
       setPhase("error");
     }
-  }, [hasAmount, toAmount, toToken.price, quote, executeSwap, resetQuote]);
+  }, [executeSwap, fromAmount, fromToken.mint, fromToken.symbol, hasAmount, publicEnv, quote, resetQuote, toAmount, toToken.mint, toToken.price, toToken.symbol]);
 
   // Report form button props to parent when chrome is managed externally
   useEffect(() => {

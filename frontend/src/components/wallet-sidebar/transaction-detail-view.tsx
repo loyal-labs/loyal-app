@@ -3,6 +3,8 @@
 import { Check, Globe, Share } from "lucide-react";
 import { useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
+import { openTrackedLink } from "@/lib/core/analytics";
 import { SubViewHeader } from "./shared";
 import type { TransactionDetail } from "./types";
 
@@ -20,6 +22,7 @@ export function TransactionDetailView({
   onBack: () => void;
   onClose: () => void;
 }) {
+  const publicEnv = usePublicEnv();
   const [copied, setCopied] = useState(false);
   const isSent = detail.activity.type === "sent";
   const isShielded = detail.activity.type === "shielded";
@@ -260,7 +263,13 @@ export function TransactionDetailView({
             >
               <button
                 className="tx-action-btn"
-                onClick={() => window.open(`https://explorer.solana.com/tx/${detail.activity.id}`, "_blank")}
+                onClick={() =>
+                  openTrackedLink(publicEnv, {
+                    href: `https://explorer.solana.com/tx/${detail.activity.id}`,
+                    linkText: "View in explorer",
+                    source: "transaction_detail",
+                  })
+                }
                 style={{
                   width: "48px",
                   height: "48px",

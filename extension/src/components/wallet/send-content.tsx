@@ -250,7 +250,7 @@ function SendTransactionDetail({
 
       <SendStatusHeader onClose={onClose} title={`Send to ${displayRecipient}`} />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "8px", overflowY: "auto" }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", padding: "8px", overflowY: "auto" }}>
         {/* Amount hero */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 12px 24px", width: "100%" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "100%" }}>
@@ -549,7 +549,7 @@ export function SendContent({
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px", overflow: "auto", padding: "8px 8px 16px" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: "16px", overflow: "auto", padding: "8px 8px 16px" }}>
           {/* Amount card */}
           <div style={{ display: "flex", flexDirection: "column" }}>
             <div style={{ background: "#fff", borderRadius: "16px", padding: "10px 12px" }}>

@@ -15,7 +15,7 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Developers",
+        "tab": "DeFi",
         "groups": [
           {
             "group": "Private Transactions",
@@ -37,6 +37,26 @@
             "group": "Resources",
             "pages": [
               "resources/links"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Smart Accounts",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "smart-accounts/overview",
+              "smart-accounts/concepts",
+              "smart-accounts/policies-and-execution"
+            ]
+          },
+          {
+            "group": "SDKs",
+            "pages": [
+              "smart-accounts/typescript-sdk",
+              "smart-accounts/rust-sdk"
             ]
           }
         ]

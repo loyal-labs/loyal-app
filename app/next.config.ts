@@ -41,6 +41,7 @@ const nextConfig: NextConfig = {
     "@loyal-labs/db-adapter-neon",
     "@loyal-labs/llm-core",
     "@loyal-labs/llm-server",
+    "@loyal-labs/shared",
   ],
   productionBrowserSourceMaps: Boolean(process.env.DATADOG_API_KEY),
   env: {

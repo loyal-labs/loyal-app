@@ -6,6 +6,7 @@ import {
   extractMessageText,
   recordAssistantReply,
 } from "@/features/chat/server/chat-persistence";
+import { trackChatThreadCreatedServer } from "@/features/chat/server/chat-analytics";
 import { prepareChatTurn } from "@/features/chat/server/chat-service";
 import type { AuthenticatedPrincipal } from "@/features/identity/server/auth-session";
 import {
@@ -155,6 +156,7 @@ export async function POST(req: Request) {
   // Persist the turn BEFORE starting the AI stream so DB errors
   // return a proper 500 instead of being swallowed mid-stream.
   let chatId: string;
+  let chatWasCreated = false;
   let turnId: string;
   try {
     const turn = await prepareChatTurn({
@@ -166,6 +168,7 @@ export async function POST(req: Request) {
       turnId: submittedTurn.turnId,
     });
     chatId = turn.chatId;
+    chatWasCreated = turn.chatWasCreated;
     turnId = turn.turnId;
   } catch (error) {
     console.error("[chat] prepareChatTurn failed:", error);
@@ -173,6 +176,15 @@ export async function POST(req: Request) {
       { error: { code: "persistence_error", message: "Failed to persist chat turn" } },
       { status: 500 }
     );
+  }
+
+  if (chatWasCreated) {
+    trackChatThreadCreatedServer({
+      principal: principal!,
+      chatId,
+      initialMessageLength: submittedTurn.text.length,
+      source: "main_chat_input",
+    });
   }
 
   const customProvider = createOpenAICompatible({

@@ -17,20 +17,21 @@ use spl_associated_token_account_client::{
     instruction::create_associated_token_account_idempotent,
 };
 use spl_token::{instruction as token_instruction, native_mint::id as native_mint_id};
-use std::{thread::sleep, time::{Duration, Instant}};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use crate::{
     cli::OutputFormat,
     constants::{
-        DEPOSIT_DISCRIMINATOR, IX_CREATE_PERMISSION, IX_DELEGATE,
-        IX_DELEGATE_USERNAME_DEPOSIT, IX_INITIALIZE_DEPOSIT,
-        IX_INITIALIZE_USERNAME_DEPOSIT, IX_MODIFY_BALANCE,
-        IX_TRANSFER_TO_USERNAME_DEPOSIT, IX_UNDELEGATE,
-        IX_UNDELEGATE_USERNAME_DEPOSIT, USERNAME_DEPOSIT_DISCRIMINATOR,
+        DEPOSIT_DISCRIMINATOR, IX_CREATE_PERMISSION, IX_DELEGATE, IX_DELEGATE_USERNAME_DEPOSIT,
+        IX_INITIALIZE_DEPOSIT, IX_INITIALIZE_USERNAME_DEPOSIT, IX_MODIFY_BALANCE,
+        IX_TRANSFER_TO_USERNAME_DEPOSIT, IX_UNDELEGATE, IX_UNDELEGATE_USERNAME_DEPOSIT,
+        USERNAME_DEPOSIT_DISCRIMINATOR,
     },
     pda::{
-        delegation_program_id, find_delegation_metadata_pda,
-        find_delegation_record_pda, program_id,
+        delegation_program_id, find_delegation_metadata_pda, find_delegation_record_pda, program_id,
     },
     types::{DepositAccountData, UsernameDepositAccountData},
 };
@@ -153,7 +154,10 @@ pub(crate) fn fetch_deposit_amount(
         return Ok(None);
     }
     let parsed = decode_deposit_account(&account.data)?;
-    debug!("fetch_deposit_amount result: account={}, amount={}", address, parsed.amount);
+    debug!(
+        "fetch_deposit_amount result: account={}, amount={}",
+        address, parsed.amount
+    );
     Ok(Some(parsed.amount))
 }
 
@@ -511,35 +515,25 @@ fn decode_ix_args(disc: &[u8; 8], data: &[u8]) -> Option<String> {
     let args = &data[8..];
     match disc {
         // No extra data
-        d if *d == IX_UNDELEGATE
-            || *d == IX_INITIALIZE_DEPOSIT
-            || *d == IX_CREATE_PERMISSION =>
-        {
+        d if *d == IX_UNDELEGATE || *d == IX_INITIALIZE_DEPOSIT || *d == IX_CREATE_PERMISSION => {
             None
         }
         // amount: u64, increase: bool
         d if *d == IX_MODIFY_BALANCE && args.len() >= 9 => {
             let amount = u64::from_le_bytes(args[..8].try_into().ok()?);
             let increase = args[8] != 0;
-            Some(format!(
-                "amount={amount} increase={increase}"
-            ))
+            Some(format!("amount={amount} increase={increase}"))
         }
         // amount: u64
-        d if *d == IX_TRANSFER_TO_USERNAME_DEPOSIT
-            && args.len() >= 8 =>
-        {
-            let amount =
-                u64::from_le_bytes(args[..8].try_into().ok()?);
+        d if *d == IX_TRANSFER_TO_USERNAME_DEPOSIT && args.len() >= 8 => {
+            let amount = u64::from_le_bytes(args[..8].try_into().ok()?);
             Some(format!("amount={amount}"))
         }
         // user: Pubkey, token_mint: Pubkey
         d if *d == IX_DELEGATE && args.len() >= 64 => {
             let user = Pubkey::try_from(&args[..32]).ok()?;
             let mint = Pubkey::try_from(&args[32..64]).ok()?;
-            Some(format!(
-                "user={user} mint={mint}"
-            ))
+            Some(format!("user={user} mint={mint}"))
         }
         // username: String (borsh), token_mint: Pubkey
         d if *d == IX_DELEGATE_USERNAME_DEPOSIT
@@ -549,21 +543,15 @@ fn decode_ix_args(disc: &[u8; 8], data: &[u8]) -> Option<String> {
             if args.len() < 4 {
                 return None;
             }
-            let len = u32::from_le_bytes(
-                args[..4].try_into().ok()?,
-            ) as usize;
+            let len = u32::from_le_bytes(args[..4].try_into().ok()?) as usize;
             if args.len() < 4 + len {
                 return None;
             }
-            let username =
-                String::from_utf8_lossy(&args[4..4 + len]);
+            let username = String::from_utf8_lossy(&args[4..4 + len]);
             let rest = &args[4 + len..];
             if rest.len() >= 32 {
-                let mint =
-                    Pubkey::try_from(&rest[..32]).ok()?;
-                Some(format!(
-                    "username=\"{username}\" mint={mint}"
-                ))
+                let mint = Pubkey::try_from(&rest[..32]).ok()?;
+                Some(format!("username=\"{username}\" mint={mint}"))
             } else if *d == IX_INITIALIZE_USERNAME_DEPOSIT {
                 Some(format!("username=\"{username}\""))
             } else {
@@ -606,9 +594,7 @@ fn print_instruction_details(ix: &Instruction) {
             (false, true) => "S",
             (false, false) => "R",
         };
-        let field = account_names
-            .and_then(|n| n.get(i).copied())
-            .unwrap_or("");
+        let field = account_names.and_then(|n| n.get(i).copied()).unwrap_or("");
         let key_label = label_known_account(&meta.pubkey);
         let key_str = if key_label.is_empty() {
             meta.pubkey.to_string()
@@ -618,21 +604,15 @@ fn print_instruction_details(ix: &Instruction) {
         if field.is_empty() {
             eprintln!("  [{i}] [{flags:>3}] {key_str}");
         } else {
-            eprintln!(
-                "  [{i}] [{flags:>3}] {field}: {key_str}"
-            );
+            eprintln!("  [{i}] [{flags:>3}] {field}: {key_str}");
         }
     }
 }
 
 // ── Writable account diagnostics ──────────────────────────────────
 
-fn diagnose_writable_accounts(
-    client: &RpcClient,
-    ix: &Instruction,
-) {
-    let writable: Vec<_> =
-        ix.accounts.iter().filter(|m| m.is_writable).collect();
+fn diagnose_writable_accounts(client: &RpcClient, ix: &Instruction) {
+    let writable: Vec<_> = ix.accounts.iter().filter(|m| m.is_writable).collect();
     if writable.is_empty() {
         return;
     }
@@ -649,10 +629,7 @@ fn diagnose_writable_accounts(
             format!("{key} ({label})")
         };
 
-        match client.get_account_with_commitment(
-            key,
-            CommitmentConfig::confirmed(),
-        ) {
+        match client.get_account_with_commitment(key, CommitmentConfig::confirmed()) {
             Ok(response) => {
                 if let Some(account) = response.value {
                     let owner_str = fmt_key(&account.owner);
@@ -663,33 +640,23 @@ fn diagnose_writable_accounts(
                         account.data.len(),
                     );
                     if account.executable {
-                        let msg = format!(
-                            "{key}: executable — cannot be writable"
-                        );
+                        let msg = format!("{key}: executable — cannot be writable");
                         eprintln!("    !! {msg}");
                         problems.push(msg);
                     }
                     if account.owner == delegation_program_id() {
-                        eprintln!(
-                            "    -> delegated (owner=DelegationProgram)"
-                        );
-                        fetch_delegation_record(
-                            client, key, &mut problems,
-                        );
+                        eprintln!("    -> delegated (owner=DelegationProgram)");
+                        fetch_delegation_record(client, key, &mut problems);
                         fetch_delegation_metadata(client, key);
                     }
                 } else {
-                    let msg = format!(
-                        "{key}: does not exist on this RPC"
-                    );
+                    let msg = format!("{key}: does not exist on this RPC");
                     eprintln!("  {key_short}\n    !! {msg}");
                     problems.push(msg);
                 }
             }
             Err(e) => {
-                eprintln!(
-                    "  {key_short}\n    !! fetch error: {e}"
-                );
+                eprintln!("  {key_short}\n    !! fetch error: {e}");
             }
         }
     }
@@ -711,18 +678,13 @@ fn fetch_delegation_record(
     problems: &mut Vec<String>,
 ) {
     let record_pda = find_delegation_record_pda(delegated_account);
-    let Ok(resp) = client.get_account_with_commitment(
-        &record_pda,
-        CommitmentConfig::confirmed(),
-    ) else {
+    let Ok(resp) = client.get_account_with_commitment(&record_pda, CommitmentConfig::confirmed())
+    else {
         eprintln!("    delegation_record: fetch error");
         return;
     };
     let Some(account) = resp.value else {
-        eprintln!(
-            "    delegation_record: not found ({})",
-            record_pda
-        );
+        eprintln!("    delegation_record: not found ({})", record_pda);
         problems.push(format!(
             "{delegated_account}: delegated but no delegation_record"
         ));
@@ -738,34 +700,22 @@ fn fetch_delegation_record(
     //   [88..96] commit_frequency_ms
     let data = &account.data;
     if data.len() < 96 {
-        eprintln!(
-            "    delegation_record: too short ({}B)",
-            data.len()
-        );
+        eprintln!("    delegation_record: too short ({}B)", data.len());
         return;
     }
-    let disc =
-        u64::from_le_bytes(data[0..8].try_into().unwrap());
+    let disc = u64::from_le_bytes(data[0..8].try_into().unwrap());
     if disc != 100 {
-        eprintln!(
-            "    delegation_record: bad discriminator ({disc})"
-        );
+        eprintln!("    delegation_record: bad discriminator ({disc})");
         return;
     }
 
-    let authority =
-        Pubkey::try_from(&data[8..40]).unwrap();
+    let authority = Pubkey::try_from(&data[8..40]).unwrap();
     let owner = Pubkey::try_from(&data[40..72]).unwrap();
-    let slot =
-        u64::from_le_bytes(data[72..80].try_into().unwrap());
-    let lamports =
-        u64::from_le_bytes(data[80..88].try_into().unwrap());
-    let freq =
-        u64::from_le_bytes(data[88..96].try_into().unwrap());
+    let slot = u64::from_le_bytes(data[72..80].try_into().unwrap());
+    let lamports = u64::from_le_bytes(data[80..88].try_into().unwrap());
+    let freq = u64::from_le_bytes(data[88..96].try_into().unwrap());
 
-    eprintln!(
-        "    delegation_record ({record_pda}):"
-    );
+    eprintln!("    delegation_record ({record_pda}):");
     eprintln!("      authority  : {}", fmt_key(&authority));
     eprintln!("      owner      : {}", fmt_key(&owner));
     eprintln!("      slot       : {slot}");
@@ -774,9 +724,7 @@ fn fetch_delegation_record(
 
     let auth_label = label_known_account(&authority);
     if auth_label.is_empty() {
-        problems.push(format!(
-            "delegated to unknown validator {authority}"
-        ));
+        problems.push(format!("delegated to unknown validator {authority}"));
     } else {
         eprintln!("    -> delegated to: {auth_label}");
     }
@@ -789,24 +737,15 @@ fn fetch_delegation_record(
     }
 }
 
-fn fetch_delegation_metadata(
-    client: &RpcClient,
-    delegated_account: &Pubkey,
-) {
-    let meta_pda =
-        find_delegation_metadata_pda(delegated_account);
-    let Ok(resp) = client.get_account_with_commitment(
-        &meta_pda,
-        CommitmentConfig::confirmed(),
-    ) else {
+fn fetch_delegation_metadata(client: &RpcClient, delegated_account: &Pubkey) {
+    let meta_pda = find_delegation_metadata_pda(delegated_account);
+    let Ok(resp) = client.get_account_with_commitment(&meta_pda, CommitmentConfig::confirmed())
+    else {
         eprintln!("    delegation_metadata: fetch error");
         return;
     };
     let Some(account) = resp.value else {
-        eprintln!(
-            "    delegation_metadata: not found ({})",
-            meta_pda
-        );
+        eprintln!("    delegation_metadata: not found ({})", meta_pda);
         return;
     };
 
@@ -818,46 +757,33 @@ fn fetch_delegation_metadata(
     //   [..]    rent_payer (Pubkey, 32B)
     let data = &account.data;
     if data.len() < 17 {
-        eprintln!(
-            "    delegation_metadata: too short ({}B)",
-            data.len()
-        );
+        eprintln!("    delegation_metadata: too short ({}B)", data.len());
         return;
     }
-    let disc =
-        u64::from_le_bytes(data[0..8].try_into().unwrap());
+    let disc = u64::from_le_bytes(data[0..8].try_into().unwrap());
     if disc != 102 {
-        eprintln!(
-            "    delegation_metadata: bad discriminator ({disc})"
-        );
+        eprintln!("    delegation_metadata: bad discriminator ({disc})");
         return;
     }
 
-    let nonce =
-        u64::from_le_bytes(data[8..16].try_into().unwrap());
+    let nonce = u64::from_le_bytes(data[8..16].try_into().unwrap());
     let undelegatable = data[16] != 0;
 
-    eprintln!(
-        "    delegation_metadata ({meta_pda}):"
-    );
+    eprintln!("    delegation_metadata ({meta_pda}):");
     eprintln!("      nonce          : {nonce}");
     eprintln!("      undelegatable  : {undelegatable}");
 
     // Decode seeds: Vec<Vec<u8>>
     let mut off = 17usize;
     if data.len() >= off + 4 {
-        let count = u32::from_le_bytes(
-            data[off..off + 4].try_into().unwrap(),
-        ) as usize;
+        let count = u32::from_le_bytes(data[off..off + 4].try_into().unwrap()) as usize;
         off += 4;
         let mut seeds_strs = Vec::new();
         for _ in 0..count {
             if data.len() < off + 4 {
                 break;
             }
-            let slen = u32::from_le_bytes(
-                data[off..off + 4].try_into().unwrap(),
-            ) as usize;
+            let slen = u32::from_le_bytes(data[off..off + 4].try_into().unwrap()) as usize;
             off += 4;
             if data.len() < off + slen {
                 break;
@@ -866,10 +792,7 @@ fn fetch_delegation_metadata(
             off += slen;
             // Display as UTF-8 if printable, otherwise hex
             if seed.iter().all(|b| b.is_ascii_graphic()) {
-                seeds_strs.push(format!(
-                    "\"{}\"",
-                    String::from_utf8_lossy(seed)
-                ));
+                seeds_strs.push(format!("\"{}\"", String::from_utf8_lossy(seed)));
             } else if seed.len() == 32 {
                 if let Ok(pk) = Pubkey::try_from(seed) {
                     seeds_strs.push(fmt_key(&pk));
@@ -880,19 +803,12 @@ fn fetch_delegation_metadata(
                 seeds_strs.push(to_hex(seed));
             }
         }
-        eprintln!(
-            "      seeds          : [{}]",
-            seeds_strs.join(", ")
-        );
+        eprintln!("      seeds          : [{}]", seeds_strs.join(", "));
 
         // rent_payer follows seeds
         if data.len() >= off + 32 {
-            let payer =
-                Pubkey::try_from(&data[off..off + 32]).unwrap();
-            eprintln!(
-                "      rent_payer     : {}",
-                fmt_key(&payer)
-            );
+            let payer = Pubkey::try_from(&data[off..off + 32]).unwrap();
+            eprintln!("      rent_payer     : {}", fmt_key(&payer));
         }
     }
 }
@@ -902,34 +818,16 @@ fn fetch_delegation_metadata(
 fn label_known_account(pubkey: &Pubkey) -> &'static str {
     let s = pubkey.to_string();
     match s.as_str() {
-        "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV" => {
-            "telegram-private-transfer"
-        }
-        "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh" => {
-            "Delegation Program"
-        }
-        "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1" => {
-            "Permission Program"
-        }
-        "Magic11111111111111111111111111111111111111" => {
-            "Magic Program"
-        }
-        "MagicContext1111111111111111111111111111111" => {
-            "Magic Context"
-        }
+        "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV" => "telegram-private-transfer",
+        "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh" => "Delegation Program",
+        "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1" => "Permission Program",
+        "Magic11111111111111111111111111111111111111" => "Magic Program",
+        "MagicContext1111111111111111111111111111111" => "Magic Context",
         "11111111111111111111111111111111" => "System Program",
-        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => {
-            "Token Program"
-        }
-        "So11111111111111111111111111111111111111112" => {
-            "wSOL Mint"
-        }
-        "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA" => {
-            "PER Validator (devnet)"
-        }
-        "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo" => {
-            "PER Validator (mainnet)"
-        }
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => "Token Program",
+        "So11111111111111111111111111111111111111112" => "wSOL Mint",
+        "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA" => "PER Validator (devnet)",
+        "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo" => "PER Validator (mainnet)",
         _ => "",
     }
 }

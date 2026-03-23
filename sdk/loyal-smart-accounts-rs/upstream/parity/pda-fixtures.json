@@ -1,0 +1,44 @@
+{
+  "pda": {
+    "programConfig": {
+      "address": "GmY9kVi3FhrCUn2MJkzzpE6C5618YoHuGsgqHU78cKus",
+      "bump": 253
+    },
+    "settings": {
+      "address": "41gqrPgijYycTaCCzKyLfvqikMEH9fzGCwZYAKQHvMbd",
+      "bump": 249
+    },
+    "smartAccount": {
+      "address": "htjFzHCrfVCuBvAQVRDsgu9a9LC5zwnkqmhWVgiVk5B",
+      "bump": 254
+    },
+    "transaction": {
+      "address": "Y4S7ZLxTM9k6XBLZH9QoM1wzzyb6ZjwqyGDfQqTHieW",
+      "bump": 255
+    },
+    "proposal": {
+      "address": "3GpADmpVe5ZogweeMxCrX3KvZqJNJdnQ85bH1RBphCcF",
+      "bump": 254
+    },
+    "batchTransaction": {
+      "address": "44chwz1aBa7EmUm11H4uL72oZ2X5eFKt5t2en75gMPP4",
+      "bump": 255
+    },
+    "ephemeralSigner": {
+      "address": "J6YLUhiLBEi6VNahsgLHRFjT6RuXZpT8398HXGdnchj7",
+      "bump": 254
+    },
+    "spendingLimit": {
+      "address": "B5wiUSFqVspd3i99u5SuK7Mp4zEZ76DQniAmDKuA7Ygs",
+      "bump": 255
+    },
+    "transactionBuffer": {
+      "address": "8ohbbu7ps5boFejJzss1h3SVf83Gxx8FeytaQkgmBpKL",
+      "bump": 254
+    },
+    "policy": {
+      "address": "3ByLtPFH5osK7czcETqe13prTPSeRPG9hJZuRtgXRiiV",
+      "bump": 254
+    }
+  }
+}

@@ -8,6 +8,8 @@ import {
   TickerPrice,
   TickerSymbol,
 } from "@/components/kibo-ui/ticker";
+import { usePublicEnv } from "@/contexts/public-env-context";
+import { openTrackedLink } from "@/lib/core/analytics";
 
 const LOYAL_TOKEN_ADDRESS = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 const MAX_RETRIES = 3;
@@ -108,6 +110,7 @@ async function fetchWithRetry(
 }
 
 export function LoyalTokenTicker() {
+  const publicEnv = usePublicEnv();
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
   const [loading, setLoading] = useState(true);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -164,11 +167,11 @@ export function LoyalTokenTicker() {
     <Ticker
       className="loyal-ticker cursor-pointer gap-1 text-xs transition-opacity hover:opacity-80 md:text-xs"
       onClick={() =>
-        window.open(
-          "https://jup.ag/tokens/LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",
-          "_blank",
-          "noopener,noreferrer"
-        )
+        openTrackedLink(publicEnv, {
+          href: "https://jup.ag/tokens/LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",
+          linkText: tokenData.symbol,
+          source: "loyal_token_ticker",
+        })
       }
     >
       <TickerIcon asChild>

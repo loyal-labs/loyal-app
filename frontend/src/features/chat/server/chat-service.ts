@@ -21,6 +21,7 @@ type PrepareChatTurnInput = {
 
 export async function prepareChatTurn(input: PrepareChatTurnInput): Promise<{
   chatId: string;
+  chatWasCreated: boolean;
   userId: string;
   turnId: string;
 }> {
@@ -41,6 +42,7 @@ export async function prepareChatTurn(input: PrepareChatTurnInput): Promise<{
 
   return {
     chatId: chat.id,
+    chatWasCreated: chat.created,
     userId: user.id,
     turnId: input.turnId,
   };

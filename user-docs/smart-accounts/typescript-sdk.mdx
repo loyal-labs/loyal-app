@@ -1,0 +1,168 @@
+---
+title: "TypeScript SDK"
+description: "How to use Loyal’s TypeScript Smart Accounts SDK, from raw instructions to prepared and client-send flows."
+---
+
+The TypeScript package is [`@loyal-labs/loyal-smart-accounts`](https://www.npmjs.com/package/@loyal-labs/loyal-smart-accounts).
+
+## What It Exposes
+
+The public surface is split by feature namespace instead of one flat API:
+
+- `programConfig`
+- `smartAccounts`
+- `proposals`
+- `transactions`
+- `batches`
+- `policies`
+- `spendingLimits`
+- `execution`
+
+It also exports lower-level protocol helpers:
+
+- `generated`
+- `accounts`
+- `pda`
+- `codecs`
+- `errors`
+
+## Install
+
+```bash
+bun add @loyal-labs/loyal-smart-accounts @solana/web3.js
+# or
+npm install @loyal-labs/loyal-smart-accounts @solana/web3.js
+```
+
+## Create A Client
+
+```ts
+import {
+  createLoyalSmartAccountsClient,
+  pda,
+} from "@loyal-labs/loyal-smart-accounts";
+import { Connection } from "@solana/web3.js";
+
+const connection = new Connection("https://api.devnet.solana.com");
+const client = createLoyalSmartAccountsClient({ connection });
+
+const [settingsPda] = pda.getSettingsPda({
+  accountIndex: 1n,
+});
+```
+
+## Three Ways To Work
+
+This is the most important pattern in the SDK:
+
+1. Build a raw instruction
+2. Build a prepared operation
+3. Use the client send flow
+
+### 1. Raw Instruction
+
+Use `smartAccounts.instructions.create(...)` when you want full transaction assembly control.
+
+```ts
+import {
+  codecs,
+  smartAccounts,
+} from "@loyal-labs/loyal-smart-accounts";
+import { Keypair } from "@solana/web3.js";
+
+const creator = Keypair.generate();
+
+const instruction = smartAccounts.instructions.create({
+  treasury: creator.publicKey,
+  creator: creator.publicKey,
+  settings: settingsPda,
+  settingsAuthority: null,
+  threshold: 1,
+  signers: [
+    {
+      key: creator.publicKey,
+      permissions: codecs.Permissions.all(),
+    },
+  ],
+  timeLock: 0,
+  rentCollector: null,
+});
+```
+
+### 2. Prepared Operation
+
+Use `smartAccounts.prepare.create(...)` when you want the SDK to package the operation cleanly before sending it yourself.
+
+```ts
+const prepared = await smartAccounts.prepare.create({
+  treasury: creator.publicKey,
+  creator: creator.publicKey,
+  settings: settingsPda,
+  settingsAuthority: null,
+  threshold: 1,
+  signers: [
+    {
+      key: creator.publicKey,
+      permissions: codecs.Permissions.all(),
+    },
+  ],
+  timeLock: 0,
+  rentCollector: null,
+});
+
+await client.send(prepared, {
+  signers: [creator],
+});
+```
+
+### 3. Client Send Flow
+
+Use `client.smartAccounts.create(...)` when you want the highest-level path.
+
+```ts
+await client.smartAccounts.create({
+  treasury: creator.publicKey,
+  creator,
+  settings: settingsPda,
+  settingsAuthority: null,
+  threshold: 1,
+  signers: [
+    {
+      key: creator.publicKey,
+      permissions: codecs.Permissions.all(),
+    },
+  ],
+  timeLock: 0,
+  rentCollector: null,
+});
+```
+
+## Choosing The Right Level
+
+| Use this | When you want |
+| --- | --- |
+| `instructions.*` | Full control over transaction composition |
+| `prepare.*` | A reusable prepared operation before send |
+| `client.*` | The shortest path from request to signature |
+
+## PDA Helpers You Will Use Early
+
+Two helpers matter immediately:
+
+- `pda.getSettingsPda({ accountIndex })`
+- `pda.getSmartAccountPda({ settingsPda, accountIndex })`
+
+The first derives the configuration root. The second derives a sub-account that can actually hold assets and execute.
+
+<Warning>
+Do not send funds to the settings PDA by accident. In most integrations, the sub-account or vault PDA is the address users should treat as the asset-holding account.
+</Warning>
+
+## What To Read Next
+
+- [Concepts](/smart-accounts/concepts) for the vocabulary behind the fields
+- [Policies and Execution](/smart-accounts/policies-and-execution) for the governance and execution model
+
+<Info>
+The TS SDK already exposes the broader feature namespaces listed above. This page stays centered on the create flow and the main integration pattern so it remains useful instead of turning into a dump of every operation.
+</Info>

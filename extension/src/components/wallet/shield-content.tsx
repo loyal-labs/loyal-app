@@ -935,6 +935,7 @@ export function ShieldContent({
           <div
             style={{
               flex: 1,
+              minHeight: 0,
               display: "flex",
               flexDirection: "column",
               padding: "8px",
@@ -1144,6 +1145,7 @@ export function ShieldContent({
         <div
           style={{
             flex: 1,
+            minHeight: 0,
             display: "flex",
             flexDirection: "column",
             gap: "0",

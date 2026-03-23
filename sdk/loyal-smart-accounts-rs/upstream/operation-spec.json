@@ -1,0 +1,65 @@
+{
+  "publicFeatures": [
+    "programConfig",
+    "smartAccounts",
+    "proposals",
+    "transactions",
+    "batches",
+    "policies",
+    "spendingLimits",
+    "execution"
+  ],
+  "rustExportedFeatures": [
+    "smartAccounts"
+  ],
+  "rustExportedOperations": [
+    "createSmartAccount"
+  ],
+  "operations": [
+    {
+      "name": "initializeProgramConfig",
+      "feature": "programConfig",
+      "instruction": "initializeProgramConfig",
+      "exportName": "initialize",
+      "phase": "offline",
+      "payerRole": "feePayer",
+      "signerRoles": ["feePayer", "initializer"]
+    },
+    {
+      "name": "setProgramConfigAuthority",
+      "feature": "programConfig",
+      "instruction": "setProgramConfigAuthority",
+      "exportName": "setAuthority",
+      "phase": "offline",
+      "payerRole": "feePayer",
+      "signerRoles": ["feePayer", "authority"]
+    },
+    {
+      "name": "setProgramConfigSmartAccountCreationFee",
+      "feature": "programConfig",
+      "instruction": "setProgramConfigSmartAccountCreationFee",
+      "exportName": "setSmartAccountCreationFee",
+      "phase": "offline",
+      "payerRole": "feePayer",
+      "signerRoles": ["feePayer", "authority"]
+    },
+    {
+      "name": "setProgramConfigTreasury",
+      "feature": "programConfig",
+      "instruction": "setProgramConfigTreasury",
+      "exportName": "setTreasury",
+      "phase": "offline",
+      "payerRole": "feePayer",
+      "signerRoles": ["feePayer", "authority"]
+    },
+    {
+      "name": "createSmartAccount",
+      "feature": "smartAccounts",
+      "instruction": "createSmartAccount",
+      "exportName": "create",
+      "phase": "offline",
+      "payerRole": "creator",
+      "signerRoles": ["creator"]
+    }
+  ]
+}

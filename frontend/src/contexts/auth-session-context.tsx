@@ -7,6 +7,7 @@ import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { createAuthApiClient } from "@/lib/auth/client";
+import { resetAuthenticatedUser, trackAuthLogout } from "@/lib/core/analytics";
 import type { AuthApiClient } from "@/lib/auth/client";
 
 type AuthSessionContextValue = {
@@ -92,9 +93,11 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    trackAuthLogout(publicEnv, user);
     await authApiClient.logout();
+    resetAuthenticatedUser();
     setUser(null);
-  }, [authApiClient]);
+  }, [authApiClient, publicEnv, user]);
 
   const value = useMemo(
     () => ({

@@ -1,0 +1,14 @@
+{
+  "repoUrl": "https://github.com/Squads-Protocol/smart-account-program",
+  "commitSha": "80bf1f7ad28fd1176c364879776982730b8e9c80",
+  "fetchedAt": "2026-03-20",
+  "sourceIdlPath": "sdk/smart-account/idl/squads_smart_account_program.json",
+  "sourceProgramLibPath": "programs/squads_smart_account_program/src/lib.rs",
+  "sourceSolitaConfigPath": "sdk/smart-account/.solitarc.js",
+  "normalizedIdlPath": "upstream/normalized/squads_smart_account_program.json",
+  "generatedFromNormalizedIdl": true,
+  "generator": "@metaplex-foundation/solita@0.20.0",
+  "programId": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+  "upstreamPackageName": "@sqds/smart-account",
+  "upstreamPackageVersion": "2.1.2"
+}

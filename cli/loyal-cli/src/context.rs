@@ -3,11 +3,7 @@ use log::{debug, warn};
 use reqwest::blocking::Client as HttpClient;
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::read_keypair_file,
-    signer::Signer,
-};
+use solana_sdk::{pubkey::Pubkey, signature::read_keypair_file, signer::Signer};
 use std::{env, fs, str::FromStr, time::Duration};
 
 use crate::{
@@ -60,7 +56,10 @@ pub(crate) fn build_context(cli: &Cli) -> Result<AppContext> {
     } else {
         DEFAULT_PER_RPC_DEVNET
     };
-    let per_rpc_resolved = cli.per_rpc.clone().unwrap_or_else(|| default_per_rpc.to_string());
+    let per_rpc_resolved = cli
+        .per_rpc
+        .clone()
+        .unwrap_or_else(|| default_per_rpc.to_string());
     let default_router_rpc = if per_rpc_resolved.contains("mainnet-tee") {
         DEFAULT_ROUTER_RPC_MAINNET
     } else {
@@ -94,7 +93,8 @@ pub(crate) fn build_context(cli: &Cli) -> Result<AppContext> {
             Some(token.clone())
         } else if per_rpc_url.contains("tee") {
             // Best-effort integrity probe first, then auth token flow.
-            let integrity_ok = verify_tee_rpc_integrity(&http_client, &per_rpc_url).unwrap_or(false);
+            let integrity_ok =
+                verify_tee_rpc_integrity(&http_client, &per_rpc_url).unwrap_or(false);
             if !integrity_ok {
                 warn!("TEE integrity probe did not verify successfully");
             }
@@ -220,7 +220,10 @@ pub(crate) fn resolve_target(args: &TargetArgs, signer_pubkey: Pubkey) -> Result
         None => signer_pubkey,
     };
     let deposit = find_deposit_pda(&user, &mint);
-    debug!("resolved deposit target: user={}, deposit={}", user, deposit);
+    debug!(
+        "resolved deposit target: user={}, deposit={}",
+        user, deposit
+    );
 
     Ok(Target::Deposit {
         user,

@@ -6,6 +6,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { memo } from "react";
 import { Streamdown } from "streamdown";
 
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import { cn } from "@/lib/utils";
 
 export type ResponseProps = HTMLAttributes<HTMLDivElement> & {
@@ -196,9 +197,10 @@ const customComponents = {
     </strong>
   ),
   a: ({ children, href, ...props }: ComponentProps) => (
-    <a
-      href={href}
-      rel="noopener noreferrer"
+    <TrackedExternalLink
+      href={href ?? "#"}
+      linkText={typeof children === "string" ? children : href}
+      source="chat_response"
       style={{
         color: "rgba(147, 197, 253, 1)",
         textDecoration: "underline",
@@ -208,7 +210,7 @@ const customComponents = {
       {...props}
     >
       {children}
-    </a>
+    </TrackedExternalLink>
   ),
 
   // Divider

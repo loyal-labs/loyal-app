@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "resolveJsonModule": true,
+    "paths": {
+      "@loyal-labs/loyal-smart-accounts-core": ["../loyal-smart-accounts-core/index.ts"],
+      "@loyal-labs/loyal-smart-accounts-core/internal": ["../loyal-smart-accounts-core/internal.ts"]
+    }
+  },
+  "include": [
+    "index.ts",
+    "src/client.ts",
+    "src/feature-factory.ts",
+    "src/index.ts",
+    "src/operation-registry.ts",
+    "src/features/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "tests"
+  ]
+}

@@ -104,3 +104,4 @@ docs/scopes
 
 # internal workspace package build outputs
 /packages/*/dist/
+/sdk/*/dist/

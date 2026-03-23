@@ -7,6 +7,10 @@ import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { WalletTab } from "@/components/auth/wallet-tab";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import type { WalletDesktopData } from "@/hooks/use-wallet-desktop-data";
+import {
+  trackWalletShieldPressed,
+  trackWalletSidebarTabOpen,
+} from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { AllActivityView } from "./all-activity-view";
@@ -181,6 +185,34 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   // Send token state
   const [sendToken, setSendToken] = useState<SwapToken>(derivedTokens[0] ?? fallbackSwapTokens[0]);
 
+  const handleQuickActionTabClick = useCallback(
+    (tab: "portfolio" | "receive" | "send" | "swap") => {
+      if (props.activeTab !== tab) {
+        trackWalletSidebarTabOpen(publicEnv, {
+          source: "sidebar_quick_action",
+          tab,
+        });
+      }
+
+      props.onTabChange(tab);
+    },
+    [props.activeTab, props.onTabChange, publicEnv]
+  );
+
+  const handleSwapModeChange = useCallback(
+    (mode: SwapMode) => {
+      if (swapMode !== mode && mode === "shield") {
+        trackWalletShieldPressed(publicEnv, {
+          source: "swap_sidebar_tab",
+          interaction: "open",
+        });
+      }
+
+      setSwapMode(mode);
+    },
+    [publicEnv, swapMode]
+  );
+
   // Update tokens when derived tokens change (wallet connects/disconnects)
   useEffect(() => {
     if (derivedTokens.length > 0 && derivedTokens[0].mint) {
@@ -325,7 +357,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 <button
                   className="quick-action-btn"
                   key={tab}
-                  onClick={() => props.onTabChange(tab)}
+                  onClick={() => handleQuickActionTabClick(tab)}
                   style={{
                     flex: 1,
                     display: "flex",
@@ -499,7 +531,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
                   {/* Shared tab bar — stays fixed, hidden when non-form phase takes over */}
                   {showSharedTabs && (
-                    <SwapShieldTabs mode={swapMode} onClose={props.onClose} onModeChange={setSwapMode} />
+                    <SwapShieldTabs mode={swapMode} onClose={props.onClose} onModeChange={handleSwapModeChange} />
                   )}
 
                   {/* Sliding content area */}
@@ -531,7 +563,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onFormButtonChange={setSwapButtonProps}
                         onFromTokenChange={setSwapFromToken}
                         onNavigate={setSubView}
-                        onSwapModeChange={setSwapMode}
+                        onSwapModeChange={handleSwapModeChange}
                         onToTokenChange={setSwapToToken}
                         swapMode={swapMode}
                         toToken={swapToToken}
@@ -555,7 +587,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onFormActiveChange={setShieldFormActive}
                         onFormButtonChange={setShieldButtonProps}
                         onNavigate={setSubView}
-                        onSwapModeChange={setSwapMode}
+                        onSwapModeChange={handleSwapModeChange}
                         onTokenChange={setShieldToken}
                         securedBalance={shieldSecuredBalance}
                         swapMode={swapMode}

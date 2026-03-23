@@ -1,0 +1,97 @@
+---
+title: "Policies and Execution"
+description: "How smart-account execution works, and where policies fit into the lifecycle."
+---
+
+This is a mental model for using the SDKs. It is not a full contract specification.
+
+## Two Execution Modes
+
+### Consensus Transactions
+
+This is the async governance path.
+
+Flow:
+
+```text
+Create transaction -> create proposal -> collect votes -> wait through time lock -> execute
+```
+
+Use it when:
+
+- Signers are not online at the same time
+- You want review and approval before execution
+- You want the time lock to act as a safety buffer
+
+### Synchronous Transactions
+
+This is the immediate path when the required signers are present together and the account allows it.
+
+Flow:
+
+```text
+Single transaction with the required signers -> validate -> execute
+```
+
+Use it when:
+
+- `time_lock = 0`
+- Your signers can coordinate in one flow
+- You want the most direct operational path
+
+<Note>
+The point of the time lock is not just delay. It decides whether the account can use the synchronous path at all.
+</Note>
+
+## Why The Lifecycle Is Split
+
+The split between settings, transactions, proposals, and execution is what lets the program do three useful things at once:
+
+- Keep assets separate from configuration
+- Separate proposal state from executable state
+- Apply policy and permission checks at execution time
+
+That structure is why the SDK surface is organized by feature instead of as one giant client.
+
+## What Policies Are
+
+Policies are scoped rule sets with their own execution boundaries. They are useful when a smart account needs narrower permissions than the full settings-level governance model.
+
+## Policy Types You Should Know
+
+### Program Interaction
+
+Use this when a smart account should only call specific programs or instruction shapes.
+
+Why it matters: this is the policy type behind constrained automation and rule-based execution.
+
+### Spending Limits
+
+Use this when a smart account can spend, but only within quantity and time constraints.
+
+Why it matters: it is the simplest way to express operational budgets.
+
+### Internal Fund Transfers
+
+Use this when funds should move between a smart account’s own sub-accounts under defined rules.
+
+Why it matters: it supports internal treasury structure without broad external transfer authority.
+
+### Settings Change
+
+Use this when some configuration changes should be delegated without handing over full control of the entire smart account.
+
+Why it matters: it gives you a middle ground between rigid governance and unrestricted authority.
+
+## Practical Guidance
+
+- Start with the account model first: signer set, threshold, time lock, and whether the account is autonomous or controlled
+- Add policies only where they remove risk or operational friction
+- Use async governance for human approval workflows
+- Use synchronous execution for coordinated or automated flows
+
+<Info>
+If a policy model feels more complicated than the operational problem you are solving, keep the first version simpler. Smart-account design compounds quickly.
+</Info>
+
+Next: [TypeScript SDK](/smart-accounts/typescript-sdk)

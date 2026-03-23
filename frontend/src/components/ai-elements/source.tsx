@@ -3,6 +3,7 @@
 import { BookIcon, ChevronDownIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import {
   Collapsible,
   CollapsibleContent,
@@ -58,10 +59,11 @@ export const SourcesContent = ({
 export type SourceProps = ComponentProps<"a">;
 
 export const Source = ({ href, title, children, ...props }: SourceProps) => (
-  <a
+  <TrackedExternalLink
     className="flex items-center gap-2"
-    href={href}
-    rel="noreferrer"
+    href={href ?? "#"}
+    linkText={title ?? href ?? "source"}
+    source="chat_source"
     target="_blank"
     {...props}
   >
@@ -71,5 +73,5 @@ export const Source = ({ href, title, children, ...props }: SourceProps) => (
         <span className="block font-medium">{title}</span>
       </>
     )}
-  </a>
+  </TrackedExternalLink>
 );

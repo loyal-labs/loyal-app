@@ -2,6 +2,8 @@
 
 import { ArrowDown, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useState } from "react";
+
+import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import type { SwapQuote } from "@/hooks/use-swap";
 
 type SwapTransactionWidgetProps = {
@@ -212,9 +214,10 @@ export function SwapTransactionWidget({
             Swap Successful
           </span>
           {result?.signature && (
-            <a
+            <TrackedExternalLink
               href={`https://orbmarkets.io/tx/${result.signature}?tab=summary`}
-              rel="noopener noreferrer"
+              linkText="View on Orbmarkets"
+              source="swap_transaction_widget"
               style={{
                 color: "rgba(255, 255, 255, 0.6)",
                 fontSize: "13px",
@@ -223,7 +226,7 @@ export function SwapTransactionWidget({
               target="_blank"
             >
               View on Orbmarkets →
-            </a>
+            </TrackedExternalLink>
           )}
         </div>
       </div>

@@ -5,13 +5,16 @@ import { useEffect, useState } from "react";
 
 import { useAuthCapability } from "@/lib/auth/capability";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { trackAuthSignInPressed } from "@/lib/core/analytics";
 
 export function Header() {
   const [mounted, setMounted] = useState(false);
   const { publicKey } = useWallet();
   const { hasWalletConnection } = useAuthCapability();
   const { user } = useAuthSession();
+  const publicEnv = usePublicEnv();
   const { open } = useSignInModal();
 
   const solanaAddress = publicKey?.toBase58();
@@ -35,7 +38,13 @@ export function Header() {
     <>
       <header className="header-wallet fixed top-4 right-6 z-[100]">
         <button
-          onClick={open}
+          onClick={() => {
+            if (!(hasWalletConnection || emailLabel)) {
+              trackAuthSignInPressed(publicEnv, "header");
+            }
+
+            open();
+          }}
           style={{
             display: "flex",
             alignItems: "center",

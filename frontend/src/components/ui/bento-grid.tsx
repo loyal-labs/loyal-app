@@ -10,7 +10,7 @@ export const BentoGrid = ({
 }) => (
   <div
     className={cn(
-      "mx-auto grid max-w-7xl grid-cols-1 gap-5 md:auto-rows-[360px] md:grid-cols-3",
+      "grid grid-cols-1 gap-4 md:grid-cols-3",
       className
     )}
   >
@@ -44,18 +44,17 @@ export const BentoGridItem = ({
     }}
   >
     <div
-      className="flex h-full flex-col overflow-hidden"
+      className="flex flex-col overflow-hidden"
       style={{
         background: "#F5F5F5",
         borderRadius: "20px",
       }}
     >
-      {/* Placeholder area for future animated images */}
-      <div className="flex-1">{header}</div>
-      {/* Text content at the bottom */}
+      {header}
       <div
+        className="flex min-h-0 flex-1 flex-col items-start justify-end gap-2"
         style={{
-          padding: "20px 32px 20px 20px",
+          padding: "16px 32px 16px 16px",
         }}
       >
         <div
@@ -65,8 +64,6 @@ export const BentoGridItem = ({
             fontWeight: 500,
             lineHeight: "24px",
             color: "#000",
-            fontFeatureSettings: "'liga' off, 'clig' off",
-            marginBottom: "8px",
           }}
         >
           {title}
@@ -78,7 +75,7 @@ export const BentoGridItem = ({
             fontWeight: 400,
             lineHeight: "20px",
             color: "rgba(60, 60, 67, 0.6)",
-            fontFeatureSettings: "'liga' off, 'clig' off",
+            maxWidth: "400px",
           }}
         >
           {description}

@@ -3,6 +3,9 @@
 import { ArrowUpToLine } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
+import { openTrackedLink } from "@/lib/core/analytics";
+
 export interface HeroNavProps {
   isScrolledToAbout: boolean;
   isScrolledToRoadmap: boolean;
@@ -26,6 +29,7 @@ export function HeroNav({
   onScrollToLinks,
   onBackToTop,
 }: HeroNavProps) {
+  const publicEnv = usePublicEnv();
   const [hoveredNavIndex, setHoveredNavIndex] = useState<number | null>(null);
   const navItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const prevScrolledToAbout = useRef(false);
@@ -154,11 +158,11 @@ export function HeroNav({
             onClick={
               item.href
                 ? () =>
-                    window.open(
-                      item.href,
-                      "_blank",
-                      "noopener,noreferrer"
-                    )
+                    openTrackedLink(publicEnv, {
+                      href: item.href,
+                      linkText: item.label,
+                      source: "hero_nav",
+                    })
                 : item.onClick
             }
             onMouseEnter={() => setHoveredNavIndex(index)}

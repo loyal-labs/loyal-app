@@ -183,6 +183,8 @@ describe("chat persistence", () => {
       dependencies
     );
 
+    expect(firstChat.created).toBe(true);
+    expect(secondChat.created).toBe(false);
     expect(firstChat.id).toBe(secondChat.id);
     expect(chats).toHaveLength(1);
     expect(chats[0]).toMatchObject({
@@ -203,6 +205,7 @@ describe("chat persistence", () => {
       dependencies
     );
 
+    expect(chat.created).toBe(true);
     const userInserted = await recordSubmittedUserMessage(
       {
         chatId: chat.id,
@@ -256,6 +259,7 @@ describe("chat persistence", () => {
       dependencies
     );
 
+    expect(chat.created).toBe(true);
     await recordSubmittedUserMessage(
       {
         chatId: chat.id,
@@ -293,6 +297,7 @@ describe("chat persistence", () => {
       dependencies
     );
 
+    expect(chat.created).toBe(true);
     const inserted = await recordAssistantReply(
       {
         chatId: chat.id,
@@ -319,6 +324,7 @@ describe("chat persistence", () => {
       dependencies
     );
 
+    expect(chat.created).toBe(true);
     await recordAssistantReply(
       {
         chatId: chat.id,

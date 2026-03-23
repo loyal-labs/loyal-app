@@ -13,6 +13,10 @@ type PersistedChatRecord = {
   title: string | null;
 };
 
+export type OpenedOrCreatedChatRecord = PersistedChatRecord & {
+  created: boolean;
+};
+
 export type OpenOrCreateChatInput = {
   userId: string;
   clientChatId: string | null;
@@ -207,7 +211,7 @@ export function deriveChatTitle(text: string): string | null {
 export async function openOrCreateChat(
   input: OpenOrCreateChatInput,
   dependencies: ChatPersistenceDependencies = createChatPersistenceDependencies()
-): Promise<PersistedChatRecord> {
+): Promise<OpenedOrCreatedChatRecord> {
   const now = dependencies.now();
   const title = deriveChatTitle(input.firstPrompt);
 
@@ -224,10 +228,10 @@ export async function openOrCreateChat(
           title,
           now,
         });
-        return { ...existingChat, title };
+        return { ...existingChat, created: false, title };
       }
 
-      return existingChat;
+      return { ...existingChat, created: false };
     }
   }
 
@@ -240,7 +244,7 @@ export async function openOrCreateChat(
   });
 
   if (createdChat) {
-    return createdChat;
+    return { ...createdChat, created: true };
   }
 
   if (!input.clientChatId) {
@@ -261,10 +265,10 @@ export async function openOrCreateChat(
       title,
       now,
     });
-    return { ...racedChat, title };
+    return { ...racedChat, created: false, title };
   }
 
-  return racedChat;
+  return { ...racedChat, created: false };
 }
 
 export async function recordSubmittedUserMessage(

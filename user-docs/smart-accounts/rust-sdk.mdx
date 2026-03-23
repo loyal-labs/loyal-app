@@ -1,0 +1,105 @@
+---
+title: "Rust SDK"
+description: "How to use Loyal’s Rust Smart Accounts crate for the current creation-focused public surface."
+---
+
+The Rust crate is `loyal-smart-accounts-rs`, imported in code as `loyal_smart_accounts_rs`.
+
+## Scope
+
+This crate is parity-first, but intentionally narrower than the TypeScript SDK today.
+
+The stable public flow to rely on right now is:
+
+- `smart_accounts::instructions::create`
+- `smart_accounts::prepare::create`
+- `client.smart_accounts().create(...)`
+
+<Info>
+Do not assume the Rust crate currently matches the full TS feature surface. Today the documented, trustworthy path is the smart-account create flow.
+</Info>
+
+## Create A Client
+
+```rust
+use std::sync::Arc;
+
+use loyal_smart_accounts_rs::{
+    create_loyal_smart_accounts_client,
+    LoyalSmartAccountsClientConfig,
+};
+use solana_client::nonblocking::rpc_client::RpcClient;
+
+let rpc = Arc::new(RpcClient::new("https://api.devnet.solana.com".into()));
+
+let client = create_loyal_smart_accounts_client(LoyalSmartAccountsClientConfig {
+    rpc,
+    program_id: None,
+    default_commitment: None,
+    sender: None,
+    confirmer: None,
+});
+```
+
+## Build The Request
+
+```rust
+use loyal_smart_accounts_rs::smart_accounts::CreateSmartAccountRequest;
+use loyal_smart_accounts_rs::types::{Permissions, SmartAccountSigner};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
+
+let creator = Keypair::new();
+
+let request = CreateSmartAccountRequest {
+    treasury: Pubkey::new_unique(),
+    creator: creator.pubkey(),
+    settings: None,
+    settings_authority: None,
+    threshold: 1,
+    signers: vec![SmartAccountSigner {
+        key: creator.pubkey(),
+        permissions: Permissions::all(),
+    }],
+    time_lock: 0,
+    rent_collector: None,
+    memo: None,
+    program_id: None,
+    remaining_accounts: vec![],
+};
+```
+
+## Two Useful Entry Points
+
+### Raw Instruction
+
+Use `smart_accounts::instructions::create(...)` when you want to assemble and send the transaction yourself.
+
+```rust
+use loyal_smart_accounts_rs::{smart_accounts, PROGRAM_ID};
+
+let instruction = smart_accounts::instructions::create(&request, PROGRAM_ID)?;
+```
+
+### Prepare First
+
+Use `smart_accounts::prepare::create(...)` when you want a prepared operation before send.
+
+```rust
+use loyal_smart_accounts_rs::{smart_accounts, PROGRAM_ID};
+
+let prepared = smart_accounts::prepare::create(&request, PROGRAM_ID)?;
+```
+
+### Send Through The Client
+
+Use `client.smart_accounts().create(...)` for the direct path.
+
+```rust
+let signature = client.smart_accounts().create(request, &creator).await?;
+```
+
+## What This Means In Practice
+
+- Rust is already useful for creation workflows
+- The TS SDK is still the broader integration surface today
+- If you need the fullest feature coverage right now, start from [TypeScript SDK](/smart-accounts/typescript-sdk)

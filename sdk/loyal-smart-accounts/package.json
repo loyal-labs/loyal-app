@@ -1,0 +1,60 @@
+{
+  "name": "@loyal-labs/loyal-smart-accounts",
+  "version": "0.1.0",
+  "description": "Universal TypeScript SDK for the Squads Smart Account program",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bun run clean && bun run build:js && bun run build:types",
+    "build:js": "bun build ./index.ts --outdir ./dist --target browser --format esm --external @loyal-labs/loyal-smart-accounts-core --external @solana/web3.js",
+    "build:types": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run build",
+    "clean": "rm -rf dist",
+    "test": "bun test",
+    "validate:surface": "bun test tests/operation-registry.test.ts"
+  },
+  "keywords": [
+    "solana",
+    "smart-account",
+    "squads",
+    "wallet",
+    "multisig",
+    "web3",
+    "blockchain"
+  ],
+  "author": "Loyal",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/loyal/loyal-app.git",
+    "directory": "sdk/loyal-smart-accounts"
+  },
+  "bugs": {
+    "url": "https://github.com/loyal/loyal-app/issues"
+  },
+  "homepage": "https://github.com/loyal/loyal-app/tree/main/sdk/loyal-smart-accounts#readme",
+  "peerDependencies": {
+    "@solana/web3.js": "^1.98.0"
+  },
+  "dependencies": {
+    "@loyal-labs/loyal-smart-accounts-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^24.0.15",
+    "typescript": "^5.7.3"
+  }
+}

@@ -22,6 +22,11 @@
     "frontend:dev": "bun run --cwd frontend dev",
     "frontend:build": "bun run --cwd frontend build",
     "frontend:lint": "bun run --cwd frontend lint",
+    "loyal-smart-accounts:update": "bun run scripts/update-loyal-smart-accounts.ts",
+    "loyal-smart-accounts:update:check": "bun run scripts/update-loyal-smart-accounts.ts --check",
+    "loyal-smart-accounts:build": "bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts build",
+    "loyal-smart-accounts:typecheck": "bun run guard:sdk-dist-untracked && bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts-core typecheck && bun run --cwd sdk/loyal-smart-accounts build && bun run --cwd sdk/loyal-smart-accounts typecheck",
+    "loyal-smart-accounts:test": "bun run guard:sdk-dist-untracked && bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts build && bun run --cwd sdk/loyal-smart-accounts-core test && bun run --cwd sdk/loyal-smart-accounts test",
     "passkey:dev": "bun run --cwd passkey dev",
     "passkey:build": "bun run --cwd passkey build",
     "passkey:lint": "bun run --cwd passkey lint",
@@ -42,7 +47,8 @@
     "typecheck:llm-packages": "bun run --cwd packages/llm-core typecheck && bun run --cwd packages/llm-server typecheck",
     "guard:shared-boundaries": "rg -n \"@/lib/core/config/server|app/src/lib/core/config/server\" packages && (echo \"Shared packages must not import app server config\" && exit 1) || true",
     "guard:llm-package-boundaries": "rg -n \"@/|@/lib/core/config/server|app/src/lib/core/config/server\" packages/llm-core packages/llm-server && (echo \"LLM packages must not import app aliases or server config\" && exit 1) || true",
-    "guard:admin-shared-schema": "([ ! -d admin/src/lib/generated ] || (echo \"admin/src/lib/generated must not exist\" && exit 1)) && ([ ! -f admin/drizzle.config.ts ] || (echo \"admin/drizzle.config.ts must not exist\" && exit 1)) && (rg -n \"@/lib/generated|src/lib/generated\" admin/src && (echo \"Admin must use shared @loyal-labs/db-core/schema only\" && exit 1) || true)"
+    "guard:admin-shared-schema": "([ ! -d admin/src/lib/generated ] || (echo \"admin/src/lib/generated must not exist\" && exit 1)) && ([ ! -f admin/drizzle.config.ts ] || (echo \"admin/drizzle.config.ts must not exist\" && exit 1)) && (rg -n \"@/lib/generated|src/lib/generated\" admin/src && (echo \"Admin must use shared @loyal-labs/db-core/schema only\" && exit 1) || true)",
+    "guard:sdk-dist-untracked": "test -z \"$(git ls-files 'sdk/loyal-smart-accounts/dist/**' 'sdk/loyal-smart-accounts-core/dist/**')\" || (echo 'SDK dist outputs must not be tracked' && exit 1)"
   },
   "overrides": {
     "drizzle-orm": "0.45.1"

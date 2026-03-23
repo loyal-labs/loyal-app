@@ -1,0 +1,65 @@
+---
+title: "Overview"
+description: "What Loyal Smart Accounts are, when to use them, and the mental model behind the SDKs."
+---
+
+Loyal Smart Accounts are programmable Solana accounts for teams and apps that need shared control, policy-based execution, or safer operational flows than a single wallet can provide.
+
+Under the hood, Loyal’s SDKs target the Squads Smart Account Program, but the docs here stay focused on the Loyal developer surface and the concepts you need to use it well.
+
+## When To Use This
+
+Use Loyal Smart Accounts when you need one or more of these:
+
+- Multiple signers with an approval threshold
+- A controlled separation between configuration and funds
+- Proposal-based execution with an optional delay
+- Rules around what can be spent or executed
+- A TS SDK today, with a narrower Rust parity surface for create flows
+
+<Info>
+If you only need a single signer wallet with no policy logic, Smart Accounts are probably unnecessary overhead.
+</Info>
+
+## Mental Model
+
+Think about the system in five pieces:
+
+| Piece | What it does |
+| --- | --- |
+| `Settings` | The configuration root for a smart account |
+| Sub-accounts / vaults | The addresses that actually hold assets and execute |
+| Signers + permissions | Who can initiate, vote, and execute |
+| Transactions + proposals | The async governance path |
+| Policies | Scoped rules for what can happen and under what limits |
+
+### 1. Settings
+
+The `Settings` account is the control plane. It stores signer configuration, threshold, time lock, and other governance state.
+
+### 2. Sub-accounts
+
+Assets live in derived smart-account addresses, sometimes easiest to think of as vaults. `account_index = 0` is usually the primary one.
+
+### 3. Signers
+
+Each signer has a permission mask. The important permissions are:
+
+- Initiate
+- Vote
+- Execute
+
+### 4. Transactions and proposals
+
+If you want review and approval before execution, you create transactions and proposals, collect votes, then execute once the threshold and time-lock rules are satisfied.
+
+### 5. Policies
+
+Policies let you express narrower execution rules without giving the whole settings authority away. That is useful for spend controls, constrained program calls, and delegated operational flows.
+
+## Start Here
+
+- Read [Concepts](/smart-accounts/concepts) if you are new to the model
+- Read [Policies and Execution](/smart-accounts/policies-and-execution) if you need the lifecycle and rule system
+- Read [TypeScript SDK](/smart-accounts/typescript-sdk) if you are integrating from an app today
+- Read [Rust SDK](/smart-accounts/rust-sdk) if you need the current parity-first Rust surface

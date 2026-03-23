@@ -6,8 +6,13 @@ import { ChatInput } from "@/components/chat-input";
 import { ChatMessages } from "@/components/chat-messages";
 import { HeroNav } from "@/components/hero-nav";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
+import {
+  trackAuthSignInPressed,
+  trackWalletSidebarTabOpen,
+} from "@/lib/core/analytics";
 import {
   HeroRightSidebar,
   type RightSidebarTab,
@@ -40,9 +45,18 @@ export interface HeroSectionProps {
   currentChatId: string;
 }
 
+export function shouldOpenRightSidebarTab(args: {
+  currentTab: RightSidebarTab;
+  isOpen: boolean;
+  nextTab: RightSidebarTab;
+}): boolean {
+  return !(args.isOpen && args.currentTab === args.nextTab);
+}
+
 export function HeroSection(props: HeroSectionProps) {
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
+  const publicEnv = usePublicEnv();
   const walletDesktopData = useWalletDesktopData();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
@@ -69,6 +83,40 @@ export function HeroSection(props: HeroSectionProps) {
   const closeSignIn = useCallback(() => {
     setIsRightSidebarOpen(false);
   }, []);
+
+  const openTrackedSignIn = useCallback(
+    (source: "hero_card") => {
+      trackAuthSignInPressed(publicEnv, source);
+      openSignIn();
+    },
+    [openSignIn, publicEnv]
+  );
+
+  const openRightSidebarFromHero = useCallback(
+    (tab: RightSidebarTab) => {
+      if (
+        !shouldOpenRightSidebarTab({
+          currentTab: rightSidebarTab,
+          isOpen: isRightSidebarOpen,
+          nextTab: tab,
+        })
+      ) {
+        setIsRightSidebarOpen(false);
+        return;
+      }
+
+      if (tab !== "sign-in") {
+        trackWalletSidebarTabOpen(publicEnv, {
+          source: "hero_action_card",
+          tab,
+        });
+      }
+
+      setRightSidebarTab(tab);
+      setIsRightSidebarOpen(true);
+    },
+    [isRightSidebarOpen, publicEnv, rightSidebarTab]
+  );
 
   // Register sidebar as the sign-in handler so Header and other consumers route here
   useEffect(() => {
@@ -458,15 +506,8 @@ export function HeroSection(props: HeroSectionProps) {
             balanceFraction={walletDesktopData.balanceFraction}
             balanceSolLabel={walletDesktopData.balanceSolLabel}
             balanceHistory={walletDesktopData.balanceHistory.map((p) => p.valueUsd)}
-            onOpenRightSidebar={(tab) => {
-              if (isRightSidebarOpen && rightSidebarTab === tab) {
-                setIsRightSidebarOpen(false);
-              } else {
-                setRightSidebarTab(tab);
-                setIsRightSidebarOpen(true);
-              }
-            }}
-            onOpenSignIn={openSignIn}
+            onOpenRightSidebar={openRightSidebarFromHero}
+            onOpenSignIn={openTrackedSignIn}
             dogCry={dogCry}
             dogNice={dogNice}
           />

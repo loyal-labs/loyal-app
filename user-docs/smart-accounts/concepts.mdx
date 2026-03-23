@@ -1,0 +1,101 @@
+---
+title: "Concepts"
+description: "The core smart-account vocabulary and the invariants developers need before using the SDKs."
+---
+
+This page covers the terms that show up immediately in the SDK examples. It is intentionally narrow.
+
+## Settings
+
+`Settings` is the root account for configuration.
+
+Why it matters: threshold, time lock, signer list, and policy state all hang off this account.
+
+<Note>
+Do not treat the `Settings` PDA as the place to hold assets. It is the control account, not the treasury address.
+</Note>
+
+## Sub-Accounts
+
+Sub-accounts are the derived addresses that hold funds and execute transactions. In practice, this is the address most developers think of as the smart account itself.
+
+Why it matters: if you derive the wrong account, you can point users at the wrong address for deposits or execution.
+
+<Warning>
+Fund the smart-account sub-account or vault address, not the `Settings` address. Sending funds to the wrong address is one of the easiest mistakes to make.
+</Warning>
+
+## Signer Permissions
+
+Signers carry a permission bitmask. The core permissions are:
+
+- `Initiate`
+- `Vote`
+- `Execute`
+
+Why it matters: the program enforces capability, not just membership.
+
+<Note>
+The program requires at least one signer that can initiate, one that can vote, and one that can execute. A valid signer set still fails if those capabilities are missing.
+</Note>
+
+## Threshold
+
+Threshold is the number of voting signers required to approve governance actions.
+
+Why it matters: it defines the difference between a simple shared wallet and an actual multisig workflow.
+
+<Note>
+Threshold must be greater than zero and cannot exceed the number of signers with vote permission.
+</Note>
+
+## `settings_authority`
+
+`settings_authority` controls whether the smart account is autonomous or directly managed.
+
+Why it matters: this changes how configuration updates happen.
+
+| Mode | Meaning |
+| --- | --- |
+| `Pubkey::default()` or `null` equivalent | Autonomous. Config changes go through governance. |
+| Explicit pubkey | Controlled. That authority can change settings directly. |
+
+<Note>
+Use a controlled account when you want an operator or platform authority to manage config. Use autonomous mode when the account should govern itself.
+</Note>
+
+## Time Lock
+
+Time lock is the delay between approval and execution.
+
+Why it matters: it determines whether a flow can settle immediately or must wait.
+
+<Note>
+`time_lock = 0` enables the synchronous path. Non-zero time lock pushes you into the proposal-based lifecycle.
+</Note>
+
+## Autonomous Vs Controlled
+
+These are the two most important operating modes to understand before integrating.
+
+### Autonomous
+
+The account governs itself through signers, threshold, and proposal flow.
+
+Why it matters: this is the cleanest model when no outside operator should be able to rewrite configuration.
+
+### Controlled
+
+A separate authority can change settings directly.
+
+Why it matters: this is often the better fit for managed systems, custodial products, or rollout phases where governance is not fully decentralized yet.
+
+## The Invariants Worth Remembering
+
+- Funds belong in a smart-account sub-account, not the `Settings` account
+- Permissions matter as much as signer count
+- Threshold is counted against voters, not against every signer
+- Time lock changes the execution path, not just the speed
+- Policy design is part of account design, not an afterthought
+
+Next: [Policies and Execution](/smart-accounts/policies-and-execution)

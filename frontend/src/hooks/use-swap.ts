@@ -1,4 +1,5 @@
 import { TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
+import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import {
   useConnection,
   useWallet,
@@ -11,6 +12,7 @@ import {
 import { useCallback, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { trackWalletSwapCompleted } from "@/lib/core/analytics";
 
 // Debug logger that only emits in development
 const logger = {
@@ -93,7 +95,8 @@ type JupiterSwapResponse = {
 export function useSwap() {
   const { connection } = useConnection();
   const { publicKey, connected: isConnected, sendTransaction } = useWallet();
-  const { swap: swapConfig } = usePublicEnv();
+  const publicEnv = usePublicEnv();
+  const { swap: swapConfig } = publicEnv;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<SwapQuote | null>(null);
@@ -229,130 +232,139 @@ export function useSwap() {
     [getTokenDecimals, swapConfig]
   );
 
-  const executeSwap = useCallback(async (): Promise<SwapResult> => {
-    if (swapConfig.mode === "disabled") {
-      setError(swapConfig.reason);
-      return { success: false, error: swapConfig.reason };
-    }
+  const executeSwap = useCallback(
+    async (successTrackingProperties?: AnalyticsProperties): Promise<SwapResult> => {
+      if (swapConfig.mode === "disabled") {
+        setError(swapConfig.reason);
+        return { success: false, error: swapConfig.reason };
+      }
 
-    if (!(isConnected && publicKey)) {
-      const errorMsg = "Wallet not connected";
-      setError(errorMsg);
-      return { success: false, error: errorMsg };
-    }
+      if (!(isConnected && publicKey)) {
+        const errorMsg = "Wallet not connected";
+        setError(errorMsg);
+        return { success: false, error: errorMsg };
+      }
 
-    if (!quoteResponse) {
-      const errorMsg = "No quote available. Please get a quote first.";
-      setError(errorMsg);
-      return { success: false, error: errorMsg };
-    }
+      if (!quoteResponse) {
+        const errorMsg = "No quote available. Please get a quote first.";
+        setError(errorMsg);
+        return { success: false, error: errorMsg };
+      }
 
-    setLoading(true);
-    setError(null);
+      setLoading(true);
+      setError(null);
 
-    try {
+      try {
 
-      logger.debug("Executing swap with quote:", quoteResponse);
+        logger.debug("Executing swap with quote:", quoteResponse);
 
-      // Step 1: Call Jupiter Swap API to get transaction
-      logger.debug("Calling Jupiter Swap API...");
+        // Step 1: Call Jupiter Swap API to get transaction
+        logger.debug("Calling Jupiter Swap API...");
 
-      const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": swapConfig.apiKey,
-        },
-        body: JSON.stringify({
-          userPublicKey: publicKey.toBase58(),
-          quoteResponse,
-          wrapAndUnwrapSol: true,
-          dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: {
-            priorityLevelWithMaxLamports: {
-              priorityLevel: "veryHigh",
-              maxLamports: 50_000_000, // 0.05 SOL max for priority
-              global: true, // Use global fee market
-            },
+        const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": swapConfig.apiKey,
           },
-        }),
-      });
+          body: JSON.stringify({
+            userPublicKey: publicKey.toBase58(),
+            quoteResponse,
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true,
+            prioritizationFeeLamports: {
+              priorityLevelWithMaxLamports: {
+                priorityLevel: "veryHigh",
+                maxLamports: 50_000_000, // 0.05 SOL max for priority
+                global: true, // Use global fee market
+              },
+            },
+          }),
+        });
 
-      if (!swapResponse.ok) {
-        const errorText = await swapResponse.text();
-        logger.debug("Jupiter Swap API error:", errorText);
-        throw new Error(`Jupiter Swap API failed: ${swapResponse.statusText}`);
-      }
+        if (!swapResponse.ok) {
+          const errorText = await swapResponse.text();
+          logger.debug("Jupiter Swap API error:", errorText);
+          throw new Error(`Jupiter Swap API failed: ${swapResponse.statusText}`);
+        }
 
-      const swapData: JupiterSwapResponse = await swapResponse.json();
-      logger.debug("Jupiter Swap transaction response:", swapData);
+        const swapData: JupiterSwapResponse = await swapResponse.json();
+        logger.debug("Jupiter Swap transaction response:", swapData);
 
-      const { swapTransaction: serializedTx } = swapData;
-      if (!serializedTx) {
-        throw new Error("No transaction returned from Jupiter Swap API");
-      }
+        const { swapTransaction: serializedTx } = swapData;
+        if (!serializedTx) {
+          throw new Error("No transaction returned from Jupiter Swap API");
+        }
 
       // Step 2: Deserialize transaction
-      const txBuffer = Buffer.from(serializedTx, "base64");
-      const transaction = VersionedTransaction.deserialize(txBuffer);
+        const txBuffer = Buffer.from(serializedTx, "base64");
+        const transaction = VersionedTransaction.deserialize(txBuffer);
 
       // Step 3: Sign and send transaction using wallet-adapter
-      logger.debug("Signing and sending transaction...");
-      const signature = await sendTransaction(transaction, connection);
+        logger.debug("Signing and sending transaction...");
+        const signature = await sendTransaction(transaction, connection);
 
-      logger.debug("Transaction sent:", signature);
-      logger.debug(
-        `View transaction: https://orbmarkets.io/tx/${signature}?tab=summary`
-      );
+        logger.debug("Transaction sent:", signature);
+        logger.debug(
+          `View transaction: https://orbmarkets.io/tx/${signature}?tab=summary`
+        );
 
       // Step 4: Confirm transaction with proper strategy
-      logger.debug("Confirming transaction...");
-      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
-      const confirmation = await connection.confirmTransaction(
-        {
-          signature,
-          blockhash: latestBlockhash.blockhash,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-        },
-        "confirmed"
-      );
-
-      if (confirmation.value.err) {
-        throw new Error(
-          `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+        logger.debug("Confirming transaction...");
+        const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+        const confirmation = await connection.confirmTransaction(
+          {
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          },
+          "confirmed"
         );
-      }
 
-      logger.debug("Transaction confirmed!");
-      setLoading(false);
-      return {
-        signature,
-        success: true,
-      };
-    } catch (err) {
-      let errorMessage = "Swap execution failed";
+        if (confirmation.value.err) {
+          throw new Error(
+            `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+          );
+        }
 
-      if (err instanceof Error) {
-        // Handle timeout errors specifically
-        if (
-          err.message.includes("timeout") ||
-          err.message.includes("Timeout")
-        ) {
+        logger.debug("Transaction confirmed!");
+        setLoading(false);
+        if (successTrackingProperties) {
+          trackWalletSwapCompleted(publicEnv, {
+            ...successTrackingProperties,
+            signature,
+          });
+        }
+        return {
+          signature,
+          success: true,
+        };
+      } catch (err) {
+        let errorMessage = "Swap execution failed";
+
+        if (err instanceof Error) {
+          // Handle timeout errors specifically
+          if (
+            err.message.includes("timeout") ||
+            err.message.includes("Timeout")
+          ) {
           errorMessage =
             "Transaction signing timed out. Please try again and approve the transaction in your wallet promptly.";
-        } else if (err.message.includes("User rejected")) {
-          errorMessage = "Transaction was rejected in your wallet.";
-        } else {
-          errorMessage = err.message;
+          } else if (err.message.includes("User rejected")) {
+            errorMessage = "Transaction was rejected in your wallet.";
+          } else {
+            errorMessage = err.message;
+          }
         }
-      }
 
-      setError(errorMessage);
-      logger.debug("Swap execution error:", err);
-      setLoading(false);
-      return { success: false, error: errorMessage };
-    }
-  }, [connection, isConnected, publicKey, quoteResponse, sendTransaction, swapConfig]);
+        setError(errorMessage);
+        logger.debug("Swap execution error:", err);
+        setLoading(false);
+        return { success: false, error: errorMessage };
+      }
+    },
+    [connection, isConnected, publicEnv, publicKey, quoteResponse, sendTransaction, swapConfig]
+  );
 
   const resetQuote = useCallback(() => {
     setQuote(null);

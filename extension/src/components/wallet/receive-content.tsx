@@ -97,6 +97,7 @@ export function ReceiveContent({
           alignItems: "center",
           padding: "0 24px",
           overflow: "auto",
+          minHeight: 0,
         }}
       >
         {/* Solana icon + warning */}
