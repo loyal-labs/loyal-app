@@ -72,7 +72,7 @@ export function VaultAccountPageView({
   transactionDetails: Record<string, TransactionDetail>;
   onBack: () => void;
   onClose: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>

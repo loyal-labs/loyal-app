@@ -42,7 +42,7 @@ export function AccountPageView({
   transactionDetails: Record<string, TransactionDetail>;
   onBack: () => void;
   onClose: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   onTabChange: (tab: RightSidebarTab) => void;
 }) {
   return (
