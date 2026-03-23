@@ -108,7 +108,7 @@ export function HeroSection(props: HeroSectionProps) {
         return;
       }
 
-      if (tab !== "sign-in") {
+      if (tab !== "sign-in" && tab !== "connect") {
         trackWalletSidebarTabOpen(publicEnv, {
           source: "hero_action_card",
           tab,
