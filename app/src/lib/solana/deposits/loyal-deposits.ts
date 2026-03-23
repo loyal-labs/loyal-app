@@ -215,14 +215,6 @@ export async function shieldTokens(params: {
     createdAta = result.createdAta;
   }
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    keypair.publicKey,
-    false,
-    TOKEN_PROGRAM_ID
-  );
-  console.log("userTokenAccount", userTokenAccount.toString());
-
   // 3. Undelegate if currently delegated (modifyBalance requires base layer ownership)
   const [depositPda] = findDepositPda(keypair.publicKey, tokenMint);
   const depositAccountInfo =
@@ -253,12 +245,18 @@ export async function shieldTokens(params: {
     increase: true,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 
   // Close temporary wSOL ATA if we created it
   if (isNativeSol && createdAta) {
+    const userTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      keypair.publicKey,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    console.log("userTokenAccount", userTokenAccount.toString());
     console.log("closeWsolAta");
     await closeWsolAta({
       connection,
@@ -351,13 +349,6 @@ export async function unshieldTokens(params: {
   }
   // FIXME(zotho): ensure ATA exist for any token mints
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    keypair.publicKey,
-    false,
-    TOKEN_PROGRAM_ID
-  );
-
   console.log("modifyBalance");
   const { signature } = await client.modifyBalance({
     tokenMint,
@@ -365,12 +356,17 @@ export async function unshieldTokens(params: {
     increase: false,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 
   // 3. Unwrap wSOL back to native SOL
   if (isNativeSol) {
+    const userTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      keypair.publicKey,
+      false,
+      TOKEN_PROGRAM_ID
+    );
     console.log("closeWsolAta");
     await closeWsolAta({
       connection,

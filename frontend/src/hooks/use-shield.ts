@@ -138,8 +138,6 @@ export function useShield() {
           createdAta = result.createdAta;
         }
 
-        const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
-
         // Undelegate if currently delegated
         const [depositPda] = findDepositPda(user, tokenMint);
         const depositInfo = await connection.getAccountInfo(depositPda);
@@ -160,11 +158,11 @@ export function useShield() {
           increase: true,
           user,
           payer: user,
-          userTokenAccount,
         });
 
         // Close wSOL ATA if we created it
         if (isNativeSol && createdAta) {
+          const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
           await closeWsolAta({ connection, wallet: walletSigner, wsolAta: userTokenAccount });
         }
 
@@ -227,8 +225,6 @@ export function useShield() {
         const user = wallet.publicKey;
         const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
-        const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
-
         // Undelegate if currently delegated
         const [depositPda] = findDepositPda(user, tokenMint);
         const depositInfo = await connection.getAccountInfo(depositPda);
@@ -249,7 +245,6 @@ export function useShield() {
           increase: false,
           user,
           payer: user,
-          userTokenAccount,
         });
 
         // Unwrap wSOL if native SOL
@@ -258,6 +253,7 @@ export function useShield() {
             publicKey: user,
             signTransaction: wallet.signTransaction,
           };
+          const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
           await closeWsolAta({ connection, wallet: walletSigner, wsolAta: userTokenAccount });
         }
 
