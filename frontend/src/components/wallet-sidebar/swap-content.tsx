@@ -862,7 +862,7 @@ export function SwapContent({
 }: {
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   fromToken: SwapToken;
   toToken: SwapToken;
   onFromTokenChange: (t: SwapToken) => void;

@@ -429,7 +429,7 @@ export function ShieldContent({
 }: {
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   token: SwapToken;
   onTokenChange: (t: SwapToken) => void;
   securedBalance: number;

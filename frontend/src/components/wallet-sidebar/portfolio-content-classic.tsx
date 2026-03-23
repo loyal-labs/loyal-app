@@ -119,7 +119,7 @@ export function PortfolioContentClassic({
   isLoading: boolean;
   onBalanceHiddenChange: (hidden: boolean) => void;
   onDisconnect?: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   tokenRows: TokenRow[];
   transactionDetails: Record<string, TransactionDetail>;
   walletAddress: string | null;

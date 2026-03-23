@@ -359,7 +359,7 @@ export function SendContent({
 }: {
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
 }) {
