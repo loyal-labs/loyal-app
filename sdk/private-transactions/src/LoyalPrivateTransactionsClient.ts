@@ -857,23 +857,44 @@ export class LoyalPrivateTransactionsClient {
    * is owned by PROGRAM_ID before returning.
    */
   async undelegateDeposit(params: UndelegateDepositParams): Promise<string> {
-    const {
-      user,
-      tokenMint,
-      payer,
-      sessionToken,
-      magicProgram,
-      magicContext,
-      rpcOptions,
-    } = params;
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await this.undelegateDepositIx(params);
+
+    await this.processEnsureChecks(ensure);
 
     const [depositPda] = findDepositPda(user, tokenMint);
 
-    await this.ensureDelegated(
+    const delegationWatcher = waitForAccountOwnerChange(
+      this.baseProgram.provider.connection,
       depositPda,
-      "undelegateDeposit-depositPda",
-      true
+      PROGRAM_ID
     );
+
+    let signature;
+    try {
+      const tx = new Transaction().add(ix);
+      signature = await this.ephemeralProgram.provider.sendAndConfirm!(
+        tx,
+        [],
+        params.rpcOptions
+      );
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    } catch (e) {
+      await delegationWatcher.cancel();
+      throw e;
+    }
+
+    return signature;
+  }
+
+  async undelegateDepositIx(
+    params: UndelegateDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { user, tokenMint, payer, sessionToken, magicProgram, magicContext } =
+      params;
+
+    const [depositPda] = findDepositPda(user, tokenMint);
 
     const accounts: Record<string, PublicKey | null> = {
       user,
@@ -884,29 +905,22 @@ export class LoyalPrivateTransactionsClient {
     };
     accounts.sessionToken = sessionToken ?? null;
 
-    const delegationWatcher = waitForAccountOwnerChange(
-      this.baseProgram.provider.connection,
-      depositPda,
-      PROGRAM_ID
-    );
+    const ix = await this.ephemeralProgram.methods
+      .undelegate()
+      .accountsPartial(accounts)
+      .instruction();
 
-    let signature;
-    try {
-      console.log("undelegateDeposit Accounts:", prettyStringify(accounts));
-      signature = await this.ephemeralProgram.methods
-        .undelegate()
-        .accountsPartial(accounts)
-        .rpc(rpcOptions);
-      console.log(
-        "undelegateDeposit: waiting for depositPda owner to be PROGRAM_ID on base connection..."
-      );
-      await delegationWatcher.wait();
-    } catch (e) {
-      await delegationWatcher.cancel();
-      throw e;
-    }
-
-    return signature;
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: true,
+          passNotExist: false,
+          label: "undelegateDeposit-depositPda",
+        },
+      ],
+    };
   }
 
   /**
@@ -915,26 +929,48 @@ export class LoyalPrivateTransactionsClient {
   async undelegateUsernameDeposit(
     params: UndelegateUsernameDepositParams
   ): Promise<string> {
-    const {
-      username,
-      tokenMint,
-      session,
-      payer,
-      magicProgram,
-      magicContext,
-      rpcOptions,
-    } = params;
+    const { username, tokenMint } = params;
+    const { ix, ensure } = await this.undelegateUsernameDepositIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+
+    const delegationWatcher = waitForAccountOwnerChange(
+      this.baseProgram.provider.connection,
+      depositPda,
+      PROGRAM_ID
+    );
+
+    let signature;
+    try {
+      const tx = new Transaction().add(ix);
+      signature = await this.ephemeralProgram.provider.sendAndConfirm!(
+        tx,
+        [],
+        params.rpcOptions
+      );
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    } catch (e) {
+      await delegationWatcher.cancel();
+      throw e;
+    }
+
+    return signature;
+  }
+
+  async undelegateUsernameDepositIx(
+    params: UndelegateUsernameDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { username, tokenMint, session, payer, magicProgram, magicContext } =
+      params;
 
     this.validateUsername(username);
 
     const [depositPda] = findUsernameDepositPda(username, tokenMint);
 
-    await this.ensureDelegated(
-      depositPda,
-      "undelegateUsernameDeposit-depositPda"
-    );
-
-    const signature = await this.ephemeralProgram.methods
+    const ix = await this.ephemeralProgram.methods
       .undelegateUsernameDeposit(username, tokenMint)
       .accountsPartial({
         payer,
@@ -943,9 +979,19 @@ export class LoyalPrivateTransactionsClient {
         magicProgram,
         magicContext,
       })
-      .rpc(rpcOptions);
+      .instruction();
 
-    return signature;
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: true,
+          passNotExist: false,
+          label: "undelegateUsernameDeposit-depositPda",
+        },
+      ],
+    };
   }
 
   // ============================================================
