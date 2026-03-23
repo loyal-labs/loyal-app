@@ -219,7 +219,6 @@ describe("private-transactions shield SDK (PER)", async () => {
     payer: USER_KP,
     tokenMint: mint,
     amount,
-    solanaEnv: "devnet",
-  }); // TODO: shield in a single tx
+  });
   console.log("shieldSig", shieldSig);
 });

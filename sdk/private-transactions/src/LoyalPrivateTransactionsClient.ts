@@ -29,7 +29,6 @@ import {
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
-  getErValidatorForSolanaEnv,
 } from "./constants";
 import {
   findDepositPda,
@@ -1083,7 +1082,6 @@ export class LoyalPrivateTransactionsClient {
     payer: Keypair;
     tokenMint: PublicKey;
     amount: bigint;
-    solanaEnv: "mainnet" | "devnet";
     rpcOptions?: RpcOptions;
   }): Promise<string> {
     const {
@@ -1091,13 +1089,12 @@ export class LoyalPrivateTransactionsClient {
       payer: payerKp,
       tokenMint,
       amount,
-      solanaEnv,
       rpcOptions,
     } = params;
     const user = userKp.publicKey;
     const payer = payerKp.publicKey;
     const isNativeSol = tokenMint.equals(NATIVE_MINT);
-    const validator = getErValidatorForSolanaEnv(solanaEnv);
+    const validator = this.getExpectedErValidator();
 
     const instructions: TransactionInstruction[] = [];
     const checks: InstructionCheck[] = [];
@@ -1200,18 +1197,18 @@ export class LoyalPrivateTransactionsClient {
     tokenMint: PublicKey
   ): Promise<DepositData | null> {
     const [depositPda] = findDepositPda(user, tokenMint);
+    const account = await this.baseProgram.account.deposit.fetchNullable(
+      depositPda
+    );
 
-    try {
-      const account = await this.baseProgram.account.deposit.fetch(depositPda);
-      return {
-        user: account.user,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: depositPda,
-      };
-    } catch {
-      return null;
-    }
+    return account
+      ? {
+          user: account.user,
+          tokenMint: account.tokenMint,
+          amount: BigInt(account.amount.toString()),
+          address: depositPda,
+        }
+      : null;
   }
 
   async getEphemeralDeposit(
@@ -1219,20 +1216,18 @@ export class LoyalPrivateTransactionsClient {
     tokenMint: PublicKey
   ): Promise<DepositData | null> {
     const [depositPda] = findDepositPda(user, tokenMint);
+    const account = await this.ephemeralProgram.account.deposit.fetchNullable(
+      depositPda
+    );
 
-    try {
-      const account = await this.ephemeralProgram.account.deposit.fetch(
-        depositPda
-      );
-      return {
-        user: account.user,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: depositPda,
-      };
-    } catch {
-      return null;
-    }
+    return account
+      ? {
+          user: account.user,
+          tokenMint: account.tokenMint,
+          amount: BigInt(account.amount.toString()),
+          address: depositPda,
+        }
+      : null;
   }
 
   /**
