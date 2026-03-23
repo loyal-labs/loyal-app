@@ -350,7 +350,7 @@ export class LoyalPrivateTransactionsClient {
     const tx = new Transaction().add(ix);
     return await this.baseProgram.provider.sendAndConfirm!(
       tx,
-      [this.baseProgram.provider.wallet!.payer!],
+      [],
       params.rpcOptions
     );
   }
@@ -396,7 +396,7 @@ export class LoyalPrivateTransactionsClient {
     const tx = new Transaction().add(ix);
     return await this.baseProgram.provider.sendAndConfirm!(
       tx,
-      [this.baseProgram.provider.wallet!.payer!],
+      [],
       params.rpcOptions
     );
   }
@@ -445,7 +445,7 @@ export class LoyalPrivateTransactionsClient {
     const tx = new Transaction().add(ix);
     const signature = await this.baseProgram.provider.sendAndConfirm!(
       tx,
-      [this.baseProgram.provider.wallet!.payer!],
+      [],
       params.rpcOptions
     );
 
@@ -512,7 +512,7 @@ export class LoyalPrivateTransactionsClient {
     const tx = new Transaction().add(ix);
     return await this.baseProgram.provider.sendAndConfirm!(
       tx,
-      [this.baseProgram.provider.wallet!.payer!],
+      [],
       params.rpcOptions
     );
   }
@@ -579,7 +579,7 @@ export class LoyalPrivateTransactionsClient {
     const tx = new Transaction().add(ix);
     return await this.baseProgram.provider.sendAndConfirm!(
       tx,
-      [this.baseProgram.provider.wallet!.payer!],
+      [],
       params.rpcOptions
     );
   }
@@ -635,7 +635,7 @@ export class LoyalPrivateTransactionsClient {
     const tx = new Transaction().add(ix);
     return await this.baseProgram.provider.sendAndConfirm!(
       tx,
-      [this.baseProgram.provider.wallet!.payer!],
+      [],
       params.rpcOptions
     );
   }
@@ -705,7 +705,7 @@ export class LoyalPrivateTransactionsClient {
       const tx = new Transaction().add(ix);
       signature = await this.baseProgram.provider.sendAndConfirm!(
         tx,
-        [this.baseProgram.provider.wallet!.payer!],
+        [],
         params.rpcOptions
       );
       await delegationWatcher.wait();
@@ -779,7 +779,7 @@ export class LoyalPrivateTransactionsClient {
       const tx = new Transaction().add(ix);
       signature = await this.baseProgram.provider.sendAndConfirm!(
         tx,
-        [this.baseProgram.provider.wallet!.payer!],
+        [],
         params.rpcOptions
       );
       await delegationWatcher.wait();
@@ -1175,7 +1175,7 @@ export class LoyalPrivateTransactionsClient {
       const tx = new Transaction().add(...instructions);
       signature = await this.baseProgram.provider.sendAndConfirm!(
         tx,
-        [userKp, payerKp],
+        [],
         rpcOptions
       );
       await delegationWatcher.wait();
