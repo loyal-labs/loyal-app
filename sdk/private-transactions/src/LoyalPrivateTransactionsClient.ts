@@ -1,4 +1,5 @@
 import {
+  type AccountInfo,
   Connection,
   Keypair,
   PublicKey,
@@ -82,6 +83,26 @@ function prettyStringify(obj: unknown): string {
     return `[${items.join(", ")}]`;
   });
 }
+
+type MergedInstructionCheck = {
+  address: PublicKey;
+  delegated: boolean;
+  passNotExist: boolean;
+  labels: string[];
+};
+
+type EnsureBatchCache = {
+  baseAccountInfos: Map<string, AccountInfo<Buffer> | null>;
+  delegationStatuses: Map<string, Promise<DelegationStatusResponse>>;
+  ephemeralAccountInfos: Map<string, AccountInfo<Buffer> | null>;
+};
+
+const ENSURE_FETCH_MAX_ATTEMPTS = 3;
+const ENSURE_FETCH_INITIAL_DELAY_MS = 150;
+const ENSURE_FETCH_MAX_DELAY_MS = 1_000;
+const ENSURE_FETCH_BACKOFF_MULTIPLIER = 2;
+const ENSURE_FETCH_JITTER_RATIO = 0.2;
+const MULTIPLE_ACCOUNTS_CHUNK_SIZE = 5;
 
 function programFromRpc(
   signer: WalletSigner,
@@ -1030,12 +1051,50 @@ export class LoyalPrivateTransactionsClient {
   }
 
   async processEnsureChecks(ensure: InstructionCheck[]): Promise<void> {
-    // TODO: make parallel and reuse cache
+    const mergedChecks = new Map<string, MergedInstructionCheck>();
     for (const { address, delegated, passNotExist, label } of ensure) {
+      const addressKey = address.toBase58();
+      const existing = mergedChecks.get(addressKey);
+      if (!existing) {
+        mergedChecks.set(addressKey, {
+          address,
+          delegated,
+          passNotExist,
+          labels: [label],
+        });
+        continue;
+      }
+
+      existing.labels.push(label);
+      if (existing.delegated !== delegated) {
+        throw new Error(
+          `Conflicting ensure delegation requirements: ${existing.labels.join(
+            ", "
+          )} - ${addressKey}`
+        );
+      }
+      existing.passNotExist = existing.passNotExist && passNotExist;
+    }
+
+    const cache: EnsureBatchCache = {
+      baseAccountInfos: new Map(),
+      delegationStatuses: new Map(),
+      ephemeralAccountInfos: new Map(),
+    };
+    const uniqueChecks = [...mergedChecks.values()];
+    await this.primeEnsureBatchCache(uniqueChecks, cache);
+
+    for (const { address, delegated, passNotExist, labels } of uniqueChecks) {
+      const displayLabels = labels.join(", ");
       if (delegated) {
-        await this.ensureDelegated(address, label);
+        await this.ensureDelegated(address, displayLabels, undefined, cache);
       } else {
-        await this.ensureNotDelegated(address, label, passNotExist);
+        await this.ensureNotDelegated(
+          address,
+          displayLabels,
+          passNotExist,
+          cache
+        );
       }
     }
   }
@@ -1371,34 +1430,180 @@ export class LoyalPrivateTransactionsClient {
     return false;
   }
 
+  private formatEnsureDisplayName(name?: string): string {
+    return name ? `${name} - ` : "";
+  }
+
+  private async runEnsureFetchWithRetry<T>(
+    label: string,
+    task: () => Promise<T>
+  ): Promise<T> {
+    let nextDelayMs = ENSURE_FETCH_INITIAL_DELAY_MS;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= ENSURE_FETCH_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await task();
+      } catch (error) {
+        lastError = error;
+        if (attempt === ENSURE_FETCH_MAX_ATTEMPTS) {
+          break;
+        }
+
+        console.warn(
+          `[ensure] ${label} attempt ${attempt}/${ENSURE_FETCH_MAX_ATTEMPTS} failed: ${
+            (error as { message?: string })?.message ?? String(error)
+          }`
+        );
+        const jitter = nextDelayMs * ENSURE_FETCH_JITTER_RATIO;
+        const jitteredDelay = Math.max(
+          0,
+          Math.round(nextDelayMs + (Math.random() * 2 - 1) * jitter)
+        );
+        await new Promise((resolve) => setTimeout(resolve, jitteredDelay));
+        nextDelayMs = Math.min(
+          ENSURE_FETCH_MAX_DELAY_MS,
+          Math.round(nextDelayMs * ENSURE_FETCH_BACKOFF_MULTIPLIER)
+        );
+      }
+    }
+
+    throw new Error(
+      `[ensure] ${label} failed after ${ENSURE_FETCH_MAX_ATTEMPTS} attempts: ${
+        (lastError as { message?: string })?.message ?? String(lastError)
+      }`
+    );
+  }
+
+  private async getMultipleAccountsInfoWithRetry(
+    connection: Connection,
+    accounts: PublicKey[],
+    label: string
+  ): Promise<(AccountInfo<Buffer> | null)[]> {
+    if (accounts.length === 0) {
+      return [];
+    }
+
+    const chunks: PublicKey[][] = [];
+    for (
+      let start = 0;
+      start < accounts.length;
+      start += MULTIPLE_ACCOUNTS_CHUNK_SIZE
+    ) {
+      chunks.push(accounts.slice(start, start + MULTIPLE_ACCOUNTS_CHUNK_SIZE));
+    }
+
+    const chunkResults = await Promise.all(
+      chunks.map((chunk, index) =>
+        this.runEnsureFetchWithRetry(`${label}-chunk-${index + 1}`, () =>
+          connection.getMultipleAccountsInfo(chunk)
+        )
+      )
+    );
+    return chunkResults.flat();
+  }
+
+  private async primeEnsureBatchCache(
+    checks: MergedInstructionCheck[],
+    cache: EnsureBatchCache
+  ): Promise<void> {
+    const addresses = checks.map((check) => check.address);
+    const [baseAccountInfos, ephemeralAccountInfos] = await Promise.all([
+      this.getMultipleAccountsInfoWithRetry(
+        this.baseProgram.provider.connection,
+        addresses,
+        "base-getMultipleAccountsInfo"
+      ),
+      this.getMultipleAccountsInfoWithRetry(
+        this.ephemeralProgram.provider.connection,
+        addresses,
+        "ephemeral-getMultipleAccountsInfo"
+      ),
+    ]);
+
+    for (let index = 0; index < checks.length; index += 1) {
+      const addressKey = checks[index]!.address.toBase58();
+      cache.baseAccountInfos.set(addressKey, baseAccountInfos[index] ?? null);
+      cache.ephemeralAccountInfos.set(
+        addressKey,
+        ephemeralAccountInfos[index] ?? null
+      );
+    }
+  }
+
+  private async getEnsureBaseAccountInfo(
+    account: PublicKey,
+    cache?: EnsureBatchCache
+  ): Promise<AccountInfo<Buffer> | null> {
+    const addressKey = account.toBase58();
+    if (cache?.baseAccountInfos.has(addressKey)) {
+      return cache.baseAccountInfos.get(addressKey) ?? null;
+    }
+
+    const baseAccountInfo =
+      await this.baseProgram.provider.connection.getAccountInfo(account);
+    cache?.baseAccountInfos.set(addressKey, baseAccountInfo);
+    return baseAccountInfo;
+  }
+
+  private async getEnsureEphemeralAccountInfo(
+    account: PublicKey,
+    cache?: EnsureBatchCache
+  ): Promise<AccountInfo<Buffer> | null> {
+    const addressKey = account.toBase58();
+    if (cache?.ephemeralAccountInfos.has(addressKey)) {
+      return cache.ephemeralAccountInfos.get(addressKey) ?? null;
+    }
+
+    const ephemeralAccountInfo =
+      await this.ephemeralProgram.provider.connection.getAccountInfo(account);
+    cache?.ephemeralAccountInfos.set(addressKey, ephemeralAccountInfo);
+    return ephemeralAccountInfo;
+  }
+
+  private async getEnsureDelegationStatus(
+    account: PublicKey,
+    cache?: EnsureBatchCache
+  ): Promise<DelegationStatusResponse> {
+    const addressKey = account.toBase58();
+    const cachedPromise = cache?.delegationStatuses.get(addressKey);
+    if (cachedPromise) {
+      return cachedPromise;
+    }
+
+    const request = this.getDelegationStatus(account);
+    cache?.delegationStatuses.set(addressKey, request);
+    return request;
+  }
+
   private async ensureNotDelegated(
     account: PublicKey,
     name?: string,
-    passNotExist?: boolean
+    passNotExist?: boolean,
+    cache?: EnsureBatchCache
   ): Promise<void> {
-    const baseAccountInfo =
-      await this.baseProgram.provider.connection.getAccountInfo(account);
+    const baseAccountInfo = await this.getEnsureBaseAccountInfo(account, cache);
 
     if (!baseAccountInfo) {
       if (passNotExist) {
         return;
       }
-      const displayName = name ? `${name} - ` : "";
+      const displayName = this.formatEnsureDisplayName(name);
       throw new Error(
         `Account is not exists: ${displayName}${account.toString()}`
       );
     }
 
-    const ephemeralAccountInfo =
-      await this.ephemeralProgram.provider.connection.getAccountInfo(account);
-
     const isDelegated = baseAccountInfo!.owner.equals(DELEGATION_PROGRAM_ID);
-    const displayName = name ? `${name} - ` : "";
+    const displayName = this.formatEnsureDisplayName(name);
     if (isDelegated) {
+      const [ephemeralAccountInfo, delegationStatus] = await Promise.all([
+        this.getEnsureEphemeralAccountInfo(account, cache),
+        this.getEnsureDelegationStatus(account, cache),
+      ]);
       console.error(
         `Account is delegated to ER: ${displayName}${account.toString()}`
       );
-      const delegationStatus = await this.getDelegationStatus(account);
       console.error(
         "/getDelegationStatus",
         JSON.stringify(delegationStatus, null, 2)
@@ -1426,25 +1631,25 @@ export class LoyalPrivateTransactionsClient {
   private async ensureDelegated(
     account: PublicKey,
     name?: string,
-    skipValidatorCheck?: boolean
+    skipValidatorCheck?: boolean,
+    cache?: EnsureBatchCache
   ): Promise<void> {
-    const baseAccountInfo =
-      await this.baseProgram.provider.connection.getAccountInfo(account);
-    const ephemeralAccountInfo =
-      await this.ephemeralProgram.provider.connection.getAccountInfo(account);
+    const baseAccountInfo = await this.getEnsureBaseAccountInfo(account, cache);
 
     if (!baseAccountInfo) {
-      const displayName = name ? `${name} - ` : "";
+      const displayName = this.formatEnsureDisplayName(name);
       throw new Error(
         `Account is not exists: ${displayName}${account.toString()}`
       );
     }
     const isDelegated = baseAccountInfo!.owner.equals(DELEGATION_PROGRAM_ID);
-    const displayName = name ? `${name} - ` : "";
-
-    const delegationStatus = await this.getDelegationStatus(account);
+    const displayName = this.formatEnsureDisplayName(name);
 
     if (!isDelegated) {
+      const [ephemeralAccountInfo, delegationStatus] = await Promise.all([
+        this.getEnsureEphemeralAccountInfo(account, cache),
+        this.getEnsureDelegationStatus(account, cache),
+      ]);
       console.error(
         `Account is not delegated to ER: ${displayName}${account.toString()}`
       );
@@ -1461,31 +1666,38 @@ export class LoyalPrivateTransactionsClient {
       throw new Error(
         `Account is not delegated to ER: ${displayName}${account.toString()}`
       );
-    } else if (
-      !skipValidatorCheck &&
-      delegationStatus.result.delegationRecord.authority !==
+    }
+
+    if (!skipValidatorCheck) {
+      const [ephemeralAccountInfo, delegationStatus] = await Promise.all([
+        this.getEnsureEphemeralAccountInfo(account, cache),
+        this.getEnsureDelegationStatus(account, cache),
+      ]);
+      if (
+        delegationStatus.result.delegationRecord.authority !==
         this.getExpectedErValidator().toString()
-    ) {
-      console.error(
-        `Account is delegated on wrong validator: ${displayName}${account.toString()} - validator: ${
-          delegationStatus.result.delegationRecord.authority
-        }`
-      );
-      console.error(
-        "/getDelegationStatus:",
-        JSON.stringify(delegationStatus, null, 2)
-      );
-      console.error("baseAccountInfo", prettyStringify(baseAccountInfo));
-      console.error(
-        "ephemeralAccountInfo",
-        prettyStringify(ephemeralAccountInfo)
-      );
+      ) {
+        console.error(
+          `Account is delegated on wrong validator: ${displayName}${account.toString()} - validator: ${
+            delegationStatus.result.delegationRecord.authority
+          }`
+        );
+        console.error(
+          "/getDelegationStatus:",
+          JSON.stringify(delegationStatus, null, 2)
+        );
+        console.error("baseAccountInfo", prettyStringify(baseAccountInfo));
+        console.error(
+          "ephemeralAccountInfo",
+          prettyStringify(ephemeralAccountInfo)
+        );
 
-      throw new Error(
-        `Account is delegated on wrong validator: ${displayName}${account.toString()} - validator: ${
-          delegationStatus.result.delegationRecord.authority
-        }`
-      );
+        throw new Error(
+          `Account is delegated on wrong validator: ${displayName}${account.toString()} - validator: ${
+            delegationStatus.result.delegationRecord.authority
+          }`
+        );
+      }
     }
   }
 
