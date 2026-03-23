@@ -1,17 +1,21 @@
 import {
   Connection,
+  Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   type Commitment,
-  type BlockhashWithExpiryBlockHeight,
-  type ConfirmOptions,
 } from "@solana/web3.js";
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  NATIVE_MINT,
+  createAssociatedTokenAccountIdempotentInstruction,
+  createSyncNativeInstruction,
+  createCloseAccountInstruction,
 } from "@solana/spl-token";
 import {
   verifyTeeRpcIntegrity,
@@ -25,6 +29,7 @@ import {
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
+  getErValidatorForSolanaEnv,
 } from "./constants";
 import {
   findDepositPda,
@@ -57,6 +62,9 @@ import type {
   InitializeUsernameDepositParams,
   ClaimUsernameDepositToDepositParams,
   DelegationStatusResponse,
+  CheckedTransactionInstruction,
+  InstructionCheck,
+  RpcOptions,
 } from "./types";
 
 function prettyStringify(obj: unknown): string {
@@ -335,13 +343,26 @@ export class LoyalPrivateTransactionsClient {
    * Initialize a deposit account for a user and token mint
    */
   async initializeDeposit(params: InitializeDepositParams): Promise<string> {
-    const { user, tokenMint, payer, rpcOptions } = params;
+    const { ix, ensure } = await this.initializeDepositIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [this.baseProgram.provider.wallet!.payer!],
+      params.rpcOptions
+    );
+  }
+
+  async initializeDepositIx(
+    params: InitializeDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { user, tokenMint, payer } = params;
 
     const [depositPda] = findDepositPda(user, tokenMint);
 
-    await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda", true);
-
-    const signature = await this.baseProgram.methods
+    const ix = await this.baseProgram.methods
       .initializeDeposit()
       .accountsPartial({
         payer,
@@ -350,25 +371,44 @@ export class LoyalPrivateTransactionsClient {
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .rpc(rpcOptions);
+      .instruction();
 
-    return signature;
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: false,
+          passNotExist: true,
+          label: "initializeDeposit-depositPda",
+        },
+      ],
+    };
   }
 
   async initializeUsernameDeposit(
     params: InitializeUsernameDepositParams
   ): Promise<string> {
-    const { username, tokenMint, payer, rpcOptions } = params;
+    const { ix, ensure } = await this.initializeUsernameDepositIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [this.baseProgram.provider.wallet!.payer!],
+      params.rpcOptions
+    );
+  }
+
+  async initializeUsernameDepositIx(
+    params: InitializeUsernameDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { username, tokenMint, payer } = params;
 
     const [usernameDepositPda] = findUsernameDepositPda(username, tokenMint);
 
-    await this.ensureNotDelegated(
-      usernameDepositPda,
-      "modifyBalance-depositPda",
-      true
-    );
-
-    const signature = await this.baseProgram.methods
+    const ix = await this.baseProgram.methods
       .initializeUsernameDeposit(username)
       .accountsPartial({
         payer,
@@ -376,9 +416,19 @@ export class LoyalPrivateTransactionsClient {
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .rpc(rpcOptions);
+      .instruction();
 
-    return signature;
+    return {
+      ix,
+      ensure: [
+        {
+          address: usernameDepositPda,
+          delegated: false,
+          passNotExist: true,
+          label: "initializeUsernameDeposit-usernameDepositPda",
+        },
+      ],
+    };
   }
 
   /**
@@ -387,20 +437,33 @@ export class LoyalPrivateTransactionsClient {
   async modifyBalance(
     params: ModifyBalanceParams
   ): Promise<ModifyBalanceResult> {
-    const {
-      user,
-      tokenMint,
-      amount,
-      increase,
-      payer,
-      userTokenAccount,
-      rpcOptions,
-    } = params;
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await this.modifyBalanceIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const tx = new Transaction().add(ix);
+    const signature = await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [this.baseProgram.provider.wallet!.payer!],
+      params.rpcOptions
+    );
+
+    // TODO: add wait
+    const deposit = await this.getBaseDeposit(user, tokenMint);
+    if (!deposit) {
+      throw new Error("Failed to fetch deposit after modification");
+    }
+
+    return { signature, deposit };
+  }
+
+  async modifyBalanceIx(
+    params: ModifyBalanceParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { user, tokenMint, amount, increase, payer, passNotExist } = params;
 
     const [depositPda] = findDepositPda(user, tokenMint);
-
-    await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda");
-
     const [vaultPda] = findVaultPda(tokenMint);
     const vaultTokenAccount = getAssociatedTokenAddressSync(
       tokenMint,
@@ -410,152 +473,93 @@ export class LoyalPrivateTransactionsClient {
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
-    console.log("modifyBalance", {
-      payer: payer.toString(),
-      user: user.toString(),
-      vault: vaultPda.toString(),
-      deposit: depositPda.toString(),
-      userTokenAccount: userTokenAccount.toString(),
-      vaultTokenAccount: vaultTokenAccount.toString(),
-      tokenMint: tokenMint.toString(),
-      // tokenProgram: TOKEN_PROGRAM_ID,
-      // associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      // systemProgram: SystemProgram.programId,
-    });
+    const accounts = {
+      payer,
+      user,
+      vault: vaultPda,
+      deposit: depositPda,
+      vaultTokenAccount,
+      tokenMint,
+    };
 
-    const signature = await this.baseProgram.methods
+    console.log("modifyBalance", prettyStringify(accounts));
+
+    const ix = await this.baseProgram.methods
       .modifyBalance({ amount: new BN(amount.toString()), increase })
-      .accountsPartial({
-        payer,
-        user,
-        vault: vaultPda,
-        deposit: depositPda,
-        userTokenAccount,
-        vaultTokenAccount,
-        tokenMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc(rpcOptions);
+      .accountsPartial(accounts)
+      .instruction();
 
-    const deposit = await this.getBaseDeposit(user, tokenMint);
-    if (!deposit) {
-      throw new Error("Failed to fetch deposit after modification");
-    }
-
-    return { signature, deposit };
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: false,
+          passNotExist: passNotExist === undefined ? false : passNotExist,
+          label: "modifyBalance-depositPda",
+        },
+      ],
+    };
   }
 
   async claimUsernameDepositToDeposit(
     params: ClaimUsernameDepositToDepositParams
   ): Promise<string> {
-    const { username, tokenMint, amount, recipient, session, rpcOptions } =
-      params;
+    const { ix, ensure } = await this.claimUsernameDepositToDepositIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [this.baseProgram.provider.wallet!.payer!],
+      params.rpcOptions
+    );
+  }
+
+  async claimUsernameDepositToDepositIx(
+    params: ClaimUsernameDepositToDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { username, tokenMint, amount, recipient, session } = params;
 
     this.validateUsername(username);
 
     const [sourceUsernameDeposit] = findUsernameDepositPda(username, tokenMint);
     const [destinationDeposit] = findDepositPda(recipient, tokenMint);
 
-    await this.ensureDelegated(
-      sourceUsernameDeposit,
-      "claimUsernameDepositToDeposit-sourceUsernameDeposit"
-    );
-    await this.ensureDelegated(
-      destinationDeposit,
-      "claimUsernameDepositToDeposit-destinationDeposit"
-    );
-
     const accounts: Record<string, PublicKey | null> = {
       user: recipient,
       sourceUsernameDeposit,
-      destinationDeposit,
       tokenMint,
       session,
-      tokenProgram: TOKEN_PROGRAM_ID,
     };
     console.log(
       "claimUsernameDepositToDeposit accounts:",
       prettyStringify(accounts)
     );
 
-    // Fetch and log account info for debugging
-    const connection = this.baseProgram.provider.connection;
-    const [srcInfo, dstInfo, sessionInfo] = await Promise.all([
-      connection.getAccountInfo(sourceUsernameDeposit),
-      connection.getAccountInfo(destinationDeposit),
-      connection.getAccountInfo(session),
-    ]);
-    console.log(
-      "claimUsernameDepositToDeposit sourceUsernameDeposit accountInfo:",
-      prettyStringify({
-        address: sourceUsernameDeposit.toBase58(),
-        exists: !!srcInfo,
-        owner: srcInfo?.owner?.toBase58(),
-        lamports: srcInfo?.lamports,
-        dataLen: srcInfo?.data?.length,
-        executable: srcInfo?.executable,
-      })
-    );
-    console.log(
-      "claimUsernameDepositToDeposit destinationDeposit accountInfo:",
-      prettyStringify({
-        address: destinationDeposit.toBase58(),
-        exists: !!dstInfo,
-        owner: dstInfo?.owner?.toBase58(),
-        lamports: dstInfo?.lamports,
-        dataLen: dstInfo?.data?.length,
-        executable: dstInfo?.executable,
-      })
-    );
-    console.log(
-      "claimUsernameDepositToDeposit session accountInfo:",
-      prettyStringify({
-        address: session.toBase58(),
-        exists: !!sessionInfo,
-        owner: sessionInfo?.owner?.toBase58(),
-        lamports: sessionInfo?.lamports,
-        dataLen: sessionInfo?.data?.length,
-        executable: sessionInfo?.executable,
-      })
-    );
-
-    try {
-      const sim = await this.ephemeralProgram.methods
-        .claimUsernameDepositToDeposit(new BN(amount.toString()))
-        .accountsPartial(accounts)
-        .simulate();
-      console.log("claimUsernameDepositToDeposit simulation logs:", sim.raw);
-    } catch (simErr: unknown) {
-      const simResponse = (
-        simErr as {
-          simulationResponse?: {
-            logs?: string[];
-            err?: unknown;
-            unitsConsumed?: number;
-          };
-        }
-      ).simulationResponse;
-      console.error("claimUsernameDepositToDeposit simulate FAILED");
-      console.error(
-        "  error message:",
-        simErr instanceof Error ? simErr.message : String(simErr)
-      );
-      if (simResponse) {
-        console.error("  simulation err:", prettyStringify(simResponse.err));
-        console.error("  simulation logs:", prettyStringify(simResponse.logs));
-        console.error("  unitsConsumed:", simResponse.unitsConsumed);
-      }
-      throw simErr;
-    }
-
-    const signature = await this.ephemeralProgram.methods
+    const ix = await this.ephemeralProgram.methods
       .claimUsernameDepositToDeposit(new BN(amount.toString()))
       .accountsPartial(accounts)
-      .rpc({ skipPreflight: true, commitment: "confirmed" });
+      .instruction();
 
-    return signature;
+    return {
+      ix,
+      ensure: [
+        {
+          address: sourceUsernameDeposit,
+          delegated: true,
+          passNotExist: false,
+          label: "claimUsernameDepositToDeposit-sourceUsernameDeposit",
+        },
+        {
+          address: destinationDeposit,
+          delegated: true,
+          passNotExist: false,
+          label: "claimUsernameDepositToDeposit-destinationDeposit",
+        },
+      ],
+    };
   }
 
   // ============================================================
@@ -568,37 +572,54 @@ export class LoyalPrivateTransactionsClient {
   async createPermission(
     params: CreatePermissionParams
   ): Promise<string | null> {
-    const { user, tokenMint, payer, rpcOptions } = params;
+    const { ix, ensure } = await this.createPermissionIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [this.baseProgram.provider.wallet!.payer!],
+      params.rpcOptions
+    );
+  }
+
+  async createPermissionIx(
+    params: CreatePermissionParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { user, tokenMint, payer, passNotExist } = params;
 
     const [depositPda] = findDepositPda(user, tokenMint);
     const [permissionPda] = findPermissionPda(depositPda);
 
-    await this.ensureNotDelegated(depositPda, "createPermission-depositPda");
+    const ix = await this.baseProgram.methods
+      .createPermission()
+      .accountsPartial({
+        payer,
+        user,
+        deposit: depositPda,
+        permission: permissionPda,
+        permissionProgram: PERMISSION_PROGRAM_ID,
+      })
+      .instruction();
 
-    if (await this.permissionAccountExists(permissionPda)) {
-      return null;
-    }
-
-    try {
-      const signature = await this.baseProgram.methods
-        .createPermission()
-        .accountsPartial({
-          payer,
-          user,
-          deposit: depositPda,
-          permission: permissionPda,
-          permissionProgram: PERMISSION_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc(rpcOptions);
-
-      return signature;
-    } catch (err) {
-      if (this.isAccountAlreadyInUse(err)) {
-        return "permission-exists";
-      }
-      throw err;
-    }
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: false,
+          passNotExist: passNotExist === undefined ? true : passNotExist,
+          label: "createPermission-depositPda",
+        },
+        {
+          address: permissionPda,
+          delegated: false,
+          passNotExist: true,
+          label: "createPermission-permissionPda",
+        },
+      ],
+    };
   }
 
   /**
@@ -606,45 +627,56 @@ export class LoyalPrivateTransactionsClient {
    */
   async createUsernamePermission(
     params: CreateUsernamePermissionParams
-  ): Promise<string | null> {
-    const { username, tokenMint, session, authority, payer, rpcOptions } =
-      params;
+  ): Promise<string> {
+    const { ix, ensure } = await this.createUsernamePermissionIx(params);
+
+    await this.processEnsureChecks(ensure);
+
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [this.baseProgram.provider.wallet!.payer!],
+      params.rpcOptions
+    );
+  }
+
+  async createUsernamePermissionIx(
+    params: CreateUsernamePermissionParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { username, tokenMint, session, authority, payer } = params;
 
     this.validateUsername(username);
 
     const [depositPda] = findUsernameDepositPda(username, tokenMint);
     const [permissionPda] = findPermissionPda(depositPda);
 
-    await this.ensureNotDelegated(
-      depositPda,
-      "createUsernamePermission-depositPda"
-    );
+    const ix = await this.baseProgram.methods
+      .createUsernamePermission()
+      .accountsPartial({
+        payer,
+        authority,
+        deposit: depositPda,
+        session,
+      })
+      .instruction();
 
-    if (await this.permissionAccountExists(permissionPda)) {
-      return null;
-    }
-
-    try {
-      const signature = await this.baseProgram.methods
-        .createUsernamePermission()
-        .accountsPartial({
-          payer,
-          authority,
-          deposit: depositPda,
-          session,
-          permission: permissionPda,
-          permissionProgram: PERMISSION_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc(rpcOptions);
-
-      return signature;
-    } catch (err) {
-      if (this.isAccountAlreadyInUse(err)) {
-        return "permission-exists";
-      }
-      throw err;
-    }
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: false,
+          passNotExist: false,
+          label: "createUsernamePermission-depositPda",
+        },
+        {
+          address: permissionPda,
+          delegated: false,
+          passNotExist: true,
+          label: "createUsernamePermission-permissionPda",
+        },
+      ],
+    };
   }
 
   // ============================================================
@@ -655,26 +687,12 @@ export class LoyalPrivateTransactionsClient {
    * Delegate a deposit account to the ephemeral rollup
    */
   async delegateDeposit(params: DelegateDepositParams): Promise<string> {
-    const { user, tokenMint, payer, validator, rpcOptions } = params;
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await this.delegateDepositIx(params);
+
+    await this.processEnsureChecks(ensure);
 
     const [depositPda] = findDepositPda(user, tokenMint);
-    const [bufferPda] = findBufferPda(depositPda);
-    const [delegationRecordPda] = findDelegationRecordPda(depositPda);
-    const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
-
-    await this.ensureNotDelegated(depositPda, "delegateDeposit-depositPda");
-
-    const accounts: Record<string, PublicKey | null> = {
-      payer,
-      bufferDeposit: bufferPda,
-      delegationRecordDeposit: delegationRecordPda,
-      delegationMetadataDeposit: delegationMetadataPda,
-      deposit: depositPda,
-      validator,
-      ownerProgram: PROGRAM_ID,
-      delegationProgram: DELEGATION_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    };
 
     const delegationWatcher = waitForAccountOwnerChange(
       this.baseProgram.provider.connection,
@@ -684,13 +702,11 @@ export class LoyalPrivateTransactionsClient {
 
     let signature;
     try {
-      console.log("delegateDeposit Accounts:", prettyStringify(accounts));
-      signature = await this.baseProgram.methods
-        .delegate(user, tokenMint)
-        .accountsPartial(accounts)
-        .rpc(rpcOptions);
-      console.log(
-        "delegateDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection..."
+      const tx = new Transaction().add(ix);
+      signature = await this.baseProgram.provider.sendAndConfirm!(
+        tx,
+        [this.baseProgram.provider.wallet!.payer!],
+        params.rpcOptions
       );
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3_000));
@@ -702,46 +718,55 @@ export class LoyalPrivateTransactionsClient {
     return signature;
   }
 
+  async delegateDepositIx(
+    params: DelegateDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { user, tokenMint, payer, validator, passNotExist } = params;
+
+    const [depositPda] = findDepositPda(user, tokenMint);
+    const [bufferPda] = findBufferPda(depositPda);
+    const [delegationRecordPda] = findDelegationRecordPda(depositPda);
+    const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+
+    const ix = await this.baseProgram.methods
+      .delegate(user, tokenMint)
+      .accountsPartial({
+        payer,
+        bufferDeposit: bufferPda,
+        delegationRecordDeposit: delegationRecordPda,
+        delegationMetadataDeposit: delegationMetadataPda,
+        deposit: depositPda,
+        validator,
+        ownerProgram: PROGRAM_ID,
+        delegationProgram: DELEGATION_PROGRAM_ID,
+      })
+      .instruction();
+
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: false,
+          passNotExist: passNotExist === undefined ? false : passNotExist,
+          label: "delegateDeposit-depositPda",
+        },
+      ],
+    };
+  }
+
   /**
    * Delegate a username-based deposit account to the ephemeral rollup
    */
   async delegateUsernameDeposit(
     params: DelegateUsernameDepositParams
   ): Promise<string> {
-    const {
-      username,
-      tokenMint,
-      // session,
-      payer,
-      validator,
-      rpcOptions,
-    } = params;
+    const { username, tokenMint } = params;
+    const { ix, ensure } = await this.delegateUsernameDepositIx(params);
 
-    this.validateUsername(username);
+    await this.processEnsureChecks(ensure);
 
     const [depositPda] = findUsernameDepositPda(username, tokenMint);
-    const [bufferPda] = findBufferPda(depositPda);
-    const [delegationRecordPda] = findDelegationRecordPda(depositPda);
-    const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
-
-    await this.ensureNotDelegated(
-      depositPda,
-      "delegateUsernameDeposit-depositPda"
-    );
-
-    const accounts: Record<string, PublicKey | null> = {
-      payer,
-      // session,
-      bufferDeposit: bufferPda,
-      delegationRecordDeposit: delegationRecordPda,
-      delegationMetadataDeposit: delegationMetadataPda,
-      deposit: depositPda,
-      ownerProgram: PROGRAM_ID,
-      delegationProgram: DELEGATION_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    };
-
-    accounts.validator = validator ?? null;
 
     const delegationWatcher = waitForAccountOwnerChange(
       this.baseProgram.provider.connection,
@@ -751,16 +776,11 @@ export class LoyalPrivateTransactionsClient {
 
     let signature;
     try {
-      console.log(
-        "delegateUsernameDeposit Accounts:",
-        prettyStringify(accounts)
-      );
-      signature = await this.baseProgram.methods
-        .delegateUsernameDeposit(username, tokenMint)
-        .accountsPartial(accounts)
-        .rpc(rpcOptions);
-      console.log(
-        "delegateUsernameDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection..."
+      const tx = new Transaction().add(ix);
+      signature = await this.baseProgram.provider.sendAndConfirm!(
+        tx,
+        [this.baseProgram.provider.wallet!.payer!],
+        params.rpcOptions
       );
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3_000));
@@ -770,6 +790,45 @@ export class LoyalPrivateTransactionsClient {
     }
 
     return signature;
+  }
+
+  async delegateUsernameDepositIx(
+    params: DelegateUsernameDepositParams
+  ): Promise<CheckedTransactionInstruction> {
+    const { username, tokenMint, payer, validator } = params;
+
+    this.validateUsername(username);
+
+    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [bufferPda] = findBufferPda(depositPda);
+    const [delegationRecordPda] = findDelegationRecordPda(depositPda);
+    const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+
+    const ix = await this.baseProgram.methods
+      .delegateUsernameDeposit(username, tokenMint)
+      .accountsPartial({
+        payer,
+        bufferDeposit: bufferPda,
+        delegationRecordDeposit: delegationRecordPda,
+        delegationMetadataDeposit: delegationMetadataPda,
+        deposit: depositPda,
+        ownerProgram: PROGRAM_ID,
+        delegationProgram: DELEGATION_PROGRAM_ID,
+        validator,
+      })
+      .instruction();
+
+    return {
+      ix,
+      ensure: [
+        {
+          address: depositPda,
+          delegated: false,
+          passNotExist: false,
+          label: "delegateUsernameDeposit-depositPda",
+        },
+      ],
+    };
   }
 
   /**
@@ -967,6 +1026,164 @@ export class LoyalPrivateTransactionsClient {
       .transferToUsernameDeposit(new BN(amount.toString()))
       .accountsPartial(accounts)
       .rpc(rpcOptions);
+
+    return signature;
+  }
+
+  async processEnsureChecks(ensure: InstructionCheck[]): Promise<void> {
+    // TODO: make parallel and reuse cache
+    for (const { address, delegated, passNotExist, label } of ensure) {
+      if (delegated) {
+        await this.ensureDelegated(address, label);
+      } else {
+        await this.ensureNotDelegated(address, label, passNotExist);
+      }
+    }
+  }
+
+  wrapSolToWsolIx({
+    user,
+    payer,
+    lamports,
+  }: {
+    user: PublicKey;
+    payer: PublicKey;
+    lamports: bigint;
+  }): TransactionInstruction[] {
+    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+    return [
+      createAssociatedTokenAccountIdempotentInstruction(
+        payer,
+        wsolAta,
+        user,
+        NATIVE_MINT
+      ),
+      SystemProgram.transfer({
+        fromPubkey: user,
+        toPubkey: wsolAta,
+        lamports,
+      }),
+      createSyncNativeInstruction(wsolAta),
+    ];
+  }
+
+  closeWsolAta({
+    user,
+    destination,
+  }: {
+    user: PublicKey;
+    destination: PublicKey;
+  }): TransactionInstruction {
+    const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+    return createCloseAccountInstruction(wsolAta, destination, user);
+  }
+
+  async shieldTokens(params: {
+    user: Keypair;
+    payer: Keypair;
+    tokenMint: PublicKey;
+    amount: bigint;
+    solanaEnv: "mainnet" | "devnet";
+    rpcOptions?: RpcOptions;
+  }): Promise<string> {
+    const {
+      user: userKp,
+      payer: payerKp,
+      tokenMint,
+      amount,
+      solanaEnv,
+      rpcOptions,
+    } = params;
+    const user = userKp.publicKey;
+    const payer = payerKp.publicKey;
+    const isNativeSol = tokenMint.equals(NATIVE_MINT);
+    const validator = getErValidatorForSolanaEnv(solanaEnv);
+
+    const instructions: TransactionInstruction[] = [];
+    const checks: InstructionCheck[] = [];
+
+    if (isNativeSol) {
+      instructions.push(
+        ...this.wrapSolToWsolIx({
+          user,
+          payer,
+          lamports: amount,
+        })
+      );
+    }
+
+    const initializeDepositIxs = await this.initializeDepositIx({
+      tokenMint,
+      user,
+      payer,
+    });
+    instructions.push(initializeDepositIxs.ix);
+    checks.push(...initializeDepositIxs.ensure);
+
+    const modifyBalanceIxs = await this.modifyBalanceIx({
+      tokenMint,
+      user,
+      payer,
+      amount,
+      increase: true,
+      passNotExist: true,
+    });
+    instructions.push(modifyBalanceIxs.ix);
+    checks.push(...modifyBalanceIxs.ensure);
+
+    const createPermissionIxs = await this.createPermissionIx({
+      tokenMint,
+      user,
+      payer,
+      passNotExist: true,
+    });
+    instructions.push(createPermissionIxs.ix);
+    checks.push(...createPermissionIxs.ensure);
+
+    const delegateDepositIxs = await this.delegateDepositIx({
+      tokenMint,
+      user,
+      payer,
+      validator,
+      passNotExist: true,
+    });
+    instructions.push(delegateDepositIxs.ix);
+    checks.push(...delegateDepositIxs.ensure);
+
+    // TODO: delegatePermissionIx
+
+    if (isNativeSol) {
+      instructions.push(
+        this.closeWsolAta({
+          user,
+          destination: user,
+        })
+      );
+    }
+
+    await this.processEnsureChecks(checks);
+
+    const [depositPda] = findDepositPda(user, tokenMint);
+    const delegationWatcher = waitForAccountOwnerChange(
+      this.baseProgram.provider.connection,
+      depositPda,
+      DELEGATION_PROGRAM_ID
+    );
+
+    let signature;
+    try {
+      const tx = new Transaction().add(...instructions);
+      signature = await this.baseProgram.provider.sendAndConfirm!(
+        tx,
+        [userKp, payerKp],
+        rpcOptions
+      );
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    } catch (e) {
+      await delegationWatcher.cancel();
+      throw e;
+    }
 
     return signature;
   }

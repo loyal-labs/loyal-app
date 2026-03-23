@@ -41,6 +41,8 @@ export {
 export type {
   WalletSigner,
   WalletLike,
+  CheckedTransactionInstruction,
+  InstructionCheck,
   RpcOptions,
   ClientConfig,
   DepositData,
