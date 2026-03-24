@@ -1414,30 +1414,6 @@ export class LoyalPrivateTransactionsClient {
     }
   }
 
-  private async permissionAccountExists(
-    permission: PublicKey
-  ): Promise<boolean> {
-    const info = await this.baseProgram.provider.connection.getAccountInfo(
-      permission
-    );
-    return !!info && info.owner.equals(PERMISSION_PROGRAM_ID);
-  }
-
-  private isAccountAlreadyInUse(error: unknown): boolean {
-    const message = (error as { message?: string })?.message ?? "";
-    if (message.includes("already in use")) {
-      return true;
-    }
-    const logs =
-      (error as { logs?: string[]; transactionLogs?: string[] })?.logs ??
-      (error as { logs?: string[]; transactionLogs?: string[] })
-        ?.transactionLogs;
-    if (Array.isArray(logs)) {
-      return logs.some((log) => log.includes("already in use"));
-    }
-    return false;
-  }
-
   private formatEnsureDisplayName(name?: string): string {
     return name ? `${name} - ` : "";
   }
