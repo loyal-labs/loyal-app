@@ -1114,21 +1114,15 @@ export class LoyalPrivateTransactionsClient {
   }
 
   async shieldTokens(params: {
-    user: Keypair;
-    payer: Keypair;
     tokenMint: PublicKey;
     amount: bigint;
     rpcOptions?: RpcOptions;
   }): Promise<string> {
-    const {
-      user: userKp,
-      payer: payerKp,
-      tokenMint,
-      amount,
-      rpcOptions,
-    } = params;
-    const user = userKp.publicKey;
-    const payer = payerKp.publicKey;
+    const { tokenMint, amount, rpcOptions } = params;
+    const user = this.wallet.publicKey;
+    // TODO: allow providing additional payer keypair
+    const payer = this.wallet.publicKey;
+
     const isNativeSol = tokenMint.equals(NATIVE_MINT);
     const validator = this.getExpectedErValidator();
     const [depositPda] = findDepositPda(user, tokenMint);

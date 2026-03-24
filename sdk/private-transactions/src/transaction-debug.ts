@@ -4,6 +4,7 @@ import {
   SendTransactionError,
   Transaction,
   PublicKey,
+  type Signer,
 } from "@solana/web3.js";
 import type { AnchorProvider } from "@coral-xyz/anchor";
 import { prettyStringify } from "./utils";
@@ -269,13 +270,14 @@ export async function sendAndConfirmWithDiagnostics(params: {
   label: string;
   provider: AnchorProvider;
   tx: Transaction;
+  signers?: Signer[];
   rpcOptions?: RpcOptions;
   extraContext?: Record<string, unknown>;
 }): Promise<string> {
-  const { label, provider, tx, rpcOptions, extraContext } = params;
+  const { label, provider, tx, signers, rpcOptions, extraContext } = params;
 
   try {
-    return await provider.sendAndConfirm!(tx, [], rpcOptions);
+    return await provider.sendAndConfirm!(tx, signers, rpcOptions);
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
