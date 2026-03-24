@@ -427,8 +427,6 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
     };
 
-    console.log("modifyBalance", prettyStringify(accounts));
-
     const ix = await this.baseProgram.methods
       .modifyBalance({ amount: new BN(amount.toString()), increase })
       .accountsPartial(accounts)
@@ -1136,9 +1134,6 @@ export class LoyalPrivateTransactionsClient {
         "base-getMultipleAccountsInfo"
       );
 
-    const instructions: TransactionInstruction[] = [];
-    const checks: InstructionCheck[] = [];
-
     if (depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
       await this.undelegateDeposit({
         user,
@@ -1149,6 +1144,9 @@ export class LoyalPrivateTransactionsClient {
         rpcOptions,
       });
     }
+
+    const instructions: TransactionInstruction[] = [];
+    const checks: InstructionCheck[] = [];
 
     if (isNativeSol) {
       instructions.push(
@@ -1247,6 +1245,163 @@ export class LoyalPrivateTransactionsClient {
     } catch (e) {
       await delegationWatcher.cancel();
       throw e;
+    }
+
+    return signature;
+  }
+
+  async unshieldTokens(params: {
+    tokenMint: PublicKey;
+    amount: bigint;
+    rpcOptions?: RpcOptions;
+  }): Promise<string> {
+    const { tokenMint, amount, rpcOptions } = params;
+    const user = this.wallet.publicKey;
+    // TODO: allow providing additional payer keypair
+    const payer = this.wallet.publicKey;
+
+    const isNativeSol = tokenMint.equals(NATIVE_MINT);
+    const validator = this.getExpectedErValidator();
+    const [depositPda] = findDepositPda(user, tokenMint);
+
+    let [[baseDepositAccountInfo], [ephemeralDepositAccountInfo]] =
+      await Promise.all([
+        this.getMultipleAccountsInfoWithRetry(
+          this.baseProgram.provider.connection,
+          [depositPda],
+          "base-getMultipleAccountsInfo"
+        ),
+        this.getMultipleAccountsInfoWithRetry(
+          this.ephemeralProgram.provider.connection,
+          [depositPda],
+          "ephemeral-getMultipleAccountsInfo"
+        ),
+      ]);
+    if (!baseDepositAccountInfo) {
+      throw Error(`No existing deposit on address: ${depositPda.toString()}`);
+    }
+    if (!ephemeralDepositAccountInfo) {
+      throw Error(
+        `No existing ephemeral deposit on address: ${depositPda.toString()}`
+      );
+    }
+
+    const ephemeralDeposit = this.ephemeralProgram.coder.accounts.decode(
+      "deposit",
+      ephemeralDepositAccountInfo.data
+    );
+    const amountBefore: bigint = ephemeralDeposit.amount;
+    const redelegateRequired = amountBefore > amount;
+
+    if (baseDepositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
+      await this.undelegateDeposit({
+        user,
+        payer,
+        tokenMint,
+        magicProgram: MAGIC_PROGRAM_ID,
+        magicContext: MAGIC_CONTEXT_ID,
+        rpcOptions,
+      });
+    }
+
+    const instructions: TransactionInstruction[] = [];
+    const checks: InstructionCheck[] = [];
+
+    if (isNativeSol) {
+      const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+      instructions.push(
+        createAssociatedTokenAccountIdempotentInstruction(
+          payer,
+          wsolAta,
+          user,
+          NATIVE_MINT
+        )
+      );
+    }
+
+    const modifyBalanceIxs = await this.modifyBalanceIx({
+      tokenMint,
+      user,
+      payer,
+      amount,
+      increase: false,
+    });
+    instructions.push(modifyBalanceIxs.ix);
+    checks.push(...modifyBalanceIxs.ensure);
+
+    if (isNativeSol) {
+      instructions.push(
+        this.closeWsolAta({
+          user,
+          destination: user,
+        })
+      );
+    }
+
+    if (redelegateRequired) {
+      const delegateDepositIxs = await this.delegateDepositIx({
+        tokenMint,
+        user,
+        payer,
+        validator,
+      });
+      instructions.push(delegateDepositIxs.ix);
+      checks.push(...delegateDepositIxs.ensure);
+    }
+
+    await this.processEnsureChecks(checks);
+
+    const tx = new Transaction().add(...instructions);
+
+    let signature;
+    if (redelegateRequired) {
+      const delegationWatcher = waitForAccountOwnerChange(
+        this.baseProgram.provider.connection,
+        depositPda,
+        DELEGATION_PROGRAM_ID
+      );
+      try {
+        signature = await sendAndConfirmWithDiagnostics({
+          label: "unshieldTokens",
+          provider: this.baseProgram.provider,
+          tx,
+          rpcOptions,
+          extraContext: {
+            user,
+            payer,
+            tokenMint,
+            amount,
+            isNativeSol,
+            validator,
+            depositPda,
+            baseDepositAccountInfo,
+            ephemeralDepositAccountInfo,
+          },
+        });
+        await delegationWatcher.wait();
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+      } catch (e) {
+        await delegationWatcher.cancel();
+        throw e;
+      }
+    } else {
+      signature = await sendAndConfirmWithDiagnostics({
+        label: "unshieldTokens",
+        provider: this.baseProgram.provider,
+        tx,
+        rpcOptions,
+        extraContext: {
+          user,
+          payer,
+          tokenMint,
+          amount,
+          isNativeSol,
+          validator,
+          depositPda,
+          baseDepositAccountInfo,
+          ephemeralDepositAccountInfo,
+        },
+      });
     }
 
     return signature;

@@ -225,10 +225,14 @@ describe("private-transactions shield SDK (PER)", async () => {
   const amount = BigInt(LAMPORTS_PER_SOL) / 10n;
 
   const shieldSig = await loyalClient.shieldTokens({
-    user: USER_KP,
-    payer: USER_KP,
     tokenMint: mint,
     amount,
   });
   console.log("shieldSig", shieldSig);
+
+  const unshieldSig = await loyalClient.unshieldTokens({
+    tokenMint: mint,
+    amount,
+  });
+  console.log("unshieldSig", unshieldSig);
 });
