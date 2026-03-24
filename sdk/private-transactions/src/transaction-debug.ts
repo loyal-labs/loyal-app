@@ -6,7 +6,7 @@ import {
   PublicKey,
   type Signer,
 } from "@solana/web3.js";
-import type { AnchorProvider } from "@coral-xyz/anchor";
+import type { Provider } from "@coral-xyz/anchor";
 import { prettyStringify } from "./utils";
 import type { RpcOptions } from "./types";
 
@@ -38,7 +38,7 @@ function describeAccountInfo(
     owner: accountInfo.owner.toBase58(),
     executable: accountInfo.executable,
     lamports: accountInfo.lamports,
-    dataLength: accountInfo.data.length,
+    dataLength: accountInfo.data?.length ?? null,
     rentEpoch: accountInfo.rentEpoch,
   };
 }
@@ -60,11 +60,7 @@ async function getTransactionErrorLogs(
     return inlineLogs;
   }
 
-  if (
-    error instanceof SendTransactionError &&
-    typeof error.signature === "string" &&
-    error.signature.length > 0
-  ) {
+  if (error instanceof SendTransactionError) {
     try {
       const fetchedLogs = await error.getLogs(connection);
       if (Array.isArray(fetchedLogs)) {
@@ -243,7 +239,6 @@ export async function logFailedTransactionDiagnostics(params: {
         err: simulation.value.err,
         logs: simulation.value.logs,
         unitsConsumed: simulation.value.unitsConsumed,
-        loadedAccountsDataSize: simulation.value.loadedAccountsDataSize,
         returnData: simulation.value.returnData,
       })
     );
@@ -268,7 +263,7 @@ export async function logFailedTransactionDiagnostics(params: {
 
 export async function sendAndConfirmWithDiagnostics(params: {
   label: string;
-  provider: AnchorProvider;
+  provider: Provider;
   tx: Transaction;
   signers?: Signer[];
   rpcOptions?: RpcOptions;
@@ -276,8 +271,12 @@ export async function sendAndConfirmWithDiagnostics(params: {
 }): Promise<string> {
   const { label, provider, tx, signers, rpcOptions, extraContext } = params;
 
+  if (!provider.sendAndConfirm) {
+    throw new Error("Provider does not support sendAndConfirm");
+  }
+
   try {
-    return await provider.sendAndConfirm!(tx, signers, rpcOptions);
+    return await provider.sendAndConfirm(tx, signers, rpcOptions);
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
