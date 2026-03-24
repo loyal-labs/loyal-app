@@ -29,6 +29,8 @@ import {
   PROGRAM_ID,
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
+  MAGIC_PROGRAM_ID,
+  MAGIC_CONTEXT_ID,
   getErValidatorForRpcEndpoint,
 } from "./constants";
 import {
@@ -40,6 +42,8 @@ import {
   findDelegationMetadataPda,
   findBufferPda,
 } from "./pda";
+import { sendAndConfirmWithDiagnostics } from "./transaction-debug";
+import { prettyStringify, waitForAccountOwnerChange } from "./utils";
 import { InternalWalletAdapter } from "./wallet-adapter";
 import { isKeypair, isAnchorProvider } from "./types";
 import type {
@@ -66,23 +70,6 @@ import type {
   InstructionCheck,
   RpcOptions,
 } from "./types";
-
-function prettyStringify(obj: unknown): string {
-  const json = JSON.stringify(
-    obj,
-    (_key, value) => {
-      if (value instanceof PublicKey) return value.toBase58();
-      if (typeof value === "bigint") return value.toString();
-      return value;
-    },
-    2
-  );
-  // Collapse arrays onto single lines
-  return json.replace(/\[\s+(\d[\d,\s]*\d)\s+\]/g, (_match, inner) => {
-    const items = inner.split(/,\s*/).map((s: string) => s.trim());
-    return `[${items.join(", ")}]`;
-  });
-}
 
 type MergedInstructionCheck = {
   address: PublicKey;
@@ -153,68 +140,6 @@ function deriveMessageSigner(
     return (message: Uint8Array) => walletLike.signMessage!(message);
   }
   throw new Error("Wallet does not support signMessage, required for PER auth");
-}
-
-// Subscribe for changes (before transaction) and start polling (should be awaited after transaction).
-// Returns an object with `wait()` to start polling and `cancel()` to clean up the subscription
-// if the transaction fails before `wait()` is called.
-export function waitForAccountOwnerChange(
-  connection: Connection,
-  account: PublicKey,
-  expectedOwner: PublicKey,
-  timeoutMs = 15_000,
-  intervalMs = 1_000
-): { wait: () => Promise<void>; cancel: () => Promise<void> } {
-  let skipWait: () => void;
-  const subId = connection.onAccountChange(
-    account,
-    (accountInfo) => {
-      if (accountInfo.owner.equals(expectedOwner) && skipWait) {
-        console.log(
-          `waitForAccountOwnerChange: ${account.toString()} – short-circuit polling wait`
-        );
-        skipWait();
-      }
-    },
-    { commitment: "confirmed" }
-  );
-
-  const cleanup = async () => {
-    await connection.removeAccountChangeListener(subId);
-  };
-
-  const wait = async () => {
-    try {
-      const start = Date.now();
-      while (Date.now() - start < timeoutMs) {
-        const info = await connection.getAccountInfo(account, "confirmed");
-        if (info && info.owner.equals(expectedOwner)) {
-          console.log(
-            `waitForAccountOwnerChange: ${account.toString()} appeared with owner ${expectedOwner.toString()} after ${
-              Date.now() - start
-            }ms`
-          );
-          return;
-        }
-        if (info) {
-          console.log(
-            `waitForAccountOwnerChange: ${account.toString()} exists but owner is ${info.owner.toString()}, expected ${expectedOwner.toString()}`
-          );
-        }
-        await new Promise<void>((r) => {
-          skipWait = r;
-          setTimeout(r, intervalMs);
-        });
-      }
-      throw new Error(
-        `waitForAccountOwnerChange: ${account.toString()} did not appear with owner ${expectedOwner.toString()} after ${timeoutMs}ms`
-      );
-    } finally {
-      await cleanup();
-    }
-  };
-
-  return { wait, cancel: cleanup };
 }
 
 /**
@@ -870,14 +795,20 @@ export class LoyalPrivateTransactionsClient {
       PROGRAM_ID
     );
 
+    const tx = new Transaction().add(ix);
     let signature;
     try {
-      const tx = new Transaction().add(ix);
-      signature = await this.ephemeralProgram.provider.sendAndConfirm!(
+      signature = await sendAndConfirmWithDiagnostics({
+        label: "undelegateDeposit",
+        provider: this.ephemeralProgram.provider,
         tx,
-        [],
-        params.rpcOptions
-      );
+        rpcOptions: params.rpcOptions,
+        extraContext: {
+          user,
+          tokenMint,
+          depositPda,
+        },
+      });
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3_000));
     } catch (e) {
@@ -1200,9 +1131,30 @@ export class LoyalPrivateTransactionsClient {
     const payer = payerKp.publicKey;
     const isNativeSol = tokenMint.equals(NATIVE_MINT);
     const validator = this.getExpectedErValidator();
+    const [depositPda] = findDepositPda(user, tokenMint);
+    const [permissionPda] = findPermissionPda(depositPda);
+
+    const baseConnection = this.baseProgram.provider.connection;
+    let [depositAccountInfo, permissionAccountInfo] =
+      await this.getMultipleAccountsInfoWithRetry(
+        baseConnection,
+        [depositPda, permissionPda],
+        "base-getMultipleAccountsInfo"
+      );
 
     const instructions: TransactionInstruction[] = [];
     const checks: InstructionCheck[] = [];
+
+    if (depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
+      await this.undelegateDeposit({
+        user,
+        payer,
+        tokenMint,
+        magicProgram: MAGIC_PROGRAM_ID,
+        magicContext: MAGIC_CONTEXT_ID,
+        rpcOptions,
+      });
+    }
 
     if (isNativeSol) {
       instructions.push(
@@ -1214,13 +1166,15 @@ export class LoyalPrivateTransactionsClient {
       );
     }
 
-    const initializeDepositIxs = await this.initializeDepositIx({
-      tokenMint,
-      user,
-      payer,
-    });
-    instructions.push(initializeDepositIxs.ix);
-    checks.push(...initializeDepositIxs.ensure);
+    if (!depositAccountInfo) {
+      const initializeDepositIxs = await this.initializeDepositIx({
+        tokenMint,
+        user,
+        payer,
+      });
+      instructions.push(initializeDepositIxs.ix);
+      checks.push(...initializeDepositIxs.ensure);
+    }
 
     const modifyBalanceIxs = await this.modifyBalanceIx({
       tokenMint,
@@ -1233,14 +1187,16 @@ export class LoyalPrivateTransactionsClient {
     instructions.push(modifyBalanceIxs.ix);
     checks.push(...modifyBalanceIxs.ensure);
 
-    const createPermissionIxs = await this.createPermissionIx({
-      tokenMint,
-      user,
-      payer,
-      passNotExist: true,
-    });
-    instructions.push(createPermissionIxs.ix);
-    checks.push(...createPermissionIxs.ensure);
+    if (!permissionAccountInfo) {
+      const createPermissionIxs = await this.createPermissionIx({
+        tokenMint,
+        user,
+        payer,
+        passNotExist: true,
+      });
+      instructions.push(createPermissionIxs.ix);
+      checks.push(...createPermissionIxs.ensure);
+    }
 
     const delegateDepositIxs = await this.delegateDepositIx({
       tokenMint,
@@ -1265,21 +1221,33 @@ export class LoyalPrivateTransactionsClient {
 
     await this.processEnsureChecks(checks);
 
-    const [depositPda] = findDepositPda(user, tokenMint);
     const delegationWatcher = waitForAccountOwnerChange(
       this.baseProgram.provider.connection,
       depositPda,
       DELEGATION_PROGRAM_ID
     );
 
+    const tx = new Transaction().add(...instructions);
     let signature;
     try {
-      const tx = new Transaction().add(...instructions);
-      signature = await this.baseProgram.provider.sendAndConfirm!(
+      signature = await sendAndConfirmWithDiagnostics({
+        label: "shieldTokens",
+        provider: this.baseProgram.provider,
         tx,
-        [],
-        rpcOptions
-      );
+        rpcOptions,
+        extraContext: {
+          user,
+          payer,
+          tokenMint,
+          amount,
+          isNativeSol,
+          validator,
+          depositPda,
+          permissionPda,
+          depositAccountInfo,
+          permissionAccountInfo,
+        },
+      });
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3_000));
     } catch (e) {
