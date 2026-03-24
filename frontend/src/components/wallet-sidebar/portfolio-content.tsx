@@ -353,7 +353,7 @@ export function PortfolioContent({
               style={{ display: "flex", alignItems: "center", padding: "6px 12px", borderRadius: "16px", background: "transparent", border: "none", cursor: "pointer", width: "100%", transition: "background 0.15s ease", textAlign: "left" }}
               type="button"
             >
-              <Image alt="Vault" height={48} src="/redbg.png" style={{ borderRadius: "12px", flexShrink: 0, marginRight: "12px" }} width={48} />
+              <Image alt="Stash" height={48} src="/redbg.png" style={{ borderRadius: "12px", flexShrink: 0, marginRight: "12px" }} width={48} />
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "9px 0" }}>
                 <div style={{ borderRadius: "6px", overflow: "hidden" }}>
                   <span style={{ fontFamily: font, fontSize: "20px", fontWeight: 600, lineHeight: "24px", color: isBalanceHidden ? "#BBBBC0" : "#000", letterSpacing: "-0.22px", filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none", transition: "filter 0.15s ease, color 0.15s ease", userSelect: isBalanceHidden ? "none" : "auto", display: "block" }}>
@@ -361,7 +361,7 @@ export function PortfolioContent({
                   </span>
                 </div>
                 <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
-                  Vault
+                  Stash
                 </span>
               </div>
               <ChevronRight size={24} style={{ color: "rgba(60, 60, 67, 0.3)", flexShrink: 0, marginLeft: "12px" }} />

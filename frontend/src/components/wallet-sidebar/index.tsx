@@ -25,6 +25,7 @@ import { TokenSelectView } from "./token-select-view";
 import { AccountPageView } from "./account-page-view";
 import { AgentPageView } from "./agent-page-view";
 import { ApprovalReviewContent } from "./approval-review-content";
+import { StashDetailView } from "./stash-detail-view";
 import { VaultAccountPageView } from "./vault-account-page-view";
 import { ConnectRequestContent } from "./connect-request-content";
 import { TransactionDetailView } from "./transaction-detail-view";
@@ -153,6 +154,28 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       return () => clearTimeout(t);
     }
   }, [level3View]);
+
+  // Left panel — slides out to the left of the sidebar (agent or stash detail)
+  type LeftPanelView =
+    | { type: "agentPage"; agentId: string; label: string; initials: string; balanceWhole: string; balanceFraction: string }
+    | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string };
+  const [leftPanel, setLeftPanel] = useState<LeftPanelView | null>(null);
+  const [displayLeftPanel, setDisplayLeftPanel] = useState<LeftPanelView | null>(null);
+  useEffect(() => {
+    if (leftPanel) {
+      setDisplayLeftPanel(leftPanel);
+    } else {
+      const t = setTimeout(() => setDisplayLeftPanel(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [leftPanel]);
+  // Close left panel when vault is no longer in the stack
+  useEffect(() => {
+    const vaultActive = viewStack.some(
+      (v) => typeof v === "object" && v !== null && v.type === "accountPage" && (v as { account: string }).account === "vault"
+    );
+    if (!vaultActive) setLeftPanel(null);
+  }, [viewStack]);
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
@@ -291,6 +314,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         setDisplayLevel1(null);
         setDisplayLevel2(null);
         setDisplayLevel3(null);
+        setLeftPanel(null);
+        setDisplayAgentLeftPanel(null);
       }, 350);
       return () => clearTimeout(t);
     }
@@ -430,7 +455,13 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             transactionDetails={props.walletDesktopData.transactionDetails}
             onBack={onBack}
             onClose={props.onClose}
-            onNavigate={pushView}
+            onNavigate={(v) => {
+              if (typeof v === "object" && v !== null && (v.type === "agentPage" || v.type === "stashPage")) {
+                setLeftPanel(v as LeftPanelView);
+              } else {
+                pushView(v);
+              }
+            }}
           />
         );
       }
@@ -885,6 +916,59 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             </div>
           </div>
 
+          {/* Left panel — slides out from inside the mother panel to the left */}
+          <div
+            style={{
+              position: "absolute",
+              top: "12px",
+              bottom: "12px",
+              right: "100%",
+              width: "100%",
+              background: "#F8F8FA",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
+              borderRight: "none",
+              borderRadius: "20px 0 0 20px",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              transform: leftPanel
+                ? "translateX(0)"
+                : "translateX(100%)",
+              visibility: leftPanel ? "visible" : "hidden",
+              transition: leftPanel
+                ? "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0s"
+                : "transform 0.28s cubic-bezier(0.4, 0, 0.6, 1), visibility 0s linear 0.28s",
+              pointerEvents: leftPanel ? "auto" : "none",
+            }}
+          >
+            {displayLeftPanel?.type === "agentPage" && (
+              <AgentPageView
+                label={displayLeftPanel.label}
+                initials={displayLeftPanel.initials}
+                balanceWhole={displayLeftPanel.balanceWhole}
+                balanceFraction={displayLeftPanel.balanceFraction}
+                isBalanceHidden={props.isBalanceHidden}
+                onBalanceHiddenChange={props.onBalanceHiddenChange}
+                onBack={() => setLeftPanel(null)}
+                onClose={props.onClose}
+              />
+            )}
+            {displayLeftPanel?.type === "stashPage" && (
+              <StashDetailView
+                label={displayLeftPanel.label}
+                balanceWhole={displayLeftPanel.balanceWhole}
+                balanceFraction={displayLeftPanel.balanceFraction}
+                isBalanceHidden={props.isBalanceHidden}
+                onBalanceHiddenChange={props.onBalanceHiddenChange}
+                tokenRows={props.walletDesktopData.tokenRows}
+                activityRows={props.walletDesktopData.activityRows}
+                transactionDetails={props.walletDesktopData.transactionDetails}
+                onBack={() => setLeftPanel(null)}
+                onNavigate={pushView}
+              />
+            )}
+          </div>
+
           {/* Layer 1: Sub-views (allTokens / allActivity / tokenSelect) */}
           <div
             style={{
@@ -952,6 +1036,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           >
             {renderSubView(displayLevel3, popView)}
           </div>
+
         </div>
       </div>
     </>

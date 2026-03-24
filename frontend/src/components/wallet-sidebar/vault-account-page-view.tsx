@@ -2,7 +2,7 @@
 
 import {
   ArrowLeft,
-  ArrowUpRight,
+  ChevronLeft,
   ChevronRight,
   Eye,
   EyeOff,
@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 
+import { AccessLevelIcon } from "./agent-page-view";
+import type { AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
 import { TokenRowItem } from "./token-row-item";
 import type {
@@ -28,7 +30,7 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 const MOCK_VAULT_ENTRIES = [
   {
     id: "vault",
-    label: "Vault",
+    label: "Wallet stash",
     balanceWhole: "$6,750",
     balanceFraction: ".00",
     icon: "lock" as const,
@@ -40,6 +42,8 @@ const MOCK_VAULT_ENTRIES = [
     balanceFraction: ".00",
     icon: "initials" as const,
     initials: "A1",
+    accessLabel: "Can sign",
+    accessLevel: "sign" as AccessLevel,
   },
   {
     id: "agent-2",
@@ -48,6 +52,8 @@ const MOCK_VAULT_ENTRIES = [
     balanceFraction: ".00",
     icon: "initials" as const,
     initials: "A2",
+    accessLabel: "Can execute",
+    accessLevel: "execute" as AccessLevel,
   },
 ];
 
@@ -81,13 +87,7 @@ export function VaultAccountPageView({
         .vault-close-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
-        .vault-transfer-btn:hover {
-          background: rgba(249, 54, 60, 0.22) !important;
-        }
-        .vault-topup-btn:hover {
-          background: #222 !important;
-        }
-        .vault-link-btn:hover {
+.vault-link-btn:hover {
           opacity: 0.7;
         }
         .vault-entry-row:hover {
@@ -181,7 +181,7 @@ export function VaultAccountPageView({
         style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
       >
         <Image
-          alt="Vault"
+          alt="Stash"
           height={64}
           src="/redbg.png"
           style={{ borderRadius: "16px", flexShrink: 0, marginRight: "12px" }}
@@ -205,7 +205,7 @@ export function VaultAccountPageView({
               color: secondary,
             }}
           >
-            Vault
+            Stash
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div style={{ borderRadius: "8px", overflow: "hidden" }}>
@@ -267,77 +267,6 @@ export function VaultAccountPageView({
         </div>
       </div>
 
-      {/* Action buttons: Transfer + Top Up pills */}
-      <div
-        style={{
-          display: "flex",
-          gap: "16px",
-          alignItems: "start",
-          padding: "8px 20px",
-        }}
-      >
-        <button
-          className="vault-transfer-btn"
-          style={{
-            flex: 1,
-            display: "flex",
-            gap: "6px",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 16px 10px 8px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-          }}
-          type="button"
-        >
-          <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-          <span
-            style={{
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 400,
-              lineHeight: "20px",
-              color: "#000",
-            }}
-          >
-            Transfer
-          </span>
-        </button>
-        <button
-          className="vault-topup-btn"
-          style={{
-            flex: 1,
-            display: "flex",
-            gap: "6px",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 16px 10px 8px",
-            borderRadius: "9999px",
-            background: "#000",
-            border: "none",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-          }}
-          type="button"
-        >
-          <Plus size={24} style={{ color: "#fff" }} />
-          <span
-            style={{
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 400,
-              lineHeight: "20px",
-              color: "#fff",
-            }}
-          >
-            Top Up
-          </span>
-        </button>
-      </div>
-
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
         {/* "In this vault" section */}
@@ -350,23 +279,6 @@ export function VaultAccountPageView({
             width: "100%",
           }}
         >
-          <div style={{ width: "100%", padding: "3px 12px 1px" }}>
-            <div style={{ padding: "12px 0 8px" }}>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  color: "#000",
-                  letterSpacing: "-0.176px",
-                }}
-              >
-                In this vault
-              </span>
-            </div>
-          </div>
-
           {/* Sub-account rows */}
           {MOCK_VAULT_ENTRIES.map((entry) => (
             <button
@@ -374,7 +286,21 @@ export function VaultAccountPageView({
               key={entry.id}
               onClick={() => {
                 if (entry.icon === "initials") {
-                  onNavigate({ type: "agentPage", agentId: entry.id, label: entry.label, initials: entry.initials ?? "", balanceWhole: entry.balanceWhole, balanceFraction: entry.balanceFraction });
+                  onNavigate({
+                    type: "agentPage",
+                    agentId: entry.id,
+                    label: entry.label,
+                    initials: entry.initials ?? "",
+                    balanceWhole: entry.balanceWhole,
+                    balanceFraction: entry.balanceFraction,
+                  });
+                } else if (entry.icon === "lock") {
+                  onNavigate({
+                    type: "stashPage",
+                    label: entry.label,
+                    balanceWhole: entry.balanceWhole,
+                    balanceFraction: entry.balanceFraction,
+                  } as any);
                 }
               }}
               style={{
@@ -461,25 +387,56 @@ export function VaultAccountPageView({
                     }}
                   >
                     {entry.balanceWhole}
-                    <span style={{ color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)" }}>
+                    <span
+                      style={{
+                        color: isBalanceHidden
+                          ? "#BBBBC0"
+                          : "rgba(60, 60, 67, 0.4)",
+                      }}
+                    >
                       {entry.balanceFraction}
                     </span>
                   </span>
                 </div>
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 400,
-                    lineHeight: "16px",
-                    color: secondary,
-                  }}
-                >
-                  {entry.label}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                      color: secondary,
+                    }}
+                  >
+                    {entry.label}
+                  </span>
+                  {"accessLabel" in entry && entry.accessLabel && (
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "11px",
+                        fontWeight: 500,
+                        lineHeight: "14px",
+                        color: "#000",
+                        background: "rgba(249, 54, 60, 0.14)",
+                        borderRadius: "9999px",
+                        padding: "2px 10px 2px 4px",
+                        whiteSpace: "nowrap",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "2px",
+                      }}
+                    >
+                      {"accessLevel" in entry && entry.accessLevel && (
+                        <AccessLevelIcon level={entry.accessLevel} size={14} />
+                      )}
+                      {entry.accessLabel}
+                    </span>
+                  )}
+                </div>
               </div>
               {/* Chevron */}
-              <ChevronRight
+              <ChevronLeft
                 size={24}
                 style={{
                   color: "rgba(60, 60, 67, 0.3)",
@@ -533,17 +490,9 @@ export function VaultAccountPageView({
                   letterSpacing: "-0.176px",
                 }}
               >
-                Add Agent
+                Add
               </span>
             </div>
-            <ChevronRight
-              size={24}
-              style={{
-                color: "rgba(60, 60, 67, 0.3)",
-                flexShrink: 0,
-                marginLeft: "12px",
-              }}
-            />
           </button>
         </div>
 

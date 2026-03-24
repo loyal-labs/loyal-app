@@ -1,19 +1,54 @@
 "use client";
 
-import { ArrowLeft, ChevronRight, Eye, EyeOff, Trash2, X } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ChevronRight, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
-type AccessLevel = "view" | "suggest" | "sign" | "execute";
+export type AccessLevel = "suggest" | "sign" | "execute";
 
 const ACCESS_OPTIONS: { id: AccessLevel; label: string; description: string }[] = [
-  { id: "view", label: "View Only", description: "Can view wallet activity and balances, but cannot create or sign transactions." },
   { id: "suggest", label: "Suggest Transactions", description: "Can prepare transaction suggestions for your review and approval" },
   { id: "sign", label: "Sign Transactions", description: "Can sign transactions, but only within the permissions you allow." },
   { id: "execute", label: "Execute Transactions", description: "Can sign and send transactions on your behalf without additional approval." },
 ];
+
+const ACCESS_DISPLAY: Record<AccessLevel, string> = {
+  suggest: "Can suggest",
+  sign: "Can sign",
+  execute: "Can execute",
+};
+
+export function AccessLevelIcon({ level, size = 28 }: { level: AccessLevel; size?: number }) {
+  const color = "rgba(60, 60, 67, 0.6)";
+  const scale = size / 28;
+  const c = size / 2;
+
+  if (level === "execute") {
+    return (
+      <svg fill="none" height={size} viewBox={`0 0 ${size} ${size}`} width={size}>
+        <circle cx={c} cy={c} r={11.67 * scale} stroke={color} strokeWidth={1.5 * scale} />
+        <circle cx={c} cy={c} fill={color} r={2.33 * scale} />
+      </svg>
+    );
+  }
+
+  const radius = 10.5 * scale;
+  const dots = [0, 45, 90, 135, 180, 225, 270, 315].map((angle) => ({
+    cx: c + radius * Math.cos(((angle - 90) * Math.PI) / 180),
+    cy: c + radius * Math.sin(((angle - 90) * Math.PI) / 180),
+  }));
+
+  return (
+    <svg fill="none" height={size} viewBox={`0 0 ${size} ${size}`} width={size}>
+      {dots.map((d, i) => (
+        <circle cx={d.cx} cy={d.cy} fill={color} key={i} r={1.2 * scale} />
+      ))}
+      {level === "sign" && <circle cx={c} cy={c} fill={color} r={2.33 * scale} />}
+    </svg>
+  );
+}
 
 export function AgentPageView({
   label,
@@ -35,14 +70,23 @@ export function AgentPageView({
   onClose: () => void;
 }) {
   const [accessLevel, setAccessLevel] = useState<AccessLevel>("suggest");
+  const [isAccessExpanded, setIsAccessExpanded] = useState(false);
   const [hasLimit] = useState(true); // mock: toggle for limit set vs not set
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <style jsx>{`
-        .agent-back-btn:hover,
-        .agent-close-btn:hover {
+        .agent-back-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .agent-transfer-btn:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
+        }
+        .agent-topup-btn:hover {
+          background: #222 !important;
+        }
+        .agent-access-header:hover {
+          background: rgba(0, 0, 0, 0.06) !important;
         }
         .agent-radio-row:hover {
           background: rgba(0, 0, 0, 0.04) !important;
@@ -83,12 +127,12 @@ export function AgentPageView({
         </defs>
       </svg>
 
-      {/* Header: back + close */}
+      {/* Header: back (arrow right — slides back to the right) */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-start",
           padding: "8px",
         }}
       >
@@ -110,27 +154,7 @@ export function AgentPageView({
           }}
           type="button"
         >
-          <ArrowLeft size={24} />
-        </button>
-        <button
-          className="agent-close-btn"
-          onClick={onClose}
-          style={{
-            width: "36px",
-            height: "36px",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "9999px",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            color: "#3C3C43",
-          }}
-          type="button"
-        >
-          <X size={24} />
+          <ArrowRight size={24} />
         </button>
       </div>
 
@@ -247,107 +271,233 @@ export function AgentPageView({
           </div>
         </div>
 
+        {/* Action buttons: Transfer + Top Up */}
+        <div
+          style={{
+            display: "flex",
+            gap: "16px",
+            alignItems: "start",
+            padding: "8px 20px",
+          }}
+        >
+          <button
+            className="agent-transfer-btn"
+            style={{
+              flex: 1,
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#000",
+              }}
+            >
+              Transfer
+            </span>
+          </button>
+          <button
+            className="agent-topup-btn"
+            style={{
+              flex: 1,
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
+              borderRadius: "9999px",
+              background: "#000",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <Plus size={24} style={{ color: "#fff" }} />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#fff",
+              }}
+            >
+              Top Up
+            </span>
+          </button>
+        </div>
+
         {/* Agent Access section */}
         <div
           style={{
             display: "flex",
             flexDirection: "column",
+            gap: "8px",
             alignItems: "center",
             padding: "8px",
             width: "100%",
           }}
         >
-          <div style={{ width: "100%", padding: "3px 12px 1px" }}>
-            <div style={{ padding: "12px 0 8px" }}>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  color: "#000",
-                  letterSpacing: "-0.176px",
-                }}
-              >
-                Agent Access
-              </span>
-            </div>
-          </div>
+          {/* Collapsible header */}
+          <button
+            className="agent-access-header"
+            onClick={() => setIsAccessExpanded((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              width: "100%",
+              background: "rgba(0, 0, 0, 0.04)",
+              borderRadius: "16px",
+              padding: "14px 12px",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <span
+              style={{
+                flex: 1,
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                lineHeight: "20px",
+                color: "#000",
+                letterSpacing: "-0.176px",
+                textAlign: "left",
+              }}
+            >
+              Agent Access
+            </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+                paddingLeft: "12px",
+              }}
+            >
+              {ACCESS_DISPLAY[accessLevel]}
+            </span>
+            <ChevronRight
+              size={16}
+              style={{
+                color: "rgba(60, 60, 67, 0.3)",
+                marginLeft: "6px",
+                transform: isAccessExpanded ? "rotate(-90deg)" : "rotate(90deg)",
+                transition: "transform 0.2s ease",
+                flexShrink: 0,
+              }}
+            />
+          </button>
 
-          {ACCESS_OPTIONS.map((option) => {
-            const selected = accessLevel === option.id;
-            return (
-              <button
-                className="agent-radio-row"
-                key={option.id}
-                onClick={() => setAccessLevel(option.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  padding: "10px 12px",
-                  borderRadius: "16px",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  width: "100%",
-                  transition: "background 0.15s ease",
-                  textAlign: "left",
-                }}
-                type="button"
-              >
-                {/* Radio circle */}
-                <div
-                  style={{
-                    width: "24px",
-                    height: "24px",
-                    borderRadius: "9999px",
-                    border: selected
-                      ? "7px solid #F9363C"
-                      : "2px solid rgba(60, 60, 67, 0.3)",
-                    background: "#fff",
-                    flexShrink: 0,
-                    marginRight: "12px",
-                    marginTop: "0px",
-                    boxSizing: "border-box",
-                    transition: "border 0.15s ease",
-                  }}
-                />
-                {/* Text */}
-                <div
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                  }}
-                >
-                  <span
+          {/* Options list (collapsible) */}
+          <div
+            style={{
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              maxHeight: isAccessExpanded ? "300px" : "0px",
+              overflow: "hidden",
+              transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+            }}
+          >
+              {ACCESS_OPTIONS.map((option) => {
+                const selected = accessLevel === option.id;
+                return (
+                  <button
+                    className="agent-radio-row"
+                    key={option.id}
+                    onClick={() => setAccessLevel(option.id)}
                     style={{
-                      fontFamily: font,
-                      fontSize: "16px",
-                      fontWeight: 500,
-                      lineHeight: "20px",
-                      color: "#000",
-                      letterSpacing: "-0.176px",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "6px 12px",
+                      borderRadius: "16px",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      width: "100%",
+                      transition: "background 0.15s ease",
+                      textAlign: "left",
                     }}
+                    type="button"
                   >
-                    {option.label}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    {option.description}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
+                    {/* Icon */}
+                    <div style={{ padding: "10px 0", paddingRight: "12px", flexShrink: 0 }}>
+                      <AccessLevelIcon level={option.id} />
+                    </div>
+                    {/* Text */}
+                    <div
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        padding: "10px 0",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "16px",
+                          fontWeight: 500,
+                          lineHeight: "20px",
+                          color: "#000",
+                          letterSpacing: "-0.176px",
+                        }}
+                      >
+                        {option.label}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 400,
+                          lineHeight: "16px",
+                          color: secondary,
+                        }}
+                      >
+                        {option.description}
+                      </span>
+                    </div>
+                    {/* Radio */}
+                    <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
+                      <div
+                        style={{
+                          width: "24px",
+                          height: "24px",
+                          borderRadius: "9999px",
+                          border: selected
+                            ? "7px solid #F9363C"
+                            : "2px solid rgba(60, 60, 67, 0.3)",
+                          background: "#fff",
+                          boxSizing: "border-box",
+                          transition: "border 0.15s ease",
+                        }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+          </div>
         </div>
 
         {/* Spending Limit section */}
