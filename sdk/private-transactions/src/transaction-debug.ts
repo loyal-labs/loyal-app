@@ -39,7 +39,7 @@ function describeAccountInfo(
     executable: accountInfo.executable,
     lamports: accountInfo.lamports,
     dataLength: accountInfo.data?.length ?? null,
-    rentEpoch: accountInfo.rentEpoch,
+    rentEpoch: accountInfo.rentEpoch ?? null,
   };
 }
 
