@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownLeft, ArrowLeft, ArrowUpRight, Eye, EyeOff, RefreshCw, X } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Eye, EyeOff, RefreshCw, X } from "lucide-react";
 import Image from "next/image";
 
 import { ActivityRowItem } from "./activity-row-item";
@@ -55,7 +55,7 @@ export function AccountPageView({
           background: rgba(249, 54, 60, 0.22) !important;
         }
         .acct-shield-btn:hover {
-          background: #222 !important;
+          background: rgba(60, 60, 67, 0.06) !important;
         }
         .acct-link-btn:hover {
           opacity: 0.7;
@@ -90,7 +90,7 @@ export function AccountPageView({
           style={{ width: "36px", height: "36px", display: "flex", justifyContent: "center", alignItems: "center", background: "rgba(0, 0, 0, 0.04)", border: "none", borderRadius: "9999px", cursor: "pointer", transition: "all 0.2s ease", color: "#3C3C43" }}
           type="button"
         >
-          <ArrowLeft size={24} />
+          <ArrowRight size={24} />
         </button>
         <button
           className="acct-close-btn"
@@ -177,11 +177,11 @@ export function AccountPageView({
         <button
           className="acct-shield-btn"
           onClick={() => onTabChange("swap")}
-          style={{ flex: 1, display: "flex", gap: "6px", alignItems: "center", justifyContent: "center", padding: "10px 16px 10px 8px", borderRadius: "9999px", background: "#000", border: "none", cursor: "pointer", transition: "background 0.15s ease" }}
+          style={{ flex: 1, display: "flex", gap: "6px", alignItems: "center", justifyContent: "center", padding: "10px 16px 10px 8px", borderRadius: "9999px", background: "transparent", border: "2px solid rgba(60, 60, 67, 0.18)", cursor: "pointer", transition: "background 0.15s ease" }}
           type="button"
         >
           <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
-          <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#fff" }}>Shield</span>
+          <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>Shield</span>
         </button>
       </div>
 

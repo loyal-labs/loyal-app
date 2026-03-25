@@ -704,6 +704,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onOpenAccount={(account) => pushView({ type: "accountPage", account })}
                   walletAddress={props.walletDesktopData.walletAddress}
                   walletLabel={props.walletDesktopData.walletLabel}
+                  isAgentConnected={!!props.connectAgentName}
                 />
               )}
               {displayTab === "receive" && (

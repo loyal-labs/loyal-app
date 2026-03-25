@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowLeft,
+  ArrowRight,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -152,7 +152,7 @@ export function VaultAccountPageView({
           }}
           type="button"
         >
-          <ArrowLeft size={24} />
+          <ArrowRight size={24} />
         </button>
         <button
           className="vault-close-btn"
