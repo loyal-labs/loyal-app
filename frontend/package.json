@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "bun run --cwd .. build:grid-packages && bun run --cwd .. build:llm-packages && bun run --cwd .. build:solana-packages && bun run --cwd .. build:wallet-packages && bun run --cwd .. build:db-packages && bun run --cwd .. build:shared-packages",
+    "predev": "bun run --cwd .. build:packages",
     "dev": "next dev --turbopack",
     "generate-grpc": "buf generate src/lib/proto",
-    "prebuild": "bun run --cwd .. build:grid-packages && bun run --cwd .. build:llm-packages && bun run --cwd .. build:solana-packages && bun run --cwd .. build:wallet-packages && bun run --cwd .. build:db-packages && bun run --cwd .. build:shared-packages",
+    "prebuild": "bun run --cwd .. build:packages",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

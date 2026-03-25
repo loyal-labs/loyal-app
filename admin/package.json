@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "bun run --cwd .. build:db-packages",
+    "predev": "bun run --cwd .. build:packages",
     "dev": "next dev --turbopack",
-    "prebuild": "bun run --cwd .. build:db-packages",
+    "prebuild": "bun run --cwd .. build:packages",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
