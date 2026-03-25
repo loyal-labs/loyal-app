@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, X } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useState } from "react";
@@ -12,9 +12,11 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 
 export function ReceiveContent({
   walletAddress,
+  onBack,
   onClose,
 }: {
   walletAddress: string | null;
+  onBack?: () => void;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -31,7 +33,7 @@ export function ReceiveContent({
   return (
     <>
       <style jsx>{`
-        .receive-close:hover {
+        .receive-back:hover, .receive-close:hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
         .receive-copy-btn:hover {
@@ -48,25 +50,48 @@ export function ReceiveContent({
           padding: "8px",
         }}
       >
-        <div
-          style={{
-            flex: 1,
-            paddingLeft: "12px",
-            paddingTop: "4px",
-            paddingBottom: "4px",
-          }}
-        >
-          <span
+        <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+          {onBack && (
+            <button
+              className="receive-back"
+              onClick={onBack}
+              style={{
+                width: "36px",
+                height: "36px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.04)",
+                border: "none",
+                borderRadius: "9999px",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                color: "#3C3C43",
+              }}
+              type="button"
+            >
+              <ArrowLeft size={24} />
+            </button>
+          )}
+          <div
             style={{
-              fontFamily: font,
-              fontSize: "18px",
-              fontWeight: 600,
-              lineHeight: "28px",
-              color: "#000",
+              paddingLeft: onBack ? "8px" : "12px",
+              paddingTop: "4px",
+              paddingBottom: "4px",
             }}
           >
-            Receive
-          </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "18px",
+                fontWeight: 600,
+                lineHeight: "28px",
+                color: "#000",
+              }}
+            >
+              Receive
+            </span>
+          </div>
         </div>
         <button
           className="receive-close"

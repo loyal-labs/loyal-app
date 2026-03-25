@@ -288,14 +288,17 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [publicEnv, swapMode]
   );
 
-  // Update tokens when derived tokens change (wallet connects/disconnects)
+  // Update tokens when wallet connects/disconnects (not on every balance refresh)
+  const prevHadTokens = useRef(derivedTokens.length > 0 && !!derivedTokens[0].mint);
   useEffect(() => {
-    if (derivedTokens.length > 0 && derivedTokens[0].mint) {
+    const hasTokens = derivedTokens.length > 0 && !!derivedTokens[0].mint;
+    if (hasTokens && !prevHadTokens.current) {
       setSwapFromToken(derivedTokens[0]);
       setSwapToToken(derivedTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN);
       setSendToken(derivedTokens[0]);
       setShieldToken(derivedTokens[0]);
     }
+    prevHadTokens.current = hasTokens;
   }, [derivedTokens]);
 
   // Derived state
@@ -479,7 +482,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onBack={onBack}
           onClose={props.onClose}
           onNavigate={pushView}
-          onTabChange={props.onTabChange}
+          onOpenReceive={() => pushView({ type: "receivePanel" })}
+          onOpenSend={() => pushView({ type: "sendPanel" })}
+          onOpenSwap={() => pushView({ type: "swapPanel", mode: "swap" })}
+          onOpenShield={() => pushView({ type: "swapPanel", mode: "shield" })}
         />
       );
     }
@@ -496,6 +502,89 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onBack={onBack}
           onClose={props.onClose}
         />
+      );
+    }
+    if (type === "sendPanel") {
+      return (
+        <SendContent
+          addLocalActivity={props.walletDesktopData.addLocalActivity}
+          onBack={onBack}
+          onClose={props.onClose}
+          onDone={() => { resetViews(); }}
+          onNavigate={pushView}
+          token={sendToken}
+        />
+      );
+    }
+    if (type === "receivePanel") {
+      return (
+        <ReceiveContent
+          onBack={onBack}
+          onClose={props.onClose}
+          walletAddress={props.walletDesktopData.walletAddress}
+        />
+      );
+    }
+    if (type === "swapPanel") {
+      const swapView = view as { type: "swapPanel"; mode?: "swap" | "shield" };
+      const panelMode = swapView.mode ?? "swap";
+      return (
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <SwapShieldTabs mode={panelMode} onBack={onBack} onClose={props.onClose} onModeChange={(m) => { setSwapMode(m); }} />
+          <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                transform: panelMode === "swap" ? "translateX(0)" : "translateX(-100%)",
+                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                willChange: "transform",
+              }}
+            >
+              <SwapContent
+                fromToken={swapFromToken}
+                hideFormChrome
+                onClose={props.onClose}
+                onDone={() => { resetViews(); }}
+                onFormActiveChange={setSwapFormActive}
+                onFormButtonChange={setSwapButtonProps}
+                onFromTokenChange={setSwapFromToken}
+                onNavigate={pushView}
+                onSwapModeChange={(m) => { setSwapMode(m); }}
+                onToTokenChange={setSwapToToken}
+                swapMode={panelMode}
+                toToken={swapToToken}
+              />
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                transform: panelMode === "shield" ? "translateX(0)" : "translateX(100%)",
+                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                willChange: "transform",
+              }}
+            >
+              <ShieldContent
+                hideFormChrome
+                onClose={props.onClose}
+                onDone={() => { resetViews(); }}
+                onFormActiveChange={setShieldFormActive}
+                onFormButtonChange={setShieldButtonProps}
+                onNavigate={pushView}
+                onSwapModeChange={(m) => { setSwapMode(m); }}
+                onTokenChange={setShieldToken}
+                securedBalance={securedBalance}
+                swapMode={panelMode}
+                token={shieldToken}
+              />
+            </div>
+          </div>
+        </div>
       );
     }
     return null;
@@ -702,6 +791,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onReviewApproval={() => pushView({ type: "approvalReview" })}
                   onSeeAllApprovals={() => pushView("allApprovals")}
                   onOpenAccount={(account) => pushView({ type: "accountPage", account })}
+                  onOpenReceive={() => pushView({ type: "receivePanel" })}
+                  onOpenSend={() => pushView({ type: "sendPanel" })}
+                  onOpenSwap={() => pushView({ type: "swapPanel", mode: "swap" })}
+                  onOpenShield={() => pushView({ type: "swapPanel", mode: "shield" })}
                   walletAddress={props.walletDesktopData.walletAddress}
                   walletLabel={props.walletDesktopData.walletLabel}
                   isAgentConnected={!!props.connectAgentName}

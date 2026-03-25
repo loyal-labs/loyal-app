@@ -86,6 +86,10 @@ export function PortfolioContent({
   onReviewApproval,
   onSeeAllApprovals,
   onOpenAccount,
+  onOpenReceive,
+  onOpenSend,
+  onOpenSwap,
+  onOpenShield,
   walletAddress,
   walletLabel,
   isAgentConnected,
@@ -102,6 +106,10 @@ export function PortfolioContent({
   onReviewApproval: () => void;
   onSeeAllApprovals: () => void;
   onOpenAccount: (account: "main" | "vault") => void;
+  onOpenReceive: () => void;
+  onOpenSend: () => void;
+  onOpenSwap: () => void;
+  onOpenShield: () => void;
   walletAddress: string | null;
   walletLabel: string;
   isAgentConnected: boolean;
@@ -447,7 +455,7 @@ export function PortfolioContent({
       >
         <button
           className="portfolio-action-btn"
-          onClick={() => onTabChange("receive")}
+          onClick={onOpenReceive}
           style={{
             width: "44px",
             height: "44px",
@@ -467,7 +475,7 @@ export function PortfolioContent({
         </button>
         <button
           className="portfolio-action-btn"
-          onClick={() => onTabChange("send")}
+          onClick={onOpenSend}
           style={{
             width: "44px",
             height: "44px",
@@ -487,7 +495,7 @@ export function PortfolioContent({
         </button>
         <button
           className="portfolio-action-btn"
-          onClick={() => onTabChange("swap")}
+          onClick={onOpenSwap}
           style={{
             width: "44px",
             height: "44px",
@@ -507,7 +515,7 @@ export function PortfolioContent({
         </button>
         <button
           className="portfolio-shield-btn"
-          onClick={() => onTabChange("swap")}
+          onClick={onOpenShield}
           style={{
             flex: 1,
             display: "flex",

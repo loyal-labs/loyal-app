@@ -7,7 +7,6 @@ import { ActivityRowItem } from "./activity-row-item";
 import { TokenRowItem } from "./token-row-item";
 import type {
   ActivityRow,
-  RightSidebarTab,
   SubView,
   TokenRow,
   TransactionDetail,
@@ -29,7 +28,10 @@ export function AccountPageView({
   onBack,
   onClose,
   onNavigate,
-  onTabChange,
+  onOpenReceive,
+  onOpenSend,
+  onOpenSwap,
+  onOpenShield,
 }: {
   accountLabel: string;
   accountIcon: string;
@@ -43,7 +45,10 @@ export function AccountPageView({
   onBack: () => void;
   onClose: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
-  onTabChange: (tab: RightSidebarTab) => void;
+  onOpenReceive: () => void;
+  onOpenSend: () => void;
+  onOpenSwap: () => void;
+  onOpenShield: () => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -152,7 +157,7 @@ export function AccountPageView({
       <div style={{ display: "flex", gap: "16px", alignItems: "center", padding: "8px 20px" }}>
         <button
           className="acct-action-btn"
-          onClick={() => onTabChange("receive")}
+          onClick={onOpenReceive}
           style={{ width: "44px", height: "44px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", flexShrink: 0 }}
           type="button"
         >
@@ -160,7 +165,7 @@ export function AccountPageView({
         </button>
         <button
           className="acct-action-btn"
-          onClick={() => onTabChange("send")}
+          onClick={onOpenSend}
           style={{ width: "44px", height: "44px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", flexShrink: 0 }}
           type="button"
         >
@@ -168,7 +173,7 @@ export function AccountPageView({
         </button>
         <button
           className="acct-action-btn"
-          onClick={() => onTabChange("swap")}
+          onClick={onOpenSwap}
           style={{ width: "44px", height: "44px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", flexShrink: 0 }}
           type="button"
         >
@@ -176,7 +181,7 @@ export function AccountPageView({
         </button>
         <button
           className="acct-shield-btn"
-          onClick={() => onTabChange("swap")}
+          onClick={onOpenShield}
           style={{ flex: 1, display: "flex", gap: "6px", alignItems: "center", justifyContent: "center", padding: "10px 16px 10px 8px", borderRadius: "9999px", background: "transparent", border: "2px solid rgba(60, 60, 67, 0.18)", cursor: "pointer", transition: "background 0.15s ease" }}
           type="button"
         >
