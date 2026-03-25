@@ -75,8 +75,11 @@ test-ledger
 my-ledger-1/
 test-ledger-magicblock/
 sdk/private-transactions/.cache/devnet-mint.json
+sdk/private-transactions/.cache/kamino-local-validator.json
 sdk/private-transactions/tests/.auth-token-cache.json
 sdk/private-transactions/tests/.mint-cache.json
+sdk/private-transactions/tests/.state/
+test-ledger-kamino*/
 
 /app/testing.ts
 .vercel

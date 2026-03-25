@@ -47,6 +47,7 @@ export type {
   UsernameDepositData,
   InitializeDepositParams,
   ModifyBalanceParams,
+  ModifyBalanceRawParams,
   ModifyBalanceResult,
   CreatePermissionParams,
   CreateUsernamePermissionParams,
@@ -72,6 +73,15 @@ export {
   getErValidatorForSolanaEnv,
   getErValidatorForRpcEndpoint,
   PROGRAM_ID,
+  KLEND_PROGRAM_ID,
+  KLEND_MAIN_MARKET,
+  KLEND_ALT_MARKET,
+  WSOL_MINT,
+  USDC_MINT,
+  USDT_MINT,
+  KLEND_SOL_RESERVE,
+  KLEND_USDC_RESERVE,
+  KLEND_USDT_RESERVE,
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   MAGIC_PROGRAM_ID,
@@ -88,6 +98,20 @@ export {
   solToLamports,
   lamportsToSol,
 } from "./src/constants";
+
+export {
+  fetchKlendReserveSnapshot,
+  estimateFutureReserveSnapshot,
+  estimateSupplyApr,
+  estimateSupplyApy,
+  estimateUnderlyingFromSharesAtSlot,
+  estimateWarpSlotsForRequiredYield,
+  getSupportedKlendReserve,
+  quoteSharesFromUnderlyingCeil,
+  quoteSharesFromUnderlyingFloor,
+  quoteUnderlyingFromSharesFloor,
+} from "./src/klend";
+export type { KlendReserveSnapshot, KlendSupportedReserve } from "./src/klend";
 
 // PDA helpers
 export {
