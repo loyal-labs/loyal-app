@@ -59,7 +59,8 @@ export type SubView =
   | { type: "shieldTokenSelect" }
   | { type: "approvalReview" }
   | { type: "accountPage"; account: "main" | "vault" }
-  | { type: "agentPage"; agentId: string; label: string; initials: string; balanceWhole: string; balanceFraction: string };
+  | { type: "agentPage"; agentId: string; label: string; initials: string; balanceWhole: string; balanceFraction: string }
+  | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string };
 
 export const LOYL_TOKEN: SwapToken = {
   mint: "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",

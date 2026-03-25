@@ -300,7 +300,7 @@ export function VaultAccountPageView({
                     label: entry.label,
                     balanceWhole: entry.balanceWhole,
                     balanceFraction: entry.balanceFraction,
-                  } as any);
+                  });
                 }
               }}
               style={{

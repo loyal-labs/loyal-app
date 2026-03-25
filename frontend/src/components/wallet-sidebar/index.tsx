@@ -315,7 +315,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         setDisplayLevel2(null);
         setDisplayLevel3(null);
         setLeftPanel(null);
-        setDisplayAgentLeftPanel(null);
+        setDisplayLeftPanel(null);
       }, 350);
       return () => clearTimeout(t);
     }
