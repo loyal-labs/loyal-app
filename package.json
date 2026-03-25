@@ -38,7 +38,7 @@
     "typecheck:solana-packages": "bun run --cwd packages/solana-rpc typecheck && bun run --cwd packages/solana-wallet typecheck",
     "build:shared-packages": "bun run --cwd packages/shared build",
     "typecheck:shared-packages": "bun run --cwd packages/shared typecheck",
-    "build:wallet-packages": "bun run --cwd packages/wallet-core build",
+    "build:wallet-packages": "bun run --cwd sdk/private-transactions build && bun run --cwd packages/wallet-core build",
     "typecheck:wallet-packages": "bun run --cwd packages/wallet-core typecheck",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",

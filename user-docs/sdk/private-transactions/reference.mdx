@@ -401,7 +401,7 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
 
 // Shield
 await client.initializeDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey });
-await client.modifyBalance({ user: signer.publicKey, tokenMint, payer: signer.publicKey, userTokenAccount: new PublicKey("<ata>"), amount: 1_000_000, increase: true });
+await client.modifyBalance({ user: signer.publicKey, tokenMint, payer: signer.publicKey, amount: 1_000_000, increase: true });
 await client.createPermission({ user: signer.publicKey, tokenMint, payer: signer.publicKey });
 await client.delegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, validator: ER_VALIDATOR });
 
@@ -410,5 +410,5 @@ await client.transferToUsernameDeposit({ username: "alice_user", tokenMint, amou
 
 // Unshield
 await client.undelegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, sessionToken: null, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT_ID });
-await client.modifyBalance({ user: signer.publicKey, tokenMint, payer: signer.publicKey, userTokenAccount: new PublicKey("<ata>"), amount: 1_000_000, increase: false });
+await client.modifyBalance({ user: signer.publicKey, tokenMint, payer: signer.publicKey, amount: 1_000_000, increase: false });
 ```

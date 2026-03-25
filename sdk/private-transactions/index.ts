@@ -32,15 +32,15 @@
  */
 
 // Main SDK class
-export {
-  LoyalPrivateTransactionsClient,
-  waitForAccountOwnerChange,
-} from "./src/LoyalPrivateTransactionsClient";
+export { LoyalPrivateTransactionsClient } from "./src/LoyalPrivateTransactionsClient";
+export { waitForAccountOwnerChange } from "./src/utils";
 
 // Types
 export type {
   WalletSigner,
   WalletLike,
+  CheckedTransactionInstruction,
+  InstructionCheck,
   RpcOptions,
   ClientConfig,
   DepositData,

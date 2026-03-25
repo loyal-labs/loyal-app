@@ -4,7 +4,7 @@ import type {
   VersionedTransaction,
   Keypair,
   Commitment,
-  ConfirmOptions,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import type { AnchorProvider } from "@coral-xyz/anchor";
 
@@ -29,6 +29,18 @@ export interface WalletLike {
  * - AnchorProvider: Existing Anchor projects
  */
 export type WalletSigner = WalletLike | Keypair | AnchorProvider;
+
+export type InstructionCheck = {
+  address: PublicKey;
+  delegated: boolean;
+  passNotExist: boolean;
+  label: string;
+};
+
+export type CheckedTransactionInstruction = {
+  ix: TransactionInstruction;
+  ensure: InstructionCheck[];
+};
 
 /**
  * RPC options for transactions
@@ -101,8 +113,8 @@ export interface ModifyBalanceParams {
   amount: number | bigint;
   increase: boolean;
   payer: PublicKey;
-  userTokenAccount: PublicKey;
   rpcOptions?: RpcOptions;
+  passNotExist?: boolean;
 }
 
 /**
@@ -130,6 +142,7 @@ export interface CreatePermissionParams {
   tokenMint: PublicKey;
   payer: PublicKey;
   rpcOptions?: RpcOptions;
+  passNotExist?: boolean;
 }
 
 /**
@@ -153,6 +166,7 @@ export interface DelegateDepositParams {
   payer: PublicKey;
   validator: PublicKey;
   rpcOptions?: RpcOptions;
+  passNotExist?: boolean;
 }
 
 /**
