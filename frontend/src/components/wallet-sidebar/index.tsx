@@ -578,7 +578,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 onNavigate={pushView}
                 onSwapModeChange={(m) => { setSwapMode(m); }}
                 onTokenChange={setShieldToken}
-                securedBalance={securedBalance}
+                securedBalance={shieldSecuredBalance}
                 swapMode={panelMode}
                 token={shieldToken}
               />
