@@ -30,7 +30,7 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 const MOCK_VAULT_ENTRIES = [
   {
     id: "vault",
-    label: "Wallet stash",
+    label: "Stash",
     balanceWhole: "$6,750",
     balanceFraction: ".00",
     icon: "lock" as const,
@@ -205,7 +205,7 @@ export function VaultAccountPageView({
               color: secondary,
             }}
           >
-            Stash
+            Total balance
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div style={{ borderRadius: "8px", overflow: "hidden" }}>
