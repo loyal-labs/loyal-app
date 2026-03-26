@@ -10,7 +10,6 @@ import { useTelegramSafeArea } from "@/hooks/useTelegramSafeArea";
 import {
   NATIVE_SOL_MINT,
   SOL_PRICE_USD,
-  SOLANA_FEE_SOL,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
   SOLANA_USDT_MINT_MAINNET,
@@ -23,6 +22,12 @@ import {
   type TokenHolding,
 } from "@/lib/solana/token-holdings";
 import { hideAllButtons } from "@/lib/telegram/mini-app/buttons";
+
+import {
+  getMaxAmountWithFeeReserve,
+  getSwapFeeReserveSol,
+  getSwapFlowFeeProfile,
+} from "./fee-reserve";
 
 // iOS-style sheet timing (shared with other sheets)
 const SHEET_TRANSITION = "transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)";
@@ -293,6 +298,10 @@ export default function SwapSheet({
     }
     return tokenHoldings.map(holdingToToken);
   }, [tokenHoldings]);
+  const regularSolBalance =
+    availableTokens.find(
+      (token) => token.mint === NATIVE_SOL_MINT && token.isSecured !== true
+    )?.balance ?? 0;
 
   // Secure mode state
   const [secureToken, setSecureToken] = useState<Token>(
@@ -534,21 +543,48 @@ export default function SwapSheet({
     return receiveAmount * toToken.priceUsd;
   }, [receiveAmount, toToken.priceUsd]);
 
+  const swapFeeProfile = getSwapFlowFeeProfile({
+    activeTab: "swap",
+    secureDirection,
+    amountMint: fromToken.mint,
+  });
+  const swapFeeReserveSol = getSwapFeeReserveSol(swapFeeProfile.flow);
+  const maxSwapAmount = getMaxAmountWithFeeReserve({
+    assetBalance: fromToken.balance,
+    feePayerSolBalance: regularSolBalance,
+    feeReserveSol: swapFeeReserveSol,
+    amountAndFeeUseSameSolBalance:
+      swapFeeProfile.amountAndFeeUseSameSolBalance,
+  });
+  const secureFeeProfile = getSwapFlowFeeProfile({
+    activeTab: "secure",
+    secureDirection,
+    amountMint: secureToken.mint,
+  });
+  const secureFeeReserveSol = getSwapFeeReserveSol(secureFeeProfile.flow);
+  const maxSecureAmount = getMaxAmountWithFeeReserve({
+    assetBalance: secureToken.balance,
+    feePayerSolBalance: regularSolBalance,
+    feeReserveSol: secureFeeReserveSol,
+    amountAndFeeUseSameSolBalance:
+      secureFeeProfile.amountAndFeeUseSameSolBalance,
+  });
+
   // Check if swap is valid
   const isSwapValid = useMemo(() => {
     const val = parseFloat(amountStr);
     if (isNaN(val) || val <= 0) return false;
-    if (val > fromToken.balance) return false;
+    if (val > maxSwapAmount) return false;
     return true;
-  }, [amountStr, fromToken.balance]);
+  }, [amountStr, maxSwapAmount]);
 
   // Check if secure is valid
   const isSecureValid = useMemo(() => {
     const val = parseFloat(secureAmountStr);
     if (isNaN(val) || val <= 0) return false;
-    if (val > secureToken.balance) return false;
+    if (val > maxSecureAmount) return false;
     return true;
-  }, [secureAmountStr, secureToken.balance]);
+  }, [secureAmountStr, maxSecureAmount]);
 
   // Calculate secure USD value
   const secureUsdValue = useMemo(() => {
@@ -610,11 +646,13 @@ export default function SwapSheet({
   const insufficientBalance = useMemo(() => {
     const val = parseFloat(amountStr);
     if (isNaN(val) || val <= 0) return false;
-    if (fromToken.symbol === "SOL") {
-      return val + SOLANA_FEE_SOL > fromToken.balance;
-    }
-    return val > fromToken.balance;
-  }, [amountStr, fromToken.balance, fromToken.symbol]);
+    return val > maxSwapAmount;
+  }, [amountStr, maxSwapAmount]);
+  const secureInsufficientBalance = useMemo(() => {
+    const val = parseFloat(secureAmountStr);
+    if (isNaN(val) || val <= 0) return false;
+    return val > maxSecureAmount;
+  }, [maxSecureAmount, secureAmountStr]);
 
   // Swap from/to tokens
   const handleSwapTokens = useCallback(() => {
@@ -680,10 +718,8 @@ export default function SwapSheet({
   const handlePresetPercentage = useCallback(
     (percentage: number) => {
       hapticFeedback.impactOccurred("light");
-      let amount = fromToken.balance * (percentage / 100);
-      if (percentage === 100 && fromToken.symbol === "SOL") {
-        amount = Math.max(0, amount - SOLANA_FEE_SOL);
-      }
+      const amount =
+        percentage === 100 ? maxSwapAmount : fromToken.balance * (percentage / 100);
       const formatted =
         amount
           .toFixed(getMaxDecimals(fromToken.symbol))
@@ -691,7 +727,7 @@ export default function SwapSheet({
       setAmountStr(formatted);
       amountInputRef.current?.focus({ preventScroll: true });
     },
-    [fromToken.balance, fromToken.symbol]
+    [fromToken.balance, fromToken.symbol, maxSwapAmount]
   );
 
   // Open secure token selector
@@ -722,14 +758,10 @@ export default function SwapSheet({
   const handleSecurePresetPercentage = useCallback(
     (percentage: number) => {
       hapticFeedback.impactOccurred("light");
-      let amount = secureToken.balance * (percentage / 100);
-      if (
-        percentage === 100 &&
-        secureToken.symbol === "SOL" &&
-        secureDirection === "shield"
-      ) {
-        amount = Math.max(0, amount - SOLANA_FEE_SOL);
-      }
+      const amount =
+        percentage === 100
+          ? maxSecureAmount
+          : secureToken.balance * (percentage / 100);
       const formatted =
         amount
           .toFixed(getMaxDecimals(secureToken.symbol))
@@ -737,7 +769,7 @@ export default function SwapSheet({
       setSecureAmountStr(formatted);
       secureAmountInputRef.current?.focus({ preventScroll: true });
     },
-    [secureToken.balance, secureToken.symbol, secureDirection]
+    [maxSecureAmount, secureToken.balance, secureToken.symbol]
   );
 
   // Handler wrappers for TokenSelectView callbacks
@@ -1523,21 +1555,14 @@ export default function SwapSheet({
                 </div>
 
                 {/* Insufficient balance error */}
-                {(() => {
-                  const val = parseFloat(secureAmountStr);
-                  if (isNaN(val) || val <= 0) return null;
-                  if (val > secureToken.balance) {
-                    return (
-                      <p
-                        className="text-[13px] leading-4 px-1"
-                        style={{ color: "#f9363c" }}
-                      >
-                        Insufficient balance
-                      </p>
-                    );
-                  }
-                  return null;
-                })()}
+                {secureInsufficientBalance && (
+                  <p
+                    className="text-[13px] leading-4 px-1"
+                    style={{ color: "#f9363c" }}
+                  >
+                    Insufficient balance
+                  </p>
+                )}
               </div>
             )}
           </div>
