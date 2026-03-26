@@ -290,7 +290,6 @@ export function VaultAccountPageView({
                     type: "agentPage",
                     agentId: entry.id,
                     label: entry.label,
-                    initials: entry.initials ?? "",
                     balanceWhole: entry.balanceWhole,
                     balanceFraction: entry.balanceFraction,
                   });

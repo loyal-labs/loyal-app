@@ -157,7 +157,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   // Left panel — slides out to the left of the sidebar (agent or stash detail)
   type LeftPanelView =
-    | { type: "agentPage"; agentId: string; label: string; initials: string; balanceWhole: string; balanceFraction: string }
+    | { type: "agentPage"; agentId: string; label: string; agentIcon: string; balanceWhole: string; balanceFraction: string }
     | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string };
   const [leftPanel, setLeftPanel] = useState<LeftPanelView | null>(null);
   const [displayLeftPanel, setDisplayLeftPanel] = useState<LeftPanelView | null>(null);
@@ -169,12 +169,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       return () => clearTimeout(t);
     }
   }, [leftPanel]);
-  // Close left panel when vault is no longer in the stack
+  // Close left panel when a sub-view slides over the portfolio base
   useEffect(() => {
-    const vaultActive = viewStack.some(
-      (v) => typeof v === "object" && v !== null && v.type === "accountPage" && (v as { account: string }).account === "vault"
-    );
-    if (!vaultActive) setLeftPanel(null);
+    if (viewStack.length > 0) setLeftPanel(null);
   }, [viewStack]);
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
@@ -490,17 +487,20 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       );
     }
     if (type === "agentPage") {
-      const agent = view as { type: "agentPage"; agentId: string; label: string; initials: string; balanceWhole: string; balanceFraction: string };
+      const agent = view as { type: "agentPage"; agentId: string; label: string; agentIcon?: string; balanceWhole: string; balanceFraction: string };
       return (
         <AgentPageView
           label={agent.label}
-          initials={agent.initials}
+          agentIcon={agent.agentIcon ?? `/agents/Agent-01.svg`}
           balanceWhole={agent.balanceWhole}
           balanceFraction={agent.balanceFraction}
           isBalanceHidden={props.isBalanceHidden}
           onBalanceHiddenChange={props.onBalanceHiddenChange}
+          tokenRows={props.walletDesktopData.tokenRows}
+          activityRows={props.walletDesktopData.activityRows}
+          transactionDetails={props.walletDesktopData.transactionDetails}
           onBack={onBack}
-          onClose={props.onClose}
+          onNavigate={pushView}
         />
       );
     }
@@ -639,6 +639,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             style={{
               position: "absolute",
               inset: 0,
+              zIndex: 1,
               background: hasLevel1 ? "#F5F5F5" : "#FFFFFF",
               border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",
@@ -790,11 +791,36 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   hasVaultAccount={props.hasVaultAccount ?? false}
                   onReviewApproval={() => pushView({ type: "approvalReview" })}
                   onSeeAllApprovals={() => pushView("allApprovals")}
-                  onOpenAccount={(account) => pushView({ type: "accountPage", account })}
                   onOpenReceive={() => pushView({ type: "receivePanel" })}
                   onOpenSend={() => pushView({ type: "sendPanel" })}
                   onOpenSwap={() => pushView({ type: "swapPanel", mode: "swap" })}
                   onOpenShield={() => pushView({ type: "swapPanel", mode: "shield" })}
+                  onOpenStash={() =>
+                    setLeftPanel((prev) =>
+                      prev?.type === "stashPage"
+                        ? null
+                        : {
+                            type: "stashPage",
+                            label: "Stash",
+                            balanceWhole: "$6,750",
+                            balanceFraction: ".00",
+                          }
+                    )
+                  }
+                  onOpenAgent={(agent) =>
+                    setLeftPanel((prev) =>
+                      prev?.type === "agentPage" && prev.agentId === agent.id
+                        ? null
+                        : {
+                            type: "agentPage",
+                            agentId: agent.id,
+                            label: agent.label,
+                            agentIcon: agent.icon,
+                            balanceWhole: agent.balanceWhole,
+                            balanceFraction: agent.balanceFraction,
+                          }
+                    )
+                  }
                   walletAddress={props.walletDesktopData.walletAddress}
                   walletLabel={props.walletDesktopData.walletLabel}
                   isAgentConnected={!!props.connectAgentName}
@@ -1038,13 +1064,16 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             {displayLeftPanel?.type === "agentPage" && (
               <AgentPageView
                 label={displayLeftPanel.label}
-                initials={displayLeftPanel.initials}
+                agentIcon={displayLeftPanel.agentIcon}
                 balanceWhole={displayLeftPanel.balanceWhole}
                 balanceFraction={displayLeftPanel.balanceFraction}
                 isBalanceHidden={props.isBalanceHidden}
                 onBalanceHiddenChange={props.onBalanceHiddenChange}
+                tokenRows={props.walletDesktopData.tokenRows}
+                activityRows={props.walletDesktopData.activityRows}
+                transactionDetails={props.walletDesktopData.transactionDetails}
                 onBack={() => setLeftPanel(null)}
-                onClose={props.onClose}
+                onNavigate={pushView}
               />
             )}
             {displayLeftPanel?.type === "stashPage" && (
@@ -1068,6 +1097,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             style={{
               position: "absolute",
               inset: 0,
+              zIndex: 2,
               background: hasLevel2 ? "#F5F5F5" : "#FFFFFF",
               border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",
@@ -1092,6 +1122,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             style={{
               position: "absolute",
               inset: 0,
+              zIndex: 3,
               background: hasLevel3 ? "#F5F5F5" : "#FFFFFF",
               border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",
@@ -1116,6 +1147,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             style={{
               position: "absolute",
               inset: 0,
+              zIndex: 4,
               background: "#FFFFFF",
               border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",

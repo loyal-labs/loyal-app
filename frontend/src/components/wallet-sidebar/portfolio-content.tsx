@@ -4,19 +4,22 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
-  ChevronRight,
+  ChevronLeft,
   Copy,
   Eye,
   EyeOff,
+  Plus,
   RefreshCw,
   Send,
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { getTokenIconUrl } from "@/lib/token-icon";
 
+import { AccessLevelIcon } from "./agent-page-view";
+import type { AccessLevel } from "./agent-page-view";
 import type { RightSidebarTab } from "./types";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -44,6 +47,65 @@ const ACCOUNT_ICONS: Record<string, string> = {
   Main: "/purplebg.png",
   Shielded: "/redbg.png",
 };
+
+// Agent icon pool — shuffled per mount for random avatars
+const AGENT_ICONS = Array.from(
+  { length: 26 },
+  (_, i) => `/agents/Agent-${String(i + 1).padStart(2, "0")}.svg`
+);
+
+function shuffled<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Mock stash agents
+const MOCK_STASH_AGENTS = [
+  {
+    id: "agent-1",
+    label: "Agent 1",
+    balanceWhole: "$250",
+    balanceFraction: ".00",
+    accessLabel: "Can sign",
+    accessLevel: "sign" as AccessLevel,
+  },
+  {
+    id: "agent-2",
+    label: "Agent 47",
+    balanceWhole: "$0",
+    balanceFraction: ".00",
+    accessLabel: "Can execute",
+    accessLevel: "execute" as AccessLevel,
+  },
+  {
+    id: "agent-3",
+    label: "Agent 12",
+    balanceWhole: "$1,200",
+    balanceFraction: ".50",
+    accessLabel: "Can sign",
+    accessLevel: "sign" as AccessLevel,
+  },
+  {
+    id: "agent-4",
+    label: "Agent 8",
+    balanceWhole: "$85",
+    balanceFraction: ".00",
+    accessLabel: "Can execute",
+    accessLevel: "execute" as AccessLevel,
+  },
+  {
+    id: "agent-5",
+    label: "Agent 3",
+    balanceWhole: "$0",
+    balanceFraction: ".00",
+    accessLabel: "Can sign",
+    accessLevel: "sign" as AccessLevel,
+  },
+];
 
 // Mock approval data
 const MOCK_APPROVALS = [
@@ -85,11 +147,12 @@ export function PortfolioContent({
   hasVaultAccount,
   onReviewApproval,
   onSeeAllApprovals,
-  onOpenAccount,
   onOpenReceive,
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  onOpenStash,
+  onOpenAgent,
   walletAddress,
   walletLabel,
   isAgentConnected,
@@ -105,15 +168,20 @@ export function PortfolioContent({
   hasVaultAccount: boolean;
   onReviewApproval: () => void;
   onSeeAllApprovals: () => void;
-  onOpenAccount: (account: "main" | "vault") => void;
   onOpenReceive: () => void;
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  onOpenStash: () => void;
+  onOpenAgent: (agent: { id: string; label: string; balanceWhole: string; balanceFraction: string; icon: string }) => void;
   walletAddress: string | null;
   walletLabel: string;
   isAgentConnected: boolean;
 }) {
+  // Randomise agent avatars once per mount
+  const agentIcons = useMemo(() => shuffled(AGENT_ICONS), []);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
     (e: React.MouseEvent) => {
@@ -226,6 +294,9 @@ export function PortfolioContent({
           background: rgba(60, 60, 67, 0.1) !important;
           color: rgba(60, 60, 67, 0.6) !important;
         }
+        .portfolio-scroll::-webkit-scrollbar {
+          display: none;
+        }
       `}</style>
 
       {/* SVG pixelation filters */}
@@ -319,6 +390,15 @@ export function PortfolioContent({
               )}
             </div>
           </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            alignItems: "center",
+            paddingLeft: "12px",
+          }}
+        >
           {onDisconnect && (
             <button
               className="portfolio-disconnect-btn"
@@ -342,15 +422,6 @@ export function PortfolioContent({
               Disconnect
             </button>
           )}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            alignItems: "center",
-            paddingLeft: "12px",
-          }}
-        >
           <button
             className="portfolio-close-btn"
             onClick={onClose}
@@ -547,227 +618,361 @@ export function PortfolioContent({
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-        {/* Accounts section */}
+      <div
+        ref={scrollRef}
+        className="portfolio-scroll"
+        onScroll={() => {
+          const top = scrollRef.current?.scrollTop ?? 0;
+          setIsScrolled(top > 0);
+        }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          scrollbarWidth: "none",
+          borderTop: isScrolled ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid transparent",
+          boxShadow: isScrolled ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)" : "none",
+          transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+        }}
+      >
+        {/* Stash & Agents section */}
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
-          {/* Section header */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "3px 12px 1px",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-                padding: "12px 0 8px",
-              }}
-            >
-              Accounts
-            </span>
-            <button
-              className="portfolio-link-btn"
-              style={{
-                background: "none",
-                border: "none",
-                padding: "12px 0 8px",
-                cursor: "pointer",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-                transition: "opacity 0.15s ease",
-              }}
-              type="button"
-            >
-              Manage
-            </button>
-          </div>
-
-          {/* Main account */}
-          <button
-            className="portfolio-account-row"
-            onClick={() => onOpenAccount("main")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "6px 12px",
-              borderRadius: "16px",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              width: "100%",
-              transition: "background 0.15s ease",
-              textAlign: "left",
-            }}
-            type="button"
-          >
-            <Image
-              alt="Main"
-              height={48}
-              src="/purplebg.png"
-              style={{
-                borderRadius: "12px",
-                flexShrink: 0,
-                marginRight: "12px",
-              }}
-              width={48}
-            />
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                gap: "2px",
-                padding: "9px 0",
-              }}
-            >
-              <div style={{ borderRadius: "6px", overflow: "hidden" }}>
-                <span
+          {hasVaultAccount ? (
+            <>
+              {/* Stash row */}
+              <button
+                className="portfolio-account-row"
+                onClick={onOpenStash}
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "6px 12px",
+                  borderRadius: "16px",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  width: "100%",
+                  transition: "background 0.15s ease",
+                  textAlign: "left",
+                }}
+                type="button"
+              >
+                {/* Tree trunk — from icon center to bottom */}
+                <div
                   style={{
-                    fontFamily: font,
-                    fontSize: "20px",
-                    fontWeight: 600,
-                    lineHeight: "24px",
-                    color: isBalanceHidden ? "#BBBBC0" : "#000",
-                    letterSpacing: "-0.22px",
-                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                    transition: "filter 0.15s ease, color 0.15s ease",
-                    userSelect: isBalanceHidden ? "none" : "auto",
-                    display: "block",
+                    position: "absolute",
+                    left: "35px",
+                    top: "50%",
+                    bottom: 0,
+                    width: "1px",
+                    background: "rgba(60, 60, 67, 0.12)",
+                  }}
+                />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Stash"
+                  src="/agents/Stash.svg"
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "12px",
+                    flexShrink: 0,
+                    marginRight: "12px",
+                  }}
+                />
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    padding: "9px 0",
                   }}
                 >
-                  $9,267
-                  <span
-                    style={{
-                      color: isBalanceHidden
-                        ? "#BBBBC0"
-                        : "rgba(60, 60, 67, 0.4)",
-                    }}
-                  >
-                    .67
-                  </span>
-                </span>
-              </div>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                }}
-              >
-                Main
-              </span>
-            </div>
-            <ChevronRight
-              size={24}
-              style={{
-                color: "rgba(60, 60, 67, 0.3)",
-                flexShrink: 0,
-                marginLeft: "12px",
-              }}
-            />
-          </button>
-
-          {/* Vault account — only shows after bot approval */}
-          {hasVaultAccount && (
-            <button
-              className="portfolio-account-row"
-              onClick={() => onOpenAccount("vault")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "6px 12px",
-                borderRadius: "16px",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                width: "100%",
-                transition: "background 0.15s ease",
-                textAlign: "left",
-              }}
-              type="button"
-            >
-              <Image
-                alt="Stash"
-                height={48}
-                src="/redbg.png"
-                style={{
-                  borderRadius: "12px",
-                  flexShrink: 0,
-                  marginRight: "12px",
-                }}
-                width={48}
-              />
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                  padding: "9px 0",
-                }}
-              >
-                <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                  <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "20px",
+                        fontWeight: 600,
+                        lineHeight: "24px",
+                        color: isBalanceHidden ? "#BBBBC0" : "#000",
+                        letterSpacing: "-0.22px",
+                        filter: isBalanceHidden
+                          ? "url(#rs-pixelate-sm)"
+                          : "none",
+                        transition: "filter 0.15s ease, color 0.15s ease",
+                        userSelect: isBalanceHidden ? "none" : "auto",
+                        display: "block",
+                      }}
+                    >
+                      $6,750
+                      <span
+                        style={{
+                          color: isBalanceHidden
+                            ? "#BBBBC0"
+                            : "rgba(60, 60, 67, 0.4)",
+                        }}
+                      >
+                        .00
+                      </span>
+                    </span>
+                  </div>
                   <span
                     style={{
                       fontFamily: font,
-                      fontSize: "20px",
-                      fontWeight: 600,
-                      lineHeight: "24px",
-                      color: isBalanceHidden ? "#BBBBC0" : "#000",
-                      letterSpacing: "-0.22px",
-                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                      transition: "filter 0.15s ease, color 0.15s ease",
-                      userSelect: isBalanceHidden ? "none" : "auto",
-                      display: "block",
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                      color: secondary,
                     }}
                   >
-                    $7,000
-                    <span
-                      style={{
-                        color: isBalanceHidden
-                          ? "#BBBBC0"
-                          : "rgba(60, 60, 67, 0.4)",
-                      }}
-                    >
-                      .00
-                    </span>
+                    Stash
                   </span>
                 </div>
-                <span
+                <ChevronLeft
+                  size={24}
                   style={{
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 400,
-                    lineHeight: "16px",
-                    color: secondary,
+                    color: "rgba(60, 60, 67, 0.3)",
+                    flexShrink: 0,
+                    marginLeft: "12px",
+                  }}
+                />
+              </button>
+
+              {/* Agent rows — indented under Stash with tree lines */}
+              {MOCK_STASH_AGENTS.map((agent, agentIdx) => (
+                <button
+                  className="portfolio-account-row"
+                  key={agent.id}
+                  onClick={() => onOpenAgent({ ...agent, icon: agentIcons[agentIdx % agentIcons.length] })}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "6px 12px 6px 52px",
+                    borderRadius: "16px",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    width: "100%",
+                    transition: "background 0.15s ease",
+                    textAlign: "left",
+                  }}
+                  type="button"
+                >
+                  {/* Vertical line — full height (├) */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "35px",
+                      top: 0,
+                      bottom: 0,
+                      width: "1px",
+                      background: "rgba(60, 60, 67, 0.12)",
+                    }}
+                  />
+                  {/* Horizontal branch */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "35px",
+                      top: "50%",
+                      width: "13px",
+                      height: "1px",
+                      background: "rgba(60, 60, 67, 0.12)",
+                    }}
+                  />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt={agent.label}
+                    src={agentIcons[agentIdx % agentIcons.length]}
+                    style={{
+                      width: "48px",
+                      height: "48px",
+                      borderRadius: "12px",
+                      flexShrink: 0,
+                      marginRight: "12px",
+                    }}
+                  />
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      padding: "9px 0",
+                    }}
+                  >
+                    <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "20px",
+                          fontWeight: 600,
+                          lineHeight: "24px",
+                          color: isBalanceHidden ? "#BBBBC0" : "#000",
+                          letterSpacing: "-0.22px",
+                          filter: isBalanceHidden
+                            ? "url(#rs-pixelate-sm)"
+                            : "none",
+                          transition: "filter 0.15s ease, color 0.15s ease",
+                          userSelect: isBalanceHidden ? "none" : "auto",
+                          display: "block",
+                        }}
+                      >
+                        {agent.balanceWhole}
+                        <span
+                          style={{
+                            color: isBalanceHidden
+                              ? "#BBBBC0"
+                              : "rgba(60, 60, 67, 0.4)",
+                          }}
+                        >
+                          {agent.balanceFraction}
+                        </span>
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 400,
+                          lineHeight: "16px",
+                          color: secondary,
+                        }}
+                      >
+                        {agent.label}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "11px",
+                          fontWeight: 500,
+                          lineHeight: "14px",
+                          color: agent.accessLevel === "execute" ? "rgba(249, 54, 60, 0.65)" : "rgba(200, 160, 0, 0.75)",
+                          border: `1px solid ${agent.accessLevel === "execute" ? "rgba(249, 54, 60, 0.25)" : "rgba(200, 160, 0, 0.3)"}`,
+                          borderRadius: "9999px",
+                          padding: "1px 8px 1px 4px",
+                          whiteSpace: "nowrap" as const,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "2px",
+                        }}
+                      >
+                        <AccessLevelIcon
+                          level={agent.accessLevel}
+                          size={14}
+                          color={agent.accessLevel === "execute" ? "rgba(249, 54, 60, 0.65)" : "rgba(200, 160, 0, 0.75)"}
+                        />
+                        {agent.accessLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronLeft
+                    size={24}
+                    style={{
+                      color: "rgba(60, 60, 67, 0.3)",
+                      flexShrink: 0,
+                      marginLeft: "12px",
+                    }}
+                  />
+                </button>
+              ))}
+
+              {/* Add agent row — last child (└) */}
+              <button
+                className="portfolio-account-row"
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "6px 12px 6px 52px",
+                  borderRadius: "16px",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  width: "100%",
+                  transition: "background 0.15s ease",
+                  textAlign: "left",
+                }}
+                type="button"
+              >
+                {/* Vertical line — top half only (└) */}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "35px",
+                    top: 0,
+                    bottom: "50%",
+                    width: "1px",
+                    background: "rgba(60, 60, 67, 0.12)",
+                  }}
+                />
+                {/* Horizontal branch */}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "35px",
+                    top: "50%",
+                    width: "13px",
+                    height: "1px",
+                    background: "rgba(60, 60, 67, 0.12)",
+                  }}
+                />
+                <div
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "12px",
+                    background: "rgba(249, 54, 60, 0.14)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    marginRight: "12px",
                   }}
                 >
-                  Stash
-                </span>
-              </div>
-              <ChevronRight
-                size={24}
-                style={{
-                  color: "rgba(60, 60, 67, 0.3)",
-                  flexShrink: 0,
-                  marginLeft: "12px",
-                }}
-              />
-            </button>
+                  <Plus size={24} style={{ color: "#000" }} />
+                </div>
+                <div style={{ flex: 1, padding: "9px 0" }}>
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 500,
+                      lineHeight: "20px",
+                      color: "#000",
+                      letterSpacing: "-0.176px",
+                    }}
+                  >
+                    Add
+                  </span>
+                </div>
+              </button>
+            </>
+          ) : (
+            <div
+              style={{
+                padding: "32px 20px",
+                textAlign: "center",
+                fontFamily: font,
+                fontSize: "14px",
+                color: "rgba(60, 60, 67, 0.6)",
+              }}
+            >
+              Your stash and agents will be here
+            </div>
           )}
         </div>
 
