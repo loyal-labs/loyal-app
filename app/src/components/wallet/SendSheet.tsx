@@ -24,7 +24,6 @@ import {
   MAX_RECENT_RECIPIENTS,
   RECENT_RECIPIENTS_KEY,
   SOL_PRICE_USD,
-  SOLANA_FEE_SOL,
 } from "@/lib/constants";
 import { fetchSolUsdPrice } from "@/lib/solana/fetch-sol-price";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings";
@@ -34,6 +33,13 @@ import {
   getCloudValue,
   setCloudValue,
 } from "@/lib/telegram/mini-app/cloud-storage";
+
+import {
+  getMaxAmountWithFeeReserve,
+  getSendFeeReserveSol,
+  hasEnoughSolForFee,
+  type WalletSendFlow,
+} from "./fee-reserve";
 
 // iOS-style sheet timing (shared with other sheets)
 const SHEET_TRANSITION = "transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)";
@@ -384,7 +390,22 @@ export default function SendSheet({
     ? isSolPriceLoadingProp ?? solPriceUsd === null
     : isSolPriceLoadingState;
   const balanceInUsd = solPriceUsd ? balanceInSol * solPriceUsd : null;
-  const solanaFeeUsd = solPriceUsd ? SOLANA_FEE_SOL * solPriceUsd : null;
+  const tokenSymbol = selectedToken?.symbol || "SOL";
+  const isSecuredTransfer = selectedToken?.isSecured === true;
+  const recipientTrimmed = recipient.trim();
+  const sendFlow: WalletSendFlow =
+    isValidTelegramUsername(recipientTrimmed) || isSecuredTransfer
+      ? "private-send"
+      : "direct-sol-send";
+  const sendFeeReserveSol = getSendFeeReserveSol(sendFlow);
+  const sendFeeUsd = solPriceUsd ? sendFeeReserveSol * solPriceUsd : null;
+  const maxSendAmountInSol = getMaxAmountWithFeeReserve({
+    assetBalance: balanceInSol,
+    feePayerSolBalance: walletBalanceInSol,
+    feeReserveSol: sendFeeReserveSol,
+    amountAndFeeUseSameSolBalance: sendFlow === "direct-sol-send",
+  });
+  const maxSendAmountInUsd = solPriceUsd ? maxSendAmountInSol * solPriceUsd : 0;
 
   useEffect(() => {
     setMounted(true);
@@ -565,7 +586,6 @@ export default function SendSheet({
       return;
     }
 
-    const recipientTrimmed = recipient.trim();
     const isRecipientValid =
       isValidSolanaAddress(recipientTrimmed) ||
       isValidTelegramUsername(recipientTrimmed);
@@ -586,31 +606,30 @@ export default function SendSheet({
 
     const amountInSol =
       currency === "SOL" ? amount : solPriceUsd ? amount / solPriceUsd : NaN;
-    const hasEnoughBalance = !isNaN(amountInSol) && amountInSol <= balanceInSol;
+    const hasEnoughBalance =
+      !isNaN(amountInSol) && amountInSol <= maxSendAmountInSol;
+    const canCoverNetworkFees = hasEnoughSolForFee(
+      walletBalanceInSol,
+      sendFeeReserveSol
+    );
 
     if (step === 3) {
       const isValid =
         isAmountValid &&
         isRecipientValid &&
         hasEnoughBalance &&
+        canCoverNetworkFees &&
         (currency === "SOL" || !!solPriceUsd);
       onValidationChange?.(isValid);
       return;
     }
 
     if (step === 4) {
-      // Secured token tx fees are paid from the regular SOL wallet,
-      // not the token balance. For regular SOL, both come from the same balance.
-      const isSecuredTransfer = selectedToken?.isSecured === true;
-      const hasEnoughSolForFee = isSecuredTransfer
-        ? walletBalanceInSol >= SOLANA_FEE_SOL
-        : balanceInSol >= amountInSol + SOLANA_FEE_SOL;
-
       const isValid =
         isAmountValid &&
         isRecipientValid &&
         hasEnoughBalance &&
-        hasEnoughSolForFee &&
+        canCoverNetworkFees &&
         (currency === "SOL" || !!solPriceUsd);
       onValidationChange?.(isValid);
       return;
@@ -624,10 +643,11 @@ export default function SendSheet({
     open,
     onValidationChange,
     currency,
-    balanceInSol,
+    maxSendAmountInSol,
     walletBalanceInSol,
-    selectedToken,
     solPriceUsd,
+    recipientTrimmed,
+    sendFeeReserveSol,
   ]);
 
   const handleRecipientSelect = (selected: string) => {
@@ -660,17 +680,14 @@ export default function SendSheet({
     setTokenSearchQuery("");
     onStepChange(2);
   };
-
-  const tokenSymbol = selectedToken?.symbol || "SOL";
-
   // Insufficient balance check
   const insufficientBalance = useMemo(() => {
     const val = parseFloat(amountStr);
     if (isNaN(val) || val <= 0) return false;
     const amountInSol =
       currency === "SOL" ? val : solPriceUsd ? val / solPriceUsd : NaN;
-    return amountInSol > balanceInSol;
-  }, [amountStr, currency, solPriceUsd, balanceInSol]);
+    return amountInSol > maxSendAmountInSol;
+  }, [amountStr, currency, maxSendAmountInSol, solPriceUsd]);
 
   // Sheet animation handlers
   const unmount = useCallback(() => {
@@ -1361,32 +1378,17 @@ export default function SendSheet({
                 <button
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
-                    const isSecured = selectedToken?.isSecured === true;
                     if (currency === "SOL") {
                       const maxVal = truncateDecimals(
-                        Math.max(
-                          0,
-                          isSecured
-                            ? balanceInSol
-                            : balanceInSol - SOLANA_FEE_SOL
-                        ),
+                        Math.max(0, maxSendAmountInSol),
                         4
                       ).replace(/\.?0+$/, "");
                       handlePresetAmount(maxVal || "0");
                     } else {
-                      const feeUsd = solPriceUsd
-                        ? SOLANA_FEE_SOL * solPriceUsd
-                        : 0;
-                      const maxVal =
-                        balanceInUsd !== null
-                          ? truncateDecimals(
-                              Math.max(
-                                0,
-                                isSecured ? balanceInUsd : balanceInUsd - feeUsd
-                              ),
-                              2
-                            ).replace(/\.?0+$/, "")
-                          : "0";
+                      const maxVal = truncateDecimals(
+                        Math.max(0, maxSendAmountInUsd),
+                        2
+                      ).replace(/\.?0+$/, "");
                       handlePresetAmount(maxVal || "0");
                     }
                   }}
@@ -1533,12 +1535,11 @@ export default function SendSheet({
                   </p>
                   <div className="flex items-baseline text-base leading-5">
                     <span className="text-black">
-                      {SOLANA_FEE_SOL.toFixed(6).replace(/\.?0+$/, "")}{" "}
-                      {tokenSymbol}
+                      {sendFeeReserveSol.toFixed(6).replace(/\.?0+$/, "")} SOL
                     </span>
                     <span style={{ color: "rgba(60, 60, 67, 0.6)" }}>
-                      {solanaFeeUsd !== null
-                        ? ` ≈ $${solanaFeeUsd.toFixed(2)}`
+                      {sendFeeUsd !== null
+                        ? ` ≈ $${sendFeeUsd.toFixed(2)}`
                         : " ≈ $—"}
                     </span>
                   </div>
@@ -1561,12 +1562,14 @@ export default function SendSheet({
                     <span className="text-black">
                       {(() => {
                         const val = parseFloat(amountStr);
-                        const feeStr = SOLANA_FEE_SOL.toFixed(6).replace(
+                        const feeStr = sendFeeReserveSol.toFixed(6).replace(
                           /\.?0+$/,
                           ""
                         );
                         if (isNaN(val)) {
-                          return `${feeStr} ${tokenSymbol}`;
+                          return sendFlow === "direct-sol-send"
+                            ? `${feeStr} ${tokenSymbol}`
+                            : `${feeStr} SOL`;
                         }
                         const solVal =
                           currency === "SOL"
@@ -1574,19 +1577,25 @@ export default function SendSheet({
                             : solPriceUsd
                             ? val / solPriceUsd
                             : NaN;
-                        const total = solVal + SOLANA_FEE_SOL;
+                        if (sendFlow !== "direct-sol-send") {
+                          if (isNaN(solVal)) return `${feeStr} SOL`;
+                          const amountLabel =
+                            currency === "SOL"
+                              ? `${solVal.toFixed(6).replace(/\.?0+$/, "")} ${tokenSymbol}`
+                              : `${val.toFixed(2).replace(/\.?0+$/, "")} USD`;
+                          return `${amountLabel} + ${feeStr} SOL`;
+                        }
+                        const total = solVal + sendFeeReserveSol;
                         if (isNaN(total)) return `${feeStr} ${tokenSymbol}`;
-                        return `${total
-                          .toFixed(6)
-                          .replace(/\.?0+$/, "")} ${tokenSymbol}`;
+                        return `${total.toFixed(6).replace(/\.?0+$/, "")} ${tokenSymbol}`;
                       })()}
                     </span>
                     <span style={{ color: "rgba(60, 60, 67, 0.6)" }}>
                       {(() => {
                         const val = parseFloat(amountStr);
                         if (isNaN(val)) {
-                          return solanaFeeUsd !== null
-                            ? ` ≈ $${solanaFeeUsd.toFixed(2)}`
+                          return sendFeeUsd !== null
+                            ? ` ≈ $${sendFeeUsd.toFixed(2)}`
                             : " ≈ $—";
                         }
                         const usdVal =
@@ -1599,8 +1608,8 @@ export default function SendSheet({
                           return " ≈ $—";
                         }
                         const totalUsd =
-                          solanaFeeUsd !== null
-                            ? usdVal + solanaFeeUsd
+                          sendFeeUsd !== null
+                            ? usdVal + sendFeeUsd
                             : usdVal;
                         return ` ≈ $${totalUsd.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
