@@ -28,9 +28,12 @@ import { AllActivityView } from "./all-activity-view";
 import { TokenSelectView } from "./token-select-view";
 import { TransactionDetailView } from "./transaction-detail-view";
 import { Settings } from "./settings";
+import { DappApprovalView } from "./dapp-approval-view";
 import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
+import { pendingDappApproval, connectedDappOrigins } from "~/src/lib/storage";
+import type { DappConnectResponse } from "~/src/lib/dapp-messages";
 
 // ---------------------------------------------------------------------------
 // Default token constants
@@ -722,6 +725,33 @@ function WalletInterface() {
   const [shieldToken, setShieldToken] = useState<SwapToken>(SOL_TOKEN);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Watch for pending dApp approval requests from storage
+  useEffect(() => {
+    // Check current value on mount
+    void pendingDappApproval.getValue().then((req) => {
+      if (req) {
+        if (req.kind === "connect") {
+          setSubView({ type: "dappConnect", origin: req.origin, favicon: req.favicon, requestId: req.id });
+        } else {
+          setSubView({ type: "dappSign", origin: req.origin, favicon: req.favicon, requestId: req.id, kind: req.kind });
+        }
+      }
+    });
+
+    // Watch for changes
+    const unwatch = pendingDappApproval.watch((req) => {
+      if (req) {
+        if (req.kind === "connect") {
+          setSubView({ type: "dappConnect", origin: req.origin, favicon: req.favicon, requestId: req.id });
+        } else {
+          setSubView({ type: "dappSign", origin: req.origin, favicon: req.favicon, requestId: req.id, kind: req.kind });
+        }
+      }
+    });
+
+    return unwatch;
+  }, []);
+
   const activeLayer = getActiveLayer(subView);
 
   // Cross-fade when switching tabs: fade out → swap content → fade in
@@ -961,6 +991,82 @@ function WalletInterface() {
           onBack={goBack}
           onClose={handleClose}
           tokens={swapTokens}
+        />
+      );
+    }
+
+    if (subView.type === "dappConnect") {
+      return (
+        <DappApprovalView
+          kind="connect"
+          origin={subView.origin}
+          favicon={subView.favicon}
+          onDeny={() => {
+            void browser.runtime.sendMessage({
+              type: "DAPP_APPROVAL_DECISION",
+              id: subView.requestId,
+              approved: false,
+            });
+            setSubView(null);
+          }}
+          onApprove={() => {
+            // Send connect response with public key
+            void browser.runtime.sendMessage({
+              type: "DAPP_CONNECT_RESPONSE",
+              id: subView.requestId,
+              approved: true,
+              publicKey: publicKey,
+            } satisfies DappConnectResponse);
+            // Save origin as connected
+            void connectedDappOrigins.getValue().then((origins) => {
+              if (!origins.includes(subView.origin)) {
+                void connectedDappOrigins.setValue([...origins, subView.origin]);
+              }
+            });
+            setSubView(null);
+          }}
+          onClose={() => {
+            void browser.runtime.sendMessage({
+              type: "DAPP_APPROVAL_DECISION",
+              id: subView.requestId,
+              approved: false,
+            });
+            setSubView(null);
+          }}
+        />
+      );
+    }
+
+    if (subView.type === "dappSign") {
+      return (
+        <DappApprovalView
+          kind={subView.kind}
+          origin={subView.origin}
+          favicon={subView.favicon}
+          onDeny={() => {
+            void browser.runtime.sendMessage({
+              type: "DAPP_APPROVAL_DECISION",
+              id: subView.requestId,
+              approved: false,
+            });
+            setSubView(null);
+          }}
+          onApprove={() => {
+            void browser.runtime.sendMessage({
+              type: "DAPP_APPROVAL_DECISION",
+              id: subView.requestId,
+              approved: true,
+            });
+            setSubView(null);
+          }}
+          onClose={() => {
+            void browser.runtime.sendMessage({
+              type: "DAPP_APPROVAL_DECISION",
+              id: subView.requestId,
+              approved: false,
+            });
+            setSubView(null);
+          }}
         />
       );
     }
