@@ -2,12 +2,23 @@ import type {
   SignTransactionRequest,
   SignTransactionResponse,
 } from "~/src/lib/external-wallet-signer";
+import type {
+  DappApprovalDecision,
+  DappConnectResponse,
+  DappSignTransactionResponse,
+  DappSignMessageResponse,
+  BackgroundToDappResponse,
+} from "~/src/lib/dapp-messages";
+import { getStoredPublicKey } from "~/src/lib/keypair-storage";
 import {
   activeWalletSource,
   autoLockTimeout,
+  connectedDappOrigins,
   connectedExternalWallet,
   isWalletUnlocked,
   lastActivityAt,
+  pendingDappApproval,
+  pendingDappRequestPayload,
   sessionKeypair,
   viewMode,
 } from "~/src/lib/storage";
@@ -19,6 +30,11 @@ let connectTabId: number | null = null;
 const pendingSignRequests = new Map<
   string,
   (response: SignTransactionResponse) => void
+>();
+
+const pendingDappRequests = new Map<
+  string,
+  (response: BackgroundToDappResponse) => void
 >();
 
 const LOCK_ALARM = "auto-lock-check";
@@ -53,6 +69,19 @@ async function applyViewMode(mode: "sidebar" | "popup") {
     await browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
     await browser.action.setPopup({ popup: "/popup.html" });
   }
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToUint8Array(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 export default defineBackground(() => {
@@ -191,6 +220,227 @@ export default defineBackground(() => {
         pendingSignRequests.delete(response.id);
         pending(response);
       }
+      return;
+    }
+  });
+
+  // --- dApp connect / sign requests from content scripts ---
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    // --- Connect request from dApp ---
+    if (message.type === "DAPP_CONNECT_REQUEST") {
+      const { id, origin, favicon } = message;
+
+      void (async () => {
+        const origins = await connectedDappOrigins.getValue();
+        if (origins.includes(origin)) {
+          // Already approved — auto-respond with public key
+          const publicKey = await getStoredPublicKey();
+          sendResponse({
+            type: "DAPP_CONNECT_RESPONSE",
+            id,
+            approved: true,
+            publicKey: publicKey ?? undefined,
+          } satisfies DappConnectResponse);
+          return;
+        }
+
+        // Need user approval — park request and show badge
+        pendingDappRequests.set(id, sendResponse);
+        await pendingDappApproval.setValue({
+          id,
+          kind: "connect",
+          origin,
+          favicon,
+        });
+        void browser.action.setBadgeText({ text: "1" });
+        void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+      })();
+
+      return true;
+    }
+
+    // --- Sign transaction request from dApp ---
+    if (message.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
+      const { id, origin, favicon, transaction } = message;
+
+      pendingDappRequests.set(id, sendResponse);
+      void pendingDappApproval.setValue({
+        id,
+        kind: "signTransaction",
+        origin,
+        favicon,
+      });
+      void pendingDappRequestPayload.setValue({
+        type: "DAPP_SIGN_TRANSACTION_REQUEST",
+        id,
+        transaction,
+      });
+      void browser.action.setBadgeText({ text: "1" });
+      void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+
+      return true;
+    }
+
+    // --- Sign message request from dApp ---
+    if (message.type === "DAPP_SIGN_MESSAGE_REQUEST") {
+      const { id, origin, favicon, message: msg } = message;
+
+      pendingDappRequests.set(id, sendResponse);
+      void pendingDappApproval.setValue({
+        id,
+        kind: "signMessage",
+        origin,
+        favicon,
+      });
+      void pendingDappRequestPayload.setValue({
+        type: "DAPP_SIGN_MESSAGE_REQUEST",
+        id,
+        message: msg,
+      });
+      void browser.action.setBadgeText({ text: "1" });
+      void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+
+      return true;
+    }
+
+    // --- Disconnect from dApp ---
+    if (message.type === "DAPP_DISCONNECT") {
+      const { origin } = message;
+      void (async () => {
+        const origins = await connectedDappOrigins.getValue();
+        await connectedDappOrigins.setValue(
+          origins.filter((o) => o !== origin),
+        );
+      })();
+      return;
+    }
+
+    // --- Connect response forwarded from popup/sidepanel ---
+    if (message.type === "DAPP_CONNECT_RESPONSE") {
+      const response = message as DappConnectResponse;
+      const pending = pendingDappRequests.get(response.id);
+      if (pending) {
+        pendingDappRequests.delete(response.id);
+        pending(response);
+      }
+      void pendingDappApproval.setValue(null);
+      void browser.action.setBadgeText({ text: "" });
+      return;
+    }
+
+    // --- Approval decision from popup/sidepanel ---
+    if (message.type === "DAPP_APPROVAL_DECISION") {
+      const decision = message as DappApprovalDecision;
+      const { id, approved } = decision;
+
+      void (async () => {
+        const payload = await pendingDappRequestPayload.getValue();
+        const pending = pendingDappRequests.get(id);
+
+        if (!approved) {
+          // User denied — resolve with denied response
+          if (pending) {
+            pendingDappRequests.delete(id);
+            if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
+              pending({
+                type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+                id,
+                approved: false,
+                error: "User denied the request.",
+              } satisfies DappSignTransactionResponse);
+            } else if (payload?.type === "DAPP_SIGN_MESSAGE_REQUEST") {
+              pending({
+                type: "DAPP_SIGN_MESSAGE_RESPONSE",
+                id,
+                approved: false,
+                error: "User denied the request.",
+              } satisfies DappSignMessageResponse);
+            }
+          }
+        } else {
+          // User approved — sign with session keypair
+          try {
+            const storedKey = await sessionKeypair.getValue();
+            if (!storedKey) throw new Error("Wallet is locked.");
+
+            const { Keypair, Transaction, VersionedTransaction } =
+              await import("@solana/web3.js");
+            const keypair = Keypair.fromSecretKey(
+              new Uint8Array(JSON.parse(storedKey)),
+            );
+
+            if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
+              const txBytes = base64ToUint8Array(payload.transaction!);
+              let signedBytes: Uint8Array;
+
+              try {
+                // Try VersionedTransaction first
+                const vtx = VersionedTransaction.deserialize(txBytes);
+                vtx.sign([keypair]);
+                signedBytes = vtx.serialize();
+              } catch {
+                // Fall back to legacy Transaction
+                const tx = Transaction.from(txBytes);
+                tx.partialSign(keypair);
+                signedBytes = tx.serialize({
+                  requireAllSignatures: false,
+                });
+              }
+
+              if (pending) {
+                pendingDappRequests.delete(id);
+                pending({
+                  type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+                  id,
+                  approved: true,
+                  signedTransaction: uint8ArrayToBase64(signedBytes),
+                } satisfies DappSignTransactionResponse);
+              }
+            } else if (payload?.type === "DAPP_SIGN_MESSAGE_REQUEST") {
+              const { sign } = await import("tweetnacl");
+              const msgBytes = base64ToUint8Array(payload.message!);
+              const signature = sign.detached(msgBytes, keypair.secretKey);
+
+              if (pending) {
+                pendingDappRequests.delete(id);
+                pending({
+                  type: "DAPP_SIGN_MESSAGE_RESPONSE",
+                  id,
+                  approved: true,
+                  signature: uint8ArrayToBase64(signature),
+                } satisfies DappSignMessageResponse);
+              }
+            }
+          } catch (err) {
+            if (pending) {
+              pendingDappRequests.delete(id);
+              const errorMsg =
+                err instanceof Error ? err.message : "Signing failed.";
+              if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
+                pending({
+                  type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+                  id,
+                  approved: false,
+                  error: errorMsg,
+                } satisfies DappSignTransactionResponse);
+              } else if (payload?.type === "DAPP_SIGN_MESSAGE_REQUEST") {
+                pending({
+                  type: "DAPP_SIGN_MESSAGE_RESPONSE",
+                  id,
+                  approved: false,
+                  error: errorMsg,
+                } satisfies DappSignMessageResponse);
+              }
+            }
+          }
+        }
+
+        // Clean up storage and badge
+        await pendingDappApproval.setValue(null);
+        await pendingDappRequestPayload.setValue(null);
+        void browser.action.setBadgeText({ text: "" });
+      })();
+
       return;
     }
   });
