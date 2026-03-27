@@ -1,4 +1,8 @@
-import Mixpanel from "mixpanel";
+import {
+  __resetServerAnalyticsClientsForTests,
+  createMixpanelServerClient,
+  type ServerAnalyticsClient,
+} from "@loyal-labs/shared/analytics-server";
 
 import { serverEnv } from "@/lib/core/config/server";
 
@@ -6,6 +10,10 @@ type MixpanelTrackPrimitive = boolean | null | number | string;
 type TrackingIdentifier = bigint | number | string;
 
 export type MixpanelTrackProperties = Record<string, MixpanelTrackPrimitive>;
+
+const BOT_WORKSPACE = "bot" as const;
+let analyticsClient: ServerAnalyticsClient | null = null;
+let analyticsClientToken: string | null = null;
 
 type BotTrackingInput = {
   chatId?: TrackingIdentifier | null;
@@ -37,6 +45,19 @@ function resolveDistinctId(input: BotTrackingInput): string {
   return "tg:unknown";
 }
 
+function getAnalyticsClient(token: string): ServerAnalyticsClient {
+  if (analyticsClient && analyticsClientToken === token) {
+    return analyticsClient;
+  }
+
+  analyticsClient = createMixpanelServerClient({
+    token,
+    workspace: BOT_WORKSPACE,
+  });
+  analyticsClientToken = token;
+  return analyticsClient;
+}
+
 export function createBotTrackingProperties(
   input: BotTrackingInput
 ): MixpanelTrackProperties {
@@ -58,13 +79,22 @@ export function trackBotEvent(
   }
 
   try {
-    const mixpanel = Mixpanel.init(token);
-    mixpanel.track(eventName, properties, (error: unknown) => {
-      if (error) {
-        console.error(`Failed to track Mixpanel event: ${eventName}`, error);
-      }
-    });
+    const client = getAnalyticsClient(token);
+    client.track(eventName, properties);
+
+    if (
+      typeof properties.distinct_id === "string" &&
+      typeof properties.telegram_user_id === "string"
+    ) {
+      client.updateWorkspaceProfile(properties.distinct_id);
+    }
   } catch (error) {
     console.error(`Failed to track Mixpanel event: ${eventName}`, error);
   }
+}
+
+export function __resetBotAnalyticsStateForTests(): void {
+  analyticsClient = null;
+  analyticsClientToken = null;
+  __resetServerAnalyticsClientsForTests();
 }

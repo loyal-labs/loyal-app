@@ -9,10 +9,11 @@ export function trackChatThreadCreatedServer(args: {
   chatId: string;
   initialMessageLength: number;
   source: string;
+  clientIp?: string;
 }): void {
   trackServerAnalyticsEvent(FRONTEND_ANALYTICS_EVENTS.chatThreadCreated, {
     distinct_id: `wallet:${args.principal.walletAddress}`,
-    workspace: "frontend",
+    ...(args.clientIp ? { ip: args.clientIp } : {}),
     auth_method: args.principal.authMethod,
     provider: args.principal.provider,
     wallet_address: args.principal.walletAddress,

@@ -12,12 +12,19 @@ const createClientCalls: Array<Record<string, unknown>> = [];
 const trackCalls: Array<{ event: string; properties?: Record<string, unknown> }> = [];
 const identifyCalls: string[] = [];
 const setUserProfileCalls: Array<Record<string, unknown>> = [];
+const setUserProfileOnceCalls: Array<Record<string, unknown>> = [];
+const unionUserProfileCalls: Array<Record<string, unknown>> = [];
 
 let currentEventContext: Record<string, unknown> = {};
+let currentDefaultEventProperties: Record<string, unknown> = {};
 
 mock.module("@loyal-labs/shared/analytics", () => ({
   createMixpanelBrowserClient: (config: Record<string, unknown>) => {
     createClientCalls.push(config);
+    currentDefaultEventProperties = {
+      ...((config.defaultEventProperties as Record<string, unknown> | undefined) ??
+        {}),
+    };
     return {
       init: async () => {},
       setContext: (properties: Record<string, unknown>) => {
@@ -30,6 +37,7 @@ mock.module("@loyal-labs/shared/analytics", () => ({
         trackCalls.push({
           event,
           properties: {
+            ...currentDefaultEventProperties,
             ...currentEventContext,
             ...(properties ?? {}),
           },
@@ -42,12 +50,31 @@ mock.module("@loyal-labs/shared/analytics", () => ({
       setUserProfile: (properties: Record<string, unknown>) => {
         setUserProfileCalls.push(properties);
       },
-      setUserProfileOnce: () => {},
+      setUserProfileOnce: (properties: Record<string, unknown>) => {
+        setUserProfileOnceCalls.push(properties);
+      },
+      unionUserProfile: (properties: Record<string, unknown>) => {
+        unionUserProfileCalls.push(properties);
+      },
       __resetForTests: () => {
         currentEventContext = {};
+        currentDefaultEventProperties = {};
       },
     };
   },
+  createWorkspaceProfileUpdate: (workspace: string) => ({
+    set: {
+      last_workspace: workspace,
+      [`${workspace}_last_seen_at`]: "2026-03-26T00:00:00.000Z",
+    },
+    setOnce: {
+      first_workspace: workspace,
+      [`${workspace}_first_seen_at`]: "2026-03-26T00:00:00.000Z",
+    },
+    union: {
+      workspaces: [workspace],
+    },
+  }),
 }));
 
 mock.module("@/lib/core/config/public", () => ({
@@ -76,7 +103,10 @@ describe("app analytics facade", () => {
     trackCalls.length = 0;
     identifyCalls.length = 0;
     setUserProfileCalls.length = 0;
+    setUserProfileOnceCalls.length = 0;
+    unionUserProfileCalls.length = 0;
     currentEventContext = {};
+    currentDefaultEventProperties = {};
     analytics.__resetAnalyticsStateForTests();
   });
 
@@ -93,7 +123,11 @@ describe("app analytics facade", () => {
         apiHost: "https://loyal.example/ingest",
         debug: true,
         persistence: "localStorage",
+        defaultEventProperties: {
+          workspace: "miniapp",
+        },
         registerProperties: {
+          workspace: "miniapp",
           app_mode: "demo",
           app_solana_env: "devnet",
         },
@@ -116,13 +150,28 @@ describe("app analytics facade", () => {
     analytics.identifyTelegramUser(identity);
 
     expect(identifyCalls).toEqual(["tg:123456789"]);
-    expect(setUserProfileCalls).toHaveLength(1);
+    expect(setUserProfileCalls).toHaveLength(2);
     expect(setUserProfileCalls[0]).toMatchObject({
       telegram_id: "123456789",
       telegram_username: "ada",
       telegram_language_code: "en",
       telegram_is_premium: true,
     });
+    expect(setUserProfileCalls[1]).toEqual({
+      last_workspace: "miniapp",
+      miniapp_last_seen_at: "2026-03-26T00:00:00.000Z",
+    });
+    expect(setUserProfileOnceCalls).toEqual([
+      {
+        first_workspace: "miniapp",
+        miniapp_first_seen_at: "2026-03-26T00:00:00.000Z",
+      },
+    ]);
+    expect(unionUserProfileCalls).toEqual([
+      {
+        workspaces: ["miniapp"],
+      },
+    ]);
   });
 
   test("refreshes the Telegram profile when tracked fields change", () => {
@@ -140,8 +189,12 @@ describe("app analytics facade", () => {
     });
 
     expect(identifyCalls).toEqual(["tg:123456789"]);
-    expect(setUserProfileCalls).toHaveLength(2);
+    expect(setUserProfileCalls).toHaveLength(3);
     expect(setUserProfileCalls[1]).toMatchObject({
+      last_workspace: "miniapp",
+      miniapp_last_seen_at: "2026-03-26T00:00:00.000Z",
+    });
+    expect(setUserProfileCalls[2]).toMatchObject({
       telegram_language_code: "es",
     });
   });
@@ -159,6 +212,7 @@ describe("app analytics facade", () => {
       {
         event: "Page View",
         properties: {
+          workspace: "miniapp",
           start_param_raw: VALID_START_PARAM,
           group_chat_id: GROUP_CHAT_ID,
           summary_id: SUMMARY_ID,
@@ -180,6 +234,7 @@ describe("app analytics facade", () => {
       {
         event: "Page View",
         properties: {
+          workspace: "miniapp",
           start_param_raw: "none",
           group_chat_id: "none",
           summary_id: "none",
@@ -203,6 +258,7 @@ describe("app analytics facade", () => {
       {
         event: "Page View",
         properties: {
+          workspace: "miniapp",
           path: "/telegram/wallet",
         },
       },

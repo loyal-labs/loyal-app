@@ -16,6 +16,11 @@
       "import": "./dist/analytics.js",
       "default": "./dist/analytics.js",
       "types": "./dist/analytics.d.ts"
+    },
+    "./analytics-server": {
+      "import": "./dist/analytics-server.js",
+      "default": "./dist/analytics-server.js",
+      "types": "./dist/analytics-server.d.ts"
     }
   },
   "files": [
@@ -27,6 +32,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "mixpanel": "^0.20.0",
     "mixpanel-browser": "^2.74.0"
   },
   "devDependencies": {

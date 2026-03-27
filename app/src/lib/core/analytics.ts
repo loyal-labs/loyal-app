@@ -4,6 +4,7 @@ import {
   type AnalyticsClient,
   type AnalyticsProperties,
   createMixpanelBrowserClient,
+  createWorkspaceProfileUpdate,
 } from "@loyal-labs/shared/analytics";
 
 import { publicEnv } from "@/lib/core/config/public";
@@ -19,6 +20,7 @@ let lastProfiledDistinctId: string | null = null;
 let lastProfileFingerprint: string | null = null;
 
 const TELEGRAM_IDENTITY_PROVIDER = "telegram" as const;
+const MINIAPP_WORKSPACE = "miniapp" as const;
 
 function normalizeOptionalString(value: string | undefined): string | null {
   if (!value) {
@@ -49,12 +51,18 @@ function getAnalyticsClient(): AnalyticsClient {
     apiHost: getApiHost(),
     debug: isDevnetDemoMode,
     persistence: "localStorage",
-    registerProperties: isDevnetDemoMode
-      ? {
-          app_mode: "demo",
-          app_solana_env: "devnet",
-        }
-      : undefined,
+    defaultEventProperties: {
+      workspace: MINIAPP_WORKSPACE,
+    },
+    registerProperties: {
+      workspace: MINIAPP_WORKSPACE,
+      ...(isDevnetDemoMode
+        ? {
+            app_mode: "demo",
+            app_solana_env: "devnet",
+          }
+        : {}),
+    },
   });
 
   return analyticsClient;
@@ -144,8 +152,9 @@ export function identifyTelegramUser(identity: TelegramIdentity | null): void {
   const client = getAnalyticsClient();
   const distinctId = `tg:${identity.telegramId}`;
   const profileFingerprint = buildTelegramProfileFingerprint(identity);
+  const shouldRefreshWorkspaceProfile = lastIdentifiedDistinctId !== distinctId;
 
-  if (lastIdentifiedDistinctId !== distinctId) {
+  if (shouldRefreshWorkspaceProfile) {
     client.identify(distinctId);
     lastIdentifiedDistinctId = distinctId;
   }
@@ -157,6 +166,14 @@ export function identifyTelegramUser(identity: TelegramIdentity | null): void {
     client.setUserProfile(buildTelegramProfileProperties(identity));
     lastProfiledDistinctId = distinctId;
     lastProfileFingerprint = profileFingerprint;
+  }
+
+  if (shouldRefreshWorkspaceProfile) {
+    const workspaceProfileUpdate =
+      createWorkspaceProfileUpdate(MINIAPP_WORKSPACE);
+    client.unionUserProfile(workspaceProfileUpdate.union);
+    client.setUserProfileOnce(workspaceProfileUpdate.setOnce);
+    client.setUserProfile(workspaceProfileUpdate.set);
   }
 }
 
