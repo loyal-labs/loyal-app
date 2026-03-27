@@ -52,3 +52,31 @@ export const lastActivityAt = storage.defineItem<number>(
   `${SESSION_AREA}:lastActivityAt`,
   { fallback: 0 },
 );
+
+/** Origins that the user has approved for dApp connect */
+export const connectedDappOrigins = storage.defineItem<string[]>(
+  "local:connectedDappOrigins",
+  { fallback: [] },
+);
+
+/** Pending dApp approval request shown in the popup/sidepanel */
+export const pendingDappApproval = storage.defineItem<{
+  id: string;
+  kind: "connect" | "signTransaction" | "signMessage";
+  origin: string;
+  favicon?: string;
+} | null>(
+  `${SESSION_AREA}:pendingDappApproval`,
+  { fallback: null },
+);
+
+/** Full dApp request payload for signing (stored so background can sign after approval) */
+export const pendingDappRequestPayload = storage.defineItem<{
+  type: "DAPP_SIGN_TRANSACTION_REQUEST" | "DAPP_SIGN_MESSAGE_REQUEST";
+  id: string;
+  transaction?: string; // base64
+  message?: string; // base64
+} | null>(
+  `${SESSION_AREA}:pendingDappRequestPayload`,
+  { fallback: null },
+);

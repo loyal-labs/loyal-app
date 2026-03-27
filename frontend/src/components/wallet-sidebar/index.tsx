@@ -14,6 +14,7 @@ import {
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { AllActivityView } from "./all-activity-view";
+import { AllApprovalsView } from "./all-approvals-view";
 import { AllTokensView } from "./all-tokens-view";
 import { PortfolioContent } from "./portfolio-content";
 import { ReceiveContent } from "./receive-content";
@@ -21,6 +22,12 @@ import { SendContent } from "./send-content";
 import { ShieldContent, SwapShieldTabs } from "./shield-content";
 import { SwapContent } from "./swap-content";
 import { TokenSelectView } from "./token-select-view";
+import { AccountPageView } from "./account-page-view";
+import { AgentPageView } from "./agent-page-view";
+import { ApprovalReviewContent } from "./approval-review-content";
+import { StashDetailView } from "./stash-detail-view";
+import { VaultAccountPageView } from "./vault-account-page-view";
+import { ConnectRequestContent } from "./connect-request-content";
 import { TransactionDetailView } from "./transaction-detail-view";
 import type {
   FormButtonProps,
@@ -44,6 +51,10 @@ export interface HeroRightSidebarProps {
   showQuickActions?: boolean;
   walletDesktopData: WalletDesktopData;
   onDisconnect?: () => void;
+  connectAgentName?: string;
+  onConnectDecline?: () => void;
+  onConnectApprove?: () => void;
+  hasVaultAccount?: boolean;
 }
 
 export function HeroRightSidebar(props: HeroRightSidebarProps) {
@@ -98,11 +109,111 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     return () => el.removeEventListener("wheel", handler);
   }, []);
 
-  const [subView, setSubView] = useState<SubView>(null);
+  // Navigation stack: stack[0] = Layer 1, stack[1] = Layer 2
+  const [viewStack, setViewStack] = useState<Exclude<SubView, null>[]>([]);
+  const pushView = useCallback((view: Exclude<SubView, null>) => {
+    setViewStack((s) => [...s, view]);
+  }, []);
+  const popView = useCallback(() => {
+    setViewStack((s) => s.slice(0, -1));
+  }, []);
+  const resetViews = useCallback(() => {
+    setViewStack([]);
+  }, []);
+
+  // Derived: what's at each layer
+  const level1View: SubView = viewStack[0] ?? null;
+  const level2View: SubView = viewStack[1] ?? null;
+  const level3View: SubView = viewStack[2] ?? null;
+
+  // Delayed copies for exit animations
+  const [displayLevel1, setDisplayLevel1] = useState<SubView>(null);
+  const [displayLevel2, setDisplayLevel2] = useState<SubView>(null);
+  const [displayLevel3, setDisplayLevel3] = useState<SubView>(null);
+  useEffect(() => {
+    if (level1View) {
+      setDisplayLevel1(level1View);
+    } else {
+      const t = setTimeout(() => setDisplayLevel1(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [level1View]);
+  useEffect(() => {
+    if (level2View) {
+      setDisplayLevel2(level2View);
+    } else {
+      const t = setTimeout(() => setDisplayLevel2(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [level2View]);
+  useEffect(() => {
+    if (level3View) {
+      setDisplayLevel3(level3View);
+    } else {
+      const t = setTimeout(() => setDisplayLevel3(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [level3View]);
+
+  // Left panel — slides out to the left of the sidebar (agent or stash detail)
+  type LeftPanelView =
+    | { type: "agentPage"; agentId: string; label: string; agentIcon: string; balanceWhole: string; balanceFraction: string }
+    | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string };
+  const [leftPanel, setLeftPanel] = useState<LeftPanelView | null>(null);
+  const [displayLeftPanel, setDisplayLeftPanel] = useState<LeftPanelView | null>(null);
+  useEffect(() => {
+    if (leftPanel) {
+      setDisplayLeftPanel(leftPanel);
+    } else {
+      const t = setTimeout(() => setDisplayLeftPanel(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [leftPanel]);
+
+  // Left panel sub-view stack (for See All, transaction details inside left panel)
+  const [leftViewStack, setLeftViewStack] = useState<Exclude<SubView, null>[]>([]);
+  const leftPushView = useCallback((view: Exclude<SubView, null>) => {
+    setLeftViewStack((s) => [...s, view]);
+  }, []);
+  const leftPopView = useCallback(() => {
+    setLeftViewStack((s) => s.slice(0, -1));
+  }, []);
+  const leftLevel1View: SubView = leftViewStack[0] ?? null;
+  const leftLevel2View: SubView = leftViewStack[1] ?? null;
+  const [displayLeftLevel1, setDisplayLeftLevel1] = useState<SubView>(null);
+  const [displayLeftLevel2, setDisplayLeftLevel2] = useState<SubView>(null);
+  useEffect(() => {
+    if (leftLevel1View) {
+      setDisplayLeftLevel1(leftLevel1View);
+    } else {
+      const t = setTimeout(() => setDisplayLeftLevel1(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [leftLevel1View]);
+  useEffect(() => {
+    if (leftLevel2View) {
+      setDisplayLeftLevel2(leftLevel2View);
+    } else {
+      const t = setTimeout(() => setDisplayLeftLevel2(null), 350);
+      return () => clearTimeout(t);
+    }
+  }, [leftLevel2View]);
+  const hasLeftLevel1 = leftViewStack.length >= 1;
+  const hasLeftLevel2 = leftViewStack.length >= 2;
+
+  // Reset left sub-views when left panel closes
+  useEffect(() => {
+    if (!leftPanel) {
+      const t = setTimeout(() => {
+        setLeftViewStack([]);
+        setDisplayLeftLevel1(null);
+        setDisplayLeftLevel2(null);
+      }, 350);
+      return () => clearTimeout(t);
+    }
+  }, [leftPanel]);
+
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
-  const [listSubView, setListSubView] = useState<"allTokens" | "allActivity" | null>(
-    null
-  );
 
   // Derive real token list from wallet positions, falling back to mock data
   const derivedTokens = useMemo<SwapToken[]>(() => {
@@ -140,7 +251,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     if (props.activeTab !== displayTab) {
       // Swap instantly when sidebar is closed, just opening, or transitioning to/from sign-in
-      if (!props.isOpen || justOpened || props.activeTab === "sign-in" || displayTab === "sign-in") {
+      if (!props.isOpen || justOpened || props.activeTab === "sign-in" || displayTab === "sign-in" || props.activeTab === "connect" || displayTab === "connect") {
         setDisplayTab(props.activeTab);
         setCrossFadeOpacity(1);
         return;
@@ -213,50 +324,40 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [publicEnv, swapMode]
   );
 
-  // Update tokens when derived tokens change (wallet connects/disconnects)
+  // Update tokens when wallet connects/disconnects (not on every balance refresh)
+  const prevHadTokens = useRef(derivedTokens.length > 0 && !!derivedTokens[0].mint);
   useEffect(() => {
-    if (derivedTokens.length > 0 && derivedTokens[0].mint) {
+    const hasTokens = derivedTokens.length > 0 && !!derivedTokens[0].mint;
+    if (hasTokens && !prevHadTokens.current) {
       setSwapFromToken(derivedTokens[0]);
       setSwapToToken(derivedTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN);
       setSendToken(derivedTokens[0]);
       setShieldToken(derivedTokens[0]);
     }
+    prevHadTokens.current = hasTokens;
   }, [derivedTokens]);
 
   // Derived state
-  const isTransaction =
-    typeof subView === "object" && subView?.type === "transaction";
-  const isTokenSelect =
-    typeof subView === "object" && subView?.type === "tokenSelect";
-  const isSendTokenSelect =
-    typeof subView === "object" && subView?.type === "sendTokenSelect";
-  const isShieldTokenSelect =
-    typeof subView === "object" && subView?.type === "shieldTokenSelect";
-  const hasLevel1 =
-    subView === "allTokens" ||
-    subView === "allActivity" ||
-    isTransaction ||
-    isTokenSelect ||
-    isSendTokenSelect ||
-    isShieldTokenSelect;
-  const hasLevel2 = isTransaction;
+  const hasLevel1 = viewStack.length >= 1;
+  const hasLevel2 = viewStack.length >= 2;
+  const hasLevel3 = viewStack.length >= 3;
 
-  // Keep listSubView in sync
-  useEffect(() => {
-    if (subView === "allTokens" || subView === "allActivity") {
-      setListSubView(subView);
-    } else if (subView === null) {
-      const t = setTimeout(() => setListSubView(null), 350);
-      return () => clearTimeout(t);
-    }
-  }, [subView]);
+  // Helper to check view type
+  const viewType = (v: SubView) => (typeof v === "object" && v !== null ? v.type : v);
 
   // Reset everything when sidebar closes
   useEffect(() => {
     if (!props.isOpen) {
       const t = setTimeout(() => {
-        setSubView(null);
-        setListSubView(null);
+        setViewStack([]);
+        setDisplayLevel1(null);
+        setDisplayLevel2(null);
+        setDisplayLevel3(null);
+        setLeftPanel(null);
+        setDisplayLeftPanel(null);
+        setLeftViewStack([]);
+        setDisplayLeftLevel1(null);
+        setDisplayLeftLevel2(null);
       }, 350);
       return () => clearTimeout(t);
     }
@@ -264,9 +365,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   const handleTokenSelect = useCallback(
     (token: SwapToken) => {
-      if (typeof subView === "object" && subView?.type === "tokenSelect") {
-        if (subView.field === "from") {
-          // If selecting the same token as "to", swap them
+      const topView = viewStack[viewStack.length - 1];
+      if (typeof topView === "object" && topView?.type === "tokenSelect") {
+        if (topView.field === "from") {
           if (token.symbol === swapToToken.symbol) {
             setSwapToToken(swapFromToken);
           }
@@ -279,8 +380,257 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         }
       }
     },
-    [subView, swapFromToken, swapToToken],
+    [viewStack, swapFromToken, swapToToken],
   );
+
+  // Render any sub-view by type. Used for both Layer 1 and Layer 2.
+  const renderSubView = (view: SubView, onBack: () => void, navigateFn: (v: Exclude<SubView, null>) => void = pushView) => {
+    if (!view) return null;
+    const type = viewType(view);
+
+    if (view === "allTokens") {
+      return (
+        <AllTokensView
+          isBalanceHidden={props.isBalanceHidden}
+          onBack={onBack}
+          onClose={props.onClose}
+          tokens={props.walletDesktopData.allTokenRows}
+        />
+      );
+    }
+    if (view === "allActivity") {
+      return (
+        <AllActivityView
+          activities={props.walletDesktopData.allActivityRows}
+          details={props.walletDesktopData.transactionDetails}
+          isBalanceHidden={props.isBalanceHidden}
+          onBack={onBack}
+          onClose={props.onClose}
+          onNavigate={navigateFn}
+        />
+      );
+    }
+    if (view === "allApprovals") {
+      return (
+        <AllApprovalsView
+          isBalanceHidden={props.isBalanceHidden}
+          onBack={onBack}
+          onClose={props.onClose}
+          onReview={() => navigateFn({ type: "approvalReview" })}
+        />
+      );
+    }
+    if (type === "transaction") {
+      const detail = (view as { type: "transaction"; detail: TransactionDetail; from: string }).detail;
+      return (
+        <TransactionDetailView
+          detail={detail}
+          onBack={onBack}
+          onClose={props.onClose}
+        />
+      );
+    }
+    if (type === "tokenSelect") {
+      const field = (view as { type: "tokenSelect"; field: "from" | "to" }).field;
+      return (
+        <TokenSelectView
+          currentToken={field === "from" ? swapFromToken : swapToToken}
+          onBack={onBack}
+          onClose={props.onClose}
+          onSelect={handleTokenSelect}
+          title={field === "from" ? "You Swap" : "You Receive"}
+          tokens={derivedTokens}
+        />
+      );
+    }
+    if (type === "sendTokenSelect") {
+      return (
+        <TokenSelectView
+          currentToken={sendToken}
+          onBack={onBack}
+          onClose={props.onClose}
+          onSelect={(token) => setSendToken(token)}
+          title="Send"
+          tokens={derivedTokens}
+        />
+      );
+    }
+    if (type === "shieldTokenSelect") {
+      return (
+        <TokenSelectView
+          currentToken={shieldToken}
+          onBack={onBack}
+          onClose={props.onClose}
+          onSelect={(token) => {
+            setShieldToken(token);
+            popView();
+          }}
+          title="Shield"
+          tokens={derivedTokens}
+        />
+      );
+    }
+    if (type === "approvalReview") {
+      return (
+        <ApprovalReviewContent
+          onBack={onBack}
+          onClose={props.onClose}
+          onDecline={onBack}
+          onApprove={() => {
+            resetViews();
+            props.onConnectApprove?.();
+          }}
+        />
+      );
+    }
+    if (type === "accountPage") {
+      const account = (view as { type: "accountPage"; account: "main" | "vault" }).account;
+      if (account === "vault") {
+        return (
+          <VaultAccountPageView
+            balanceWhole="$7,000"
+            balanceFraction=".00"
+            isBalanceHidden={props.isBalanceHidden}
+            onBalanceHiddenChange={props.onBalanceHiddenChange}
+            tokenRows={props.walletDesktopData.tokenRows}
+            activityRows={props.walletDesktopData.activityRows}
+            transactionDetails={props.walletDesktopData.transactionDetails}
+            onBack={onBack}
+            onClose={props.onClose}
+            onNavigate={(v) => {
+              if (typeof v === "object" && v !== null && (v.type === "agentPage" || v.type === "stashPage")) {
+                setLeftPanel(v as LeftPanelView);
+              } else {
+                navigateFn(v);
+              }
+            }}
+          />
+        );
+      }
+      return (
+        <AccountPageView
+          accountLabel="Main"
+          accountIcon="/purplebg.png"
+          balanceWhole={props.walletDesktopData.balanceWhole}
+          balanceFraction={props.walletDesktopData.balanceFraction}
+          isBalanceHidden={props.isBalanceHidden}
+          onBalanceHiddenChange={props.onBalanceHiddenChange}
+          tokenRows={props.walletDesktopData.tokenRows}
+          activityRows={props.walletDesktopData.activityRows}
+          transactionDetails={props.walletDesktopData.transactionDetails}
+          onBack={onBack}
+          onClose={props.onClose}
+          onNavigate={navigateFn}
+          onOpenReceive={() => navigateFn({ type: "receivePanel" })}
+          onOpenSend={() => navigateFn({ type: "sendPanel" })}
+          onOpenSwap={() => navigateFn({ type: "swapPanel", mode: "swap" })}
+          onOpenShield={() => navigateFn({ type: "swapPanel", mode: "shield" })}
+        />
+      );
+    }
+    if (type === "agentPage") {
+      const agent = view as { type: "agentPage"; agentId: string; label: string; agentIcon?: string; balanceWhole: string; balanceFraction: string };
+      return (
+        <AgentPageView
+          label={agent.label}
+          agentIcon={agent.agentIcon ?? `/agents/Agent-01.svg`}
+          balanceWhole={agent.balanceWhole}
+          balanceFraction={agent.balanceFraction}
+          isBalanceHidden={props.isBalanceHidden}
+          onBalanceHiddenChange={props.onBalanceHiddenChange}
+          tokenRows={props.walletDesktopData.tokenRows}
+          activityRows={props.walletDesktopData.activityRows}
+          transactionDetails={props.walletDesktopData.transactionDetails}
+          onBack={onBack}
+          onNavigate={navigateFn}
+        />
+      );
+    }
+    if (type === "sendPanel") {
+      return (
+        <SendContent
+          addLocalActivity={props.walletDesktopData.addLocalActivity}
+          onBack={onBack}
+          onClose={props.onClose}
+          onDone={() => { resetViews(); }}
+          onNavigate={navigateFn}
+          token={sendToken}
+        />
+      );
+    }
+    if (type === "receivePanel") {
+      return (
+        <ReceiveContent
+          onBack={onBack}
+          onClose={props.onClose}
+          walletAddress={props.walletDesktopData.walletAddress}
+        />
+      );
+    }
+    if (type === "swapPanel") {
+      const swapView = view as { type: "swapPanel"; mode?: "swap" | "shield" };
+      const panelMode = swapView.mode ?? "swap";
+      return (
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <SwapShieldTabs mode={panelMode} onBack={onBack} onClose={props.onClose} onModeChange={(m) => { setSwapMode(m); }} />
+          <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                transform: panelMode === "swap" ? "translateX(0)" : "translateX(-100%)",
+                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                willChange: "transform",
+              }}
+            >
+              <SwapContent
+                fromToken={swapFromToken}
+                hideFormChrome
+                onClose={props.onClose}
+                onDone={() => { resetViews(); }}
+                onFormActiveChange={setSwapFormActive}
+                onFormButtonChange={setSwapButtonProps}
+                onFromTokenChange={setSwapFromToken}
+                onNavigate={navigateFn}
+                onSwapModeChange={(m) => { setSwapMode(m); }}
+                onToTokenChange={setSwapToToken}
+                swapMode={panelMode}
+                toToken={swapToToken}
+              />
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                transform: panelMode === "shield" ? "translateX(0)" : "translateX(100%)",
+                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                willChange: "transform",
+              }}
+            >
+              <ShieldContent
+                hideFormChrome
+                onClose={props.onClose}
+                onDone={() => { resetViews(); }}
+                onFormActiveChange={setShieldFormActive}
+                onFormButtonChange={setShieldButtonProps}
+                onNavigate={navigateFn}
+                onSwapModeChange={(m) => { setSwapMode(m); }}
+                onTokenChange={setShieldToken}
+                securedBalance={shieldSecuredBalance}
+                swapMode={panelMode}
+                token={shieldToken}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <>
@@ -331,7 +681,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             style={{
               position: "absolute",
               inset: 0,
-              background: hasLevel1 ? "#EBEBEB" : "#F5F5F5",
+              zIndex: 1,
+              background: hasLevel1 ? "#F5F5F5" : "#FFFFFF",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",
               display: "flex",
               flexDirection: "column",
@@ -346,9 +698,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               style={{
                 display: "flex",
                 gap: "6px",
-                padding: props.showQuickActions && displayTab !== "sign-in" ? "8px 8px 0" : "0 8px",
-                maxHeight: props.showQuickActions && displayTab !== "sign-in" ? "52px" : "0",
-                opacity: props.showQuickActions && displayTab !== "sign-in" ? 1 : 0,
+                padding: props.showQuickActions && displayTab !== "sign-in" && displayTab !== "connect" ? "8px 8px 0" : "0 8px",
+                maxHeight: props.showQuickActions && displayTab !== "sign-in" && displayTab !== "connect" ? "52px" : "0",
+                opacity: props.showQuickActions && displayTab !== "sign-in" && displayTab !== "connect" ? 1 : 0,
                 overflow: "hidden",
                 transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
@@ -469,48 +821,52 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               }}
             >
               {displayTab === "portfolio" && (
-                <>
-                  <button
-                    className="right-sidebar-close"
-                    onClick={props.onClose}
-                    style={{
-                      position: "absolute",
-                      top: props.showQuickActions ? "56px" : "8px",
-                      right: "8px",
-                      width: "36px",
-                      height: "36px",
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      background: "rgba(0, 0, 0, 0.04)",
-                      border: "none",
-                      borderRadius: "9999px",
-                      cursor: "pointer",
-                      transition: "top 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease, opacity 0.2s ease",
-                      color: "#3C3C43",
-                      zIndex: 2,
-                      opacity: showDisconnectConfirm ? 0 : 1,
-                      pointerEvents: showDisconnectConfirm ? "none" : "auto",
-                    }}
-                  >
-                    <X size={24} />
-                  </button>
-                  <PortfolioContent
-                    activityRows={props.walletDesktopData.activityRows}
-                    balanceFraction={props.walletDesktopData.balanceFraction}
-                    balanceSolLabel={props.walletDesktopData.balanceSolLabel}
-                    balanceWhole={props.walletDesktopData.balanceWhole}
-                    isBalanceHidden={props.isBalanceHidden}
-                    isLoading={props.walletDesktopData.isLoading}
-                    onBalanceHiddenChange={props.onBalanceHiddenChange}
-                    onDisconnect={() => setShowDisconnectConfirm(true)}
-                    onNavigate={setSubView}
-                    tokenRows={props.walletDesktopData.tokenRows}
-                    transactionDetails={props.walletDesktopData.transactionDetails}
-                    walletAddress={props.walletDesktopData.walletAddress}
-                    walletLabel={props.walletDesktopData.walletLabel}
-                  />
-                </>
+                <PortfolioContent
+                  balanceFraction={props.walletDesktopData.balanceFraction}
+                  balanceWhole={props.walletDesktopData.balanceWhole}
+                  isBalanceHidden={props.isBalanceHidden}
+                  isLoading={props.walletDesktopData.isLoading}
+                  onBalanceHiddenChange={props.onBalanceHiddenChange}
+                  onClose={props.onClose}
+                  onDisconnect={() => setShowDisconnectConfirm(true)}
+                  onTabChange={props.onTabChange}
+                  hasVaultAccount={props.hasVaultAccount ?? false}
+                  onReviewApproval={() => pushView({ type: "approvalReview" })}
+                  onSeeAllApprovals={() => pushView("allApprovals")}
+                  onOpenReceive={() => pushView({ type: "receivePanel" })}
+                  onOpenSend={() => pushView({ type: "sendPanel" })}
+                  onOpenSwap={() => pushView({ type: "swapPanel", mode: "swap" })}
+                  onOpenShield={() => pushView({ type: "swapPanel", mode: "shield" })}
+                  onOpenStash={() =>
+                    setLeftPanel((prev) =>
+                      prev?.type === "stashPage"
+                        ? null
+                        : {
+                            type: "stashPage",
+                            label: "Stash",
+                            balanceWhole: props.walletDesktopData.balanceWhole,
+                            balanceFraction: props.walletDesktopData.balanceFraction,
+                          }
+                    )
+                  }
+                  onOpenAgent={(agent) =>
+                    setLeftPanel((prev) =>
+                      prev?.type === "agentPage" && prev.agentId === agent.id
+                        ? null
+                        : {
+                            type: "agentPage",
+                            agentId: agent.id,
+                            label: agent.label,
+                            agentIcon: agent.icon,
+                            balanceWhole: agent.balanceWhole,
+                            balanceFraction: agent.balanceFraction,
+                          }
+                    )
+                  }
+                  walletAddress={props.walletDesktopData.walletAddress}
+                  walletLabel={props.walletDesktopData.walletLabel}
+                  isAgentConnected={!!props.connectAgentName}
+                />
               )}
               {displayTab === "receive" && (
                 <ReceiveContent
@@ -523,7 +879,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   addLocalActivity={props.walletDesktopData.addLocalActivity}
                   onClose={props.onClose}
                   onDone={() => props.onTabChange("portfolio")}
-                  onNavigate={setSubView}
+                  onNavigate={pushView}
                   token={sendToken}
                 />
               )}
@@ -562,7 +918,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onFormActiveChange={setSwapFormActive}
                         onFormButtonChange={setSwapButtonProps}
                         onFromTokenChange={setSwapFromToken}
-                        onNavigate={setSubView}
+                        onNavigate={pushView}
                         onSwapModeChange={handleSwapModeChange}
                         onToTokenChange={setSwapToToken}
                         swapMode={swapMode}
@@ -586,7 +942,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onDone={() => props.onTabChange("portfolio")}
                         onFormActiveChange={setShieldFormActive}
                         onFormButtonChange={setShieldButtonProps}
-                        onNavigate={setSubView}
+                        onNavigate={pushView}
                         onSwapModeChange={handleSwapModeChange}
                         onTokenChange={setShieldToken}
                         securedBalance={shieldSecuredBalance}
@@ -711,6 +1067,114 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   </div>
                 </div>
               )}
+              {displayTab === "connect" && (
+                <ConnectRequestContent
+                  agentName={props.connectAgentName ?? "Unknown"}
+                  onClose={props.onClose}
+                  onDecline={props.onConnectDecline ?? props.onClose}
+                  onApprove={props.onConnectApprove ?? props.onClose}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Left panel — slides out from inside the mother panel to the left */}
+          <div
+            style={{
+              position: "absolute",
+              top: "12px",
+              bottom: "12px",
+              right: "100%",
+              width: "100%",
+              background: "#F8F8FA",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
+              borderRight: "none",
+              borderRadius: "20px 0 0 20px",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              transform: leftPanel
+                ? "translateX(0)"
+                : "translateX(100%)",
+              visibility: leftPanel ? "visible" : "hidden",
+              transition: leftPanel
+                ? "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0s"
+                : "transform 0.28s cubic-bezier(0.4, 0, 0.6, 1), visibility 0s linear 0.28s",
+              pointerEvents: leftPanel ? "auto" : "none",
+            }}
+          >
+            {displayLeftPanel?.type === "agentPage" && (
+              <AgentPageView
+                label={displayLeftPanel.label}
+                agentIcon={displayLeftPanel.agentIcon}
+                balanceWhole={displayLeftPanel.balanceWhole}
+                balanceFraction={displayLeftPanel.balanceFraction}
+                isBalanceHidden={props.isBalanceHidden}
+                onBalanceHiddenChange={props.onBalanceHiddenChange}
+                tokenRows={props.walletDesktopData.tokenRows}
+                activityRows={props.walletDesktopData.activityRows}
+                transactionDetails={props.walletDesktopData.transactionDetails}
+                onBack={() => setLeftPanel(null)}
+                onNavigate={leftPushView}
+              />
+            )}
+            {displayLeftPanel?.type === "stashPage" && (
+              <StashDetailView
+                label={displayLeftPanel.label}
+                balanceWhole={displayLeftPanel.balanceWhole}
+                balanceFraction={displayLeftPanel.balanceFraction}
+                isBalanceHidden={props.isBalanceHidden}
+                onBalanceHiddenChange={props.onBalanceHiddenChange}
+                tokenRows={props.walletDesktopData.tokenRows}
+                activityRows={props.walletDesktopData.activityRows}
+                transactionDetails={props.walletDesktopData.transactionDetails}
+                onBack={() => setLeftPanel(null)}
+                onNavigate={leftPushView}
+              />
+            )}
+
+            {/* Left panel sub-view Layer 1 */}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 2,
+                background: hasLeftLevel2 ? "#F5F5F5" : "#FFFFFF",
+                borderRadius: "20px 0 0 20px",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                transform: hasLeftLevel1
+                  ? hasLeftLevel2
+                    ? "translateX(-6px)"
+                    : "translateX(0)"
+                  : "translateX(105%)",
+                opacity: hasLeftLevel1 ? 1 : 0,
+                transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                pointerEvents: hasLeftLevel1 && !hasLeftLevel2 ? "auto" : "none",
+              }}
+            >
+              {renderSubView(displayLeftLevel1, leftPopView, leftPushView)}
+            </div>
+
+            {/* Left panel sub-view Layer 2 */}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 3,
+                background: "#FFFFFF",
+                borderRadius: "20px 0 0 20px",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+                transform: hasLeftLevel2 ? "translateX(0)" : "translateX(105%)",
+                opacity: hasLeftLevel2 ? 1 : 0,
+                transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+                pointerEvents: hasLeftLevel2 ? "auto" : "none",
+              }}
+            >
+              {renderSubView(displayLeftLevel2, leftPopView, leftPushView)}
             </div>
           </div>
 
@@ -719,7 +1183,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             style={{
               position: "absolute",
               inset: 0,
-              background: hasLevel2 ? "#EBEBEB" : "#F5F5F5",
+              zIndex: 2,
+              background: hasLevel2 ? "#F5F5F5" : "#FFFFFF",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",
               display: "flex",
               flexDirection: "column",
@@ -734,86 +1200,55 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               pointerEvents: hasLevel1 && !hasLevel2 ? "auto" : "none",
             }}
           >
-            {listSubView === "allTokens" && (
-                <AllTokensView
-                  isBalanceHidden={props.isBalanceHidden}
-                  onBack={() => setSubView(null)}
-                  onClose={props.onClose}
-                  tokens={props.walletDesktopData.allTokenRows}
-                />
-              )}
-            {listSubView === "allActivity" && (
-              <AllActivityView
-                activities={props.walletDesktopData.allActivityRows}
-                details={props.walletDesktopData.transactionDetails}
-                isBalanceHidden={props.isBalanceHidden}
-                onBack={() => setSubView(null)}
-                onClose={props.onClose}
-                onNavigate={setSubView}
-              />
-            )}
-            {isTokenSelect && (
-              <TokenSelectView
-                currentToken={(subView as { type: "tokenSelect"; field: "from" | "to" }).field === "from" ? swapFromToken : swapToToken}
-                onBack={() => setSubView(null)}
-                onClose={props.onClose}
-                onSelect={handleTokenSelect}
-                title={(subView as { type: "tokenSelect"; field: "from" | "to" }).field === "from" ? "You Swap" : "You Receive"}
-                tokens={derivedTokens}
-              />
-            )}
-            {isSendTokenSelect && (
-              <TokenSelectView
-                currentToken={sendToken}
-                onBack={() => setSubView(null)}
-                onClose={props.onClose}
-                onSelect={(token) => setSendToken(token)}
-                title="Send"
-                tokens={derivedTokens}
-              />
-            )}
-            {isShieldTokenSelect && (
-              <TokenSelectView
-                currentToken={shieldToken}
-                onBack={() => setSubView(null)}
-                onClose={props.onClose}
-                onSelect={(token) => {
-                  setShieldToken(token);
-                  setSubView(null);
-                }}
-                title="Shield"
-                tokens={derivedTokens}
-              />
-            )}
+            {renderSubView(displayLevel1, popView)}
           </div>
 
-          {/* Layer 2: Transaction detail */}
+          {/* Layer 2 */}
           <div
             style={{
               position: "absolute",
               inset: 0,
-              background: "#F5F5F5",
+              zIndex: 3,
+              background: hasLevel3 ? "#F5F5F5" : "#FFFFFF",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
               borderRadius: "20px",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
-              transform: hasLevel2 ? "translateX(0)" : "translateX(105%)",
+              transform: hasLevel2
+                ? hasLevel3
+                  ? "translateX(-6px)"
+                  : "translateX(0)"
+                : "translateX(105%)",
               opacity: hasLevel2 ? 1 : 0,
-              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-              pointerEvents: hasLevel2 ? "auto" : "none",
+              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              pointerEvents: hasLevel2 && !hasLevel3 ? "auto" : "none",
             }}
           >
-            {isTransaction && (
-              <TransactionDetailView
-                detail={(subView as { type: "transaction"; detail: TransactionDetail; from: "portfolio" | "allActivity" }).detail}
-                onBack={() => {
-                  const from = (subView as { type: "transaction"; detail: TransactionDetail; from: "portfolio" | "allActivity" }).from;
-                  setSubView(from === "allActivity" ? "allActivity" : null);
-                }}
-                onClose={props.onClose}
-              />
-            )}
+            {renderSubView(displayLevel2, popView)}
           </div>
+
+          {/* Layer 3 */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 4,
+              background: "#FFFFFF",
+              border: "1px solid rgba(0, 0, 0, 0.08)",
+              borderRadius: "20px",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              transform: hasLevel3 ? "translateX(0)" : "translateX(105%)",
+              opacity: hasLevel3 ? 1 : 0,
+              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+              pointerEvents: hasLevel3 ? "auto" : "none",
+            }}
+          >
+            {renderSubView(displayLevel3, popView)}
+          </div>
+
         </div>
       </div>
     </>

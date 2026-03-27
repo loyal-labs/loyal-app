@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, ChevronRight, Globe, Send, Share, Wallet, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, ChevronRight, Globe, Send, Share, Wallet, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -351,15 +351,17 @@ function SendTransactionDetail({
 }
 
 export function SendContent({
+  onBack,
   onClose,
   onDone,
   onNavigate,
   token,
   addLocalActivity,
 }: {
+  onBack?: () => void;
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
 }) {
@@ -566,7 +568,7 @@ export function SendContent({
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <style jsx>{`
-          .send-close:hover { background: rgba(0, 0, 0, 0.08) !important; }
+          .send-back:hover, .send-close:hover { background: rgba(0, 0, 0, 0.08) !important; }
           .pct-btn:hover { opacity: 0.7; }
           .confirm-btn:not(:disabled):hover { background: #333 !important; }
           .private-card:hover { background: rgba(0, 0, 0, 0.06) !important; }
@@ -575,8 +577,20 @@ export function SendContent({
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px" }}>
-          <div style={{ flex: 1, paddingLeft: "12px", paddingTop: "4px", paddingBottom: "4px" }}>
-            <span style={{ fontFamily: font, fontSize: "18px", fontWeight: 600, lineHeight: "28px", color: "#000" }}>Send</span>
+          <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+            {onBack && (
+              <button
+                className="send-back"
+                onClick={onBack}
+                style={{ width: "36px", height: "36px", display: "flex", justifyContent: "center", alignItems: "center", background: "rgba(0, 0, 0, 0.04)", border: "none", borderRadius: "9999px", cursor: "pointer", transition: "all 0.2s ease", color: "#3C3C43" }}
+                type="button"
+              >
+                <ArrowLeft size={24} />
+              </button>
+            )}
+            <div style={{ paddingLeft: onBack ? "8px" : "12px", paddingTop: "4px", paddingBottom: "4px" }}>
+              <span style={{ fontFamily: font, fontSize: "18px", fontWeight: 600, lineHeight: "28px", color: "#000" }}>Send</span>
+            </div>
           </div>
           <button
             className="send-close"

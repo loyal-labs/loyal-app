@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, ChevronRight, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, ChevronRight, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -15,10 +15,12 @@ const red = "#F9363C";
 function SwapShieldTabs({
   mode,
   onModeChange,
+  onBack,
   onClose,
 }: {
   mode: SwapMode;
   onModeChange: (mode: SwapMode) => void;
+  onBack?: () => void;
   onClose: () => void;
 }) {
   return (
@@ -28,8 +30,35 @@ function SwapShieldTabs({
         alignItems: "center",
         justifyContent: "space-between",
         padding: "8px",
+        gap: "8px",
       }}
     >
+      <style jsx>{`
+        .swap-back:hover { background: rgba(0, 0, 0, 0.08) !important; }
+      `}</style>
+      {onBack && (
+        <button
+          className="swap-back"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+            flexShrink: 0,
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      )}
       <div
         style={{
           display: "flex",
@@ -429,7 +458,7 @@ export function ShieldContent({
 }: {
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   token: SwapToken;
   onTokenChange: (t: SwapToken) => void;
   securedBalance: number;

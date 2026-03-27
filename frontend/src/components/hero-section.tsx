@@ -43,6 +43,7 @@ export interface HeroSectionProps {
   onNewChat: () => void;
   onSelectChat: (chatId: string, clientChatId: string | null) => Promise<void>;
   currentChatId: string;
+  connectAgentName?: string;
 }
 
 export function shouldOpenRightSidebarTab(args: {
@@ -72,6 +73,8 @@ export function HeroSection(props: HeroSectionProps) {
   const [isScrolledToLinks, setIsScrolledToLinks] = useState(false);
   const [dogCry, setDogCry] = useState(false);
   const [dogNice, setDogNice] = useState(false);
+  const [hasVaultAccount, setHasVaultAccount] = useState(false);
+  const pendingConnectRef = useRef(false);
 
   const { registerHandler } = useSignInModal();
 
@@ -105,7 +108,7 @@ export function HeroSection(props: HeroSectionProps) {
         return;
       }
 
-      if (tab !== "sign-in") {
+      if (tab !== "sign-in" && tab !== "connect") {
         trackWalletSidebarTabOpen(publicEnv, {
           source: "hero_action_card",
           tab,
@@ -131,7 +134,7 @@ export function HeroSection(props: HeroSectionProps) {
     }
   }, [openSignIn, props.openSignInRef]);
 
-  // Auto-switch from sign-in tab to portfolio when user signs in
+  // Auto-switch from sign-in tab to portfolio (or connect) when user signs in
   const wasSignedInRef = useRef(props.isSignedIn);
   const [pendingAutoClose, setPendingAutoClose] = useState(false);
   useEffect(() => {
@@ -139,8 +142,13 @@ export function HeroSection(props: HeroSectionProps) {
     wasSignedInRef.current = props.isSignedIn;
 
     if (justSignedIn && isRightSidebarOpen) {
-      setRightSidebarTab("portfolio");
-      setPendingAutoClose(true);
+      if (pendingConnectRef.current) {
+        pendingConnectRef.current = false;
+        setRightSidebarTab("connect");
+      } else {
+        setRightSidebarTab("portfolio");
+        setPendingAutoClose(true);
+      }
     }
   }, [props.isSignedIn, isRightSidebarOpen]);
 
@@ -401,6 +409,22 @@ export function HeroSection(props: HeroSectionProps) {
     }
   };
 
+  // Open connect request sidebar when ?connect= param is present
+  const connectHandledRef = useRef(false);
+  useEffect(() => {
+    if (!props.connectAgentName || connectHandledRef.current) return;
+    connectHandledRef.current = true;
+
+    if (props.isSignedIn) {
+      setRightSidebarTab("connect");
+      setIsRightSidebarOpen(true);
+    } else {
+      pendingConnectRef.current = true;
+      setRightSidebarTab("sign-in");
+      setIsRightSidebarOpen(true);
+    }
+  }, [props.connectAgentName, props.isSignedIn]);
+
   const handleBackToTop = () => {
     window.scrollTo({
       top: 0,
@@ -528,6 +552,13 @@ export function HeroSection(props: HeroSectionProps) {
               await disconnect();
               await logout();
             }}
+            connectAgentName={props.connectAgentName}
+            onConnectDecline={() => setIsRightSidebarOpen(false)}
+            onConnectApprove={() => {
+              setHasVaultAccount(true);
+              setRightSidebarTab("portfolio");
+            }}
+            hasVaultAccount={hasVaultAccount}
           />
         </div>
       </div>

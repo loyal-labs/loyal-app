@@ -60,6 +60,7 @@
     "drizzle-orm": "^0.45.1",
     "embla-carousel-react": "^8.6.0",
     "flags": "^4.0.2",
+    "geist": "^1.7.0",
     "highlight.js": "^11.11.1",
     "jose": "^6.0.13",
     "katex": "^0.16.22",

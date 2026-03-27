@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowRight, Search, X } from "lucide-react";
 
 export function SearchInput({
   value,
@@ -96,7 +96,7 @@ export function SubViewHeader({
           }}
           type="button"
         >
-          <ArrowLeft size={24} />
+          <ArrowRight size={24} />
         </button>
         <span
           style={{
