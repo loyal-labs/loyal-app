@@ -543,6 +543,7 @@ export const appUsers = pgTable(
     subjectAddress: text("subject_address").notNull(),
     gridUserId: text("grid_user_id"),
     smartAccountAddress: text("smart_account_address"),
+    smartAccountSettingsPda: text("smart_account_settings_pda"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

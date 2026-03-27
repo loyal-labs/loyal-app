@@ -1,0 +1,1 @@
+ALTER TABLE "app_users" ADD COLUMN "smart_account_settings_pda" text;
