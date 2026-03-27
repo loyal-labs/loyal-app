@@ -32,12 +32,14 @@ describe("chat analytics", () => {
       chatId: "chat-123",
       initialMessageLength: 21,
       source: "main_chat_input",
+      clientIp: "203.0.113.10",
     });
 
     expect(trackServerAnalyticsEvent).toHaveBeenCalledWith(
       "chat_thread_created",
       {
         distinct_id: "wallet:wallet-address",
+        ip: "203.0.113.10",
         workspace: "frontend",
         auth_method: "wallet",
         provider: "solana",

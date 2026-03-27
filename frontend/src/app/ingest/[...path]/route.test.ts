@@ -39,8 +39,48 @@ describe("Mixpanel ingest proxy route", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       method: "GET",
     });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toBeInstanceOf(Headers);
+    expect(
+      (fetchMock.mock.calls[0]?.[1]?.headers as Headers).get("accept")
+    ).toBe("application/json");
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("ok");
+  });
+
+  test("forwards client IP headers so Mixpanel can geolocate the end user", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response("ok", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain",
+        },
+      })
+    );
+
+    const { POST } = await import("./route");
+    await POST(
+      new Request("https://askloyal.com/ingest/track/", {
+        method: "POST",
+        body: "payload-body",
+        headers: {
+          "cf-connecting-ip": "203.0.113.10",
+          "x-forwarded-for": "203.0.113.10, 198.51.100.1",
+          "x-real-ip": "203.0.113.10",
+          "x-vercel-forwarded-for": "203.0.113.10",
+        },
+      }),
+      { params: Promise.resolve({ path: ["track", ""] }) }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toBeInstanceOf(Headers);
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+
+    expect(headers.get("cf-connecting-ip")).toBe("203.0.113.10");
+    expect(headers.get("x-forwarded-for")).toBe("203.0.113.10, 198.51.100.1");
+    expect(headers.get("x-real-ip")).toBe("203.0.113.10");
+    expect(headers.get("x-vercel-forwarded-for")).toBe("203.0.113.10");
   });
 
   test("forwards POST requests with body and content type", async () => {
