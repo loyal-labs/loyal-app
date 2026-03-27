@@ -63,7 +63,9 @@ export type SubView =
   | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string }
   | { type: "sendPanel" }
   | { type: "receivePanel" }
-  | { type: "swapPanel"; mode?: "swap" | "shield" };
+  | { type: "swapPanel"; mode?: "swap" | "shield" }
+  | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
+  | { type: "dappSign"; origin: string; favicon?: string; requestId: string; kind: "signTransaction" | "signMessage" };
 
 export const LOYL_TOKEN: SwapToken = {
   mint: "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",
