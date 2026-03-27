@@ -40,7 +40,6 @@ describe("chat analytics", () => {
       {
         distinct_id: "wallet:wallet-address",
         ip: "203.0.113.10",
-        workspace: "frontend",
         auth_method: "wallet",
         provider: "solana",
         wallet_address: "wallet-address",

@@ -22,6 +22,7 @@
       "@/*": ["./src/*"],
       "@loyal-labs/shared": ["../packages/shared/src/index.ts"],
       "@loyal-labs/shared/analytics": ["../packages/shared/src/analytics.ts"],
+      "@loyal-labs/shared/analytics-server": ["../packages/shared/src/analytics-server.ts"],
       "@loyal-labs/solana-rpc": ["../packages/solana-rpc/src/index.ts"],
       "@loyal-labs/solana-wallet": ["../packages/solana-wallet/src/index.ts"]
     },

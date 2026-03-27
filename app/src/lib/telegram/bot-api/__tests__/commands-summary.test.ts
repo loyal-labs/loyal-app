@@ -26,6 +26,18 @@ const mixpanelTrackCalls: Array<{
   eventName: string;
   properties: Record<string, unknown>;
 }> = [];
+const mixpanelPeopleSetCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
+const mixpanelPeopleSetOnceCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
+const mixpanelPeopleUnionCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
 let sendStartCarouselShouldThrow = false;
 let sendStartCarouselCalls = 0;
 let autoCleanupReplyTexts: string[] = [];
@@ -42,6 +54,32 @@ mock.module("mixpanel", () => ({
         ) => {
           mixpanelTrackCalls.push({ eventName, properties });
           callback?.();
+        },
+        people: {
+          set: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleSetCalls.push({ distinctId, properties });
+            callback?.();
+          },
+          set_once: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleSetOnceCalls.push({ distinctId, properties });
+            callback?.();
+          },
+          union: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleUnionCalls.push({ distinctId, properties });
+            callback?.();
+          },
         },
       };
     },
@@ -95,10 +133,12 @@ mock.module("../helper-message-cleanup", () => ({
     autoCleanupReplyTexts.push(text);
     await ctx.reply(text, options as never);
   },
+  sendMessageWithAutoCleanup: async () => {},
 }));
 
 let handleStartCommand: typeof import("../commands").handleStartCommand;
 let handleSummaryCommand: typeof import("../commands").handleSummaryCommand;
+let resetBotAnalyticsStateForTests: typeof import("../analytics").__resetBotAnalyticsStateForTests;
 
 function createStartCommandContext() {
   const ctx = {
@@ -142,6 +182,8 @@ describe("commands analytics tracking", () => {
     const loadedModule = await import("../commands");
     handleStartCommand = loadedModule.handleStartCommand;
     handleSummaryCommand = loadedModule.handleSummaryCommand;
+    ({ __resetBotAnalyticsStateForTests: resetBotAnalyticsStateForTests } =
+      await import("../analytics"));
   });
 
   beforeEach(() => {
@@ -151,9 +193,13 @@ describe("commands analytics tracking", () => {
     sendLatestSummaryCalls.length = 0;
     mixpanelInitTokens.length = 0;
     mixpanelTrackCalls.length = 0;
+    mixpanelPeopleSetCalls.length = 0;
+    mixpanelPeopleSetOnceCalls.length = 0;
+    mixpanelPeopleUnionCalls.length = 0;
     sendStartCarouselCalls = 0;
     sendStartCarouselShouldThrow = false;
     autoCleanupReplyTexts = [];
+    resetBotAnalyticsStateForTests();
   });
 
   afterEach(() => {
@@ -171,10 +217,37 @@ describe("commands analytics tracking", () => {
       {
         eventName: "Bot /start Command",
         properties: {
+          workspace: "bot",
           distinct_id: "tg:123456789",
           telegram_chat_id: "-1009876543210",
           telegram_chat_type: "supergroup",
           telegram_user_id: "123456789",
+        },
+      },
+    ]);
+    expect(mixpanelPeopleUnionCalls).toEqual([
+      {
+        distinctId: "tg:123456789",
+        properties: {
+          workspaces: ["bot"],
+        },
+      },
+    ]);
+    expect(mixpanelPeopleSetOnceCalls).toEqual([
+      {
+        distinctId: "tg:123456789",
+        properties: {
+          first_workspace: "bot",
+          bot_first_seen_at: expect.any(String),
+        },
+      },
+    ]);
+    expect(mixpanelPeopleSetCalls).toEqual([
+      {
+        distinctId: "tg:123456789",
+        properties: {
+          last_workspace: "bot",
+          bot_last_seen_at: expect.any(String),
         },
       },
     ]);
@@ -202,6 +275,7 @@ describe("commands analytics tracking", () => {
       {
         eventName: "Bot /summary Command",
         properties: {
+          workspace: "bot",
           distinct_id: "tg:123456789",
           summary_destination_chat_id: "-1009876543210",
           summary_source_chat_id: "-1009876543210",

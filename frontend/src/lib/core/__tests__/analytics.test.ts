@@ -11,16 +11,29 @@ import {
 const createClientCalls: Array<Record<string, unknown>> = [];
 const identifyCalls: string[] = [];
 const setUserProfileCalls: Array<Record<string, unknown>> = [];
+const setUserProfileOnceCalls: Array<Record<string, unknown>> = [];
+const unionUserProfileCalls: Array<Record<string, unknown>> = [];
 const resetCalls: Array<undefined> = [];
 const trackCalls: Array<{ event: string; properties?: Record<string, unknown> }> = [];
+let currentDefaultEventProperties: Record<string, unknown> = {};
 
 mock.module("@loyal-labs/shared/analytics", () => ({
   createMixpanelBrowserClient: (config: Record<string, unknown>) => {
     createClientCalls.push(config);
+    currentDefaultEventProperties = {
+      ...((config.defaultEventProperties as Record<string, unknown> | undefined) ??
+        {}),
+    };
     return {
       init: async () => {},
       track: (event: string, properties?: Record<string, unknown>) => {
-        trackCalls.push({ event, properties });
+        trackCalls.push({
+          event,
+          properties: {
+            ...currentDefaultEventProperties,
+            ...(properties ?? {}),
+          },
+        });
       },
       identify: (distinctId: string) => {
         identifyCalls.push(distinctId);
@@ -33,10 +46,28 @@ mock.module("@loyal-labs/shared/analytics", () => ({
       setUserProfile: (properties: Record<string, unknown>) => {
         setUserProfileCalls.push(properties);
       },
-      setUserProfileOnce: () => {},
+      setUserProfileOnce: (properties: Record<string, unknown>) => {
+        setUserProfileOnceCalls.push(properties);
+      },
+      unionUserProfile: (properties: Record<string, unknown>) => {
+        unionUserProfileCalls.push(properties);
+      },
       __resetForTests: () => {},
     };
   },
+  createWorkspaceProfileUpdate: (workspace: string) => ({
+    set: {
+      last_workspace: workspace,
+      [`${workspace}_last_seen_at`]: "2026-03-26T00:00:00.000Z",
+    },
+    setOnce: {
+      first_workspace: workspace,
+      [`${workspace}_first_seen_at`]: "2026-03-26T00:00:00.000Z",
+    },
+    union: {
+      workspaces: [workspace],
+    },
+  }),
 }));
 
 let analytics: typeof import("../analytics");
@@ -78,8 +109,11 @@ describe("frontend analytics adapter", () => {
     createClientCalls.length = 0;
     identifyCalls.length = 0;
     setUserProfileCalls.length = 0;
+    setUserProfileOnceCalls.length = 0;
+    unionUserProfileCalls.length = 0;
     resetCalls.length = 0;
     trackCalls.length = 0;
+    currentDefaultEventProperties = {};
     analytics.__resetAnalyticsStateForTests();
   });
 
@@ -96,12 +130,15 @@ describe("frontend analytics adapter", () => {
         apiHost: "https://askloyal.com/ingest",
         debug: false,
         persistence: "localStorage",
+        defaultEventProperties: {
+          workspace: "website",
+        },
         registerProperties: {
           app_environment: "prod",
           app_solana_env: "devnet",
           git_branch: "feature-branch",
           git_commit_hash: "abc1234",
-          workspace: "frontend",
+          workspace: "website",
         },
       },
     ]);
@@ -114,6 +151,7 @@ describe("frontend analytics adapter", () => {
       {
         event: "View /wallet",
         properties: {
+          workspace: "website",
           path: "/wallet",
         },
       },
@@ -143,6 +181,21 @@ describe("frontend analytics adapter", () => {
         display_address: "display-address",
         wallet_address: "wallet-address",
         smart_account_address: "smart-account-address",
+      },
+      {
+        last_workspace: "website",
+        website_last_seen_at: "2026-03-26T00:00:00.000Z",
+      },
+    ]);
+    expect(setUserProfileOnceCalls).toEqual([
+      {
+        first_workspace: "website",
+        website_first_seen_at: "2026-03-26T00:00:00.000Z",
+      },
+    ]);
+    expect(unionUserProfileCalls).toEqual([
+      {
+        workspaces: ["website"],
       },
     ]);
   });
@@ -177,8 +230,8 @@ describe("frontend analytics adapter", () => {
     });
 
     expect(identifyCalls).toEqual(["wallet:wallet-address"]);
-    expect(setUserProfileCalls).toHaveLength(2);
-    expect(setUserProfileCalls[1]).toMatchObject({
+    expect(setUserProfileCalls).toHaveLength(3);
+    expect(setUserProfileCalls[2]).toMatchObject({
       email: "user@example.com",
       $email: "user@example.com",
     });
@@ -198,6 +251,7 @@ describe("frontend analytics adapter", () => {
       {
         event: analytics.FRONTEND_ANALYTICS_EVENTS.authLogout,
         properties: {
+          workspace: "website",
           path: "/wallet",
           auth_method: "wallet",
           grid_user_id: "grid-user-1",
@@ -219,6 +273,7 @@ describe("frontend analytics adapter", () => {
       {
         event: analytics.FRONTEND_ANALYTICS_EVENTS.chatThreadCreated,
         properties: {
+          workspace: "website",
           path: "/wallet",
           chat_id: "chat-123",
           source: "main_chat_input",

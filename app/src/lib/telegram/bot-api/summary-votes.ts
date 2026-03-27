@@ -6,14 +6,13 @@ import {
 import { eq, sql } from "drizzle-orm";
 import type { CallbackQueryContext, Context } from "grammy";
 import { InlineKeyboard } from "grammy";
-import Mixpanel from "mixpanel";
 
-import { serverEnv } from "@/lib/core/config/server";
 import { getDatabase } from "@/lib/core/database";
 import { buildSummaryFeedMiniAppUrl } from "@/lib/telegram/mini-app/start-param";
 import { getOrCreateUser } from "@/lib/telegram/user-service";
 import { getTelegramDisplayName } from "@/lib/telegram/utils";
 
+import { trackBotEvent } from "./analytics";
 import { isMessageNotModifiedError } from "./callback-query-utils";
 
 type SummaryVoteAction = "u" | "d" | "s";
@@ -58,33 +57,16 @@ function getVoteEventName(
   return null;
 }
 
-async function trackSummaryVoteEvent(
+function trackSummaryVoteEvent(
   voteAction: PersistedSummaryVoteAction,
   properties: MixpanelTrackProperties
-): Promise<void> {
+): void {
   const eventName = getVoteEventName(voteAction);
   if (!eventName) {
     return;
   }
 
-  const token = serverEnv.mixpanelToken;
-  if (!token) {
-    return;
-  }
-
-  try {
-    const mixpanel = Mixpanel.init(token);
-    await new Promise<void>((resolve) => {
-      mixpanel.track(eventName, properties, (error: unknown) => {
-        if (error) {
-          console.error(`Failed to track Mixpanel event: ${eventName}`, error);
-        }
-        resolve();
-      });
-    });
-  } catch (error) {
-    console.error(`Failed to track Mixpanel event: ${eventName}`, error);
-  }
+  trackBotEvent(eventName, properties);
 }
 
 export const SUMMARY_VOTE_CALLBACK_DATA_REGEX = new RegExp(
@@ -304,7 +286,7 @@ export async function handleSummaryVoteCallback(
       return;
     }
 
-    await trackSummaryVoteEvent(voteAction, {
+    trackSummaryVoteEvent(voteAction, {
       distinct_id: `tg:${ctx.from.id}`,
       group_chat_id: callbackData.groupChatId,
       summary_id: callbackData.summaryId,

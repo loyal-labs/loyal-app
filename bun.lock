@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "dependencies": {
@@ -344,6 +343,7 @@
       "name": "@loyal-labs/shared",
       "version": "0.1.0",
       "dependencies": {
+        "mixpanel": "^0.20.0",
         "mixpanel-browser": "^2.74.0",
       },
       "devDependencies": {
