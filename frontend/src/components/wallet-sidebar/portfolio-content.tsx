@@ -105,7 +105,26 @@ const MOCK_STASH_AGENTS = [
     accessLabel: "Can sign",
     accessLevel: "sign" as AccessLevel,
   },
+  {
+    id: "agent-6",
+    label: "Agent 21",
+    balanceWhole: "$500",
+    balanceFraction: ".00",
+    accessLabel: "Can execute",
+    accessLevel: "execute" as AccessLevel,
+  },
+  {
+    id: "agent-7",
+    label: "Agent 99",
+    balanceWhole: "$15",
+    balanceFraction: ".75",
+    accessLabel: "Can sign",
+    accessLevel: "sign" as AccessLevel,
+  },
 ];
+
+const AGENTS_COLLAPSED_COUNT = 3;
+const AGENTS_EXPAND_THRESHOLD = 5;
 
 // Mock approval data
 const MOCK_APPROVALS = [
@@ -183,6 +202,11 @@ export function PortfolioContent({
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [agentsExpanded, setAgentsExpanded] = useState(false);
+  const needsExpand = MOCK_STASH_AGENTS.length > AGENTS_EXPAND_THRESHOLD;
+  const visibleAgents = needsExpand && !agentsExpanded
+    ? MOCK_STASH_AGENTS.slice(0, AGENTS_COLLAPSED_COUNT)
+    : MOCK_STASH_AGENTS;
   const handleCopyAddress = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -639,112 +663,114 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
-          {hasVaultAccount ? (
-            <>
-              {/* Stash row */}
-              <button
-                className="portfolio-account-row"
-                onClick={onOpenStash}
+          {/* Stash row — always visible when wallet is connected */}
+          <button
+            className="portfolio-account-row"
+            onClick={onOpenStash}
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              padding: "6px 12px",
+              borderRadius: "16px",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              width: "100%",
+              transition: "background 0.15s ease",
+              textAlign: "left",
+            }}
+            type="button"
+          >
+            {/* Tree trunk — from icon center to bottom (only when agents follow) */}
+            {hasVaultAccount && (
+              <div
                 style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "6px 12px",
-                  borderRadius: "16px",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  width: "100%",
-                  transition: "background 0.15s ease",
-                  textAlign: "left",
+                  position: "absolute",
+                  left: "35px",
+                  top: "50%",
+                  bottom: 0,
+                  width: "1px",
+                  background: "rgba(60, 60, 67, 0.12)",
                 }}
-                type="button"
-              >
-                {/* Tree trunk — from icon center to bottom */}
-                <div
+              />
+            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt="Stash"
+              src="/agents/Stash.svg"
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "12px",
+                flexShrink: 0,
+                marginRight: "12px",
+              }}
+            />
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+                padding: "9px 0",
+              }}
+            >
+              <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                <span
                   style={{
-                    position: "absolute",
-                    left: "35px",
-                    top: "50%",
-                    bottom: 0,
-                    width: "1px",
-                    background: "rgba(60, 60, 67, 0.12)",
-                  }}
-                />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt="Stash"
-                  src="/agents/Stash.svg"
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "12px",
-                    flexShrink: 0,
-                    marginRight: "12px",
-                  }}
-                />
-                <div
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                    padding: "9px 0",
+                    fontFamily: font,
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    lineHeight: "24px",
+                    color: isBalanceHidden ? "#BBBBC0" : "#000",
+                    letterSpacing: "-0.22px",
+                    filter: isBalanceHidden
+                      ? "url(#rs-pixelate-sm)"
+                      : "none",
+                    transition: "filter 0.15s ease, color 0.15s ease",
+                    userSelect: isBalanceHidden ? "none" : "auto",
+                    display: "block",
                   }}
                 >
-                  <div style={{ borderRadius: "6px", overflow: "hidden" }}>
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "20px",
-                        fontWeight: 600,
-                        lineHeight: "24px",
-                        color: isBalanceHidden ? "#BBBBC0" : "#000",
-                        letterSpacing: "-0.22px",
-                        filter: isBalanceHidden
-                          ? "url(#rs-pixelate-sm)"
-                          : "none",
-                        transition: "filter 0.15s ease, color 0.15s ease",
-                        userSelect: isBalanceHidden ? "none" : "auto",
-                        display: "block",
-                      }}
-                    >
-                      $6,750
-                      <span
-                        style={{
-                          color: isBalanceHidden
-                            ? "#BBBBC0"
-                            : "rgba(60, 60, 67, 0.4)",
-                        }}
-                      >
-                        .00
-                      </span>
-                    </span>
-                  </div>
+                  {balanceWhole}
                   <span
                     style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
+                      color: isBalanceHidden
+                        ? "#BBBBC0"
+                        : "rgba(60, 60, 67, 0.4)",
                     }}
                   >
-                    Stash
+                    {balanceFraction}
                   </span>
-                </div>
-                <ChevronLeft
-                  size={24}
-                  style={{
-                    color: "rgba(60, 60, 67, 0.3)",
-                    flexShrink: 0,
-                    marginLeft: "12px",
-                  }}
-                />
-              </button>
+                </span>
+              </div>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  color: secondary,
+                }}
+              >
+                Stash
+              </span>
+            </div>
+            <ChevronLeft
+              size={24}
+              style={{
+                color: "rgba(60, 60, 67, 0.3)",
+                flexShrink: 0,
+                marginLeft: "12px",
+              }}
+            />
+          </button>
 
+          {hasVaultAccount && (
+            <>
               {/* Agent rows — indented under Stash with tree lines */}
-              {MOCK_STASH_AGENTS.map((agent, agentIdx) => (
+              {visibleAgents.map((agent, agentIdx) => (
                 <button
                   className="portfolio-account-row"
                   key={agent.id}
@@ -890,6 +916,87 @@ export function PortfolioContent({
                 </button>
               ))}
 
+              {/* View all row — shown when collapsed and there are more agents */}
+              {needsExpand && !agentsExpanded && (
+                <button
+                  className="portfolio-account-row"
+                  onClick={() => setAgentsExpanded(true)}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "4px 12px 4px 52px",
+                    borderRadius: "16px",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    width: "100%",
+                    transition: "background 0.15s ease",
+                  }}
+                  type="button"
+                >
+                  {/* Vertical line — full height (├) */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "35px",
+                      top: 0,
+                      bottom: 0,
+                      width: "1px",
+                      background: "rgba(60, 60, 67, 0.12)",
+                    }}
+                  />
+                  {/* Horizontal branch */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "35px",
+                      top: "50%",
+                      width: "13px",
+                      height: "1px",
+                      background: "rgba(60, 60, 67, 0.12)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "8px 0",
+                    }}
+                  >
+                    <div
+                      style={{
+                        flex: 1,
+                        height: "1px",
+                        background: "rgba(60, 60, 67, 0.12)",
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        color: secondary,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      View all ({MOCK_STASH_AGENTS.length})
+                    </span>
+                    <div
+                      style={{
+                        flex: 1,
+                        height: "1px",
+                        background: "rgba(60, 60, 67, 0.12)",
+                      }}
+                    />
+                  </div>
+                </button>
+              )}
+
               {/* Add agent row — last child (└) */}
               <button
                 className="portfolio-account-row"
@@ -961,18 +1068,6 @@ export function PortfolioContent({
                 </div>
               </button>
             </>
-          ) : (
-            <div
-              style={{
-                padding: "32px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: "rgba(60, 60, 67, 0.6)",
-              }}
-            >
-              Your stash and agents will be here
-            </div>
           )}
         </div>
 

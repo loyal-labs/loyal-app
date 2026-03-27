@@ -85,6 +85,18 @@ function base64ToUint8Array(b64: string): Uint8Array {
 }
 
 export default defineBackground(() => {
+  // Track how many extension UI instances (popup/sidepanel) are currently open
+  let uiConnectionCount = 0;
+
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name === "sidepanel" || port.name === "popup") {
+      uiConnectionCount++;
+      port.onDisconnect.addListener(() => {
+        uiConnectionCount = Math.max(0, uiConnectionCount - 1);
+      });
+    }
+  });
+
   if (hasSidePanel) {
     // Chrome: apply saved view mode on startup
     viewMode.getValue().then((mode) => applyViewMode(mode));
@@ -224,6 +236,17 @@ export default defineBackground(() => {
     }
   });
 
+  // Open a popup window so the user sees the dApp approval prompt (skip if UI is already open)
+  function openExtensionForApproval() {
+    if (uiConnectionCount > 0) return;
+    void browser.windows.create({
+      url: browser.runtime.getURL("/popup.html"),
+      type: "popup",
+      width: 400,
+      height: 800,
+    });
+  }
+
   // --- dApp connect / sign requests from content scripts ---
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // --- Connect request from dApp ---
@@ -254,6 +277,7 @@ export default defineBackground(() => {
         });
         void browser.action.setBadgeText({ text: "1" });
         void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+        openExtensionForApproval();
       })();
 
       return true;
@@ -277,6 +301,7 @@ export default defineBackground(() => {
       });
       void browser.action.setBadgeText({ text: "1" });
       void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+      openExtensionForApproval();
 
       return true;
     }
@@ -299,6 +324,7 @@ export default defineBackground(() => {
       });
       void browser.action.setBadgeText({ text: "1" });
       void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+      openExtensionForApproval();
 
       return true;
     }
