@@ -44,7 +44,6 @@
   "dependencies": {
     "@loyal-labs/solana-rpc": "workspace:*",
     "@loyal-labs/solana-wallet": "workspace:*",
-    "@loyal-labs/transactions": "workspace:*",
     "@loyal-labs/private-transactions": "workspace:*"
   },
   "peerDependencies": {

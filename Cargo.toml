@@ -3,7 +3,6 @@ members = [
     "cli/loyal-cli",
     "sdk/loyal-smart-accounts-rs",
     "programs/telegram-private-transfer",
-    "programs/telegram-transfer",
     "programs/telegram-verification",
 ]
 resolver = "2"

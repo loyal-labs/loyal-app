@@ -6,7 +6,7 @@ Solana-related documentation for this project (Anchor programs + app/RPC integra
 
 | Program | Address | Purpose |
 |---------|---------|---------|
-| `telegram-transfer` | `4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY` | Deposit/claim SOL transfers |
+| `telegram-private-transfer` | `97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV` | Deposit/claim SOL transfers |
 | `telegram-verification` | `9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz` | On-chain Telegram signature verification |
 
 ## Quick Links

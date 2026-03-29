@@ -22,7 +22,6 @@ anchor build
 Export program IDs:
 
 ```bash
-export TELEGRAM_TRANSFER=4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY
 export TELEGRAM_VERIFICATION=9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz
 export TELEGRAM_PRIVATE_TRANSFER=97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV
 ```
@@ -38,7 +37,6 @@ mb-test-validator \
   --ledger ~/test-ledger \
   --upgradeable-program DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh ./tests/fixtures/dlp.so ~/.config/solana/id.json \
   --upgradeable-program ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1 ./tests/fixtures/permission.so ~/.config/solana/id.json \
-  --upgradeable-program $TELEGRAM_TRANSFER ./target/deploy/telegram_transfer.so ~/.config/solana/id.json \
   --upgradeable-program $TELEGRAM_VERIFICATION ./target/deploy/telegram_verification.so ~/.config/solana/id.json \
   --upgradeable-program $TELEGRAM_PRIVATE_TRANSFER ./target/deploy/telegram_private_transfer.so ~/.config/solana/id.json
 ```
@@ -98,8 +96,6 @@ anchor run --provider.cluster localnet test_private_transfer
 ## 5. Upgrade Programs after rebuild
 
 ```bash
-solana program upgrade $(solana program write-buffer target/deploy/telegram_transfer.so --output json | jq -r .buffer) $TELEGRAM_TRANSFER
-
 solana program upgrade $(solana program write-buffer target/deploy/telegram_verification.so --output json | jq -r .buffer) $TELEGRAM_VERIFICATION
 
 solana program upgrade $(solana program write-buffer target/deploy/telegram_private_transfer.so --output json | jq -r .buffer) $TELEGRAM_PRIVATE_TRANSFER

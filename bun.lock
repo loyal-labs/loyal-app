@@ -193,7 +193,6 @@
         "@loyal-labs/shared": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
-        "@loyal-labs/transactions": "workspace:*",
         "@loyal-labs/wallet-core": "workspace:*",
         "@neondatabase/serverless": "^1.0.2",
         "@radix-ui/react-avatar": "^1.1.11",
@@ -382,7 +381,6 @@
         "@loyal-labs/private-transactions": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
-        "@loyal-labs/transactions": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -477,20 +475,6 @@
         "@coral-xyz/anchor": "^0.32.0",
         "@magicblock-labs/ephemeral-rollups-sdk": "^0.8.5",
         "@solana/spl-token": "^0.4.14",
-        "@solana/web3.js": "^1.95.0",
-      },
-    },
-    "sdk/transactions": {
-      "name": "@loyal-labs/transactions",
-      "version": "0.1.2",
-      "devDependencies": {
-        "@coral-xyz/anchor": "^0.32.1",
-        "@solana/web3.js": "^1.95.0",
-        "@types/bun": "latest",
-        "typescript": "^5",
-      },
-      "peerDependencies": {
-        "@coral-xyz/anchor": "^0.32.0",
         "@solana/web3.js": "^1.95.0",
       },
     },
@@ -1148,8 +1132,6 @@
     "@loyal-labs/solana-rpc": ["@loyal-labs/solana-rpc@workspace:packages/solana-rpc"],
 
     "@loyal-labs/solana-wallet": ["@loyal-labs/solana-wallet@workspace:packages/solana-wallet"],
-
-    "@loyal-labs/transactions": ["@loyal-labs/transactions@workspace:sdk/transactions"],
 
     "@loyal-labs/userbot-worker": ["@loyal-labs/userbot-worker@workspace:workers/userbot"],
 

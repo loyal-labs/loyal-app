@@ -8,12 +8,11 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-telegram-transfer = "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY"
+telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [programs.localnet]
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
-telegram-transfer = "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [registry]
@@ -47,11 +46,11 @@ program = "tests/fixtures/permission.so"
 upgradeable = true
 
 [[test.genesis]]
-address = "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY"
-program = "target/deploy/telegram_transfer.so"
+address = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
+program = "target/deploy/telegram_verification.so"
 upgradeable = true
 
 [[test.genesis]]
-address = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
-program = "target/deploy/telegram_verification.so"
+address = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
+program = "target/deploy/telegram_private_transfer.so"
 upgradeable = true

@@ -30,7 +30,6 @@
     "@loyal-labs/shared": "workspace:*",
     "@loyal-labs/solana-rpc": "workspace:*",
     "@loyal-labs/solana-wallet": "workspace:*",
-    "@loyal-labs/transactions": "workspace:*",
     "@loyal-labs/wallet-core": "workspace:*",
     "@neondatabase/serverless": "^1.0.2",
     "@radix-ui/react-avatar": "^1.1.11",

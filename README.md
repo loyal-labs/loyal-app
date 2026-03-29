@@ -12,10 +12,10 @@ the Loyal web frontend, shared packages/SDKs, and worker services.
 | [`frontend/`](./frontend) | Next.js Loyal web frontend | [`frontend/README.md`](./frontend/README.md) |
 | [`admin/`](./admin) | Internal Next.js admin dashboard | [`admin/README.md`](./admin/README.md) |
 | [`passkey/`](./passkey) | Next.js passkey proxy app for Squads Grid custom-domain WebAuthn flow | [`passkey/README.md`](./passkey/README.md) |
-| [`programs/`](./programs) | Anchor smart contracts (`telegram-transfer`, `telegram-verification`, `telegram-private-transfer`) | [`programs/`](./programs) |
+| [`programs/`](./programs) | Anchor smart contracts (`telegram-verification`, `telegram-private-transfer`) | [`programs/`](./programs) |
 | [`tests/`](./tests) | Anchor integration tests and fixtures | [`tests/`](./tests) |
 | [`packages/`](./packages) | Shared workspace libraries (`db-core`, `db-adapter-neon`, `grid-core`, `llm-core`, `llm-server`, `shared`) | [`packages/`](./packages) |
-| [`sdk/`](./sdk) | Publishable SDKs for deposits and private transfers | [`sdk/transactions/README.md`](./sdk/transactions/README.md), [`sdk/private-transactions/README.md`](./sdk/private-transactions/README.md) |
+| [`sdk/`](./sdk) | Publishable SDKs for deposits and private transfers | [`sdk/private-transactions/README.md`](./sdk/private-transactions/README.md) |
 | [`workers/`](./workers) | Background workers and service runtimes | [`workers/userbot/README.md`](./workers/userbot/README.md) |
 | [`docs/`](./docs) | Internal engineering and operations documentation | [`docs/README.md`](./docs/README.md) |
 | [`user-docs/`](./user-docs) | Public Mintlify documentation content | [`user-docs/README.md`](./user-docs/README.md) |

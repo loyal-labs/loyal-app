@@ -7100,18 +7100,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "telegram-transfer"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "borsh 0.10.4",
- "borsh-derive 0.10.4",
- "hex-literal",
- "sha2 0.10.9",
- "telegram-verification",
-]
-
-[[package]]
 name = "telegram-verification"
 version = "0.1.0"
 dependencies = [

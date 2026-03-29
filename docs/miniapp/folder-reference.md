@@ -268,7 +268,7 @@ const totals = computePortfolioTotals(holdings, solPriceUsd);
 
 Anchor program initialization and PDA derivation.
 
-**Key exports:** `getTelegramTransferProgram()`, `getDepositPda()`, `getVaultPda()`
+**Key exports:** `getDepositPda()`, `getVaultPda()`
 
 ---
 
