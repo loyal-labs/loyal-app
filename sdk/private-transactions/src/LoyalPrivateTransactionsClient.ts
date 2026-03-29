@@ -3,6 +3,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
   type Commitment,
   type BlockhashWithExpiryBlockHeight,
   type ConfirmOptions,
@@ -24,6 +25,7 @@ import {
   PROGRAM_ID,
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
+  KLEND_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
 } from "./constants";
 import {
@@ -45,6 +47,7 @@ import type {
   UsernameDepositData,
   InitializeDepositParams,
   ModifyBalanceParams,
+  ModifyBalanceRawParams,
   ModifyBalanceResult,
   CreatePermissionParams,
   CreateUsernamePermissionParams,
@@ -58,6 +61,14 @@ import type {
   ClaimUsernameDepositToDepositParams,
   DelegationStatusResponse,
 } from "./types";
+import {
+  fetchKlendReserveSnapshot,
+  getSupportedKlendReserve,
+  quoteSharesFromUnderlyingCeil,
+  quoteSharesFromUnderlyingFloor,
+  quoteUnderlyingFromSharesFloor,
+  type KlendReserveSnapshot,
+} from "./klend";
 
 function prettyStringify(obj: unknown): string {
   const json = JSON.stringify(
@@ -229,6 +240,61 @@ export class LoyalPrivateTransactionsClient {
     this.wallet = wallet;
   }
 
+  private async getKlendReserveSnapshot(
+    tokenMint: PublicKey
+  ): Promise<KlendReserveSnapshot> {
+    return fetchKlendReserveSnapshot(
+      this.baseProgram.provider.connection,
+      tokenMint
+    );
+  }
+
+  private async normalizeDepositData(
+    user: PublicKey,
+    tokenMint: PublicKey,
+    shareBalance: bigint,
+    address: PublicKey
+  ): Promise<DepositData> {
+    const supportedReserve = getSupportedKlendReserve(tokenMint);
+    const amount = supportedReserve
+      ? quoteUnderlyingFromSharesFloor(
+          shareBalance,
+          await this.getKlendReserveSnapshot(tokenMint)
+        )
+      : shareBalance;
+
+    return {
+      user,
+      tokenMint,
+      amount,
+      shareBalance,
+      address,
+    };
+  }
+
+  private async normalizeUsernameDepositData(
+    username: string,
+    tokenMint: PublicKey,
+    shareBalance: bigint,
+    address: PublicKey
+  ): Promise<UsernameDepositData> {
+    const supportedReserve = getSupportedKlendReserve(tokenMint);
+    const amount = supportedReserve
+      ? quoteUnderlyingFromSharesFloor(
+          shareBalance,
+          await this.getKlendReserveSnapshot(tokenMint)
+        )
+      : shareBalance;
+
+    return {
+      username,
+      tokenMint,
+      amount,
+      shareBalance,
+      address,
+    };
+  }
+
   private getExpectedErValidator(): PublicKey {
     return getErValidatorForRpcEndpoint(
       this.ephemeralProgram.provider.connection.rpcEndpoint
@@ -243,6 +309,29 @@ export class LoyalPrivateTransactionsClient {
     account: PublicKey
   ): Promise<DelegationStatusResponse> {
     return this.getDelegationStatus(account);
+  }
+
+  async quoteUnderlyingToShares(
+    tokenMint: PublicKey,
+    amount: number | bigint,
+    roundUp = true
+  ): Promise<bigint> {
+    const snapshot = await this.getKlendReserveSnapshot(tokenMint);
+    const amountBigInt = BigInt(amount.toString());
+    return roundUp
+      ? quoteSharesFromUnderlyingCeil(amountBigInt, snapshot)
+      : quoteSharesFromUnderlyingFloor(amountBigInt, snapshot);
+  }
+
+  async quoteSharesToUnderlying(
+    tokenMint: PublicKey,
+    shareAmount: number | bigint
+  ): Promise<bigint> {
+    const snapshot = await this.getKlendReserveSnapshot(tokenMint);
+    return quoteUnderlyingFromSharesFloor(
+      BigInt(shareAmount.toString()),
+      snapshot
+    );
   }
 
   // ============================================================
@@ -387,10 +476,34 @@ export class LoyalPrivateTransactionsClient {
   async modifyBalance(
     params: ModifyBalanceParams
   ): Promise<ModifyBalanceResult> {
+    const { user, tokenMint, amount, increase, payer, userTokenAccount } =
+      params;
+    const amountBigInt = BigInt(amount.toString());
+    const reserveSnapshot = await this.getKlendReserveSnapshot(tokenMint);
+    const shareAmount = increase
+      ? quoteSharesFromUnderlyingFloor(amountBigInt, reserveSnapshot)
+      : quoteSharesFromUnderlyingCeil(amountBigInt, reserveSnapshot);
+
+    return this.modifyBalanceRaw({
+      user,
+      tokenMint,
+      liquidityAmount: amountBigInt,
+      shareAmount,
+      increase,
+      payer,
+      userTokenAccount,
+      rpcOptions: params.rpcOptions,
+    });
+  }
+
+  async modifyBalanceRaw(
+    params: ModifyBalanceRawParams
+  ): Promise<ModifyBalanceResult> {
     const {
       user,
       tokenMint,
-      amount,
+      liquidityAmount,
+      shareAmount,
       increase,
       payer,
       userTokenAccount,
@@ -398,7 +511,6 @@ export class LoyalPrivateTransactionsClient {
     } = params;
 
     const [depositPda] = findDepositPda(user, tokenMint);
-
     await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda");
 
     const [vaultPda] = findVaultPda(tokenMint);
@@ -409,6 +521,16 @@ export class LoyalPrivateTransactionsClient {
       TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
+    const reserveSnapshot = await this.getKlendReserveSnapshot(tokenMint);
+    const vaultCollateralAccount = getAssociatedTokenAddressSync(
+      reserveSnapshot.reserveCollateralMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    const liquidityAmountBigInt = BigInt(liquidityAmount.toString());
+    const shareAmountBigInt = BigInt(shareAmount.toString());
 
     console.log("modifyBalance", {
       payer: payer.toString(),
@@ -417,14 +539,23 @@ export class LoyalPrivateTransactionsClient {
       deposit: depositPda.toString(),
       userTokenAccount: userTokenAccount.toString(),
       vaultTokenAccount: vaultTokenAccount.toString(),
+      vaultCollateralAccount: vaultCollateralAccount.toString(),
       tokenMint: tokenMint.toString(),
-      // tokenProgram: TOKEN_PROGRAM_ID,
-      // associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      // systemProgram: SystemProgram.programId,
+      reserve: reserveSnapshot.reserve.toString(),
+      lendingMarket: reserveSnapshot.lendingMarket.toString(),
+      reserveCollateralMint: reserveSnapshot.reserveCollateralMint.toString(),
+      reserveLiquiditySupply: reserveSnapshot.reserveLiquiditySupply.toString(),
+      liquidityAmount: liquidityAmountBigInt.toString(),
+      shareAmount: shareAmountBigInt.toString(),
+      increase,
     });
 
     const signature = await this.baseProgram.methods
-      .modifyBalance({ amount: new BN(amount.toString()), increase })
+      .modifyBalance({
+        liquidityAmount: new BN(liquidityAmountBigInt.toString()),
+        shareAmount: new BN(shareAmountBigInt.toString()),
+        increase,
+      })
       .accountsPartial({
         payer,
         user,
@@ -432,7 +563,18 @@ export class LoyalPrivateTransactionsClient {
         deposit: depositPda,
         userTokenAccount,
         vaultTokenAccount,
+        vaultCollateralAccount,
         tokenMint,
+        reserveCollateralMint: reserveSnapshot.reserveCollateralMint,
+        reserveLiquiditySupply: reserveSnapshot.reserveLiquiditySupply,
+        reserve: reserveSnapshot.reserve,
+        lendingMarket: reserveSnapshot.lendingMarket,
+        lendingMarketAuthority: PublicKey.findProgramAddressSync(
+          [Buffer.from("lma"), reserveSnapshot.lendingMarket.toBuffer()],
+          KLEND_PROGRAM_ID
+        )[0],
+        instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
+        klendProgram: KLEND_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -465,6 +607,11 @@ export class LoyalPrivateTransactionsClient {
     await this.ensureDelegated(
       destinationDeposit,
       "claimUsernameDepositToDeposit-destinationDeposit"
+    );
+    const reserveSnapshot = await this.getKlendReserveSnapshot(tokenMint);
+    const shareAmount = quoteSharesFromUnderlyingCeil(
+      BigInt(amount.toString()),
+      reserveSnapshot
     );
 
     const accounts: Record<string, PublicKey | null> = {
@@ -523,7 +670,7 @@ export class LoyalPrivateTransactionsClient {
 
     try {
       const sim = await this.ephemeralProgram.methods
-        .claimUsernameDepositToDeposit(new BN(amount.toString()))
+        .claimUsernameDepositToDeposit(new BN(shareAmount.toString()))
         .accountsPartial(accounts)
         .simulate();
       console.log("claimUsernameDepositToDeposit simulation logs:", sim.raw);
@@ -551,7 +698,7 @@ export class LoyalPrivateTransactionsClient {
     }
 
     const signature = await this.ephemeralProgram.methods
-      .claimUsernameDepositToDeposit(new BN(amount.toString()))
+      .claimUsernameDepositToDeposit(new BN(shareAmount.toString()))
       .accountsPartial(accounts)
       .rpc({ skipPreflight: true, commitment: "confirmed" });
 
@@ -898,6 +1045,11 @@ export class LoyalPrivateTransactionsClient {
       destinationDepositPda,
       "transferDeposit-destinationDepositPda"
     );
+    const reserveSnapshot = await this.getKlendReserveSnapshot(tokenMint);
+    const shareAmount = quoteSharesFromUnderlyingCeil(
+      BigInt(amount.toString()),
+      reserveSnapshot
+    );
 
     const accounts: Record<string, PublicKey | null> = {
       user,
@@ -916,7 +1068,7 @@ export class LoyalPrivateTransactionsClient {
     console.log("-----");
 
     const signature = await this.ephemeralProgram.methods
-      .transferDeposit(new BN(amount.toString()))
+      .transferDeposit(new BN(shareAmount.toString()))
       .accountsPartial(accounts)
       .rpc(rpcOptions);
 
@@ -952,6 +1104,11 @@ export class LoyalPrivateTransactionsClient {
       destinationDepositPda,
       "transferToUsernameDeposit-destinationDepositPda"
     );
+    const reserveSnapshot = await this.getKlendReserveSnapshot(tokenMint);
+    const shareAmount = quoteSharesFromUnderlyingCeil(
+      BigInt(amount.toString()),
+      reserveSnapshot
+    );
 
     const accounts: Record<string, PublicKey | null> = {
       user,
@@ -964,7 +1121,7 @@ export class LoyalPrivateTransactionsClient {
     accounts.sessionToken = sessionToken ?? null;
 
     const signature = await this.ephemeralProgram.methods
-      .transferToUsernameDeposit(new BN(amount.toString()))
+      .transferToUsernameDeposit(new BN(shareAmount.toString()))
       .accountsPartial(accounts)
       .rpc(rpcOptions);
 
@@ -986,12 +1143,12 @@ export class LoyalPrivateTransactionsClient {
 
     try {
       const account = await this.baseProgram.account.deposit.fetch(depositPda);
-      return {
-        user: account.user,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: depositPda,
-      };
+      return this.normalizeDepositData(
+        account.user,
+        account.tokenMint,
+        BigInt(account.amount.toString()),
+        depositPda
+      );
     } catch {
       return null;
     }
@@ -1007,12 +1164,12 @@ export class LoyalPrivateTransactionsClient {
       const account = await this.ephemeralProgram.account.deposit.fetch(
         depositPda
       );
-      return {
-        user: account.user,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: depositPda,
-      };
+      return this.normalizeDepositData(
+        account.user,
+        account.tokenMint,
+        BigInt(account.amount.toString()),
+        depositPda
+      );
     } catch {
       return null;
     }
@@ -1031,12 +1188,12 @@ export class LoyalPrivateTransactionsClient {
       const account = await this.baseProgram.account.usernameDeposit.fetch(
         depositPda
       );
-      return {
-        username: account.username,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: depositPda,
-      };
+      return this.normalizeUsernameDepositData(
+        account.username,
+        account.tokenMint,
+        BigInt(account.amount.toString()),
+        depositPda
+      );
     } catch {
       return null;
     }
@@ -1052,12 +1209,12 @@ export class LoyalPrivateTransactionsClient {
       const account = await this.ephemeralProgram.account.usernameDeposit.fetch(
         depositPda
       );
-      return {
-        username: account.username,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: depositPda,
-      };
+      return this.normalizeUsernameDepositData(
+        account.username,
+        account.tokenMint,
+        BigInt(account.amount.toString()),
+        depositPda
+      );
     } catch {
       return null;
     }

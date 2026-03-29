@@ -11,12 +11,14 @@ use solana_sdk::{
     signer::Signer,
     transaction::Transaction,
 };
-use solana_system_interface::instruction as system_instruction;
+use solana_system_interface::{instruction as system_instruction, program as system_program};
 use spl_associated_token_account_client::{
     address::get_associated_token_address_with_program_id,
     instruction::create_associated_token_account_idempotent,
 };
-use spl_token::{instruction as token_instruction, native_mint::id as native_mint_id};
+use spl_token::{
+    id as spl_token_program_id, instruction as token_instruction, native_mint::id as native_mint_id,
+};
 use std::{
     thread::sleep,
     time::{Duration, Instant},
@@ -25,10 +27,12 @@ use std::{
 use crate::{
     cli::OutputFormat,
     constants::{
-        DEPOSIT_DISCRIMINATOR, IX_CREATE_PERMISSION, IX_DELEGATE, IX_DELEGATE_USERNAME_DEPOSIT,
+        DELEGATION_PROGRAM_ID_STR, DEPOSIT_DISCRIMINATOR, ER_VALIDATOR_DEVNET_STR,
+        ER_VALIDATOR_MAINNET_STR, IX_CREATE_PERMISSION, IX_DELEGATE, IX_DELEGATE_USERNAME_DEPOSIT,
         IX_INITIALIZE_DEPOSIT, IX_INITIALIZE_USERNAME_DEPOSIT, IX_MODIFY_BALANCE,
         IX_TRANSFER_TO_USERNAME_DEPOSIT, IX_UNDELEGATE, IX_UNDELEGATE_USERNAME_DEPOSIT,
-        USERNAME_DEPOSIT_DISCRIMINATOR,
+        MAGIC_CONTEXT_ID_STR, MAGIC_PROGRAM_ID_STR, NATIVE_MINT_STR, PERMISSION_PROGRAM_ID_STR,
+        PROGRAM_ID_STR, USERNAME_DEPOSIT_DISCRIMINATOR,
     },
     pda::{
         delegation_program_id, find_delegation_metadata_pda, find_delegation_record_pda, program_id,
@@ -816,18 +820,23 @@ fn fetch_delegation_metadata(client: &RpcClient, delegated_account: &Pubkey) {
 // ── Well-known account labels ─────────────────────────────────────
 
 fn label_known_account(pubkey: &Pubkey) -> &'static str {
+    if pubkey == &system_program::ID {
+        return "System Program";
+    }
+    if pubkey == &spl_token_program_id() {
+        return "Token Program";
+    }
+
     let s = pubkey.to_string();
     match s.as_str() {
-        "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV" => "telegram-private-transfer",
-        "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh" => "Delegation Program",
-        "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1" => "Permission Program",
-        "Magic11111111111111111111111111111111111111" => "Magic Program",
-        "MagicContext1111111111111111111111111111111" => "Magic Context",
-        "11111111111111111111111111111111" => "System Program",
-        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => "Token Program",
-        "So11111111111111111111111111111111111111112" => "wSOL Mint",
-        "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA" => "PER Validator (devnet)",
-        "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo" => "PER Validator (mainnet)",
+        PROGRAM_ID_STR => "telegram-private-transfer",
+        DELEGATION_PROGRAM_ID_STR => "Delegation Program",
+        PERMISSION_PROGRAM_ID_STR => "Permission Program",
+        MAGIC_PROGRAM_ID_STR => "Magic Program",
+        MAGIC_CONTEXT_ID_STR => "Magic Context",
+        NATIVE_MINT_STR => "wSOL Mint",
+        ER_VALIDATOR_DEVNET_STR => "PER Validator (devnet)",
+        ER_VALIDATOR_MAINNET_STR => "PER Validator (mainnet)",
         _ => "",
     }
 }

@@ -46,6 +46,41 @@ export const PERMISSION_PROGRAM_ID = new PublicKey(
 );
 
 /**
+ * Kamino Lend program ID
+ */
+export const KLEND_PROGRAM_ID = new PublicKey(
+  "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
+);
+
+/**
+ * Supported mainnet Kamino lending markets / reserves
+ */
+export const KLEND_MAIN_MARKET = new PublicKey(
+  "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF"
+);
+export const KLEND_ALT_MARKET = new PublicKey(
+  "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA"
+);
+export const WSOL_MINT = new PublicKey(
+  "So11111111111111111111111111111111111111112"
+);
+export const USDC_MINT = new PublicKey(
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+);
+export const USDT_MINT = new PublicKey(
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+);
+export const KLEND_SOL_RESERVE = new PublicKey(
+  "d4A2prbA2whesmvHaL88BH6Ewn5N4bTSU2Ze8P6Bc4Q"
+);
+export const KLEND_USDC_RESERVE = new PublicKey(
+  "9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu"
+);
+export const KLEND_USDT_RESERVE = new PublicKey(
+  "H3t6qZ1JkguCNTi9uzVKqQ7dvt2cum4XiXWom6Gn5e5S"
+);
+
+/**
  * MagicBlock Magic Program ID (for undelegation)
  */
 export const MAGIC_PROGRAM_ID = new PublicKey(
