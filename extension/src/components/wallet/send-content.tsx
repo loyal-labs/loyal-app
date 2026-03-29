@@ -418,7 +418,7 @@ export function SendContent({
 
     let result: { success: boolean; signature?: string; error?: string };
 
-    if (isPrivate) {
+    if (isPrivate || isTg) {
       result = await executePrivateSend({
         tokenSymbol: token.symbol,
         amount: numericAmount,
@@ -431,7 +431,6 @@ export function SendContent({
         token.symbol,
         currentAmount,
         cleanRecipient,
-        destinationType,
         token.mint,
       );
     }

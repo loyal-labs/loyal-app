@@ -101,13 +101,13 @@ bun run admin:build        # build admin workspace from repo root
 ### Directory Structure
 
 - **`/programs`** - Anchor smart contracts (Rust)
-  - `telegram-transfer` - Deposit/claim/refund SOL transfers
+  - `telegram-private-transfer` - Deposit/claim/refund SOL transfers
   - `telegram-verification` - On-chain Ed25519 Telegram signature verification
 - **`/app`** - Next.js 15 frontend + API routes
 - **`/mobile`** - Expo React Native mobile app (iOS/Android)
 - **`/admin`** - Next.js 15 internal admin dashboard
 - **`/packages`** - Internal shared workspace packages (e.g. `db-core`, `db-adapter-neon`, `grid-core`, `shared`)
-- **`/sdk/transactions`** - Publishable `@loyal-labs/transactions` NPM package
+- **`/sdk/private-transactions`** - Publishable `@loyal-labs/private-transactions` NPM package
 - **`/workers`** - Runtime services/workers
 - **`/tests`** - Anchor test suite (Mocha/Chai)
 - **`/docs`** - Internal repository/engineering documentation
@@ -117,7 +117,7 @@ bun run admin:build        # build admin workspace from repo root
 
 | Program | Address |
 |---------|---------|
-| `telegram-transfer` | `4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY` |
+| `telegram-private-transfer` | `97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV` |
 | `telegram-verification` | `9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz` |
 
 ### Vertical Slice Architecture (Current Implementation + Required Direction)

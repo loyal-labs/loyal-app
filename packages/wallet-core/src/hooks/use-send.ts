@@ -1,14 +1,10 @@
 import {
-	LoyalTransactionsClient,
-	solToLamports,
-} from "@loyal-labs/transactions";
-import {
 	createAssociatedTokenAccountInstruction,
 	createTransferInstruction,
 	getAccount,
 	getAssociatedTokenAddress,
 } from "@solana/spl-token";
-import type { Connection, Transaction } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
 import {
 	ComputeBudgetProgram,
 	LAMPORTS_PER_SOL,
@@ -56,7 +52,6 @@ export function useSend(
 			currency: string,
 			amount: string,
 			recipientAddress: string,
-			destinationType: "wallet" | "telegram" = "wallet",
 			tokenMint?: string,
 			tokenDecimals?: number,
 		): Promise<SendResult> => {
@@ -73,55 +68,7 @@ export function useSend(
 				const publicKey = signer.publicKey;
 				const isSol = currency.toUpperCase() === "SOL";
 
-				// Handle Telegram deposit
-				if (destinationType === "telegram") {
-					if (!isSol) {
-						throw new Error(
-							"Only SOL can be sent to Telegram usernames.",
-						);
-					}
-
-					const walletAdapter = {
-						publicKey,
-						signTransaction: signer.signTransaction.bind(signer) as <
-							T extends Transaction | VersionedTransaction,
-						>(
-							tx: T,
-						) => Promise<T>,
-						signAllTransactions: async <
-							T extends Transaction | VersionedTransaction,
-						>(
-							txs: T[],
-						): Promise<T[]> => {
-							const signedTxs: T[] = [];
-							for (const tx of txs) {
-								const signed = (await signer.signTransaction(
-									tx,
-								)) as T;
-								signedTxs.push(signed);
-							}
-							return signedTxs;
-						},
-					};
-
-					const client = LoyalTransactionsClient.fromWallet(
-						connection,
-						walletAdapter,
-					);
-
-					const amountLamports = solToLamports(
-						Number.parseFloat(amount),
-					);
-					const result = await client.deposit({
-						username: recipientAddress,
-						amountLamports,
-					});
-
-					setLoading(false);
-					return { signature: result.signature, success: true };
-				}
-
-				// Validate recipient address for wallet transfers
+				// Validate recipient address
 				let recipientPubkey: PublicKey;
 				try {
 					recipientPubkey = new PublicKey(recipientAddress);

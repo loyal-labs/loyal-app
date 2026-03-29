@@ -15,7 +15,6 @@ type SendFormProps = {
     currencyDecimals: number;
     amount: string;
     walletAddress: string;
-    destinationType: "wallet" | "telegram";
   }) => void;
   onCancel: () => void;
   onCreateRecipe?: (recipe: Omit<Recipe, "id" | "createdAt">) => void;
@@ -117,7 +116,6 @@ export function SendForm({
       currencyDecimals: token.decimals,
       amount,
       walletAddress: cleanRecipient,
-      destinationType,
     });
   };
 

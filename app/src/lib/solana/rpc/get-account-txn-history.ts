@@ -9,7 +9,6 @@ import {
 
 import {
   decodeTelegramPrivateTransferInstruction,
-  decodeTelegramTransferInstruction,
   decodeTelegramVerificationInstruction,
 } from "../solana-helpers";
 import { getConnection, getWebsocketConnection } from "./connection";
@@ -472,7 +471,6 @@ const mapTransactionToTransfer = (
   const decodeInstructionData = (data: string) => {
     const decoders = [
       decodeTelegramPrivateTransferInstruction,
-      decodeTelegramTransferInstruction,
       decodeTelegramVerificationInstruction,
     ];
 

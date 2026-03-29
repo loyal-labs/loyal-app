@@ -441,7 +441,7 @@ export function SendContent({
 
     let result: { success: boolean; signature?: string; error?: string };
 
-    if (isPrivate) {
+    if (isPrivate || isTg) {
       result = await executePrivateSend({
         tokenSymbol: token.symbol,
         amount: numericAmount,
@@ -454,7 +454,7 @@ export function SendContent({
           amount: currentAmount,
           usd_value: currentUsd,
           destination_type: destinationType,
-          is_private: isPrivate,
+          is_private: isPrivate || isTg,
         },
       });
     } else {
@@ -462,7 +462,6 @@ export function SendContent({
         token.symbol,
         currentAmount,
         cleanRecipient,
-        destinationType,
         token.mint,
         undefined,
         {
@@ -471,7 +470,7 @@ export function SendContent({
           amount: currentAmount,
           usd_value: currentUsd,
           destination_type: destinationType,
-          is_private: isPrivate,
+          is_private: false,
         }
       );
     }
