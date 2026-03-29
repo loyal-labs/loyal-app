@@ -12,7 +12,6 @@ interface RecipeSendFormProps {
     currencyDecimals: number;
     amount: string;
     walletAddress: string;
-    destinationType: "wallet" | "telegram";
   }) => void;
   onSwap?: (data: {
     fromCurrency: string;
@@ -60,7 +59,6 @@ export function RecipeSendForm({
         currencyDecimals: recipe.tokenDecimals,
         amount: recipe.amount,
         walletAddress: recipe.recipient,
-        destinationType: recipe.type as "wallet" | "telegram",
       });
     }
   }, [recipe, onSend, onSwap, isSwap]);

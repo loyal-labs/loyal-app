@@ -1,7 +1,3 @@
-import {
-  LoyalTransactionsClient,
-  solToLamports,
-} from "@loyal-labs/transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import {
@@ -14,7 +10,6 @@ import {
   getAccount,
   getAssociatedTokenAddress,
 } from "@solana/spl-token";
-import type { Transaction } from "@solana/web3.js";
 import {
   ComputeBudgetProgram,
   LAMPORTS_PER_SOL,
@@ -47,7 +42,7 @@ const getTokenMint = (symbol: string): string | undefined => {
 
 export function useSend() {
   const { connection } = useConnection();
-  const { publicKey: walletPublicKey, connected: isConnected, signTransaction, sendTransaction } = useWallet();
+  const { publicKey: walletPublicKey, connected: isConnected, sendTransaction } = useWallet();
   const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +52,6 @@ export function useSend() {
       currency: string,
       amount: string,
       recipientAddress: string,
-      destinationType: "wallet" | "telegram" = "wallet",
       tokenMint?: string,
       tokenDecimals?: number,
       successTrackingProperties?: AnalyticsProperties
@@ -72,85 +66,10 @@ export function useSend() {
       setError(null);
 
       try {
-        console.log("Executing send:", {
-          currency,
-          amount,
-          recipientAddress,
-          destinationType,
-        });
-
         const publicKey = walletPublicKey;
-
         const isSol = currency.toUpperCase() === "SOL";
 
-        // Handle Telegram deposit
-        if (destinationType === "telegram") {
-          // Telegram deposits only support SOL
-          if (!isSol) {
-            throw new Error("Only SOL can be sent to Telegram usernames.");
-          }
-
-          console.log("Executing Telegram deposit:", {
-            username: recipientAddress,
-            amount,
-          });
-
-          if (!signTransaction) {
-            throw new Error(
-              "signTransaction is not available. This feature requires a wallet that supports transaction signing."
-            );
-          }
-
-          // Create wallet adapter for the SDK
-          const walletAdapter = {
-            publicKey,
-            signTransaction: signTransaction as <
-              T extends Transaction | VersionedTransaction,
-            >(
-              tx: T
-            ) => Promise<T>,
-            signAllTransactions: async <
-              T extends Transaction | VersionedTransaction,
-            >(
-              txs: T[]
-            ): Promise<T[]> => {
-              const signedTxs: T[] = [];
-              for (const tx of txs) {
-                const signed = (await signTransaction(tx)) as T;
-                signedTxs.push(signed);
-              }
-              return signedTxs;
-            },
-          };
-
-          // Create the Loyal Transactions client
-          const client = LoyalTransactionsClient.fromWallet(
-            connection,
-            walletAdapter
-          );
-
-          // Execute the deposit
-          const amountLamports = solToLamports(Number.parseFloat(amount));
-          const result = await client.deposit({
-            username: recipientAddress,
-            amountLamports,
-          });
-
-          console.log("Telegram deposit successful:", result.signature);
-          setLoading(false);
-          if (successTrackingProperties) {
-            trackWalletSendCompleted(publicEnv, {
-              ...successTrackingProperties,
-              ...(result.signature ? { signature: result.signature } : {}),
-            });
-          }
-          return {
-            signature: result.signature,
-            success: true,
-          };
-        }
-
-        // Validate recipient address for wallet transfers
+        // Validate recipient address
         let recipientPubkey: PublicKey;
         try {
           recipientPubkey = new PublicKey(recipientAddress);
@@ -391,7 +310,6 @@ export function useSend() {
     [
       isConnected,
       walletPublicKey,
-      signTransaction,
       sendTransaction,
       connection,
       publicEnv,

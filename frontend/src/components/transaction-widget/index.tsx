@@ -174,7 +174,6 @@ export function TransactionWidget({
       currencyDecimals: number;
       amount: string;
       walletAddress: string;
-      destinationType: "wallet" | "telegram";
     }) => {
       setExecuting(true);
       try {
@@ -182,7 +181,6 @@ export function TransactionWidget({
           data.currency,
           data.amount,
           data.walletAddress,
-          data.destinationType,
           data.currencyMint,
           data.currencyDecimals
         );
