@@ -1037,11 +1037,14 @@ export function SwapContent({
 
   const handlePercentage = useCallback(
     (pct: number) => {
-      const val =
+      let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
+      if (pct === 100 && fromToken.symbol.toUpperCase() === "SOL") {
+        val = Math.max(0, val - 0.00005);
+      }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [fromToken.balance]
+    [fromToken.balance, fromToken.symbol]
   );
 
   const renderPhaseContent = (p: SwapPhase) => {

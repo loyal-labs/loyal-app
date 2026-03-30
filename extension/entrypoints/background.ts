@@ -236,15 +236,20 @@ export default defineBackground(() => {
     }
   });
 
-  // Open a popup window so the user sees the dApp approval prompt (skip if UI is already open)
+  let approvalPopupId: number | null = null;
+
   function openExtensionForApproval() {
     if (uiConnectionCount > 0) return;
-    void browser.windows.create({
-      url: browser.runtime.getURL("/popup.html"),
-      type: "popup",
-      width: 400,
-      height: 800,
-    });
+    void browser.windows
+      .create({
+        url: browser.runtime.getURL("/popup.html"),
+        type: "popup",
+        width: 400,
+        height: 800,
+      })
+      .then((win) => {
+        approvalPopupId = win?.id ?? null;
+      });
   }
 
   // --- dApp connect / sign requests from content scripts ---
@@ -351,6 +356,14 @@ export default defineBackground(() => {
       }
       void pendingDappApproval.setValue(null);
       void browser.action.setBadgeText({ text: "" });
+      if (approvalPopupId !== null) {
+        void viewMode.getValue().then((mode) => {
+          if (mode === "sidebar" && approvalPopupId !== null) {
+            void browser.windows.remove(approvalPopupId).catch(() => {});
+          }
+          approvalPopupId = null;
+        });
+      }
       return;
     }
 
@@ -461,10 +474,18 @@ export default defineBackground(() => {
           }
         }
 
-        // Clean up storage and badge
+        // Clean up storage, badge, and temporary approval popup
         await pendingDappApproval.setValue(null);
         await pendingDappRequestPayload.setValue(null);
         void browser.action.setBadgeText({ text: "" });
+
+        if (approvalPopupId !== null) {
+          const mode = await viewMode.getValue();
+          if (mode === "sidebar") {
+            void browser.windows.remove(approvalPopupId).catch(() => {});
+          }
+          approvalPopupId = null;
+        }
       })();
 
       return;

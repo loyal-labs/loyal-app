@@ -495,10 +495,13 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
-      const val = pct === 100 ? bal : bal * (pct / 100);
+      let val = pct === 100 ? bal : bal * (pct / 100);
+      if (pct === 100 && token.symbol.toUpperCase() === "SOL") {
+        val = Math.max(0, val - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [sourceBalance]
+    [sourceBalance, token.symbol]
   );
 
   const handleConfirm = useCallback(async () => {
