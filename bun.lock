@@ -461,7 +461,7 @@
     },
     "sdk/private-transactions": {
       "name": "@loyal-labs/private-transactions",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "tweetnacl": "^1.0.3",
       },
