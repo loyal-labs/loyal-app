@@ -14,17 +14,17 @@ The flow spans two execution domains:
 ## Lifecycle Diagram
 
 ```
-┌─────────────── Base Solana ────────────────┐     ┌────── MagicBlock PER (TEE) ──────┐
-│                                            │     │                                   │
-│  1. initializeDeposit                      │     │                                   │
-│  2. modifyBalance (tokens → vault)         │     │                                   │
-│  3. createPermission                       │     │                                   │
-│  4. delegate ─────────────────────────────────►  │  5. transferDeposit               │
-│                                            │     │     transferToUsernameDeposit     │
-│                                            │     │     claimUsernameDepositToDeposit │
-│  7. modifyBalance (vault → tokens)   ◄────────── │  6. undelegate (commit)           │
-│                                            │     │                                   │
-└────────────────────────────────────────────┘     └───────────────────────────────────┘
++--------------- Base Solana ----------------+     +------ MagicBlock PER (TEE) -------+
+|                                            |     |                                   |
+|  1. initializeDeposit                      |     |                                   |
+|  2. modifyBalance (tokens -> vault)        |     |                                   |
+|  3. createPermission                       |     |                                   |
+|  4. delegate ----------------------------------> |  5. transferDeposit               |
+|                                            |     |     transferToUsernameDeposit     |
+|                                            |     |     claimUsernameDepositToDeposit |
+|  7. modifyBalance (vault -> tokens)  <-----|---- |  6. undelegate (commit)           |
+|                                            |     |                                   |
++--------------------------------------------+     +-----------------------------------+
 ```
 
 ## Source of Truth
