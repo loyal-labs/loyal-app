@@ -74,6 +74,8 @@ interface WalletContextValue {
   toggleBalanceHidden: () => Promise<void>;
   /** Returns the secret key as a byte array. Only available when unlocked. */
   getSecretKey: () => Uint8Array | null;
+  /** Activate a previously-generated keypair (used after backup confirmation) */
+  finalizeSigner: (keypair: Keypair) => void;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -283,6 +285,13 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return activeKeypair.secretKey;
   }, [activeKeypair]);
 
+  const finalizeSigner = useCallback(
+    (keypair: Keypair) => {
+      buildSigner(keypair);
+    },
+    [buildSigner],
+  );
+
   const value = useMemo<WalletContextValue>(
     () => ({
       state,
@@ -300,6 +309,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setNetwork,
       toggleBalanceHidden,
       getSecretKey,
+      finalizeSigner,
     }),
     [
       state,
@@ -317,6 +327,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setNetwork,
       toggleBalanceHidden,
       getSecretKey,
+      finalizeSigner,
     ],
   );
 

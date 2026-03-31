@@ -113,7 +113,7 @@ export function PinInput({
                 background: isFilled
                   ? "#000"
                   : isActive
-                    ? "rgba(249, 54, 60, 0.06)"
+                    ? "#fff"
                     : "#fff",
                 border: isActive
                   ? "2px solid #000"

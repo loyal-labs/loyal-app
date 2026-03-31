@@ -4,16 +4,26 @@ import {
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  Check,
+  Copy,
+  Download,
   Eye,
   EyeOff,
   Settings as SettingsIcon,
   Shield,
+  TriangleAlert,
   Wallet,
 } from "lucide-react";
 import shieldAnimationData from "~/assets/shield-animation.json";
 import confettiAnimationData from "~/assets/confetti.json";
-import type { SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
+import type {
+  SubView,
+  SwapMode,
+  SwapToken,
+} from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
+import type { Keypair } from "@solana/web3.js";
+import { generateKeypair } from "~/src/lib/keypair-storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
 import { PinInput } from "./shared";
 
@@ -65,11 +75,9 @@ type TabId = (typeof TABS)[number]["id"];
 // 3-layer sliding navigation
 // ---------------------------------------------------------------------------
 
-function layerStyle(
-  layer: number,
-  activeLayer: number,
-): React.CSSProperties {
-  const transition = "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)";
+function layerStyle(layer: number, activeLayer: number): React.CSSProperties {
+  const transition =
+    "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)";
   if (layer > activeLayer) {
     // Off-screen to the right
     return {
@@ -98,10 +106,7 @@ function layerStyle(
 
 function getActiveLayer(subView: SubView): number {
   if (subView === null) return 0;
-  if (
-    typeof subView === "object" &&
-    subView.type === "transaction"
-  ) {
+  if (typeof subView === "object" && subView.type === "transaction") {
     return 2;
   }
   return 1;
@@ -160,12 +165,33 @@ function ConfettiOverlay({ onComplete }: { onComplete?: () => void }) {
 
 function Logotype() {
   return (
-    <svg width="49" height="20" viewBox="0 0 49 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M41.8672 0H44.8439V13.3023C44.8439 13.8837 45.1695 14.2093 45.7509 14.2093H46.6811V16.5116H44.9835C43.123 16.5116 41.8672 15.3488 41.8672 13.4186V0Z" fill="black"/>
-      <path d="M28.7366 7.95325C29.225 5.37185 31.2018 3.90674 34.2483 3.90674C37.8064 3.90674 39.6669 5.74395 39.6669 9.20906V13.4416C39.6669 14.1393 39.9692 14.3486 40.4343 14.3486H40.9227V16.5114L40.225 16.5346C39.2715 16.5579 37.318 16.5812 37.0855 14.6277C36.5041 15.8602 35.1087 16.7905 32.9692 16.7905C30.4808 16.7905 28.5273 15.4649 28.5273 13.2788C28.5273 10.9067 30.318 10.0928 33.225 9.53464L36.6669 8.86023C36.6669 6.95325 35.8529 6.04627 34.2483 6.04627C32.9227 6.04627 32.0622 6.7672 31.7832 8.11604L28.7366 7.95325ZM31.6204 13.1858C31.6204 14.023 32.3413 14.6974 33.7832 14.6974C35.4576 14.6974 36.7366 13.4649 36.7366 11.0463V10.8835L34.3878 11.3021C32.8297 11.5812 31.6204 11.7905 31.6204 13.1858Z" fill="black"/>
-      <path d="M16.6719 4.18604H19.5556L22.8579 13.3953L26.044 4.18604H28.9277L24.0207 17.8139C23.4858 19.3256 22.4858 20 20.8347 20H18.8114V17.7209H20.323C21.044 17.7209 21.3928 17.4884 21.6486 16.907L21.9975 16H21.137L16.6719 4.18604Z" fill="black"/>
-      <path d="M11.1553 16.7905C7.45767 16.7905 5.03906 14.2556 5.03906 10.3486C5.03906 6.44162 7.45767 3.90674 11.1553 3.90674C14.8298 3.90674 17.2484 6.44162 17.2484 10.3486C17.2484 14.2556 14.8298 16.7905 11.1553 16.7905ZM8.13208 10.3486C8.13208 12.8835 9.22511 14.3719 11.1553 14.3719C13.0623 14.3719 14.1786 12.8835 14.1786 10.3486C14.1786 7.81371 13.0623 6.32534 11.1553 6.32534C9.22511 6.32534 8.13208 7.81371 8.13208 10.3486Z" fill="black"/>
-      <path d="M0 0H2.97674V13.3023C2.97674 13.8837 3.30232 14.2093 3.88372 14.2093H4.81395V16.5116H3.11628C1.25581 16.5116 0 15.3488 0 13.4186V0Z" fill="black"/>
+    <svg
+      width="49"
+      height="20"
+      viewBox="0 0 49 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M41.8672 0H44.8439V13.3023C44.8439 13.8837 45.1695 14.2093 45.7509 14.2093H46.6811V16.5116H44.9835C43.123 16.5116 41.8672 15.3488 41.8672 13.4186V0Z"
+        fill="black"
+      />
+      <path
+        d="M28.7366 7.95325C29.225 5.37185 31.2018 3.90674 34.2483 3.90674C37.8064 3.90674 39.6669 5.74395 39.6669 9.20906V13.4416C39.6669 14.1393 39.9692 14.3486 40.4343 14.3486H40.9227V16.5114L40.225 16.5346C39.2715 16.5579 37.318 16.5812 37.0855 14.6277C36.5041 15.8602 35.1087 16.7905 32.9692 16.7905C30.4808 16.7905 28.5273 15.4649 28.5273 13.2788C28.5273 10.9067 30.318 10.0928 33.225 9.53464L36.6669 8.86023C36.6669 6.95325 35.8529 6.04627 34.2483 6.04627C32.9227 6.04627 32.0622 6.7672 31.7832 8.11604L28.7366 7.95325ZM31.6204 13.1858C31.6204 14.023 32.3413 14.6974 33.7832 14.6974C35.4576 14.6974 36.7366 13.4649 36.7366 11.0463V10.8835L34.3878 11.3021C32.8297 11.5812 31.6204 11.7905 31.6204 13.1858Z"
+        fill="black"
+      />
+      <path
+        d="M16.6719 4.18604H19.5556L22.8579 13.3953L26.044 4.18604H28.9277L24.0207 17.8139C23.4858 19.3256 22.4858 20 20.8347 20H18.8114V17.7209H20.323C21.044 17.7209 21.3928 17.4884 21.6486 16.907L21.9975 16H21.137L16.6719 4.18604Z"
+        fill="black"
+      />
+      <path
+        d="M11.1553 16.7905C7.45767 16.7905 5.03906 14.2556 5.03906 10.3486C5.03906 6.44162 7.45767 3.90674 11.1553 3.90674C14.8298 3.90674 17.2484 6.44162 17.2484 10.3486C17.2484 14.2556 14.8298 16.7905 11.1553 16.7905ZM8.13208 10.3486C8.13208 12.8835 9.22511 14.3719 11.1553 14.3719C13.0623 14.3719 14.1786 12.8835 14.1786 10.3486C14.1786 7.81371 13.0623 6.32534 11.1553 6.32534C9.22511 6.32534 8.13208 7.81371 8.13208 10.3486Z"
+        fill="black"
+      />
+      <path
+        d="M0 0H2.97674V13.3023C2.97674 13.8837 3.30232 14.2093 3.88372 14.2093H4.81395V16.5116H3.11628C1.25581 16.5116 0 15.3488 0 13.4186V0Z"
+        fill="black"
+      />
     </svg>
   );
 }
@@ -174,8 +200,12 @@ function Logotype() {
 // Create / Import wallet screen
 // ---------------------------------------------------------------------------
 
-function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create" | "import" }) {
-  const { createWallet, importWallet } = useWalletContext();
+function CreateWalletScreen({
+  initialMode = "create",
+}: {
+  initialMode?: "create" | "import";
+}) {
+  const { importWallet, finalizeSigner } = useWalletContext();
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [step, setStep] = useState<"enter" | "confirm">("enter");
@@ -184,20 +214,51 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
   const [mode, setMode] = useState<"create" | "import">(initialMode);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const handleCreateWithPin = useCallback(
+  const secretKeyHex = pendingKeypair
+    ? Array.from(pendingKeypair.secretKey)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+    : "";
+
+  const handleGenerateKeypair = useCallback(
     async (finalPin: string) => {
       setLoading(true);
       try {
-        await createWallet(finalPin);
+        const keypair = await generateKeypair(finalPin);
+        setPendingKeypair(keypair);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to create wallet");
       } finally {
         setLoading(false);
       }
     },
-    [createWallet],
+    []
   );
+
+  const handleCopyKey = useCallback(() => {
+    void navigator.clipboard.writeText(secretKeyHex).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [secretKeyHex]);
+
+  const handleDownloadKey = useCallback(() => {
+    const blob = new Blob([secretKeyHex], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "loyal-wallet-key.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [secretKeyHex]);
+
+  const handleBackupConfirmed = useCallback(() => {
+    if (!pendingKeypair) return;
+    finalizeSigner(pendingKeypair);
+  }, [pendingKeypair, finalizeSigner]);
 
   const handlePinComplete = useCallback(
     (enteredPin: string) => {
@@ -215,10 +276,10 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
         setConfirmPin(enteredPin);
         setError(null);
         if (mode === "import") return;
-        void handleCreateWithPin(enteredPin);
+        void handleGenerateKeypair(enteredPin);
       }
     },
-    [step, pin, mode, handleCreateWithPin],
+    [step, pin, mode, handleGenerateKeypair]
   );
 
   const handleImport = async () => {
@@ -232,7 +293,9 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
       setLoading(true);
       await importWallet(bytes, pin);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Invalid secret key or import failed");
+      setError(
+        e instanceof Error ? e.message : "Invalid secret key or import failed"
+      );
     } finally {
       setLoading(false);
     }
@@ -245,31 +308,66 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
     setError(null);
   }, []);
 
-  const pinLabel = step === "enter" ? "Create a PIN" : "Confirm your PIN";
-  const showImportField = mode === "import" && step === "confirm" && confirmPin.length === 4 && confirmPin === pin;
+  const pinLabel =
+    step === "enter" ? "Create a numerical PIN" : "Confirm your PIN";
+  const showImportField =
+    mode === "import" &&
+    step === "confirm" &&
+    confirmPin.length === 4 &&
+    confirmPin === pin;
+
+  const showBackup = !!pendingKeypair;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100%",
-        padding: "0 20px",
-      }}
-    >
+    <div style={{ position: "relative", height: "100%", overflow: "hidden" }}>
+      {/* PIN / create flow */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 20px",
+          opacity: showBackup ? 0 : 1,
+          transform: showBackup ? "translateX(-20px)" : "translateX(0)",
+          pointerEvents: showBackup ? "none" : "auto",
+          transition: "opacity 0.3s ease, transform 0.3s ease",
+        }}
+      >
       {/* Branding cluster — shield + logotype tight together */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginBottom: "32px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "4px",
+          marginBottom: "32px",
+        }}
+      >
         <ShieldAnimation size={80} />
         <Logotype />
       </div>
 
       {/* Tab toggle */}
-      <div style={{ display: "flex", gap: "6px", width: "100%", marginBottom: "24px" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "6px",
+          width: "100%",
+          marginBottom: "24px",
+        }}
+      >
         <button
           type="button"
-          onClick={() => { setMode("create"); setError(null); setStep("enter"); setPin(""); setConfirmPin(""); }}
+          onClick={() => {
+            setMode("create");
+            setError(null);
+            setStep("enter");
+            setPin("");
+            setConfirmPin("");
+          }}
           style={{
             flex: 1,
             display: "flex",
@@ -292,7 +390,13 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
         </button>
         <button
           type="button"
-          onClick={() => { setMode("import"); setError(null); setStep("enter"); setPin(""); setConfirmPin(""); }}
+          onClick={() => {
+            setMode("import");
+            setError(null);
+            setStep("enter");
+            setPin("");
+            setConfirmPin("");
+          }}
           style={{
             flex: 1,
             display: "flex",
@@ -340,7 +444,8 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
           color: "rgba(60, 60, 67, 0.6)",
           padding: "4px 8px",
           opacity: step === "confirm" && !showImportField ? 1 : 0,
-          pointerEvents: step === "confirm" && !showImportField ? "auto" : "none",
+          pointerEvents:
+            step === "confirm" && !showImportField ? "auto" : "none",
           transition: "opacity 0.15s ease",
         }}
       >
@@ -354,7 +459,8 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
           overflow: "hidden",
           maxHeight: showImportField ? "300px" : "0px",
           opacity: showImportField ? 1 : 0,
-          transition: "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+          transition:
+            "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
         }}
       >
         <div style={{ width: "100%", marginTop: "16px" }}>
@@ -370,7 +476,9 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
                 border: "none",
                 borderRadius: "16px",
                 padding: "12px 40px 12px 16px",
-                fontFamily: showImportKey ? "monospace" : "'text-security-disc', monospace",
+                fontFamily: showImportKey
+                  ? "monospace"
+                  : "'text-security-disc', monospace",
                 fontSize: "13px",
                 fontWeight: 400,
                 lineHeight: "18px",
@@ -379,7 +487,9 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
                 resize: "none",
                 boxSizing: "border-box",
                 wordBreak: "break-all",
-                ...(showImportKey ? {} : { WebkitTextSecurity: "disc" as never }),
+                ...(showImportKey
+                  ? {}
+                  : { WebkitTextSecurity: "disc" as never }),
               }}
             />
             <button
@@ -451,7 +561,181 @@ function CreateWalletScreen({ initialMode = "create" }: { initialMode?: "create"
           {error}
         </p>
       )}
+      </div>
 
+      {/* Backup key screen — slides in from right */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 20px",
+          opacity: showBackup ? 1 : 0,
+          transform: showBackup ? "translateX(0)" : "translateX(20px)",
+          pointerEvents: showBackup ? "auto" : "none",
+          transition: "opacity 0.3s ease, transform 0.3s ease",
+        }}
+      >
+        {/* Warning icon */}
+        <div
+          style={{
+            width: "56px",
+            height: "56px",
+            borderRadius: "16px",
+            background: "rgba(255, 149, 0, 0.1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: "16px",
+          }}
+        >
+          <TriangleAlert size={28} style={{ color: "#FF9500" }} />
+        </div>
+
+        <span
+          style={{
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "18px",
+            fontWeight: 600,
+            lineHeight: "24px",
+            color: "#000",
+            textAlign: "center",
+          }}
+        >
+          Back up your key
+        </span>
+
+        <span
+          style={{
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            fontWeight: 400,
+            lineHeight: "18px",
+            color: "rgba(60, 60, 67, 0.6)",
+            textAlign: "center",
+            marginTop: "8px",
+            maxWidth: "280px",
+          }}
+        >
+          This is your only way to recover the wallet. Save it somewhere safe — if you lose it, your funds are gone forever.
+        </span>
+
+        {/* Key display */}
+        <div style={{ width: "100%", marginTop: "20px", position: "relative" }}>
+          <textarea
+            readOnly
+            value={secretKeyHex}
+            rows={4}
+            style={{
+              width: "100%",
+              background: "#fff",
+              border: "none",
+              borderRadius: "16px",
+              padding: "12px 16px",
+              fontFamily: "monospace",
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "18px",
+              color: "#000",
+              outline: "none",
+              resize: "none",
+              boxSizing: "border-box",
+              wordBreak: "break-all",
+            }}
+          />
+        </div>
+
+        {/* Copy + Download buttons */}
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            width: "100%",
+            marginTop: "12px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleCopyKey}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "6px",
+              padding: "10px 0",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: "rgba(0, 0, 0, 0.04)",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#000",
+              transition: "background 0.15s ease",
+            }}
+          >
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadKey}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "6px",
+              padding: "10px 0",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: "rgba(0, 0, 0, 0.04)",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#000",
+              transition: "background 0.15s ease",
+            }}
+          >
+            <Download size={16} />
+            Download
+          </button>
+        </div>
+
+        {/* Confirm button */}
+        <button
+          type="button"
+          onClick={handleBackupConfirmed}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "12px 16px",
+            marginTop: "20px",
+            borderRadius: "9999px",
+            border: "none",
+            cursor: "pointer",
+            background: "#000",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "16px",
+            fontWeight: 400,
+            lineHeight: "20px",
+            color: "#fff",
+            textAlign: "center",
+            transition: "background 0.15s ease",
+          }}
+        >
+          I backed up my key
+        </button>
+      </div>
     </div>
   );
 }
@@ -465,7 +749,9 @@ function UnlockScreen() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resetAction, setResetAction] = useState<"create" | "import" | null>(null);
+  const [resetAction, setResetAction] = useState<"create" | "import" | null>(
+    null
+  );
 
   const handleUnlock = useCallback(
     async (enteredPin: string) => {
@@ -480,7 +766,7 @@ function UnlockScreen() {
         setLoading(false);
       }
     },
-    [unlock],
+    [unlock]
   );
 
   const truncatedKey = publicKey
@@ -499,7 +785,15 @@ function UnlockScreen() {
       }}
     >
       {/* Branding cluster */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", marginBottom: "32px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "4px",
+          marginBottom: "32px",
+        }}
+      >
         <ShieldAnimation size={80} />
         <Logotype />
         {truncatedKey && (
@@ -558,7 +852,14 @@ function UnlockScreen() {
       )}
 
       {/* Reset wallet options */}
-      <div style={{ display: "flex", gap: "8px", width: "100%", marginTop: "24px" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          width: "100%",
+          marginTop: "24px",
+        }}
+      >
         <button
           type="button"
           onClick={() => setResetAction("create")}
@@ -614,7 +915,8 @@ function UnlockScreen() {
           maxHeight: resetAction ? "200px" : "0",
           opacity: resetAction ? 1 : 0,
           overflow: "hidden",
-          transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          transition:
+            "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
           marginTop: resetAction ? "12px" : "0",
         }}
       >
@@ -639,7 +941,8 @@ function UnlockScreen() {
               textAlign: "center",
             }}
           >
-            Your current wallet will be erased. Without an exported key you will lose access forever.
+            Your current wallet will be erased. Without an exported key you will
+            lose access forever.
           </span>
           <div style={{ display: "flex", gap: "8px" }}>
             <button
@@ -704,10 +1007,14 @@ function UnlockScreen() {
 // ---------------------------------------------------------------------------
 
 function WalletInterface() {
-  const { balanceHidden, toggleBalanceHidden, publicKey, signer, network } = useWalletContext();
+  const { balanceHidden, toggleBalanceHidden, publicKey, signer, network } =
+    useWalletContext();
   const solanaEnv = network as import("@loyal-labs/solana-rpc").SolanaEnv;
   const walletPubkey = signer?.publicKey ?? null;
-  const walletDataClient = useExtensionWalletDataClient(solanaEnv, walletPubkey);
+  const walletDataClient = useExtensionWalletDataClient(
+    solanaEnv,
+    walletPubkey
+  );
   const walletData = useWalletData({
     publicKey: walletPubkey,
     connected: !!signer,
@@ -731,9 +1038,20 @@ function WalletInterface() {
     void pendingDappApproval.getValue().then((req) => {
       if (req) {
         if (req.kind === "connect") {
-          setSubView({ type: "dappConnect", origin: req.origin, favicon: req.favicon, requestId: req.id });
+          setSubView({
+            type: "dappConnect",
+            origin: req.origin,
+            favicon: req.favicon,
+            requestId: req.id,
+          });
         } else {
-          setSubView({ type: "dappSign", origin: req.origin, favicon: req.favicon, requestId: req.id, kind: req.kind });
+          setSubView({
+            type: "dappSign",
+            origin: req.origin,
+            favicon: req.favicon,
+            requestId: req.id,
+            kind: req.kind,
+          });
         }
       }
     });
@@ -742,9 +1060,20 @@ function WalletInterface() {
     const unwatch = pendingDappApproval.watch((req) => {
       if (req) {
         if (req.kind === "connect") {
-          setSubView({ type: "dappConnect", origin: req.origin, favicon: req.favicon, requestId: req.id });
+          setSubView({
+            type: "dappConnect",
+            origin: req.origin,
+            favicon: req.favicon,
+            requestId: req.id,
+          });
         } else {
-          setSubView({ type: "dappSign", origin: req.origin, favicon: req.favicon, requestId: req.id, kind: req.kind });
+          setSubView({
+            type: "dappSign",
+            origin: req.origin,
+            favicon: req.favicon,
+            requestId: req.id,
+            kind: req.kind,
+          });
         }
       }
     });
@@ -837,7 +1166,9 @@ function WalletInterface() {
       setFromToken(swapTokens[0]);
       setSendToken(swapTokens[0]);
       setShieldToken(swapTokens[0]);
-      setToToken(swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN);
+      setToToken(
+        swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
+      );
     }
   }, [positions.length]);
 
@@ -857,8 +1188,14 @@ function WalletInterface() {
             onNavigate={handleNavigate}
             onSend={() => handleTabChange("send")}
             onReceive={() => handleTabChange("receive")}
-            onSwap={() => { setSwapMode("swap"); handleTabChange("swap"); }}
-            onShield={() => { setSwapMode("shield"); handleTabChange("shield"); }}
+            onSwap={() => {
+              setSwapMode("swap");
+              handleTabChange("swap");
+            }}
+            onShield={() => {
+              setSwapMode("shield");
+              handleTabChange("shield");
+            }}
             onSettings={() => setShowSettings(true)}
             tokenRows={tokenRows}
             transactionDetails={transactionDetails}
@@ -878,10 +1215,7 @@ function WalletInterface() {
         );
       case "receive":
         return (
-          <ReceiveContent
-            walletAddress={walletAddress}
-            onClose={handleClose}
-          />
+          <ReceiveContent walletAddress={walletAddress} onClose={handleClose} />
         );
       case "swap":
         return (
@@ -1020,7 +1354,10 @@ function WalletInterface() {
             // Save origin as connected
             void connectedDappOrigins.getValue().then((origins) => {
               if (!origins.includes(subView.origin)) {
-                void connectedDappOrigins.setValue([...origins, subView.origin]);
+                void connectedDappOrigins.setValue([
+                  ...origins,
+                  subView.origin,
+                ]);
               }
             });
             setSubView(null);
@@ -1167,14 +1504,14 @@ function WalletInterface() {
             overflow: "clip",
             transform: showSettings ? "translateX(0)" : "translateX(105%)",
             opacity: showSettings ? 1 : 0,
-            transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+            transition:
+              "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
             pointerEvents: showSettings ? "auto" : "none",
           }}
         >
           <Settings onBack={() => setShowSettings(false)} />
         </div>
       </div>
-
     </div>
   );
 }
@@ -1211,7 +1548,14 @@ function WalletAppInner() {
 
   if (displayState === "loading") {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+        }}
+      >
         <div
           style={{
             width: "24px",
@@ -1226,11 +1570,14 @@ function WalletAppInner() {
     );
   }
 
-  const screen = displayState === "noWallet"
-    ? <CreateWalletScreen initialMode={resetMode} />
-    : displayState === "locked"
-      ? <UnlockScreen />
-      : <WalletInterface />;
+  const screen =
+    displayState === "noWallet" ? (
+      <CreateWalletScreen initialMode={resetMode} />
+    ) : displayState === "locked" ? (
+      <UnlockScreen />
+    ) : (
+      <WalletInterface />
+    );
 
   return (
     <>
@@ -1243,7 +1590,9 @@ function WalletAppInner() {
       >
         {screen}
       </div>
-      {showConfetti && <ConfettiOverlay onComplete={() => setShowConfetti(false)} />}
+      {showConfetti && (
+        <ConfettiOverlay onComplete={() => setShowConfetti(false)} />
+      )}
     </>
   );
 }
