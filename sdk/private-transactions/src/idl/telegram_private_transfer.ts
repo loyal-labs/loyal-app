@@ -862,8 +862,8 @@ export type TelegramPrivateTransfer = {
       "docs": [
         "Modifies the balance of a user's deposit account by transferring tokens in or out.",
         "",
-        "If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.",
-        "If false, tokens are transferred from the deposit account back to the user's token account."
+        "Deposits use `liquidity_amount` as exact underlying input and `share_amount` as minimum shares out.",
+        "Withdrawals use `share_amount` as exact shares in and `liquidity_amount` as minimum underlying out."
       ],
       "discriminator": [
         148,
@@ -1125,10 +1125,124 @@ export type TelegramPrivateTransfer = {
           }
         },
         {
+          "name": "vaultCollateralAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "reserveCollateralMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
           "name": "tokenMint",
           "relations": [
             "deposit"
           ]
+        },
+        {
+          "name": "reserveCollateralMint"
+        },
+        {
+          "name": "reserveLiquiditySupply",
+          "writable": true
+        },
+        {
+          "name": "reserve"
+        },
+        {
+          "name": "lendingMarket"
+        },
+        {
+          "name": "lendingMarketAuthority"
+        },
+        {
+          "name": "instructionSysvarAccount",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "klendProgram",
+          "address": "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
         },
         {
           "name": "tokenProgram",
@@ -1717,6 +1831,21 @@ export type TelegramPrivateTransfer = {
       "code": 6011,
       "name": "invalidDepositor",
       "msg": "Invalid Depositor"
+    },
+    {
+      "code": 6012,
+      "name": "unsupportedToken",
+      "msg": "Unsupported token"
+    },
+    {
+      "code": 6013,
+      "name": "slippageExceeded",
+      "msg": "Slippage exceeded"
+    },
+    {
+      "code": 6014,
+      "name": "invalidKaminoAccounts",
+      "msg": "Invalid Kamino accounts"
     }
   ],
   "types": [
@@ -1738,6 +1867,9 @@ export type TelegramPrivateTransfer = {
           },
           {
             "name": "amount",
+            "docs": [
+              "KLend collateral shares owned by this deposit."
+            ],
             "type": "u64"
           }
         ]
@@ -1749,7 +1881,11 @@ export type TelegramPrivateTransfer = {
         "kind": "struct",
         "fields": [
           {
-            "name": "amount",
+            "name": "liquidityAmount",
+            "type": "u64"
+          },
+          {
+            "name": "shareAmount",
             "type": "u64"
           },
           {
@@ -1837,6 +1973,9 @@ export type TelegramPrivateTransfer = {
           },
           {
             "name": "amount",
+            "docs": [
+              "KLend collateral shares owned by this username deposit."
+            ],
             "type": "u64"
           }
         ]
@@ -1845,15 +1984,30 @@ export type TelegramPrivateTransfer = {
     {
       "name": "vault",
       "docs": [
-        "A vault storing deposited tokens.",
-        "Has a dummy field because Anchor requires it."
+        "A per-mint vault that routes liquidity into a fixed KLend reserve."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "dummy",
-            "type": "u8"
+            "name": "tokenMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "lendingMarket",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserve",
+            "type": "pubkey"
+          },
+          {
+            "name": "reserveCollateralMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "totalShares",
+            "type": "u64"
           }
         ]
       }

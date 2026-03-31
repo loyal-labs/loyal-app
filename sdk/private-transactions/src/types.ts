@@ -62,6 +62,7 @@ export interface DepositData {
   user: PublicKey;
   tokenMint: PublicKey;
   amount: bigint;
+  shareBalance: bigint;
   address: PublicKey;
 }
 
@@ -72,6 +73,7 @@ export interface UsernameDepositData {
   username: string;
   tokenMint: PublicKey;
   amount: bigint;
+  shareBalance: bigint;
   address: PublicKey;
 }
 
@@ -99,6 +101,23 @@ export interface ModifyBalanceParams {
   user: PublicKey;
   tokenMint: PublicKey;
   amount: number | bigint;
+  increase: boolean;
+  payer: PublicKey;
+  userTokenAccount: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+/**
+ * Low-level parameters for modifying a deposit with explicit liquidity/share amounts.
+ *
+ * Deposits use `liquidityAmount` as exact underlying input and `shareAmount` as minimum shares out.
+ * Withdrawals use `shareAmount` as exact shares in and `liquidityAmount` as minimum underlying out.
+ */
+export interface ModifyBalanceRawParams {
+  user: PublicKey;
+  tokenMint: PublicKey;
+  liquidityAmount: number | bigint;
+  shareAmount: number | bigint;
   increase: boolean;
   payer: PublicKey;
   userTokenAccount: PublicKey;
