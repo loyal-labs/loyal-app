@@ -13,7 +13,7 @@ const mapUsernameDepositToTelegramDeposit = (
   deposit: UsernameDepositData,
 ): TelegramDeposit => ({
   user,
-  username: deposit.username,
+  usernameHash: deposit.usernameHash,
   amount: Number(deposit.amount),
   lastNonce: 0,
   tokenMint: deposit.tokenMint,
@@ -42,7 +42,7 @@ export const subscribeToDepositsWithUsername = async (
   onChange: (deposit: TelegramDeposit) => void,
 ): Promise<() => Promise<void>> => {
   const privateClient = await getPrivateClient();
-  const [depositPda] = findUsernameDepositPda(username, NATIVE_MINT);
+  const [depositPda] = await findUsernameDepositPda(username, NATIVE_MINT);
 
   const connection = privateClient.ephemeralProgram.provider.connection;
   const subscriptionId = connection.onAccountChange(

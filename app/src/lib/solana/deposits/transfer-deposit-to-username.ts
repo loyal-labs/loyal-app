@@ -39,11 +39,11 @@ export async function transferTokensToUsername(params: {
       }
     );
     console.log("initializeUsernameDeposit sig", initializeUsernameDepositSig);
-    const [depositPda] = findUsernameDepositPda(destinationUsername, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(destinationUsername, tokenMint);
     await waitForAccount(client, depositPda);
   }
 
-  const [depositPda] = findUsernameDepositPda(destinationUsername, tokenMint);
+  const [depositPda] = await findUsernameDepositPda(destinationUsername, tokenMint);
   const baseAccountInfo =
     await client.baseProgram.provider.connection.getAccountInfo(depositPda);
   const isDelegated = baseAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID);

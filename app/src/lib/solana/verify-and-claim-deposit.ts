@@ -81,7 +81,7 @@ export async function claimTokens(params: {
   const client = await getPrivateClient({ solanaEnv: selectedSolanaEnv });
   const validator = getErValidatorForSolanaEnv(selectedSolanaEnv);
 
-  const [usernameDepositPda] = findUsernameDepositPda(username, tokenMint);
+  const [usernameDepositPda] = await findUsernameDepositPda(username, tokenMint);
   const baseUsernameDepositPda =
     await client.baseProgram.provider.connection.getAccountInfo(
       usernameDepositPda,
