@@ -344,8 +344,8 @@ interface DelegationStatusResponse {
 
 | Constant | String Value |
 |----------|-------------|
-| `DEPOSIT_SEED` | `"deposit"` |
-| `USERNAME_DEPOSIT_SEED` | `"username_deposit"` |
+| `DEPOSIT_SEED` | `"deposit_v2"` |
+| `USERNAME_DEPOSIT_SEED` | `"username_deposit_v2"` |
 | `VAULT_SEED` | `"vault"` |
 | `PERMISSION_SEED` | `"permission:"` |
 
@@ -359,8 +359,8 @@ interface DelegationStatusResponse {
 
 | Function | Seeds |
 |----------|-------|
-| `findDepositPda(user, tokenMint)` | `["deposit", user, tokenMint]` |
-| `findUsernameDepositPda(username, tokenMint)` | `["username_deposit", username, tokenMint]` |
+| `findDepositPda(user, tokenMint)` | `["deposit_v2", user, tokenMint]` |
+| `findUsernameDepositPda(username, tokenMint)` | `["username_deposit_v2", username, tokenMint]` |
 | `findVaultPda(tokenMint)` | `["vault", tokenMint]` |
 | `findPermissionPda(account)` | `["permission:", account]` (PERMISSION_PROGRAM_ID) |
 | `findDelegationRecordPda(account)` | `["delegation", account]` (DELEGATION_PROGRAM_ID) |
