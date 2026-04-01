@@ -31,42 +31,7 @@
         },
         {
           "name": "source_username_deposit",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "source_username_deposit.username",
-                "account": "UsernameDeposit"
-              },
-              {
-                "kind": "account",
-                "path": "source_username_deposit.token_mint",
-                "account": "UsernameDeposit"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "destination_deposit",
@@ -221,42 +186,7 @@
           "signer": true
         },
         {
-          "name": "deposit",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "deposit.username",
-                "account": "UsernameDeposit"
-              },
-              {
-                "kind": "account",
-                "path": "deposit.token_mint",
-                "account": "UsernameDeposit"
-              }
-            ]
-          }
+          "name": "deposit"
         },
         {
           "name": "session"
@@ -667,12 +597,15 @@
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 "kind": "arg",
-                "path": "username"
+                "path": "username_hash"
               },
               {
                 "kind": "arg",
@@ -696,8 +629,13 @@
       ],
       "args": [
         {
-          "name": "username",
-          "type": "string"
+          "name": "username_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         },
         {
           "name": "token_mint",
@@ -818,12 +756,15 @@
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 "kind": "arg",
-                "path": "username"
+                "path": "username_hash"
               },
               {
                 "kind": "account",
@@ -846,8 +787,13 @@
       ],
       "args": [
         {
-          "name": "username",
-          "type": "string"
+          "name": "username_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },
@@ -1371,42 +1317,7 @@
         },
         {
           "name": "destination_deposit",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "destination_deposit.username",
-                "account": "UsernameDeposit"
-              },
-              {
-                "kind": "account",
-                "path": "destination_deposit.token_mint",
-                "account": "UsernameDeposit"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "token_mint",
@@ -1548,12 +1459,15 @@
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 "kind": "arg",
-                "path": "username"
+                "path": "username_hash"
               },
               {
                 "kind": "arg",
@@ -1574,8 +1488,13 @@
       ],
       "args": [
         {
-          "name": "username",
-          "type": "string"
+          "name": "username_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         },
         {
           "name": "token_mint",
@@ -1787,8 +1706,13 @@
             "type": "pubkey"
           },
           {
-            "name": "username",
-            "type": "string"
+            "name": "username_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "validation_bytes",
@@ -1814,16 +1738,19 @@
     {
       "name": "UsernameDeposit",
       "docs": [
-        "A deposit account for a telegram username and token mint.",
-        "",
-        "Telegram username is always lowercase (a-z, 0-9 and underscores)"
+        "A deposit account for a telegram username sha256 hash and token mint."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "username",
-            "type": "string"
+            "name": "username_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "token_mint",

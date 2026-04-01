@@ -38,7 +38,7 @@ export declare const DEPOSIT_SEED_BYTES: Buffer<ArrayBuffer>;
 /**
  * PDA seed for username deposit accounts
  */
-export declare const USERNAME_DEPOSIT_SEED = "username_deposit";
+export declare const USERNAME_DEPOSIT_SEED = "username_deposit_v2";
 export declare const USERNAME_DEPOSIT_SEED_BYTES: Buffer<ArrayBuffer>;
 /**
  * PDA seed for vault account

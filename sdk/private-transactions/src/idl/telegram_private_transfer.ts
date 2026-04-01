@@ -37,42 +37,7 @@ export type TelegramPrivateTransfer = {
         },
         {
           "name": "sourceUsernameDeposit",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "source_username_deposit.username",
-                "account": "usernameDeposit"
-              },
-              {
-                "kind": "account",
-                "path": "source_username_deposit.token_mint",
-                "account": "usernameDeposit"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "destinationDeposit",
@@ -227,42 +192,7 @@ export type TelegramPrivateTransfer = {
           "signer": true
         },
         {
-          "name": "deposit",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "deposit.username",
-                "account": "usernameDeposit"
-              },
-              {
-                "kind": "account",
-                "path": "deposit.token_mint",
-                "account": "usernameDeposit"
-              }
-            ]
-          }
+          "name": "deposit"
         },
         {
           "name": "session"
@@ -673,12 +603,15 @@ export type TelegramPrivateTransfer = {
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 "kind": "arg",
-                "path": "username"
+                "path": "usernameHash"
               },
               {
                 "kind": "arg",
@@ -702,8 +635,13 @@ export type TelegramPrivateTransfer = {
       ],
       "args": [
         {
-          "name": "username",
-          "type": "string"
+          "name": "usernameHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         },
         {
           "name": "tokenMint",
@@ -824,12 +762,15 @@ export type TelegramPrivateTransfer = {
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 "kind": "arg",
-                "path": "username"
+                "path": "usernameHash"
               },
               {
                 "kind": "account",
@@ -852,8 +793,13 @@ export type TelegramPrivateTransfer = {
       ],
       "args": [
         {
-          "name": "username",
-          "type": "string"
+          "name": "usernameHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },
@@ -1377,42 +1323,7 @@ export type TelegramPrivateTransfer = {
         },
         {
           "name": "destinationDeposit",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "destination_deposit.username",
-                "account": "usernameDeposit"
-              },
-              {
-                "kind": "account",
-                "path": "destination_deposit.token_mint",
-                "account": "usernameDeposit"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "tokenMint",
@@ -1554,12 +1465,15 @@ export type TelegramPrivateTransfer = {
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 "kind": "arg",
-                "path": "username"
+                "path": "usernameHash"
               },
               {
                 "kind": "arg",
@@ -1580,8 +1494,13 @@ export type TelegramPrivateTransfer = {
       ],
       "args": [
         {
-          "name": "username",
-          "type": "string"
+          "name": "usernameHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         },
         {
           "name": "tokenMint",
@@ -1793,8 +1712,13 @@ export type TelegramPrivateTransfer = {
             "type": "pubkey"
           },
           {
-            "name": "username",
-            "type": "string"
+            "name": "usernameHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "validationBytes",
@@ -1820,16 +1744,19 @@ export type TelegramPrivateTransfer = {
     {
       "name": "usernameDeposit",
       "docs": [
-        "A deposit account for a telegram username and token mint.",
-        "",
-        "Telegram username is always lowercase (a-z, 0-9 and underscores)"
+        "A deposit account for a telegram username sha256 hash and token mint."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "username",
-            "type": "string"
+            "name": "usernameHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "tokenMint",

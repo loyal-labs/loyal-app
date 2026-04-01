@@ -68,7 +68,7 @@ export const DEPOSIT_SEED_BYTES = Buffer.from(DEPOSIT_SEED);
 /**
  * PDA seed for username deposit accounts
  */
-export const USERNAME_DEPOSIT_SEED = "username_deposit";
+export const USERNAME_DEPOSIT_SEED = "username_deposit_v2";
 export const USERNAME_DEPOSIT_SEED_BYTES = Buffer.from(USERNAME_DEPOSIT_SEED);
 
 /**

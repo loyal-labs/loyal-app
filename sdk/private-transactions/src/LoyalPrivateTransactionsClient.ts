@@ -2,10 +2,7 @@ import {
   Connection,
   PublicKey,
   SystemProgram,
-  Transaction,
   type Commitment,
-  type BlockhashWithExpiryBlockHeight,
-  type ConfirmOptions,
 } from "@solana/web3.js";
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import {
@@ -58,6 +55,7 @@ import type {
   ClaimUsernameDepositToDepositParams,
   DelegationStatusResponse,
 } from "./types";
+import { sha256hash } from "./utils";
 
 function prettyStringify(obj: unknown): string {
   const json = JSON.stringify(
@@ -360,7 +358,10 @@ export class LoyalPrivateTransactionsClient {
   ): Promise<string> {
     const { username, tokenMint, payer, rpcOptions } = params;
 
-    const [usernameDepositPda] = findUsernameDepositPda(username, tokenMint);
+    const [usernameDepositPda] = await findUsernameDepositPda(
+      username,
+      tokenMint
+    );
 
     await this.ensureNotDelegated(
       usernameDepositPda,
@@ -368,8 +369,10 @@ export class LoyalPrivateTransactionsClient {
       true
     );
 
+    const usernameHash = await sha256hash(username);
+
     const signature = await this.baseProgram.methods
-      .initializeUsernameDeposit(username)
+      .initializeUsernameDeposit(usernameHash)
       .accountsPartial({
         payer,
         tokenMint,
@@ -455,7 +458,10 @@ export class LoyalPrivateTransactionsClient {
 
     this.validateUsername(username);
 
-    const [sourceUsernameDeposit] = findUsernameDepositPda(username, tokenMint);
+    const [sourceUsernameDeposit] = await findUsernameDepositPda(
+      username,
+      tokenMint
+    );
     const [destinationDeposit] = findDepositPda(recipient, tokenMint);
 
     await this.ensureDelegated(
@@ -612,7 +618,7 @@ export class LoyalPrivateTransactionsClient {
 
     this.validateUsername(username);
 
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [permissionPda] = findPermissionPda(depositPda);
 
     await this.ensureNotDelegated(
@@ -719,10 +725,12 @@ export class LoyalPrivateTransactionsClient {
 
     this.validateUsername(username);
 
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [bufferPda] = findBufferPda(depositPda);
     const [delegationRecordPda] = findDelegationRecordPda(depositPda);
     const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+
+    const usernameHash = await sha256hash(username);
 
     await this.ensureNotDelegated(
       depositPda,
@@ -756,7 +764,7 @@ export class LoyalPrivateTransactionsClient {
         prettyStringify(accounts)
       );
       signature = await this.baseProgram.methods
-        .delegateUsernameDeposit(username, tokenMint)
+        .delegateUsernameDeposit(usernameHash, tokenMint)
         .accountsPartial(accounts)
         .rpc(rpcOptions);
       console.log(
@@ -848,15 +856,17 @@ export class LoyalPrivateTransactionsClient {
 
     this.validateUsername(username);
 
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
 
     await this.ensureDelegated(
       depositPda,
       "undelegateUsernameDeposit-depositPda"
     );
 
+    const usernameHash = await sha256hash(username);
+
     const signature = await this.ephemeralProgram.methods
-      .undelegateUsernameDeposit(username, tokenMint)
+      .undelegateUsernameDeposit(usernameHash, tokenMint)
       .accountsPartial({
         payer,
         session,
@@ -942,7 +952,10 @@ export class LoyalPrivateTransactionsClient {
     this.validateUsername(username);
 
     const [sourceDepositPda] = findDepositPda(user, tokenMint);
-    const [destinationDepositPda] = findUsernameDepositPda(username, tokenMint);
+    const [destinationDepositPda] = await findUsernameDepositPda(
+      username,
+      tokenMint
+    );
 
     await this.ensureDelegated(
       sourceDepositPda,
@@ -1025,14 +1038,14 @@ export class LoyalPrivateTransactionsClient {
     username: string,
     tokenMint: PublicKey
   ): Promise<UsernameDepositData | null> {
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
 
     try {
       const account = await this.baseProgram.account.usernameDeposit.fetch(
         depositPda
       );
       return {
-        username: account.username,
+        usernameHash: account.usernameHash,
         tokenMint: account.tokenMint,
         amount: BigInt(account.amount.toString()),
         address: depositPda,
@@ -1046,14 +1059,14 @@ export class LoyalPrivateTransactionsClient {
     username: string,
     tokenMint: PublicKey
   ): Promise<UsernameDepositData | null> {
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
 
     try {
       const account = await this.ephemeralProgram.account.usernameDeposit.fetch(
         depositPda
       );
       return {
-        username: account.username,
+        usernameHash: account.usernameHash,
         tokenMint: account.tokenMint,
         amount: BigInt(account.amount.toString()),
         address: depositPda,
@@ -1061,34 +1074,6 @@ export class LoyalPrivateTransactionsClient {
     } catch {
       return null;
     }
-  }
-
-  // ============================================================
-  // PDA Helpers
-  // ============================================================
-
-  /**
-   * Find the deposit PDA for a user and token mint
-   */
-  findDepositPda(user: PublicKey, tokenMint: PublicKey): [PublicKey, number] {
-    return findDepositPda(user, tokenMint, PROGRAM_ID);
-  }
-
-  /**
-   * Find the username deposit PDA
-   */
-  findUsernameDepositPda(
-    username: string,
-    tokenMint: PublicKey
-  ): [PublicKey, number] {
-    return findUsernameDepositPda(username, tokenMint, PROGRAM_ID);
-  }
-
-  /**
-   * Find the vault PDA
-   */
-  findVaultPda(tokenMint: PublicKey): [PublicKey, number] {
-    return findVaultPda(tokenMint, PROGRAM_ID);
   }
 
   // ============================================================

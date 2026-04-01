@@ -56,6 +56,12 @@ export declare const IDL: {
         } | {
             name: string;
             writable: boolean;
+            relations?: undefined;
+            pda?: undefined;
+            address?: undefined;
+        } | {
+            name: string;
+            writable: boolean;
             pda: {
                 seeds: ({
                     kind: string;
@@ -235,10 +241,15 @@ export declare const IDL: {
             optional?: undefined;
             pda?: undefined;
         })[];
-        args: {
+        args: ({
+            name: string;
+            type: {
+                array: (string | number)[];
+            };
+        } | {
             name: string;
             type: string;
-        }[];
+        })[];
     } | {
         name: string;
         discriminator: number[];
@@ -279,7 +290,9 @@ export declare const IDL: {
         })[];
         args: {
             name: string;
-            type: string;
+            type: {
+                array: (string | number)[];
+            };
         }[];
         docs?: undefined;
     } | {
@@ -431,6 +444,14 @@ export declare const IDL: {
             address?: undefined;
         } | {
             name: string;
+            writable: boolean;
+            relations?: undefined;
+            signer?: undefined;
+            optional?: undefined;
+            pda?: undefined;
+            address?: undefined;
+        } | {
+            name: string;
             address: string;
             relations?: undefined;
             writable?: undefined;
@@ -552,10 +573,15 @@ export declare const IDL: {
             signer?: undefined;
             pda?: undefined;
         })[];
-        args: {
+        args: ({
+            name: string;
+            type: {
+                array: (string | number)[];
+            };
+        } | {
             name: string;
             type: string;
-        }[];
+        })[];
     })[];
     accounts: {
         name: string;
@@ -568,16 +594,6 @@ export declare const IDL: {
     }[];
     types: ({
         name: string;
-        docs: string[];
-        type: {
-            kind: string;
-            fields: {
-                name: string;
-                type: string;
-            }[];
-        };
-    } | {
-        name: string;
         type: {
             kind: string;
             fields: ({
@@ -586,11 +602,33 @@ export declare const IDL: {
             } | {
                 name: string;
                 type: {
+                    array: (string | number)[];
+                    option?: undefined;
+                };
+            } | {
+                name: string;
+                type: {
                     option: string;
+                    array?: undefined;
                 };
             })[];
         };
         docs?: undefined;
+    } | {
+        name: string;
+        docs: string[];
+        type: {
+            kind: string;
+            fields: ({
+                name: string;
+                type: {
+                    array: (string | number)[];
+                };
+            } | {
+                name: string;
+                type: string;
+            })[];
+        };
     })[];
 };
 export type { TelegramPrivateTransfer } from "./src/idl/telegram_private_transfer.ts";

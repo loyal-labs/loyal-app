@@ -350,7 +350,7 @@ export async function claimTokens(params: {
   const client = await getOtherLoyalClient();
   const { tokenMint, amount, username, destination, session } = params;
 
-  const [usernameDepositPda] = findUsernameDepositPda(username, tokenMint);
+  const [usernameDepositPda] = await findUsernameDepositPda(username, tokenMint);
   const baseUsernameDepositAccountInfo =
     await client.baseProgram.provider.connection.getAccountInfo(
       usernameDepositPda
@@ -436,11 +436,11 @@ export async function transferTokensToUsername(params: {
       }
     );
     console.log("initializeUsernameDeposit sig", initializeUsernameDepositSig);
-    const [depositPda] = findUsernameDepositPda(destinationUsername, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(destinationUsername, tokenMint);
     await waitForAccount(client, depositPda);
   }
 
-  const [depositPda] = findUsernameDepositPda(destinationUsername, tokenMint);
+  const [depositPda] = await findUsernameDepositPda(destinationUsername, tokenMint);
   const baseAccountInfo =
     await client.baseProgram.provider.connection.getAccountInfo(depositPda);
   const isDelegated = baseAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID);
@@ -839,7 +839,7 @@ describe("private-transactions shield SDK (PER)", async () => {
     verificationProvider
   );
   const [sessionPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("tg_session"), OTHER_USER.toBuffer()],
+    [Buffer.from("tg_session_v2"), OTHER_USER.toBuffer()],
     verificationProgram.programId
   );
 
@@ -1132,7 +1132,7 @@ describe("private-transactions shield SDK (PER)", async () => {
   console.log("Deposit accounts owned by PROGRAM_ID (not delegated) — passed");
 
   // 4. Check username deposit account
-  const [usernameDepositPda] = findUsernameDepositPda(username, mint);
+  const [usernameDepositPda] = await findUsernameDepositPda(username, mint);
   const usernameDepositAccountInfo = await solanaConnection.getAccountInfo(
     usernameDepositPda
   );

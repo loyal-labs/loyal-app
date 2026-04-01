@@ -1414,7 +1414,7 @@ __export(exports_util, {
   callbackifyOnRejected: () => callbackifyOnRejected,
   callbackify: () => callbackify,
   _extend: () => _extend,
-  TextEncoder: () => TextEncoder,
+  TextEncoder: () => TextEncoder2,
   TextDecoder: () => TextDecoder
 });
 function format(f, ...args) {
@@ -1726,7 +1726,7 @@ function callbackify(original) {
   }
   return Object.setPrototypeOf(callbackified, Object.getPrototypeOf(original)), Object.defineProperties(callbackified, Object.getOwnPropertyDescriptors(original)), callbackified;
 }
-var formatRegExp, debuglog, inspect2, types = () => {}, months, promisify, TextEncoder, TextDecoder, util_default;
+var formatRegExp, debuglog, inspect2, types = () => {}, months, promisify, TextEncoder2, TextDecoder, util_default;
 var init_util = __esm(() => {
   formatRegExp = /%[sdj%]/g;
   debuglog = ((debugs = {}, debugEnvRegex = {}, debugEnv) => ((debugEnv = typeof process !== "undefined" && false) && (debugEnv = debugEnv.replace(/[|\\{}()[\]^$+?.]/g, "\\$&").replace(/\*/g, ".*").replace(/,/g, "$|^").toUpperCase()), debugEnvRegex = new RegExp("^" + debugEnv + "$", "i"), (set) => {
@@ -1790,8 +1790,8 @@ var init_util = __esm(() => {
       Object.defineProperty(fn, kCustomPromisifiedSymbol, { value: fn, enumerable: false, writable: false, configurable: true });
     return Object.defineProperties(fn, Object.getOwnPropertyDescriptors(original));
   });
-  ({ TextEncoder, TextDecoder } = globalThis);
-  util_default = { TextEncoder, TextDecoder, promisify, log, inherits, _extend, callbackifyOnRejected, callbackify };
+  ({ TextEncoder: TextEncoder2, TextDecoder } = globalThis);
+  util_default = { TextEncoder: TextEncoder2, TextDecoder, promisify, log, inherits, _extend, callbackifyOnRejected, callbackify };
 });
 
 // node:events
@@ -19807,42 +19807,7 @@ var telegram_private_transfer_default = {
         },
         {
           name: "source_username_deposit",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                kind: "account",
-                path: "source_username_deposit.username",
-                account: "UsernameDeposit"
-              },
-              {
-                kind: "account",
-                path: "source_username_deposit.token_mint",
-                account: "UsernameDeposit"
-              }
-            ]
-          }
+          writable: true
         },
         {
           name: "destination_deposit",
@@ -19997,42 +19962,7 @@ var telegram_private_transfer_default = {
           signer: true
         },
         {
-          name: "deposit",
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                kind: "account",
-                path: "deposit.username",
-                account: "UsernameDeposit"
-              },
-              {
-                kind: "account",
-                path: "deposit.token_mint",
-                account: "UsernameDeposit"
-              }
-            ]
-          }
+          name: "deposit"
         },
         {
           name: "session"
@@ -20443,12 +20373,15 @@ var telegram_private_transfer_default = {
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 kind: "arg",
-                path: "username"
+                path: "username_hash"
               },
               {
                 kind: "arg",
@@ -20472,8 +20405,13 @@ var telegram_private_transfer_default = {
       ],
       args: [
         {
-          name: "username",
-          type: "string"
+          name: "username_hash",
+          type: {
+            array: [
+              "u8",
+              32
+            ]
+          }
         },
         {
           name: "token_mint",
@@ -20594,12 +20532,15 @@ var telegram_private_transfer_default = {
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 kind: "arg",
-                path: "username"
+                path: "username_hash"
               },
               {
                 kind: "account",
@@ -20622,8 +20563,13 @@ var telegram_private_transfer_default = {
       ],
       args: [
         {
-          name: "username",
-          type: "string"
+          name: "username_hash",
+          type: {
+            array: [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },
@@ -21147,42 +21093,7 @@ var telegram_private_transfer_default = {
         },
         {
           name: "destination_deposit",
-          writable: true,
-          pda: {
-            seeds: [
-              {
-                kind: "const",
-                value: [
-                  117,
-                  115,
-                  101,
-                  114,
-                  110,
-                  97,
-                  109,
-                  101,
-                  95,
-                  100,
-                  101,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116
-                ]
-              },
-              {
-                kind: "account",
-                path: "destination_deposit.username",
-                account: "UsernameDeposit"
-              },
-              {
-                kind: "account",
-                path: "destination_deposit.token_mint",
-                account: "UsernameDeposit"
-              }
-            ]
-          }
+          writable: true
         },
         {
           name: "token_mint",
@@ -21324,12 +21235,15 @@ var telegram_private_transfer_default = {
                   111,
                   115,
                   105,
-                  116
+                  116,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
                 kind: "arg",
-                path: "username"
+                path: "username_hash"
               },
               {
                 kind: "arg",
@@ -21350,8 +21264,13 @@ var telegram_private_transfer_default = {
       ],
       args: [
         {
-          name: "username",
-          type: "string"
+          name: "username_hash",
+          type: {
+            array: [
+              "u8",
+              32
+            ]
+          }
         },
         {
           name: "token_mint",
@@ -21563,8 +21482,13 @@ var telegram_private_transfer_default = {
             type: "pubkey"
           },
           {
-            name: "username",
-            type: "string"
+            name: "username_hash",
+            type: {
+              array: [
+                "u8",
+                32
+              ]
+            }
           },
           {
             name: "validation_bytes",
@@ -21590,16 +21514,19 @@ var telegram_private_transfer_default = {
     {
       name: "UsernameDeposit",
       docs: [
-        "A deposit account for a telegram username and token mint.",
-        "",
-        "Telegram username is always lowercase (a-z, 0-9 and underscores)"
+        "A deposit account for a telegram username sha256 hash and token mint."
       ],
       type: {
         kind: "struct",
         fields: [
           {
-            name: "username",
-            type: "string"
+            name: "username_hash",
+            type: {
+              array: [
+                "u8",
+                32
+              ]
+            }
           },
           {
             name: "token_mint",
@@ -21649,7 +21576,7 @@ var MAGIC_PROGRAM_ID = new PublicKey("Magic1111111111111111111111111111111111111
 var MAGIC_CONTEXT_ID = new PublicKey("MagicContext1111111111111111111111111111111");
 var DEPOSIT_SEED = "deposit_v2";
 var DEPOSIT_SEED_BYTES = Buffer.from(DEPOSIT_SEED);
-var USERNAME_DEPOSIT_SEED = "username_deposit";
+var USERNAME_DEPOSIT_SEED = "username_deposit_v2";
 var USERNAME_DEPOSIT_SEED_BYTES = Buffer.from(USERNAME_DEPOSIT_SEED);
 var VAULT_SEED = "vault";
 var VAULT_SEED_BYTES = Buffer.from(VAULT_SEED);
@@ -21664,11 +21591,25 @@ function lamportsToSol(lamports) {
 
 // src/pda.ts
 import { PublicKey as PublicKey2 } from "@solana/web3.js";
+
+// src/utils.ts
+async function sha256hash(data) {
+  const encoded = Uint8Array.from(new TextEncoder().encode(data));
+  const hash = await crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(hash));
+}
+
+// src/pda.ts
 function findDepositPda(user, tokenMint, programId = PROGRAM_ID) {
   return PublicKey2.findProgramAddressSync([DEPOSIT_SEED_BYTES, user.toBuffer(), tokenMint.toBuffer()], programId);
 }
-function findUsernameDepositPda(username, tokenMint, programId = PROGRAM_ID) {
-  return PublicKey2.findProgramAddressSync([USERNAME_DEPOSIT_SEED_BYTES, Buffer.from(username), tokenMint.toBuffer()], programId);
+async function findUsernameDepositPda(username, tokenMint, programId = PROGRAM_ID) {
+  const usernameHash = await sha256hash(username);
+  return PublicKey2.findProgramAddressSync([
+    USERNAME_DEPOSIT_SEED_BYTES,
+    Buffer.from(usernameHash),
+    tokenMint.toBuffer()
+  ], programId);
 }
 function findVaultPda(tokenMint, programId = PROGRAM_ID) {
   return PublicKey2.findProgramAddressSync([VAULT_SEED_BYTES, tokenMint.toBuffer()], programId);
@@ -21899,9 +21840,10 @@ class LoyalPrivateTransactionsClient {
   }
   async initializeUsernameDeposit(params) {
     const { username, tokenMint, payer, rpcOptions } = params;
-    const [usernameDepositPda] = findUsernameDepositPda(username, tokenMint);
+    const [usernameDepositPda] = await findUsernameDepositPda(username, tokenMint);
     await this.ensureNotDelegated(usernameDepositPda, "modifyBalance-depositPda", true);
-    const signature = await this.baseProgram.methods.initializeUsernameDeposit(username).accountsPartial({
+    const usernameHash = await sha256hash(username);
+    const signature = await this.baseProgram.methods.initializeUsernameDeposit(usernameHash).accountsPartial({
       payer,
       tokenMint,
       tokenProgram: TOKEN_PROGRAM_ID,
@@ -21953,7 +21895,7 @@ class LoyalPrivateTransactionsClient {
   async claimUsernameDepositToDeposit(params) {
     const { username, tokenMint, amount, recipient, session, rpcOptions } = params;
     this.validateUsername(username);
-    const [sourceUsernameDeposit] = findUsernameDepositPda(username, tokenMint);
+    const [sourceUsernameDeposit] = await findUsernameDepositPda(username, tokenMint);
     const [destinationDeposit] = findDepositPda(recipient, tokenMint);
     await this.ensureDelegated(sourceUsernameDeposit, "claimUsernameDepositToDeposit-sourceUsernameDeposit");
     await this.ensureDelegated(destinationDeposit, "claimUsernameDepositToDeposit-destinationDeposit");
@@ -22041,7 +21983,7 @@ class LoyalPrivateTransactionsClient {
   async createUsernamePermission(params) {
     const { username, tokenMint, session, authority, payer, rpcOptions } = params;
     this.validateUsername(username);
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [permissionPda] = findPermissionPda(depositPda);
     await this.ensureNotDelegated(depositPda, "createUsernamePermission-depositPda");
     if (await this.permissionAccountExists(permissionPda)) {
@@ -22106,10 +22048,11 @@ class LoyalPrivateTransactionsClient {
       rpcOptions
     } = params;
     this.validateUsername(username);
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [bufferPda] = findBufferPda(depositPda);
     const [delegationRecordPda] = findDelegationRecordPda(depositPda);
     const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+    const usernameHash = await sha256hash(username);
     await this.ensureNotDelegated(depositPda, "delegateUsernameDeposit-depositPda");
     const accounts = {
       payer,
@@ -22126,7 +22069,7 @@ class LoyalPrivateTransactionsClient {
     let signature;
     try {
       console.log("delegateUsernameDeposit Accounts:", prettyStringify(accounts));
-      signature = await this.baseProgram.methods.delegateUsernameDeposit(username, tokenMint).accountsPartial(accounts).rpc(rpcOptions);
+      signature = await this.baseProgram.methods.delegateUsernameDeposit(usernameHash, tokenMint).accountsPartial(accounts).rpc(rpcOptions);
       console.log("delegateUsernameDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection...");
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -22180,9 +22123,10 @@ class LoyalPrivateTransactionsClient {
       rpcOptions
     } = params;
     this.validateUsername(username);
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     await this.ensureDelegated(depositPda, "undelegateUsernameDeposit-depositPda");
-    const signature = await this.ephemeralProgram.methods.undelegateUsernameDeposit(username, tokenMint).accountsPartial({
+    const usernameHash = await sha256hash(username);
+    const signature = await this.ephemeralProgram.methods.undelegateUsernameDeposit(usernameHash, tokenMint).accountsPartial({
       payer,
       session,
       deposit: depositPda,
@@ -22234,7 +22178,7 @@ class LoyalPrivateTransactionsClient {
     } = params;
     this.validateUsername(username);
     const [sourceDepositPda] = findDepositPda(user, tokenMint);
-    const [destinationDepositPda] = findUsernameDepositPda(username, tokenMint);
+    const [destinationDepositPda] = await findUsernameDepositPda(username, tokenMint);
     await this.ensureDelegated(sourceDepositPda, "transferToUsernameDeposit-sourceDepositPda");
     await this.ensureDelegated(destinationDepositPda, "transferToUsernameDeposit-destinationDepositPda");
     const accounts = {
@@ -22278,11 +22222,11 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async getBaseUsernameDeposit(username, tokenMint) {
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     try {
       const account = await this.baseProgram.account.usernameDeposit.fetch(depositPda);
       return {
-        username: account.username,
+        usernameHash: account.usernameHash,
         tokenMint: account.tokenMint,
         amount: BigInt(account.amount.toString()),
         address: depositPda
@@ -22292,11 +22236,11 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async getEphemeralUsernameDeposit(username, tokenMint) {
-    const [depositPda] = findUsernameDepositPda(username, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     try {
       const account = await this.ephemeralProgram.account.usernameDeposit.fetch(depositPda);
       return {
-        username: account.username,
+        usernameHash: account.usernameHash,
         tokenMint: account.tokenMint,
         amount: BigInt(account.amount.toString()),
         address: depositPda
@@ -22304,15 +22248,6 @@ class LoyalPrivateTransactionsClient {
     } catch {
       return null;
     }
-  }
-  findDepositPda(user, tokenMint) {
-    return findDepositPda(user, tokenMint, PROGRAM_ID);
-  }
-  findUsernameDepositPda(username, tokenMint) {
-    return findUsernameDepositPda(username, tokenMint, PROGRAM_ID);
-  }
-  findVaultPda(tokenMint) {
-    return findVaultPda(tokenMint, PROGRAM_ID);
   }
   get publicKey() {
     return this.wallet.publicKey;

@@ -99,18 +99,6 @@ export declare class LoyalPrivateTransactionsClient {
     getBaseUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
     getEphemeralUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
     /**
-     * Find the deposit PDA for a user and token mint
-     */
-    findDepositPda(user: PublicKey, tokenMint: PublicKey): [PublicKey, number];
-    /**
-     * Find the username deposit PDA
-     */
-    findUsernameDepositPda(username: string, tokenMint: PublicKey): [PublicKey, number];
-    /**
-     * Find the vault PDA
-     */
-    findVaultPda(tokenMint: PublicKey): [PublicKey, number];
-    /**
      * Get the connected wallet's public key
      */
     get publicKey(): PublicKey;
