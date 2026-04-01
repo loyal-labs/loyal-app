@@ -230,19 +230,14 @@ fn decode_deposit_account(data: &[u8]) -> Result<DepositAccountData> {
 }
 
 fn decode_username_deposit_account(data: &[u8]) -> Result<UsernameDepositAccountData> {
-    if data.len() < 8 + 4 + 32 + 8 {
+    if data.len() < 8 + 32 + 32 + 8 {
         bail!("username deposit account data too short");
     }
     if data[..8] != USERNAME_DEPOSIT_DISCRIMINATOR {
         bail!("invalid username deposit discriminator");
     }
 
-    let username_len =
-        u32::from_le_bytes(data[8..12].try_into().context("invalid username length")?) as usize;
-    let amount_offset = 12 + username_len + 32;
-    if data.len() < amount_offset + 8 {
-        bail!("username deposit account malformed");
-    }
+    let amount_offset = 8 + 32 + 32;
 
     let amount = u64::from_le_bytes(
         data[amount_offset..amount_offset + 8]
@@ -535,28 +530,17 @@ fn decode_ix_args(disc: &[u8; 8], data: &[u8]) -> Option<String> {
             let mint = Pubkey::try_from(&args[32..64]).ok()?;
             Some(format!("user={user} mint={mint}"))
         }
-        // username: String (borsh), token_mint: Pubkey
-        d if *d == IX_DELEGATE_USERNAME_DEPOSIT
-            || *d == IX_UNDELEGATE_USERNAME_DEPOSIT
-            || *d == IX_INITIALIZE_USERNAME_DEPOSIT =>
-        {
-            if args.len() < 4 {
+        // username_hash: [u8; 32], token_mint: Pubkey
+        d if *d == IX_DELEGATE_USERNAME_DEPOSIT || *d == IX_UNDELEGATE_USERNAME_DEPOSIT => {
+            if args.len() < 64 {
                 return None;
             }
-            let len = u32::from_le_bytes(args[..4].try_into().ok()?) as usize;
-            if args.len() < 4 + len {
-                return None;
-            }
-            let username = String::from_utf8_lossy(&args[4..4 + len]);
-            let rest = &args[4 + len..];
-            if rest.len() >= 32 {
-                let mint = Pubkey::try_from(&rest[..32]).ok()?;
-                Some(format!("username=\"{username}\" mint={mint}"))
-            } else if *d == IX_INITIALIZE_USERNAME_DEPOSIT {
-                Some(format!("username=\"{username}\""))
-            } else {
-                None
-            }
+            let mint = Pubkey::try_from(&args[32..64]).ok()?;
+            Some(format!("username_hash={} mint={mint}", to_hex(&args[..32])))
+        }
+        // username_hash: [u8; 32]
+        d if *d == IX_INITIALIZE_USERNAME_DEPOSIT && args.len() >= 32 => {
+            Some(format!("username_hash={}", to_hex(&args[..32])))
         }
         _ => None,
     }
