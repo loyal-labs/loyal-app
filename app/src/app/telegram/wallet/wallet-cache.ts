@@ -56,7 +56,7 @@ export const mapDepositToIncomingTransaction = (
     id: `${senderBase58}-${deposit.lastNonce}`,
     amountLamports: deposit.amount,
     sender: senderBase58,
-    username: deposit.username,
+    username: "@unknown",
   };
 };
 
