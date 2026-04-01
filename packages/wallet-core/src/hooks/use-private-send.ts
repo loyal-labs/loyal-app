@@ -266,14 +266,14 @@ export function usePrivateSend(
 							username,
 							payer: user,
 						});
-						const [pda] = findUsernameDepositPda(
+						const [pda] = await findUsernameDepositPda(
 							username,
 							tokenMint,
 						);
 						await waitForAccount(connection, pda);
 					}
 
-					const [pda] = findUsernameDepositPda(
+					const [pda] = await findUsernameDepositPda(
 						username,
 						tokenMint,
 					);

@@ -207,11 +207,11 @@ export function usePrivateSend() {
 
           if (!existingBase && !existingEphemeral) {
             await client.initializeUsernameDeposit({ tokenMint, username, payer: user });
-            const [pda] = findUsernameDepositPda(username, tokenMint);
+            const [pda] = await findUsernameDepositPda(username, tokenMint);
             await waitForAccount(connection, pda);
           }
 
-          const [pda] = findUsernameDepositPda(username, tokenMint);
+          const [pda] = await findUsernameDepositPda(username, tokenMint);
           const baseInfo = await connection.getAccountInfo(pda);
           if (!baseInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
             await client.delegateUsernameDeposit({ tokenMint, username, payer: user, validator });
