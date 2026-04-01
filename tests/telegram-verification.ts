@@ -256,7 +256,7 @@ describe.only("telegram-verification test suite", () => {
 
   it("User B stores initData in new TelegramSession PDA", async () => {
     [sessionPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tg_session"), otherUser.toBuffer()],
+      [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
       verificationProgram.programId
     );
 
@@ -285,7 +285,7 @@ describe.only("telegram-verification test suite", () => {
 
   it("User B stores initData in existing TelegramSession PDA", async () => {
     [sessionPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tg_session"), otherUser.toBuffer()],
+      [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
       verificationProgram.programId
     );
 

@@ -245,7 +245,7 @@ function tryParseProgramAccount(params: {
       const decoded = parseUsernameDepositData(data);
       const [expected] = PublicKey.findProgramAddressSync(
         [
-          Buffer.from("username_deposit"),
+          Buffer.from("username_deposit_v2"),
           Buffer.from(decoded.username),
           decoded.tokenMint.toBuffer(),
         ],
