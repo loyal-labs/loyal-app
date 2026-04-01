@@ -70,6 +70,12 @@ export const pendingDappApproval = storage.defineItem<{
   { fallback: null },
 );
 
+/** Whether the user has completed (or skipped) the onboarding carousel */
+export const onboardingCompleted = storage.defineItem<boolean>(
+  "local:onboardingCompleted",
+  { fallback: false },
+);
+
 /** Full dApp request payload for signing (stored so background can sign after approval) */
 export const pendingDappRequestPayload = storage.defineItem<{
   type: "DAPP_SIGN_TRANSACTION_REQUEST" | "DAPP_SIGN_MESSAGE_REQUEST";

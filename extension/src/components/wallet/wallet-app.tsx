@@ -42,8 +42,13 @@ import { DappApprovalView } from "./dapp-approval-view";
 import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
-import { pendingDappApproval, connectedDappOrigins } from "~/src/lib/storage";
+import {
+  pendingDappApproval,
+  connectedDappOrigins,
+  onboardingCompleted,
+} from "~/src/lib/storage";
 import type { DappConnectResponse } from "~/src/lib/dapp-messages";
+import { OnboardingScreen } from "./onboarding-screen";
 
 // ---------------------------------------------------------------------------
 // Default token constants
@@ -1526,6 +1531,14 @@ function WalletAppInner() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [displayState, setDisplayState] = useState(state);
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+
+  // Check onboarding flag on mount
+  useEffect(() => {
+    void onboardingCompleted.getValue().then((done) => {
+      setShowOnboarding(!done);
+    });
+  }, []);
 
   useEffect(() => {
     const prev = prevStateRef.current;
@@ -1546,7 +1559,7 @@ function WalletAppInner() {
     setDisplayState(state);
   }, [state]);
 
-  if (displayState === "loading") {
+  if (displayState === "loading" || showOnboarding === null) {
     return (
       <div
         style={{
@@ -1568,6 +1581,10 @@ function WalletAppInner() {
         />
       </div>
     );
+  }
+
+  if (displayState === "noWallet" && showOnboarding) {
+    return <OnboardingScreen onComplete={() => setShowOnboarding(false)} />;
   }
 
   const screen =
