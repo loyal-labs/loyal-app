@@ -24,6 +24,7 @@ import {
   viewMode as viewModeStorage,
 } from "~/src/lib/storage";
 
+import { PORTFOLIO_EVENTS } from "./portfolio-analytics";
 import { SETTINGS_EVENTS } from "./settings-analytics";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -378,7 +379,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   void navigator.clipboard.writeText(publicKey);
                   setCopiedAddress(true);
                   setTimeout(() => setCopiedAddress(false), 1500);
-                  track(SETTINGS_EVENTS.copyAddress, { source: "settings" });
+                  track(PORTFOLIO_EVENTS.copyAddress, { source: "settings" });
                 }
               }}
             >

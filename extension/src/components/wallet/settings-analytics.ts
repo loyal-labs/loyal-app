@@ -3,5 +3,4 @@ export const SETTINGS_EVENTS = {
   changeViewMode: "Change View Mode",
   changeAutoLockTimeout: "Change Auto-Lock Timeout",
   revealPrivateKey: "Reveal Private Key",
-  copyAddress: "Copy Address",
 } as const;
