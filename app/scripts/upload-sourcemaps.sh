@@ -19,7 +19,4 @@ npx datadog-ci sourcemaps upload .next/static \
   --release-version="$COMMIT_HASH" \
   --minified-path-prefix=/_next/static/
 
-echo "Removing source maps from build output"
-find .next/static -name '*.map' -delete
-
 echo "Source map upload complete"

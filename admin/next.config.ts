@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname, ".."),
   },
   transpilePackages: ["@loyal-labs/db-core", "@loyal-labs/db-adapter-neon"],
+  productionBrowserSourceMaps: true,
 };
 
 export default nextConfig;
