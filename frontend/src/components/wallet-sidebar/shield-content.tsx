@@ -153,9 +153,11 @@ export { SwapShieldTabs };
 function StatusHeader({
   title,
   onClose,
+  onBack,
 }: {
   title: string;
   onClose: () => void;
+  onBack?: () => void;
 }) {
   return (
     <div
@@ -164,14 +166,39 @@ function StatusHeader({
         alignItems: "center",
         justifyContent: "space-between",
         padding: "8px",
+        gap: "8px",
       }}
     >
+      {onBack && (
+        <button
+          className="shield-close"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+            flexShrink: 0,
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      )}
       <div
         style={{
           flex: 1,
-          paddingLeft: "12px",
+          paddingLeft: onBack ? "0" : "12px",
           paddingTop: "4px",
           paddingBottom: "4px",
+          textAlign: onBack ? "center" : undefined,
         }}
       >
         <span
@@ -201,6 +228,7 @@ function StatusHeader({
           cursor: "pointer",
           transition: "all 0.2s ease",
           color: "#3C3C43",
+          flexShrink: 0,
         }}
         type="button"
       >
@@ -447,6 +475,7 @@ export function ShieldContent({
   onClose,
   onDone,
   onNavigate,
+  onBack,
   token: tokenProp,
   onTokenChange,
   securedBalance,
@@ -459,6 +488,7 @@ export function ShieldContent({
   onClose: () => void;
   onDone: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onBack?: () => void;
   token: SwapToken;
   onTokenChange: (t: SwapToken) => void;
   securedBalance: number;
@@ -523,10 +553,13 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
-      const val = pct === 100 ? bal : bal * (pct / 100);
+      let val = pct === 100 ? bal : bal * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL" && bal - val < 0.00005) {
+        val = Math.max(0, bal - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [sourceBalance]
+    [sourceBalance, token.symbol]
   );
 
   const handleConfirm = useCallback(async () => {
@@ -594,7 +627,7 @@ export function ShieldContent({
       disabled: buttonDisabled,
       onClick: handleConfirm,
     });
-  });
+  }, [hideFormChrome, onFormButtonChange, phase, buttonLabel, buttonDisabled, handleConfirm]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);
@@ -634,6 +667,7 @@ export function ShieldContent({
           `}</style>
 
           <StatusHeader
+            onBack={onBack}
             onClose={onClose}
             title={direction === "shield" ? "Shield" : "Unshield"}
           />
@@ -784,6 +818,7 @@ export function ShieldContent({
           `}</style>
 
           <StatusHeader
+            onBack={onBack}
             onClose={onClose}
             title={
               isSuccess
@@ -968,6 +1003,7 @@ export function ShieldContent({
           `}</style>
 
           <StatusHeader
+            onBack={onBack}
             onClose={onClose}
             title={direction === "shield" ? "Shielded" : "Unshielded"}
           />

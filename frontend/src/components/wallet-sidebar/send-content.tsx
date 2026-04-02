@@ -422,10 +422,13 @@ export function SendContent({
 
   const handlePercentage = useCallback(
     (pct: number) => {
-      const val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      let val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL" && token.balance - val < 0.00005) {
+        val = Math.max(0, token.balance - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [token.balance],
+    [token.balance, token.symbol],
   );
 
   const handleConfirm = useCallback(async () => {

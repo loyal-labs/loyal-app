@@ -25,6 +25,14 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { trackWalletShieldCompleted } from "@/lib/core/analytics";
 import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
 
+function cleanSolanaErrorMessage(message: string): string {
+  const logsIndex = message.indexOf("Logs:");
+  if (logsIndex !== -1) {
+    return message.slice(0, logsIndex).trim();
+  }
+  return message;
+}
+
 export type ShieldResult = {
   signature?: string;
   success: boolean;
@@ -192,7 +200,7 @@ export function useShield() {
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
             ? "Transaction was rejected in your wallet."
-            : err.message;
+            : cleanSolanaErrorMessage(err.message);
         }
         setError(errorMessage);
         setLoading(false);
@@ -276,7 +284,7 @@ export function useShield() {
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
             ? "Transaction was rejected in your wallet."
-            : err.message;
+            : cleanSolanaErrorMessage(err.message);
         }
         setError(errorMessage);
         setLoading(false);

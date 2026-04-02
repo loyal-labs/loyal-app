@@ -20,6 +20,10 @@ export default defineConfig({
       "../packages/shared/src",
       import.meta.url
     ).pathname,
+    "@loyal-labs/private-transactions": new URL(
+      "../sdk/private-transactions/dist/index.js",
+      import.meta.url
+    ).pathname,
   },
 
   manifest: ({ mode, browser }) => ({

@@ -1067,8 +1067,8 @@ export function SwapContent({
     (pct: number) => {
       let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
-      if (pct === 100 && fromToken.symbol.toUpperCase() === "SOL") {
-        val = Math.max(0, val - 0.00005);
+      if (fromToken.symbol.toUpperCase() === "SOL" && fromToken.balance - val < 0.00005) {
+        val = Math.max(0, fromToken.balance - 0.00005);
       }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },

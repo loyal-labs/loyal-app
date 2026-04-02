@@ -24,6 +24,14 @@ const logger = {
   },
 };
 
+function cleanSolanaErrorMessage(message: string): string {
+  const logsIndex = message.indexOf("Logs:");
+  if (logsIndex !== -1) {
+    return message.slice(0, logsIndex).trim();
+  }
+  return message;
+}
+
 // Constants
 const PERCENTAGE_MULTIPLIER = 100;
 
@@ -353,7 +361,7 @@ export function useSwap() {
           } else if (err.message.includes("User rejected")) {
             errorMessage = "Transaction was rejected in your wallet.";
           } else {
-            errorMessage = err.message;
+            errorMessage = cleanSolanaErrorMessage(err.message);
           }
         }
 

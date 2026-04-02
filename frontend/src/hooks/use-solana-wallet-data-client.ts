@@ -50,6 +50,7 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
         // Compute all deposit PDAs and fetch account data in a single batch
         const mintEntries = Array.from(uniqueMints.entries());
         const pdas = mintEntries.map(([, mint]) => findDepositPda(owner, mint)[0]);
+
         const accountInfos = await baseConnection.getMultipleAccountsInfo(pdas);
 
         const rawDeposits = new Map<string, bigint>();

@@ -523,8 +523,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onNavigate={navigateFn}
           onOpenReceive={() => navigateFn({ type: "receivePanel" })}
           onOpenSend={() => navigateFn({ type: "sendPanel" })}
-          onOpenSwap={() => navigateFn({ type: "swapPanel", mode: "swap" })}
-          onOpenShield={() => navigateFn({ type: "swapPanel", mode: "shield" })}
+          onOpenSwap={() => { handleSwapModeChange("swap"); navigateFn({ type: "swapPanel", mode: "swap" }); }}
+          onOpenShield={() => { handleSwapModeChange("shield"); navigateFn({ type: "swapPanel", mode: "shield" }); }}
         />
       );
     }
@@ -568,11 +568,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       );
     }
     if (type === "swapPanel") {
-      const swapView = view as { type: "swapPanel"; mode?: "swap" | "shield" };
-      const panelMode = swapView.mode ?? "swap";
+      const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
       return (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-          <SwapShieldTabs mode={panelMode} onBack={onBack} onClose={props.onClose} onModeChange={(m) => { setSwapMode(m); }} />
+          {showTabs && (
+            <SwapShieldTabs mode={swapMode} onBack={onBack} onClose={props.onClose} onModeChange={handleSwapModeChange} />
+          )}
           <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
             <div
               style={{
@@ -580,7 +581,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 inset: 0,
                 display: "flex",
                 flexDirection: "column",
-                transform: panelMode === "swap" ? "translateX(0)" : "translateX(-100%)",
+                transform: swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
                 transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
                 willChange: "transform",
               }}
@@ -588,15 +589,16 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               <SwapContent
                 fromToken={swapFromToken}
                 hideFormChrome
+                onBack={onBack}
                 onClose={props.onClose}
                 onDone={() => { resetViews(); }}
                 onFormActiveChange={setSwapFormActive}
                 onFormButtonChange={setSwapButtonProps}
                 onFromTokenChange={setSwapFromToken}
                 onNavigate={navigateFn}
-                onSwapModeChange={(m) => { setSwapMode(m); }}
+                onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
-                swapMode={panelMode}
+                swapMode={swapMode}
                 toToken={swapToToken}
               />
             </div>
@@ -606,26 +608,58 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 inset: 0,
                 display: "flex",
                 flexDirection: "column",
-                transform: panelMode === "shield" ? "translateX(0)" : "translateX(100%)",
+                transform: swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
                 transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
                 willChange: "transform",
               }}
             >
               <ShieldContent
                 hideFormChrome
+                onBack={onBack}
                 onClose={props.onClose}
                 onDone={() => { resetViews(); }}
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
                 onNavigate={navigateFn}
-                onSwapModeChange={(m) => { setSwapMode(m); }}
+                onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
                 securedBalance={shieldSecuredBalance}
-                swapMode={panelMode}
+                swapMode={swapMode}
                 token={shieldToken}
               />
             </div>
           </div>
+
+          {/* Shared bottom button — stays fixed */}
+          {(() => {
+            const btnProps = swapMode === "swap" ? swapButtonProps : shieldButtonProps;
+            return btnProps ? (
+              <div style={{ padding: "16px 20px" }}>
+                <button
+                  disabled={btnProps.disabled}
+                  onClick={btnProps.onClick}
+                  style={{
+                    width: "100%",
+                    padding: "12px 16px",
+                    borderRadius: "9999px",
+                    background: btnProps.disabled ? "#CCCDCD" : "#000",
+                    border: "none",
+                    cursor: btnProps.disabled ? "default" : "pointer",
+                    fontFamily: "var(--font-geist-sans), sans-serif",
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#fff",
+                    textAlign: "center",
+                    transition: "background 0.15s ease",
+                  }}
+                  type="button"
+                >
+                  {btnProps.label}
+                </button>
+              </div>
+            ) : null;
+          })()}
         </div>
       );
     }
@@ -835,8 +869,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onSeeAllApprovals={() => pushView("allApprovals")}
                   onOpenReceive={() => pushView({ type: "receivePanel" })}
                   onOpenSend={() => pushView({ type: "sendPanel" })}
-                  onOpenSwap={() => pushView({ type: "swapPanel", mode: "swap" })}
-                  onOpenShield={() => pushView({ type: "swapPanel", mode: "shield" })}
+                  onOpenSwap={() => { handleSwapModeChange("swap"); pushView({ type: "swapPanel", mode: "swap" }); }}
+                  onOpenShield={() => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); }}
                   onOpenStash={() =>
                     setLeftPanel((prev) =>
                       prev?.type === "stashPage"

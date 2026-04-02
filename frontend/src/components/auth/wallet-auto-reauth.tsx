@@ -4,7 +4,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
-import { signWalletProofMessage } from "@/lib/auth/wallet-proof-signer";
+import { WalletProofSignerError, signWalletProofMessage } from "@/lib/auth/wallet-proof-signer";
 
 type ReauthStatus = "idle" | "awaiting_signature" | "verifying" | "done" | "dismissed" | "rejected";
 
@@ -57,8 +57,20 @@ export function WalletAutoReauth() {
         setStatus("done");
         console.log("[wallet-auto-reauth] session restored for", walletAddress);
       } catch (error) {
-        failedRef.current = true;
-        setStatus("rejected");
+        // Only show "rejected" banner for actual signature rejections.
+        // Network/CORS/API errors (e.g. auth server unreachable from this domain)
+        // are silently ignored so they don't block wallet usage.
+        const isSignatureRejection =
+          error instanceof WalletProofSignerError &&
+          error.code === "wallet_signature_rejected";
+        if (isSignatureRejection) {
+          failedRef.current = true;
+          setStatus("rejected");
+        } else {
+          // Reset so user can retry later if needed
+          attemptedAddressRef.current = null;
+          setStatus("idle");
+        }
         console.warn("[wallet-auto-reauth] re-auth failed:", error);
       }
     }

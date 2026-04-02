@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import lottie from "lottie-web/build/player/lottie_light";
 import {
   ArrowDownLeft,
@@ -1180,6 +1180,12 @@ function WalletInterface() {
     addLocalActivity,
   } = walletData;
 
+  const shieldSecuredBalance = useMemo(() => {
+    if (!shieldToken.mint) return 0;
+    const position = positions.find((p) => p.asset.mint === shieldToken.mint);
+    return position?.securedBalance ?? 0;
+  }, [shieldToken.mint, positions]);
+
   // Convert allTokenRows to SwapToken[] for token-select views
   const swapTokens: SwapToken[] = positions.map((p) => ({
     mint: p.asset.mint,
@@ -1268,7 +1274,7 @@ function WalletInterface() {
             onClose={handleClose}
             onNavigate={handleNavigate}
             onDone={handleDone}
-            securedBalance={0}
+            securedBalance={shieldSecuredBalance}
             swapMode={swapMode}
             onSwapModeChange={handleSwapModeChange}
           />
