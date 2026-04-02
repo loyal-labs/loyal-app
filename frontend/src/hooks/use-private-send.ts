@@ -201,7 +201,8 @@ export function usePrivateSend() {
 
         if (params.recipientType === "telegram") {
           // Transfer to username
-          const username = params.recipient;
+          const mixedCaseUsername = params.recipient;
+          const username = mixedCaseUsername.toLowerCase();
           const existingBase = await client.getBaseUsernameDeposit(username, tokenMint);
           const existingEphemeral = await client.getEphemeralUsernameDeposit(username, tokenMint);
 

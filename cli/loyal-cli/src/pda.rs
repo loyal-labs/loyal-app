@@ -253,6 +253,10 @@ pub(crate) fn username_hash_bytes(username: &str) -> [u8; 32] {
     sha256_hash(username.as_bytes()).to_bytes()
 }
 
+/// Username must be between 5 and 32 characters
+/// Username can only contain lowercase alphanumeric characters and underscores
+/// Source: https://limits.tginfo.me/en
+/// Source: https://telegram.org/faq#q-what-can-i-use-as-my-username
 pub(crate) fn validate_username(username: &str) -> Result<()> {
     if !(5..=32).contains(&username.len()) {
         bail!("username must be between 5 and 32 characters");
@@ -260,9 +264,9 @@ pub(crate) fn validate_username(username: &str) -> Result<()> {
     if !username
         .as_bytes()
         .iter()
-        .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        .all(|b| matches!(*b, b'0'..=b'9') || matches!(*b, b'a'..=b'z') || *b == b'_')
     {
-        bail!("username can only contain [a-zA-Z0-9_]");
+        bail!("username can only contain [a-z0-9_]");
     }
     Ok(())
 }
