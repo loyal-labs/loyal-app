@@ -22,7 +22,7 @@ import type {
   SwapToken,
 } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
-import type { Keypair } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import { generateKeypair } from "~/src/lib/keypair-storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
 import { PinInput } from "./shared";
@@ -49,6 +49,13 @@ import {
 } from "~/src/lib/storage";
 import type { DappConnectResponse } from "~/src/lib/dapp-messages";
 import { OnboardingScreen } from "./onboarding-screen";
+import {
+  initAnalytics,
+  identifyWallet,
+  track,
+  resetAnalytics,
+} from "~/src/lib/analytics";
+import { WALLET_SETUP_EVENTS } from "./wallet-setup-analytics";
 
 // ---------------------------------------------------------------------------
 // Default token constants
@@ -228,20 +235,17 @@ function CreateWalletScreen({
         .join("")
     : "";
 
-  const handleGenerateKeypair = useCallback(
-    async (finalPin: string) => {
-      setLoading(true);
-      try {
-        const keypair = await generateKeypair(finalPin);
-        setPendingKeypair(keypair);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to create wallet");
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+  const handleGenerateKeypair = useCallback(async (finalPin: string) => {
+    setLoading(true);
+    try {
+      const keypair = await generateKeypair(finalPin);
+      setPendingKeypair(keypair);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create wallet");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const handleCopyKey = useCallback(() => {
     void navigator.clipboard.writeText(secretKeyHex).then(() => {
@@ -262,6 +266,8 @@ function CreateWalletScreen({
 
   const handleBackupConfirmed = useCallback(() => {
     if (!pendingKeypair) return;
+    identifyWallet(pendingKeypair.publicKey.toBase58(), "created");
+    track(WALLET_SETUP_EVENTS.walletCreated);
     finalizeSigner(pendingKeypair);
   }, [pendingKeypair, finalizeSigner]);
 
@@ -297,6 +303,9 @@ function CreateWalletScreen({
       setError(null);
       setLoading(true);
       await importWallet(bytes, pin);
+      const importedKeypair = Keypair.fromSecretKey(bytes);
+      identifyWallet(importedKeypair.publicKey.toBase58(), "imported");
+      track(WALLET_SETUP_EVENTS.walletImported);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Invalid secret key or import failed"
@@ -341,231 +350,231 @@ function CreateWalletScreen({
           transition: "opacity 0.3s ease, transform 0.3s ease",
         }}
       >
-      {/* Branding cluster — shield + logotype tight together */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "4px",
-          marginBottom: "32px",
-        }}
-      >
-        <ShieldAnimation size={80} />
-        <Logotype />
-      </div>
-
-      {/* Tab toggle */}
-      <div
-        style={{
-          display: "flex",
-          gap: "6px",
-          width: "100%",
-          marginBottom: "24px",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            setMode("create");
-            setError(null);
-            setStep("enter");
-            setPin("");
-            setConfirmPin("");
-          }}
+        {/* Branding cluster — shield + logotype tight together */}
+        <div
           style={{
-            flex: 1,
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            padding: "8px 0",
-            borderRadius: "12px",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "14px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            background: mode === "create" ? "#000" : "rgba(0, 0, 0, 0.04)",
-            color: mode === "create" ? "#fff" : "#000",
-            transition: "background 0.15s ease, color 0.15s ease",
+            gap: "4px",
+            marginBottom: "32px",
           }}
         >
-          Create
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMode("import");
-            setError(null);
-            setStep("enter");
-            setPin("");
-            setConfirmPin("");
-          }}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "8px 0",
-            borderRadius: "12px",
-            border: "none",
-            cursor: "pointer",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "14px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            background: mode === "import" ? "#000" : "rgba(0, 0, 0, 0.04)",
-            color: mode === "import" ? "#fff" : "#000",
-            transition: "background 0.15s ease, color 0.15s ease",
-          }}
-        >
-          Import
-        </button>
-      </div>
-
-      {/* PIN input — don't pass disabled during create loading to prevent layout shift */}
-      <PinInput
-        value={step === "enter" ? pin : confirmPin}
-        onChange={step === "enter" ? setPin : setConfirmPin}
-        onComplete={handlePinComplete}
-        error={!!error}
-        label={pinLabel}
-      />
-
-      {/* Back button — always rendered to reserve space and prevent layout shift */}
-      <button
-        type="button"
-        onClick={handleBack}
-        style={{
-          marginTop: "12px",
-          background: "none",
-          border: "none",
-          cursor: step === "confirm" ? "pointer" : "default",
-          fontFamily: "var(--font-geist-sans), sans-serif",
-          fontSize: "13px",
-          fontWeight: 500,
-          lineHeight: "16px",
-          color: "rgba(60, 60, 67, 0.6)",
-          padding: "4px 8px",
-          opacity: step === "confirm" && !showImportField ? 1 : 0,
-          pointerEvents:
-            step === "confirm" && !showImportField ? "auto" : "none",
-          transition: "opacity 0.15s ease",
-        }}
-      >
-        Re-enter PIN
-      </button>
-
-      {/* Import key field + button — animated reveal after PIN is confirmed */}
-      <div
-        style={{
-          width: "100%",
-          overflow: "hidden",
-          maxHeight: showImportField ? "300px" : "0px",
-          opacity: showImportField ? 1 : 0,
-          transition:
-            "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
-        }}
-      >
-        <div style={{ width: "100%", marginTop: "16px" }}>
-          <div style={{ position: "relative", width: "100%" }}>
-            <textarea
-              placeholder="Private key (hex)"
-              value={secretKeyInput}
-              onChange={(e) => setSecretKeyInput(e.target.value)}
-              rows={4}
-              style={{
-                width: "100%",
-                background: "#fff",
-                border: "none",
-                borderRadius: "16px",
-                padding: "12px 40px 12px 16px",
-                fontFamily: showImportKey
-                  ? "monospace"
-                  : "'text-security-disc', monospace",
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "18px",
-                color: "#000",
-                outline: "none",
-                resize: "none",
-                boxSizing: "border-box",
-                wordBreak: "break-all",
-                ...(showImportKey
-                  ? {}
-                  : { WebkitTextSecurity: "disc" as never }),
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowImportKey(!showImportKey)}
-              style={{
-                position: "absolute",
-                right: "12px",
-                top: "12px",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: "2px",
-                display: "flex",
-                alignItems: "center",
-                color: "rgba(60, 60, 67, 0.6)",
-              }}
-            >
-              {showImportKey ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
+          <ShieldAnimation size={80} />
+          <Logotype />
         </div>
 
-        {/* Import button */}
-        {(() => {
-          const isDisabled = loading || !secretKeyInput.trim();
-          return (
-            <button
-              type="button"
-              disabled={isDisabled}
-              onClick={handleImport}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "12px 16px",
-                marginTop: "16px",
-                borderRadius: "9999px",
-                border: "none",
-                cursor: isDisabled ? "default" : "pointer",
-                background: isDisabled ? "#CCCDCD" : "#000",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#fff",
-                textAlign: "center",
-                transition: "background 0.15s ease",
-              }}
-            >
-              {loading ? "Working..." : "Import Wallet"}
-            </button>
-          );
-        })()}
-      </div>
-
-      {error && (
-        <p
+        {/* Tab toggle */}
+        <div
           style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            lineHeight: "16px",
-            color: "#FF3B30",
-            textAlign: "center",
-            marginTop: "8px",
+            display: "flex",
+            gap: "6px",
+            width: "100%",
+            marginBottom: "24px",
           }}
         >
-          {error}
-        </p>
-      )}
+          <button
+            type="button"
+            onClick={() => {
+              setMode("create");
+              setError(null);
+              setStep("enter");
+              setPin("");
+              setConfirmPin("");
+            }}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "8px 0",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              background: mode === "create" ? "#000" : "rgba(0, 0, 0, 0.04)",
+              color: mode === "create" ? "#fff" : "#000",
+              transition: "background 0.15s ease, color 0.15s ease",
+            }}
+          >
+            Create
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("import");
+              setError(null);
+              setStep("enter");
+              setPin("");
+              setConfirmPin("");
+            }}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "8px 0",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              background: mode === "import" ? "#000" : "rgba(0, 0, 0, 0.04)",
+              color: mode === "import" ? "#fff" : "#000",
+              transition: "background 0.15s ease, color 0.15s ease",
+            }}
+          >
+            Import
+          </button>
+        </div>
+
+        {/* PIN input — don't pass disabled during create loading to prevent layout shift */}
+        <PinInput
+          value={step === "enter" ? pin : confirmPin}
+          onChange={step === "enter" ? setPin : setConfirmPin}
+          onComplete={handlePinComplete}
+          error={!!error}
+          label={pinLabel}
+        />
+
+        {/* Back button — always rendered to reserve space and prevent layout shift */}
+        <button
+          type="button"
+          onClick={handleBack}
+          style={{
+            marginTop: "12px",
+            background: "none",
+            border: "none",
+            cursor: step === "confirm" ? "pointer" : "default",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            fontWeight: 500,
+            lineHeight: "16px",
+            color: "rgba(60, 60, 67, 0.6)",
+            padding: "4px 8px",
+            opacity: step === "confirm" && !showImportField ? 1 : 0,
+            pointerEvents:
+              step === "confirm" && !showImportField ? "auto" : "none",
+            transition: "opacity 0.15s ease",
+          }}
+        >
+          Re-enter PIN
+        </button>
+
+        {/* Import key field + button — animated reveal after PIN is confirmed */}
+        <div
+          style={{
+            width: "100%",
+            overflow: "hidden",
+            maxHeight: showImportField ? "300px" : "0px",
+            opacity: showImportField ? 1 : 0,
+            transition:
+              "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
+          }}
+        >
+          <div style={{ width: "100%", marginTop: "16px" }}>
+            <div style={{ position: "relative", width: "100%" }}>
+              <textarea
+                placeholder="Private key (hex)"
+                value={secretKeyInput}
+                onChange={(e) => setSecretKeyInput(e.target.value)}
+                rows={4}
+                style={{
+                  width: "100%",
+                  background: "#fff",
+                  border: "none",
+                  borderRadius: "16px",
+                  padding: "12px 40px 12px 16px",
+                  fontFamily: showImportKey
+                    ? "monospace"
+                    : "'text-security-disc', monospace",
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "18px",
+                  color: "#000",
+                  outline: "none",
+                  resize: "none",
+                  boxSizing: "border-box",
+                  wordBreak: "break-all",
+                  ...(showImportKey
+                    ? {}
+                    : { WebkitTextSecurity: "disc" as never }),
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowImportKey(!showImportKey)}
+                style={{
+                  position: "absolute",
+                  right: "12px",
+                  top: "12px",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "2px",
+                  display: "flex",
+                  alignItems: "center",
+                  color: "rgba(60, 60, 67, 0.6)",
+                }}
+              >
+                {showImportKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Import button */}
+          {(() => {
+            const isDisabled = loading || !secretKeyInput.trim();
+            return (
+              <button
+                type="button"
+                disabled={isDisabled}
+                onClick={handleImport}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "12px 16px",
+                  marginTop: "16px",
+                  borderRadius: "9999px",
+                  border: "none",
+                  cursor: isDisabled ? "default" : "pointer",
+                  background: isDisabled ? "#CCCDCD" : "#000",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#fff",
+                  textAlign: "center",
+                  transition: "background 0.15s ease",
+                }}
+              >
+                {loading ? "Working..." : "Import Wallet"}
+              </button>
+            );
+          })()}
+        </div>
+
+        {error && (
+          <p
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "13px",
+              lineHeight: "16px",
+              color: "#FF3B30",
+              textAlign: "center",
+              marginTop: "8px",
+            }}
+          >
+            {error}
+          </p>
+        )}
       </div>
 
       {/* Backup key screen — slides in from right */}
@@ -625,7 +634,8 @@ function CreateWalletScreen({
             maxWidth: "280px",
           }}
         >
-          This is your only way to recover the wallet. Save it somewhere safe — if you lose it, your funds are gone forever.
+          This is your only way to recover the wallet. Save it somewhere safe —
+          if you lose it, your funds are gone forever.
         </span>
 
         {/* Key display */}
@@ -764,6 +774,7 @@ function UnlockScreen() {
       setLoading(true);
       try {
         await unlock(enteredPin);
+        track(WALLET_SETUP_EVENTS.walletUnlocked);
       } catch {
         setError("Wrong PIN");
         setPin("");
@@ -955,6 +966,10 @@ function UnlockScreen() {
               onClick={() => {
                 const action = resetAction;
                 setResetAction(null);
+                track(WALLET_SETUP_EVENTS.walletReset, {
+                  new_mode: action === "import" ? "import" : "create",
+                });
+                resetAnalytics();
                 void resetWallet(action === "import" ? "import" : "create");
               }}
               style={{
@@ -1532,6 +1547,10 @@ function WalletAppInner() {
   const [transitioning, setTransitioning] = useState(false);
   const [displayState, setDisplayState] = useState(state);
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void initAnalytics();
+  }, []);
 
   // Check onboarding flag on mount
   useEffect(() => {
