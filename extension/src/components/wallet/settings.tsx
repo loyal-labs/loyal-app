@@ -264,6 +264,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
     "sidebar"
   );
   const [switchMessage, setSwitchMessage] = useState<string | null>(null);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
 
   useEffect(() => {
     void autoLockTimeout.getValue().then(setLockTimeout);
@@ -747,6 +748,55 @@ export function Settings({ onBack }: { onBack: () => void }) {
               });
             }}
           />
+          <div style={{ padding: "0 16px" }}>
+            <button
+              type="button"
+              onClick={() => setAnalyticsEnabled((v) => !v)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                width: "100%",
+                padding: "12px 0",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <div
+                style={{
+                  width: "20px",
+                  height: "20px",
+                  borderRadius: "6px",
+                  border: analyticsEnabled
+                    ? "none"
+                    : "1.5px solid rgba(60, 60, 67, 0.3)",
+                  background: analyticsEnabled ? "#000" : "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  transition: "background 0.15s ease, border 0.15s ease",
+                }}
+              >
+                {analyticsEnabled && (
+                  <Check size={14} style={{ color: "#fff" }} />
+                )}
+              </div>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "18px",
+                  color: secondary,
+                }}
+              >
+                Help us improve Loyal through anonymous analytics
+              </span>
+            </button>
+          </div>
         </Section>
 
         {/* Version */}
