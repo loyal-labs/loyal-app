@@ -5,6 +5,8 @@ import { useSend, usePrivateSend } from "@loyal-labs/wallet-core/hooks";
 
 import type { ActivityRow, SubView, SwapToken, TransactionDetail } from "@loyal-labs/wallet-core/types";
 
+import { getAnalyticsErrorProperties, track } from "~/src/lib/analytics";
+import { SEND_EVENTS, getSendMethod } from "./send-analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -442,6 +444,11 @@ export function SendContent({
     if (result.success) {
       setResultSignature(result.signature);
       setPhase("success");
+      track(SEND_EVENTS.sendFunds, {
+        method: getSendMethod(recipientTrimmed),
+        token_symbol: token.symbol,
+        amount: numericAmount,
+      });
       setAmount("");
       setRecipient("");
 
@@ -469,6 +476,11 @@ export function SendContent({
         addLocalActivity(syntheticRow, syntheticDetail);
       }
     } else {
+      track(SEND_EVENTS.sendFundsFailed, {
+        method: getSendMethod(recipientTrimmed),
+        token_symbol: token.symbol,
+        ...getAnalyticsErrorProperties(result.error),
+      });
       setErrorMessage(result.error);
       setPhase("error");
     }
