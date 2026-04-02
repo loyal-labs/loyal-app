@@ -1,5 +1,9 @@
 import { Globe } from "lucide-react";
+import { useEffect } from "react";
 
+import { track } from "~/src/lib/analytics";
+
+import { DAPP_EVENTS } from "./dapp-analytics";
 import { SubViewHeader } from "~/src/components/wallet/shared";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -16,7 +20,9 @@ function getTitle(kind: "connect" | "signTransaction" | "signMessage"): string {
   }
 }
 
-function getSubtitle(kind: "connect" | "signTransaction" | "signMessage"): string {
+function getSubtitle(
+  kind: "connect" | "signTransaction" | "signMessage"
+): string {
   switch (kind) {
     case "connect":
       return "wants to connect";
@@ -27,7 +33,9 @@ function getSubtitle(kind: "connect" | "signTransaction" | "signMessage"): strin
   }
 }
 
-function getPermissionsText(kind: "connect" | "signTransaction" | "signMessage"): {
+function getPermissionsText(
+  kind: "connect" | "signTransaction" | "signMessage"
+): {
   label: string;
   value: string;
 } {
@@ -35,17 +43,20 @@ function getPermissionsText(kind: "connect" | "signTransaction" | "signMessage")
     case "connect":
       return {
         label: "Permissions",
-        value: "This app requests access to view your wallet address and propose transactions for your approval.",
+        value:
+          "This app requests access to view your wallet address and propose transactions for your approval.",
       };
     case "signTransaction":
       return {
         label: "Action",
-        value: "This app is requesting your signature on a transaction. Review carefully before approving.",
+        value:
+          "This app is requesting your signature on a transaction. Review carefully before approving.",
       };
     case "signMessage":
       return {
         label: "Action",
-        value: "This app is requesting your signature on a message. Review carefully before approving.",
+        value:
+          "This app is requesting your signature on a message. Review carefully before approving.",
       };
   }
 }
@@ -79,6 +90,30 @@ export function DappApprovalView({
   const hostname = extractHostname(origin);
   const approveLabel = kind === "connect" ? "Connect" : "Sign";
 
+  useEffect(() => {
+    const event =
+      kind === "connect"
+        ? DAPP_EVENTS.connectRequested
+        : DAPP_EVENTS.signRequested;
+    track(event, { origin, kind });
+  }, [kind, origin]);
+
+  const handleDeny = () => {
+    const denyEvent =
+      kind === "connect" ? DAPP_EVENTS.connectDenied : DAPP_EVENTS.signDenied;
+    track(denyEvent, { origin, kind });
+    onDeny();
+  };
+
+  const handleApprove = () => {
+    const approveEvent =
+      kind === "connect"
+        ? DAPP_EVENTS.connectApproved
+        : DAPP_EVENTS.signApproved;
+    track(approveEvent, { origin, kind });
+    onApprove();
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <style>{`
@@ -91,7 +126,7 @@ export function DappApprovalView({
       `}</style>
 
       {/* Header */}
-      <SubViewHeader onBack={onDeny} onClose={onClose} title={title} />
+      <SubViewHeader onBack={handleDeny} onClose={onClose} title={title} />
 
       {/* Content */}
       <div
@@ -255,7 +290,7 @@ export function DappApprovalView({
         <div style={{ display: "flex", gap: "10px", width: "100%" }}>
           <button
             className="dapp-deny-btn"
-            onClick={onDeny}
+            onClick={handleDeny}
             style={{
               flex: 1,
               padding: "12px 16px",
@@ -277,7 +312,7 @@ export function DappApprovalView({
           </button>
           <button
             className="dapp-approve-btn"
-            onClick={onApprove}
+            onClick={handleApprove}
             style={{
               flex: 1,
               padding: "12px 16px",
