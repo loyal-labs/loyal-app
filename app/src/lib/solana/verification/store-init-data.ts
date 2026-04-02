@@ -21,7 +21,6 @@ export const storeInitData = async (
     .accounts({
       payer: userPublicKey,
       user: userPublicKey,
-      // @ts-expect-error - sessionPda is a PublicKey
       session: sessionPda,
       systemProgram: SystemProgram.programId,
     })
@@ -45,7 +44,6 @@ export const storeInitDataGasless = async (
     .accounts({
       payer: payer,
       user: userPublicKey,
-      // @ts-expect-error - sessionPda is a PublicKey
       session: sessionPda,
       systemProgram: SystemProgram.programId,
     })

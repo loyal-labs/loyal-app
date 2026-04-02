@@ -19,7 +19,7 @@ export const getDeposit = async (
 
   return {
     user: provider.publicKey,
-    usernameHash: deposit.usernameHash,
+    username,
     amount: Number(deposit.amount),
     lastNonce: 0,
     tokenMint: deposit.tokenMint,

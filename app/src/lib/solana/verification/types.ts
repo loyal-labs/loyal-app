@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 
 export type TelegramSessionData = {
   userWallet: PublicKey;
-  username: string;
+  usernameHash: number[];
   validationBytes: Buffer<ArrayBufferLike>;
   verified: boolean;
   authAt: number;

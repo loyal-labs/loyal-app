@@ -358,6 +358,8 @@ export class LoyalPrivateTransactionsClient {
   ): Promise<string> {
     const { username, tokenMint, payer, rpcOptions } = params;
 
+    this.validateUsername(username);
+
     const [usernameDepositPda] = await findUsernameDepositPda(
       username,
       tokenMint
@@ -1113,9 +1115,9 @@ export class LoyalPrivateTransactionsClient {
     if (!username || username.length < 5 || username.length > 32) {
       throw new Error("Username must be between 5 and 32 characters");
     }
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    if (!/^[a-z0-9_]+$/.test(username)) {
       throw new Error(
-        "Username can only contain alphanumeric characters and underscores"
+        "Username can only contain lowercase alphanumeric characters and underscores"
       );
     }
   }

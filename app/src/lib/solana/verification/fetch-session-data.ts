@@ -15,7 +15,7 @@ export const fetchSessionData = async (
   );
   return {
     userWallet: session.userWallet,
-    username: session.username,
+    usernameHash: session.usernameHash,
     validationBytes: session.validationBytes,
     verified: session.verified,
     authAt: session.authAt.toNumber(),

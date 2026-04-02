@@ -10,10 +10,11 @@ import { getPrivateClient } from "./private-client";
 
 const mapUsernameDepositToTelegramDeposit = (
   user: PublicKey,
-  deposit: UsernameDepositData,
+  username: string,
+  deposit: UsernameDepositData
 ): TelegramDeposit => ({
   user,
-  usernameHash: deposit.usernameHash,
+  username,
   amount: Number(deposit.amount),
   lastNonce: 0,
   tokenMint: deposit.tokenMint,
@@ -22,24 +23,24 @@ const mapUsernameDepositToTelegramDeposit = (
 
 export const getDepositWithUsername = async (
   user: PublicKey,
-  username: string,
+  username: string
 ): Promise<TelegramDeposit[]> => {
   const privateClient = await getPrivateClient();
   const deposit = await privateClient.getEphemeralUsernameDeposit(
     username,
-    NATIVE_MINT,
+    NATIVE_MINT
   );
   if (!deposit) {
     return [];
   }
 
-  return [mapUsernameDepositToTelegramDeposit(user, deposit)];
+  return [mapUsernameDepositToTelegramDeposit(user, username, deposit)];
 };
 
 export const subscribeToDepositsWithUsername = async (
   user: PublicKey,
   username: string,
-  onChange: (deposit: TelegramDeposit) => void,
+  onChange: (deposit: TelegramDeposit) => void
 ): Promise<() => Promise<void>> => {
   const privateClient = await getPrivateClient();
   const [depositPda] = await findUsernameDepositPda(username, NATIVE_MINT);
@@ -51,18 +52,18 @@ export const subscribeToDepositsWithUsername = async (
       try {
         const deposit = await privateClient.getEphemeralUsernameDeposit(
           username,
-          NATIVE_MINT,
+          NATIVE_MINT
         );
         if (!deposit || deposit.amount <= 0) {
           return;
         }
 
-        onChange(mapUsernameDepositToTelegramDeposit(user, deposit));
+        onChange(mapUsernameDepositToTelegramDeposit(user, username, deposit));
       } catch (error) {
         console.error("Failed to fetch username deposit account change", error);
       }
     },
-    { commitment: "confirmed" },
+    { commitment: "confirmed" }
   );
 
   return async () => {
