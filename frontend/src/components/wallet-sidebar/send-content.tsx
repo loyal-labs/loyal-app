@@ -38,7 +38,6 @@ function isTelegramUsername(value: string): boolean {
   );
 }
 
-
 function truncateAddress(addr: string): string {
   if (addr.length <= 10) return addr;
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
