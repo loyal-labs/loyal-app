@@ -18,7 +18,7 @@ export const storeInitData = async (
 
   await verificationProgram.methods
     .store(Buffer.from(initData))
-    .accounts({
+    .accountsPartial({
       payer: userPublicKey,
       user: userPublicKey,
       session: sessionPda,
@@ -41,7 +41,7 @@ export const storeInitDataGasless = async (
 
   const storeTx = await verificationProgram.methods
     .store(Buffer.from(initData))
-    .accounts({
+    .accountsPartial({
       payer: payer,
       user: userPublicKey,
       session: sessionPda,

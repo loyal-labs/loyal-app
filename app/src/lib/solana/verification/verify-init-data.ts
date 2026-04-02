@@ -27,7 +27,7 @@ export const verifyInitData = async (
 
   const verifyIx = await verificationProgram.methods
     .verifyTelegramInitData()
-    .accounts({
+    .accountsPartial({
       session: sessionPda,
       instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
     })
