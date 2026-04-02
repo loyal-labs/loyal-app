@@ -1,8 +1,30 @@
-import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Eye, EyeOff, Globe, KeyRound, Lock, PanelRight, Plus, Square, Timer } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Copy,
+  Eye,
+  EyeOff,
+  Globe,
+  KeyRound,
+  Lock,
+  PanelRight,
+  Plus,
+  Square,
+  Timer,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
-import { autoLockTimeout, viewMode as viewModeStorage } from "~/src/lib/storage";
+import { track, updateUserProfile } from "~/src/lib/analytics";
+import {
+  autoLockTimeout,
+  viewMode as viewModeStorage,
+} from "~/src/lib/storage";
+
+import { SETTINGS_EVENTS } from "./settings-analytics";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -45,11 +67,24 @@ function SettingsRow({
         textAlign: "left",
         transition: "background 0.1s ease",
       }}
-      onMouseEnter={(e) => { if (onClick) (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.04)"; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+      onMouseEnter={(e) => {
+        if (onClick)
+          (e.currentTarget as HTMLButtonElement).style.background =
+            "rgba(0,0,0,0.04)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+      }}
     >
       {icon && (
-        <div style={{ display: "flex", alignItems: "center", paddingRight: "10px", color: destructive ? "#FF3B30" : "rgba(0,0,0,0.6)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            paddingRight: "10px",
+            color: destructive ? "#FF3B30" : "rgba(0,0,0,0.6)",
+          }}
+        >
           {icon}
         </div>
       )}
@@ -75,7 +110,15 @@ function SettingsRow({
         >
           {title}
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: "4px", paddingLeft: "12px", flexShrink: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            paddingLeft: "12px",
+            flexShrink: 0,
+          }}
+        >
           {detail && (
             <span
               style={{
@@ -103,7 +146,13 @@ function SettingsRow({
 // Section wrapper — matches app SettingsSection
 // ---------------------------------------------------------------------------
 
-function Section({ label, children }: { label?: string; children: React.ReactNode }) {
+function Section({
+  label,
+  children,
+}: {
+  label?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
       {label && (
@@ -181,8 +230,10 @@ function SegmentedControl<T extends string | number>({
             lineHeight: "20px",
             background: value === opt.value ? "#fff" : "transparent",
             color: value === opt.value ? "#000" : secondary,
-            boxShadow: value === opt.value ? "0 1px 3px rgba(0, 0, 0, 0.08)" : "none",
-            transition: "background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
+            boxShadow:
+              value === opt.value ? "0 1px 3px rgba(0, 0, 0, 0.08)" : "none",
+            transition:
+              "background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
             minWidth: 0,
           }}
         >
@@ -198,14 +249,19 @@ function SegmentedControl<T extends string | number>({
 // ---------------------------------------------------------------------------
 
 export function Settings({ onBack }: { onBack: () => void }) {
-  const { network, setNetwork, publicKey, lock, resetWallet, getSecretKey } = useWalletContext();
+  const { network, setNetwork, publicKey, lock, resetWallet, getSecretKey } =
+    useWalletContext();
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [revealKey, setRevealKey] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
-  const [resetAction, setResetAction] = useState<"create" | "import" | null>(null);
+  const [resetAction, setResetAction] = useState<"create" | "import" | null>(
+    null
+  );
   const [lockTimeout, setLockTimeout] = useState(15);
-  const [currentViewMode, setCurrentViewMode] = useState<"sidebar" | "popup">("sidebar");
+  const [currentViewMode, setCurrentViewMode] = useState<"sidebar" | "popup">(
+    "sidebar"
+  );
   const [switchMessage, setSwitchMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -216,7 +272,9 @@ export function Settings({ onBack }: { onBack: () => void }) {
   const handleCopyPrivateKey = useCallback(() => {
     const sk = getSecretKey();
     if (!sk) return;
-    const hex = Array.from(sk).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const hex = Array.from(sk)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     void navigator.clipboard.writeText(hex);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2000);
@@ -227,7 +285,17 @@ export function Settings({ onBack }: { onBack: () => void }) {
     : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, background: "#F5F5F5", position: "relative", overflow: "hidden" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        background: "#F5F5F5",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -290,7 +358,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
               { value: "devnet" as const, label: "Devnet" },
             ]}
             value={network}
-            onChange={(v) => void setNetwork(v)}
+            onChange={(v) => {
+              void setNetwork(v);
+              track(SETTINGS_EVENTS.changeNetwork, { network: v });
+              updateUserProfile({ network: v });
+            }}
           />
         </Section>
 
@@ -306,24 +378,30 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   void navigator.clipboard.writeText(publicKey);
                   setCopiedAddress(true);
                   setTimeout(() => setCopiedAddress(false), 1500);
+                  track(SETTINGS_EVENTS.copyAddress, { source: "settings" });
                 }
               }}
             >
-              {copiedAddress
-                ? <Check size={14} style={{ color: "#34C759" }} />
-                : <Copy size={14} style={{ color: chevronColor }} />
-              }
+              {copiedAddress ? (
+                <Check size={14} style={{ color: "#34C759" }} />
+              ) : (
+                <Copy size={14} style={{ color: chevronColor }} />
+              )}
             </SettingsRow>
           )}
           <SettingsRow
             icon={<Eye size={18} />}
             title="Private Key"
-            onClick={() => { setShowPrivateKey(!showPrivateKey); setRevealKey(false); }}
+            onClick={() => {
+              setShowPrivateKey(!showPrivateKey);
+              setRevealKey(false);
+            }}
           >
-            {showPrivateKey
-              ? <ChevronUp size={14} style={{ color: chevronColor }} />
-              : <ChevronDown size={14} style={{ color: chevronColor }} />
-            }
+            {showPrivateKey ? (
+              <ChevronUp size={14} style={{ color: chevronColor }} />
+            ) : (
+              <ChevronDown size={14} style={{ color: chevronColor }} />
+            )}
           </SettingsRow>
           {showPrivateKey && (
             <div
@@ -346,7 +424,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   textAlign: "center",
                 }}
               >
-                Never share your private key. Anyone with it has full access to your wallet.
+                Never share your private key. Anyone with it has full access to
+                your wallet.
               </span>
               <div
                 style={{
@@ -364,11 +443,18 @@ export function Settings({ onBack }: { onBack: () => void }) {
                 }}
               >
                 {revealKey
-                  ? Array.from(getSecretKey() ?? []).map((b) => b.toString(16).padStart(2, "0")).join("")
+                  ? Array.from(getSecretKey() ?? [])
+                      .map((b) => b.toString(16).padStart(2, "0"))
+                      .join("")
                   : "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"}
                 <button
                   type="button"
-                  onClick={() => setRevealKey(!revealKey)}
+                  onClick={() => {
+                    if (!revealKey) {
+                      track(SETTINGS_EVENTS.revealPrivateKey);
+                    }
+                    setRevealKey(!revealKey);
+                  }}
                   style={{
                     position: "absolute",
                     right: "8px",
@@ -457,7 +543,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
               maxHeight: resetAction ? "200px" : "0",
               opacity: resetAction ? 1 : 0,
               overflow: "hidden",
-              transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition:
+                "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
             <div
@@ -482,7 +569,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   textAlign: "center",
                 }}
               >
-                Your current wallet will be erased. Without an exported key you will lose access forever.
+                Your current wallet will be erased. Without an exported key you
+                will lose access forever.
               </span>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
@@ -554,12 +642,30 @@ export function Settings({ onBack }: { onBack: () => void }) {
                     borderBottom: "0.5px solid rgba(0, 0, 0, 0.08)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    {currentViewMode === "sidebar"
-                      ? <PanelRight size={18} style={{ color: "rgba(0,0,0,0.6)" }} />
-                      : <Square size={18} style={{ color: "rgba(0,0,0,0.6)" }} />
-                    }
-                    <span style={{ fontFamily: font, fontSize: "14px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    {currentViewMode === "sidebar" ? (
+                      <PanelRight
+                        size={18}
+                        style={{ color: "rgba(0,0,0,0.6)" }}
+                      />
+                    ) : (
+                      <Square size={18} style={{ color: "rgba(0,0,0,0.6)" }} />
+                    )}
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "14px",
+                        fontWeight: 400,
+                        lineHeight: "20px",
+                        color: "#000",
+                      }}
+                    >
                       View Mode
                     </span>
                   </div>
@@ -575,12 +681,16 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   if (mode === currentViewMode) return;
                   setCurrentViewMode(mode);
                   void viewModeStorage.setValue(mode);
+                  track(SETTINGS_EVENTS.changeViewMode, { view_mode: mode });
+                  updateUserProfile({ view_mode: mode });
                   if (mode === "popup") {
                     // Background opens popup; close this view
                     setTimeout(() => globalThis.close(), 200);
                   } else {
                     // Can't open sidebar programmatically — show instruction
-                    setSwitchMessage("Click the extension icon to open sidebar");
+                    setSwitchMessage(
+                      "Click the extension icon to open sidebar"
+                    );
                   }
                 }}
               />
@@ -601,7 +711,9 @@ export function Settings({ onBack }: { onBack: () => void }) {
                 borderBottom: "0.5px solid rgba(0, 0, 0, 0.08)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "12px" }}
+              >
                 <Timer size={18} style={{ color: "rgba(0,0,0,0.6)" }} />
                 <span
                   style={{
@@ -629,6 +741,9 @@ export function Settings({ onBack }: { onBack: () => void }) {
             onChange={(v) => {
               setLockTimeout(v);
               void autoLockTimeout.setValue(v);
+              track(SETTINGS_EVENTS.changeAutoLockTimeout, {
+                timeout_minutes: v,
+              });
             }}
           />
         </Section>
@@ -677,7 +792,19 @@ export function Settings({ onBack }: { onBack: () => void }) {
               textAlign: "center",
             }}
           >
-            Click the <img src="/icon/128.png" alt="" style={{ width: "18px", height: "18px", verticalAlign: "-3px", display: "inline", margin: "0 2px" }} /> extension icon to open sidebar
+            Click the{" "}
+            <img
+              src="/icon/128.png"
+              alt=""
+              style={{
+                width: "18px",
+                height: "18px",
+                verticalAlign: "-3px",
+                display: "inline",
+                margin: "0 2px",
+              }}
+            />{" "}
+            extension icon to open sidebar
           </span>
         </div>
       )}
