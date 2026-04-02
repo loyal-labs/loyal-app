@@ -16,6 +16,10 @@ export default defineConfig({
       "../packages/solana-wallet/src",
       import.meta.url
     ).pathname,
+    "@loyal-labs/shared": new URL(
+      "../packages/shared/src",
+      import.meta.url
+    ).pathname,
   },
 
   manifest: ({ mode, browser }) => ({
@@ -31,6 +35,7 @@ export default defineConfig({
       "https://api.mainnet-beta.solana.com/*",
       "https://*.helius-rpc.com/*",
       "https://api.jup.ag/*",
+      "https://api-js.mixpanel.com/*",
     ],
   }),
 });

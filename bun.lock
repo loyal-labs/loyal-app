@@ -157,6 +157,7 @@
         "buffer": "^6.0.3",
         "lottie-web": "^5.13.0",
         "lucide-react": "^0.577.0",
+        "mixpanel-browser": "^2.74.0",
         "qrcode.react": "^4.2.0",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
