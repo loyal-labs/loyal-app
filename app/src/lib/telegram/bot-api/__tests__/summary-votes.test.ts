@@ -38,6 +38,18 @@ const mixpanelTrackCalls: Array<{
   eventName: string;
   properties: Record<string, unknown>;
 }> = [];
+const mixpanelPeopleSetCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
+const mixpanelPeopleSetOnceCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
+const mixpanelPeopleUnionCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
 
 mock.module("mixpanel", () => ({
   default: {
@@ -51,6 +63,32 @@ mock.module("mixpanel", () => ({
         ) => {
           mixpanelTrackCalls.push({ eventName, properties });
           callback?.();
+        },
+        people: {
+          set: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleSetCalls.push({ distinctId, properties });
+            callback?.();
+          },
+          set_once: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleSetOnceCalls.push({ distinctId, properties });
+            callback?.();
+          },
+          union: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleUnionCalls.push({ distinctId, properties });
+            callback?.();
+          },
         },
       };
     },
@@ -104,6 +142,7 @@ let encodeSummaryVoteCallbackData: typeof import("../summary-votes").encodeSumma
 let handleSummaryVoteCallback: typeof import("../summary-votes").handleSummaryVoteCallback;
 let parseSummaryVoteCallbackData: typeof import("../summary-votes").parseSummaryVoteCallbackData;
 let SUMMARY_VOTE_CALLBACK_DATA_REGEX: typeof import("../summary-votes").SUMMARY_VOTE_CALLBACK_DATA_REGEX;
+let resetBotAnalyticsStateForTests: typeof import("../analytics").__resetBotAnalyticsStateForTests;
 
 beforeAll(async () => {
   const loadedModule = await import("../summary-votes");
@@ -112,6 +151,8 @@ beforeAll(async () => {
   handleSummaryVoteCallback = loadedModule.handleSummaryVoteCallback;
   parseSummaryVoteCallbackData = loadedModule.parseSummaryVoteCallbackData;
   SUMMARY_VOTE_CALLBACK_DATA_REGEX = loadedModule.SUMMARY_VOTE_CALLBACK_DATA_REGEX;
+  ({ __resetBotAnalyticsStateForTests: resetBotAnalyticsStateForTests } =
+    await import("../analytics"));
 });
 
 beforeEach(() => {
@@ -123,6 +164,10 @@ beforeEach(() => {
   userIdResult = "user-1";
   mixpanelInitTokens.length = 0;
   mixpanelTrackCalls.length = 0;
+  mixpanelPeopleSetCalls.length = 0;
+  mixpanelPeopleSetOnceCalls.length = 0;
+  mixpanelPeopleUnionCalls.length = 0;
+  resetBotAnalyticsStateForTests();
 });
 
 afterEach(() => {
@@ -351,6 +396,7 @@ describe("handleSummaryVoteCallback", () => {
       {
         eventName: "Bot Summary Like",
         properties: {
+          workspace: "bot",
           distinct_id: "tg:123",
           group_chat_id: GROUP_CHAT_ID,
           summary_id: SUMMARY_ID,
@@ -390,6 +436,7 @@ describe("handleSummaryVoteCallback", () => {
       {
         eventName: "Bot Summary Dislike",
         properties: {
+          workspace: "bot",
           distinct_id: "tg:123",
           group_chat_id: GROUP_CHAT_ID,
           summary_id: SUMMARY_ID,
@@ -505,6 +552,7 @@ describe("handleSummaryVoteCallback", () => {
       {
         eventName: "Bot Summary Like",
         properties: {
+          workspace: "bot",
           distinct_id: "tg:123",
           group_chat_id: GROUP_CHAT_ID,
           summary_id: SUMMARY_ID,

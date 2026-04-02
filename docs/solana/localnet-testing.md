@@ -8,10 +8,7 @@ Step-by-step guide for testing Anchor programs locally with MagicBlock's ephemer
 - Anchor CLI (`anchor`)
 - MagicBlock Solana validator (`mb-test-validator`)
 - MagicBlock Ephemeral validator (`ephemeral-validator`)
-  - or use Docker (optional)
-- Program fixtures present in `tests/fixtures/` (See [below](#5-upgrade-programs-after-rebuild))
-  - `dlp.so`
-  - `permission.so`
+  - or use Docker (`docker run magicblocklabs/validator` optional)
 
 ## 1. Build Programs
 
@@ -22,7 +19,6 @@ anchor build
 Export program IDs:
 
 ```bash
-export TELEGRAM_TRANSFER=4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY
 export TELEGRAM_VERIFICATION=9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz
 export TELEGRAM_PRIVATE_TRANSFER=97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV
 ```
@@ -36,9 +32,9 @@ Run in terminal 1:
 mb-test-validator \
   --reset \
   --ledger ~/test-ledger \
-  --upgradeable-program DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh ./tests/fixtures/dlp.so ~/.config/solana/id.json \
-  --upgradeable-program ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1 ./tests/fixtures/permission.so ~/.config/solana/id.json \
-  --upgradeable-program $TELEGRAM_TRANSFER ./target/deploy/telegram_transfer.so ~/.config/solana/id.json \
+  --url devnet \
+  --clone-upgradeable-program DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh \
+  --clone-upgradeable-program ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1 \
   --upgradeable-program $TELEGRAM_VERIFICATION ./target/deploy/telegram_verification.so ~/.config/solana/id.json \
   --upgradeable-program $TELEGRAM_PRIVATE_TRANSFER ./target/deploy/telegram_private_transfer.so ~/.config/solana/id.json
 ```
@@ -98,21 +94,12 @@ anchor run --provider.cluster localnet test_private_transfer
 ## 5. Upgrade Programs after rebuild
 
 ```bash
-solana program upgrade $(solana program write-buffer target/deploy/telegram_transfer.so --output json | jq -r .buffer) $TELEGRAM_TRANSFER
-
 solana program upgrade $(solana program write-buffer target/deploy/telegram_verification.so --output json | jq -r .buffer) $TELEGRAM_VERIFICATION
 
 solana program upgrade $(solana program write-buffer target/deploy/telegram_private_transfer.so --output json | jq -r .buffer) $TELEGRAM_PRIVATE_TRANSFER
 ```
 
-## 6. Fetch Delegate/Permission Fixtures (If Missing)
-
-```bash
-solana program dump -u devnet DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh dlp.so
-solana program dump -u devnet ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1 permission.so
-```
-
-## 7. Known Error: ProgramData Account Too Small
+## 6. Known Error: ProgramData Account Too Small
 
 If you hit:
 
@@ -128,7 +115,7 @@ solana program show $TELEGRAM_PRIVATE_TRANSFER
 solana program extend $TELEGRAM_PRIVATE_TRANSFER 218968
 ```
 
-## 8. Devnet Deploy
+## 7. Devnet Deploy
 
 ```bash
 solana program deploy \

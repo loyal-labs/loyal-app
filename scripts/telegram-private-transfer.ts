@@ -34,7 +34,7 @@ import { TelegramVerification } from "../target/types/telegram_verification";
 import { sign } from "tweetnacl";
 
 const DEPOSIT_PDA_SEED = Buffer.from("deposit_v2");
-const USERNAME_DEPOSIT_PDA_SEED = Buffer.from("username_deposit");
+const USERNAME_DEPOSIT_PDA_SEED = Buffer.from("username_deposit_v2");
 const VAULT_PDA_SEED = Buffer.from("vault");
 
 const VALIDATION_BYTES: Uint8Array = new Uint8Array([
@@ -362,7 +362,7 @@ const getVaultPda = (programId: PublicKey, mint: PublicKey) =>
 
 const getSessionPda = (programId: PublicKey, user: PublicKey) =>
   PublicKey.findProgramAddressSync(
-    [Buffer.from("tg_session"), user.toBuffer()],
+    [Buffer.from("tg_session_v2"), user.toBuffer()],
     programId
   )[0];
 

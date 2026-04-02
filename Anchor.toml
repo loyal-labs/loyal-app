@@ -1,19 +1,22 @@
 [toolchain]
 anchor_version = "0.32.1"
-solana_version = "3.1.8"
+solana_version = "3.1.12"
 package_manager = "bun"
 
 [features]
 resolution = true
 skip-lint = false
 
+[programs.mainnet]
+telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
+telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
+
 [programs.devnet]
-telegram-transfer = "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY"
+telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [programs.localnet]
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
-telegram-transfer = "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [registry]
@@ -34,24 +37,20 @@ upgradeable = true
 
 # MagicBlock's Delegation Program
 # https://docs.magicblock.gg/pages/ephemeral-rollups-ers/how-to-guide/rust-program
-[[test.genesis]]
+[[test.validator.clone]]
 address = "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
-program = "tests/fixtures/dlp.so"
-upgradeable = true
 
 # MagicBlock’s Permission Program
 # https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/how-to-guide/quickstart#step-by-step-guide
-[[test.genesis]]
+[[test.validator.clone]]
 address = "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
-program = "tests/fixtures/permission.so"
-upgradeable = true
-
-[[test.genesis]]
-address = "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY"
-program = "target/deploy/telegram_transfer.so"
-upgradeable = true
 
 [[test.genesis]]
 address = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 program = "target/deploy/telegram_verification.so"
+upgradeable = true
+
+[[test.genesis]]
+address = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
+program = "target/deploy/telegram_private_transfer.so"
 upgradeable = true

@@ -360,7 +360,7 @@ describe("private-transactions SDK (PER)", () => {
         );
 
         [sessionPda] = PublicKey.findProgramAddressSync(
-            [Buffer.from("tg_session"), otherUser.toBuffer()],
+            [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
             verificationProgram.programId,
         );
     });

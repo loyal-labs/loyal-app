@@ -28,7 +28,7 @@ Current behavior: when a transfer is classified as an SPL token transfer, `amoun
 
 ## Transaction Types
 
-The `type` field is decoded from on-chain instruction data. The parser attempts to decode instructions against the `telegram-private-transfer`, `telegram-transfer`, and `telegram-verification` IDLs in order.
+The `type` field is decoded from on-chain instruction data. The parser attempts to decode instructions against the `telegram-private-transfer` and `telegram-verification` IDLs in order.
 
 ### telegram-private-transfer program types
 

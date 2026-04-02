@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { BN, Program, web3 } from "@coral-xyz/anchor";
 import { expect } from "chai";
-import { TelegramTransfer } from "../target/types/telegram_transfer";
+import { TelegramPrivateTransfer } from "../target/types/telegram_private_transfer";
 
 import {
   Transaction,
@@ -94,7 +94,7 @@ describe.only("telegram-verification test suite", () => {
   const verificationProgram = anchor.workspace
     .TelegramVerification as Program<TelegramVerification>;
   const transferProgram = anchor.workspace
-    .TelegramTransfer as Program<TelegramTransfer>;
+    .TelegramPrivateTransfer as Program<TelegramPrivateTransfer>;
 
   let sessionPda: PublicKey;
   let vaultPda: PublicKey;
@@ -256,7 +256,7 @@ describe.only("telegram-verification test suite", () => {
 
   it("User B stores initData in new TelegramSession PDA", async () => {
     [sessionPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tg_session"), otherUser.toBuffer()],
+      [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
       verificationProgram.programId
     );
 
@@ -285,7 +285,7 @@ describe.only("telegram-verification test suite", () => {
 
   it("User B stores initData in existing TelegramSession PDA", async () => {
     [sessionPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tg_session"), otherUser.toBuffer()],
+      [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
       verificationProgram.programId
     );
 

@@ -2,9 +2,10 @@
 
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 import {
-  createMixpanelBrowserClient,
   type AnalyticsClient,
   type AnalyticsProperties,
+  createMixpanelBrowserClient,
+  createWorkspaceProfileUpdate,
 } from "@loyal-labs/shared/analytics";
 
 import type { PublicEnv } from "@/lib/core/config/public";
@@ -19,6 +20,7 @@ let analyticsClientKey: string | null = null;
 let lastIdentifiedDistinctId: string | null = null;
 let lastProfiledDistinctId: string | null = null;
 let lastProfileFingerprint: string | null = null;
+const WEBSITE_WORKSPACE = "website" as const;
 
 function getCurrentPathname(): string | undefined {
   if (typeof window === "undefined") {
@@ -73,12 +75,15 @@ function getAnalyticsClient(publicEnv: PublicEnv): AnalyticsClient {
     apiHost: getApiHost(publicEnv),
     debug: publicEnv.appEnvironment !== "prod",
     persistence: "localStorage",
+    defaultEventProperties: {
+      workspace: WEBSITE_WORKSPACE,
+    },
     registerProperties: {
       app_environment: publicEnv.appEnvironment,
       app_solana_env: publicEnv.solanaEnv,
       git_branch: publicEnv.gitBranch,
       git_commit_hash: publicEnv.gitCommitHash,
-      workspace: "frontend",
+      workspace: WEBSITE_WORKSPACE,
     },
   });
 
@@ -172,8 +177,9 @@ export function identifyAuthenticatedUser(
 
   const client = getAnalyticsClient(publicEnv);
   const profileFingerprint = buildFrontendProfileFingerprint(user);
+  const shouldRefreshWorkspaceProfile = lastIdentifiedDistinctId !== distinctId;
 
-  if (lastIdentifiedDistinctId !== distinctId) {
+  if (shouldRefreshWorkspaceProfile) {
     client.identify(distinctId);
     lastIdentifiedDistinctId = distinctId;
   }
@@ -185,6 +191,14 @@ export function identifyAuthenticatedUser(
     client.setUserProfile(buildFrontendProfileProperties(user));
     lastProfiledDistinctId = distinctId;
     lastProfileFingerprint = profileFingerprint;
+  }
+
+  if (shouldRefreshWorkspaceProfile) {
+    const workspaceProfileUpdate =
+      createWorkspaceProfileUpdate(WEBSITE_WORKSPACE);
+    client.unionUserProfile(workspaceProfileUpdate.union);
+    client.setUserProfileOnce(workspaceProfileUpdate.setOnce);
+    client.setUserProfile(workspaceProfileUpdate.set);
   }
 }
 

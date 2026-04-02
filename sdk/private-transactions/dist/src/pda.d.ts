@@ -16,7 +16,7 @@ export declare function findDepositPda(user: PublicKey, tokenMint: PublicKey, pr
  * @param programId - Optional program ID (defaults to PROGRAM_ID)
  * @returns [PDA address, bump seed]
  */
-export declare function findUsernameDepositPda(username: string, tokenMint: PublicKey, programId?: PublicKey): [PublicKey, number];
+export declare function findUsernameDepositPda(username: string, tokenMint: PublicKey, programId?: PublicKey): Promise<[PublicKey, number]>;
 /**
  * Derive the vault PDA
  *

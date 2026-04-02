@@ -8,10 +8,6 @@
     "dark": "#CD1D09"
   },
   "favicon": "/loyal_favicon.svg",
-  "banner": {
-    "content": "Public testing opens Jan, 12! Join [tg.askloyal.com](https://tg.askloyal.com) to get latest updates. [Get $LOYAL on Jupiter!](https://jup.ag/tokens/LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta)",
-    "dismissible": false
-  },
   "navigation": {
     "tabs": [
       {
@@ -29,15 +25,11 @@
           },
           {
             "group": "FAQ & Support",
-            "pages": [
-              "faq/index"
-            ]
+            "pages": ["faq/index"]
           },
           {
             "group": "Resources",
-            "pages": [
-              "resources/links"
-            ]
+            "pages": ["resources/links"]
           }
         ]
       },
@@ -83,10 +75,7 @@
           },
           {
             "group": "Launch",
-            "pages": [
-              "launch/roadmap",
-              "launch/token"
-            ]
+            "pages": ["launch/roadmap", "launch/token"]
           }
         ]
       },
@@ -95,15 +84,11 @@
         "groups": [
           {
             "group": "Team",
-            "pages": [
-              "Introduction/team"
-            ]
+            "pages": ["Introduction/team"]
           },
           {
             "group": "Reports",
-            "pages": [
-              "transparency/q4-2025"
-            ]
+            "pages": ["transparency/q4-2025"]
           }
         ]
       }
@@ -124,7 +109,7 @@
           "anchor": "MetaDAO Launch",
           "href": "https://metadao.fi",
           "icon": "rocket"
-        } 
+        }
       ]
     }
   },

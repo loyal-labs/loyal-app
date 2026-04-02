@@ -192,7 +192,7 @@ export function secureFixture(increase: boolean): ParsedTransactionWithMeta {
   (tx.transaction.message as { instructions: unknown[] }).instructions = [
     {
       programId: {
-        toBase58: () => "4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY",
+        toBase58: () => "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV",
       },
       data: modifyBalanceData(increase),
     },

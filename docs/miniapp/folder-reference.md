@@ -14,9 +14,9 @@ Detailed breakdown of `/app/src/lib/`.
 | `SECRET_KEY_STORAGE_KEY` | Hardcoded | Cloud storage key: `"solana_secret_key"` |
 | `TELEGRAM_BOT_ID` | Env var | From `NEXT_PUBLIC_TELEGRAM_BOT_ID` |
 | `TELEGRAM_PUBLIC_KEYS` | Hardcoded | Test + prod keys for signature verification |
-| `DEPOSIT_SEED` | Hardcoded | PDA seed: `"deposit"` |
+| `DEPOSIT_SEED` | Hardcoded | PDA seed: `"deposit_v2"` |
 | `VAULT_SEED` | Hardcoded | PDA seed: `"vault"` |
-| `SESSION_SEED` | Hardcoded | PDA seed: `"tg_session"` |
+| `SESSION_SEED` | Hardcoded | PDA seed: `"tg_session_v2"` |
 | `SOL_PRICE_USD` | Hardcoded | Fallback price (use MagicBlock for live) |
 | `STARS_FEE_AMOUNT` | Hardcoded | `2000` Stars (testing value) |
 | `STARS_TO_USD` | Hardcoded | `0.013` conversion rate |
@@ -268,7 +268,7 @@ const totals = computePortfolioTotals(holdings, solPriceUsd);
 
 Anchor program initialization and PDA derivation.
 
-**Key exports:** `getTelegramTransferProgram()`, `getDepositPda()`, `getVaultPda()`
+**Key exports:** `getDepositPda()`, `getVaultPda()`
 
 ---
 

@@ -27,9 +27,8 @@ export const verifyInitData = async (
 
   const verifyIx = await verificationProgram.methods
     .verifyTelegramInitData()
-    .accounts({
+    .accountsPartial({
       session: sessionPda,
-      // @ts-expect-error - SYSVAR_INSTRUCTIONS_PUBKEY is a PublicKey
       instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
     })
     .instruction();

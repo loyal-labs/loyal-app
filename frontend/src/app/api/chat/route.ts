@@ -35,6 +35,37 @@ type SubmittedChatTurn = {
   turnId: string;
 };
 
+function getRequestClientIp(req: Request): string | undefined {
+  const cfConnectingIp = req.headers.get("cf-connecting-ip")?.trim();
+  if (cfConnectingIp) {
+    return cfConnectingIp;
+  }
+
+  const xForwardedFor = req.headers.get("x-forwarded-for");
+  if (xForwardedFor) {
+    const forwardedIp = xForwardedFor
+      .split(",")
+      .map((part) => part.trim())
+      .find((part) => part.length > 0);
+
+    if (forwardedIp) {
+      return forwardedIp;
+    }
+  }
+
+  const xRealIp = req.headers.get("x-real-ip")?.trim();
+  if (xRealIp) {
+    return xRealIp;
+  }
+
+  const xVercelForwardedFor = req.headers.get("x-vercel-forwarded-for")?.trim();
+  if (xVercelForwardedFor) {
+    return xVercelForwardedFor;
+  }
+
+  return undefined;
+}
+
 function isChatRequestBody(value: unknown): value is ChatRequestBody {
   if (!value || typeof value !== "object") {
     return false;
@@ -184,6 +215,7 @@ export async function POST(req: Request) {
       chatId,
       initialMessageLength: submittedTurn.text.length,
       source: "main_chat_input",
+      clientIp: getRequestClientIp(req),
     });
   }
 

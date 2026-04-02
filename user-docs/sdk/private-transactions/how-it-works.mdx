@@ -14,17 +14,17 @@ The flow spans two execution domains:
 ## Lifecycle Diagram
 
 ```
-┌─────────────── Base Solana ────────────────┐     ┌────── MagicBlock PER (TEE) ──────┐
-│                                            │     │                                   │
-│  1. initializeDeposit                      │     │                                   │
-│  2. modifyBalance (tokens → vault)         │     │                                   │
-│  3. createPermission                       │     │                                   │
-│  4. delegate ─────────────────────────────────►  │  5. transferDeposit               │
-│                                            │     │     transferToUsernameDeposit     │
-│                                            │     │     claimUsernameDepositToDeposit │
-│  7. modifyBalance (vault → tokens)   ◄────────── │  6. undelegate (commit)           │
-│                                            │     │                                   │
-└────────────────────────────────────────────┘     └───────────────────────────────────┘
++--------------- Base Solana ----------------+     +------ MagicBlock PER (TEE) -------+
+|                                            |     |                                   |
+|  1. initializeDeposit                      |     |                                   |
+|  2. modifyBalance (tokens -> vault)        |     |                                   |
+|  3. createPermission                       |     |                                   |
+|  4. delegate ----------------------------------> |  5. transferDeposit               |
+|                                            |     |     transferToUsernameDeposit     |
+|                                            |     |     claimUsernameDepositToDeposit |
+|  7. modifyBalance (vault -> tokens)  <-----|---- |  6. undelegate (commit)           |
+|                                            |     |                                   |
++--------------------------------------------+     +-----------------------------------+
 ```
 
 ## Source of Truth
@@ -54,7 +54,7 @@ Tokens are **not** stored in the deposit itself — they live in the **Vault**. 
 
 ### UsernameDeposit
 
-Same concept, but keyed by Telegram username instead of wallet address. Seeds: `["username_deposit", username_bytes, token_mint]`.
+Same concept, but keyed by Telegram username instead of wallet address. Seeds: `["username_deposit_v2", username_bytes, token_mint]`.
 
 ```rust
 pub struct UsernameDeposit {
@@ -157,7 +157,7 @@ Permission flags include: `AUTHORITY`, `TX_LOGS`, `TX_BALANCES`, `TX_MESSAGE`, `
 
 Username claims require cryptographic proof of Telegram identity. This is handled by the separate `telegram-verification` program (`9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz`):
 
-1. **Store** — user submits Telegram MiniApp validation bytes to a `tg_session` PDA
+1. **Store** — user submits Telegram MiniApp validation bytes to a `tg_session_v2` PDA
 2. **Verify** — program checks Ed25519 signature against Telegram's public key, marks session as `verified`
 
 The `claim_username_deposit_to_deposit` instruction then validates:

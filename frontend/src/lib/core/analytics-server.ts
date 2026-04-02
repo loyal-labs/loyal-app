@@ -1,22 +1,27 @@
 import "server-only";
 
-import Mixpanel from "mixpanel";
+import {
+  createMixpanelServerClient,
+  type ServerAnalyticsClient,
+  type ServerAnalyticsProperties,
+} from "@loyal-labs/shared/analytics-server";
 
 import { getServerEnv } from "@/lib/core/config/server";
 
-type ServerAnalyticsPrimitive = boolean | null | number | string;
+const WEBSITE_WORKSPACE = "website" as const;
 
-export type ServerAnalyticsProperties = Record<string, ServerAnalyticsPrimitive>;
-
-let serverClient: ReturnType<typeof Mixpanel.init> | null = null;
+let serverClient: ServerAnalyticsClient | null = null;
 let serverClientToken: string | null = null;
 
-function getServerAnalyticsClient(token: string): ReturnType<typeof Mixpanel.init> {
+function getServerAnalyticsClient(token: string): ServerAnalyticsClient {
   if (serverClient && serverClientToken === token) {
     return serverClient;
   }
 
-  serverClient = Mixpanel.init(token);
+  serverClient = createMixpanelServerClient({
+    token,
+    workspace: WEBSITE_WORKSPACE,
+  });
   serverClientToken = token;
   return serverClient;
 }
@@ -32,11 +37,11 @@ export function trackServerAnalyticsEvent(
 
   try {
     const client = getServerAnalyticsClient(mixpanelToken);
-    client.track(eventName, properties, (error: unknown) => {
-      if (error) {
-        console.error(`Failed to track Mixpanel event: ${eventName}`, error);
-      }
-    });
+    client.track(eventName, properties);
+
+    if (typeof properties.distinct_id === "string") {
+      client.updateWorkspaceProfile(properties.distinct_id);
+    }
   } catch (error) {
     console.error(`Failed to track Mixpanel event: ${eventName}`, error);
   }

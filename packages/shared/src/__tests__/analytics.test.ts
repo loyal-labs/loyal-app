@@ -15,6 +15,7 @@ const resetCalls: Array<undefined> = [];
 const registerCalls: Array<Record<string, unknown>> = [];
 const peopleSetOnceCalls: Array<Record<string, unknown>> = [];
 const peopleSetCalls: Array<Record<string, unknown>> = [];
+const peopleUnionCalls: Array<Record<string, unknown>> = [];
 let shouldFailLoad = false;
 
 const mixpanelMock = {
@@ -39,6 +40,9 @@ const mixpanelMock = {
     },
     set_once: (properties: Record<string, unknown>) => {
       peopleSetOnceCalls.push(properties);
+    },
+    union: (properties: Record<string, unknown>) => {
+      peopleUnionCalls.push(properties);
     },
   },
 };
@@ -69,6 +73,7 @@ describe("shared analytics client factory", () => {
     registerCalls.length = 0;
     peopleSetCalls.length = 0;
     peopleSetOnceCalls.length = 0;
+    peopleUnionCalls.length = 0;
     shouldFailLoad = false;
   });
 
@@ -81,8 +86,11 @@ describe("shared analytics client factory", () => {
       token: "test-mixpanel-token",
       apiHost: "https://loyal.example/ingest",
       persistence: "localStorage",
+      defaultEventProperties: {
+        workspace: "website",
+      },
       registerProperties: {
-        workspace: "app",
+        workspace: "website",
       },
     });
 
@@ -100,7 +108,7 @@ describe("shared analytics client factory", () => {
         },
       ],
     ]);
-    expect(registerCalls).toEqual([{ workspace: "app" }]);
+    expect(registerCalls).toEqual([{ workspace: "website" }]);
   });
 
   test("missing token makes calls no-op", async () => {
@@ -127,6 +135,9 @@ describe("shared analytics client factory", () => {
       token: "test-mixpanel-token",
       apiHost: "https://loyal.example/ingest",
       persistence: "localStorage",
+      defaultEventProperties: {
+        workspace: "bot",
+      },
     });
 
     await client.init();
@@ -141,11 +152,13 @@ describe("shared analytics client factory", () => {
       token: "test-mixpanel-token",
       apiHost: "https://loyal.example/ingest",
       persistence: "localStorage",
+      defaultEventProperties: {
+        workspace: "website",
+      },
     });
 
     await client.init();
     client.setContext({
-      workspace: "frontend",
       path_group: "wallet",
     });
     client.track("Page View", { path: "/wallet" });
@@ -155,7 +168,7 @@ describe("shared analytics client factory", () => {
       {
         event: "Page View",
         properties: {
-          workspace: "frontend",
+          workspace: "website",
           path_group: "wallet",
           path: "/wallet",
         },
@@ -168,18 +181,23 @@ describe("shared analytics client factory", () => {
       token: "test-mixpanel-token",
       apiHost: "https://loyal.example/ingest",
       persistence: "localStorage",
+      defaultEventProperties: {
+        workspace: "miniapp",
+      },
     });
 
     await client.init();
     client.identify("grid:user-1");
     client.setUserProfile({ email: "user@example.com" });
     client.setUserProfileOnce({ auth_method: "wallet" });
+    client.unionUserProfile({ workspaces: ["miniapp"] });
     client.reset();
     await Promise.resolve();
 
     expect(identifyCalls).toEqual(["grid:user-1"]);
     expect(peopleSetCalls).toEqual([{ email: "user@example.com" }]);
     expect(peopleSetOnceCalls).toEqual([{ auth_method: "wallet" }]);
+    expect(peopleUnionCalls).toEqual([{ workspaces: ["miniapp"] }]);
     expect(resetCalls).toHaveLength(1);
   });
 });

@@ -3,13 +3,28 @@
 import type MixpanelType from "mixpanel-browser";
 import type { Persistence } from "mixpanel-browser";
 
-export type AnalyticsProperties = Record<string, unknown>;
+import {
+  type AnalyticsProfileUnionProperties,
+  type AnalyticsProperties,
+} from "./analytics-core";
+
+export {
+  createWorkspaceProfileUpdate,
+  type AnalyticsPrimitive,
+  type AnalyticsProfileProperties,
+  type AnalyticsProfileUnionProperties,
+  type AnalyticsProperties,
+  type AnalyticsWorkspace,
+  type AnalyticsWorkspaceProfileUpdate,
+  withWorkspaceProperties,
+} from "./analytics-core";
 
 export type AnalyticsConfig = {
   token?: string;
   apiHost?: string;
   debug?: boolean;
   persistence?: Persistence;
+  defaultEventProperties?: AnalyticsProperties;
   registerProperties?: AnalyticsProperties;
 };
 
@@ -22,6 +37,7 @@ export type AnalyticsClient = {
   clearContext: () => void;
   setUserProfile: (properties: AnalyticsProperties) => void;
   setUserProfileOnce: (properties: AnalyticsProperties) => void;
+  unionUserProfile: (properties: AnalyticsProfileUnionProperties) => void;
   __resetForTests: () => void;
 };
 
@@ -120,6 +136,7 @@ export function createMixpanelBrowserClient(
 
       try {
         mixpanel.track(event, {
+          ...(config.defaultEventProperties ?? {}),
           ...currentEventContext,
           ...(properties ?? {}),
         });
@@ -201,6 +218,24 @@ export function createMixpanelBrowserClient(
     });
   }
 
+  function unionUserProfile(properties: AnalyticsProfileUnionProperties): void {
+    if (!canTrack()) {
+      return;
+    }
+
+    void init().then(() => {
+      if (!isInitialized || !mixpanel) {
+        return;
+      }
+
+      try {
+        mixpanel.people.union(properties);
+      } catch (error) {
+        console.error("Failed to union Mixpanel profile", error);
+      }
+    });
+  }
+
   function resetForTests(): void {
     mixpanel = null;
     isInitialized = false;
@@ -217,6 +252,7 @@ export function createMixpanelBrowserClient(
     clearContext,
     setUserProfile,
     setUserProfileOnce,
+    unionUserProfile,
     __resetForTests: resetForTests,
   };
 }

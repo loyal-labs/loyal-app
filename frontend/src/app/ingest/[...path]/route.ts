@@ -2,10 +2,15 @@ const MIXPANEL_API_ORIGIN = "https://api-js.mixpanel.com";
 const FORWARDED_REQUEST_HEADERS = [
   "accept",
   "accept-language",
+  "cf-connecting-ip",
   "content-type",
+  "forwarded",
   "origin",
   "referer",
   "user-agent",
+  "x-forwarded-for",
+  "x-real-ip",
+  "x-vercel-forwarded-for",
 ] as const;
 const FORWARDED_RESPONSE_HEADERS = [
   "cache-control",

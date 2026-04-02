@@ -8,6 +8,7 @@ import {
   PERMISSION_PROGRAM_ID,
   DELEGATION_PROGRAM_ID,
 } from "./constants";
+import { sha256hash } from "./utils";
 
 /**
  * Derive the deposit PDA for a user and token mint
@@ -36,13 +37,18 @@ export function findDepositPda(
  * @param programId - Optional program ID (defaults to PROGRAM_ID)
  * @returns [PDA address, bump seed]
  */
-export function findUsernameDepositPda(
+export async function findUsernameDepositPda(
   username: string,
   tokenMint: PublicKey,
   programId: PublicKey = PROGRAM_ID
-): [PublicKey, number] {
+): Promise<[PublicKey, number]> {
+  const usernameHash = await sha256hash(username);
   return PublicKey.findProgramAddressSync(
-    [USERNAME_DEPOSIT_SEED_BYTES, Buffer.from(username), tokenMint.toBuffer()],
+    [
+      USERNAME_DEPOSIT_SEED_BYTES,
+      Buffer.from(usernameHash),
+      tokenMint.toBuffer(),
+    ],
     programId
   );
 }

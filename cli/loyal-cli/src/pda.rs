@@ -3,6 +3,7 @@ use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
+use solana_sha256_hasher::hash as sha256_hash;
 use spl_associated_token_account_client::{
     address::get_associated_token_address_with_program_id, program as associated_token_program,
 };
@@ -43,7 +44,7 @@ pub(crate) fn build_initialize_username_deposit_ix(
     deposit: Pubkey,
 ) -> Instruction {
     let mut data = IX_INITIALIZE_USERNAME_DEPOSIT.to_vec();
-    encode_borsh_string(&mut data, username);
+    data.extend_from_slice(&username_hash_bytes(username));
 
     Instruction {
         program_id: program_id(),
@@ -157,7 +158,7 @@ pub(crate) fn build_delegate_username_deposit_ix(
     let delegation_metadata = find_delegation_metadata_pda(&deposit);
 
     let mut data = IX_DELEGATE_USERNAME_DEPOSIT.to_vec();
-    encode_borsh_string(&mut data, username);
+    data.extend_from_slice(&username_hash_bytes(username));
     data.extend_from_slice(mint.as_ref());
 
     Instruction {
@@ -205,7 +206,7 @@ pub(crate) fn build_undelegate_username_deposit_ix(
     deposit: Pubkey,
 ) -> Instruction {
     let mut data = IX_UNDELEGATE_USERNAME_DEPOSIT.to_vec();
-    encode_borsh_string(&mut data, username);
+    data.extend_from_slice(&username_hash_bytes(username));
     data.extend_from_slice(mint.as_ref());
 
     Instruction {
@@ -248,12 +249,14 @@ pub(crate) fn build_transfer_to_username_deposit_ix(
     }
 }
 
-fn encode_borsh_string(out: &mut Vec<u8>, value: &str) {
-    let bytes = value.as_bytes();
-    out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-    out.extend_from_slice(bytes);
+pub(crate) fn username_hash_bytes(username: &str) -> [u8; 32] {
+    sha256_hash(username.as_bytes()).to_bytes()
 }
 
+/// Username must be between 5 and 32 characters
+/// Username can only contain lowercase alphanumeric characters and underscores
+/// Source: https://limits.tginfo.me/en
+/// Source: https://telegram.org/faq#q-what-can-i-use-as-my-username
 pub(crate) fn validate_username(username: &str) -> Result<()> {
     if !(5..=32).contains(&username.len()) {
         bail!("username must be between 5 and 32 characters");
@@ -261,9 +264,9 @@ pub(crate) fn validate_username(username: &str) -> Result<()> {
     if !username
         .as_bytes()
         .iter()
-        .all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        .all(|b| matches!(*b, b'0'..=b'9') || matches!(*b, b'a'..=b'z') || *b == b'_')
     {
-        bail!("username can only contain [a-zA-Z0-9_]");
+        bail!("username can only contain [a-z0-9_]");
     }
     Ok(())
 }
@@ -277,8 +280,9 @@ pub(crate) fn find_deposit_pda(user: &Pubkey, mint: &Pubkey) -> Pubkey {
 }
 
 pub(crate) fn find_username_deposit_pda(username: &str, mint: &Pubkey) -> Pubkey {
+    let username_hash = username_hash_bytes(username);
     Pubkey::find_program_address(
-        &[b"username_deposit", username.as_bytes(), mint.as_ref()],
+        &[b"username_deposit_v2", &username_hash, mint.as_ref()],
         &program_id(),
     )
     .0

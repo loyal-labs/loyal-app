@@ -3,8 +3,9 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::sysvar::instructions::{
     load_current_index_checked, load_instruction_at_checked,
 };
-use core::str::FromStr;
 use hex_literal::hex;
+use solana_hash::HASH_BYTES;
+use solana_sha256_hasher::hash as sha256_hash;
 
 declare_id!("9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz");
 
@@ -15,6 +16,7 @@ const MAX_USERNAME_LEN: usize = 32;
 const USERNAME_PATTERN: &str = "\"username\":\"";
 const AUTH_DATE_PREFIX: &str = "\nauth_date=";
 
+const ED25519_PROGRAM_ID: Pubkey = pubkey!("Ed25519SigVerify111111111111111111111111111");
 const ED25519_HEADER_LEN: usize = 2; // [sig_count: u8, padding: u8]
 const ED25519_OFFSETS_LEN: usize = 14; // 7 * u16 (LE)
 const SIG_LEN: usize = 64;
@@ -22,7 +24,7 @@ const PUBKEY_LEN: usize = 32;
 const TELEGRAM_PUBKEY_PROD: [u8; 32] =
     hex!("e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d");
 
-const SESSION_SEED: &[u8] = b"tg_session";
+const SESSION_SEED: &[u8] = b"tg_session_v2";
 
 // ---- Program ----
 #[program]
@@ -47,7 +49,7 @@ pub mod telegram_verification {
         require!(auth_at > 0, ErrorCode::InvalidTelegramAuthDate);
 
         session.user_wallet = ctx.accounts.user.key();
-        session.username = username;
+        session.username_hash = sha256_hash(username.as_bytes()).to_bytes();
         session.auth_at = auth_at;
         session.validation_bytes = validation_bytes;
         session.verified = false;
@@ -103,8 +105,7 @@ pub struct VerifyTelegramInitData<'info> {
 pub struct TelegramSession {
     pub user_wallet: Pubkey,
 
-    #[max_len(MAX_USERNAME_LEN)]
-    pub username: String,
+    pub username_hash: [u8; HASH_BYTES],
 
     #[max_len(MAX_VALIDATION_LEN)]
     pub validation_bytes: Vec<u8>,
@@ -124,9 +125,7 @@ fn verify_previous_ed25519_ix(instructions_ai: &AccountInfo, expected_msg: &[u8]
         .map_err(|_| error!(ErrorCode::NotVerified))?;
 
     // 2) Ensure Ed25519 program id
-    let ed25519_id = Pubkey::from_str("Ed25519SigVerify111111111111111111111111111")
-        .map_err(|_| error!(ErrorCode::InvalidEd25519))?;
-    require_keys_eq!(ix.program_id, ed25519_id, ErrorCode::InvalidEd25519);
+    require_keys_eq!(ix.program_id, ED25519_PROGRAM_ID, ErrorCode::InvalidEd25519);
 
     // 3) basic bounds check
     // Ed25519 ix data = [header(2)] [offsets(14)] [payload...]
@@ -230,10 +229,15 @@ fn extract_username(bytes: &[u8]) -> Result<String> {
 
     let username = &rest[..end_rel];
 
+    // Username must be between 5 and 32 characters
+    // Username can only contain lowercase alphanumeric characters and underscores
+    // Source: https://limits.tginfo.me/en
+    // Source: https://telegram.org/faq#q-what-can-i-use-as-my-username
     require!(
         (MIN_USERNAME_LEN..=MAX_USERNAME_LEN).contains(&username.len()),
         ErrorCode::InvalidTelegramUsername
     );
+    // Here we accept mixed case usernames from telegram initData and convert them to lowercase
     require!(
         username.bytes().all(|b| (b'A'..=b'Z').contains(&b)
             || (b'a'..=b'z').contains(&b)

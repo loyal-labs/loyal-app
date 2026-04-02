@@ -17,8 +17,20 @@ function isValidSolanaAddress(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value);
 }
 
+// Username must be between 5 and 32 characters.
+// Username can only contain lowercase alphanumeric characters and underscores.
+// We should allow mixed case usernames for UI but convert to lowercase before send.
+// Source: https://limits.tginfo.me/en
+// Source: https://telegram.org/faq#q-what-can-i-use-as-my-username
 function isTelegramUsername(value: string): boolean {
-  return value.startsWith("@") && value.length >= 5;
+  if (!value.startsWith("@")) {
+    return false;
+  }
+  const trimmed = value.replace(/^@/, "");
+
+  return (
+    /^[a-zA-Z0-9_]+$/.test(trimmed) && trimmed.length >= 5 && trimmed.length <= 32
+  );
 }
 
 function truncateAddress(addr: string): string {
@@ -423,7 +435,7 @@ export function SendContent({
 
     let result: { success: boolean; signature?: string; error?: string };
 
-    if (isPrivate) {
+    if (isPrivate || isTg) {
       result = await executePrivateSend({
         tokenSymbol: token.symbol,
         amount: numericAmount,
@@ -436,7 +448,6 @@ export function SendContent({
         token.symbol,
         currentAmount,
         cleanRecipient,
-        destinationType,
         token.mint,
       );
     }

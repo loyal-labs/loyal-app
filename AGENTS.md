@@ -113,14 +113,14 @@ bun run frontend:build     # build loyal web frontend from repo root
 ### Directory Structure
 
 - **`/programs`** - Anchor smart contracts (Rust)
-  - `telegram-transfer` - Deposit/claim/refund SOL transfers
+  - `telegram-private-transfer` - Deposit/claim/refund SOL transfers
   - `telegram-verification` - On-chain Ed25519 Telegram signature verification
 - **`/app`** - Next.js 15 frontend + API routes
 - **`/frontend`** - Next.js 15 Loyal web frontend
 - **`/mobile`** - Expo React Native mobile app (iOS/Android)
 - **`/admin`** - Next.js 15 internal admin dashboard
 - **`/packages`** - Internal shared workspace packages (e.g. `db-core`, `db-adapter-neon`, `grid-core`, `shared`)
-- **`/sdk/transactions`** - Publishable `@loyal-labs/transactions` NPM package
+- **`/sdk/private-transactions`** - Publishable `@loyal-labs/private-transactions` NPM package
 - **`/workers`** - Runtime services/workers
 - **`/tests`** - Anchor test suite (Mocha/Chai)
 - **`/docs`** - Internal repository/engineering documentation
@@ -130,7 +130,7 @@ bun run frontend:build     # build loyal web frontend from repo root
 
 | Program | Address |
 |---------|---------|
-| `telegram-transfer` | `4ewpzEPF5xrVAHeRkoe7XS1yKFGQBekD7PgFwEz9SaxY` |
+| `telegram-private-transfer` | `97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV` |
 | `telegram-verification` | `9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz` |
 
 ### Vertical Slice Architecture (Current Implementation + Required Direction)
@@ -237,7 +237,7 @@ These complement the command list above and mirror guidance in `mobile/CLAUDE.md
 
 ### Key Patterns
 
-- **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit"`, `"vault"`, `"tg_session"`
+- **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit_v2"`, `"username_deposit_v2"`, `"vault"`, `"tg_session_v2"`
 - **Keypair Storage**: User keypairs stored in Telegram Cloud Storage (not localStorage)
 - **Environment Selection**: `NEXT_PUBLIC_SOLANA_ENV` controls RPC endpoint (`mainnet`, `devnet`, `localnet`)
 

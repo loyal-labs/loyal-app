@@ -22,6 +22,7 @@
         "mocha": "^9.0.3",
         "prettier": "^2.6.2",
         "ts-mocha": "^10.0.0",
+        "turbo": "^2.8.20",
         "tweetnacl": "^1.0.3",
         "typescript": "^5.7.3",
       },
@@ -194,7 +195,6 @@
         "@loyal-labs/shared": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
-        "@loyal-labs/transactions": "workspace:*",
         "@loyal-labs/wallet-core": "workspace:*",
         "@neondatabase/serverless": "^1.0.2",
         "@radix-ui/react-avatar": "^1.1.11",
@@ -345,6 +345,7 @@
       "name": "@loyal-labs/shared",
       "version": "0.1.0",
       "dependencies": {
+        "mixpanel": "^0.20.0",
         "mixpanel-browser": "^2.74.0",
       },
       "devDependencies": {
@@ -383,7 +384,6 @@
         "@loyal-labs/private-transactions": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
-        "@loyal-labs/transactions": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -464,7 +464,7 @@
     },
     "sdk/private-transactions": {
       "name": "@loyal-labs/private-transactions",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "dependencies": {
         "tweetnacl": "^1.0.3",
       },
@@ -478,20 +478,6 @@
         "@coral-xyz/anchor": "^0.32.0",
         "@magicblock-labs/ephemeral-rollups-sdk": "^0.8.5",
         "@solana/spl-token": "^0.4.14",
-        "@solana/web3.js": "^1.95.0",
-      },
-    },
-    "sdk/transactions": {
-      "name": "@loyal-labs/transactions",
-      "version": "0.1.2",
-      "devDependencies": {
-        "@coral-xyz/anchor": "^0.32.1",
-        "@solana/web3.js": "^1.95.0",
-        "@types/bun": "latest",
-        "typescript": "^5",
-      },
-      "peerDependencies": {
-        "@coral-xyz/anchor": "^0.32.0",
         "@solana/web3.js": "^1.95.0",
       },
     },
@@ -1149,8 +1135,6 @@
     "@loyal-labs/solana-rpc": ["@loyal-labs/solana-rpc@workspace:packages/solana-rpc"],
 
     "@loyal-labs/solana-wallet": ["@loyal-labs/solana-wallet@workspace:packages/solana-wallet"],
-
-    "@loyal-labs/transactions": ["@loyal-labs/transactions@workspace:sdk/transactions"],
 
     "@loyal-labs/userbot-worker": ["@loyal-labs/userbot-worker@workspace:workers/userbot"],
 
@@ -1981,6 +1965,18 @@
     "@trezor/websocket-client": ["@trezor/websocket-client@1.3.0", "", { "dependencies": { "@trezor/utils": "9.5.0", "ws": "^8.18.0" }, "peerDependencies": { "tslib": "^2.6.2" } }, "sha512-9KQSaVc3NtmM6rFFj1e+9bM0C5mVKVidbnxlfzuBJu7G2YMRdIdLPcAXhvmRZjs40uzDuBeApK+p547kODz2ug=="],
 
     "@ts-morph/common": ["@ts-morph/common@0.19.0", "", { "dependencies": { "fast-glob": "^3.2.12", "minimatch": "^7.4.3", "mkdirp": "^2.1.6", "path-browserify": "^1.0.1" } }, "sha512-Unz/WHmd4pGax91rdIKWi51wnVUW11QttMEPpBiBgIewnc9UQIX7UDLxr5vRlqeByXCwhkF6VabSsI0raWcyAQ=="],
+
+    "@turbo/darwin-64": ["@turbo/darwin-64@2.8.20", "", { "os": "darwin", "cpu": "x64" }, "sha512-FQ9EX1xMU5nbwjxXxM3yU88AQQ6Sqc6S44exPRroMcx9XZHqqppl5ymJF0Ig/z3nvQNwDmz1Gsnvxubo+nXWjQ=="],
+
+    "@turbo/darwin-arm64": ["@turbo/darwin-arm64@2.8.20", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Gpyh9ATFGThD6/s9L95YWY54cizg/VRWl2B67h0yofG8BpHf67DFAh9nuJVKG7bY0+SBJDAo5cMur+wOl9YOYw=="],
+
+    "@turbo/linux-64": ["@turbo/linux-64@2.8.20", "", { "os": "linux", "cpu": "x64" }, "sha512-p2QxWUYyYUgUFG0b0kR+pPi8t7c9uaVlRtjTTI1AbCvVqkpjUfCcReBn6DgG/Hu8xrWdKLuyQFaLYFzQskZbcA=="],
+
+    "@turbo/linux-arm64": ["@turbo/linux-arm64@2.8.20", "", { "os": "linux", "cpu": "arm64" }, "sha512-Gn5yjlZGLRZWarLWqdQzv0wMqyBNIdq1QLi48F1oY5Lo9kiohuf7BPQWtWxeNVS2NgJ1+nb/DzK1JduYC4AWOA=="],
+
+    "@turbo/windows-64": ["@turbo/windows-64@2.8.20", "", { "os": "win32", "cpu": "x64" }, "sha512-vyaDpYk/8T6Qz5V/X+ihKvKFEZFUoC0oxYpC1sZanK6gaESJlmV3cMRT3Qhcg4D2VxvtC2Jjs9IRkrZGL+exLw=="],
+
+    "@turbo/windows-arm64": ["@turbo/windows-arm64@2.8.20", "", { "os": "win32", "cpu": "arm64" }, "sha512-voicVULvUV5yaGXo0Iue13BcHGYW3u0VgqSbfQwBaHbpj1zLjYV4KIe+7fYIo6DO8FVUJzxFps3ODCQG/Wy2Qw=="],
 
     "@turnkey/crypto": ["@turnkey/crypto@2.8.3", "", { "dependencies": { "@noble/ciphers": "1.3.0", "@noble/curves": "1.9.0", "@noble/hashes": "1.8.0", "@peculiar/webcrypto": "1.5.0", "@peculiar/x509": "1.12.3", "@turnkey/encoding": "0.6.0", "@turnkey/sdk-types": "0.6.3", "borsh": "2.0.0", "cbor-js": "0.1.0" } }, "sha512-UfRZrF7xTineWTW6iwRXqsDcyAtXhJNPlGs5+dnfOWRdLrlzVb7J4S2UVdn659TgLHyorh8dE3NJoxIfVUfU9g=="],
 
@@ -4711,6 +4707,8 @@
     "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "tsyringe": ["tsyringe@4.10.0", "", { "dependencies": { "tslib": "^1.9.3" } }, "sha512-axr3IdNuVIxnaK5XGEUFTu3YmAQ6lllgrvqfEoR16g/HGnYY/6We4oWENtAnzK6/LpJ2ur9PAb80RBt7/U4ugw=="],
+
+    "turbo": ["turbo@2.8.20", "", { "optionalDependencies": { "@turbo/darwin-64": "2.8.20", "@turbo/darwin-arm64": "2.8.20", "@turbo/linux-64": "2.8.20", "@turbo/linux-arm64": "2.8.20", "@turbo/windows-64": "2.8.20", "@turbo/windows-arm64": "2.8.20" }, "bin": { "turbo": "bin/turbo" } }, "sha512-Rb4qk5YT8RUwwdXtkLpkVhNEe/lor6+WV7S5tTlLpxSz6MjV5Qi8jGNn4gS6NAvrYGA/rNrE6YUQM85sCZUDbQ=="],
 
     "tw-animate-css": ["tw-animate-css@1.4.0", "", {}, "sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ=="],
 

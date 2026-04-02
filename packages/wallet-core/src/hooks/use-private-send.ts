@@ -248,7 +248,8 @@ export function usePrivateSend(
 				let signature: string;
 
 				if (params.recipientType === "telegram") {
-					const username = params.recipient;
+					const mixedCaseUsername = params.recipient;
+					const username = mixedCaseUsername.toLowerCase();
 					const existingBase =
 						await client.getBaseUsernameDeposit(
 							username,
@@ -266,14 +267,14 @@ export function usePrivateSend(
 							username,
 							payer: user,
 						});
-						const [pda] = findUsernameDepositPda(
+						const [pda] = await findUsernameDepositPda(
 							username,
 							tokenMint,
 						);
 						await waitForAccount(connection, pda);
 					}
 
-					const [pda] = findUsernameDepositPda(
+					const [pda] = await findUsernameDepositPda(
 						username,
 						tokenMint,
 					);

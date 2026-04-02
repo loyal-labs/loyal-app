@@ -44,6 +44,18 @@ const mixpanelTrackCalls: Array<{
   eventName: string;
   properties: Record<string, unknown>;
 }> = [];
+const mixpanelPeopleSetCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
+const mixpanelPeopleSetOnceCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
+const mixpanelPeopleUnionCalls: Array<{
+  distinctId: string;
+  properties: Record<string, unknown>;
+}> = [];
 const getOrCreateUserCalls: Array<{
   telegramId: bigint;
   userData: {
@@ -78,6 +90,32 @@ mock.module("mixpanel", () => ({
         ) => {
           mixpanelTrackCalls.push({ eventName, properties });
           callback?.();
+        },
+        people: {
+          set: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleSetCalls.push({ distinctId, properties });
+            callback?.();
+          },
+          set_once: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleSetOnceCalls.push({ distinctId, properties });
+            callback?.();
+          },
+          union: (
+            distinctId: string,
+            properties: Record<string, unknown>,
+            callback?: (error?: unknown) => void
+          ) => {
+            mixpanelPeopleUnionCalls.push({ distinctId, properties });
+            callback?.();
+          },
         },
       };
     },
@@ -128,6 +166,7 @@ mock.module("../helper-message-cleanup", () => ({
 }));
 
 let handleMyChatMemberUpdate: (ctx: Context) => Promise<void>;
+let resetBotAnalyticsStateForTests: typeof import("../analytics").__resetBotAnalyticsStateForTests;
 
 const COMMUNITY_CHAT_ID = -1009876543210;
 const ONBOARDING_MESSAGE =
@@ -197,6 +236,8 @@ describe("my chat member onboarding", () => {
   beforeAll(async () => {
     const loadedModule = await import("../my-chat-member");
     handleMyChatMemberUpdate = loadedModule.handleMyChatMemberUpdate;
+    ({ __resetBotAnalyticsStateForTests: resetBotAnalyticsStateForTests } =
+      await import("../analytics"));
   });
 
   beforeEach(() => {
@@ -211,9 +252,13 @@ describe("my chat member onboarding", () => {
     removalWhereCalls = 0;
     mixpanelInitTokens.length = 0;
     mixpanelTrackCalls.length = 0;
+    mixpanelPeopleSetCalls.length = 0;
+    mixpanelPeopleSetOnceCalls.length = 0;
+    mixpanelPeopleUnionCalls.length = 0;
     getOrCreateUserCalls.length = 0;
     privateUserSettingsDisableValuesCaptured = [];
     sendMessageWithAutoCleanupCalls = [];
+    resetBotAnalyticsStateForTests();
 
     mockDb = {
       insert: () => ({
@@ -300,6 +345,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_ADDED_TO_GROUP_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "supergroup",
@@ -327,6 +373,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_ADDED_TO_GROUP_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "channel",
@@ -390,6 +437,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_BLOCKED_BY_USER_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "private",
@@ -422,6 +470,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_UNBLOCKED_BY_USER_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "private",
@@ -504,6 +553,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_ADDED_TO_GROUP_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "group",
@@ -554,6 +604,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_REMOVED_FROM_GROUP_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "supergroup",
@@ -582,6 +633,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_REMOVED_FROM_GROUP_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "channel",
@@ -610,6 +662,7 @@ describe("my chat member onboarding", () => {
       {
         eventName: BOT_REMOVED_FROM_GROUP_EVENT,
         properties: {
+          workspace: "bot",
           distinct_id: "tg:777",
           telegram_chat_id: String(COMMUNITY_CHAT_ID),
           telegram_chat_type: "supergroup",

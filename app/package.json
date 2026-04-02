@@ -5,10 +5,10 @@
   "packageManager": "bun@1.2.17",
   "scripts": {
     "check:drizzle-singleton": "node scripts/check-drizzle-singleton.mjs",
-    "predev": "bun run --cwd .. build:db-packages && bun run --cwd .. build:llm-packages && bun run --cwd .. build:solana-packages && bun run --cwd .. build:shared-packages && bun run check:drizzle-singleton",
+    "predev": "bun run --cwd .. build:packages && bun run check:drizzle-singleton",
     "dev": "next dev --turbopack",
     "dev:http": "next dev --experimental-https",
-    "prebuild": "bun run --cwd .. build:db-packages && bun run --cwd .. build:llm-packages && bun run --cwd .. build:solana-packages && bun run --cwd .. build:shared-packages && bun run check:drizzle-singleton",
+    "prebuild": "bun run --cwd .. build:packages && bun run check:drizzle-singleton",
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",

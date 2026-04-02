@@ -102,6 +102,9 @@ docs/scopes
 /workers/userbot/.data/
 /workers/userbot/node_modules/
 
+# turbo
+.turbo/
+
 # internal workspace package build outputs
 /packages/*/dist/
 /sdk/*/dist/
