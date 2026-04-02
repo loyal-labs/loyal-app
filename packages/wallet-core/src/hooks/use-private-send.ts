@@ -248,8 +248,8 @@ export function usePrivateSend(
 				let signature: string;
 
 				if (params.recipientType === "telegram") {
-          const mixedCaseUsername = params.recipient;
-          const username = mixedCaseUsername.toLowerCase();
+					const mixedCaseUsername = params.recipient;
+					const username = mixedCaseUsername.toLowerCase();
 					const existingBase =
 						await client.getBaseUsernameDeposit(
 							username,
