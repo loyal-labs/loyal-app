@@ -43,7 +43,7 @@ const nextConfig: NextConfig = {
     "@loyal-labs/llm-server",
     "@loyal-labs/shared",
   ],
-  productionBrowserSourceMaps: Boolean(process.env.DATADOG_API_KEY),
+  productionBrowserSourceMaps: true,
   env: {
     NEXT_PUBLIC_GIT_COMMIT_HASH: commitHash,
     NEXT_PUBLIC_GIT_BRANCH: branch,

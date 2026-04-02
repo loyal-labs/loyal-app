@@ -7,6 +7,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import type { TelegramDeposit } from "../../../types/deposits";
 import { getPrivateClient } from "./private-client";
+import { validateLowercaseUsername } from "./utils";
 
 const mapUsernameDepositToTelegramDeposit = (
   user: PublicKey,
@@ -25,6 +26,8 @@ export const getDepositWithUsername = async (
   user: PublicKey,
   username: string
 ): Promise<TelegramDeposit[]> => {
+  validateLowercaseUsername(username);
+
   const privateClient = await getPrivateClient();
   const deposit = await privateClient.getEphemeralUsernameDeposit(
     username,
@@ -42,6 +45,8 @@ export const subscribeToDepositsWithUsername = async (
   username: string,
   onChange: (deposit: TelegramDeposit) => void
 ): Promise<() => Promise<void>> => {
+  validateLowercaseUsername(username);
+
   const privateClient = await getPrivateClient();
   const [depositPda] = await findUsernameDepositPda(username, NATIVE_MINT);
 

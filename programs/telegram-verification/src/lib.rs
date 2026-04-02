@@ -229,10 +229,15 @@ fn extract_username(bytes: &[u8]) -> Result<String> {
 
     let username = &rest[..end_rel];
 
+    // Username must be between 5 and 32 characters
+    // Username can only contain lowercase alphanumeric characters and underscores
+    // Source: https://limits.tginfo.me/en
+    // Source: https://telegram.org/faq#q-what-can-i-use-as-my-username
     require!(
         (MIN_USERNAME_LEN..=MAX_USERNAME_LEN).contains(&username.len()),
         ErrorCode::InvalidTelegramUsername
     );
+    // Here we accept mixed case usernames from telegram initData and convert them to lowercase
     require!(
         username.bytes().all(|b| (b'A'..=b'Z').contains(&b)
             || (b'a'..=b'z').contains(&b)

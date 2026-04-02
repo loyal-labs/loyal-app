@@ -6,6 +6,7 @@ import {
 import { refundDeposit } from "./refund-deposit";
 import { transferTokens } from "./transfer-deposit";
 import { transferTokensToUsername } from "./transfer-deposit-to-username";
+import { validateLowercaseUsername } from "./utils";
 
 export {
   getDeposit,
@@ -14,4 +15,5 @@ export {
   subscribeToDepositsWithUsername,
   transferTokens,
   transferTokensToUsername,
+  validateLowercaseUsername,
 };
