@@ -5,8 +5,15 @@ import { useSwap } from "@loyal-labs/wallet-core/hooks";
 import type { SwapConfig } from "@loyal-labs/wallet-core/hooks";
 
 import { SwapShieldTabs } from "~/src/components/wallet/shield-content";
-import type { FormButtonProps, SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
+import type {
+  FormButtonProps,
+  SubView,
+  SwapMode,
+  SwapToken,
+} from "@loyal-labs/wallet-core/types";
 
+import { track, getAnalyticsErrorProperties } from "~/src/lib/analytics";
+import { SWAP_EVENTS } from "./swap-analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -999,11 +1006,32 @@ export function SwapContent({
       setPhase("success");
       setFromAmount("");
       resetQuote();
+      track(SWAP_EVENTS.swapTokens, {
+        from_symbol: fromToken.symbol,
+        to_symbol: toToken.symbol,
+        from_amount: numericFrom,
+        to_amount: toAmount,
+      });
     } else {
       setErrorMessage(result.error);
       setPhase("error");
+      track(SWAP_EVENTS.swapTokensFailed, {
+        from_symbol: fromToken.symbol,
+        to_symbol: toToken.symbol,
+        ...getAnalyticsErrorProperties(result.error),
+      });
     }
-  }, [hasAmount, toAmount, toToken.price, quote, executeSwap, resetQuote]);
+  }, [
+    hasAmount,
+    toAmount,
+    toToken.price,
+    toToken.symbol,
+    fromToken.symbol,
+    numericFrom,
+    quote,
+    executeSwap,
+    resetQuote,
+  ]);
 
   // Report form button props to parent when chrome is managed externally
   useEffect(() => {
