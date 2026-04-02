@@ -144,7 +144,7 @@ describe.only("telegram-verification test suite", () => {
     console.log("User B public key:", otherUser.toBase58());
 
     [sessionPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tg_session"), otherUser.toBuffer()],
+      [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
       verificationProgram.programId
     );
 

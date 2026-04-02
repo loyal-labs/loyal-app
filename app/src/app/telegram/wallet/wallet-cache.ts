@@ -47,11 +47,7 @@ export const setCachedIncomingTransactions = (
 export const mapDepositToIncomingTransaction = (
   deposit: TelegramDeposit
 ): IncomingTransaction => {
-  const senderBase58 =
-    typeof (deposit.user as { toBase58?: () => string }).toBase58 === "function"
-      ? deposit.user.toBase58()
-      : String(deposit.user);
-
+  const senderBase58 = deposit.user.toBase58();
   return {
     id: `${senderBase58}-${deposit.lastNonce}`,
     amountLamports: deposit.amount,

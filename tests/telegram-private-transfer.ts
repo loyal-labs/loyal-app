@@ -33,7 +33,7 @@ import { sign } from "tweetnacl";
 import bs58 from "bs58";
 
 const DEPOSIT_PDA_SEED = Buffer.from("deposit_v2");
-const USERNAME_DEPOSIT_PDA_SEED = Buffer.from("username_deposit");
+const USERNAME_DEPOSIT_PDA_SEED = Buffer.from("username_deposit_v2");
 const VAULT_PDA_SEED = Buffer.from("vault");
 
 const VALIDATION_BYTES: Uint8Array = new Uint8Array([
@@ -917,7 +917,7 @@ describe("telegram-private-transfer", () => {
 
   it("Store and verify Telegram initData for other user", async () => {
     [sessionPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tg_session"), otherUser.toBuffer()],
+      [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
       verificationProgram.programId
     );
 
@@ -1152,7 +1152,11 @@ describe("telegram-private-transfer", () => {
             sig,
             { commitment: "confirmed" }
           );
-        assert.equal(tx, null, `${label} should be hidden from third user on ER`);
+        assert.equal(
+          tx,
+          null,
+          `${label} should be hidden from third user on ER`
+        );
       } catch {
         // Permissioned endpoints may throw when unauthorized.
         assert.isTrue(true);
@@ -1281,7 +1285,9 @@ describe("telegram-private-transfer", () => {
       })
       .signers([otherUserKp])
       .rpc({ skipPreflight: true });
-    await ephemeralProgramOtherUser.provider.connection.confirmTransaction(sig2);
+    await ephemeralProgramOtherUser.provider.connection.confirmTransaction(
+      sig2
+    );
 
     let baseUser: typeof erUser | null = null;
     let baseOther: typeof erOther | null = null;

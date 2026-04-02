@@ -18,10 +18,9 @@ export const storeInitData = async (
 
   await verificationProgram.methods
     .store(Buffer.from(initData))
-    .accounts({
+    .accountsPartial({
       payer: userPublicKey,
       user: userPublicKey,
-      // @ts-expect-error - sessionPda is a PublicKey
       session: sessionPda,
       systemProgram: SystemProgram.programId,
     })
@@ -42,10 +41,9 @@ export const storeInitDataGasless = async (
 
   const storeTx = await verificationProgram.methods
     .store(Buffer.from(initData))
-    .accounts({
+    .accountsPartial({
       payer: payer,
       user: userPublicKey,
-      // @ts-expect-error - sessionPda is a PublicKey
       session: sessionPda,
       systemProgram: SystemProgram.programId,
     })

@@ -52,7 +52,10 @@ export type TelegramVerification = {
                   115,
                   105,
                   111,
-                  110
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -172,8 +175,13 @@ export type TelegramVerification = {
             "type": "pubkey"
           },
           {
-            "name": "username",
-            "type": "string"
+            "name": "usernameHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "validationBytes",

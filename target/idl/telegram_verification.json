@@ -46,7 +46,10 @@
                   115,
                   105,
                   111,
-                  110
+                  110,
+                  95,
+                  118,
+                  50
                 ]
               },
               {
@@ -166,8 +169,13 @@
             "type": "pubkey"
           },
           {
-            "name": "username",
-            "type": "string"
+            "name": "username_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "validation_bytes",

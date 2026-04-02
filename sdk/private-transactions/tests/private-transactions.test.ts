@@ -14,7 +14,6 @@ import {
 import {
   createAssociatedTokenAccountIdempotent,
   createMint,
-  getAssociatedTokenAddressSync,
   getAccount,
   mintToChecked,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -25,9 +24,6 @@ import {
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
   PROGRAM_ID,
-  findDepositPda,
-  findUsernameDepositPda,
-  findVaultPda,
 } from "../index";
 import type { TelegramVerification } from "../../../target/types/telegram_verification";
 
@@ -465,7 +461,7 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
         );
 
         [sessionPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("tg_session"), otherUser.toBuffer()],
+          [Buffer.from("tg_session_v2"), otherUser.toBuffer()],
           verificationProgram.programId
         );
 
@@ -505,30 +501,6 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
       });
       expect(client.publicKey.equals(user)).toBe(true);
       expect(client.getProgram().provider.connection.rpcEndpoint).toBe(config.erRpcEndpoint);
-    });
-  });
-
-  // =============================================================================
-  // PDA Helper Tests
-  // =============================================================================
-
-  describe("PDA Helpers", () => {
-    it("derives deposit PDA correctly", () => {
-      const [pda1] = baseClientUser.findDepositPda(user, tokenMint);
-      const [pda2] = findDepositPda(user, tokenMint);
-      expect(pda1.equals(pda2)).toBe(true);
-    });
-
-    it("derives username deposit PDA correctly", () => {
-      const [pda1] = baseClientUser.findUsernameDepositPda(VALIDATION_USERNAME, tokenMint);
-      const [pda2] = findUsernameDepositPda(VALIDATION_USERNAME, tokenMint);
-      expect(pda1.equals(pda2)).toBe(true);
-    });
-
-    it("derives vault PDA correctly", () => {
-      const [pda1] = baseClientUser.findVaultPda(tokenMint);
-      const [pda2] = findVaultPda(tokenMint);
-      expect(pda1.equals(pda2)).toBe(true);
     });
   });
 

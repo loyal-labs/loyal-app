@@ -52,7 +52,7 @@ export interface DepositData {
  * Data structure for a username-based deposit account
  */
 export interface UsernameDepositData {
-    username: string;
+    usernameHash: number[];
     tokenMint: PublicKey;
     amount: bigint;
     address: PublicKey;

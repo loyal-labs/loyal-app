@@ -237,7 +237,7 @@ These complement the command list above and mirror guidance in `mobile/CLAUDE.md
 
 ### Key Patterns
 
-- **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit"`, `"vault"`, `"tg_session"`
+- **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit_v2"`, `"username_deposit_v2"`, `"vault"`, `"tg_session_v2"`
 - **Keypair Storage**: User keypairs stored in Telegram Cloud Storage (not localStorage)
 - **Environment Selection**: `NEXT_PUBLIC_SOLANA_ENV` controls RPC endpoint (`mainnet`, `devnet`, `localnet`)
 
