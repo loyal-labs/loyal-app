@@ -809,7 +809,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
               color: "rgba(60, 60, 67, 0.3)",
             }}
           >
-            Loyal Extension v0.0.1
+            Loyal Extension v{browser.runtime.getManifest().version}
           </span>
         </div>
       </div>
