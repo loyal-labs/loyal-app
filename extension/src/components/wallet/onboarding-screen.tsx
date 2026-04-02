@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { track } from "~/src/lib/analytics";
 import { onboardingCompleted } from "~/src/lib/storage";
+import {
+  ONBOARDING_COMPLETION_METHODS,
+  ONBOARDING_EVENTS,
+} from "./onboarding-analytics";
 
 const SLIDES = [
   {
@@ -70,6 +75,10 @@ export function OnboardingScreen({
 
   const isLast = current === SLIDES.length - 1;
 
+  useEffect(() => {
+    track(ONBOARDING_EVENTS.started);
+  }, []);
+
   // Trigger enter→idle on mount and after each slide change
   useEffect(() => {
     if (phase === "enter") {
@@ -83,9 +92,15 @@ export function OnboardingScreen({
 
   const finish = useCallback(() => {
     void onboardingCompleted.setValue(true);
+    track(ONBOARDING_EVENTS.ended, {
+      method: isLast
+        ? ONBOARDING_COMPLETION_METHODS.completed
+        : ONBOARDING_COMPLETION_METHODS.skipped,
+      slides_viewed: current + 1,
+    });
     setExiting(true);
     setTimeout(() => onComplete(), 300);
-  }, [onComplete]);
+  }, [onComplete, isLast, current]);
 
   const goNext = useCallback(() => {
     if (phase !== "idle") return;
@@ -97,10 +112,14 @@ export function OnboardingScreen({
     setPhase("exit");
     setTimeout(() => {
       // Phase 2: swap content, start entering from right
+      track(ONBOARDING_EVENTS.slideViewed, {
+        slide_index: current + 1,
+        slide_title: SLIDES[current + 1].title,
+      });
       setCurrent((c) => c + 1);
       setPhase("enter");
     }, 250);
-  }, [phase, isLast, finish]);
+  }, [phase, isLast, finish, current]);
 
   const slide = SLIDES[current];
 
