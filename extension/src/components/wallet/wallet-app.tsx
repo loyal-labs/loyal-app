@@ -56,6 +56,7 @@ import {
   resetAnalytics,
 } from "~/src/lib/analytics";
 import { WALLET_SETUP_EVENTS } from "./wallet-setup-analytics";
+import { PORTFOLIO_EVENTS } from "./portfolio-analytics";
 
 // ---------------------------------------------------------------------------
 // Default token constants
@@ -1118,6 +1119,14 @@ function WalletInterface() {
   }, [activeTab, displayTab]);
 
   const handleTabChange = useCallback((tab: TabId) => {
+    const eventMap: Partial<Record<TabId, string>> = {
+      send: PORTFOLIO_EVENTS.openSend,
+      receive: PORTFOLIO_EVENTS.openReceive,
+      swap: PORTFOLIO_EVENTS.openSwap,
+      shield: PORTFOLIO_EVENTS.openShield,
+    };
+    const event = eventMap[tab];
+    if (event) track(event);
     setActiveTab(tab);
     setSubView(null);
   }, []);

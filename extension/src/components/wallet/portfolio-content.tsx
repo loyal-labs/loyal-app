@@ -18,8 +18,10 @@ import type {
   TransactionDetail,
 } from "@loyal-labs/wallet-core/types";
 
+import { track } from "~/src/lib/analytics";
 import { ActivityRowItem } from "~/src/components/wallet/activity-row-item";
 import { TokenRowItem } from "~/src/components/wallet/token-row-item";
+import { PORTFOLIO_EVENTS } from "./portfolio-analytics";
 
 const skeletonBar = (width: string, height: string) => ({
   width,
@@ -148,6 +150,7 @@ export function PortfolioContent({
     (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!walletAddress) return;
+      track(PORTFOLIO_EVENTS.copyAddress, { source: "portfolio" });
       void navigator.clipboard.writeText(walletAddress).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
@@ -196,7 +199,14 @@ export function PortfolioContent({
         </div>
 
         {/* Tokens skeleton */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            overflowX: "hidden",
+          }}
+        >
           <div
             style={{
               display: "flex",
@@ -406,7 +416,12 @@ export function PortfolioContent({
               </span>
             </div>
             <button
-              onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
+              onClick={() => {
+                track(PORTFOLIO_EVENTS.toggleBalanceVisibility, {
+                  hidden: !isBalanceHidden,
+                });
+                onBalanceHiddenChange(!isBalanceHidden);
+              }}
               style={{
                 background: "none",
                 border: "none",
@@ -467,8 +482,12 @@ export function PortfolioContent({
             color: "#3C3C43",
             flexShrink: 0,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0, 0, 0, 0.08)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0, 0, 0, 0.04)"; }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(0, 0, 0, 0.08)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "rgba(0, 0, 0, 0.04)";
+          }}
           type="button"
         >
           <Settings size={20} />
@@ -483,30 +502,40 @@ export function PortfolioContent({
           padding: "4px 16px 12px",
         }}
       >
-        {([
-          { label: "Send", Icon: ArrowUpRight, action: onSend },
-          { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
-          { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
-          { label: "Shield", Icon: Shield, action: onShield },
-        ] as const).map(({ label, Icon, action }) => (
+        {(
+          [
+            { label: "Send", Icon: ArrowUpRight, action: onSend },
+            { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
+            { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
+            { label: "Shield", Icon: Shield, action: onShield },
+          ] as const
+        ).map(({ label, Icon, action }) => (
           <button
             key={label}
             type="button"
             onClick={action}
             onMouseEnter={(e) => {
-              const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+              const circle = e.currentTarget.querySelector(
+                "[data-action-circle]"
+              ) as HTMLElement;
               if (circle) circle.style.background = "rgba(249, 54, 60, 0.22)";
             }}
             onMouseLeave={(e) => {
-              const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+              const circle = e.currentTarget.querySelector(
+                "[data-action-circle]"
+              ) as HTMLElement;
               if (circle) circle.style.background = "rgba(249, 54, 60, 0.14)";
             }}
             onMouseDown={(e) => {
-              const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+              const circle = e.currentTarget.querySelector(
+                "[data-action-circle]"
+              ) as HTMLElement;
               if (circle) circle.style.transform = "scale(0.93)";
             }}
             onMouseUp={(e) => {
-              const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+              const circle = e.currentTarget.querySelector(
+                "[data-action-circle]"
+              ) as HTMLElement;
               if (circle) circle.style.transform = "scale(1)";
             }}
             style={{
@@ -594,7 +623,10 @@ export function PortfolioContent({
               Tokens
             </span>
             <button
-              onClick={() => onNavigate("allTokens")}
+              onClick={() => {
+                track(PORTFOLIO_EVENTS.viewAllTokens);
+                onNavigate("allTokens");
+              }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.opacity = "0.7";
               }}
@@ -659,7 +691,10 @@ export function PortfolioContent({
               Activity
             </span>
             <button
-              onClick={() => onNavigate("allActivity")}
+              onClick={() => {
+                track(PORTFOLIO_EVENTS.viewAllActivity);
+                onNavigate("allActivity");
+              }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.opacity = "0.7";
               }}
@@ -688,13 +723,16 @@ export function PortfolioContent({
               activity={activity}
               isBalanceHidden={isBalanceHidden}
               key={activity.id}
-              onClick={() =>
+              onClick={() => {
+                track(PORTFOLIO_EVENTS.viewTransactionDetails, {
+                  tx_type: activity.type,
+                });
                 onNavigate({
                   type: "transaction",
                   detail: transactionDetails[activity.id],
                   from: "portfolio",
-                })
-              }
+                });
+              }}
             />
           ))}
 
@@ -731,15 +769,39 @@ export function PortfolioContent({
             cursor: "pointer",
             transition: "background 0.15s ease",
           }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(249, 54, 60, 0.06)"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#fff"; }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background =
+              "rgba(249, 54, 60, 0.06)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = "#fff";
+          }}
         >
-          <svg width="28" height="22" viewBox="0 0 980 784" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-            <path d="M147 686L0 343H441V0L637 343L686 0L980 784L147 686Z" fill="#F9363C"/>
-            <path d="M542.333 423.938C623.407 428.187 686.146 488.592 682.464 558.857L388.867 543.47C392.549 473.205 461.258 419.689 542.333 423.938Z" fill="white"/>
-            <path d="M542.532 435.643C586.259 437.935 619.849 475.241 617.557 518.967C616.87 532.087 613.028 544.293 606.809 554.892L466.142 547.52C461.065 536.329 458.522 523.788 459.209 510.669C461.501 466.942 498.805 433.352 542.532 435.643Z" fill="black"/>
-            <path d="M562.108 543.399C562.108 523.779 546.203 507.874 526.583 507.874C546.203 507.874 562.108 491.969 562.108 472.349C562.108 491.969 578.014 507.874 597.633 507.874C578.014 507.874 562.108 523.779 562.108 543.399Z" fill="white"/>
-            <circle cx="588.44" cy="477.861" r="9.1875" fill="white"/>
+          <svg
+            width="28"
+            height="22"
+            viewBox="0 0 980 784"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            style={{ flexShrink: 0 }}
+          >
+            <path
+              d="M147 686L0 343H441V0L637 343L686 0L980 784L147 686Z"
+              fill="#F9363C"
+            />
+            <path
+              d="M542.333 423.938C623.407 428.187 686.146 488.592 682.464 558.857L388.867 543.47C392.549 473.205 461.258 419.689 542.333 423.938Z"
+              fill="white"
+            />
+            <path
+              d="M542.532 435.643C586.259 437.935 619.849 475.241 617.557 518.967C616.87 532.087 613.028 544.293 606.809 554.892L466.142 547.52C461.065 536.329 458.522 523.788 459.209 510.669C461.501 466.942 498.805 433.352 542.532 435.643Z"
+              fill="black"
+            />
+            <path
+              d="M562.108 543.399C562.108 523.779 546.203 507.874 526.583 507.874C546.203 507.874 562.108 491.969 562.108 472.349C562.108 491.969 578.014 507.874 597.633 507.874C578.014 507.874 562.108 523.779 562.108 543.399Z"
+              fill="white"
+            />
+            <circle cx="588.44" cy="477.861" r="9.1875" fill="white" />
           </svg>
           <span
             style={{
@@ -752,8 +814,18 @@ export function PortfolioContent({
           >
             Download for all platforms
           </span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(60,60,67,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "auto", flexShrink: 0 }}>
-            <path d="M9 18l6-6-6-6"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="rgba(60,60,67,0.4)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ marginLeft: "auto", flexShrink: 0 }}
+          >
+            <path d="M9 18l6-6-6-6" />
           </svg>
         </button>
       </div>
