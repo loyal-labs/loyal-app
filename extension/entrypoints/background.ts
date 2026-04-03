@@ -18,7 +18,6 @@ import {
   isWalletUnlocked,
   lastActivityAt,
   pendingDappApproval,
-  pendingDappRequestPayload,
   viewMode,
 } from "~/src/lib/storage";
 
@@ -35,10 +34,14 @@ const pendingSignRequests = new Map<
   (response: SignTransactionResponse) => void
 >();
 
-const pendingDappRequests = new Map<
-  string,
-  (response: BackgroundToDappResponse) => void
->();
+interface PendingDappRequest {
+  respond: (response: BackgroundToDappResponse) => void;
+  kind: "connect" | "signTransaction" | "signMessage";
+  transaction?: string; // base64
+  message?: string; // base64
+}
+
+const pendingDappRequests = new Map<string, PendingDappRequest>();
 
 const LOCK_ALARM = "auto-lock-check";
 
@@ -285,6 +288,36 @@ export default defineBackground(() => {
       });
   }
 
+  /** Reject any existing pending dApp request before accepting a new one. */
+  function rejectStalePendingRequests(excludeId?: string) {
+    for (const [id, req] of pendingDappRequests) {
+      if (id === excludeId) continue;
+      if (req.kind === "signTransaction") {
+        req.respond({
+          type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+          id,
+          approved: false,
+          error: "Replaced by a newer request.",
+        } satisfies DappSignTransactionResponse);
+      } else if (req.kind === "signMessage") {
+        req.respond({
+          type: "DAPP_SIGN_MESSAGE_RESPONSE",
+          id,
+          approved: false,
+          error: "Replaced by a newer request.",
+        } satisfies DappSignMessageResponse);
+      } else {
+        req.respond({
+          type: "DAPP_CONNECT_RESPONSE",
+          id,
+          approved: false,
+          error: "Replaced by a newer request.",
+        } satisfies DappConnectResponse);
+      }
+      pendingDappRequests.delete(id);
+    }
+  }
+
   // --- dApp connect / sign requests from content scripts ---
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // --- Connect request from dApp ---
@@ -316,8 +349,9 @@ export default defineBackground(() => {
           return;
         }
 
-        // Need user approval — park request and show badge
-        pendingDappRequests.set(id, sendResponse);
+        // Need user approval — reject any stale request, park this one
+        rejectStalePendingRequests(id);
+        pendingDappRequests.set(id, { respond: sendResponse, kind: "connect" });
         await pendingDappApproval.setValue({
           id,
           kind: "connect",
@@ -347,16 +381,13 @@ export default defineBackground(() => {
         return;
       }
 
-      pendingDappRequests.set(id, sendResponse);
+      rejectStalePendingRequests(id);
+      pendingDappRequests.set(id, { respond: sendResponse, kind: "signTransaction", transaction });
       void pendingDappApproval.setValue({
         id,
         kind: "signTransaction",
         origin,
         favicon,
-      });
-      void pendingDappRequestPayload.setValue({
-        type: "DAPP_SIGN_TRANSACTION_REQUEST",
-        id,
         transaction,
       });
       void browser.action.setBadgeText({ text: "1" });
@@ -381,16 +412,13 @@ export default defineBackground(() => {
         return;
       }
 
-      pendingDappRequests.set(id, sendResponse);
+      rejectStalePendingRequests(id);
+      pendingDappRequests.set(id, { respond: sendResponse, kind: "signMessage", message: msg });
       void pendingDappApproval.setValue({
         id,
         kind: "signMessage",
         origin,
         favicon,
-      });
-      void pendingDappRequestPayload.setValue({
-        type: "DAPP_SIGN_MESSAGE_REQUEST",
-        id,
         message: msg,
       });
       void browser.action.setBadgeText({ text: "1" });
@@ -419,7 +447,7 @@ export default defineBackground(() => {
       const pending = pendingDappRequests.get(response.id);
       if (pending) {
         pendingDappRequests.delete(response.id);
-        pending(response);
+        pending.respond(response);
       }
       void pendingDappApproval.setValue(null);
       void browser.action.setBadgeText({ text: "" });
@@ -440,28 +468,26 @@ export default defineBackground(() => {
       const { id, approved } = decision;
 
       void (async () => {
-        const payload = await pendingDappRequestPayload.getValue();
         const pending = pendingDappRequests.get(id);
+        if (!pending) return;
+        pendingDappRequests.delete(id);
 
         if (!approved) {
           // User denied — resolve with denied response
-          if (pending) {
-            pendingDappRequests.delete(id);
-            if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
-              pending({
-                type: "DAPP_SIGN_TRANSACTION_RESPONSE",
-                id,
-                approved: false,
-                error: "User denied the request.",
-              } satisfies DappSignTransactionResponse);
-            } else if (payload?.type === "DAPP_SIGN_MESSAGE_REQUEST") {
-              pending({
-                type: "DAPP_SIGN_MESSAGE_RESPONSE",
-                id,
-                approved: false,
-                error: "User denied the request.",
-              } satisfies DappSignMessageResponse);
-            }
+          if (pending.kind === "signTransaction") {
+            pending.respond({
+              type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+              id,
+              approved: false,
+              error: "User denied the request.",
+            } satisfies DappSignTransactionResponse);
+          } else if (pending.kind === "signMessage") {
+            pending.respond({
+              type: "DAPP_SIGN_MESSAGE_RESPONSE",
+              id,
+              approved: false,
+              error: "User denied the request.",
+            } satisfies DappSignMessageResponse);
           }
         } else {
           // User approved — sign with in-memory session keypair
@@ -474,8 +500,8 @@ export default defineBackground(() => {
               new Uint8Array(JSON.parse(sessionSecretKey)),
             );
 
-            if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
-              const txBytes = base64ToUint8Array(payload.transaction!);
+            if (pending.kind === "signTransaction" && pending.transaction) {
+              const txBytes = base64ToUint8Array(pending.transaction);
               let signedBytes: Uint8Array;
 
               try {
@@ -492,57 +518,47 @@ export default defineBackground(() => {
                 });
               }
 
-              if (pending) {
-                pendingDappRequests.delete(id);
-                pending({
-                  type: "DAPP_SIGN_TRANSACTION_RESPONSE",
-                  id,
-                  approved: true,
-                  signedTransaction: uint8ArrayToBase64(signedBytes),
-                } satisfies DappSignTransactionResponse);
-              }
-            } else if (payload?.type === "DAPP_SIGN_MESSAGE_REQUEST") {
+              pending.respond({
+                type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+                id,
+                approved: true,
+                signedTransaction: uint8ArrayToBase64(signedBytes),
+              } satisfies DappSignTransactionResponse);
+            } else if (pending.kind === "signMessage" && pending.message) {
               const { sign } = await import("tweetnacl");
-              const msgBytes = base64ToUint8Array(payload.message!);
+              const msgBytes = base64ToUint8Array(pending.message);
               const signature = sign.detached(msgBytes, keypair.secretKey);
 
-              if (pending) {
-                pendingDappRequests.delete(id);
-                pending({
-                  type: "DAPP_SIGN_MESSAGE_RESPONSE",
-                  id,
-                  approved: true,
-                  signature: uint8ArrayToBase64(signature),
-                } satisfies DappSignMessageResponse);
-              }
+              pending.respond({
+                type: "DAPP_SIGN_MESSAGE_RESPONSE",
+                id,
+                approved: true,
+                signature: uint8ArrayToBase64(signature),
+              } satisfies DappSignMessageResponse);
             }
           } catch (err) {
-            if (pending) {
-              pendingDappRequests.delete(id);
-              const errorMsg =
-                err instanceof Error ? err.message : "Signing failed.";
-              if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
-                pending({
-                  type: "DAPP_SIGN_TRANSACTION_RESPONSE",
-                  id,
-                  approved: false,
-                  error: errorMsg,
-                } satisfies DappSignTransactionResponse);
-              } else if (payload?.type === "DAPP_SIGN_MESSAGE_REQUEST") {
-                pending({
-                  type: "DAPP_SIGN_MESSAGE_RESPONSE",
-                  id,
-                  approved: false,
-                  error: errorMsg,
-                } satisfies DappSignMessageResponse);
-              }
+            const errorMsg =
+              err instanceof Error ? err.message : "Signing failed.";
+            if (pending.kind === "signTransaction") {
+              pending.respond({
+                type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+                id,
+                approved: false,
+                error: errorMsg,
+              } satisfies DappSignTransactionResponse);
+            } else if (pending.kind === "signMessage") {
+              pending.respond({
+                type: "DAPP_SIGN_MESSAGE_RESPONSE",
+                id,
+                approved: false,
+                error: errorMsg,
+              } satisfies DappSignMessageResponse);
             }
           }
         }
 
         // Clean up storage, badge, and temporary approval popup
         await pendingDappApproval.setValue(null);
-        await pendingDappRequestPayload.setValue(null);
         void browser.action.setBadgeText({ text: "" });
 
         if (approvalPopupId !== null) {

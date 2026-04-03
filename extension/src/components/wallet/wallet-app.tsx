@@ -47,7 +47,6 @@ import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
 import {
   pendingDappApproval,
-  pendingDappRequestPayload,
   connectedDappOrigins,
   onboardingCompleted,
 } from "~/src/lib/storage";
@@ -1140,7 +1139,7 @@ function WalletInterface() {
 
   // Watch for pending dApp approval requests from storage
   useEffect(() => {
-    async function applyApprovalRequest(
+    function applyApprovalRequest(
       req: Awaited<ReturnType<typeof pendingDappApproval.getValue>>
     ) {
       if (!req) return;
@@ -1152,15 +1151,14 @@ function WalletInterface() {
           requestId: req.id,
         });
       } else {
-        const payload = await pendingDappRequestPayload.getValue();
         setSubView({
           type: "dappSign",
           origin: req.origin,
           favicon: req.favicon,
           requestId: req.id,
           kind: req.kind,
-          transactionBase64: payload?.transaction,
-          messageBase64: payload?.message,
+          transactionBase64: req.transaction,
+          messageBase64: req.message,
         });
       }
     }
@@ -1169,9 +1167,7 @@ function WalletInterface() {
     void pendingDappApproval.getValue().then(applyApprovalRequest);
 
     // Watch for changes
-    const unwatch = pendingDappApproval.watch((req) => {
-      void applyApprovalRequest(req);
-    });
+    const unwatch = pendingDappApproval.watch(applyApprovalRequest);
 
     return unwatch;
   }, []);

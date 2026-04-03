@@ -44,7 +44,7 @@ export default defineContentScript({
           const response = await browser.runtime.sendMessage(payload);
           window.postMessage(
             { target: "loyal-wallet-provider", id, payload: response },
-            "*",
+            window.location.origin,
           );
         } catch (err) {
           window.postMessage(
@@ -59,7 +59,7 @@ export default defineContentScript({
                     : "Extension communication failed.",
               },
             },
-            "*",
+            window.location.origin,
           );
         }
       })();

@@ -117,7 +117,7 @@ function sendBridgeMessage<T extends Record<string, unknown>>(
     };
 
     window.addEventListener("message", handler);
-    window.postMessage({ target: "loyal-wallet-bridge", id, payload }, "*");
+    window.postMessage({ target: "loyal-wallet-bridge", id, payload }, window.location.origin);
   });
 }
 

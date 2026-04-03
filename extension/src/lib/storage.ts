@@ -59,6 +59,8 @@ export const pendingDappApproval = storage.defineItem<{
   kind: "connect" | "signTransaction" | "signMessage";
   origin: string;
   favicon?: string;
+  transaction?: string; // base64, for signTransaction
+  message?: string; // base64, for signMessage
 } | null>(
   `${SESSION_AREA}:pendingDappApproval`,
   { fallback: null },
@@ -88,13 +90,3 @@ export const pinLockedUntil = storage.defineItem<number>(
   { fallback: 0 },
 );
 
-/** Full dApp request payload for signing (stored so background can sign after approval) */
-export const pendingDappRequestPayload = storage.defineItem<{
-  type: "DAPP_SIGN_TRANSACTION_REQUEST" | "DAPP_SIGN_MESSAGE_REQUEST";
-  id: string;
-  transaction?: string; // base64
-  message?: string; // base64
-} | null>(
-  `${SESSION_AREA}:pendingDappRequestPayload`,
-  { fallback: null },
-);
