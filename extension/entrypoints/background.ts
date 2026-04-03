@@ -441,28 +441,42 @@ export default defineBackground(() => {
         return;
       }
 
-      const approvalId = createApprovalToken();
-      const approvalNonce = createApprovalToken();
-      rejectStalePendingRequests();
-      pendingDappRequests.set(approvalId, {
-        respond: sendResponse,
-        kind: "signTransaction",
-        externalRequestId,
-        approvalNonce,
-        origin,
-        transaction,
-      });
-      void pendingDappApproval.setValue({
-        id: approvalId,
-        nonce: approvalNonce,
-        kind: "signTransaction",
-        origin,
-        favicon,
-        transaction,
-      });
-      void browser.action.setBadgeText({ text: "1" });
-      void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
-      openExtensionForApproval();
+      void (async () => {
+        // Reject if the origin has not been approved via connect
+        const approvedOrigins = await connectedDappOrigins.getValue();
+        if (!approvedOrigins.includes(origin)) {
+          sendResponse({
+            type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+            id: externalRequestId,
+            approved: false,
+            error: "Not connected. Call connect() first.",
+          } satisfies DappSignTransactionResponse);
+          return;
+        }
+
+        const approvalId = createApprovalToken();
+        const approvalNonce = createApprovalToken();
+        rejectStalePendingRequests();
+        pendingDappRequests.set(approvalId, {
+          respond: sendResponse,
+          kind: "signTransaction",
+          externalRequestId,
+          approvalNonce,
+          origin,
+          transaction,
+        });
+        await pendingDappApproval.setValue({
+          id: approvalId,
+          nonce: approvalNonce,
+          kind: "signTransaction",
+          origin,
+          favicon,
+          transaction,
+        });
+        void browser.action.setBadgeText({ text: "1" });
+        void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+        openExtensionForApproval();
+      })();
 
       return true;
     }
@@ -482,28 +496,42 @@ export default defineBackground(() => {
         return;
       }
 
-      const approvalId = createApprovalToken();
-      const approvalNonce = createApprovalToken();
-      rejectStalePendingRequests();
-      pendingDappRequests.set(approvalId, {
-        respond: sendResponse,
-        kind: "signMessage",
-        externalRequestId,
-        approvalNonce,
-        origin,
-        message: msg,
-      });
-      void pendingDappApproval.setValue({
-        id: approvalId,
-        nonce: approvalNonce,
-        kind: "signMessage",
-        origin,
-        favicon,
-        message: msg,
-      });
-      void browser.action.setBadgeText({ text: "1" });
-      void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
-      openExtensionForApproval();
+      void (async () => {
+        // Reject if the origin has not been approved via connect
+        const approvedOrigins = await connectedDappOrigins.getValue();
+        if (!approvedOrigins.includes(origin)) {
+          sendResponse({
+            type: "DAPP_SIGN_MESSAGE_RESPONSE",
+            id: externalRequestId,
+            approved: false,
+            error: "Not connected. Call connect() first.",
+          } satisfies DappSignMessageResponse);
+          return;
+        }
+
+        const approvalId = createApprovalToken();
+        const approvalNonce = createApprovalToken();
+        rejectStalePendingRequests();
+        pendingDappRequests.set(approvalId, {
+          respond: sendResponse,
+          kind: "signMessage",
+          externalRequestId,
+          approvalNonce,
+          origin,
+          message: msg,
+        });
+        await pendingDappApproval.setValue({
+          id: approvalId,
+          nonce: approvalNonce,
+          kind: "signMessage",
+          origin,
+          favicon,
+          message: msg,
+        });
+        void browser.action.setBadgeText({ text: "1" });
+        void browser.action.setBadgeBackgroundColor({ color: "#F9363C" });
+        openExtensionForApproval();
+      })();
 
       return true;
     }

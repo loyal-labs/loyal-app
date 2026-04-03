@@ -42,16 +42,18 @@ const BASE58_ALPHABET =
   "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function base58Decode(str: string): Uint8Array {
-  const bytes: number[] = [0];
+  const bytes: number[] = [];
   for (const char of str) {
-    const value = BASE58_ALPHABET.indexOf(char);
-    if (value === -1) throw new Error(`Invalid base58 character: ${char}`);
+    let carry = BASE58_ALPHABET.indexOf(char);
+    if (carry === -1) throw new Error(`Invalid base58 character: ${char}`);
     for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = bytes[i] * 58 + value;
-      if (bytes[i] > 255) {
-        bytes[i + 1] = (bytes[i + 1] || 0) + (bytes[i] >> 8);
-        bytes[i] &= 0xff;
-      }
+      const x = bytes[i] * 58 + carry;
+      bytes[i] = x & 0xff;
+      carry = x >> 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
     }
   }
   // Count leading 1s for leading zero bytes
