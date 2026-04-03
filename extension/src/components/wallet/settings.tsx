@@ -811,6 +811,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
           >
             Loyal Extension v{browser.runtime.getManifest().version}
           </span>
+          <p
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "10px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: "rgba(60, 60, 67, 0.3)",
+              textAlign: "center",
+              padding: "0 0 0",
+              flexShrink: 0,
+            }}
+          >
+            Token logos by Logo.dev
+          </p>
         </div>
       </div>
 

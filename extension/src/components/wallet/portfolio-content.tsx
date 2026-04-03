@@ -753,7 +753,7 @@ export function PortfolioContent({
       </div>
 
       {/* Download CTA */}
-      <div style={{ padding: "8px 16px 4px", flexShrink: 0 }}>
+      <div style={{ padding: "8px 16px 12px", flexShrink: 0 }}>
         <button
           type="button"
           onClick={() => globalThis.open("https://askloyal.com", "_blank")}
@@ -812,7 +812,7 @@ export function PortfolioContent({
               color: "#000",
             }}
           >
-            Download for all platforms
+            Explore the agentic finance
           </span>
           <svg
             width="16"
@@ -829,21 +829,6 @@ export function PortfolioContent({
           </svg>
         </button>
       </div>
-
-      <p
-        style={{
-          fontFamily: "var(--font-geist-sans), sans-serif",
-          fontSize: "11px",
-          fontWeight: 400,
-          lineHeight: "16px",
-          color: "rgba(60, 60, 67, 0.3)",
-          textAlign: "center",
-          padding: "4px 0 12px",
-          flexShrink: 0,
-        }}
-      >
-        Token logos by Logo.dev
-      </p>
     </>
   );
 }
