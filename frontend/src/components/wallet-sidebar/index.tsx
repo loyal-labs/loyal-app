@@ -29,12 +29,14 @@ import { StashDetailView } from "./stash-detail-view";
 import { VaultAccountPageView } from "./vault-account-page-view";
 import { ConnectRequestContent } from "./connect-request-content";
 import { TransactionDetailView } from "./transaction-detail-view";
+import type { TokenRowActions } from "./token-row-item";
 import type {
   FormButtonProps,
   RightSidebarTab,
   SubView,
   SwapMode,
   SwapToken,
+  TokenRow,
   TransactionDetail,
 } from "./types";
 import { LOYL_TOKEN, swapTokens as fallbackSwapTokens } from "./types";
@@ -324,6 +326,36 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [publicEnv, swapMode]
   );
 
+  // Build contextual actions for each token row on hover
+  const getTokenActions = useCallback(
+    (token: TokenRow): TokenRowActions | undefined => {
+      const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
+      const isSecured = token.isSecured === true;
+
+      if (isSecured) {
+        return {
+          onSend: () => pushView({ type: "sendPanel" }),
+          onUnshield: () => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); },
+        };
+      }
+
+      const actions: TokenRowActions = {
+        onSend: () => pushView({ type: "sendPanel" }),
+        onSwap: () => { handleSwapModeChange("swap"); pushView({ type: "swapPanel", mode: "swap" }); },
+        onShield: () => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); },
+      };
+
+      if (isLoyal) {
+        actions.onBuy = () => {
+          window.open(`https://jup.ag/tokens/${LOYL_TOKEN.mint}`, "_blank", "noopener,noreferrer");
+        };
+      }
+
+      return actions;
+    },
+    [handleSwapModeChange, pushView],
+  );
+
   // Update tokens when wallet connects/disconnects (not on every balance refresh)
   const prevHadTokens = useRef(derivedTokens.length > 0 && !!derivedTokens[0].mint);
   useEffect(() => {
@@ -391,6 +423,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (view === "allTokens") {
       return (
         <AllTokensView
+          getTokenActions={getTokenActions}
           isBalanceHidden={props.isBalanceHidden}
           onBack={onBack}
           onClose={props.onClose}
@@ -497,6 +530,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             transactionDetails={props.walletDesktopData.transactionDetails}
             onBack={onBack}
             onClose={props.onClose}
+            getTokenActions={getTokenActions}
             onNavigate={(v) => {
               if (typeof v === "object" && v !== null && (v.type === "agentPage" || v.type === "stashPage")) {
                 setLeftPanel(v as LeftPanelView);
@@ -525,6 +559,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onOpenSend={() => navigateFn({ type: "sendPanel" })}
           onOpenSwap={() => { handleSwapModeChange("swap"); navigateFn({ type: "swapPanel", mode: "swap" }); }}
           onOpenShield={() => { handleSwapModeChange("shield"); navigateFn({ type: "swapPanel", mode: "shield" }); }}
+          getTokenActions={getTokenActions}
         />
       );
     }
@@ -543,6 +578,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           transactionDetails={props.walletDesktopData.transactionDetails}
           onBack={onBack}
           onNavigate={navigateFn}
+          getTokenActions={getTokenActions}
         />
       );
     }
@@ -1150,6 +1186,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 transactionDetails={props.walletDesktopData.transactionDetails}
                 onBack={() => setLeftPanel(null)}
                 onNavigate={leftPushView}
+                getTokenActions={getTokenActions}
               />
             )}
             {displayLeftPanel?.type === "stashPage" && (
@@ -1164,6 +1201,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 transactionDetails={props.walletDesktopData.transactionDetails}
                 onBack={() => setLeftPanel(null)}
                 onNavigate={leftPushView}
+                getTokenActions={getTokenActions}
               />
             )}
 

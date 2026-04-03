@@ -15,7 +15,7 @@ import Image from "next/image";
 import { AccessLevelIcon } from "./agent-page-view";
 import type { AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem } from "./token-row-item";
+import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -68,6 +68,7 @@ export function VaultAccountPageView({
   onBack,
   onClose,
   onNavigate,
+  getTokenActions,
 }: {
   balanceWhole: string;
   balanceFraction: string;
@@ -79,6 +80,7 @@ export function VaultAccountPageView({
   onBack: () => void;
   onClose: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -548,6 +550,7 @@ export function VaultAccountPageView({
           </div>
           {tokenRows.map((token) => (
             <TokenRowItem
+              actions={getTokenActions?.(token)}
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}

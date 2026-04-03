@@ -3,7 +3,7 @@
 import { ArrowRight, ArrowUpRight, Eye, EyeOff, Plus } from "lucide-react";
 
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem } from "./token-row-item";
+import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -25,6 +25,7 @@ export function StashDetailView({
   transactionDetails,
   onBack,
   onNavigate,
+  getTokenActions,
 }: {
   label: string;
   balanceWhole: string;
@@ -36,6 +37,7 @@ export function StashDetailView({
   transactionDetails: Record<string, TransactionDetail>;
   onBack: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -298,6 +300,7 @@ export function StashDetailView({
           </div>
           {tokenRows.map((token) => (
             <TokenRowItem
+              actions={getTokenActions?.(token)}
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}

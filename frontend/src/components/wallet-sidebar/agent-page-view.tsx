@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUpRight, ChevronRight, Eye, EyeOff, Plus, Trash2 } fro
 import { useRef, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem } from "./token-row-item";
+import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -71,6 +71,7 @@ export function AgentPageView({
   transactionDetails,
   onBack,
   onNavigate,
+  getTokenActions,
 }: {
   label: string;
   agentIcon: string;
@@ -83,6 +84,7 @@ export function AgentPageView({
   transactionDetails: Record<string, TransactionDetail>;
   onBack: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   const [accessLevel, setAccessLevel] = useState<AccessLevel>("suggest");
   const [isAccessExpanded, setIsAccessExpanded] = useState(false);
@@ -886,6 +888,7 @@ export function AgentPageView({
           </div>
           {tokenRows.map((token) => (
             <TokenRowItem
+              actions={getTokenActions?.(token)}
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}

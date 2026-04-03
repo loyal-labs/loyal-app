@@ -4,7 +4,7 @@ import { ArrowDownLeft, ArrowRight, ArrowUpRight, Eye, EyeOff, RefreshCw, X } fr
 import Image from "next/image";
 
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem } from "./token-row-item";
+import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -32,6 +32,7 @@ export function AccountPageView({
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  getTokenActions,
 }: {
   accountLabel: string;
   accountIcon: string;
@@ -49,6 +50,7 @@ export function AccountPageView({
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -209,6 +211,7 @@ export function AccountPageView({
           </div>
           {tokenRows.map((token) => (
             <TokenRowItem
+              actions={getTokenActions?.(token)}
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}

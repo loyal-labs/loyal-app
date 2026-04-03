@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useCallback, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem } from "./token-row-item";
+import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -110,6 +110,7 @@ export function PortfolioContentClassic({
   transactionDetails,
   walletAddress,
   walletLabel,
+  getTokenActions,
 }: {
   activityRows: ActivityRow[];
   balanceFraction: string;
@@ -124,6 +125,7 @@ export function PortfolioContentClassic({
   transactionDetails: Record<string, TransactionDetail>;
   walletAddress: string | null;
   walletLabel: string;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
@@ -502,6 +504,7 @@ export function PortfolioContentClassic({
 
           {tokenRows.map((token) => (
             <TokenRowItem
+              actions={getTokenActions?.(token)}
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}
