@@ -1,0 +1,399 @@
+"use client";
+
+import { ArrowRight, ArrowUpRight, Eye, EyeOff, Plus } from "lucide-react";
+
+import { ActivityRowItem } from "./activity-row-item";
+import { TokenRowItem, type TokenRowActions } from "./token-row-item";
+import type {
+  ActivityRow,
+  SubView,
+  TokenRow,
+  TransactionDetail,
+} from "./types";
+
+const font = "var(--font-geist-sans), sans-serif";
+const secondary = "rgba(60, 60, 67, 0.6)";
+
+export function StashDetailView({
+  label,
+  balanceWhole,
+  balanceFraction,
+  isBalanceHidden,
+  onBalanceHiddenChange,
+  tokenRows,
+  activityRows,
+  transactionDetails,
+  onBack,
+  onNavigate,
+  onOpenSend,
+  onOpenReceive,
+  getTokenActions,
+}: {
+  label: string;
+  balanceWhole: string;
+  balanceFraction: string;
+  isBalanceHidden: boolean;
+  onBalanceHiddenChange: (hidden: boolean) => void;
+  tokenRows: TokenRow[];
+  activityRows: ActivityRow[];
+  transactionDetails: Record<string, TransactionDetail>;
+  onBack: () => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
+  onOpenSend: () => void;
+  onOpenReceive: () => void;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <style jsx>{`
+        .stash-back-btn:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .stash-transfer-btn:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
+        }
+        .stash-topup-btn:hover {
+          background: #222 !important;
+        }
+        .stash-link-btn:hover {
+          opacity: 0.7 !important;
+        }
+      `}</style>
+
+      {/* SVG pixelation filters */}
+      <svg
+        aria-hidden="true"
+        height="0"
+        style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+        width="0"
+      >
+        <defs>
+          <filter id="stash-pixelate" x="0" y="0" width="100%" height="100%">
+            <feFlood x="4" y="4" height="2" width="2" />
+            <feComposite width="10" height="10" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="5" />
+          </filter>
+          <filter id="stash-pixelate-sm" x="0" y="0" width="100%" height="100%">
+            <feFlood x="3" y="3" height="2" width="2" />
+            <feComposite width="8" height="8" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="4" />
+          </filter>
+        </defs>
+      </svg>
+
+      {/* Header: back (arrow right) */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-start",
+          padding: "8px",
+        }}
+      >
+        <button
+          className="stash-back-btn"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+          }}
+          type="button"
+        >
+          <ArrowRight size={24} />
+        </button>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+        {/* Label + balance */}
+        <div style={{ padding: "8px 20px" }}>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "15px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: secondary,
+            }}
+          >
+            {label}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ borderRadius: "8px", overflow: "hidden" }}>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "32px",
+                  fontWeight: 600,
+                  lineHeight: "40px",
+                  letterSpacing: "-0.352px",
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden ? "url(#stash-pixelate)" : "none",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                  display: "block",
+                }}
+              >
+                {balanceWhole}
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                    transition: "color 0.15s ease",
+                  }}
+                >
+                  {balanceFraction}
+                </span>
+              </span>
+            </div>
+            <button
+              onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+              type="button"
+            >
+              {isBalanceHidden ? (
+                <EyeOff size={22} strokeWidth={1.5} style={{ color: "rgba(60, 60, 67, 0.5)" }} />
+              ) : (
+                <Eye size={22} strokeWidth={1.5} style={{ color: "rgba(60, 60, 67, 0.5)" }} />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Action buttons: Transfer + Top Up */}
+        <div
+          style={{
+            display: "flex",
+            gap: "16px",
+            alignItems: "start",
+            padding: "8px 20px",
+          }}
+        >
+          <button
+            className="stash-transfer-btn"
+            onClick={onOpenSend}
+            style={{
+              flex: 1,
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#000",
+              }}
+            >
+              Transfer
+            </span>
+          </button>
+          <button
+            className="stash-topup-btn"
+            onClick={onOpenReceive}
+            style={{
+              flex: 1,
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
+              borderRadius: "9999px",
+              background: "#000",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <Plus size={24} style={{ color: "#fff" }} />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#fff",
+              }}
+            >
+              Top Up
+            </span>
+          </button>
+        </div>
+
+        {/* Tokens section */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              padding: "12px 12px 8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                lineHeight: "20px",
+                color: "#000",
+                letterSpacing: "-0.176px",
+              }}
+            >
+              Tokens
+            </span>
+            <button
+              className="stash-link-btn"
+              onClick={() => onNavigate("allTokens")}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#F9363C",
+                transition: "opacity 0.15s ease",
+              }}
+              type="button"
+            >
+              See All
+            </button>
+          </div>
+          {tokenRows.map((token) => (
+            <TokenRowItem
+              actions={getTokenActions?.(token)}
+              isBalanceHidden={isBalanceHidden}
+              key={token.id ?? token.symbol}
+              token={token}
+            />
+          ))}
+        </div>
+
+        {/* Activity section */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              padding: "12px 12px 8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                lineHeight: "20px",
+                color: "#000",
+                letterSpacing: "-0.176px",
+              }}
+            >
+              Activity
+            </span>
+            <button
+              className="stash-link-btn"
+              onClick={() => onNavigate("allActivity")}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#F9363C",
+                transition: "opacity 0.15s ease",
+              }}
+              type="button"
+            >
+              See All
+            </button>
+          </div>
+          {activityRows.map((activity) => (
+            <ActivityRowItem
+              activity={activity}
+              isBalanceHidden={isBalanceHidden}
+              key={activity.id}
+              onClick={() =>
+                onNavigate({
+                  type: "transaction",
+                  detail: transactionDetails[activity.id],
+                  from: "portfolio",
+                })
+              }
+            />
+          ))}
+          {activityRows.length === 0 && (
+            <div
+              style={{
+                padding: "12px 20px",
+                textAlign: "center",
+                fontFamily: font,
+                fontSize: "14px",
+                color: secondary,
+              }}
+            >
+              No activity yet
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

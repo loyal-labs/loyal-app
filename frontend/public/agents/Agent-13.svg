@@ -1,0 +1,50 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_1439_14919)">
+<rect width="48" height="48" fill="#D39DD5"/>
+<circle cx="4" cy="4" r="4" fill="#DDFF88"/>
+<circle cx="4" cy="20" r="4" fill="#DDFF88"/>
+<circle cx="4" cy="36" r="4" fill="#DDFF88"/>
+<circle cx="20" cy="4" r="4" fill="#DDFF88"/>
+<circle cx="20" cy="20" r="4" fill="#DDFF88"/>
+<circle cx="20" cy="36" r="4" fill="#DDFF88"/>
+<circle cx="36" cy="4" r="4" fill="#DDFF88"/>
+<circle cx="36" cy="20" r="4" fill="#DDFF88"/>
+<circle cx="36" cy="36" r="4" fill="#DDFF88"/>
+<circle cx="12" cy="4" r="4" fill="#DDFF88"/>
+<circle cx="12" cy="20" r="4" fill="#DDFF88"/>
+<circle cx="12" cy="36" r="4" fill="#DDFF88"/>
+<circle cx="28" cy="4" r="4" fill="#DDFF88"/>
+<circle cx="28" cy="20" r="4" fill="#DDFF88"/>
+<circle cx="28" cy="36" r="4" fill="#DDFF88"/>
+<circle cx="44" cy="4" r="4" fill="#DDFF88"/>
+<circle cx="44" cy="20" r="4" fill="#DDFF88"/>
+<circle cx="44" cy="36" r="4" fill="#DDFF88"/>
+<circle cx="12" cy="12" r="4" fill="#DDFF88"/>
+<circle cx="12" cy="28" r="4" fill="#DDFF88"/>
+<circle cx="12" cy="44" r="4" fill="#DDFF88"/>
+<circle cx="28" cy="12" r="4" fill="#DDFF88"/>
+<circle cx="28" cy="28" r="4" fill="#DDFF88"/>
+<circle cx="28" cy="44" r="4" fill="#DDFF88"/>
+<circle cx="44" cy="12" r="4" fill="#DDFF88"/>
+<circle cx="44" cy="28" r="4" fill="#DDFF88"/>
+<circle cx="44" cy="44" r="4" fill="#DDFF88"/>
+<circle cx="4" cy="12" r="4" fill="#DDFF88"/>
+<circle cx="4" cy="28" r="4" fill="#DDFF88"/>
+<circle cx="4" cy="44" r="4" fill="#DDFF88"/>
+<circle cx="20" cy="12" r="4" fill="#DDFF88"/>
+<circle cx="20" cy="28" r="4" fill="#DDFF88"/>
+<circle cx="20" cy="44" r="4" fill="#DDFF88"/>
+<circle cx="36" cy="12" r="4" fill="#DDFF88"/>
+<circle cx="36" cy="28" r="4" fill="#DDFF88"/>
+<circle cx="36" cy="44" r="4" fill="#DDFF88"/>
+<circle cx="39" cy="39" r="5" fill="#DDFF88"/>
+<path d="M13.5293 46.0023L6 28.434H28.5878V10.8657L38.6268 28.434L41.1366 10.8657L56.1951 51.0218L13.5293 46.0023Z" fill="#F9363C"/>
+<path d="M40.4449 38.8012C40.5771 37.2468 39.9368 35.7818 38.8062 34.697C37.7771 33.7094 36.3416 33.0368 34.7128 32.8983C33.0951 32.7608 31.5766 33.1747 30.3989 33.9636C29.0879 34.8417 28.1993 36.1845 28.0663 37.7486" stroke="black" stroke-width="1.50585"/>
+<path d="M22.2069 41.2349C22.074 42.1793 21.4187 42.954 20.4803 43.4269C19.6372 43.8517 18.5656 44.0327 17.4388 43.8741C16.3042 43.7144 15.3185 43.2391 14.6246 42.5913" stroke="black" stroke-width="1.50585"/>
+</g>
+<defs>
+<clipPath id="clip0_1439_14919">
+<rect width="48" height="48" fill="white"/>
+</clipPath>
+</defs>
+</svg>

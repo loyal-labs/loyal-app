@@ -99,6 +99,13 @@
       "when": 1773238800000,
       "tag": "0013_ancient_union_jack",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774591760699,
+      "tag": "0014_mature_captain_stacy",
+      "breakpoints": true
     }
   ]
 }

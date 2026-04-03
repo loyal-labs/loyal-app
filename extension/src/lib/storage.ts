@@ -41,14 +41,52 @@ export const viewMode = storage.defineItem<"sidebar" | "popup">(
   { fallback: "sidebar" },
 );
 
-/** Temporary session key for seamless view mode switching. Cleared after use. */
-export const sessionKeypair = storage.defineItem<string | null>(
-  `${SESSION_AREA}:switchKeypair`,
-  { fallback: null },
-);
-
 /** Epoch ms of last user interaction while unlocked. */
 export const lastActivityAt = storage.defineItem<number>(
   `${SESSION_AREA}:lastActivityAt`,
+  { fallback: 0 },
+);
+
+/** Origins that the user has approved for dApp connect */
+export const connectedDappOrigins = storage.defineItem<string[]>(
+  "local:connectedDappOrigins",
+  { fallback: [] },
+);
+
+/** Pending dApp approval request shown in the popup/sidepanel */
+export const pendingDappApproval = storage.defineItem<{
+  id: string;
+  nonce: string;
+  kind: "connect" | "signTransaction" | "signMessage";
+  origin: string;
+  favicon?: string;
+  transaction?: string; // base64, for signTransaction
+  message?: string; // base64, for signMessage
+} | null>(
+  `${SESSION_AREA}:pendingDappApproval`,
+  { fallback: null },
+);
+
+/** Whether the user has completed (or skipped) the onboarding carousel */
+export const onboardingCompleted = storage.defineItem<boolean>(
+  "local:onboardingCompleted",
+  { fallback: false },
+);
+
+/** Credential version: null = legacy 4-digit PIN, 2 = password. */
+export const credentialVersion = storage.defineItem<number | null>(
+  "local:credentialVersion",
+  { fallback: null },
+);
+
+/** Number of consecutive failed unlock attempts. Reset on success. */
+export const failedPinAttempts = storage.defineItem<number>(
+  "local:failedPinAttempts",
+  { fallback: 0 },
+);
+
+/** Epoch ms until which PIN entry is locked. 0 = not locked. */
+export const pinLockedUntil = storage.defineItem<number>(
+  "local:pinLockedUntil",
   { fallback: 0 },
 );

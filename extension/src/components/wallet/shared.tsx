@@ -1,34 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Search, X } from "lucide-react";
 
 // ---------------------------------------------------------------------------
-// PIN Input — 4-digit code with filled dots, auto-advance, shake on error
+// Password Input — replaces PIN input for stronger wallet protection
 // ---------------------------------------------------------------------------
 
-const PIN_LENGTH = 4;
-const DOT_SIZE = 56;
-const DOT_GAP = 12;
+export const MIN_PASSWORD_LENGTH = 6;
 
-export function PinInput({
+export function getPasswordStrength(
+  password: string,
+): { level: "weak" | "fair" | "strong"; label: string; color: string } {
+  if (password.length === 0)
+    return { level: "weak", label: "", color: "transparent" };
+  if (password.length < MIN_PASSWORD_LENGTH)
+    return { level: "weak", label: "Too short", color: "#FF3B30" };
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSpecial = /[^a-zA-Z0-9]/.test(password);
+  const types = [hasLetter, hasNumber, hasSpecial].filter(Boolean).length;
+  if (password.length >= 10 && types >= 2)
+    return { level: "strong", label: "Strong", color: "#34C759" };
+  if (password.length >= 8 || types >= 2)
+    return { level: "fair", label: "Fair", color: "#FF9500" };
+  return { level: "weak", label: "Weak", color: "#FF3B30" };
+}
+
+export function PasswordInput({
   value,
   onChange,
-  onComplete,
+  onSubmit,
   error,
+  errorMessage,
   disabled,
   label,
+  showStrength,
+  placeholder = "Enter password",
+  autoFocus,
 }: {
   value: string;
-  onChange: (pin: string) => void;
-  onComplete?: (pin: string) => void;
+  onChange: (password: string) => void;
+  onSubmit?: (password: string) => void;
   error?: boolean;
+  errorMessage?: string;
   disabled?: boolean;
   label?: string;
+  showStrength?: boolean;
+  placeholder?: string;
+  autoFocus?: boolean;
 }) {
+  const [visible, setVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [shake, setShake] = useState(false);
-  const [focused, setFocused] = useState(false);
 
-  // Trigger shake animation on error
   useEffect(() => {
     if (error) {
       setShake(true);
@@ -37,42 +60,29 @@ export function PinInput({
     }
   }, [error]);
 
-  const handleInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (disabled) return;
-      const raw = e.target.value.replace(/\D/g, "").slice(0, PIN_LENGTH);
-      onChange(raw);
-      if (raw.length === PIN_LENGTH) {
-        onComplete?.(raw);
-      }
-    },
-    [disabled, onChange, onComplete],
-  );
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (disabled) return;
-      if (e.key === "Backspace" && value.length === 0) {
-        e.preventDefault();
+      if (e.key === "Enter" && value.length > 0 && onSubmit && !disabled) {
+        onSubmit(value);
       }
     },
-    [disabled, value],
+    [value, onSubmit, disabled],
   );
 
-  const focusInput = useCallback(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Hint text for the first empty box
-  const hintText = !focused && value.length === 0 ? "Click" : focused && value.length === 0 ? "Type" : null;
+  const strength = showStrength ? getPasswordStrength(value) : null;
 
   return (
     <div
       style={{
+        width: "100%",
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        gap: "16px",
+        gap: "8px",
+        animation: shake ? "input-shake 0.5s ease" : undefined,
       }}
     >
       {label && (
@@ -89,98 +99,127 @@ export function PinInput({
         </span>
       )}
 
-      {/* Dot row — tap to focus hidden input */}
-      <div
-        onClick={focusInput}
-        style={{
-          display: "flex",
-          gap: `${DOT_GAP}px`,
-          cursor: value.length === 0 && !focused ? "pointer" : "default",
-          animation: shake ? "pin-shake 0.5s ease" : undefined,
-        }}
-      >
-        {Array.from({ length: PIN_LENGTH }).map((_, i) => {
-          const isFilled = i < value.length;
-          const isActive = i === value.length && focused && !disabled;
-          const showHint = i === 0 && hintText;
-          return (
-            <div
-              key={i}
-              style={{
-                width: `${DOT_SIZE}px`,
-                height: `${DOT_SIZE}px`,
-                borderRadius: "16px",
-                background: isFilled
-                  ? "#000"
-                  : isActive
-                    ? "rgba(249, 54, 60, 0.06)"
-                    : "#fff",
-                border: isActive
-                  ? "2px solid #000"
-                  : isFilled
-                    ? "2px solid #000"
-                    : "2px solid rgba(0, 0, 0, 0.06)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "all 0.15s cubic-bezier(0.4, 0, 0.2, 1)",
-                boxSizing: "border-box",
-              }}
-            >
-              {showHint ? (
-                <span
-                  style={{
-                    fontFamily: "var(--font-geist-sans), sans-serif",
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    color: "rgba(60, 60, 67, 0.35)",
-                    userSelect: "none",
-                    transition: "opacity 0.15s ease",
-                  }}
-                >
-                  {hintText}
-                </span>
-              ) : (
-                <div
-                  style={{
-                    width: isFilled ? "14px" : "0px",
-                    height: isFilled ? "14px" : "0px",
-                    borderRadius: "9999px",
-                    background: "#fff",
-                    transition: "all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                  }}
-                />
-              )}
-            </div>
-          );
-        })}
+      <div style={{ position: "relative" }}>
+        <input
+          ref={inputRef}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          placeholder={placeholder}
+          autoComplete="off"
+          style={{
+            width: "100%",
+            height: "48px",
+            padding: "0 44px 0 16px",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "16px",
+            fontWeight: 400,
+            lineHeight: "20px",
+            color: "#000",
+            background: "#fff",
+            border: error
+              ? "2px solid #FF3B30"
+              : "2px solid rgba(0, 0, 0, 0.06)",
+            borderRadius: "12px",
+            outline: "none",
+            boxSizing: "border-box",
+            transition: "border-color 0.15s ease",
+          }}
+          onFocus={(e) => {
+            e.target.style.borderColor = error ? "#FF3B30" : "#000";
+          }}
+          onBlur={(e) => {
+            e.target.style.borderColor = error
+              ? "#FF3B30"
+              : "rgba(0, 0, 0, 0.06)";
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible(!visible)}
+          tabIndex={-1}
+          style={{
+            position: "absolute",
+            right: "12px",
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "4px",
+            color: "rgba(60, 60, 67, 0.4)",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
       </div>
 
-      {/* Off-screen input — captures keyboard */}
-      <input
-        ref={inputRef}
-        type="tel"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        maxLength={PIN_LENGTH}
-        value={value}
-        onChange={handleInput}
-        onKeyDown={handleKeyDown}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        disabled={disabled}
-        tabIndex={-1}
-        style={{
-          position: "fixed",
-          left: "-9999px",
-          top: "-9999px",
-          opacity: 0,
-        }}
-      />
+      {showStrength && strength && value.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              height: "3px",
+              borderRadius: "2px",
+              background: "rgba(0, 0, 0, 0.06)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                borderRadius: "2px",
+                background: strength.color,
+                width:
+                  strength.level === "weak"
+                    ? "33%"
+                    : strength.level === "fair"
+                      ? "66%"
+                      : "100%",
+                transition: "width 0.2s ease, background 0.2s ease",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "12px",
+              fontWeight: 500,
+              color: strength.color,
+              minWidth: "60px",
+            }}
+          >
+            {strength.label}
+          </span>
+        </div>
+      )}
 
-      {/* Keyframe for shake animation */}
+      {error && errorMessage && (
+        <p
+          style={{
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            lineHeight: "16px",
+            color: "#FF3B30",
+            margin: 0,
+          }}
+        >
+          {errorMessage}
+        </p>
+      )}
+
       <style>{`
-        @keyframes pin-shake {
+        @keyframes input-shake {
           0%, 100% { transform: translateX(0); }
           10%, 50%, 90% { transform: translateX(-6px); }
           30%, 70% { transform: translateX(6px); }
