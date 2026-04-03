@@ -107,7 +107,9 @@ function getVerifiedOrigin(
 }
 
 export default defineBackground(() => {
-  // Track how many extension UI instances (popup/sidepanel) are currently open
+  // Track how many extension UI instances (popup/sidepanel) are currently open.
+  // The counter is best-effort — it resets on service worker restart.
+  // openExtensionForApproval() uses getContexts() as the authoritative check.
   let uiConnectionCount = 0;
 
   browser.runtime.onConnect.addListener((port) => {
@@ -274,18 +276,39 @@ export default defineBackground(() => {
 
   let approvalPopupId: number | null = null;
 
+  async function isExtensionUiOpen(): Promise<boolean> {
+    // Fast path: in-memory counter (accurate unless SW restarted)
+    if (uiConnectionCount > 0) return true;
+    // Authoritative check: query live extension contexts (survives SW restart)
+    try {
+      const contexts = await (chrome.runtime as typeof chrome.runtime).getContexts({});
+      return contexts.some(
+        (ctx) =>
+          ctx.contextType === "SIDE_PANEL" ||
+          ctx.contextType === "POPUP" ||
+          (ctx.contextType === "TAB" &&
+            ctx.documentUrl?.includes(browser.runtime.id)),
+      );
+    } catch {
+      // Firefox / older Chrome — fall back to counter only
+      return false;
+    }
+  }
+
   function openExtensionForApproval() {
-    if (uiConnectionCount > 0) return;
-    void browser.windows
-      .create({
-        url: browser.runtime.getURL("/popup.html"),
-        type: "popup",
-        width: 400,
-        height: 800,
-      })
-      .then((win) => {
-        approvalPopupId = win?.id ?? null;
-      });
+    void isExtensionUiOpen().then((open) => {
+      if (open) return;
+      void browser.windows
+        .create({
+          url: browser.runtime.getURL("/popup.html"),
+          type: "popup",
+          width: 400,
+          height: 800,
+        })
+        .then((win) => {
+          approvalPopupId = win?.id ?? null;
+        });
+    });
   }
 
   /** Reject any existing pending dApp request before accepting a new one. */
