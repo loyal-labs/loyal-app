@@ -49,10 +49,8 @@ import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
 import {
   pendingDappApproval,
-  connectedDappOrigins,
   onboardingCompleted,
 } from "~/src/lib/storage";
-import type { DappConnectResponse } from "~/src/lib/dapp-messages";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
   initAnalytics,
@@ -1163,13 +1161,20 @@ function WalletInterface() {
   const [sendToken, setSendToken] = useState<SwapToken>(SOL_TOKEN);
   const [shieldToken, setShieldToken] = useState<SwapToken>(SOL_TOKEN);
   const [showSettings, setShowSettings] = useState(false);
+  const [activeDappApprovalNonce, setActiveDappApprovalNonce] = useState<
+    string | null
+  >(null);
 
   // Watch for pending dApp approval requests from storage
   useEffect(() => {
     function applyApprovalRequest(
       req: Awaited<ReturnType<typeof pendingDappApproval.getValue>>
     ) {
-      if (!req) return;
+      if (!req) {
+        setActiveDappApprovalNonce(null);
+        return;
+      }
+      setActiveDappApprovalNonce(req.nonce);
       if (req.kind === "connect") {
         setSubView({
           type: "dappConnect",
@@ -1198,6 +1203,19 @@ function WalletInterface() {
 
     return unwatch;
   }, []);
+
+  const sendDappApprovalDecision = useCallback(
+    (requestId: string, approved: boolean) => {
+      if (!activeDappApprovalNonce) return;
+      void browser.runtime.sendMessage({
+        type: "DAPP_APPROVAL_DECISION",
+        id: requestId,
+        nonce: activeDappApprovalNonce,
+        approved,
+      });
+    },
+    [activeDappApprovalNonce]
+  );
 
   const activeLayer = getActiveLayer(subView);
 
@@ -1324,7 +1342,11 @@ function WalletInterface() {
 
       if (isLoyal) {
         actions.onBuy = () => {
-          globalThis.open(`https://jup.ag/tokens/${LOYL_TOKEN.mint}`, "_blank");
+          globalThis.open(
+            `https://jup.ag/tokens/${LOYL_TOKEN.mint}`,
+            "_blank",
+            "noopener,noreferrer"
+          );
         };
       }
 
@@ -1499,38 +1521,18 @@ function WalletInterface() {
           origin={subView.origin}
           favicon={subView.favicon}
           onDeny={() => {
-            void browser.runtime.sendMessage({
-              type: "DAPP_APPROVAL_DECISION",
-              id: subView.requestId,
-              approved: false,
-            });
+            sendDappApprovalDecision(subView.requestId, false);
+            setActiveDappApprovalNonce(null);
             setSubView(null);
           }}
           onApprove={() => {
-            // Send connect response with public key
-            void browser.runtime.sendMessage({
-              type: "DAPP_CONNECT_RESPONSE",
-              id: subView.requestId,
-              approved: true,
-              publicKey: publicKey,
-            } satisfies DappConnectResponse);
-            // Save origin as connected
-            void connectedDappOrigins.getValue().then((origins) => {
-              if (!origins.includes(subView.origin)) {
-                void connectedDappOrigins.setValue([
-                  ...origins,
-                  subView.origin,
-                ]);
-              }
-            });
+            sendDappApprovalDecision(subView.requestId, true);
+            setActiveDappApprovalNonce(null);
             setSubView(null);
           }}
           onClose={() => {
-            void browser.runtime.sendMessage({
-              type: "DAPP_APPROVAL_DECISION",
-              id: subView.requestId,
-              approved: false,
-            });
+            sendDappApprovalDecision(subView.requestId, false);
+            setActiveDappApprovalNonce(null);
             setSubView(null);
           }}
         />
@@ -1546,27 +1548,18 @@ function WalletInterface() {
           transactionBase64={subView.transactionBase64}
           messageBase64={subView.messageBase64}
           onDeny={() => {
-            void browser.runtime.sendMessage({
-              type: "DAPP_APPROVAL_DECISION",
-              id: subView.requestId,
-              approved: false,
-            });
+            sendDappApprovalDecision(subView.requestId, false);
+            setActiveDappApprovalNonce(null);
             setSubView(null);
           }}
           onApprove={() => {
-            void browser.runtime.sendMessage({
-              type: "DAPP_APPROVAL_DECISION",
-              id: subView.requestId,
-              approved: true,
-            });
+            sendDappApprovalDecision(subView.requestId, true);
+            setActiveDappApprovalNonce(null);
             setSubView(null);
           }}
           onClose={() => {
-            void browser.runtime.sendMessage({
-              type: "DAPP_APPROVAL_DECISION",
-              id: subView.requestId,
-              approved: false,
-            });
+            sendDappApprovalDecision(subView.requestId, false);
+            setActiveDappApprovalNonce(null);
             setSubView(null);
           }}
         />

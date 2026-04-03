@@ -304,7 +304,14 @@ function SendTransactionDetail({
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <button
                 className="send-tx-action-btn"
-                onClick={() => signature && window.open(`https://explorer.solana.com/tx/${signature}`, "_blank")}
+                onClick={() =>
+                  signature &&
+                  window.open(
+                    `https://explorer.solana.com/tx/${signature}`,
+                    "_blank",
+                    "noopener,noreferrer"
+                  )
+                }
                 style={{ width: "48px", height: "48px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: signature ? "pointer" : "default", opacity: signature ? 1 : 0.5, transition: "background-color 0.15s ease" }}
                 type="button"
               >

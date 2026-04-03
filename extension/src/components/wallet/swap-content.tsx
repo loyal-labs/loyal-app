@@ -734,7 +734,8 @@ function SwapTransactionDetail({
                 signature &&
                 window.open(
                   `https://explorer.solana.com/tx/${signature}`,
-                  "_blank"
+                  "_blank",
+                  "noopener,noreferrer"
                 )
               }
               style={{

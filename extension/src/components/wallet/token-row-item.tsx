@@ -67,7 +67,16 @@ export function TokenRowItem({
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={isLoyal ? () => globalThis.open(LOYAL_JUP_URL, "_blank") : undefined}
+      onClick={
+        isLoyal
+          ? () =>
+              globalThis.open(
+                LOYAL_JUP_URL,
+                "_blank",
+                "noopener,noreferrer"
+              )
+          : undefined
+      }
       style={{
         display: "flex",
         alignItems: "center",

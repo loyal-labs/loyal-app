@@ -759,7 +759,13 @@ export function PortfolioContent({
       <div style={{ padding: "8px 16px 12px", flexShrink: 0 }}>
         <button
           type="button"
-          onClick={() => globalThis.open("https://askloyal.com", "_blank")}
+          onClick={() =>
+            globalThis.open(
+              "https://askloyal.com",
+              "_blank",
+              "noopener,noreferrer"
+            )
+          }
           style={{
             width: "100%",
             display: "flex",

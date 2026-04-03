@@ -12,6 +12,7 @@ export interface DappConnectResponse {
 	id: string;
 	approved: boolean;
 	publicKey?: string; // base58
+	error?: string;
 }
 
 export interface DappSignTransactionRequest {
@@ -72,5 +73,6 @@ export type BackgroundToDappResponse =
 export interface DappApprovalDecision {
 	type: "DAPP_APPROVAL_DECISION";
 	id: string;
+	nonce: string;
 	approved: boolean;
 }

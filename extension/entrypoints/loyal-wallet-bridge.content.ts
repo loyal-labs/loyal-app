@@ -8,6 +8,24 @@ function isContextInvalid(ctx: InstanceType<typeof ContentScriptContext>) {
   }
 }
 
+const ALLOWED_BRIDGE_MESSAGE_TYPES = new Set([
+  "DAPP_CONNECT_REQUEST",
+  "DAPP_SIGN_TRANSACTION_REQUEST",
+  "DAPP_SIGN_MESSAGE_REQUEST",
+  "DAPP_DISCONNECT",
+]);
+
+interface BridgePayload {
+  type: string;
+  [key: string]: unknown;
+}
+
+function isBridgePayload(value: unknown): value is BridgePayload {
+  if (typeof value !== "object" || value === null) return false;
+  const payload = value as { type?: unknown };
+  return typeof payload.type === "string";
+}
+
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_start",
@@ -24,9 +42,35 @@ export default defineContentScript({
       if (isContextInvalid(ctx)) return;
 
       const { id, payload } = data as {
-        id: string;
-        payload: { type: string; [key: string]: unknown };
+        id?: unknown;
+        payload?: unknown;
       };
+
+      const requestId = typeof id === "string" ? id : null;
+      const replyWithError = (error: string) => {
+        if (!requestId) return;
+        window.postMessage(
+          {
+            target: "loyal-wallet-provider",
+            id: requestId,
+            payload: {
+              approved: false,
+              error,
+            },
+          },
+          window.location.origin,
+        );
+      };
+
+      if (!isBridgePayload(payload)) {
+        replyWithError("Malformed bridge payload.");
+        return;
+      }
+
+      if (!ALLOWED_BRIDGE_MESSAGE_TYPES.has(payload.type)) {
+        replyWithError("Unsupported bridge message type.");
+        return;
+      }
 
       // Disconnect is fire-and-forget — no response expected
       if (payload.type === "DAPP_DISCONNECT") {
@@ -39,18 +83,20 @@ export default defineContentScript({
       }
 
       // All other messages expect a response from background
+      if (!requestId) return;
+
       void (async () => {
         try {
           const response = await browser.runtime.sendMessage(payload);
           window.postMessage(
-            { target: "loyal-wallet-provider", id, payload: response },
+            { target: "loyal-wallet-provider", id: requestId, payload: response },
             window.location.origin,
           );
         } catch (err) {
           window.postMessage(
             {
               target: "loyal-wallet-provider",
-              id,
+              id: requestId,
               payload: {
                 approved: false,
                 error:

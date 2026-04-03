@@ -56,6 +56,7 @@ export const connectedDappOrigins = storage.defineItem<string[]>(
 /** Pending dApp approval request shown in the popup/sidepanel */
 export const pendingDappApproval = storage.defineItem<{
   id: string;
+  nonce: string;
   kind: "connect" | "signTransaction" | "signMessage";
   origin: string;
   favicon?: string;
@@ -89,4 +90,3 @@ export const pinLockedUntil = storage.defineItem<number>(
   "local:pinLockedUntil",
   { fallback: 0 },
 );
-
