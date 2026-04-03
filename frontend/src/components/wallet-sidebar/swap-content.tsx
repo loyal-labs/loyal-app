@@ -1201,7 +1201,7 @@ export function SwapContent({
             {/* From card */}
             <div
               style={{
-                background: "#fff",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
                 borderRadius: "16px",
                 padding: "10px 12px",
                 position: "relative",
@@ -1408,7 +1408,7 @@ export function SwapContent({
             {/* To card */}
             <div
               style={{
-                background: "#fff",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
                 borderRadius: "16px",
                 padding: "12px",
                 zIndex: 1,

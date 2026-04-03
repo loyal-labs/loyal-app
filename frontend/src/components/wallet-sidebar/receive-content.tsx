@@ -5,7 +5,7 @@ import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useState } from "react";
 
-import { getTokenIconUrl } from "@/lib/token-icon";
+
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -137,13 +137,6 @@ export function ReceiveContent({
             marginTop: "60px",
           }}
         >
-          <Image
-            alt="Solana"
-            height={52}
-            src={getTokenIconUrl("SOL")}
-            style={{ borderRadius: "9999px" }}
-            width={52}
-          />
           <p
             style={{
               fontFamily: font,
@@ -164,7 +157,7 @@ export function ReceiveContent({
         <div
           style={{
             marginTop: "24px",
-            background: "#fff",
+            border: "1px solid rgba(0, 0, 0, 0.08)",
             borderRadius: "20px",
             padding: "32px",
             display: "flex",

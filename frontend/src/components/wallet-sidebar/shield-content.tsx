@@ -1242,7 +1242,7 @@ export function ShieldContent({
             {/* From card */}
             <div
               style={{
-                background: "#fff",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
                 borderRadius: "16px",
                 padding: "10px 12px",
                 position: "relative",

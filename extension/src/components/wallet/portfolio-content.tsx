@@ -20,7 +20,7 @@ import type {
 
 import { track } from "~/src/lib/analytics";
 import { ActivityRowItem } from "~/src/components/wallet/activity-row-item";
-import { TokenRowItem } from "~/src/components/wallet/token-row-item";
+import { TokenRowItem, type TokenRowActions } from "~/src/components/wallet/token-row-item";
 import { PORTFOLIO_EVENTS } from "./portfolio-analytics";
 
 const skeletonBar = (width: string, height: string) => ({
@@ -125,6 +125,7 @@ export function PortfolioContent({
   transactionDetails,
   walletAddress,
   walletLabel,
+  getTokenActions,
 }: {
   activityRows: ActivityRow[];
   balanceFraction: string;
@@ -144,6 +145,7 @@ export function PortfolioContent({
   transactionDetails: Record<string, TransactionDetail>;
   walletAddress: string | null;
   walletLabel: string;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
@@ -652,6 +654,7 @@ export function PortfolioContent({
 
           {tokenRows.map((token) => (
             <TokenRowItem
+              actions={getTokenActions?.(token)}
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}

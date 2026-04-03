@@ -1201,6 +1201,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 transactionDetails={props.walletDesktopData.transactionDetails}
                 onBack={() => setLeftPanel(null)}
                 onNavigate={leftPushView}
+                onOpenSend={() => pushView({ type: "sendPanel" })}
+                onOpenReceive={() => pushView({ type: "receivePanel" })}
                 getTokenActions={getTokenActions}
               />
             )}

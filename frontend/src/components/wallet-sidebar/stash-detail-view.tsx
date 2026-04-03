@@ -25,6 +25,8 @@ export function StashDetailView({
   transactionDetails,
   onBack,
   onNavigate,
+  onOpenSend,
+  onOpenReceive,
   getTokenActions,
 }: {
   label: string;
@@ -37,6 +39,8 @@ export function StashDetailView({
   transactionDetails: Record<string, TransactionDetail>;
   onBack: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onOpenSend: () => void;
+  onOpenReceive: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   return (
@@ -187,6 +191,7 @@ export function StashDetailView({
         >
           <button
             className="stash-transfer-btn"
+            onClick={onOpenSend}
             style={{
               flex: 1,
               display: "flex",
@@ -217,6 +222,7 @@ export function StashDetailView({
           </button>
           <button
             className="stash-topup-btn"
+            onClick={onOpenReceive}
             style={{
               flex: 1,
               display: "flex",

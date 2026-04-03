@@ -679,14 +679,14 @@ export function SendContent({
           {/* Private Send card */}
           <div
             className="private-card"
-            onClick={() => setIsPrivate(!isPrivate)}
+            onClick={isTg ? undefined : () => setIsPrivate(!isPrivate)}
             style={{
               display: "flex",
               alignItems: "center",
               padding: "0 12px",
               borderRadius: "16px",
-              cursor: "pointer",
-              background: isPrivate ? "rgba(0, 0, 0, 0.04)" : "transparent",
+              cursor: isTg ? "default" : "pointer",
+              background: isPrivate || isTg ? "rgba(0, 0, 0, 0.04)" : "transparent",
               transition: "background 0.15s ease",
             }}
           >
@@ -694,38 +694,44 @@ export function SendContent({
               <img alt="Private" src="/hero-new/Shield_40.svg" style={{ width: "40px", height: "40px" }} />
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 0", minWidth: 0 }}>
-              <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>Private Send</span>
+              <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>
+                {isTg ? "Private Send Active" : "Private Send"}
+              </span>
               <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
-                Prevents the recipient from seeing which wallet sent the funds
+                {isTg
+                  ? "Telegram transfers are always private"
+                  : "Prevents the recipient from seeing which wallet sent the funds"}
               </span>
             </div>
-            <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-              <div
-                style={{
-                  width: "51px",
-                  height: "31px",
-                  borderRadius: "100px",
-                  background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
-                  position: "relative",
-                  transition: "background 0.2s ease",
-                }}
-              >
+            {!isTg && (
+              <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                 <div
                   style={{
-                    position: "absolute",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    left: isPrivate ? "22px" : "2px",
-                    width: "27px",
-                    height: "27px",
+                    width: "51px",
+                    height: "31px",
                     borderRadius: "100px",
-                    background: "#fff",
-                    boxShadow: "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
-                    transition: "left 0.2s ease",
+                    background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
+                    position: "relative",
+                    transition: "background 0.2s ease",
                   }}
-                />
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      left: isPrivate ? "22px" : "2px",
+                      width: "27px",
+                      height: "27px",
+                      borderRadius: "100px",
+                      background: "#fff",
+                      boxShadow: "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
+                      transition: "left 0.2s ease",
+                    }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 

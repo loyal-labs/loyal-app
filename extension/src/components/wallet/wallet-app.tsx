@@ -20,6 +20,7 @@ import type {
   SubView,
   SwapMode,
   SwapToken,
+  TokenRow,
 } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
 import { Keypair } from "@solana/web3.js";
@@ -28,6 +29,7 @@ import { useWalletContext, WalletProvider } from "./wallet-provider";
 import { PinInput } from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
+import type { TokenRowActions } from "./token-row-item";
 import { SendContent } from "./send-content";
 import { ReceiveContent } from "./receive-content";
 import { SwapContent } from "./swap-content";
@@ -1207,6 +1209,35 @@ function WalletInterface() {
     }
   }, [positions.length]);
 
+  const getTokenActions = useCallback(
+    (token: TokenRow): TokenRowActions | undefined => {
+      const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
+      const isSecured = token.isSecured === true;
+
+      if (isSecured) {
+        return {
+          onSend: () => handleTabChange("send"),
+          onUnshield: () => { setSwapMode("shield"); handleTabChange("shield"); },
+        };
+      }
+
+      const actions: TokenRowActions = {
+        onSend: () => handleTabChange("send"),
+        onSwap: () => { setSwapMode("swap"); handleTabChange("swap"); },
+        onShield: () => { setSwapMode("shield"); handleTabChange("shield"); },
+      };
+
+      if (isLoyal) {
+        actions.onBuy = () => {
+          globalThis.open(`https://jup.ag/tokens/${LOYL_TOKEN.mint}`, "_blank");
+        };
+      }
+
+      return actions;
+    },
+    [handleTabChange, setSwapMode],
+  );
+
   // Tab content with real components (uses displayTab for cross-fade)
   const renderTabContent = () => {
     switch (displayTab) {
@@ -1236,6 +1267,7 @@ function WalletInterface() {
             transactionDetails={transactionDetails}
             walletAddress={walletAddress}
             walletLabel={walletLabel}
+            getTokenActions={getTokenActions}
           />
         );
       case "send":
@@ -1294,6 +1326,7 @@ function WalletInterface() {
             isBalanceHidden={balanceHidden}
             onBack={goBack}
             onClose={handleClose}
+            getTokenActions={getTokenActions}
           />
         );
       }
