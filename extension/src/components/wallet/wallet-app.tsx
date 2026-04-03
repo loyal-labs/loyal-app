@@ -27,7 +27,9 @@ import { Keypair } from "@solana/web3.js";
 import { generateKeypair, getPinLockoutRemaining, PinLockedError } from "~/src/lib/keypair-storage";
 import { credentialVersion as credentialVersionStorage } from "~/src/lib/storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
-import { MIN_PASSWORD_LENGTH, PasswordInput } from "./shared";
+import { DogMascot } from "./dog-mascot";
+import type { DogMood } from "./dog-mascot";
+import { MIN_PASSWORD_LENGTH, PasswordInput, getPasswordStrength } from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
 import type { TokenRowActions } from "./token-row-item";
@@ -231,6 +233,17 @@ function CreateWalletScreen({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
+
+  // Dog mood derived from password strength on enter step
+  const createDogMood: DogMood | undefined = (() => {
+    if (step === "confirm") return undefined; // idle/main with normal behavior
+    const pw = password;
+    if (pw.length === 0) return undefined;
+    const { level } = getPasswordStrength(pw);
+    if (level === "weak") return "cry";
+    if (level === "fair") return "main";
+    return "excited"; // strong
+  })();
   const [copied, setCopied] = useState(false);
 
   const secretKeyHex = pendingKeypair
@@ -358,7 +371,7 @@ function CreateWalletScreen({
           transition: "opacity 0.3s ease, transform 0.3s ease",
         }}
       >
-        {/* Branding cluster — shield + logotype tight together */}
+        {/* Branding cluster */}
         <div
           style={{
             display: "flex",
@@ -368,7 +381,7 @@ function CreateWalletScreen({
             marginBottom: "32px",
           }}
         >
-          <ShieldAnimation size={80} />
+          <DogMascot size={160} triggerMood={createDogMood} />
           <Logotype />
         </div>
 
@@ -808,6 +821,13 @@ function UnlockScreen() {
   const [resetAction, setResetAction] = useState<"create" | "import" | null>(
     null
   );
+  const [dogMood, setDogMood] = useState<DogMood | undefined>(undefined);
+  const dogMoodTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerDogMood = useCallback((mood: DogMood) => {
+    if (dogMoodTimerRef.current) clearTimeout(dogMoodTimerRef.current);
+    setDogMood(mood);
+    dogMoodTimerRef.current = setTimeout(() => setDogMood(undefined), 2000);
+  }, []);
 
   // Check lockout on mount and tick countdown
   useEffect(() => {
@@ -857,10 +877,16 @@ function UnlockScreen() {
       } catch (err) {
         if (err instanceof PinLockedError) {
           startLockoutCountdown(err.remainingMs);
+          triggerDogMood("scared");
           setError(null);
         } else {
           const remaining = await getPinLockoutRemaining();
-          if (remaining > 0) startLockoutCountdown(remaining);
+          if (remaining > 0) {
+            startLockoutCountdown(remaining);
+            triggerDogMood("scared");
+          } else {
+            triggerDogMood("cry");
+          }
           setError("Wrong password");
         }
         setPassword("");
@@ -884,6 +910,7 @@ function UnlockScreen() {
         justifyContent: "center",
         height: "100%",
         padding: "0 20px",
+        paddingBottom: "80px",
       }}
     >
       {/* Branding cluster */}
@@ -893,10 +920,10 @@ function UnlockScreen() {
           flexDirection: "column",
           alignItems: "center",
           gap: "4px",
-          marginBottom: "32px",
+          marginBottom: "24px",
         }}
       >
-        <ShieldAnimation size={80} />
+        <DogMascot size={160} triggerMood={dogMood} />
         <Logotype />
         {truncatedKey && (
           <span
