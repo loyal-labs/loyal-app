@@ -19,9 +19,12 @@ import {
   lastActivityAt,
   pendingDappApproval,
   pendingDappRequestPayload,
-  sessionKeypair,
   viewMode,
 } from "~/src/lib/storage";
+
+// In-memory session keypair — never persisted to storage.
+// Lost when service worker restarts; wallet falls back to locked state.
+let sessionSecretKey: string | null = null;
 
 // Track the connect tab so we can route signing requests to it
 let connectTabId: number | null = null;
@@ -49,7 +52,7 @@ async function checkAutoLock() {
   const elapsed = Date.now() - lastActive;
   if (elapsed >= timeout * 60_000) {
     await isWalletUnlocked.setValue(false);
-    await sessionKeypair.setValue(null);
+    sessionSecretKey = null;
   }
 }
 
@@ -82,6 +85,22 @@ function base64ToUint8Array(b64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+/** Extract the browser-verified page origin from the message sender. */
+function getVerifiedOrigin(
+  sender: browser.runtime.MessageSender,
+): string | null {
+  if (sender.origin) return sender.origin;
+  const url = sender.url ?? sender.tab?.url;
+  if (url) {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export default defineBackground(() => {
@@ -150,16 +169,30 @@ export default defineBackground(() => {
   browser.idle.onStateChanged.addListener((state) => {
     if (state === "locked") {
       void isWalletUnlocked.setValue(false);
-      void sessionKeypair.setValue(null);
+      sessionSecretKey = null;
     } else if (state === "idle") {
       void checkAutoLock();
     }
   });
 
   // --- Auto-lock: activity heartbeat from UI ---
-  browser.runtime.onMessage.addListener((message) => {
+  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "ACTIVITY_HEARTBEAT") {
       void lastActivityAt.setValue(Date.now());
+      return;
+    }
+
+    // --- Session keypair: kept in memory only, never persisted ---
+    if (message.type === "STORE_SESSION_KEYPAIR") {
+      sessionSecretKey = message.secretKey;
+      return;
+    }
+    if (message.type === "GET_SESSION_KEYPAIR") {
+      sendResponse({ secretKey: sessionSecretKey });
+      return;
+    }
+    if (message.type === "CLEAR_SESSION_KEYPAIR") {
+      sessionSecretKey = null;
       return;
     }
   });
@@ -253,10 +286,21 @@ export default defineBackground(() => {
   }
 
   // --- dApp connect / sign requests from content scripts ---
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // --- Connect request from dApp ---
     if (message.type === "DAPP_CONNECT_REQUEST") {
-      const { id, origin, favicon } = message;
+      const { id, favicon } = message;
+      const origin = getVerifiedOrigin(sender);
+
+      if (!origin) {
+        sendResponse({
+          type: "DAPP_CONNECT_RESPONSE",
+          id,
+          approved: false,
+          error: "Could not verify request origin.",
+        } satisfies DappConnectResponse);
+        return;
+      }
 
       void (async () => {
         const origins = await connectedDappOrigins.getValue();
@@ -290,7 +334,18 @@ export default defineBackground(() => {
 
     // --- Sign transaction request from dApp ---
     if (message.type === "DAPP_SIGN_TRANSACTION_REQUEST") {
-      const { id, origin, favicon, transaction } = message;
+      const { id, favicon, transaction } = message;
+      const origin = getVerifiedOrigin(sender);
+
+      if (!origin) {
+        sendResponse({
+          type: "DAPP_SIGN_TRANSACTION_RESPONSE",
+          id,
+          approved: false,
+          error: "Could not verify request origin.",
+        } satisfies DappSignTransactionResponse);
+        return;
+      }
 
       pendingDappRequests.set(id, sendResponse);
       void pendingDappApproval.setValue({
@@ -313,7 +368,18 @@ export default defineBackground(() => {
 
     // --- Sign message request from dApp ---
     if (message.type === "DAPP_SIGN_MESSAGE_REQUEST") {
-      const { id, origin, favicon, message: msg } = message;
+      const { id, favicon, message: msg } = message;
+      const origin = getVerifiedOrigin(sender);
+
+      if (!origin) {
+        sendResponse({
+          type: "DAPP_SIGN_MESSAGE_RESPONSE",
+          id,
+          approved: false,
+          error: "Could not verify request origin.",
+        } satisfies DappSignMessageResponse);
+        return;
+      }
 
       pendingDappRequests.set(id, sendResponse);
       void pendingDappApproval.setValue({
@@ -336,7 +402,8 @@ export default defineBackground(() => {
 
     // --- Disconnect from dApp ---
     if (message.type === "DAPP_DISCONNECT") {
-      const { origin } = message;
+      const origin = getVerifiedOrigin(sender);
+      if (!origin) return;
       void (async () => {
         const origins = await connectedDappOrigins.getValue();
         await connectedDappOrigins.setValue(
@@ -397,15 +464,14 @@ export default defineBackground(() => {
             }
           }
         } else {
-          // User approved — sign with session keypair
+          // User approved — sign with in-memory session keypair
           try {
-            const storedKey = await sessionKeypair.getValue();
-            if (!storedKey) throw new Error("Wallet is locked.");
+            if (!sessionSecretKey) throw new Error("Wallet is locked.");
 
             const { Keypair, Transaction, VersionedTransaction } =
               await import("@solana/web3.js");
             const keypair = Keypair.fromSecretKey(
-              new Uint8Array(JSON.parse(storedKey)),
+              new Uint8Array(JSON.parse(sessionSecretKey)),
             );
 
             if (payload?.type === "DAPP_SIGN_TRANSACTION_REQUEST") {

@@ -111,3 +111,5 @@ docs/scopes
 
 # Turbo cache
 .turbo/
+
+report.md

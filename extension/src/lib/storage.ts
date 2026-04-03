@@ -41,12 +41,6 @@ export const viewMode = storage.defineItem<"sidebar" | "popup">(
   { fallback: "sidebar" },
 );
 
-/** Temporary session key for seamless view mode switching. Cleared after use. */
-export const sessionKeypair = storage.defineItem<string | null>(
-  `${SESSION_AREA}:switchKeypair`,
-  { fallback: null },
-);
-
 /** Epoch ms of last user interaction while unlocked. */
 export const lastActivityAt = storage.defineItem<number>(
   `${SESSION_AREA}:lastActivityAt`,
@@ -74,6 +68,24 @@ export const pendingDappApproval = storage.defineItem<{
 export const onboardingCompleted = storage.defineItem<boolean>(
   "local:onboardingCompleted",
   { fallback: false },
+);
+
+/** Credential version: null = legacy 4-digit PIN, 2 = password. */
+export const credentialVersion = storage.defineItem<number | null>(
+  "local:credentialVersion",
+  { fallback: null },
+);
+
+/** Number of consecutive failed unlock attempts. Reset on success. */
+export const failedPinAttempts = storage.defineItem<number>(
+  "local:failedPinAttempts",
+  { fallback: 0 },
+);
+
+/** Epoch ms until which PIN entry is locked. 0 = not locked. */
+export const pinLockedUntil = storage.defineItem<number>(
+  "local:pinLockedUntil",
+  { fallback: 0 },
 );
 
 /** Full dApp request payload for signing (stored so background can sign after approval) */

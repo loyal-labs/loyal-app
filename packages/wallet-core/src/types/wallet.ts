@@ -65,7 +65,7 @@ export type SubView =
   | { type: "receivePanel" }
   | { type: "swapPanel"; mode?: "swap" | "shield" }
   | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
-  | { type: "dappSign"; origin: string; favicon?: string; requestId: string; kind: "signTransaction" | "signMessage" };
+  | { type: "dappSign"; origin: string; favicon?: string; requestId: string; kind: "signTransaction" | "signMessage"; transactionBase64?: string; messageBase64?: string };
 
 export const LOYL_TOKEN: SwapToken = {
   mint: "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",

@@ -24,9 +24,10 @@ import type {
 } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
 import { Keypair } from "@solana/web3.js";
-import { generateKeypair } from "~/src/lib/keypair-storage";
+import { generateKeypair, getPinLockoutRemaining, PinLockedError } from "~/src/lib/keypair-storage";
+import { credentialVersion as credentialVersionStorage } from "~/src/lib/storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
-import { PinInput } from "./shared";
+import { MIN_PASSWORD_LENGTH, PasswordInput } from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
 import type { TokenRowActions } from "./token-row-item";
@@ -46,6 +47,7 @@ import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
 import {
   pendingDappApproval,
+  pendingDappRequestPayload,
   connectedDappOrigins,
   onboardingCompleted,
 } from "~/src/lib/storage";
@@ -221,8 +223,8 @@ function CreateWalletScreen({
   initialMode?: "create" | "import";
 }) {
   const { importWallet, finalizeSigner } = useWalletContext();
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [step, setStep] = useState<"enter" | "confirm">("enter");
   const [secretKeyInput, setSecretKeyInput] = useState("");
   const [showImportKey, setShowImportKey] = useState(false);
@@ -238,10 +240,11 @@ function CreateWalletScreen({
         .join("")
     : "";
 
-  const handleGenerateKeypair = useCallback(async (finalPin: string) => {
+  const handleGenerateKeypair = useCallback(async (finalPassword: string) => {
     setLoading(true);
     try {
-      const keypair = await generateKeypair(finalPin);
+      const keypair = await generateKeypair(finalPassword);
+      await credentialVersionStorage.setValue(2);
       setPendingKeypair(keypair);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create wallet");
@@ -274,26 +277,30 @@ function CreateWalletScreen({
     finalizeSigner(pendingKeypair);
   }, [pendingKeypair, finalizeSigner]);
 
-  const handlePinComplete = useCallback(
-    (enteredPin: string) => {
+  const handlePasswordSubmit = useCallback(
+    (entered: string) => {
+      if (entered.length < MIN_PASSWORD_LENGTH) {
+        setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+        return;
+      }
       if (step === "enter") {
-        setPin(enteredPin);
+        setPassword(entered);
         setStep("confirm");
-        setConfirmPin("");
+        setConfirmPassword("");
         setError(null);
       } else {
-        if (enteredPin !== pin) {
-          setError("PINs don't match");
-          setConfirmPin("");
+        if (entered !== password) {
+          setError("Passwords don't match");
+          setConfirmPassword("");
           return;
         }
-        setConfirmPin(enteredPin);
+        setConfirmPassword(entered);
         setError(null);
         if (mode === "import") return;
-        void handleGenerateKeypair(enteredPin);
+        void handleGenerateKeypair(entered);
       }
     },
-    [step, pin, mode, handleGenerateKeypair]
+    [step, password, mode, handleGenerateKeypair]
   );
 
   const handleImport = async () => {
@@ -305,7 +312,8 @@ function CreateWalletScreen({
       const bytes = new Uint8Array(pairs.map((b) => parseInt(b, 16)));
       setError(null);
       setLoading(true);
-      await importWallet(bytes, pin);
+      await importWallet(bytes, password);
+      await credentialVersionStorage.setValue(2);
       const importedKeypair = Keypair.fromSecretKey(bytes);
       identifyWallet(importedKeypair.publicKey.toBase58(), "imported");
       track(WALLET_SETUP_EVENTS.walletImported);
@@ -320,18 +328,16 @@ function CreateWalletScreen({
 
   const handleBack = useCallback(() => {
     setStep("enter");
-    setConfirmPin("");
-    setPin("");
+    setConfirmPassword("");
+    setPassword("");
     setError(null);
   }, []);
 
-  const pinLabel =
-    step === "enter" ? "Create a numerical PIN" : "Confirm your PIN";
   const showImportField =
     mode === "import" &&
     step === "confirm" &&
-    confirmPin.length === 4 &&
-    confirmPin === pin;
+    confirmPassword === password &&
+    confirmPassword.length >= MIN_PASSWORD_LENGTH;
 
   const showBackup = !!pendingKeypair;
 
@@ -382,8 +388,8 @@ function CreateWalletScreen({
               setMode("create");
               setError(null);
               setStep("enter");
-              setPin("");
-              setConfirmPin("");
+              setPassword("");
+              setConfirmPassword("");
             }}
             style={{
               flex: 1,
@@ -411,8 +417,8 @@ function CreateWalletScreen({
               setMode("import");
               setError(null);
               setStep("enter");
-              setPin("");
-              setConfirmPin("");
+              setPassword("");
+              setConfirmPassword("");
             }}
             style={{
               flex: 1,
@@ -436,21 +442,56 @@ function CreateWalletScreen({
           </button>
         </div>
 
-        {/* PIN input — don't pass disabled during create loading to prevent layout shift */}
-        <PinInput
-          value={step === "enter" ? pin : confirmPin}
-          onChange={step === "enter" ? setPin : setConfirmPin}
-          onComplete={handlePinComplete}
+        {/* Password input */}
+        <PasswordInput
+          value={step === "enter" ? password : confirmPassword}
+          onChange={step === "enter" ? setPassword : setConfirmPassword}
+          onSubmit={handlePasswordSubmit}
           error={!!error}
-          label={pinLabel}
+          errorMessage={error ?? undefined}
+          showStrength={step === "enter"}
+          placeholder={step === "enter" ? "Create a password" : "Confirm your password"}
+          autoFocus
         />
+
+        {/* Continue button */}
+        {!showImportField && (
+          <button
+            type="button"
+            onClick={() => {
+              const val = step === "enter" ? password : confirmPassword;
+              if (val.length > 0) handlePasswordSubmit(val);
+            }}
+            disabled={loading || (step === "enter" ? password : confirmPassword).length === 0}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "12px 16px",
+              marginTop: "16px",
+              borderRadius: "9999px",
+              border: "none",
+              cursor: (step === "enter" ? password : confirmPassword).length === 0 ? "default" : "pointer",
+              background: (step === "enter" ? password : confirmPassword).length === 0 ? "#CCCDCD" : "#000",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "#fff",
+              transition: "background 0.15s ease",
+            }}
+          >
+            {loading ? "Working..." : step === "enter" ? "Continue" : "Confirm"}
+          </button>
+        )}
 
         {/* Back button — always rendered to reserve space and prevent layout shift */}
         <button
           type="button"
           onClick={handleBack}
           style={{
-            marginTop: "12px",
+            marginTop: "8px",
             background: "none",
             border: "none",
             cursor: step === "confirm" ? "pointer" : "default",
@@ -466,7 +507,7 @@ function CreateWalletScreen({
             transition: "opacity 0.15s ease",
           }}
         >
-          Re-enter PIN
+          Re-enter password
         </button>
 
         {/* Import key field + button — animated reveal after PIN is confirmed */}
@@ -564,20 +605,6 @@ function CreateWalletScreen({
           })()}
         </div>
 
-        {error && (
-          <p
-            style={{
-              fontFamily: "var(--font-geist-sans), sans-serif",
-              fontSize: "13px",
-              lineHeight: "16px",
-              color: "#FF3B30",
-              textAlign: "center",
-              marginTop: "8px",
-            }}
-          >
-            {error}
-          </p>
-        )}
       </div>
 
       {/* Backup key screen — slides in from right */}
@@ -762,25 +789,82 @@ function CreateWalletScreen({
 // Unlock screen
 // ---------------------------------------------------------------------------
 
+function formatLockoutRemaining(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
 function UnlockScreen() {
   const { unlock, publicKey, resetWallet } = useWalletContext();
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lockoutRemaining, setLockoutRemaining] = useState(0);
   const [resetAction, setResetAction] = useState<"create" | "import" | null>(
     null
   );
 
+  // Check lockout on mount and tick countdown
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    void getPinLockoutRemaining().then((remaining) => {
+      if (remaining > 0) {
+        setLockoutRemaining(remaining);
+        timer = setInterval(() => {
+          setLockoutRemaining((prev) => {
+            const next = prev - 1000;
+            if (next <= 0) {
+              if (timer) clearInterval(timer);
+              return 0;
+            }
+            return next;
+          });
+        }, 1000);
+      }
+    });
+
+    return () => { if (timer) clearInterval(timer); };
+  }, []);
+
+  function startLockoutCountdown(ms: number) {
+    setLockoutRemaining(ms);
+    const timer = setInterval(() => {
+      setLockoutRemaining((prev) => {
+        const next = prev - 1000;
+        if (next <= 0) {
+          clearInterval(timer);
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+  }
+
   const handleUnlock = useCallback(
-    async (enteredPin: string) => {
+    async (entered: string) => {
+      if (!entered) return;
       setError(null);
       setLoading(true);
       try {
-        await unlock(enteredPin);
+        await unlock(entered);
         track(WALLET_SETUP_EVENTS.walletUnlocked);
-      } catch {
-        setError("Wrong PIN");
-        setPin("");
+      } catch (err) {
+        if (err instanceof PinLockedError) {
+          startLockoutCountdown(err.remainingMs);
+          setError(null);
+        } else {
+          const remaining = await getPinLockoutRemaining();
+          if (remaining > 0) startLockoutCountdown(remaining);
+          setError("Wrong password");
+        }
+        setPassword("");
       } finally {
         setLoading(false);
       }
@@ -830,45 +914,44 @@ function UnlockScreen() {
         )}
       </div>
 
-      {/* PIN input */}
-      <PinInput
-        value={pin}
-        onChange={setPin}
-        onComplete={handleUnlock}
+      {/* Password input */}
+      <PasswordInput
+        value={password}
+        onChange={setPassword}
+        onSubmit={handleUnlock}
         error={!!error}
-        disabled={loading}
-        label="Enter your PIN"
+        errorMessage={error ?? undefined}
+        disabled={loading || lockoutRemaining > 0}
+        label={lockoutRemaining > 0 ? `Try again in ${formatLockoutRemaining(lockoutRemaining)}` : undefined}
+        placeholder="Enter your password or PIN"
+        autoFocus
       />
 
-      {error && (
-        <p
-          style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            lineHeight: "16px",
-            color: "#FF3B30",
-            textAlign: "center",
-            marginTop: "12px",
-          }}
-        >
-          {error}
-        </p>
-      )}
-
-      {loading && (
-        <p
-          style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "14px",
-            lineHeight: "20px",
-            color: "rgba(60, 60, 67, 0.6)",
-            textAlign: "center",
-            marginTop: "12px",
-          }}
-        >
-          Unlocking...
-        </p>
-      )}
+      <button
+        type="button"
+        onClick={() => { if (password.length > 0) void handleUnlock(password); }}
+        disabled={loading || lockoutRemaining > 0 || password.length === 0}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "12px 16px",
+          marginTop: "16px",
+          borderRadius: "9999px",
+          border: "none",
+          cursor: loading || lockoutRemaining > 0 || password.length === 0 ? "default" : "pointer",
+          background: loading || lockoutRemaining > 0 || password.length === 0 ? "#CCCDCD" : "#000",
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "16px",
+          fontWeight: 400,
+          lineHeight: "20px",
+          color: "#fff",
+          transition: "background 0.15s ease",
+        }}
+      >
+        {loading ? "Unlocking..." : "Unlock"}
+      </button>
 
       {/* Reset wallet options */}
       <div
@@ -1057,48 +1140,37 @@ function WalletInterface() {
 
   // Watch for pending dApp approval requests from storage
   useEffect(() => {
-    // Check current value on mount
-    void pendingDappApproval.getValue().then((req) => {
-      if (req) {
-        if (req.kind === "connect") {
-          setSubView({
-            type: "dappConnect",
-            origin: req.origin,
-            favicon: req.favicon,
-            requestId: req.id,
-          });
-        } else {
-          setSubView({
-            type: "dappSign",
-            origin: req.origin,
-            favicon: req.favicon,
-            requestId: req.id,
-            kind: req.kind,
-          });
-        }
+    async function applyApprovalRequest(
+      req: Awaited<ReturnType<typeof pendingDappApproval.getValue>>
+    ) {
+      if (!req) return;
+      if (req.kind === "connect") {
+        setSubView({
+          type: "dappConnect",
+          origin: req.origin,
+          favicon: req.favicon,
+          requestId: req.id,
+        });
+      } else {
+        const payload = await pendingDappRequestPayload.getValue();
+        setSubView({
+          type: "dappSign",
+          origin: req.origin,
+          favicon: req.favicon,
+          requestId: req.id,
+          kind: req.kind,
+          transactionBase64: payload?.transaction,
+          messageBase64: payload?.message,
+        });
       }
-    });
+    }
+
+    // Check current value on mount
+    void pendingDappApproval.getValue().then(applyApprovalRequest);
 
     // Watch for changes
     const unwatch = pendingDappApproval.watch((req) => {
-      if (req) {
-        if (req.kind === "connect") {
-          setSubView({
-            type: "dappConnect",
-            origin: req.origin,
-            favicon: req.favicon,
-            requestId: req.id,
-          });
-        } else {
-          setSubView({
-            type: "dappSign",
-            origin: req.origin,
-            favicon: req.favicon,
-            requestId: req.id,
-            kind: req.kind,
-          });
-        }
-      }
+      void applyApprovalRequest(req);
     });
 
     return unwatch;
@@ -1448,6 +1520,8 @@ function WalletInterface() {
           kind={subView.kind}
           origin={subView.origin}
           favicon={subView.favicon}
+          transactionBase64={subView.transactionBase64}
+          messageBase64={subView.messageBase64}
           onDeny={() => {
             void browser.runtime.sendMessage({
               type: "DAPP_APPROVAL_DECISION",
@@ -1585,6 +1659,169 @@ function WalletInterface() {
 }
 
 // ---------------------------------------------------------------------------
+// Password upgrade screen — shown after unlock for legacy PIN users
+// ---------------------------------------------------------------------------
+
+function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
+  const { changePassword } = useWalletContext();
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [step, setStep] = useState<"enter" | "confirm">("enter");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = useCallback(
+    async (entered: string) => {
+      if (entered.length < MIN_PASSWORD_LENGTH) {
+        setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+        return;
+      }
+      if (step === "enter") {
+        setNewPassword(entered);
+        setStep("confirm");
+        setConfirmNewPassword("");
+        setError(null);
+      } else {
+        if (entered !== newPassword) {
+          setError("Passwords don't match");
+          setConfirmNewPassword("");
+          return;
+        }
+        setLoading(true);
+        try {
+          await changePassword(entered);
+          await credentialVersionStorage.setValue(2);
+          onComplete();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Failed to update password");
+        } finally {
+          setLoading(false);
+        }
+      }
+    },
+    [step, newPassword, changePassword, onComplete]
+  );
+
+  const currentValue = step === "enter" ? newPassword : confirmNewPassword;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        padding: "0 20px",
+      }}
+    >
+      <div
+        style={{
+          width: "56px",
+          height: "56px",
+          borderRadius: "16px",
+          background: "rgba(255, 149, 0, 0.1)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: "16px",
+        }}
+      >
+        <Shield size={28} style={{ color: "#FF9500" }} />
+      </div>
+
+      <span
+        style={{
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "18px",
+          fontWeight: 600,
+          lineHeight: "24px",
+          color: "#000",
+          textAlign: "center",
+        }}
+      >
+        Upgrade to password
+      </span>
+      <p
+        style={{
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "14px",
+          lineHeight: "20px",
+          color: "rgba(60, 60, 67, 0.6)",
+          textAlign: "center",
+          marginTop: "8px",
+          marginBottom: "24px",
+        }}
+      >
+        Your wallet uses a short PIN. Set a password for stronger protection.
+      </p>
+
+      <PasswordInput
+        value={currentValue}
+        onChange={step === "enter" ? setNewPassword : setConfirmNewPassword}
+        onSubmit={handleSubmit}
+        error={!!error}
+        errorMessage={error ?? undefined}
+        showStrength={step === "enter"}
+        placeholder={step === "enter" ? "Enter new password" : "Re-enter your password"}
+        autoFocus
+      />
+
+      <button
+        type="button"
+        onClick={() => { if (currentValue.length > 0) void handleSubmit(currentValue); }}
+        disabled={loading || currentValue.length === 0}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "12px 16px",
+          marginTop: "16px",
+          borderRadius: "9999px",
+          border: "none",
+          cursor: currentValue.length === 0 ? "default" : "pointer",
+          background: currentValue.length === 0 ? "#CCCDCD" : "#000",
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "16px",
+          fontWeight: 400,
+          lineHeight: "20px",
+          color: "#fff",
+          transition: "background 0.15s ease",
+        }}
+      >
+        {loading ? "Updating..." : step === "enter" ? "Continue" : "Set Password"}
+      </button>
+
+      {step === "confirm" && (
+        <button
+          type="button"
+          onClick={() => {
+            setStep("enter");
+            setConfirmNewPassword("");
+            setError(null);
+          }}
+          style={{
+            marginTop: "8px",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "13px",
+            fontWeight: 500,
+            lineHeight: "16px",
+            color: "rgba(60, 60, 67, 0.6)",
+            padding: "4px 8px",
+          }}
+        >
+          Re-enter password
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Root WalletApp component
 // ---------------------------------------------------------------------------
 
@@ -1595,6 +1832,7 @@ function WalletAppInner() {
   const [transitioning, setTransitioning] = useState(false);
   const [displayState, setDisplayState] = useState(state);
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [showPasswordUpgrade, setShowPasswordUpgrade] = useState(false);
 
   useEffect(() => {
     void initAnalytics();
@@ -1614,13 +1852,23 @@ function WalletAppInner() {
     // Cross-fade when unlocking (locked→unlocked or noWallet→unlocked)
     if (state === "unlocked" && (prev === "locked" || prev === "noWallet")) {
       setTransitioning(true);
-      // Fade out the old screen, then swap content + fade in + confetti
-      const t = setTimeout(() => {
-        setDisplayState(state);
-        setTransitioning(false);
-        setShowConfetti(true);
-      }, 250);
-      return () => clearTimeout(t);
+
+      // Check if legacy PIN user needs password upgrade before showing confetti
+      const upgradeCheck = prev === "locked"
+        ? credentialVersionStorage.getValue()
+        : Promise.resolve(2 as number | null);
+
+      void upgradeCheck.then((version) => {
+        const needsUpgrade = version === null;
+        if (needsUpgrade) setShowPasswordUpgrade(true);
+        setTimeout(() => {
+          setDisplayState(state);
+          setTransitioning(false);
+          if (!needsUpgrade) setShowConfetti(true);
+        }, 250);
+      });
+
+      return;
     }
 
     setDisplayState(state);
@@ -1659,6 +1907,11 @@ function WalletAppInner() {
       <CreateWalletScreen initialMode={resetMode} />
     ) : displayState === "locked" ? (
       <UnlockScreen />
+    ) : showPasswordUpgrade ? (
+      <PasswordUpgradeScreen onComplete={() => {
+        setShowPasswordUpgrade(false);
+        setShowConfetti(true);
+      }} />
     ) : (
       <WalletInterface />
     );
