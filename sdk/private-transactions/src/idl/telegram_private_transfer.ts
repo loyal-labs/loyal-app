@@ -1077,6 +1077,100 @@ export type TelegramPrivateTransfer = {
           ]
         },
         {
+          "name": "lendingMarket",
+          "address": "27MKCQo5qP7ijrwWSMKX2Jeb3PhK2NZmHQ9befWVRS4J"
+        },
+        {
+          "name": "lendingMarketAuthority"
+        },
+        {
+          "name": "reserve",
+          "writable": true,
+          "address": "9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy"
+        },
+        {
+          "name": "reserveLiquiditySupply",
+          "writable": true,
+          "address": "Bh45cPkpfRvz9hAs23ye5TowsGbhbh4BXT4AGww8JfES"
+        },
+        {
+          "name": "reserveCollateralMint",
+          "writable": true,
+          "address": "8GoBXfEq3aTiWTxEP2tAaygJMx3LhG764iN5e6gqaLA"
+        },
+        {
+          "name": "vaultCollateralTokenAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "collateralTokenProgram"
+              },
+              {
+                "kind": "account",
+                "path": "reserveCollateralMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "instructionSysvarAccount",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "klendProgram",
+          "address": "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
+        },
+        {
+          "name": "collateralTokenProgram",
+          "docs": [
+            "cToken token program address"
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -1636,6 +1730,16 @@ export type TelegramPrivateTransfer = {
       "code": 6011,
       "name": "invalidDepositor",
       "msg": "Invalid Depositor"
+    },
+    {
+      "code": 6012,
+      "name": "invalidKaminoAccounts",
+      "msg": "Invalid Kamino accounts"
+    },
+    {
+      "code": 6013,
+      "name": "invalidAmount",
+      "msg": "Invalid amount"
     }
   ],
   "types": [

@@ -9,6 +9,7 @@ crate-type = ["cdylib", "lib"]
 name = "telegram_private_transfer"
 
 [features]
+devnet = []
 default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
