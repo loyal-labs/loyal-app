@@ -23,6 +23,7 @@ import {
   PERMISSION_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
   getKaminoModifyBalanceAccountsForTokenMint,
+  isKaminoMainnetModifyBalanceAccounts,
 } from "./constants";
 import {
   findDepositPda,
@@ -58,6 +59,14 @@ import type {
 } from "./types";
 import { sha256hash } from "./utils";
 
+const KAMINO_API_BASE_URL = "https://api.kamino.finance";
+const KAMINO_MAINNET_ENV = "mainnet-beta";
+
+type KaminoReserveMetricsResponseItem = {
+  reserve: string;
+  supplyApy: number | string;
+};
+
 function prettyStringify(obj: unknown): string {
   const json = JSON.stringify(
     obj,
@@ -90,6 +99,66 @@ function programFromRpc(
     commitment,
   });
   return new Program(idl as TelegramPrivateTransfer, baseProvider);
+}
+
+async function fetchKaminoReserveSupplyApyBps(args: {
+  lendingMarket: PublicKey;
+  reserve: PublicKey;
+}): Promise<number> {
+  const url = new URL(
+    `/kamino-market/${args.lendingMarket.toBase58()}/reserves/metrics`,
+    KAMINO_API_BASE_URL
+  );
+  url.searchParams.set("env", KAMINO_MAINNET_ENV);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Kamino reserve metrics request failed with status ${response.status}`
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!Array.isArray(payload)) {
+    throw new Error("Kamino reserve metrics response was not an array");
+  }
+
+  const reserveAddress = args.reserve.toBase58();
+  const reserveMetrics = payload.find(
+    (item): item is KaminoReserveMetricsResponseItem => {
+      if (!item || typeof item !== "object") {
+        return false;
+      }
+
+      const candidate = item as Record<string, unknown>;
+      return (
+        candidate.reserve === reserveAddress &&
+        (typeof candidate.supplyApy === "number" ||
+          typeof candidate.supplyApy === "string")
+      );
+    }
+  );
+
+  if (!reserveMetrics) {
+    throw new Error(
+      `Kamino reserve metrics not found for reserve ${reserveAddress}`
+    );
+  }
+
+  const supplyApy = Number(reserveMetrics.supplyApy);
+  if (!Number.isFinite(supplyApy) || supplyApy < 0) {
+    throw new Error(
+      `Kamino reserve metrics returned an invalid supplyApy for reserve ${reserveAddress}`
+    );
+  }
+
+  return Math.round(supplyApy * 10_000);
 }
 
 /**
@@ -1144,6 +1213,28 @@ export class LoyalPrivateTransactionsClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get the live base lending APY for the configured Kamino reserve in basis points.
+   * This is reserve supply APY only and does not include farm reward APY.
+   * Returns null when the token mint has no hardcoded Kamino reserve config.
+   * Devnet reserves intentionally return 0 because the UI APY source is mainnet-only.
+   */
+  async getKaminoLendingApyBps(tokenMint: PublicKey): Promise<number | null> {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+
+    if (!isKaminoMainnetModifyBalanceAccounts(kaminoAccounts)) {
+      return 0;
+    }
+
+    return fetchKaminoReserveSupplyApyBps({
+      lendingMarket: kaminoAccounts.lendingMarket,
+      reserve: kaminoAccounts.reserve,
+    });
   }
 
   // ============================================================

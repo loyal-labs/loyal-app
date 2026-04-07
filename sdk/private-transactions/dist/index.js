@@ -21624,6 +21624,9 @@ var KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET = {
   instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
   klendProgram: KLEND_PROGRAM_ID
 };
+function isKaminoMainnetModifyBalanceAccounts(accounts) {
+  return accounts.lendingMarket.equals(MAINNET_LENDING_MARKET);
+}
 var DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 var PERMISSION_PROGRAM_ID = new PublicKey("ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1");
 var MAGIC_PROGRAM_ID = new PublicKey("Magic11111111111111111111111111111111111111");
@@ -21747,6 +21750,8 @@ class InternalWalletAdapter {
 }
 
 // src/LoyalPrivateTransactionsClient.ts
+var KAMINO_API_BASE_URL = "https://api.kamino.finance";
+var KAMINO_MAINNET_ENV = "mainnet-beta";
 function prettyStringify(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
     if (value instanceof PublicKey4)
@@ -21770,6 +21775,39 @@ function programFromRpc(signer, commitment, rpcEndpoint, wsEndpoint) {
     commitment
   });
   return new Program(telegram_private_transfer_default, baseProvider);
+}
+async function fetchKaminoReserveSupplyApyBps(args) {
+  const url = new URL(`/kamino-market/${args.lendingMarket.toBase58()}/reserves/metrics`, KAMINO_API_BASE_URL);
+  url.searchParams.set("env", KAMINO_MAINNET_ENV);
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      accept: "application/json"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Kamino reserve metrics request failed with status ${response.status}`);
+  }
+  const payload = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error("Kamino reserve metrics response was not an array");
+  }
+  const reserveAddress = args.reserve.toBase58();
+  const reserveMetrics = payload.find((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+    const candidate = item;
+    return candidate.reserve === reserveAddress && (typeof candidate.supplyApy === "number" || typeof candidate.supplyApy === "string");
+  });
+  if (!reserveMetrics) {
+    throw new Error(`Kamino reserve metrics not found for reserve ${reserveAddress}`);
+  }
+  const supplyApy = Number(reserveMetrics.supplyApy);
+  if (!Number.isFinite(supplyApy) || supplyApy < 0) {
+    throw new Error(`Kamino reserve metrics returned an invalid supplyApy for reserve ${reserveAddress}`);
+  }
+  return Math.round(supplyApy * 1e4);
 }
 function deriveMessageSigner(signer) {
   if (isKeypair(signer)) {
@@ -22358,6 +22396,19 @@ class LoyalPrivateTransactionsClient {
     } catch {
       return null;
     }
+  }
+  async getKaminoLendingApyBps(tokenMint) {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+    if (!isKaminoMainnetModifyBalanceAccounts(kaminoAccounts)) {
+      return 0;
+    }
+    return fetchKaminoReserveSupplyApyBps({
+      lendingMarket: kaminoAccounts.lendingMarket,
+      reserve: kaminoAccounts.reserve
+    });
   }
   get publicKey() {
     return this.wallet.publicKey;

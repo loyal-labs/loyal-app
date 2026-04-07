@@ -111,6 +111,12 @@ const KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET: KaminoModifyBalanceAccounts = {
   klendProgram: KLEND_PROGRAM_ID,
 };
 
+export function isKaminoMainnetModifyBalanceAccounts(
+  accounts: KaminoModifyBalanceAccounts
+): boolean {
+  return accounts.lendingMarket.equals(MAINNET_LENDING_MARKET);
+}
+
 /**
  * MagicBlock Delegation Program ID
  */

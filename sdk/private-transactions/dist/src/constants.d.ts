@@ -27,6 +27,7 @@ export interface KaminoModifyBalanceAccounts {
     instructionSysvarAccount: PublicKey;
     klendProgram: PublicKey;
 }
+export declare function isKaminoMainnetModifyBalanceAccounts(accounts: KaminoModifyBalanceAccounts): boolean;
 /**
  * MagicBlock Delegation Program ID
  */

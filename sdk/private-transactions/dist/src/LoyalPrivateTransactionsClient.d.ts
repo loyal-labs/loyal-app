@@ -99,6 +99,13 @@ export declare class LoyalPrivateTransactionsClient {
     getBaseUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
     getEphemeralUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
     /**
+     * Get the live base lending APY for the configured Kamino reserve in basis points.
+     * This is reserve supply APY only and does not include farm reward APY.
+     * Returns null when the token mint has no hardcoded Kamino reserve config.
+     * Devnet reserves intentionally return 0 because the UI APY source is mainnet-only.
+     */
+    getKaminoLendingApyBps(tokenMint: PublicKey): Promise<number | null>;
+    /**
      * Get the connected wallet's public key
      */
     get publicKey(): PublicKey;
