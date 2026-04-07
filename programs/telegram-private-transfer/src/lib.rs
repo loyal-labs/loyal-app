@@ -15,6 +15,7 @@ use telegram_verification::TelegramSession;
 
 pub mod consts;
 pub mod klend;
+use klend::{invoke_klend_deposit, invoke_klend_redeem, KlendAccounts};
 
 use consts::*;
 
@@ -23,8 +24,6 @@ declare_id!("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
 #[ephemeral]
 #[program]
 pub mod telegram_private_transfer {
-    use crate::klend::{invoke_klend_deposit, invoke_klend_redeem};
-
     use super::*;
 
     /// Initializes a deposit account for a user and token mint if it does not exist.
@@ -66,7 +65,10 @@ pub mod telegram_private_transfer {
     ///
     /// If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.
     /// If false, tokens are transferred from the deposit account back to the user's token account.
-    pub fn modify_balance(ctx: Context<ModifyDeposit>, args: ModifyDepositArgs) -> Result<()> {
+    pub fn modify_balance<'info>(
+        ctx: Context<'_, '_, '_, 'info, ModifyDeposit<'info>>,
+        args: ModifyDepositArgs,
+    ) -> Result<()> {
         let token_program = ctx.accounts.token_program.to_account_info();
         let token_mint = ctx.accounts.token_mint.to_account_info();
         let decimals = ctx.accounts.token_mint.decimals;
@@ -76,21 +78,15 @@ pub mod telegram_private_transfer {
 
         let user_token_account = ctx.accounts.user_token_account.to_account_info();
 
-        // FIXME: validate kamino accounts
-        // FIXME: ! refresh accounts after CPI
-
-        // Checks
-        let (expected_lending_market_authority, _) = Pubkey::find_program_address(
-            &[b"lma", ctx.accounts.lending_market.key().as_ref()],
-            &KLEND_PROGRAM_ID,
-        );
-        require_keys_eq!(
-            ctx.accounts.lending_market_authority.key(),
-            expected_lending_market_authority,
-            ErrorCode::InvalidKaminoAccounts
-        );
-
         if token_mint.key() == USDC_MINT {
+            let klend_accounts =
+                KlendAccounts::try_from_remaining_accounts(ctx.remaining_accounts)?;
+            klend_accounts.validate(
+                &ctx.accounts.vault.to_account_info(),
+                &ctx.accounts.token_program.to_account_info(),
+            )?;
+            klend_accounts.ensure_vault_collateral_token_account(&ctx)?;
+
             if args.increase {
                 let liquidity_amount = args.amount;
                 transfer_checked(
@@ -110,15 +106,14 @@ pub mod telegram_private_transfer {
                 ctx.accounts.vault_token_account.reload()?;
 
                 let liquidity_before = ctx.accounts.vault_token_account.amount;
-                let collateral_before = ctx.accounts.vault_collateral_token_account.amount;
+                let collateral_before = klend_accounts.vault_collateral_amount()?;
 
-                invoke_klend_deposit(&ctx, liquidity_amount)?;
+                invoke_klend_deposit(&ctx, &klend_accounts, liquidity_amount)?;
 
                 ctx.accounts.vault_token_account.reload()?;
-                ctx.accounts.vault_collateral_token_account.reload()?;
 
                 let liquidity_after = ctx.accounts.vault_token_account.amount;
-                let collateral_after = ctx.accounts.vault_collateral_token_account.amount;
+                let collateral_after = klend_accounts.vault_collateral_amount()?;
 
                 let consumed_liquidity = liquidity_before
                     .checked_sub(liquidity_after)
@@ -142,15 +137,14 @@ pub mod telegram_private_transfer {
                 let share_amount = args.amount;
 
                 let liquidity_before = ctx.accounts.vault_token_account.amount;
-                let collateral_before = ctx.accounts.vault_collateral_token_account.amount;
+                let collateral_before = klend_accounts.vault_collateral_amount()?;
 
-                invoke_klend_redeem(&ctx, share_amount)?;
+                invoke_klend_redeem(&ctx, &klend_accounts, share_amount)?;
 
                 ctx.accounts.vault_token_account.reload()?;
-                ctx.accounts.vault_collateral_token_account.reload()?;
 
                 let liquidity_after = ctx.accounts.vault_token_account.amount;
-                let collateral_after = ctx.accounts.vault_collateral_token_account.amount;
+                let collateral_after = klend_accounts.vault_collateral_amount()?;
 
                 // Assert that before/after diff is effect of klend redeem,
                 // and nothing else touched these accounts.
@@ -602,42 +596,6 @@ pub struct ModifyDeposit<'info> {
     pub vault_token_account: Account<'info, TokenAccount>,
 
     pub token_mint: Account<'info, Mint>,
-
-    // Lending
-    /// CHECK: Fixed KLend lending market address
-    #[account(address = KLEND_LENDING_MARKET)]
-    pub lending_market: UncheckedAccount<'info>,
-
-    /// CHECK: Derived PDA validated at runtime
-    pub lending_market_authority: UncheckedAccount<'info>,
-
-    /// CHECK: Fixed KLend reserve address
-    #[account(mut, address = KLEND_RESERVE)]
-    pub reserve: UncheckedAccount<'info>,
-    /// CHECK: Fixed KLend reserve liquidity supply address
-    #[account(mut, address = KLEND_RESERVE_LIQUIDITY_SUPPLY)]
-    pub reserve_liquidity_supply: UncheckedAccount<'info>,
-    /// CHECK: Fixed KLend reserve collateral mint address
-    #[account(mut, address = KLEND_RESERVE_COLLATERAL_MINT)]
-    pub reserve_collateral_mint: UncheckedAccount<'info>,
-    #[account(
-        init_if_needed,
-        payer = payer,
-        associated_token::mint = reserve_collateral_mint,
-        associated_token::authority = vault,
-        associated_token::token_program = collateral_token_program,
-    )]
-    pub vault_collateral_token_account: Account<'info, TokenAccount>,
-
-    /// CHECK: Fixed instructions sysvar address
-    #[account(address = sysvar::instructions::ID)]
-    pub instruction_sysvar_account: UncheckedAccount<'info>,
-
-    /// CHECK: Fixed KLend program address
-    #[account(address = KLEND_PROGRAM_ID)]
-    pub klend_program: UncheckedAccount<'info>,
-    /// cToken token program address
-    pub collateral_token_program: Program<'info, Token>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -895,6 +853,8 @@ pub struct UndelegateUsernameDeposit<'info> {
 pub struct Deposit {
     pub user: Pubkey,
     pub token_mint: Pubkey,
+    /// For USDC deposits, this stores the Kamino share token amount.
+    /// For all other mints, this stores the deposited liquidity token amount.
     pub amount: u64,
 }
 
@@ -904,6 +864,8 @@ pub struct Deposit {
 pub struct UsernameDeposit {
     pub username_hash: [u8; HASH_BYTES],
     pub token_mint: Pubkey,
+    /// For USDC deposits, this stores the Kamino share token amount.
+    /// For all other mints, this stores the deposited liquidity token amount.
     pub amount: u64,
 }
 

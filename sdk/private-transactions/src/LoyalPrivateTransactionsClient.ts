@@ -22,6 +22,7 @@ import {
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
+  getKaminoModifyBalanceAccountsForTokenMint,
 } from "./constants";
 import {
   findDepositPda,
@@ -414,6 +415,16 @@ export class LoyalPrivateTransactionsClient {
       TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    const vaultCollateralTokenAccount = kaminoAccounts
+      ? getAssociatedTokenAddressSync(
+          kaminoAccounts.reserveCollateralMint,
+          vaultPda,
+          true,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      : null;
 
     console.log("modifyBalance", {
       payer: payer.toString(),
@@ -423,12 +434,23 @@ export class LoyalPrivateTransactionsClient {
       userTokenAccount: userTokenAccount.toString(),
       vaultTokenAccount: vaultTokenAccount.toString(),
       tokenMint: tokenMint.toString(),
-      // tokenProgram: TOKEN_PROGRAM_ID,
-      // associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      // systemProgram: SystemProgram.programId,
+      kaminoAccounts: kaminoAccounts
+        ? {
+            lendingMarket: kaminoAccounts.lendingMarket.toString(),
+            lendingMarketAuthority:
+              kaminoAccounts.lendingMarketAuthority.toString(),
+            reserve: kaminoAccounts.reserve.toString(),
+            reserveLiquiditySupply:
+              kaminoAccounts.reserveLiquiditySupply.toString(),
+            reserveCollateralMint:
+              kaminoAccounts.reserveCollateralMint.toString(),
+            vaultCollateralTokenAccount:
+              vaultCollateralTokenAccount?.toString() ?? null,
+          }
+        : null,
     });
 
-    const signature = await this.baseProgram.methods
+    let methodBuilder = this.baseProgram.methods
       .modifyBalance({ amount: new BN(amount.toString()), increase })
       .accountsPartial({
         payer,
@@ -441,8 +463,54 @@ export class LoyalPrivateTransactionsClient {
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-      })
-      .rpc(rpcOptions);
+      });
+
+    if (kaminoAccounts && vaultCollateralTokenAccount) {
+      methodBuilder = methodBuilder.remainingAccounts([
+        {
+          pubkey: kaminoAccounts.lendingMarket,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: kaminoAccounts.lendingMarketAuthority,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: kaminoAccounts.reserve,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: kaminoAccounts.reserveLiquiditySupply,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: kaminoAccounts.reserveCollateralMint,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: vaultCollateralTokenAccount,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: kaminoAccounts.instructionSysvarAccount,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: kaminoAccounts.klendProgram,
+          isSigner: false,
+          isWritable: false,
+        },
+      ]);
+    }
+
+    const signature = await methodBuilder.rpc(rpcOptions);
 
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {

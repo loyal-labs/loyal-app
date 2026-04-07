@@ -624,8 +624,14 @@ export declare const IDL: {
                 type: {
                     array: (string | number)[];
                 };
+                docs?: undefined;
             } | {
                 name: string;
+                type: string;
+                docs?: undefined;
+            } | {
+                name: string;
+                docs: string[];
                 type: string;
             })[];
         };

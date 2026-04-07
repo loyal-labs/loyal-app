@@ -21406,6 +21406,16 @@ var telegram_private_transfer_default = {
       code: 6011,
       name: "InvalidDepositor",
       msg: "Invalid Depositor"
+    },
+    {
+      code: 6012,
+      name: "InvalidKaminoAccounts",
+      msg: "Invalid Kamino accounts"
+    },
+    {
+      code: 6013,
+      name: "InvalidAmount",
+      msg: "Invalid amount"
     }
   ],
   types: [
@@ -21427,6 +21437,10 @@ var telegram_private_transfer_default = {
           },
           {
             name: "amount",
+            docs: [
+              "For USDC deposits, this stores the Kamino share token amount.",
+              "For all other mints, this stores the deposited liquidity token amount."
+            ],
             type: "u64"
           }
         ]
@@ -21534,6 +21548,10 @@ var telegram_private_transfer_default = {
           },
           {
             name: "amount",
+            docs: [
+              "For USDC deposits, this stores the Kamino share token amount.",
+              "For all other mints, this stores the deposited liquidity token amount."
+            ],
             type: "u64"
           }
         ]
@@ -21559,7 +21577,11 @@ var telegram_private_transfer_default = {
 };
 
 // src/constants.ts
-import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  PublicKey,
+  LAMPORTS_PER_SOL,
+  SYSVAR_INSTRUCTIONS_PUBKEY
+} from "@solana/web3.js";
 var ER_VALIDATOR_DEVNET = new PublicKey("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
 var ER_VALIDATOR_MAINNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR = ER_VALIDATOR_DEVNET;
@@ -21569,7 +21591,39 @@ function getErValidatorForSolanaEnv(env) {
 function getErValidatorForRpcEndpoint(rpcEndpoint) {
   return rpcEndpoint.includes("mainnet-tee") ? ER_VALIDATOR_MAINNET : ER_VALIDATOR_DEVNET;
 }
+function getKaminoModifyBalanceAccountsForTokenMint(tokenMint) {
+  if (tokenMint.equals(USDC_MINT_MAINNET)) {
+    return KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET;
+  }
+  if (tokenMint.equals(USDC_MINT_DEVNET)) {
+    return KAMINO_MODIFY_BALANCE_ACCOUNTS_DEVNET;
+  }
+  return null;
+}
 var PROGRAM_ID = new PublicKey("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
+var USDC_MINT_DEVNET = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+var USDC_MINT_MAINNET = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+var KLEND_PROGRAM_ID = new PublicKey("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
+var DEVNET_LENDING_MARKET = new PublicKey("27MKCQo5qP7ijrwWSMKX2Jeb3PhK2NZmHQ9befWVRS4J");
+var MAINNET_LENDING_MARKET = new PublicKey("CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA");
+var KAMINO_MODIFY_BALANCE_ACCOUNTS_DEVNET = {
+  lendingMarket: DEVNET_LENDING_MARKET,
+  lendingMarketAuthority: PublicKey.findProgramAddressSync([Buffer.from("lma"), DEVNET_LENDING_MARKET.toBuffer()], KLEND_PROGRAM_ID)[0],
+  reserve: new PublicKey("9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy"),
+  reserveLiquiditySupply: new PublicKey("Bh45cPkpfRvz9hAs23ye5TowsGbhbh4BXT4AGww8JfES"),
+  reserveCollateralMint: new PublicKey("8GoBXfEq3aTiWTxEP2tAaygJMx3LhG764iN5e6gqaLA"),
+  instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
+  klendProgram: KLEND_PROGRAM_ID
+};
+var KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET = {
+  lendingMarket: MAINNET_LENDING_MARKET,
+  lendingMarketAuthority: PublicKey.findProgramAddressSync([Buffer.from("lma"), MAINNET_LENDING_MARKET.toBuffer()], KLEND_PROGRAM_ID)[0],
+  reserve: new PublicKey("9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu"),
+  reserveLiquiditySupply: new PublicKey("H6JUwz8c61eQnYUx8avGXydKztKPyGvgWAUjmZUPS3BC"),
+  reserveCollateralMint: new PublicKey("DKaVQFXD6Qz4USTkRWyPun3oU6r1RfYsWJ8YqLpnSnN5"),
+  instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
+  klendProgram: KLEND_PROGRAM_ID
+};
 var DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 var PERMISSION_PROGRAM_ID = new PublicKey("ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1");
 var MAGIC_PROGRAM_ID = new PublicKey("Magic11111111111111111111111111111111111111");
@@ -21866,6 +21920,8 @@ class LoyalPrivateTransactionsClient {
     await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda");
     const [vaultPda] = findVaultPda(tokenMint);
     const vaultTokenAccount = getAssociatedTokenAddressSync(tokenMint, vaultPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    const vaultCollateralTokenAccount = kaminoAccounts ? getAssociatedTokenAddressSync(kaminoAccounts.reserveCollateralMint, vaultPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID) : null;
     console.log("modifyBalance", {
       payer: payer.toString(),
       user: user.toString(),
@@ -21873,9 +21929,17 @@ class LoyalPrivateTransactionsClient {
       deposit: depositPda.toString(),
       userTokenAccount: userTokenAccount.toString(),
       vaultTokenAccount: vaultTokenAccount.toString(),
-      tokenMint: tokenMint.toString()
+      tokenMint: tokenMint.toString(),
+      kaminoAccounts: kaminoAccounts ? {
+        lendingMarket: kaminoAccounts.lendingMarket.toString(),
+        lendingMarketAuthority: kaminoAccounts.lendingMarketAuthority.toString(),
+        reserve: kaminoAccounts.reserve.toString(),
+        reserveLiquiditySupply: kaminoAccounts.reserveLiquiditySupply.toString(),
+        reserveCollateralMint: kaminoAccounts.reserveCollateralMint.toString(),
+        vaultCollateralTokenAccount: vaultCollateralTokenAccount?.toString() ?? null
+      } : null
     });
-    const signature = await this.baseProgram.methods.modifyBalance({ amount: new BN(amount.toString()), increase }).accountsPartial({
+    let methodBuilder = this.baseProgram.methods.modifyBalance({ amount: new BN(amount.toString()), increase }).accountsPartial({
       payer,
       user,
       vault: vaultPda,
@@ -21886,7 +21950,52 @@ class LoyalPrivateTransactionsClient {
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId
-    }).rpc(rpcOptions);
+    });
+    if (kaminoAccounts && vaultCollateralTokenAccount) {
+      methodBuilder = methodBuilder.remainingAccounts([
+        {
+          pubkey: kaminoAccounts.lendingMarket,
+          isSigner: false,
+          isWritable: false
+        },
+        {
+          pubkey: kaminoAccounts.lendingMarketAuthority,
+          isSigner: false,
+          isWritable: false
+        },
+        {
+          pubkey: kaminoAccounts.reserve,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: kaminoAccounts.reserveLiquiditySupply,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: kaminoAccounts.reserveCollateralMint,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: vaultCollateralTokenAccount,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: kaminoAccounts.instructionSysvarAccount,
+          isSigner: false,
+          isWritable: false
+        },
+        {
+          pubkey: kaminoAccounts.klendProgram,
+          isSigner: false,
+          isWritable: false
+        }
+      ]);
+    }
+    const signature = await methodBuilder.rpc(rpcOptions);
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {
       throw new Error("Failed to fetch deposit after modification");
