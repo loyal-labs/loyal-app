@@ -18,6 +18,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard } from "react-native";
 
+import type { PopularToken } from "@/hooks/wallet/usePopularTokens";
+import { usePopularTokens } from "@/hooks/wallet/usePopularTokens";
+
 import {
   NATIVE_SOL_MINT,
   SOLANA_USDC_MINT_DEVNET,
@@ -93,8 +96,22 @@ export function SwapSheet({
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
 
+  const { tokens: popularTokens, searchTokens } = usePopularTokens();
+
+  // Build merged list for "to" picker: held tokens + popular tokens not already held
+  const toPickerTokens = useMemo(() => {
+    const heldMints = new Set(tokenHoldings.map((t) => t.mint));
+    const popularAsHoldings: TokenHolding[] = popularTokens
+      .filter((p) => !heldMints.has(p.mint))
+      .map(popularToHolding);
+    return [...tokenHoldings, ...popularAsHoldings];
+  }, [tokenHoldings, popularTokens]);
+
   const fromHolding = tokenHoldings.find((t) => t.mint === fromMint) ?? null;
-  const toHolding = tokenHoldings.find((t) => t.mint === toMint) ?? null;
+  const toHolding =
+    tokenHoldings.find((t) => t.mint === toMint) ??
+    toPickerTokens.find((t) => t.mint === toMint) ??
+    null;
 
   const amountNum = parseFloat(amountStr) || 0;
   const fromBalance = fromHolding?.balance ?? 0;
@@ -309,13 +326,16 @@ export function SwapSheet({
             <>
               {showFromPicker ? (
                 <TokenPicker
+                  mode="from"
                   tokenHoldings={tokenHoldings}
                   onSelect={selectFromToken}
                   onCancel={() => setShowFromPicker(false)}
                 />
               ) : showToPicker ? (
                 <TokenPicker
-                  tokenHoldings={tokenHoldings}
+                  mode="to"
+                  tokenHoldings={toPickerTokens}
+                  searchTokens={searchTokens}
                   onSelect={selectToToken}
                   onCancel={() => setShowToPicker(false)}
                 />
@@ -403,27 +423,87 @@ function TokenSelectorButton({
   );
 }
 
+// --- Helpers ---
+function popularToHolding(p: PopularToken): TokenHolding {
+  return {
+    mint: p.mint,
+    symbol: p.symbol,
+    name: p.name,
+    balance: 0,
+    decimals: p.decimals,
+    priceUsd: null,
+    valueUsd: null,
+    imageUrl: p.icon,
+  };
+}
+
 // --- Token Picker ---
 function TokenPicker({
+  mode,
   tokenHoldings,
+  searchTokens,
   onSelect,
   onCancel,
 }: {
+  mode: "from" | "to";
   tokenHoldings: TokenHolding[];
+  searchTokens?: (query: string) => Promise<PopularToken[]>;
   onSelect: (mint: string) => void;
   onCancel: () => void;
 }) {
   const [search, setSearch] = useState("");
+  const [jupiterResults, setJupiterResults] = useState<TokenHolding[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return tokenHoldings;
+  // Local filter
+  const localFiltered = useMemo(() => {
+    const base = tokenHoldings;
+    if (!search.trim()) return base;
     const lower = search.toLowerCase();
-    return tokenHoldings.filter(
+    return base.filter(
       (t) =>
         t.symbol.toLowerCase().includes(lower) ||
         t.name.toLowerCase().includes(lower),
     );
   }, [tokenHoldings, search]);
+
+  // Debounced Jupiter search for "to" mode
+  useEffect(() => {
+    if (mode !== "to" || !searchTokens || search.trim().length < 2) {
+      setJupiterResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      searchTokens(search.trim())
+        .then((results) => {
+          const localMints = new Set(tokenHoldings.map((t) => t.mint));
+          const converted = results
+            .filter((r) => !localMints.has(r.mint))
+            .map(popularToHolding);
+          setJupiterResults(converted);
+          setIsSearching(false);
+        })
+        .catch(() => {
+          setJupiterResults([]);
+          setIsSearching(false);
+        });
+    }, 300);
+
+    return () => clearTimeout(searchTimerRef.current);
+  }, [search, mode, searchTokens, tokenHoldings]);
+
+  // Merge local + Jupiter results (deduplicated)
+  const displayTokens = useMemo(() => {
+    if (mode !== "to" || jupiterResults.length === 0) return localFiltered;
+    const localMints = new Set(localFiltered.map((t) => t.mint));
+    const extra = jupiterResults.filter((t) => !localMints.has(t.mint));
+    return [...localFiltered, ...extra];
+  }, [mode, localFiltered, jupiterResults]);
 
   return (
     <>
@@ -448,7 +528,7 @@ function TokenPicker({
       </View>
 
       {/* Token list */}
-      {filtered.map((token) => {
+      {displayTokens.map((token) => {
         const icon = getTokenIcon(token);
         return (
           <Pressable
@@ -468,14 +548,28 @@ function TokenPicker({
                 {token.name}
               </Text>
             </View>
-            <Text className="text-[14px] text-neutral-600">
-              {token.balance.toFixed(token.decimals > 4 ? 4 : token.decimals)}
-            </Text>
+            {mode === "from" || token.balance > 0 ? (
+              <Text className="text-[14px] text-neutral-600">
+                {token.balance.toFixed(
+                  token.decimals > 4 ? 4 : token.decimals,
+                )}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}
 
-      {filtered.length === 0 && (
+      {/* Searching indicator */}
+      {isSearching && (
+        <View className="flex-row items-center justify-center py-4">
+          <ActivityIndicator size="small" color="#999" />
+          <Text className="ml-2 text-[14px] text-neutral-400">
+            Searching...
+          </Text>
+        </View>
+      )}
+
+      {displayTokens.length === 0 && !isSearching && (
         <Text className="py-8 text-center text-[14px] text-neutral-400">
           No tokens found
         </Text>
