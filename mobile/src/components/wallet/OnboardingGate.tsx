@@ -1,6 +1,6 @@
 import { Keypair } from "@solana/web3.js";
 import { useCallback, useState } from "react";
-import { StyleSheet } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
@@ -19,6 +19,7 @@ export function OnboardingGate() {
   const [flow, setFlow] = useState<Flow>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
   const [pendingPassword, setPendingPassword] = useState<string | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
 
   const handleCreateComplete = useCallback(
     (keypair: Keypair, password: string) => {
@@ -38,12 +39,32 @@ export function OnboardingGate() {
     [],
   );
 
-  const handleBiometricComplete = useCallback(() => {
+  const handleBiometricComplete = useCallback(async () => {
     if (flow === "create" && pendingKeypair && pendingPassword) {
-      finalizeSigner(pendingKeypair, pendingPassword);
+      setFinalizing(true);
+      await finalizeSigner(pendingKeypair, pendingPassword);
     }
     // Import flow: wallet already unlocked via importWallet, nothing else needed
   }, [flow, pendingKeypair, pendingPassword, finalizeSigner]);
+
+  // --- Finalizing (encrypting + storing) ---
+  if (finalizing) {
+    return (
+      <View className="flex-1 items-center justify-center bg-white">
+        <ActivityIndicator size="large" color="#000" />
+        <Text
+          style={{
+            fontFamily: "Geist_500Medium",
+            fontSize: 15,
+            color: "rgba(0,0,0,0.5)",
+            marginTop: 16,
+          }}
+        >
+          Setting up your wallet...
+        </Text>
+      </View>
+    );
+  }
 
   // --- Choose step ---
   if (step === "choose") {

@@ -34,7 +34,7 @@ export function PasswordInput({
   const toggleVisible = useCallback(() => setVisible((v) => !v), []);
 
   return (
-    <View className="w-full gap-2">
+    <View style={{ width: "100%", gap: 8 }}>
       {label && (
         <Text
           className="text-sm"
@@ -70,8 +70,8 @@ export function PasswordInput({
       </View>
 
       {showStrength && strength && strength.label !== "" && (
-        <View className="flex-row items-center gap-2">
-          <View className="h-1 flex-1 overflow-hidden rounded-full bg-black/5">
+        <View style={styles.strengthRow}>
+          <View style={styles.strengthTrack}>
             <View
               style={{
                 height: "100%",
@@ -86,20 +86,14 @@ export function PasswordInput({
               }}
             />
           </View>
-          <Text
-            className="text-xs"
-            style={{ fontFamily: "Geist_500Medium", color: strength.color }}
-          >
+          <Text style={[styles.strengthLabel, { color: strength.color }]}>
             {strength.label}
           </Text>
         </View>
       )}
 
       {error && (
-        <Text
-          className="text-xs"
-          style={{ fontFamily: "Geist_500Medium", color: "#FF3B30" }}
-        >
+        <Text style={styles.errorText}>
           {error}
         </Text>
       )}
@@ -122,5 +116,30 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_400Regular",
     fontSize: 16,
     color: "#000",
+  },
+  strengthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  strengthTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    overflow: "hidden",
+  },
+  strengthLabel: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  errorText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#FF3B30",
+    marginTop: 4,
   },
 });
