@@ -10,6 +10,8 @@ import { ActivitySheet } from "@/components/wallet/ActivitySheet";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { BannerCarousel } from "@/components/wallet/BannerCarousel";
+import { LockScreen } from "@/components/wallet/LockScreen";
+import { OnboardingGate } from "@/components/wallet/OnboardingGate";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
@@ -26,10 +28,34 @@ import {
   getCachedBalanceBg,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 import { ScrollView, Text, View } from "@/tw";
 import type { Transaction } from "@/types/wallet";
 
 export default function WalletScreen() {
+  const { state } = useWallet();
+
+  if (state === "loading") {
+    return (
+      <View className="flex-1 bg-white items-center justify-center">
+        <ActivityIndicator size="large" color="#000" />
+      </View>
+    );
+  }
+
+  if (state === "noWallet") {
+    return <OnboardingGate />;
+  }
+
+  if (state === "locked") {
+    return <LockScreen />;
+  }
+
+  // state === "unlocked" — show actual wallet content
+  return <WalletContent />;
+}
+
+function WalletContent() {
   const { walletAddress, isLoading, walletError, retryWalletInit } =
     useWalletInit();
   const { solBalanceLamports, refreshBalance } =
