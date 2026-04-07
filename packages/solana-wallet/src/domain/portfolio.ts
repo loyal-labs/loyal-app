@@ -40,6 +40,26 @@ function resolveValueUsd(args: {
   return null;
 }
 
+function resolveEffectivePriceUsd(args: {
+  balance: number;
+  providedValueUsd: number | null;
+  priceUsd: number | null;
+}): number | null {
+  if (typeof args.priceUsd === "number" && Number.isFinite(args.priceUsd)) {
+    return args.priceUsd;
+  }
+
+  if (
+    args.balance > 0 &&
+    typeof args.providedValueUsd === "number" &&
+    Number.isFinite(args.providedValueUsd)
+  ) {
+    return args.providedValueUsd / args.balance;
+  }
+
+  return null;
+}
+
 function comparePositions(left: PortfolioPosition, right: PortfolioPosition): number {
   const valueDelta = (right.totalValueUsd ?? -1) - (left.totalValueUsd ?? -1);
   if (valueDelta !== 0) {
@@ -120,9 +140,14 @@ export function buildPortfolioSnapshot(args: {
         priceUsd: assetBalance.priceUsd,
         providedValueUsd: assetBalance.valueUsd,
       });
+      const effectivePriceUsd = resolveEffectivePriceUsd({
+        balance: assetBalance.balance,
+        providedValueUsd: publicValueUsd,
+        priceUsd: assetBalance.priceUsd,
+      });
       const securedValueUsd = resolveValueUsd({
         balance: securedBalance,
-        priceUsd: assetBalance.priceUsd,
+        priceUsd: effectivePriceUsd,
         providedValueUsd: null,
       });
 
@@ -131,7 +156,7 @@ export function buildPortfolioSnapshot(args: {
         publicBalance: assetBalance.balance,
         securedBalance,
         totalBalance: assetBalance.balance + securedBalance,
-        priceUsd: assetBalance.priceUsd,
+        priceUsd: effectivePriceUsd,
         publicValueUsd,
         securedValueUsd,
         totalValueUsd:

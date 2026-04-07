@@ -94,6 +94,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Record when app went to background; lock only if >30s when it returns.
   const backgroundedAt = useRef<number | null>(null);
   const AUTO_LOCK_GRACE_MS = 30_000;
+  const lock = useCallback(() => {
+    setKeypair(null);
+    clearWalletKeypairCache();
+    setState("locked");
+  }, []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
@@ -162,12 +167,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch {
       return false;
     }
-  }, []);
-
-  const lock = useCallback(() => {
-    setKeypair(null);
-    clearWalletKeypairCache();
-    setState("locked");
   }, []);
 
   const setBiometricEnabled = useCallback(

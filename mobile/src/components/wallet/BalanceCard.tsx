@@ -12,6 +12,7 @@ type BalanceCardProps = {
   walletAddress: string | null;
   solBalanceLamports: number | null;
   solPriceUsd: number | null;
+  totalPortfolioUsd?: number | null;
   displayCurrency: "USD" | "SOL";
   onToggleCurrency: () => void;
   isLoading: boolean;
@@ -23,6 +24,7 @@ export function BalanceCard({
   walletAddress,
   solBalanceLamports,
   solPriceUsd,
+  totalPortfolioUsd,
   displayCurrency,
   onToggleCurrency,
   isLoading,
@@ -33,7 +35,13 @@ export function BalanceCard({
 
   const solBalance =
     solBalanceLamports !== null ? solBalanceLamports / LAMPORTS_PER_SOL : 0;
-  const usdBalance = solPriceUsd !== null ? solBalance * solPriceUsd : 0;
+  const solOnlyUsdBalance = solPriceUsd !== null ? solBalance * solPriceUsd : 0;
+  const usdBalance =
+    typeof totalPortfolioUsd === "number" && Number.isFinite(totalPortfolioUsd)
+      ? totalPortfolioUsd
+      : solOnlyUsdBalance;
+  const solEquivalentBalance =
+    solPriceUsd !== null && solPriceUsd > 0 ? usdBalance / solPriceUsd : solBalance;
 
   const handleCopyAddress = async () => {
     if (!walletAddress) return;
@@ -62,13 +70,13 @@ export function BalanceCard({
     if (displayCurrency === "USD") {
       return `$${usdBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-    return `${solBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL`;
+    return `${solEquivalentBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL`;
   };
 
   // Format the secondary balance display
   const formatSecondary = () => {
     if (displayCurrency === "USD") {
-      return `${solBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL`;
+      return `${solEquivalentBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL`;
     }
     return `$${usdBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };

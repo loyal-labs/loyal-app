@@ -1,7 +1,6 @@
 import {
   BottomSheetFlatList,
   BottomSheetModal,
-  BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {
@@ -226,13 +225,9 @@ export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
       [],
     );
 
-    return (
-      <BottomSheetModal
-        ref={ref}
-        snapPoints={snapPoints}
-        enableDynamicSizing={false}
-      >
-        <BottomSheetView className="px-4 pb-2">
+    const listHeader = useMemo(
+      () => (
+        <View className="px-4 pb-2 pt-1">
           <Text
             className="text-[17px] font-semibold text-black"
             style={{ lineHeight: 22 }}
@@ -246,11 +241,22 @@ export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
             {transactions.length} transaction
             {transactions.length !== 1 ? "s" : ""}
           </Text>
-        </BottomSheetView>
+        </View>
+      ),
+      [transactions.length],
+    );
+
+    return (
+      <BottomSheetModal
+        ref={ref}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
+      >
         <BottomSheetFlatList
           data={transactions}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
+          ListHeaderComponent={listHeader}
           contentContainerStyle={{ paddingBottom: 40 }}
         />
       </BottomSheetModal>

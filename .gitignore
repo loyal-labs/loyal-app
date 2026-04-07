@@ -114,3 +114,7 @@ docs/scopes
 .turbo/
 
 report.md
+second-report.md
+skills-lock.json
+.agents/
+**/ss_claude_trace_hook.log

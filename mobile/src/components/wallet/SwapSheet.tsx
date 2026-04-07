@@ -47,7 +47,6 @@ type SwapSheetProps = {
   onClose: () => void;
   walletAddress: string | null;
   tokenHoldings: TokenHolding[];
-  solPriceUsd: number | null;
   onSwapComplete?: () => void;
 };
 
@@ -80,7 +79,6 @@ export function SwapSheet({
   onClose,
   walletAddress,
   tokenHoldings,
-  solPriceUsd,
   onSwapComplete,
 }: SwapSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
@@ -184,6 +182,27 @@ export function SwapSheet({
     const decimals = toHolding.decimals ?? 9;
     return Number(quote.outAmount) / 10 ** decimals;
   }, [quote, toHolding]);
+
+  const outUsd = useMemo(() => {
+    if (outAmount === null) return null;
+    if (
+      typeof toHolding?.priceUsd === "number" &&
+      Number.isFinite(toHolding.priceUsd) &&
+      toHolding.priceUsd > 0
+    ) {
+      return outAmount * toHolding.priceUsd;
+    }
+    if (
+      amountNum > 0 &&
+      typeof fromHolding?.priceUsd === "number" &&
+      Number.isFinite(fromHolding.priceUsd) &&
+      fromHolding.priceUsd > 0
+    ) {
+      // Fallback to input-side USD estimate when output token price is unavailable.
+      return amountNum * fromHolding.priceUsd;
+    }
+    return null;
+  }, [outAmount, toHolding, amountNum, fromHolding]);
 
   const handleFlip = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -355,9 +374,9 @@ export function SwapSheet({
                   onToPress={() => setShowToPicker(true)}
                   isValidAmount={amountStr.length > 0 ? isValidAmount : true}
                   fromBalance={fromBalance}
-                  solPriceUsd={solPriceUsd}
                   quote={quote}
                   outAmount={outAmount}
+                  outUsd={outUsd}
                   isFetchingQuote={isFetchingQuote}
                   isFormValid={isFormValid}
                   onNext={() => {
@@ -375,6 +394,7 @@ export function SwapSheet({
               toHolding={toHolding}
               amountNum={amountNum}
               outAmount={outAmount}
+              outUsd={outUsd}
               quote={quote}
               isSwapping={isSwapping}
               onConfirm={handleSwap}
@@ -390,6 +410,7 @@ export function SwapSheet({
               toHolding={toHolding}
               amountNum={amountNum}
               outAmount={outAmount}
+              outUsd={outUsd}
               onDone={handleClose}
             />
           )}
@@ -435,8 +456,8 @@ function popularToHolding(p: PopularToken): TokenHolding {
     name: p.name,
     balance: 0,
     decimals: p.decimals,
-    priceUsd: null,
-    valueUsd: null,
+    priceUsd: p.priceUsd,
+    valueUsd: p.priceUsd ? 0 : null,
     imageUrl: p.icon,
   };
 }
@@ -458,7 +479,7 @@ function TokenPicker({
   const [search, setSearch] = useState("");
   const [jupiterResults, setJupiterResults] = useState<TokenHolding[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local filter
   const localFiltered = useMemo(() => {
@@ -468,7 +489,8 @@ function TokenPicker({
     return base.filter(
       (t) =>
         t.symbol.toLowerCase().includes(lower) ||
-        t.name.toLowerCase().includes(lower),
+        t.name.toLowerCase().includes(lower) ||
+        t.mint.toLowerCase().includes(lower),
     );
   }, [tokenHoldings, search]);
 
@@ -481,7 +503,7 @@ function TokenPicker({
     }
 
     setIsSearching(true);
-    clearTimeout(searchTimerRef.current);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       searchTokens(search.trim())
         .then((results) => {
@@ -498,7 +520,9 @@ function TokenPicker({
         });
     }, 300);
 
-    return () => clearTimeout(searchTimerRef.current);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
   }, [search, mode, searchTokens, tokenHoldings]);
 
   // Merge local + Jupiter results (deduplicated)
@@ -602,9 +626,9 @@ function FormStep({
   onToPress,
   isValidAmount,
   fromBalance,
-  solPriceUsd,
   quote,
   outAmount,
+  outUsd,
   isFetchingQuote,
   isFormValid,
   onNext,
@@ -619,9 +643,9 @@ function FormStep({
   onToPress: () => void;
   isValidAmount: boolean;
   fromBalance: number;
-  solPriceUsd: number | null;
   quote: JupiterQuoteResponse | null;
   outAmount: number | null;
+  outUsd: number | null;
   isFetchingQuote: boolean;
   isFormValid: boolean;
   onNext: () => void;
@@ -665,7 +689,7 @@ function FormStep({
         </View>
         <Text className="mt-1 text-[12px] text-neutral-400">
           Balance: {fromBalance.toFixed(4)} {fromHolding?.symbol ?? ""}
-          {fromHolding?.valueUsd != null && solPriceUsd
+          {fromHolding?.priceUsd != null
             ? ` (~$${(fromBalance * (fromHolding.priceUsd ?? 0)).toFixed(2)})`
             : ""}
         </Text>
@@ -711,6 +735,11 @@ function FormStep({
             )}
           </View>
         </View>
+        {outUsd !== null && (
+          <Text className="mt-1 text-right text-[12px] text-neutral-400">
+            ≈ ${outUsd.toFixed(2)}
+          </Text>
+        )}
       </View>
 
       {/* Quote info */}
@@ -744,6 +773,7 @@ function ConfirmStep({
   toHolding,
   amountNum,
   outAmount,
+  outUsd,
   quote,
   isSwapping,
   onConfirm,
@@ -752,6 +782,7 @@ function ConfirmStep({
   toHolding: TokenHolding | null;
   amountNum: number;
   outAmount: number | null;
+  outUsd: number | null;
   quote: JupiterQuoteResponse | null;
   isSwapping: boolean;
   onConfirm: () => void;
@@ -766,6 +797,11 @@ function ConfirmStep({
         <Row
           label="To"
           value={`${outAmount?.toFixed(4) ?? "—"} ${toHolding?.symbol ?? ""}`}
+        />
+        <Row
+          label="Est. Value"
+          value={outUsd !== null ? `$${outUsd.toFixed(2)}` : "—"}
+          isSubtle
         />
         {quote && (
           <>
@@ -826,6 +862,7 @@ function ResultStep({
   toHolding,
   amountNum,
   outAmount,
+  outUsd,
   onDone,
 }: {
   isSwapping: boolean;
@@ -835,6 +872,7 @@ function ResultStep({
   toHolding: TokenHolding | null;
   amountNum: number;
   outAmount: number | null;
+  outUsd: number | null;
   onDone: () => void;
 }) {
   if (isSwapping) {
@@ -878,6 +916,11 @@ function ResultStep({
       <Text className="mt-1 text-[14px] text-neutral-500">
         for {outAmount?.toFixed(4) ?? "—"} {toHolding?.symbol ?? ""}
       </Text>
+      {outUsd !== null && (
+        <Text className="mt-1 text-[13px] text-neutral-400">
+          ≈ ${outUsd.toFixed(2)}
+        </Text>
+      )}
       {txSignature && (
         <Text className="mt-2 text-[12px] text-neutral-400" numberOfLines={1}>
           Tx: {txSignature.slice(0, 12)}...

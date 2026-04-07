@@ -1,3 +1,12 @@
+import {
+  DELEGATION_PROGRAM_ID,
+  findDepositPda,
+  getErValidatorForSolanaEnv,
+  LoyalPrivateTransactionsClient,
+  MAGIC_CONTEXT_ID,
+  MAGIC_PROGRAM_ID,
+} from "@loyal-labs/private-transactions";
+import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
 import type { Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
@@ -8,16 +17,77 @@ import {
   getPerEndpoints,
   getSolanaEnv,
 } from "@/lib/solana/rpc/connection";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 // Lazy-loaded alongside the SDK to avoid top-level Buffer usage
 async function getWsolAdapter() {
   return await import("@/lib/solana/wsol-adapter");
 }
-import { useWallet } from "@/lib/wallet/wallet-provider";
 
-// Lazy-loaded to avoid top-level Buffer usage from the private-transactions SDK
-async function getPrivateTransactions() {
-  return await import("@loyal-labs/private-transactions");
+type TweetNaclModule = typeof import("tweetnacl");
+type TweetNaclInteropModule = TweetNaclModule & {
+  default?: Partial<TweetNaclModule> & {
+    sign?: {
+      detached?: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
+    };
+  };
+};
+type PerAuthToken = {
+  token: string;
+  expiresAt: number;
+};
+
+function resolveTweetNaclModule(
+  module: TweetNaclInteropModule,
+): {
+  sign: {
+    detached: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
+  };
+} {
+  const direct = module as unknown as {
+    sign?: {
+      detached?: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
+    };
+  };
+  if (typeof direct.sign?.detached === "function") {
+    return { sign: { detached: direct.sign.detached } };
+  }
+
+  if (typeof module.default?.sign?.detached === "function") {
+    return { sign: { detached: module.default.sign.detached } };
+  }
+
+  throw new Error("tweetnacl sign.detached is unavailable");
 }
+
+function encodeBase58(bytes: Uint8Array): string {
+  if (bytes.length === 0) return "";
+
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const base = 58n;
+  let value = 0n;
+  for (const byte of bytes) {
+    value = (value << 8n) + BigInt(byte);
+  }
+
+  let encoded = "";
+  while (value > 0n) {
+    const remainder = Number(value % base);
+    encoded = alphabet[remainder] + encoded;
+    value /= base;
+  }
+
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    encoded = `1${encoded}`;
+  }
+
+  return encoded || "1";
+}
+
+async function getTweetNacl() {
+  return resolveTweetNaclModule(await import("tweetnacl"));
+}
+
 async function getSplToken() {
   return await import("@solana/spl-token");
 }
@@ -71,38 +141,119 @@ export function useShield(): {
   const { keypair } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<unknown>(null);
+  const clientRef = useRef<LoyalPrivateTransactionsClientType | null>(null);
+  const perAuthTokenRef = useRef<PerAuthToken | null>(null);
 
   const solanaEnv = getSolanaEnv();
   const connection = getConnection();
 
-  const getClient = useCallback(async () => {
-    if (clientRef.current) return clientRef.current;
+  const getPerAuthToken = useCallback(
+    async (perRpcEndpoint: string): Promise<PerAuthToken> => {
+      const cached = perAuthTokenRef.current;
+      if (cached && cached.expiresAt > Date.now() + 60_000) {
+        return cached;
+      }
 
-    if (!keypair) {
-      throw new Error("Wallet keypair is not available");
-    }
+      if (!keypair) {
+        throw new Error("Wallet keypair is not available");
+      }
 
-    const { LoyalPrivateTransactionsClient } = await getPrivateTransactions();
-    const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
-    const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
+      const walletAddress = keypair.publicKey.toBase58();
+      const challengeUrl = `${perRpcEndpoint}/auth/challenge?pubkey=${walletAddress}`;
+      const challengeResponse = await fetch(challengeUrl);
+      const challengeData = (await challengeResponse.json()) as {
+        challenge?: unknown;
+        error?: unknown;
+      };
 
-    const client = await LoyalPrivateTransactionsClient.fromConfig({
-      signer: keypair,
-      baseRpcEndpoint: rpcEndpoint,
-      baseWsEndpoint: websocketEndpoint,
-      ephemeralRpcEndpoint: perRpcEndpoint,
-      ephemeralWsEndpoint: perWsEndpoint,
-    });
+      if (!challengeResponse.ok) {
+        const reason =
+          typeof challengeData.error === "string" && challengeData.error
+            ? challengeData.error
+            : `status ${challengeResponse.status}`;
+        throw new Error(`PER auth challenge failed: ${reason}`);
+      }
 
-    clientRef.current = client;
-    return client;
-  }, [keypair, solanaEnv]);
+      if (typeof challengeData.challenge !== "string" || !challengeData.challenge) {
+        throw new Error("PER auth challenge is missing");
+      }
+
+      const { sign } = await getTweetNacl();
+      const challengeBytes = new TextEncoder().encode(challengeData.challenge);
+      const signature = sign.detached(challengeBytes, keypair.secretKey);
+      const signatureBase58 = encodeBase58(signature);
+
+      const loginResponse = await fetch(`${perRpcEndpoint}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          pubkey: walletAddress,
+          challenge: challengeData.challenge,
+          signature: signatureBase58,
+        }),
+      });
+      const loginData = (await loginResponse.json()) as {
+        token?: unknown;
+        expiresAt?: unknown;
+        error?: unknown;
+      };
+
+      if (!loginResponse.ok || typeof loginData.token !== "string" || !loginData.token) {
+        const reason =
+          typeof loginData.error === "string" && loginData.error
+            ? loginData.error
+            : `status ${loginResponse.status}`;
+        throw new Error(`PER auth login failed: ${reason}`);
+      }
+
+      const expiresAt =
+        typeof loginData.expiresAt === "number"
+          ? loginData.expiresAt
+          : Date.now() + 30 * 24 * 60 * 60 * 1000;
+      const token = { token: loginData.token, expiresAt };
+      perAuthTokenRef.current = token;
+      return token;
+    },
+    [keypair],
+  );
+
+  const getClient = useCallback(
+    async (): Promise<LoyalPrivateTransactionsClientType> => {
+      if (clientRef.current) return clientRef.current;
+
+      if (!keypair) {
+        throw new Error("Wallet keypair is not available");
+      }
+
+      const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
+      const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
+      const authToken =
+        perRpcEndpoint.includes("tee")
+          ? await getPerAuthToken(perRpcEndpoint)
+          : undefined;
+
+      const client = await LoyalPrivateTransactionsClient.fromConfig({
+        signer: keypair,
+        baseRpcEndpoint: rpcEndpoint,
+        baseWsEndpoint: websocketEndpoint,
+        ephemeralRpcEndpoint: perRpcEndpoint,
+        ephemeralWsEndpoint: perWsEndpoint,
+        authToken,
+      });
+
+      clientRef.current = client;
+      return client;
+    },
+    [getPerAuthToken, keypair, solanaEnv],
+  );
 
   // Reset client when wallet changes
   const prevPubkey = useRef(keypair?.publicKey.toBase58());
   if (keypair?.publicKey.toBase58() !== prevPubkey.current) {
     clientRef.current = null;
+    perAuthTokenRef.current = null;
     prevPubkey.current = keypair?.publicKey.toBase58();
   }
 
@@ -124,13 +275,6 @@ export function useShield(): {
 
       try {
         const client = await getClient();
-        const {
-          DELEGATION_PROGRAM_ID,
-          findDepositPda,
-          getErValidatorForSolanaEnv,
-          MAGIC_CONTEXT_ID,
-          MAGIC_PROGRAM_ID,
-        } = await getPrivateTransactions();
         const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
           await getSplToken();
         const { wrapSolToWSol, closeWsolAta } = await getWsolAdapter();
@@ -236,6 +380,7 @@ export function useShield(): {
         setLoading(false);
         return { success: true };
       } catch (err) {
+        console.error("[useShield] executeShield failed", err);
         let errorMessage = "Shield failed";
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
@@ -268,13 +413,6 @@ export function useShield(): {
 
       try {
         const client = await getClient();
-        const {
-          DELEGATION_PROGRAM_ID,
-          findDepositPda,
-          getErValidatorForSolanaEnv,
-          MAGIC_CONTEXT_ID,
-          MAGIC_PROGRAM_ID,
-        } = await getPrivateTransactions();
         const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
           await getSplToken();
         const { closeWsolAta } = await getWsolAdapter();
@@ -346,6 +484,7 @@ export function useShield(): {
         setLoading(false);
         return { success: true };
       } catch (err) {
+        console.error("[useShield] executeUnshield failed", err);
         let errorMessage = "Unshield failed";
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")

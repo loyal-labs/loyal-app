@@ -20,6 +20,74 @@ import type {
 
 const holdingsCache = new Map<string, CachedHoldings>();
 const inflightRequests = new Map<string, Promise<TokenHolding[]>>();
+const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
+
+type JupiterTokenSearchResult = {
+  id: string;
+  usdPrice?: number;
+};
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0
+  );
+}
+
+function normalizeUsdValue(value: unknown): number | null {
+  return isPositiveFiniteNumber(value) ? value : null;
+}
+
+function resolveHoldingUsdValue(
+  balance: number,
+  rawValueUsd: unknown,
+  priceUsd: number | null,
+): number | null {
+  if (isPositiveFiniteNumber(rawValueUsd)) return rawValueUsd;
+  if (isPositiveFiniteNumber(priceUsd)) return balance * priceUsd;
+  return null;
+}
+
+function normalizeHoldingsWithImpliedPrices(
+  holdings: TokenHolding[],
+): TokenHolding[] {
+  const impliedPriceByMint = new Map<string, number>();
+
+  for (const holding of holdings) {
+    const normalizedPriceUsd = normalizeUsdValue(holding.priceUsd);
+    if (normalizedPriceUsd !== null) {
+      impliedPriceByMint.set(holding.mint, normalizedPriceUsd);
+      continue;
+    }
+
+    const normalizedValueUsd = normalizeUsdValue(holding.valueUsd);
+    if (normalizedValueUsd !== null && holding.balance > 0) {
+      impliedPriceByMint.set(holding.mint, normalizedValueUsd / holding.balance);
+    }
+  }
+
+  if (impliedPriceByMint.size === 0) {
+    return holdings;
+  }
+
+  return holdings.map((holding) => {
+    const normalizedPriceUsd =
+      normalizeUsdValue(holding.priceUsd) ??
+      impliedPriceByMint.get(holding.mint) ??
+      null;
+
+    return {
+      ...holding,
+      priceUsd: normalizedPriceUsd,
+      valueUsd: resolveHoldingUsdValue(
+        holding.balance,
+        holding.valueUsd,
+        normalizedPriceUsd,
+      ),
+    };
+  });
+}
 
 function isCacheValid(cached: CachedHoldings | undefined): boolean {
   if (!cached) return false;
@@ -63,6 +131,8 @@ function mapAssetToHolding(asset: HeliusAsset): TokenHolding | null {
   if (!tokenInfo) return null;
 
   const { balance, decimals, price_info } = tokenInfo;
+  const normalizedBalance = balance / Math.pow(10, decimals);
+  const priceUsd = normalizeUsdValue(price_info?.price_per_token);
   const symbol = resolveSymbol(asset);
   const name = resolveName(asset, symbol);
 
@@ -70,10 +140,14 @@ function mapAssetToHolding(asset: HeliusAsset): TokenHolding | null {
     mint: asset.id,
     symbol,
     name,
-    balance: balance / Math.pow(10, decimals),
+    balance: normalizedBalance,
     decimals,
-    priceUsd: price_info?.price_per_token ?? null,
-    valueUsd: price_info?.total_price ?? null,
+    priceUsd,
+    valueUsd: resolveHoldingUsdValue(
+      normalizedBalance,
+      price_info?.total_price,
+      priceUsd,
+    ),
     imageUrl: resolveImageUrl(asset),
   };
 }
@@ -84,17 +158,86 @@ function mapNativeBalance(
   if (!nativeBalance) return null;
 
   const { lamports, price_per_sol, total_price } = nativeBalance;
+  const normalizedBalance = lamports / Math.pow(10, NATIVE_SOL_DECIMALS);
+  const priceUsd = normalizeUsdValue(price_per_sol);
 
   return {
     mint: NATIVE_SOL_MINT,
     symbol: "SOL",
     name: "Solana",
-    balance: lamports / Math.pow(10, NATIVE_SOL_DECIMALS),
+    balance: normalizedBalance,
     decimals: NATIVE_SOL_DECIMALS,
-    priceUsd: price_per_sol ?? null,
-    valueUsd: total_price ?? null,
+    priceUsd,
+    valueUsd: resolveHoldingUsdValue(normalizedBalance, total_price, priceUsd),
     imageUrl: resolveTokenIcon({ mint: NATIVE_SOL_MINT, imageUrl: null }),
   };
+}
+
+export async function enrichHoldingsWithJupiterPrices(
+  holdings: TokenHolding[],
+  fetchImpl: typeof fetch = fetch,
+): Promise<TokenHolding[]> {
+  if (holdings.length === 0) return holdings;
+
+  const normalizedHoldings = holdings.map((holding) => {
+    const normalizedPriceUsd = normalizeUsdValue(holding.priceUsd);
+    return {
+      ...holding,
+      priceUsd: normalizedPriceUsd,
+      valueUsd: resolveHoldingUsdValue(
+        holding.balance,
+        holding.valueUsd,
+        normalizedPriceUsd,
+      ),
+    };
+  });
+
+  const unpricedMints = [
+    ...new Set(
+      normalizedHoldings
+        .filter((holding) => holding.priceUsd === null)
+        .map((holding) => holding.mint),
+    ),
+  ];
+
+  if (unpricedMints.length === 0) return normalizedHoldings;
+
+  const lookups = await Promise.all(
+    unpricedMints.map(async (mint) => {
+      try {
+        const response = await fetchImpl(
+          `${JUPITER_TOKEN_SEARCH_URL}?query=${encodeURIComponent(mint)}`,
+          { method: "GET" },
+        );
+        if (!response.ok) return null;
+        const tokens =
+          (await response.json()) as JupiterTokenSearchResult[];
+        const match = tokens.find((token) => token.id === mint);
+        const usdPrice = normalizeUsdValue(match?.usdPrice);
+        return usdPrice ? { mint, usdPrice } : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const jupiterPrices = new Map<string, number>();
+  for (const lookup of lookups) {
+    if (lookup) jupiterPrices.set(lookup.mint, lookup.usdPrice);
+  }
+
+  if (jupiterPrices.size === 0) return normalizedHoldings;
+
+  return normalizedHoldings.map((holding) => {
+    if (holding.priceUsd !== null) return holding;
+    const usdPrice = jupiterPrices.get(holding.mint);
+    if (!usdPrice) return holding;
+    return {
+      ...holding,
+      priceUsd: usdPrice,
+      valueUsd: holding.balance * usdPrice,
+    };
+  });
 }
 
 async function fetchHoldingsFromHelius(
@@ -181,11 +324,22 @@ export async function fetchTokenHoldings(
       } catch (error) {
         console.warn("Failed to fetch secured balances, using public only", error);
       }
+
+      let enrichedHoldings = allHoldings;
+      try {
+        enrichedHoldings = await enrichHoldingsWithJupiterPrices(allHoldings);
+      } catch (error) {
+        console.warn("Failed to enrich holdings with Jupiter prices", error);
+      }
+      const normalizedHoldings = normalizeHoldingsWithImpliedPrices(
+        enrichedHoldings,
+      );
+
       holdingsCache.set(publicKey, {
-        holdings: allHoldings,
+        holdings: normalizedHoldings,
         fetchedAt: Date.now(),
       });
-      return allHoldings;
+      return normalizedHoldings;
     },
   );
 

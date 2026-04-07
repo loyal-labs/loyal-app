@@ -9,6 +9,49 @@ import type { WalletTransfer } from "@/lib/solana/rpc/types";
 import { walletTransactionsCache } from "@/lib/solana/wallet-cache";
 import type { Transaction } from "@/types/wallet";
 
+const TX_HISTORY_SIGNATURES_PER_PAGE = 25;
+const TX_HISTORY_TARGET_TRANSFERS = 60;
+const TX_HISTORY_MAX_PAGES = 6;
+
+type FetchTransfersPage = (
+  publicKey: PublicKey,
+  options: {
+    limit: number;
+    before?: string;
+    onlySystemTransfers: boolean;
+  },
+) => Promise<{ transfers: WalletTransfer[]; nextCursor?: string }>;
+
+export async function fetchWalletTransfersWithPagination(
+  publicKey: PublicKey,
+  fetchPage: FetchTransfersPage = getAccountTransactionHistory,
+): Promise<WalletTransfer[]> {
+  const collected: WalletTransfer[] = [];
+  const seenSignatures = new Set<string>();
+
+  let before: string | undefined;
+  for (let page = 0; page < TX_HISTORY_MAX_PAGES; page++) {
+    const { transfers, nextCursor } = await fetchPage(publicKey, {
+      limit: TX_HISTORY_SIGNATURES_PER_PAGE,
+      before,
+      onlySystemTransfers: false,
+    });
+
+    for (const transfer of transfers) {
+      if (!seenSignatures.has(transfer.signature)) {
+        seenSignatures.add(transfer.signature);
+        collected.push(transfer);
+      }
+    }
+
+    if (collected.length >= TX_HISTORY_TARGET_TRANSFERS) break;
+    if (!nextCursor || nextCursor === before) break;
+    before = nextCursor;
+  }
+
+  return collected;
+}
+
 export function useWalletTransactions(walletAddress: string | null) {
   const [walletTransactions, setWalletTransactions] = useState<Transaction[]>(
     () =>
@@ -62,16 +105,17 @@ export function useWalletTransactions(walletAddress: string | null) {
 
       if (!force && cached) {
         setWalletTransactions(cached);
-        return;
+        if (cached.length >= TX_HISTORY_TARGET_TRANSFERS) {
+          return;
+        }
       }
 
       if (!cached) {
         setIsFetchingTransactions(true);
       }
       try {
-        const { transfers } = await getAccountTransactionHistory(
+        const transfers = await fetchWalletTransfersWithPagination(
           new PublicKey(walletAddress),
-          { limit: 10, onlySystemTransfers: false },
         );
 
         const mappedTransactions: Transaction[] = transfers.map(

@@ -92,4 +92,38 @@ describe("portfolio domain helpers", () => {
     expect(totals.totalUsd).toBe(5);
     expect(totals.totalSol).toBe(0.05);
   });
+
+  test("values secured balances using implied unit price when priceUsd is missing", () => {
+    const solMint = "So11111111111111111111111111111111111111112";
+    const snapshot = buildPortfolioSnapshot({
+      assetSnapshot: {
+        owner: WALLET_ADDRESS,
+        nativeBalanceLamports: 39_000_000,
+        fetchedAt: 1,
+        assets: [
+          {
+            asset: {
+              mint: solMint,
+              symbol: "SOL",
+              name: "Solana",
+              decimals: 9,
+              imageUrl: null,
+              isNative: true,
+            },
+            balance: 0.039,
+            priceUsd: null,
+            valueUsd: 6,
+          },
+        ],
+      },
+      secureBalances: new Map([[solMint, BigInt(39_000_000)]]),
+    });
+
+    const solPosition = snapshot.positions[0];
+    expect(solPosition).toBeDefined();
+    expect(solPosition?.priceUsd).toBeCloseTo(153.846153846, 9);
+    expect(solPosition?.securedValueUsd).toBeCloseTo(6, 6);
+    expect(solPosition?.totalValueUsd).toBeCloseTo(12, 6);
+    expect(snapshot.totals.totalUsd).toBe(12);
+  });
 });

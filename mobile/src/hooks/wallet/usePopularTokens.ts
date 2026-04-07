@@ -21,25 +21,31 @@ export type PopularToken = {
   name: string;
   icon: string;
   decimals: number;
+  priceUsd: number | null;
 };
 
 type JupiterTokenResult = {
-  address: string;
+  id: string;
   symbol: string;
   name: string;
-  logoURI?: string;
+  icon: string | null;
   decimals: number;
-  verified?: boolean;
-  market_cap?: number;
+  usdPrice: number | null;
+  isVerified: boolean;
+  mcap: number | null;
 };
 
 function toPopularToken(t: JupiterTokenResult): PopularToken {
   return {
-    mint: t.address,
+    mint: t.id,
     symbol: t.symbol,
     name: t.name,
-    icon: t.logoURI ?? "",
+    icon: t.icon ?? "",
     decimals: t.decimals,
+    priceUsd:
+      typeof t.usdPrice === "number" && Number.isFinite(t.usdPrice)
+        ? t.usdPrice
+        : null,
   };
 }
 
@@ -66,9 +72,9 @@ async function fetchPopularTokens(): Promise<PopularToken[]> {
         const exact = tokens
           .filter(
             (t) =>
-              t.symbol.toUpperCase() === symbol.toUpperCase() && t.verified,
+              t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified,
           )
-          .sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0));
+          .sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0));
         return exact[0] ? toPopularToken(exact[0]) : null;
       } catch {
         return null;
@@ -107,7 +113,7 @@ export function usePopularTokens(): {
       if (!query || query.length < 2) return [];
       try {
         const results = await searchJupiterTokens(query);
-        return results.filter((t) => t.verified).map(toPopularToken);
+        return results.filter((t) => t.isVerified).map(toPopularToken);
       } catch {
         return [];
       }

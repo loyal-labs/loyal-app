@@ -1,4 +1,3 @@
-import "@/polyfills";
 import "@/global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";

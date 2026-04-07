@@ -1,7 +1,8 @@
 import { BottomSheetModal } from "@gorhom/bottom-sheet";
 import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { ActionButton } from "@/components/wallet/ActionButton";
@@ -31,6 +32,7 @@ import { ScrollView, Text, View } from "@/tw";
 import type { Transaction } from "@/types/wallet";
 
 export default function WalletScreen() {
+  const insets = useSafeAreaInsets();
   const { walletAddress, isLoading, walletError, retryWalletInit } =
     useWalletInit();
   const { solBalanceLamports, refreshBalance } =
@@ -53,6 +55,28 @@ export default function WalletScreen() {
     ? Math.floor(securedSolHolding.balance * 1e9)
     : 0;
   const totalSolLamports = (solBalanceLamports ?? 0) + securedSolLamports;
+  const totalPortfolioUsd = useMemo(() => {
+    let total = 0;
+    let hasValuation = false;
+
+    for (const holding of tokenHoldings) {
+      if (typeof holding.valueUsd === "number" && Number.isFinite(holding.valueUsd)) {
+        total += holding.valueUsd;
+        hasValuation = true;
+        continue;
+      }
+      if (
+        typeof holding.priceUsd === "number" &&
+        Number.isFinite(holding.priceUsd) &&
+        holding.priceUsd > 0
+      ) {
+        total += holding.balance * holding.priceUsd;
+        hasValuation = true;
+      }
+    }
+
+    return hasValuation ? total : null;
+  }, [tokenHoldings]);
 
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
@@ -144,7 +168,7 @@ export default function WalletScreen() {
       <LogoHeader />
       <ScrollView
         className="flex-1"
-        contentContainerClassName="pb-8"
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 132) }}
         refreshControl={
           <RefreshControl refreshing={false} onRefresh={handleRefresh} />
         }
@@ -153,6 +177,7 @@ export default function WalletScreen() {
           walletAddress={walletAddress}
           solBalanceLamports={totalSolLamports}
           solPriceUsd={solPriceUsd}
+          totalPortfolioUsd={totalPortfolioUsd}
           displayCurrency={displayCurrency}
           onToggleCurrency={handleToggleCurrency}
           isLoading={isLoading}
@@ -228,7 +253,6 @@ export default function WalletScreen() {
         onClose={() => setIsSwapOpen(false)}
         walletAddress={walletAddress}
         tokenHoldings={tokenHoldings}
-        solPriceUsd={solPriceUsd}
         onSwapComplete={handleSwapComplete}
       />
 

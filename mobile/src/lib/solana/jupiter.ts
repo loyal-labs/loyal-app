@@ -1,4 +1,5 @@
-const JUPITER_API_BASE = "https://quote-api.jup.ag/v6";
+const JUPITER_QUOTE_API_URL = "https://api.jup.ag/swap/v1/quote";
+const JUPITER_SWAP_API_URL = "https://api.jup.ag/swap/v1/swap";
 
 export type JupiterQuoteResponse = {
   inputMint: string;
@@ -18,7 +19,7 @@ export async function getJupiterQuote(params: {
   amount: string;
   slippageBps?: number;
 }): Promise<JupiterQuoteResponse> {
-  const url = new URL(`${JUPITER_API_BASE}/quote`);
+  const url = new URL(JUPITER_QUOTE_API_URL);
   url.searchParams.set("inputMint", params.inputMint);
   url.searchParams.set("outputMint", params.outputMint);
   url.searchParams.set("amount", params.amount);
@@ -33,7 +34,7 @@ export async function getJupiterSwapTransaction(params: {
   quoteResponse: JupiterQuoteResponse;
   userPublicKey: string;
 }): Promise<{ swapTransaction: string }> {
-  const resp = await fetch(`${JUPITER_API_BASE}/swap`, {
+  const resp = await fetch(JUPITER_SWAP_API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
