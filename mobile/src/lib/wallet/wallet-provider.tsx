@@ -23,11 +23,12 @@ import {
 } from "./biometrics";
 import {
   clearStoredKeypair,
-  generateKeypair,
+  generateKeypairInMemory,
   getStoredPublicKey,
   hasStoredKeypair,
   importKeypair,
   loadKeypair,
+  storeKeypair,
   changePassword as changeKeypairPassword,
 } from "./keypair-storage";
 
@@ -39,9 +40,9 @@ interface WalletContextValue {
   publicKey: string | null;
 
   // Wallet setup
-  createWallet: (password: string) => Promise<Keypair>;
+  createWallet: (password: string) => Keypair;
   importWallet: (secretKey: Uint8Array, password: string) => Promise<Keypair>;
-  finalizeSigner: (keypair: Keypair, password: string) => void;
+  finalizeSigner: (keypair: Keypair, password: string) => Promise<void>;
 
   // Lock / unlock
   unlock: (password: string) => Promise<void>;
@@ -101,9 +102,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, [state, lock]);
 
-  const createWallet = useCallback(async (password: string) => {
-    const kp = await generateKeypair(password);
-    return kp;
+  // Generate keypair in memory only — NOT persisted until finalizeSigner
+  const createWallet = useCallback((_password: string) => {
+    return generateKeypairInMemory();
   }, []);
 
   const importWallet = useCallback(
@@ -118,9 +119,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Called after backup confirmation (create flow only)
+  // Called after backup confirmation (create flow) — persists keypair to storage
   const finalizeSigner = useCallback(
-    (kp: Keypair, _password: string) => {
+    async (kp: Keypair, password: string) => {
+      await storeKeypair(kp, password);
       setKeypair(kp);
       setPublicKey(kp.publicKey.toBase58());
       setWalletKeypair(kp);

@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { Keypair } from "@solana/web3.js";
 import { ArrowLeft, Copy } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 
 import { PasswordInput } from "@/components/wallet/PasswordInput";
 import { MIN_PASSWORD_LENGTH } from "@/lib/wallet/password-strength";
@@ -24,7 +24,6 @@ export function CreateWalletScreen({ onComplete }: Props) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
-  const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const secretKeyHex = pendingKeypair
@@ -40,24 +39,21 @@ export function CreateWalletScreen({ onComplete }: Props) {
     setConfirmError(null);
   }, [password]);
 
-  const handleContinueConfirm = useCallback(async () => {
+  const handleContinueConfirm = useCallback(() => {
     if (confirmPassword !== password) {
       setConfirmError("Passwords don't match");
       setConfirmPassword("");
       return;
     }
     setConfirmError(null);
-    setLoading(true);
     try {
-      const kp = await createWallet(confirmPassword);
+      const kp = createWallet(confirmPassword);
       setPendingKeypair(kp);
       setStep("backup");
     } catch (e) {
       setConfirmError(
         e instanceof Error ? e.message : "Failed to create wallet",
       );
-    } finally {
-      setLoading(false);
     }
   }, [confirmPassword, password, createWallet]);
 
@@ -160,18 +156,14 @@ export function CreateWalletScreen({ onComplete }: Props) {
 
         <Pressable
           onPress={handleContinueConfirm}
-          disabled={loading || confirmPassword.length < MIN_PASSWORD_LENGTH}
+          disabled={confirmPassword.length < MIN_PASSWORD_LENGTH}
           style={[
             styles.primaryButton,
-            (loading || confirmPassword.length < MIN_PASSWORD_LENGTH) &&
+            confirmPassword.length < MIN_PASSWORD_LENGTH &&
               styles.primaryButtonDisabled,
           ]}
         >
-          {loading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.primaryButtonText}>Continue</Text>
-          )}
+          <Text style={styles.primaryButtonText}>Continue</Text>
         </Pressable>
       </ScrollView>
     );

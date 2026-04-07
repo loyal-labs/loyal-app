@@ -57,7 +57,7 @@ async function resetAttempts(): Promise<void> {
   await SecureStore.deleteItemAsync(LOCKED_UNTIL_KEY);
 }
 
-async function storeKeypair(
+export async function storeKeypair(
   keypair: Keypair,
   password: string,
 ): Promise<void> {
@@ -70,10 +70,8 @@ async function storeKeypair(
   );
 }
 
-export async function generateKeypair(password: string): Promise<Keypair> {
-  const keypair = Keypair.generate();
-  await storeKeypair(keypair, password);
-  return keypair;
+export function generateKeypairInMemory(): Keypair {
+  return Keypair.generate();
 }
 
 export async function importKeypair(
