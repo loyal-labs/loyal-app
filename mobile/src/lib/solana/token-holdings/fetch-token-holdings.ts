@@ -8,6 +8,7 @@ import {
   TESTNET_RPC_URL,
 } from "../rpc/constants";
 import { CACHE_TTL_MS } from "./constants";
+import { fetchSecuredBalances } from "./fetch-secured-balances";
 import { resolveTokenIcon } from "./resolve-token-info";
 import type {
   CachedHoldings,
@@ -168,10 +169,25 @@ export async function fetchTokenHoldings(
     return [];
   }
 
-  const loader = fetchHoldingsFromHelius(rpcUrl, publicKey).then((holdings) => {
-    holdingsCache.set(publicKey, { holdings, fetchedAt: Date.now() });
-    return holdings;
-  });
+  const loader = fetchHoldingsFromHelius(rpcUrl, publicKey).then(
+    async (holdings) => {
+      let allHoldings = holdings;
+      try {
+        const securedHoldings = await fetchSecuredBalances(
+          publicKey,
+          holdings,
+        );
+        allHoldings = [...holdings, ...securedHoldings];
+      } catch (error) {
+        console.warn("Failed to fetch secured balances, using public only", error);
+      }
+      holdingsCache.set(publicKey, {
+        holdings: allHoldings,
+        fetchedAt: Date.now(),
+      });
+      return allHoldings;
+    },
+  );
 
   inflightRequests.set(publicKey, loader);
 
