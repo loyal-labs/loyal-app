@@ -13,12 +13,13 @@ use session_keys::{session_auth_or, Session, SessionError, SessionToken};
 use solana_hash::HASH_BYTES;
 use telegram_verification::TelegramSession;
 
-declare_id!("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
+pub mod consts;
+pub mod klend;
+use klend::{invoke_klend_deposit, invoke_klend_redeem, KlendAccounts};
 
-// Seed constants
-pub const DEPOSIT_PDA_SEED: &[u8] = b"deposit_v2";
-pub const USERNAME_DEPOSIT_PDA_SEED: &[u8] = b"username_deposit_v2";
-pub const VAULT_PDA_SEED: &[u8] = b"vault";
+use consts::*;
+
+declare_id!("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
 
 #[ephemeral]
 #[program]
@@ -64,52 +65,177 @@ pub mod telegram_private_transfer {
     ///
     /// If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.
     /// If false, tokens are transferred from the deposit account back to the user's token account.
-    pub fn modify_balance(ctx: Context<ModifyDeposit>, args: ModifyDepositArgs) -> Result<()> {
-        let deposit = &mut ctx.accounts.deposit;
+    pub fn modify_balance<'info>(
+        ctx: Context<'_, '_, '_, 'info, ModifyDeposit<'info>>,
+        args: ModifyDepositArgs,
+    ) -> Result<()> {
+        let token_program = ctx.accounts.token_program.to_account_info();
+        let token_mint = ctx.accounts.token_mint.to_account_info();
+        let decimals = ctx.accounts.token_mint.decimals;
 
-        if args.increase {
-            transfer_checked(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.user_token_account.to_account_info(),
-                        mint: ctx.accounts.token_mint.to_account_info(),
-                        to: ctx.accounts.vault_token_account.to_account_info(),
-                        authority: ctx.accounts.user.to_account_info(),
-                    },
-                ),
-                args.amount,
-                ctx.accounts.token_mint.decimals,
+        let user = ctx.accounts.user.to_account_info();
+        let vault = ctx.accounts.vault.to_account_info();
+
+        let user_token_account = ctx.accounts.user_token_account.to_account_info();
+
+        if token_mint.key() == USDC_MINT {
+            let klend_accounts =
+                KlendAccounts::try_from_remaining_accounts(ctx.remaining_accounts)?;
+            klend_accounts.validate(
+                &ctx.accounts.vault.to_account_info(),
+                &ctx.accounts.token_program.to_account_info(),
             )?;
-            deposit.amount = deposit
-                .amount
-                .checked_add(args.amount)
-                .ok_or(ErrorCode::Overflow)?;
+            klend_accounts.ensure_vault_collateral_token_account(&ctx)?;
+
+            if args.increase {
+                let liquidity_amount = args.amount;
+                transfer_checked(
+                    CpiContext::new(
+                        token_program,
+                        TransferChecked {
+                            mint: token_mint,
+                            authority: user,
+                            from: user_token_account,
+                            to: ctx.accounts.vault_token_account.to_account_info(),
+                        },
+                    ),
+                    liquidity_amount,
+                    decimals,
+                )?;
+
+                ctx.accounts.vault_token_account.reload()?;
+
+                let liquidity_before = ctx.accounts.vault_token_account.amount;
+                let collateral_before = klend_accounts.vault_collateral_amount()?;
+
+                invoke_klend_deposit(&ctx, &klend_accounts, liquidity_amount)?;
+
+                ctx.accounts.vault_token_account.reload()?;
+
+                let liquidity_after = ctx.accounts.vault_token_account.amount;
+                let collateral_after = klend_accounts.vault_collateral_amount()?;
+
+                let consumed_liquidity = liquidity_before
+                    .checked_sub(liquidity_after)
+                    .ok_or(ErrorCode::Overflow)?;
+                require!(
+                    consumed_liquidity == liquidity_amount,
+                    ErrorCode::InvalidAmount
+                );
+
+                let minted_shares = collateral_after
+                    .checked_sub(collateral_before)
+                    .ok_or(ErrorCode::Overflow)?;
+
+                ctx.accounts.deposit.amount = ctx
+                    .accounts
+                    .deposit
+                    .amount
+                    .checked_add(minted_shares)
+                    .ok_or(ErrorCode::Overflow)?;
+            } else {
+                let share_amount = args.amount;
+
+                let liquidity_before = ctx.accounts.vault_token_account.amount;
+                let collateral_before = klend_accounts.vault_collateral_amount()?;
+
+                invoke_klend_redeem(&ctx, &klend_accounts, share_amount)?;
+
+                ctx.accounts.vault_token_account.reload()?;
+
+                let liquidity_after = ctx.accounts.vault_token_account.amount;
+                let collateral_after = klend_accounts.vault_collateral_amount()?;
+
+                // Assert that before/after diff is effect of klend redeem,
+                // and nothing else touched these accounts.
+
+                // Assert that klend didn't triggered any pre/post hooks
+                // that could affect liquidity calculations here.
+
+                let returned_liquidity = liquidity_after
+                    .checked_sub(liquidity_before)
+                    .ok_or(ErrorCode::Overflow)?;
+
+                let burned_shares = collateral_before
+                    .checked_sub(collateral_after)
+                    .ok_or(ErrorCode::Overflow)?;
+                require!(burned_shares == share_amount, ErrorCode::InvalidAmount);
+
+                let seeds = [
+                    VAULT_PDA_SEED,
+                    &token_mint.key.to_bytes(),
+                    &[ctx.bumps.vault],
+                ];
+                let signer_seeds = &[&seeds[..]];
+                transfer_checked(
+                    CpiContext::new_with_signer(
+                        token_program,
+                        TransferChecked {
+                            mint: token_mint,
+                            authority: vault,
+                            from: ctx.accounts.vault_token_account.to_account_info(),
+                            to: user_token_account,
+                        },
+                        signer_seeds,
+                    ),
+                    returned_liquidity,
+                    decimals,
+                )?;
+                ctx.accounts.deposit.amount = ctx
+                    .accounts
+                    .deposit
+                    .amount
+                    .checked_sub(burned_shares)
+                    .ok_or(ErrorCode::InsufficientDeposit)?;
+            }
         } else {
-            let seeds = [
-                VAULT_PDA_SEED,
-                &ctx.accounts.token_mint.key().to_bytes(),
-                &[ctx.bumps.vault],
-            ];
-            let signer_seeds = &[&seeds[..]];
-            transfer_checked(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.vault_token_account.to_account_info(),
-                        mint: ctx.accounts.token_mint.to_account_info(),
-                        to: ctx.accounts.user_token_account.to_account_info(),
-                        authority: ctx.accounts.vault.to_account_info(),
-                    },
-                    signer_seeds,
-                ),
-                args.amount,
-                ctx.accounts.token_mint.decimals,
-            )?;
-            deposit.amount = deposit
-                .amount
-                .checked_sub(args.amount)
-                .ok_or(ErrorCode::InsufficientDeposit)?;
+            let deposit = &mut ctx.accounts.deposit;
+            let vault_token_account = ctx.accounts.vault_token_account.to_account_info();
+
+            if args.increase {
+                transfer_checked(
+                    CpiContext::new(
+                        token_program,
+                        TransferChecked {
+                            mint: token_mint,
+                            authority: user,
+                            from: user_token_account,
+                            to: vault_token_account,
+                        },
+                    ),
+                    args.amount,
+                    decimals,
+                )?;
+                deposit.amount = deposit
+                    .amount
+                    .checked_add(args.amount)
+                    .ok_or(ErrorCode::Overflow)?;
+            } else {
+                let seeds = [
+                    VAULT_PDA_SEED,
+                    &token_mint.key.to_bytes(),
+                    &[ctx.bumps.vault],
+                ];
+                let signer_seeds = &[&seeds[..]];
+                transfer_checked(
+                    CpiContext::new_with_signer(
+                        token_program,
+                        TransferChecked {
+                            mint: token_mint,
+                            authority: vault,
+                            from: vault_token_account,
+                            to: user_token_account,
+                        },
+                        signer_seeds,
+                    ),
+                    args.amount,
+                    decimals,
+                )?;
+                deposit.amount = deposit
+                    .amount
+                    .checked_sub(args.amount)
+                    .ok_or(ErrorCode::InsufficientDeposit)?;
+            }
         }
 
         Ok(())
@@ -436,6 +562,7 @@ pub struct ModifyDeposit<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub user: Signer<'info>,
+
     #[account(
         init_if_needed,
         payer = payer,
@@ -452,6 +579,7 @@ pub struct ModifyDeposit<'info> {
         has_one = token_mint,
     )]
     pub deposit: Account<'info, Deposit>,
+
     #[account(
         init_if_needed,
         payer = payer,
@@ -466,6 +594,7 @@ pub struct ModifyDeposit<'info> {
         associated_token::authority = vault,
     )]
     pub vault_token_account: Account<'info, TokenAccount>,
+
     pub token_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -724,6 +853,8 @@ pub struct UndelegateUsernameDeposit<'info> {
 pub struct Deposit {
     pub user: Pubkey,
     pub token_mint: Pubkey,
+    /// For USDC deposits, this stores the Kamino share token amount.
+    /// For all other mints, this stores the deposited liquidity token amount.
     pub amount: u64,
 }
 
@@ -733,6 +864,8 @@ pub struct Deposit {
 pub struct UsernameDeposit {
     pub username_hash: [u8; HASH_BYTES],
     pub token_mint: Pubkey,
+    /// For USDC deposits, this stores the Kamino share token amount.
+    /// For all other mints, this stores the deposited liquidity token amount.
     pub amount: u64,
 }
 
@@ -771,4 +904,8 @@ pub enum ErrorCode {
     InvalidRecipient,
     #[msg("Invalid Depositor")]
     InvalidDepositor,
+    #[msg("Invalid Kamino accounts")]
+    InvalidKaminoAccounts,
+    #[msg("Invalid amount")]
+    InvalidAmount,
 }
