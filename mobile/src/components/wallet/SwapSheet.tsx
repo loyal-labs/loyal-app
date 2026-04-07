@@ -271,7 +271,7 @@ export function SwapSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={["60%", "92%"]}
+      snapPoints={["92%"]}
       enablePanDownToClose={step !== "result" || !isSwapping}
       backdropComponent={renderBackdrop}
       onDismiss={onClose}

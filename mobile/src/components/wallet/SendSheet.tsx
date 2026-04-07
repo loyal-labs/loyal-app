@@ -185,7 +185,7 @@ export function SendSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={["55%", "90%"]}
+      snapPoints={["92%"]}
       enablePanDownToClose={step !== "result" || !isSending}
       backdropComponent={renderBackdrop}
       onDismiss={onClose}
