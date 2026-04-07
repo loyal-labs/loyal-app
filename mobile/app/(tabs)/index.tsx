@@ -1,5 +1,5 @@
 import { BottomSheetModal } from "@gorhom/bottom-sheet";
-import { ArrowDown, ArrowLeftRight, ArrowUp } from "lucide-react-native";
+import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 
@@ -12,6 +12,7 @@ import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { BannerCarousel } from "@/components/wallet/BannerCarousel";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
+import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { TokensList } from "@/components/wallet/TokensList";
 import { TokensSheet } from "@/components/wallet/TokensSheet";
@@ -56,6 +57,7 @@ export default function WalletScreen() {
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
   const [balanceBg, setBalanceBg] = useState<string | null>(
     () => getCachedBalanceBg() ?? null,
@@ -85,6 +87,12 @@ export default function WalletScreen() {
   }, [refreshBalance, loadWalletTransactions]);
 
   const handleSwapComplete = useCallback(() => {
+    refreshBalance(true);
+    refreshTokenHoldings(true);
+    loadWalletTransactions({ force: true });
+  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
+
+  const handleShieldComplete = useCallback(() => {
     refreshBalance(true);
     refreshTokenHoldings(true);
     loadWalletTransactions({ force: true });
@@ -169,6 +177,11 @@ export default function WalletScreen() {
             label="Swap"
             onPress={() => setIsSwapOpen(true)}
           />
+          <ActionButton
+            icon={<Shield size={28} color="#000" strokeWidth={1.5} />}
+            label="Shield"
+            onPress={() => setIsShieldOpen(true)}
+          />
         </View>
 
         {/* Banner carousel */}
@@ -217,6 +230,14 @@ export default function WalletScreen() {
         tokenHoldings={tokenHoldings}
         solPriceUsd={solPriceUsd}
         onSwapComplete={handleSwapComplete}
+      />
+
+      <ShieldSheet
+        open={isShieldOpen}
+        onClose={() => setIsShieldOpen(false)}
+        walletAddress={walletAddress}
+        tokenHoldings={tokenHoldings}
+        onShieldComplete={handleShieldComplete}
       />
 
       <BalanceBackgroundPicker
