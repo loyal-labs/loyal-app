@@ -8,7 +8,10 @@ import {
   getPerEndpoints,
   getSolanaEnv,
 } from "@/lib/solana/rpc/connection";
-import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
+// Lazy-loaded alongside the SDK to avoid top-level Buffer usage
+async function getWsolAdapter() {
+  return await import("@/lib/solana/wsol-adapter");
+}
 import { useWallet } from "@/lib/wallet/wallet-provider";
 
 // Lazy-loaded to avoid top-level Buffer usage from the private-transactions SDK
@@ -130,6 +133,7 @@ export function useShield(): {
         } = await getPrivateTransactions();
         const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
           await getSplToken();
+        const { wrapSolToWSol, closeWsolAta } = await getWsolAdapter();
 
         const resolvedMint =
           params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
@@ -273,6 +277,7 @@ export function useShield(): {
         } = await getPrivateTransactions();
         const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
           await getSplToken();
+        const { closeWsolAta } = await getWsolAdapter();
 
         const resolvedMint =
           params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
