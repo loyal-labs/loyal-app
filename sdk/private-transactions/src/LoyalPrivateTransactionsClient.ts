@@ -1231,6 +1231,7 @@ export class LoyalPrivateTransactionsClient {
       return 0;
     }
 
+    // TODO: add devnet env
     return fetchKaminoReserveSupplyApyBps({
       lendingMarket: kaminoAccounts.lendingMarket,
       reserve: kaminoAccounts.reserve,
