@@ -23,7 +23,7 @@ const config: ExpoConfig = {
     },
     package: IS_DEV ? "com.loyallabs.app.dev" : "com.loyallabs.app",
     edgeToEdgeEnabled: true,
-    softwareKeyboardLayoutMode: "pan",
+    softwareKeyboardLayoutMode: "resize",
   },
   web: {
     output: "static" as const,

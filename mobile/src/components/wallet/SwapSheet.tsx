@@ -2,6 +2,7 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
+  BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import { VersionedTransaction } from "@solana/web3.js";
 import { Image } from "expo-image";
@@ -34,7 +35,7 @@ import {
 } from "@/lib/solana/token-holdings/constants";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { getWalletKeypair } from "@/lib/solana/wallet/wallet-details";
-import { Pressable, Text, TextInput, View } from "@/tw";
+import { Pressable, Text, View } from "@/tw";
 
 type SwapStep = "form" | "confirm" | "result";
 
@@ -270,13 +271,13 @@ export function SwapSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      enableDynamicSizing
+      snapPoints={["60%", "92%"]}
       enablePanDownToClose={step !== "result" || !isSwapping}
       backdropComponent={renderBackdrop}
       onDismiss={onClose}
       handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.15)", width: 36 }}
       backgroundStyle={{ borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
-      keyboardBehavior="extend"
+      keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
@@ -429,8 +430,14 @@ function TokenPicker({
       {/* Search */}
       <View className="mb-3 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50 px-3">
         <Search size={16} color="#999" />
-        <TextInput
-          className="ml-2 flex-1 py-3 text-[16px] text-black"
+        <BottomSheetTextInput
+          style={{
+            flex: 1,
+            marginLeft: 8,
+            paddingVertical: 12,
+            fontSize: 16,
+            color: "#000",
+          }}
           placeholder="Search tokens"
           placeholderTextColor="#999"
           value={search}
@@ -532,8 +539,14 @@ function FormStep({
             label="Select"
             onPress={onFromPress}
           />
-          <TextInput
-            className="ml-3 flex-1 text-right text-[18px] text-black"
+          <BottomSheetTextInput
+            style={{
+              flex: 1,
+              marginLeft: 12,
+              textAlign: "right",
+              fontSize: 18,
+              color: "#000",
+            }}
             placeholder="0.00"
             placeholderTextColor="#999"
             value={amountStr}

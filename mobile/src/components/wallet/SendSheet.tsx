@@ -2,6 +2,7 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
+  BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import * as Haptics from "expo-haptics";
@@ -11,7 +12,7 @@ import { ActivityIndicator, Keyboard } from "react-native";
 
 import { SOLANA_FEE_SOL } from "@/lib/solana/constants";
 import { sendSolTransaction } from "@/lib/solana/wallet/wallet-details";
-import { Pressable, Text, TextInput, View } from "@/tw";
+import { Pressable, Text, View } from "@/tw";
 
 // Basic Solana address validation (base58, 32-44 chars)
 const isValidSolanaAddress = (address: string): boolean => {
@@ -184,13 +185,13 @@ export function SendSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      enableDynamicSizing
+      snapPoints={["55%", "90%"]}
       enablePanDownToClose={step !== "result" || !isSending}
       backdropComponent={renderBackdrop}
       onDismiss={onClose}
       handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.15)", width: 36 }}
       backgroundStyle={{ borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
-      keyboardBehavior="extend"
+      keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
@@ -300,8 +301,18 @@ function FormStep({
     <>
       {/* Recipient */}
       <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">To</Text>
-      <TextInput
-        className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-[16px] text-black"
+      <BottomSheetTextInput
+        style={{
+          marginBottom: 4,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: "rgba(0,0,0,0.1)",
+          backgroundColor: "rgb(250,250,250)",
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          fontSize: 16,
+          color: "#000",
+        }}
         placeholder="Wallet address"
         placeholderTextColor="#999"
         value={recipient}
@@ -319,8 +330,14 @@ function FormStep({
         Amount
       </Text>
       <View className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50">
-        <TextInput
-          className="flex-1 px-4 py-3 text-[16px] text-black"
+        <BottomSheetTextInput
+          style={{
+            flex: 1,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            fontSize: 16,
+            color: "#000",
+          }}
           placeholder="0.00"
           placeholderTextColor="#999"
           value={amountStr}
