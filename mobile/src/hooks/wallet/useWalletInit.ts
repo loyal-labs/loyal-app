@@ -17,9 +17,12 @@ export function useWalletInit(): {
   walletError: string | null;
   retryWalletInit: () => void;
 } {
-  const { publicKey } = useWallet();
+  const { publicKey, state } = useWallet();
+  const isUnlocked = state === "unlocked";
 
-  const [walletAddress, setWalletAddress] = useState<string | null>(publicKey);
+  const [walletAddress, setWalletAddress] = useState<string | null>(
+    isUnlocked ? publicKey : null,
+  );
   const [isLoading, setIsLoading] = useState(() => !hasCachedWalletData());
   const [walletError, setWalletError] = useState<string | null>(null);
   const loadedForKeyRef = useRef<string | null>(null);
@@ -62,7 +65,7 @@ export function useWalletInit(): {
   );
 
   useEffect(() => {
-    if (!publicKey) {
+    if (!publicKey || !isUnlocked) {
       setWalletAddress(null);
       setIsLoading(false);
       return;
@@ -73,7 +76,7 @@ export function useWalletInit(): {
     loadedForKeyRef.current = publicKey;
 
     void loadBalance(publicKey);
-  }, [publicKey, retryCount, loadBalance]);
+  }, [publicKey, isUnlocked, retryCount, loadBalance]);
 
   const retryWalletInit = useCallback(() => {
     loadedForKeyRef.current = null;
