@@ -89,13 +89,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // Auto-lock wallet when the app goes to background
+  // Auto-lock wallet when the app goes to background.
+  // Only on "background" — NOT "inactive" which fires transiently
+  // during Face ID prompts and other system dialogs.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
-      if (
-        (nextState === "background" || nextState === "inactive") &&
-        state === "unlocked"
-      ) {
+      if (nextState === "background" && state === "unlocked") {
         lock();
       }
     });

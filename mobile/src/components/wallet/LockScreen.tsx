@@ -1,6 +1,7 @@
 import { Fingerprint, Scan } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
-import { StyleSheet } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, AppState, StyleSheet } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { getBiometricType } from "@/lib/wallet/biometrics";
@@ -14,12 +15,17 @@ export function LockScreen() {
   const { unlock, unlockWithBiometrics, biometricEnabled } = useWallet();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
   const [biometricType, setBiometricType] = useState<
     "faceid" | "fingerprint" | "none"
   >("none");
   const [biometricFailed, setBiometricFailed] = useState(false);
   const [lockCountdown, setLockCountdown] = useState(0);
+
+  // Track whether biometric auth should be attempted.
+  // Only on initial mount when app is already active — NOT when
+  // transitioning to background or when user manually locked.
+  const didAttemptBiometric = useRef(false);
 
   // Resolve biometric type on mount
   useEffect(() => {
@@ -28,15 +34,42 @@ export function LockScreen() {
     }
   }, [biometricEnabled]);
 
-  // Attempt biometric auth on mount
+  // Attempt biometric only when app is active and screen first appears
   useEffect(() => {
-    if (biometricEnabled) {
-      unlockWithBiometrics().then((ok) => {
-        if (!ok) setBiometricFailed(true);
-      });
-    }
+    if (!biometricEnabled || didAttemptBiometric.current) return;
+
+    // Only auto-trigger if app is in foreground
+    if (AppState.currentState !== "active") return;
+
+    didAttemptBiometric.current = true;
+    setUnlocking(true);
+    unlockWithBiometrics().then((ok) => {
+      if (!ok) {
+        setBiometricFailed(true);
+        setUnlocking(false);
+      }
+      // If ok, state transitions to unlocked — component unmounts
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-trigger biometric when app comes back to foreground
+  useEffect(() => {
+    if (!biometricEnabled) return;
+
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        setUnlocking(true);
+        unlockWithBiometrics().then((ok) => {
+          if (!ok) {
+            setBiometricFailed(true);
+            setUnlocking(false);
+          }
+        });
+      }
+    });
+    return () => subscription.remove();
+  }, [biometricEnabled, unlockWithBiometrics]);
 
   // Countdown timer for lockout
   useEffect(() => {
@@ -55,10 +88,11 @@ export function LockScreen() {
 
   const handleUnlock = useCallback(async () => {
     if (!password.trim()) return;
-    setLoading(true);
+    setUnlocking(true);
     setError(null);
     try {
       await unlock(password);
+      // State transitions to unlocked — component unmounts
     } catch (e) {
       if (e instanceof PinLockedError) {
         const seconds = Math.ceil(e.remainingMs / 1000);
@@ -67,24 +101,44 @@ export function LockScreen() {
       } else {
         setError("Incorrect password");
       }
-    } finally {
-      setLoading(false);
+      setUnlocking(false);
     }
   }, [password, unlock]);
 
   const handleBiometricRetry = useCallback(async () => {
+    setUnlocking(true);
     const ok = await unlockWithBiometrics();
-    if (!ok) setBiometricFailed(true);
+    if (!ok) {
+      setBiometricFailed(true);
+      setUnlocking(false);
+    }
   }, [unlockWithBiometrics]);
 
   const isLocked = lockCountdown > 0;
   const showBiometricButton =
-    biometricEnabled && biometricFailed && biometricType !== "none";
+    biometricEnabled && biometricFailed && biometricType !== "none" && !unlocking;
   const isFaceId = biometricType === "faceid";
   const BiometricIcon = isFaceId ? Scan : Fingerprint;
 
+  // Full-screen loading overlay while decrypting
+  if (unlocking) {
+    return (
+      <Animated.View
+        entering={FadeIn.duration(150)}
+        exiting={FadeOut.duration(200)}
+        style={styles.loadingContainer}
+      >
+        <ActivityIndicator size="large" color="#000" />
+        <Text style={styles.loadingText}>Unlocking...</Text>
+      </Animated.View>
+    );
+  }
+
   return (
-    <View className="flex-1 bg-white">
+    <Animated.View
+      entering={FadeIn.duration(200)}
+      style={styles.container}
+    >
       <LogoHeader />
       <View className="flex-1 items-center justify-center px-6">
         <Text style={styles.title}>Welcome back</Text>
@@ -92,27 +146,25 @@ export function LockScreen() {
           Enter your password to unlock your wallet
         </Text>
 
-        <View className="mt-8 w-full gap-4">
+        <View style={{ width: "100%", gap: 16, marginTop: 32 }}>
           <PasswordInput
             value={password}
             onChange={setPassword}
             onSubmit={handleUnlock}
             error={isLocked ? `Wallet locked for ${lockCountdown}s` : error}
             placeholder="Enter password"
-            autoFocus
+            autoFocus={!biometricEnabled}
           />
 
           <Pressable
             style={[
               styles.primaryButton,
-              (loading || isLocked) && styles.primaryButtonDisabled,
+              (isLocked || !password.trim()) && styles.primaryButtonDisabled,
             ]}
             onPress={handleUnlock}
-            disabled={loading || isLocked || !password.trim()}
+            disabled={isLocked || !password.trim()}
           >
-            <Text style={styles.primaryButtonText}>
-              {loading ? "Unlocking..." : "Unlock"}
-            </Text>
+            <Text style={styles.primaryButtonText}>Unlock</Text>
           </Pressable>
 
           {showBiometricButton && (
@@ -128,11 +180,27 @@ export function LockScreen() {
           )}
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 15,
+    color: "rgba(0,0,0,0.5)",
+    marginTop: 16,
+  },
   title: {
     fontFamily: "Geist_700Bold",
     fontSize: 24,
