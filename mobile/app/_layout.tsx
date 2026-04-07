@@ -4,14 +4,15 @@ import "@/global.css";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { SplashAnimation } from "@/components/SplashAnimation";
+import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
-  addNotificationResponseListener,
+  // addNotificationResponseListener, // Summaries — kept for reinstatement
   registerForPushNotifications,
   registerPushToken,
   setupNotificationHandler,
 } from "@/services/notifications";
 import { useFonts } from "expo-font";
-import { Stack, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
@@ -20,7 +21,6 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const router = useRouter();
   const [showSplash, setShowSplash] = useState(true);
 
   const [fontsLoaded] = useFonts({
@@ -49,19 +49,20 @@ export default function RootLayout() {
   }, []);
 
   // Handle notification tap while app is running
-  useEffect(() => {
-    let cleanup: (() => void) | null = null;
-
-    addNotificationResponseListener((data) => {
-      if (data?.screen === "summaries") {
-        router.push("/");
-      }
-    }).then((remove) => {
-      cleanup = remove;
-    });
-
-    return () => cleanup?.();
-  }, [router]);
+  // Summaries navigation commented out — kept for potential reinstatement
+  // useEffect(() => {
+  //   let cleanup: (() => void) | null = null;
+  //
+  //   addNotificationResponseListener((data) => {
+  //     if (data?.screen === "summaries") {
+  //       router.push("/");
+  //     }
+  //   }).then((remove) => {
+  //     cleanup = remove;
+  //   });
+  //
+  //   return () => cleanup?.();
+  // }, [router]);
 
   const handleSplashFinish = useCallback(() => {
     setShowSplash(false);
@@ -74,22 +75,25 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
-        <StatusBar style="auto" />
-        <Stack
-          screenOptions={{
-            headerBackButtonDisplayMode: "minimal",
-          }}
-        >
-          <Stack.Screen
-            name="(tabs)"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="login"
-            options={{ headerShown: false, presentation: "modal" }}
-          />
-          <Stack.Screen name="summaries/[groupChatId]" />
-        </Stack>
+        <WalletProvider>
+          <StatusBar style="auto" />
+          <Stack
+            screenOptions={{
+              headerBackButtonDisplayMode: "minimal",
+            }}
+          >
+            <Stack.Screen
+              name="(tabs)"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="login"
+              options={{ headerShown: false, presentation: "modal" }}
+            />
+            {/* Summaries detail screen commented out — kept for potential reinstatement */}
+            {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
+          </Stack>
+        </WalletProvider>
         {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
       </BottomSheetModalProvider>
     </GestureHandlerRootView>
