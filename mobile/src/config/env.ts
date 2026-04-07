@@ -17,14 +17,10 @@ const SOLANA_ENV = resolveSolanaEnv(process.env.EXPO_PUBLIC_SOLANA_ENV);
 // Hardcoded identity for MVP (auth deferred)
 const TELEGRAM_USER_ID = "2131567542";
 
-// Solana network environment
-const SOLANA_ENV = process.env.EXPO_PUBLIC_SOLANA_ENV ?? "devnet";
-
 export const env = {
   apiBaseUrl: API_BASE_URL,
   gridAuthBaseUrl: GRID_AUTH_BASE_URL,
   solanaEnv: SOLANA_ENV,
   solanaRpcEndpoint: getSolanaEndpoints(SOLANA_ENV).rpcEndpoint,
   telegramUserId: TELEGRAM_USER_ID,
-  solanaEnv: SOLANA_ENV,
 } as const;
