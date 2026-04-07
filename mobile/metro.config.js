@@ -6,16 +6,18 @@ const { withNativewind } = require("nativewind/metro");
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
-// Resolve the shared package outside /mobile
+// Resolve monorepo packages outside /mobile
 const sharedRoot = path.resolve(__dirname, "../packages/shared");
 const solanaRpcRoot = path.resolve(__dirname, "../packages/solana-rpc/src");
-config.watchFolders = [sharedRoot, solanaRpcRoot];
+const privateTransactionsRoot = path.resolve(__dirname, "../sdk/private-transactions/dist");
+config.watchFolders = [sharedRoot, solanaRpcRoot, privateTransactionsRoot];
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, "node_modules"),
   path.resolve(__dirname, ".."),
 ];
 config.resolver.extraNodeModules = {
   "@loyal-labs/solana-rpc": solanaRpcRoot,
+  "@loyal-labs/private-transactions": privateTransactionsRoot,
 };
 
 // SVG transformer
