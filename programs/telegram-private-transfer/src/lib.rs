@@ -61,10 +61,20 @@ pub mod telegram_private_transfer {
         Ok(())
     }
 
-    /// Modifies the balance of a user's deposit account by transferring tokens in or out.
+    /// Modifies a user's deposit balance and the backing vault position for the given mint.
     ///
-    /// If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.
-    /// If false, tokens are transferred from the deposit account back to the user's token account.
+    /// For non-USDC mints, this is a direct vault transfer: if `args.increase` is true, `args.amount`
+    /// is transferred from the user's token account to the vault token account and added to
+    /// `deposit.amount`. If false, `args.amount` is transferred from the vault token account back to
+    /// the user's token account and subtracted from `deposit.amount`.
+    ///
+    /// For USDC, liquidity is routed through Kamino Lending instead of being left idle in the vault.
+    /// If `args.increase` is true, `args.amount` USDC is transferred into the vault token account,
+    /// supplied to the configured Kamino reserve, and `deposit.amount` is increased by the Kamino
+    /// reserve collateral shares (kTokens) minted to the vault. If false, `args.amount` is
+    /// interpreted as the Kamino share amount to redeem; the reserve returns the corresponding USDC
+    /// at the current exchange rate, that USDC is transferred from the vault token account to the
+    /// user's token account, and `deposit.amount` is decreased by the burned share amount.
     pub fn modify_balance<'info>(
         ctx: Context<'_, '_, '_, 'info, ModifyDeposit<'info>>,
         args: ModifyDepositArgs,
