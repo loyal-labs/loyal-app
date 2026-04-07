@@ -31,6 +31,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-local-authentication",
     [
       "expo-splash-screen",
       {
