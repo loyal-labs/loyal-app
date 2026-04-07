@@ -1,3 +1,4 @@
+import { Shield } from "lucide-react-native";
 import { Image as RNImage } from "react-native";
 
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
@@ -25,7 +26,11 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
   return (
     <View
       className="flex-row items-center rounded-[20px] px-4 py-2"
-      style={{ borderWidth: 2, borderColor: "#f2f2f7" }}
+      style={{
+        borderWidth: 2,
+        borderColor: "#f2f2f7",
+        ...(holding.isSecured && { backgroundColor: "rgba(34, 197, 94, 0.06)" }),
+      }}
     >
       <View className="py-1.5 pr-3">
         <RNImage
@@ -34,12 +39,15 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
         />
       </View>
       <View className="flex-1 py-2.5">
-        <Text
-          className="text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.187 }}
-        >
-          {holding.symbol}
-        </Text>
+        <View className="flex-row items-center gap-1">
+          <Text
+            className="text-[17px] font-medium text-black"
+            style={{ letterSpacing: -0.187 }}
+          >
+            {holding.symbol}
+          </Text>
+          {holding.isSecured && <Shield size={14} color="#22c55e" />}
+        </View>
         <Text
           className="text-[15px]"
           style={{ color: "rgba(60, 60, 67, 0.6)" }}
