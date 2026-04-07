@@ -310,7 +310,7 @@ export function ActivityFeed({
   isLoading,
   onTransactionPress,
   onShowAll,
-  maxItems = 10,
+  maxItems = 6,
 }: ActivityFeedProps) {
   const displayTransactions = transactions.slice(0, maxItems);
 
