@@ -1,8 +1,17 @@
 import { PublicKey } from "@solana/web3.js";
-import { findDepositPda } from "@loyal-labs/private-transactions";
 
 import { getConnection } from "../rpc/connection";
 import type { TokenHolding } from "./types";
+
+const PROGRAM_ID = new PublicKey("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
+const DEPOSIT_SEED = Buffer.from("deposit_v2");
+
+function findDepositPda(user: PublicKey, tokenMint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [DEPOSIT_SEED, user.toBuffer(), tokenMint.toBuffer()],
+    PROGRAM_ID,
+  );
+}
 
 /** Deposit account layout: 8-byte discriminator + 32 user + 32 tokenMint + 8 amount (u64 LE) */
 const DEPOSIT_AMOUNT_OFFSET = 72;

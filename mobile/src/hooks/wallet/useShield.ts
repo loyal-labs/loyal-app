@@ -1,16 +1,3 @@
-import {
-  DELEGATION_PROGRAM_ID,
-  findDepositPda,
-  getErValidatorForSolanaEnv,
-  LoyalPrivateTransactionsClient,
-  MAGIC_CONTEXT_ID,
-  MAGIC_PROGRAM_ID,
-} from "@loyal-labs/private-transactions";
-import {
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
 import type { Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
@@ -23,6 +10,14 @@ import {
 } from "@/lib/solana/rpc/connection";
 import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
 import { useWallet } from "@/lib/wallet/wallet-provider";
+
+// Lazy-loaded to avoid top-level Buffer usage from the private-transactions SDK
+async function getPrivateTransactions() {
+  return await import("@loyal-labs/private-transactions");
+}
+async function getSplToken() {
+  return await import("@solana/spl-token");
+}
 
 const TOKEN_MINTS: Record<string, string> = {
   SOL: "So11111111111111111111111111111111111111112",
@@ -73,18 +68,19 @@ export function useShield(): {
   const { keypair } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<LoyalPrivateTransactionsClient | null>(null);
+  const clientRef = useRef<unknown>(null);
 
   const solanaEnv = getSolanaEnv();
   const connection = getConnection();
 
-  const getClient = useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
+  const getClient = useCallback(async () => {
     if (clientRef.current) return clientRef.current;
 
     if (!keypair) {
       throw new Error("Wallet keypair is not available");
     }
 
+    const { LoyalPrivateTransactionsClient } = await getPrivateTransactions();
     const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
     const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
 
@@ -125,6 +121,16 @@ export function useShield(): {
 
       try {
         const client = await getClient();
+        const {
+          DELEGATION_PROGRAM_ID,
+          findDepositPda,
+          getErValidatorForSolanaEnv,
+          MAGIC_CONTEXT_ID,
+          MAGIC_PROGRAM_ID,
+        } = await getPrivateTransactions();
+        const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
+          await getSplToken();
+
         const resolvedMint =
           params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
         if (!resolvedMint) {
@@ -258,6 +264,16 @@ export function useShield(): {
 
       try {
         const client = await getClient();
+        const {
+          DELEGATION_PROGRAM_ID,
+          findDepositPda,
+          getErValidatorForSolanaEnv,
+          MAGIC_CONTEXT_ID,
+          MAGIC_PROGRAM_ID,
+        } = await getPrivateTransactions();
+        const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
+          await getSplToken();
+
         const resolvedMint =
           params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
         if (!resolvedMint) {
