@@ -7,7 +7,6 @@ import {
   Fingerprint,
   Globe,
   Key,
-  Lock,
   Trash2,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -142,13 +141,6 @@ export default function ProfileScreen() {
     setPushNotifications(value);
   }, []);
 
-  const handleLockWallet = useCallback(() => {
-    if (process.env.EXPO_OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    wallet.lock();
-  }, [wallet]);
-
   const handleBiometricToggle = useCallback(
     (value: boolean) => {
       if (process.env.EXPO_OS !== "web") {
@@ -270,13 +262,6 @@ export default function ProfileScreen() {
         {/* Wallet Management — only when unlocked */}
         {isUnlocked && (
           <SettingsSection>
-            <ProfileCell
-              icon={<Lock size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
-              title="Lock Wallet"
-              showChevron
-              onPress={handleLockWallet}
-            />
-
             {biometricsAvailable && (
               <>
                 <ProfileCell

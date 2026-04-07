@@ -42,7 +42,7 @@ interface WalletContextValue {
   // Wallet setup
   createWallet: (password: string) => Keypair;
   importWallet: (secretKey: Uint8Array, password: string) => Promise<Keypair>;
-  finalizeSigner: (keypair: Keypair, password: string) => Promise<void>;
+  finalizeSigner: (keypair: Keypair, password: string, opts?: { alreadyStored?: boolean }) => Promise<void>;
 
   // Lock / unlock
   unlock: (password: string) => Promise<void>;
@@ -106,22 +106,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return generateKeypairInMemory();
   }, []);
 
+  // Import keypair — encrypts + stores but does NOT unlock.
+  // Caller goes through biometric setup, then finalizeSigner unlocks.
   const importWallet = useCallback(
     async (secretKey: Uint8Array, password: string) => {
       const kp = await importKeypair(secretKey, password);
-      setKeypair(kp);
-      setPublicKey(kp.publicKey.toBase58());
-      setWalletKeypair(kp);
-      setState("unlocked");
       return kp;
     },
     [],
   );
 
-  // Called after backup confirmation (create flow) — persists keypair to storage
+  // Called after biometric setup — persists keypair (create) or just unlocks (import).
+  // Import flow already stored the keypair in importWallet; create flow has not.
   const finalizeSigner = useCallback(
-    async (kp: Keypair, password: string) => {
-      await storeKeypair(kp, password);
+    async (kp: Keypair, password: string, opts?: { alreadyStored?: boolean }) => {
+      if (!opts?.alreadyStored) {
+        await storeKeypair(kp, password);
+      }
       setKeypair(kp);
       setPublicKey(kp.publicKey.toBase58());
       setWalletKeypair(kp);

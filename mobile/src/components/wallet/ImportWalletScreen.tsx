@@ -8,6 +8,7 @@ import {
   StyleSheet,
   TextInput,
 } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 
 import { MIN_PASSWORD_LENGTH } from "@/lib/wallet/password-strength";
 import { useWallet } from "@/lib/wallet/wallet-provider";
@@ -115,6 +116,19 @@ export function ImportWalletScreen({ onComplete }: Props) {
   }, [hexKey, password, importWallet, onComplete]);
 
   const isPasswordValid = password.length >= MIN_PASSWORD_LENGTH;
+
+  // Full-screen loading while encrypting + storing
+  if (isImporting) {
+    return (
+      <Animated.View
+        entering={FadeIn.duration(150)}
+        style={styles.loadingContainer}
+      >
+        <ActivityIndicator size="large" color="#000" />
+        <Text style={styles.loadingText}>Importing wallet...</Text>
+      </Animated.View>
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-white">
@@ -244,6 +258,18 @@ export function ImportWalletScreen({ onComplete }: Props) {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 15,
+    color: "rgba(0,0,0,0.5)",
+    marginTop: 16,
+  },
   flex: {
     flex: 1,
   },

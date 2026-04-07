@@ -40,11 +40,14 @@ export function OnboardingGate() {
   );
 
   const handleBiometricComplete = useCallback(async () => {
-    if (flow === "create" && pendingKeypair && pendingPassword) {
-      setFinalizing(true);
+    if (!pendingKeypair || !pendingPassword) return;
+    setFinalizing(true);
+    if (flow === "create") {
       await finalizeSigner(pendingKeypair, pendingPassword);
+    } else {
+      // Import: keypair already stored, just unlock
+      await finalizeSigner(pendingKeypair, pendingPassword, { alreadyStored: true });
     }
-    // Import flow: wallet already unlocked via importWallet, nothing else needed
   }, [flow, pendingKeypair, pendingPassword, finalizeSigner]);
 
   // --- Finalizing (encrypting + storing) ---
