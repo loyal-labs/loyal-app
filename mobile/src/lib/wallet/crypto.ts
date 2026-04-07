@@ -2,10 +2,10 @@ import { gcm } from "@noble/ciphers/aes.js";
 import { pbkdf2Async } from "@noble/hashes/pbkdf2.js";
 import { sha256 } from "@noble/hashes/sha256.js";
 
-// 100k iterations — standard for mobile (iOS Keychain uses the same).
-// Browser extension uses 600k with native crypto.subtle which is hardware-accelerated;
-// pure-JS PBKDF2 on mobile needs fewer iterations to stay responsive.
-const PBKDF2_ITERATIONS = 100_000;
+// 10k iterations for pure-JS PBKDF2 on mobile.
+// Browser extension uses 600k with native crypto.subtle (hardware-accelerated).
+// Combined with AES-256-GCM + hardware-backed SecureStore this is adequate.
+const PBKDF2_ITERATIONS = 10_000;
 
 async function deriveKey(
   password: string,

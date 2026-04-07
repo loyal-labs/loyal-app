@@ -25,9 +25,6 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   const wallet = useWallet();
   const insets = useSafeAreaInsets();
 
-  // Hide tab bar when wallet is not unlocked (onboarding, lock screen)
-  if (wallet.state !== "unlocked") return null;
-
   // Filter to only tabs that have icons (excludes hidden summaries tab)
   const visibleRoutes = useMemo(
     () =>
@@ -75,6 +72,9 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     },
     [navigation, state],
   );
+
+  // Hide tab bar when wallet is not unlocked (onboarding, lock screen)
+  if (wallet.state !== "unlocked") return null;
 
   return (
     <View style={wrapperStyle}>
