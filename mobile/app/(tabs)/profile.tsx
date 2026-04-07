@@ -4,12 +4,18 @@ import {
   Bell,
   ChevronRight,
   CircleHelp,
+  Fingerprint,
   Globe,
+  Key,
+  Lock,
+  Trash2,
 } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
-import { StyleSheet, Switch } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, StyleSheet, Switch, TextInput } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { isBiometricAvailable } from "@/lib/wallet/biometrics";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
@@ -41,6 +47,7 @@ type CellProps = {
   };
   onPress?: () => void;
   disabled?: boolean;
+  danger?: boolean;
 };
 
 function ProfileCell({
@@ -52,6 +59,7 @@ function ProfileCell({
   toggle,
   onPress,
   disabled,
+  danger,
 }: CellProps) {
   const content = (
     <View style={[styles.cell, disabled && styles.cellDisabled]}>
@@ -60,7 +68,7 @@ function ProfileCell({
       </View>
 
       <View style={[styles.cellMiddle, subtitle ? styles.cellMiddleCompact : undefined]}>
-        <Text style={styles.cellTitle}>{title}</Text>
+        <Text style={[styles.cellTitle, danger && styles.cellTitleDanger]}>{title}</Text>
         {subtitle && <Text style={styles.cellSubtitle}>{subtitle}</Text>}
       </View>
 
@@ -103,6 +111,17 @@ function ProfileCell({
 
 export default function ProfileScreen() {
   const [pushNotifications, setPushNotifications] = useState(true);
+  const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [showBioPasswordInput, setShowBioPasswordInput] = useState(false);
+  const [bioPassword, setBioPassword] = useState("");
+  const [bioPasswordError, setBioPasswordError] = useState<string | null>(null);
+
+  const wallet = useWallet();
+  const isUnlocked = wallet.state === "unlocked";
+
+  useEffect(() => {
+    isBiometricAvailable().then(setBiometricsAvailable);
+  }, []);
 
   const avatarSource = useMemo(
     () => AVATARS[Math.floor(Math.random() * AVATARS.length)],
@@ -122,6 +141,82 @@ export default function ProfileScreen() {
     }
     setPushNotifications(value);
   }, []);
+
+  const handleLockWallet = useCallback(() => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    wallet.lock();
+  }, [wallet]);
+
+  const handleBiometricToggle = useCallback(
+    (value: boolean) => {
+      if (process.env.EXPO_OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      if (!value) {
+        // Disabling — no password needed
+        wallet.setBiometricEnabled("", false);
+        return;
+      }
+      // Enabling — need password confirmation
+      setBioPassword("");
+      setBioPasswordError(null);
+      setShowBioPasswordInput(true);
+    },
+    [wallet],
+  );
+
+  const handleBioPasswordSubmit = useCallback(async () => {
+    if (!bioPassword.trim()) {
+      setBioPasswordError("Password is required");
+      return;
+    }
+    try {
+      await wallet.setBiometricEnabled(bioPassword, true);
+      setShowBioPasswordInput(false);
+      setBioPassword("");
+      setBioPasswordError(null);
+    } catch {
+      setBioPasswordError("Incorrect password or biometric setup failed");
+    }
+  }, [bioPassword, wallet]);
+
+  const handleBioPasswordCancel = useCallback(() => {
+    setShowBioPasswordInput(false);
+    setBioPassword("");
+    setBioPasswordError(null);
+  }, []);
+
+  const handleExportSecretKey = useCallback(() => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    const hex = wallet.getSecretKeyHex();
+    if (hex) {
+      Alert.alert("Secret Key", hex);
+    } else {
+      Alert.alert("Error", "Unable to export secret key");
+    }
+  }, [wallet]);
+
+  const handleResetWallet = useCallback(() => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
+    Alert.alert(
+      "Reset Wallet",
+      "This will permanently delete your wallet from this device. Make sure you have backed up your secret key. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: () => wallet.resetWallet(),
+        },
+      ],
+    );
+  }, [wallet]);
 
   return (
     <ScrollView
@@ -171,6 +266,86 @@ export default function ProfileScreen() {
             onPress={handleSupport}
           />
         </SettingsSection>
+
+        {/* Wallet Management — only when unlocked */}
+        {isUnlocked && (
+          <SettingsSection>
+            <ProfileCell
+              icon={<Lock size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+              title="Lock Wallet"
+              showChevron
+              onPress={handleLockWallet}
+            />
+
+            {biometricsAvailable && (
+              <>
+                <ProfileCell
+                  icon={
+                    <Fingerprint size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
+                  }
+                  title="Biometric Unlock"
+                  toggle={{
+                    value: wallet.biometricEnabled,
+                    onValueChange: handleBiometricToggle,
+                  }}
+                />
+                {showBioPasswordInput && (
+                  <View style={styles.bioPasswordContainer}>
+                    <Text style={styles.bioPasswordLabel}>
+                      Enter password to enable biometrics
+                    </Text>
+                    <View style={styles.bioPasswordRow}>
+                      <TextInput
+                        style={[
+                          styles.bioPasswordInput,
+                          bioPasswordError ? styles.bioPasswordInputError : null,
+                        ]}
+                        value={bioPassword}
+                        onChangeText={setBioPassword}
+                        onSubmitEditing={handleBioPasswordSubmit}
+                        secureTextEntry
+                        placeholder="Password"
+                        placeholderTextColor="rgba(0,0,0,0.3)"
+                        autoFocus
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      <Pressable
+                        onPress={handleBioPasswordSubmit}
+                        style={styles.bioPasswordButton}
+                      >
+                        <Text style={styles.bioPasswordButtonText}>Confirm</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={handleBioPasswordCancel}
+                        style={styles.bioPasswordCancelButton}
+                      >
+                        <Text style={styles.bioPasswordCancelText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                    {bioPasswordError && (
+                      <Text style={styles.bioPasswordError}>{bioPasswordError}</Text>
+                    )}
+                  </View>
+                )}
+              </>
+            )}
+
+            <ProfileCell
+              icon={<Key size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+              title="Export Secret Key"
+              showChevron
+              onPress={handleExportSecretKey}
+            />
+
+            <ProfileCell
+              icon={<Trash2 size={28} strokeWidth={1.5} color="#f9363c" />}
+              title="Reset Wallet"
+              danger
+              onPress={handleResetWallet}
+            />
+          </SettingsSection>
+        )}
       </View>
     </ScrollView>
   );
@@ -272,11 +447,74 @@ const styles = StyleSheet.create({
     color: "rgba(60,60,67,0.6)",
     textAlign: "right",
   },
+  cellTitleDanger: {
+    color: "#f9363c",
+  },
   cellChevron: {
     paddingLeft: 12,
     justifyContent: "center",
     alignItems: "center",
     height: 40,
     paddingVertical: 8,
+  },
+  bioPasswordContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  bioPasswordLabel: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 14,
+    lineHeight: 18,
+    color: "rgba(60,60,67,0.6)",
+  },
+  bioPasswordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bioPasswordInput: {
+    flex: 1,
+    fontFamily: "Geist_400Regular",
+    fontSize: 16,
+    lineHeight: 22,
+    color: "#000",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.1)",
+  },
+  bioPasswordInputError: {
+    borderColor: "#f9363c",
+  },
+  bioPasswordButton: {
+    backgroundColor: "#f9363c",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  bioPasswordButtonText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#fff",
+  },
+  bioPasswordCancelButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  bioPasswordCancelText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 15,
+    lineHeight: 22,
+    color: "rgba(60,60,67,0.6)",
+  },
+  bioPasswordError: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#f9363c",
   },
 });
