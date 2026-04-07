@@ -8,26 +8,20 @@ import {
 
 import { getConnection, getWebsocketConnection } from "../rpc/connection";
 import { SimpleWallet } from "./wallet-implementation";
-import { ensureWalletKeypair } from "./wallet-keypair-logic";
 
 let cachedWalletKeypair: Keypair | null = null;
-let walletKeypairPromise: Promise<Keypair> | null = null;
+
+export const setWalletKeypair = (kp: Keypair) => {
+  cachedWalletKeypair = kp;
+};
+
+export const clearWalletKeypairCache = () => {
+  cachedWalletKeypair = null;
+};
 
 export const getWalletKeypair = async (): Promise<Keypair> => {
   if (cachedWalletKeypair) return cachedWalletKeypair;
-
-  if (!walletKeypairPromise) {
-    walletKeypairPromise = ensureWalletKeypair()
-      .then(({ keypair }) => {
-        cachedWalletKeypair = keypair;
-        return keypair;
-      })
-      .finally(() => {
-        walletKeypairPromise = null;
-      });
-  }
-
-  return walletKeypairPromise;
+  throw new Error("Wallet keypair not set. Unlock the wallet first.");
 };
 
 export const getWalletProvider = async (): Promise<AnchorProvider> => {
@@ -194,7 +188,3 @@ export const sendSolTransaction = async (
   return signature;
 };
 
-export const resetWalletKeypairCache = () => {
-  cachedWalletKeypair = null;
-  walletKeypairPromise = null;
-};

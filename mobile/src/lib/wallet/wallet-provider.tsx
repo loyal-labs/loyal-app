@@ -10,6 +10,17 @@ import {
 import type { ReactNode } from "react";
 
 import {
+  clearWalletKeypairCache,
+  setWalletKeypair,
+} from "@/lib/solana/wallet/wallet-details";
+
+import {
+  authenticateWithBiometrics,
+  disableBiometrics,
+  enableBiometrics,
+  isBiometricEnabled,
+} from "./biometrics";
+import {
   clearStoredKeypair,
   generateKeypair,
   getStoredPublicKey,
@@ -18,12 +29,6 @@ import {
   loadKeypair,
   changePassword as changeKeypairPassword,
 } from "./keypair-storage";
-import {
-  authenticateWithBiometrics,
-  disableBiometrics,
-  enableBiometrics,
-  isBiometricEnabled,
-} from "./biometrics";
 
 export type WalletState = "loading" | "noWallet" | "locked" | "unlocked";
 
@@ -92,6 +97,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const kp = await importKeypair(secretKey, password);
       setKeypair(kp);
       setPublicKey(kp.publicKey.toBase58());
+      setWalletKeypair(kp);
       setState("unlocked");
       return kp;
     },
@@ -103,6 +109,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     (kp: Keypair, _password: string) => {
       setKeypair(kp);
       setPublicKey(kp.publicKey.toBase58());
+      setWalletKeypair(kp);
       setState("unlocked");
     },
     [],
@@ -112,6 +119,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const kp = await loadKeypair(password);
     if (!kp) throw new Error("Incorrect password");
     setKeypair(kp);
+    setWalletKeypair(kp);
     setState("unlocked");
   }, []);
 
@@ -122,6 +130,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const kp = await loadKeypair(password);
       if (!kp) return false;
       setKeypair(kp);
+      setWalletKeypair(kp);
       setState("unlocked");
       return true;
     } catch {
@@ -131,6 +140,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const lock = useCallback(() => {
     setKeypair(null);
+    clearWalletKeypairCache();
     setState("locked");
   }, []);
 
@@ -163,6 +173,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     await disableBiometrics();
     setKeypair(null);
     setPublicKey(null);
+    clearWalletKeypairCache();
     setBiometricEnabledState(false);
     setState("noWallet");
   }, []);
