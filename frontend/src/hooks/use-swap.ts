@@ -138,7 +138,8 @@ export function useSwap() {
       amount: string,
       fromTokenMint?: string,
       fromTokenDecimals?: number,
-      toTokenDecimals?: number
+      toTokenDecimals?: number,
+      toTokenMint?: string
     ): Promise<SwapQuote | null> => {
       try {
         setError(null);
@@ -150,7 +151,7 @@ export function useSwap() {
         // Convert token symbols to mint addresses
         // Use provided mints if available, otherwise look up
         const inputMint = fromTokenMint || getTokenMint(fromToken);
-        const outputMint = getTokenMint(toToken);
+        const outputMint = toTokenMint || getTokenMint(toToken);
 
         if (!inputMint) {
           throw new Error(

@@ -64,7 +64,8 @@ type SwapFormProps = {
     amount: string,
     fromMint?: string,
     fromDecimals?: number,
-    toDecimals?: number
+    toDecimals?: number,
+    toMint?: string
   ) => Promise<{ outputAmount: string; priceImpact?: string } | null>;
   isLoading?: boolean;
   status?: "pending" | "success" | "error" | null;
@@ -140,7 +141,8 @@ export function SwapForm({
           amount,
           token.mint,
           token.decimals,
-          toToken.decimals
+          toToken.decimals,
+          toToken.mint
         );
         setQuote(quoteResult);
       } catch {

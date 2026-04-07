@@ -935,7 +935,10 @@ export function SwapContent({
         fromToken.symbol,
         toToken.symbol,
         String(numericFrom),
-        fromToken.mint
+        fromToken.mint,
+        undefined,
+        undefined,
+        toToken.mint
       ).finally(() => setIsQuoting(false));
     }, 500);
     return () => {
@@ -946,6 +949,7 @@ export function SwapContent({
     fromToken.symbol,
     fromToken.mint,
     toToken.symbol,
+    toToken.mint,
     hasAmount,
     insufficientFunds,
     phase,

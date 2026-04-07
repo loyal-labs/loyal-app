@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { WalletTab } from "@/components/auth/wallet-tab";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { usePopularTokens } from "@/hooks/use-popular-tokens";
 import type { WalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import {
   trackWalletShieldPressed,
@@ -217,6 +218,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
 
+  const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
+
   // Derive real token list from wallet positions, falling back to mock data
   const derivedTokens = useMemo<SwapToken[]>(() => {
     const positions = props.walletDesktopData.positions;
@@ -243,6 +246,13 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     return tokens;
   }, [props.walletDesktopData.positions]);
+
+  // Merge user's held tokens with popular tokens for swap target selection
+  const swapTargetTokens = useMemo<SwapToken[]>(() => {
+    const heldMints = new Set(derivedTokens.map((t) => t.mint).filter(Boolean));
+    const extras = popularTokens.filter((t) => t.mint && !heldMints.has(t.mint));
+    return [...derivedTokens, ...extras];
+  }, [derivedTokens, popularTokens]);
 
   // Cross-fade when switching tabs: fade out → swap content → fade in
   const [crossFadeOpacity, setCrossFadeOpacity] = useState(1);
@@ -470,9 +480,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           currentToken={field === "from" ? swapFromToken : swapToToken}
           onBack={onBack}
           onClose={props.onClose}
+          onSearch={field === "to" ? searchTokens : undefined}
           onSelect={handleTokenSelect}
           title={field === "from" ? "You Swap" : "You Receive"}
-          tokens={derivedTokens}
+          tokens={field === "to" ? swapTargetTokens : derivedTokens}
         />
       );
     }

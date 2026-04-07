@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import lottie from "lottie-web/build/player/lottie_light";
+import { usePopularTokens } from "~/src/hooks/use-popular-tokens";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -1310,6 +1311,14 @@ function WalletInterface() {
     balance: p.totalBalance,
   }));
 
+  // Merge user's held tokens with popular tokens for swap target selection
+  const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
+  const swapTargetTokens = useMemo<SwapToken[]>(() => {
+    const heldMints = new Set(swapTokens.map((t) => t.mint).filter(Boolean));
+    const extras = popularTokens.filter((t) => t.mint && !heldMints.has(t.mint));
+    return [...swapTokens, ...extras];
+  }, [swapTokens, popularTokens]);
+
   // Sync token state when real positions load
   useEffect(() => {
     if (swapTokens.length > 0 && swapTokens[0].mint) {
@@ -1477,7 +1486,8 @@ function WalletInterface() {
           }}
           onBack={goBack}
           onClose={handleClose}
-          tokens={swapTokens}
+          onSearch={subView.field === "to" ? searchTokens : undefined}
+          tokens={subView.field === "to" ? swapTargetTokens : swapTokens}
         />
       );
     }
