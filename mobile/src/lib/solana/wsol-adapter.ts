@@ -1,12 +1,10 @@
-import {
-  createAssociatedTokenAccountInstruction,
-  createCloseAccountInstruction,
-  createSyncNativeInstruction,
-  getAssociatedTokenAddress,
-  NATIVE_MINT,
-} from "@solana/spl-token";
 import type { PublicKey } from "@solana/web3.js";
 import { Connection, Keypair, SystemProgram, Transaction } from "@solana/web3.js";
+
+// Lazy-load @solana/spl-token to avoid top-level Buffer usage
+async function getSplToken() {
+  return await import("@solana/spl-token");
+}
 
 export async function wrapSolToWSol(opts: {
   connection: Connection;
@@ -14,6 +12,12 @@ export async function wrapSolToWSol(opts: {
   lamports: number;
 }): Promise<{ wsolAta: PublicKey; createdAta: boolean }> {
   const { connection, keypair, lamports } = opts;
+  const {
+    createAssociatedTokenAccountInstruction,
+    createSyncNativeInstruction,
+    getAssociatedTokenAddress,
+    NATIVE_MINT,
+  } = await getSplToken();
 
   const wsolAta = await getAssociatedTokenAddress(
     NATIVE_MINT,
@@ -67,6 +71,7 @@ export async function closeWsolAta(opts: {
   wsolAta: PublicKey;
 }): Promise<void> {
   const { connection, keypair, wsolAta } = opts;
+  const { createCloseAccountInstruction } = await getSplToken();
 
   try {
     const tx = new Transaction().add(
