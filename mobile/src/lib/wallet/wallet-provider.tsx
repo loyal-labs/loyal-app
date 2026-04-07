@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { ReactNode } from "react";
@@ -89,13 +90,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // Auto-lock wallet when the app goes to background.
-  // Only on "background" — NOT "inactive" which fires transiently
-  // during Face ID prompts and other system dialogs.
+  // Auto-lock with 30s grace period.
+  // Record when app went to background; lock only if >30s when it returns.
+  const backgroundedAt = useRef<number | null>(null);
+  const AUTO_LOCK_GRACE_MS = 30_000;
+
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "background" && state === "unlocked") {
-        lock();
+        backgroundedAt.current = Date.now();
+      }
+      if (nextState === "active" && state === "unlocked" && backgroundedAt.current) {
+        const elapsed = Date.now() - backgroundedAt.current;
+        backgroundedAt.current = null;
+        if (elapsed > AUTO_LOCK_GRACE_MS) {
+          lock();
+        }
       }
     });
     return () => subscription.remove();

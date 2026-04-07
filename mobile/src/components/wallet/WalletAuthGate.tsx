@@ -1,0 +1,41 @@
+import { ActivityIndicator, StyleSheet } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+
+import { LockScreen } from "@/components/wallet/LockScreen";
+import { OnboardingGate } from "@/components/wallet/OnboardingGate";
+import { useWallet } from "@/lib/wallet/wallet-provider";
+import { View } from "@/tw";
+
+/**
+ * Full-screen overlay rendered above the tab navigator.
+ * Covers the entire app when wallet is loading, locked, or doesn't exist.
+ * Returns null when unlocked — the normal tab UI shows through.
+ */
+export function WalletAuthGate() {
+  const { state } = useWallet();
+
+  if (state === "unlocked") return null;
+
+  return (
+    <Animated.View
+      entering={FadeIn.duration(200)}
+      exiting={FadeOut.duration(250)}
+      style={styles.overlay}
+    >
+      {state === "loading" && (
+        <View className="flex-1 items-center justify-center bg-white">
+          <ActivityIndicator size="large" color="#000" />
+        </View>
+      )}
+      {state === "noWallet" && <OnboardingGate />}
+      {state === "locked" && <LockScreen />}
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
+});

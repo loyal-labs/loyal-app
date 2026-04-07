@@ -4,6 +4,7 @@ import "@/global.css";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { SplashAnimation } from "@/components/SplashAnimation";
+import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
   // addNotificationResponseListener, // Summaries — kept for reinstatement
@@ -77,6 +78,7 @@ export default function RootLayout() {
       <BottomSheetModalProvider>
         <WalletProvider>
           <StatusBar style="auto" />
+          <WalletAuthGate />
           <Stack
             screenOptions={{
               headerBackButtonDisplayMode: "minimal",
