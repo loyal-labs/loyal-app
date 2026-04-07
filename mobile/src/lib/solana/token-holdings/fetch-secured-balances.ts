@@ -4,7 +4,7 @@ import { getConnection } from "../rpc/connection";
 import type { TokenHolding } from "./types";
 
 const PROGRAM_ID = new PublicKey("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
-const DEPOSIT_SEED = Buffer.from("deposit_v2");
+const DEPOSIT_SEED = new TextEncoder().encode("deposit_v2");
 
 function findDepositPda(user: PublicKey, tokenMint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(

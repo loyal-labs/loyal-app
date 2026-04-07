@@ -98,14 +98,18 @@ export function SwapSheet({
 
   const { tokens: popularTokens, searchTokens } = usePopularTokens();
 
-  // Build merged list for "to" picker: held tokens + popular tokens not already held
+  // Build merged list for "to" picker: held tokens (no secured dupes) + popular tokens not already held
+  const publicHoldings = useMemo(
+    () => tokenHoldings.filter((t) => !t.isSecured),
+    [tokenHoldings],
+  );
   const toPickerTokens = useMemo(() => {
-    const heldMints = new Set(tokenHoldings.map((t) => t.mint));
+    const heldMints = new Set(publicHoldings.map((t) => t.mint));
     const popularAsHoldings: TokenHolding[] = popularTokens
       .filter((p) => !heldMints.has(p.mint))
       .map(popularToHolding);
-    return [...tokenHoldings, ...popularAsHoldings];
-  }, [tokenHoldings, popularTokens]);
+    return [...publicHoldings, ...popularAsHoldings];
+  }, [publicHoldings, popularTokens]);
 
   const fromHolding = tokenHoldings.find((t) => t.mint === fromMint) ?? null;
   const toHolding =
@@ -294,7 +298,7 @@ export function SwapSheet({
       onDismiss={onClose}
       handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.15)", width: 36 }}
       backgroundStyle={{ borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
-      keyboardBehavior="interactive"
+      keyboardBehavior="extend"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
@@ -327,7 +331,7 @@ export function SwapSheet({
               {showFromPicker ? (
                 <TokenPicker
                   mode="from"
-                  tokenHoldings={tokenHoldings}
+                  tokenHoldings={publicHoldings}
                   onSelect={selectFromToken}
                   onCancel={() => setShowFromPicker(false)}
                 />

@@ -187,7 +187,7 @@ export function ShieldSheet({
       onDismiss={onClose}
       handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.15)", width: 36 }}
       backgroundStyle={{ borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
-      keyboardBehavior="interactive"
+      keyboardBehavior="extend"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
