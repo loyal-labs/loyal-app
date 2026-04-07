@@ -44,6 +44,15 @@ export default function WalletScreen() {
     loadWalletTransactions,
   } = useWalletTransactions(walletAddress);
 
+  // Include shielded SOL in displayed balance
+  const securedSolHolding = tokenHoldings.find(
+    (h) => h.isSecured && h.mint === "So11111111111111111111111111111111111111112",
+  );
+  const securedSolLamports = securedSolHolding
+    ? Math.floor(securedSolHolding.balance * 1e9)
+    : 0;
+  const totalSolLamports = (solBalanceLamports ?? 0) + securedSolLamports;
+
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
@@ -134,7 +143,7 @@ export default function WalletScreen() {
       >
         <BalanceCard
           walletAddress={walletAddress}
-          solBalanceLamports={solBalanceLamports}
+          solBalanceLamports={totalSolLamports}
           solPriceUsd={solPriceUsd}
           displayCurrency={displayCurrency}
           onToggleCurrency={handleToggleCurrency}
