@@ -1,7 +1,7 @@
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
-  BottomSheetView,
+  BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { VersionedTransaction } from "@solana/web3.js";
 import { Image } from "expo-image";
@@ -173,16 +173,19 @@ export function SwapSheet({
     setQuote(null);
   }, [fromMint, toMint]);
 
-  const handleMax = useCallback(() => {
-    if (!fromHolding) return;
-    // For SOL, leave some for fees
-    const max =
-      fromMint === NATIVE_SOL_MINT
-        ? Math.max(0, fromBalance - 0.01)
-        : fromBalance;
-    setAmountStr(max > 0 ? String(max) : "");
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [fromHolding, fromMint, fromBalance]);
+  const handlePercentage = useCallback(
+    (pct: number) => {
+      if (!fromHolding) return;
+      let val = pct === 100 ? fromBalance : fromBalance * (pct / 100);
+      // Reserve fee when sending SOL
+      if (fromHolding.symbol.toUpperCase() === "SOL" && fromBalance - val < 0.00005) {
+        val = Math.max(0, fromBalance - 0.00005);
+      }
+      setAmountStr(val > 0 ? String(Number(val.toFixed(6))) : "");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+    [fromHolding, fromBalance],
+  );
 
   const handleSwap = useCallback(async () => {
     if (!isFormValid || isSwapping || !walletAddress || !quote) return;
@@ -276,7 +279,7 @@ export function SwapSheet({
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
     >
-      <BottomSheetView>
+      <BottomSheetScrollView keyboardShouldPersistTaps="handled">
         <View className="px-6 pb-12 pt-2">
           {/* Header */}
           <View className="mb-4 flex-row items-center justify-center">
@@ -320,7 +323,7 @@ export function SwapSheet({
                   toHolding={toHolding}
                   amountStr={amountStr}
                   onAmountChange={setAmountStr}
-                  onMax={handleMax}
+                  onPercentage={handlePercentage}
                   onFlip={handleFlip}
                   onFromPress={() => setShowFromPicker(true)}
                   onToPress={() => setShowToPicker(true)}
@@ -365,7 +368,7 @@ export function SwapSheet({
             />
           )}
         </View>
-      </BottomSheetView>
+      </BottomSheetScrollView>
     </BottomSheetModal>
   );
 }
@@ -487,7 +490,7 @@ function FormStep({
   toHolding,
   amountStr,
   onAmountChange,
-  onMax,
+  onPercentage,
   onFlip,
   onFromPress,
   onToPress,
@@ -504,7 +507,7 @@ function FormStep({
   toHolding: TokenHolding | null;
   amountStr: string;
   onAmountChange: (v: string) => void;
-  onMax: () => void;
+  onPercentage: (pct: number) => void;
   onFlip: () => void;
   onFromPress: () => void;
   onToPress: () => void;
@@ -536,12 +539,17 @@ function FormStep({
             onChangeText={onAmountChange}
             keyboardType="decimal-pad"
           />
-          <Pressable
-            className="ml-2 rounded-lg bg-neutral-200 px-3 py-1"
-            onPress={onMax}
-          >
-            <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
-          </Pressable>
+          <View className="ml-2 flex-row gap-1.5">
+            <Pressable className="rounded-lg bg-neutral-200 px-2 py-1" onPress={() => onPercentage(25)}>
+              <Text className="text-[11px] font-semibold text-neutral-700">25%</Text>
+            </Pressable>
+            <Pressable className="rounded-lg bg-neutral-200 px-2 py-1" onPress={() => onPercentage(50)}>
+              <Text className="text-[11px] font-semibold text-neutral-700">50%</Text>
+            </Pressable>
+            <Pressable className="rounded-lg bg-neutral-200 px-2 py-1" onPress={() => onPercentage(100)}>
+              <Text className="text-[11px] font-semibold text-neutral-700">MAX</Text>
+            </Pressable>
+          </View>
         </View>
         <Text className="mt-1 text-[12px] text-neutral-400">
           Balance: {fromBalance.toFixed(4)} {fromHolding?.symbol ?? ""}

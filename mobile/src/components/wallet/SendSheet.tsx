@@ -1,7 +1,7 @@
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
-  BottomSheetView,
+  BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import * as Haptics from "expo-haptics";
@@ -148,15 +148,22 @@ export function SendSheet({
     }
   }, [currency, amountNum, solPriceUsd]);
 
-  const handleMax = useCallback(() => {
-    const maxSol = Math.max(0, balanceInSol - SOLANA_FEE_SOL * 2);
-    if (currency === "SOL") {
-      setAmountStr(maxSol.toFixed(4));
-    } else if (solPriceUsd) {
-      setAmountStr((maxSol * solPriceUsd).toFixed(2));
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [balanceInSol, currency, solPriceUsd]);
+  const handlePercentage = useCallback(
+    (pct: number) => {
+      let val = pct === 100 ? balanceInSol : balanceInSol * (pct / 100);
+      // Always reserve fee for SOL
+      if (balanceInSol - val < 0.00005) {
+        val = Math.max(0, balanceInSol - 0.00005);
+      }
+      if (currency === "SOL") {
+        setAmountStr(val > 0 ? String(Number(val.toFixed(6))) : "");
+      } else if (solPriceUsd) {
+        setAmountStr(val > 0 ? (val * solPriceUsd).toFixed(2) : "");
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+    [balanceInSol, currency, solPriceUsd],
+  );
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -186,7 +193,7 @@ export function SendSheet({
       keyboardBehavior="interactive"
       keyboardBlurBehavior="restore"
     >
-      <BottomSheetView>
+      <BottomSheetScrollView keyboardShouldPersistTaps="handled">
         <View className="px-6 pb-12 pt-2">
           {/* Header */}
           <View className="mb-4 flex-row items-center justify-center">
@@ -218,7 +225,7 @@ export function SendSheet({
               onAmountChange={setAmountStr}
               currency={currency}
               onToggleCurrency={toggleCurrency}
-              onMax={handleMax}
+              onPercentage={handlePercentage}
               balanceInSol={balanceInSol}
               solPriceUsd={solPriceUsd}
               isValidRecipient={recipient.trim().length > 0 ? isValidRecipient : true}
@@ -253,7 +260,7 @@ export function SendSheet({
             />
           )}
         </View>
-      </BottomSheetView>
+      </BottomSheetScrollView>
     </BottomSheetModal>
   );
 }
@@ -266,7 +273,7 @@ function FormStep({
   onAmountChange,
   currency,
   onToggleCurrency,
-  onMax,
+  onPercentage,
   balanceInSol,
   solPriceUsd,
   isValidRecipient,
@@ -280,7 +287,7 @@ function FormStep({
   onAmountChange: (v: string) => void;
   currency: "SOL" | "USD";
   onToggleCurrency: () => void;
-  onMax: () => void;
+  onPercentage: (pct: number) => void;
   balanceInSol: number;
   solPriceUsd: number | null;
   isValidRecipient: boolean;
@@ -327,12 +334,17 @@ function FormStep({
             {currency}
           </Text>
         </Pressable>
-        <Pressable
-          className="mr-3 rounded-lg bg-neutral-200 px-3 py-1"
-          onPress={onMax}
-        >
-          <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
-        </Pressable>
+        <View className="mr-3 flex-row gap-2">
+          <Pressable className="rounded-lg bg-neutral-200 px-2.5 py-1" onPress={() => onPercentage(25)}>
+            <Text className="text-[12px] font-semibold text-neutral-700">25%</Text>
+          </Pressable>
+          <Pressable className="rounded-lg bg-neutral-200 px-2.5 py-1" onPress={() => onPercentage(50)}>
+            <Text className="text-[12px] font-semibold text-neutral-700">50%</Text>
+          </Pressable>
+          <Pressable className="rounded-lg bg-neutral-200 px-2.5 py-1" onPress={() => onPercentage(100)}>
+            <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
+          </Pressable>
+        </View>
       </View>
       {!isValidAmount && amountStr.length > 0 && (
         <Text className="mb-2 text-[12px] text-red-500">
