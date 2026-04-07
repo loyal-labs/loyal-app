@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { AppState } from "react-native";
 
 import {
   clearWalletKeypairCache,
@@ -86,6 +87,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+
+  // Auto-lock wallet when the app goes to background
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (
+        (nextState === "background" || nextState === "inactive") &&
+        state === "unlocked"
+      ) {
+        lock();
+      }
+    });
+    return () => subscription.remove();
+  }, [state, lock]);
 
   const createWallet = useCallback(async (password: string) => {
     const kp = await generateKeypair(password);
