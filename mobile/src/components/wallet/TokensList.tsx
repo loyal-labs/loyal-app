@@ -4,7 +4,6 @@ import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Pressable, Text, View } from "@/tw";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const shieldBadge = require("../../../assets/images/shield-badge.png");
 
 type TokensListProps = {
