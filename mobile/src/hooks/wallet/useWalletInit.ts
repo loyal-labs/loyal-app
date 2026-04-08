@@ -66,17 +66,32 @@ export function useWalletInit(): {
 
   useEffect(() => {
     if (!publicKey || !isUnlocked) {
+      loadedForKeyRef.current = null;
       setWalletAddress(null);
       setIsLoading(false);
       return;
     }
 
+    if (walletAddress !== publicKey) {
+      setCachedWalletAddress(publicKey);
+      setWalletAddress(publicKey);
+    }
+
+    const alreadyLoadedForCurrentKey = loadedForKeyRef.current === publicKey;
+    const hasWalletAddressInState = walletAddress === publicKey;
+
     // Skip if already loaded for this key (unless retrying)
-    if (loadedForKeyRef.current === publicKey && retryCount === 0) return;
+    if (
+      alreadyLoadedForCurrentKey &&
+      retryCount === 0 &&
+      hasWalletAddressInState
+    ) {
+      return;
+    }
     loadedForKeyRef.current = publicKey;
 
     void loadBalance(publicKey);
-  }, [publicKey, isUnlocked, retryCount, loadBalance]);
+  }, [publicKey, isUnlocked, retryCount, walletAddress, loadBalance]);
 
   const retryWalletInit = useCallback(() => {
     loadedForKeyRef.current = null;

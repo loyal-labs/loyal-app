@@ -236,9 +236,9 @@ export default function WalletScreen() {
       <SendSheet
         open={isSendOpen}
         onClose={() => setIsSendOpen(false)}
-        walletAddress={walletAddress}
         solBalanceLamports={solBalanceLamports}
         solPriceUsd={solPriceUsd}
+        tokenHoldings={tokenHoldings}
         onSendComplete={handleSendComplete}
       />
 

@@ -150,6 +150,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const kp = await loadKeypair(password);
     if (!kp) throw new Error("Incorrect password");
     setKeypair(kp);
+    setPublicKey(kp.publicKey.toBase58());
     setWalletKeypair(kp);
     setState("unlocked");
   }, []);
@@ -161,6 +162,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const kp = await loadKeypair(password);
       if (!kp) return false;
       setKeypair(kp);
+      setPublicKey(kp.publicKey.toBase58());
       setWalletKeypair(kp);
       setState("unlocked");
       return true;
