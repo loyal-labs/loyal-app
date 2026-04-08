@@ -2,6 +2,7 @@ import { Keypair } from "@solana/web3.js";
 import * as SecureStore from "expo-secure-store";
 
 import { decryptSecret, encryptSecret } from "./crypto";
+import { isValidWalletPin } from "./pin";
 
 const ENCRYPTED_KEYPAIR_KEY = "wallet_encrypted_keypair";
 const WALLET_PUBLIC_KEY = "wallet_public_key";
@@ -59,10 +60,13 @@ async function resetAttempts(): Promise<void> {
 
 export async function storeKeypair(
   keypair: Keypair,
-  password: string,
+  pin: string,
 ): Promise<void> {
+  if (!isValidWalletPin(pin)) {
+    throw new Error("PIN must be 4 digits");
+  }
   const serialized = JSON.stringify(Array.from(keypair.secretKey));
-  const encrypted = await encryptSecret(serialized, password);
+  const encrypted = await encryptSecret(serialized, pin);
   await SecureStore.setItemAsync(ENCRYPTED_KEYPAIR_KEY, encrypted);
   await SecureStore.setItemAsync(
     WALLET_PUBLIC_KEY,
@@ -76,21 +80,21 @@ export function generateKeypairInMemory(): Keypair {
 
 export async function importKeypair(
   secretKey: Uint8Array,
-  password: string,
+  pin: string,
 ): Promise<Keypair> {
   const keypair = Keypair.fromSecretKey(secretKey);
-  await storeKeypair(keypair, password);
+  await storeKeypair(keypair, pin);
   return keypair;
 }
 
-export async function loadKeypair(password: string): Promise<Keypair | null> {
+export async function loadKeypair(pin: string): Promise<Keypair | null> {
   const remaining = await getLockoutRemaining();
   if (remaining > 0) throw new PinLockedError(remaining);
 
   const encrypted = await SecureStore.getItemAsync(ENCRYPTED_KEYPAIR_KEY);
   if (!encrypted) return null;
 
-  const decrypted = await decryptSecret(encrypted, password);
+  const decrypted = await decryptSecret(encrypted, pin);
   if (!decrypted) {
     await recordFailedAttempt();
     return null;
@@ -114,9 +118,9 @@ export async function clearStoredKeypair(): Promise<void> {
   await resetAttempts();
 }
 
-export async function changePassword(
+export async function changePin(
   keypair: Keypair,
-  newPassword: string,
+  newPin: string,
 ): Promise<void> {
-  await storeKeypair(keypair, newPassword);
+  await storeKeypair(keypair, newPin);
 }

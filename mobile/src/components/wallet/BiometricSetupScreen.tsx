@@ -10,11 +10,11 @@ import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
 type Props = {
-  password: string;
+  pin: string;
   onComplete: () => void;
 };
 
-export function BiometricSetupScreen({ password, onComplete }: Props) {
+export function BiometricSetupScreen({ pin, onComplete }: Props) {
   const { setBiometricEnabled } = useWallet();
   const [biometricType, setBiometricType] = useState<
     "faceid" | "fingerprint" | "none"
@@ -36,12 +36,12 @@ export function BiometricSetupScreen({ password, onComplete }: Props) {
   const handleEnable = useCallback(async () => {
     setLoading(true);
     try {
-      await setBiometricEnabled(password, true);
+      await setBiometricEnabled(pin, true);
     } catch {
       // Biometric enrollment failed — continue without
     }
     onComplete();
-  }, [password, setBiometricEnabled, onComplete]);
+  }, [pin, setBiometricEnabled, onComplete]);
 
   const isFaceId = biometricType === "faceid";
   const Icon = isFaceId ? Scan : Fingerprint;
@@ -54,7 +54,7 @@ export function BiometricSetupScreen({ password, onComplete }: Props) {
       <Icon size={80} color="#000" strokeWidth={1.2} />
       <Text style={styles.title}>Enable {label}?</Text>
       <Text style={styles.subtitle}>
-        Unlock your wallet quickly with {label} instead of typing your password
+        Unlock your wallet quickly with {label} instead of entering your PIN
         each time.
       </Text>
       <View className="mt-10 w-full gap-3">

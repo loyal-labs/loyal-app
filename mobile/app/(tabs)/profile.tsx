@@ -10,10 +10,12 @@ import {
   Trash2,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, StyleSheet, Switch, TextInput } from "react-native";
+import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
+import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
@@ -111,9 +113,9 @@ function ProfileCell({
 export default function ProfileScreen() {
   const [pushNotifications, setPushNotifications] = useState(true);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
-  const [showBioPasswordInput, setShowBioPasswordInput] = useState(false);
-  const [bioPassword, setBioPassword] = useState("");
-  const [bioPasswordError, setBioPasswordError] = useState<string | null>(null);
+  const [showBioPinInput, setShowBioPinInput] = useState(false);
+  const [bioPin, setBioPin] = useState("");
+  const [bioPinError, setBioPinError] = useState<string | null>(null);
 
   const wallet = useWallet();
   const isUnlocked = wallet.state === "unlocked";
@@ -147,37 +149,37 @@ export default function ProfileScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
       if (!value) {
-        // Disabling — no password needed
+        // Disabling — no PIN needed
         wallet.setBiometricEnabled("", false);
         return;
       }
-      // Enabling — need password confirmation
-      setBioPassword("");
-      setBioPasswordError(null);
-      setShowBioPasswordInput(true);
+      // Enabling — need PIN confirmation
+      setBioPin("");
+      setBioPinError(null);
+      setShowBioPinInput(true);
     },
     [wallet],
   );
 
-  const handleBioPasswordSubmit = useCallback(async () => {
-    if (!bioPassword.trim()) {
-      setBioPasswordError("Password is required");
+  const handleBioPinSubmit = useCallback(async () => {
+    if (bioPin.length !== WALLET_PIN_LENGTH) {
+      setBioPinError("PIN must be 4 digits");
       return;
     }
     try {
-      await wallet.setBiometricEnabled(bioPassword, true);
-      setShowBioPasswordInput(false);
-      setBioPassword("");
-      setBioPasswordError(null);
+      await wallet.setBiometricEnabled(bioPin, true);
+      setShowBioPinInput(false);
+      setBioPin("");
+      setBioPinError(null);
     } catch {
-      setBioPasswordError("Incorrect password or biometric setup failed");
+      setBioPinError("Incorrect PIN or biometric setup failed");
     }
-  }, [bioPassword, wallet]);
+  }, [bioPin, wallet]);
 
-  const handleBioPasswordCancel = useCallback(() => {
-    setShowBioPasswordInput(false);
-    setBioPassword("");
-    setBioPasswordError(null);
+  const handleBioPinCancel = useCallback(() => {
+    setShowBioPinInput(false);
+    setBioPin("");
+    setBioPinError(null);
   }, []);
 
   const handleExportSecretKey = useCallback(() => {
@@ -274,43 +276,38 @@ export default function ProfileScreen() {
                     onValueChange: handleBiometricToggle,
                   }}
                 />
-                {showBioPasswordInput && (
-                  <View style={styles.bioPasswordContainer}>
-                    <Text style={styles.bioPasswordLabel}>
-                      Enter password to enable biometrics
+                {showBioPinInput && (
+                  <View style={styles.bioPinContainer}>
+                    <Text style={styles.bioPinLabel}>
+                      Enter PIN to enable biometrics
                     </Text>
-                    <View style={styles.bioPasswordRow}>
-                      <TextInput
-                        style={[
-                          styles.bioPasswordInput,
-                          bioPasswordError ? styles.bioPasswordInputError : null,
-                        ]}
-                        value={bioPassword}
-                        onChangeText={setBioPassword}
-                        onSubmitEditing={handleBioPasswordSubmit}
-                        secureTextEntry
-                        placeholder="Password"
-                        placeholderTextColor="rgba(0,0,0,0.3)"
-                        autoFocus
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                      />
+                    <PinPadInput
+                      value={bioPin}
+                      onChange={(value) => {
+                        setBioPin(value);
+                        if (bioPinError) setBioPinError(null);
+                      }}
+                      error={bioPinError}
+                    />
+                    <View style={styles.bioPinActions}>
                       <Pressable
-                        onPress={handleBioPasswordSubmit}
-                        style={styles.bioPasswordButton}
+                        onPress={handleBioPinSubmit}
+                        style={[
+                          styles.bioPinButton,
+                          bioPin.length !== WALLET_PIN_LENGTH &&
+                            styles.bioPinButtonDisabled,
+                        ]}
+                        disabled={bioPin.length !== WALLET_PIN_LENGTH}
                       >
-                        <Text style={styles.bioPasswordButtonText}>Confirm</Text>
+                        <Text style={styles.bioPinButtonText}>Confirm</Text>
                       </Pressable>
                       <Pressable
-                        onPress={handleBioPasswordCancel}
-                        style={styles.bioPasswordCancelButton}
+                        onPress={handleBioPinCancel}
+                        style={styles.bioPinCancelButton}
                       >
-                        <Text style={styles.bioPasswordCancelText}>Cancel</Text>
+                        <Text style={styles.bioPinCancelText}>Cancel</Text>
                       </Pressable>
                     </View>
-                    {bioPasswordError && (
-                      <Text style={styles.bioPasswordError}>{bioPasswordError}</Text>
-                    )}
                   </View>
                 )}
               </>
@@ -442,64 +439,47 @@ const styles = StyleSheet.create({
     height: 40,
     paddingVertical: 8,
   },
-  bioPasswordContainer: {
+  bioPinContainer: {
     paddingHorizontal: 16,
     paddingBottom: 12,
     gap: 8,
   },
-  bioPasswordLabel: {
+  bioPinLabel: {
     fontFamily: "Geist_400Regular",
     fontSize: 14,
     lineHeight: 18,
     color: "rgba(60,60,67,0.6)",
   },
-  bioPasswordRow: {
+  bioPinActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  bioPasswordInput: {
+  bioPinButton: {
     flex: 1,
-    fontFamily: "Geist_400Regular",
-    fontSize: 16,
-    lineHeight: 22,
-    color: "#000",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
-  },
-  bioPasswordInputError: {
-    borderColor: "#f9363c",
-  },
-  bioPasswordButton: {
     backgroundColor: "#f9363c",
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    alignItems: "center",
   },
-  bioPasswordButtonText: {
+  bioPinButtonDisabled: {
+    opacity: 0.5,
+  },
+  bioPinButtonText: {
     fontFamily: "Geist_500Medium",
     fontSize: 15,
     lineHeight: 22,
     color: "#fff",
   },
-  bioPasswordCancelButton: {
-    paddingHorizontal: 8,
+  bioPinCancelButton: {
+    paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  bioPasswordCancelText: {
+  bioPinCancelText: {
     fontFamily: "Geist_500Medium",
     fontSize: 15,
     lineHeight: 22,
     color: "rgba(60,60,67,0.6)",
-  },
-  bioPasswordError: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 13,
-    lineHeight: 18,
-    color: "#f9363c",
   },
 });

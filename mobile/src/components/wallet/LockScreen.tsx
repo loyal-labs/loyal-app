@@ -4,16 +4,16 @@ import { ActivityIndicator, AppState, StyleSheet } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { getBiometricType } from "@/lib/wallet/biometrics";
 import { PinLockedError } from "@/lib/wallet/keypair-storage";
+import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
-import { PasswordInput } from "./PasswordInput";
-
 export function LockScreen() {
   const { unlock, unlockWithBiometrics, biometricEnabled } = useWallet();
-  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
   const [biometricType, setBiometricType] = useState<
@@ -86,12 +86,11 @@ export function LockScreen() {
     return () => clearInterval(interval);
   }, [lockCountdown]);
 
-  const handleUnlock = useCallback(async () => {
-    if (!password.trim()) return;
+  const tryUnlock = useCallback(async (value: string) => {
     setUnlocking(true);
     setError(null);
     try {
-      await unlock(password);
+      await unlock(value);
       // State transitions to unlocked — component unmounts
     } catch (e) {
       if (e instanceof PinLockedError) {
@@ -99,11 +98,25 @@ export function LockScreen() {
         setLockCountdown(seconds);
         setError(`Wallet locked for ${seconds}s`);
       } else {
-        setError("Incorrect password");
+        setError("Incorrect PIN");
       }
+      setPin("");
       setUnlocking(false);
     }
-  }, [password, unlock]);
+  }, [unlock]);
+
+  const handleUnlock = useCallback(async () => {
+    if (pin.length !== WALLET_PIN_LENGTH || lockCountdown > 0) return;
+    await tryUnlock(pin);
+  }, [pin, lockCountdown, tryUnlock]);
+
+  const handlePinComplete = useCallback(
+    async (value: string) => {
+      if (lockCountdown > 0) return;
+      await tryUnlock(value);
+    },
+    [lockCountdown, tryUnlock],
+  );
 
   const handleBiometricRetry = useCallback(async () => {
     setUnlocking(true);
@@ -143,26 +156,29 @@ export function LockScreen() {
       <View className="flex-1 items-center justify-center px-6">
         <Text style={styles.title}>Welcome back</Text>
         <Text style={styles.subtitle}>
-          Enter your password to unlock your wallet
+          Enter your 4-digit PIN to unlock your wallet
         </Text>
 
         <View style={{ width: "100%", gap: 16, marginTop: 32 }}>
-          <PasswordInput
-            value={password}
-            onChange={setPassword}
-            onSubmit={handleUnlock}
+          <PinPadInput
+            value={pin}
+            onChange={(value) => {
+              setPin(value);
+              if (error) setError(null);
+            }}
+            onComplete={handlePinComplete}
             error={isLocked ? `Wallet locked for ${lockCountdown}s` : error}
-            placeholder="Enter password"
-            autoFocus={!biometricEnabled}
+            disabled={isLocked}
           />
 
           <Pressable
             style={[
               styles.primaryButton,
-              (isLocked || !password.trim()) && styles.primaryButtonDisabled,
+              (isLocked || pin.length !== WALLET_PIN_LENGTH) &&
+                styles.primaryButtonDisabled,
             ]}
             onPress={handleUnlock}
-            disabled={isLocked || !password.trim()}
+            disabled={isLocked || pin.length !== WALLET_PIN_LENGTH}
           >
             <Text style={styles.primaryButtonText}>Unlock</Text>
           </Pressable>

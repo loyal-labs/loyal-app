@@ -30,7 +30,7 @@ import {
   importKeypair,
   loadKeypair,
   storeKeypair,
-  changePassword as changeKeypairPassword,
+  changePin as changeKeypairPin,
 } from "./keypair-storage";
 
 export type WalletState = "loading" | "noWallet" | "locked" | "unlocked";
@@ -41,21 +41,21 @@ interface WalletContextValue {
   publicKey: string | null;
 
   // Wallet setup
-  createWallet: (password: string) => Keypair;
-  importWallet: (secretKey: Uint8Array, password: string) => Promise<Keypair>;
-  finalizeSigner: (keypair: Keypair, password: string, opts?: { alreadyStored?: boolean }) => Promise<void>;
+  createWallet: (pin: string) => Keypair;
+  importWallet: (secretKey: Uint8Array, pin: string) => Promise<Keypair>;
+  finalizeSigner: (keypair: Keypair, pin: string, opts?: { alreadyStored?: boolean }) => Promise<void>;
 
   // Lock / unlock
-  unlock: (password: string) => Promise<void>;
+  unlock: (pin: string) => Promise<void>;
   unlockWithBiometrics: () => Promise<boolean>;
   lock: () => void;
 
   // Biometrics
   biometricEnabled: boolean;
-  setBiometricEnabled: (password: string, enabled: boolean) => Promise<void>;
+  setBiometricEnabled: (pin: string, enabled: boolean) => Promise<void>;
 
   // Management
-  changePassword: (newPassword: string) => Promise<void>;
+  changePin: (newPin: string) => Promise<void>;
   resetWallet: () => Promise<void>;
   getSecretKeyHex: () => string | null;
 }
@@ -117,15 +117,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [state, lock]);
 
   // Generate keypair in memory only — NOT persisted until finalizeSigner
-  const createWallet = useCallback((_password: string) => {
+  const createWallet = useCallback((_pin: string) => {
     return generateKeypairInMemory();
   }, []);
 
   // Import keypair — encrypts + stores but does NOT unlock.
   // Caller goes through biometric setup, then finalizeSigner unlocks.
   const importWallet = useCallback(
-    async (secretKey: Uint8Array, password: string) => {
-      const kp = await importKeypair(secretKey, password);
+    async (secretKey: Uint8Array, pin: string) => {
+      const kp = await importKeypair(secretKey, pin);
       return kp;
     },
     [],
@@ -134,9 +134,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Called after biometric setup — persists keypair (create) or just unlocks (import).
   // Import flow already stored the keypair in importWallet; create flow has not.
   const finalizeSigner = useCallback(
-    async (kp: Keypair, password: string, opts?: { alreadyStored?: boolean }) => {
+    async (kp: Keypair, pin: string, opts?: { alreadyStored?: boolean }) => {
       if (!opts?.alreadyStored) {
-        await storeKeypair(kp, password);
+        await storeKeypair(kp, pin);
       }
       setKeypair(kp);
       setPublicKey(kp.publicKey.toBase58());
@@ -146,9 +146,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const unlock = useCallback(async (password: string) => {
-    const kp = await loadKeypair(password);
-    if (!kp) throw new Error("Incorrect password");
+  const unlock = useCallback(async (pin: string) => {
+    const kp = await loadKeypair(pin);
+    if (!kp) throw new Error("Incorrect PIN");
     setKeypair(kp);
     setPublicKey(kp.publicKey.toBase58());
     setWalletKeypair(kp);
@@ -156,10 +156,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const unlockWithBiometrics = useCallback(async () => {
-    const password = await authenticateWithBiometrics();
-    if (!password) return false;
+    const pin = await authenticateWithBiometrics();
+    if (!pin) return false;
     try {
-      const kp = await loadKeypair(password);
+      const kp = await loadKeypair(pin);
       if (!kp) return false;
       setKeypair(kp);
       setPublicKey(kp.publicKey.toBase58());
@@ -172,9 +172,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBiometricEnabled = useCallback(
-    async (password: string, enabled: boolean) => {
+    async (pin: string, enabled: boolean) => {
       if (enabled) {
-        await enableBiometrics(password);
+        await enableBiometrics(pin);
         setBiometricEnabledState(true);
       } else {
         await disableBiometrics();
@@ -184,12 +184,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const changePasswordAction = useCallback(
-    async (newPassword: string) => {
+  const changePinAction = useCallback(
+    async (newPin: string) => {
       if (!keypair) throw new Error("Wallet must be unlocked");
-      await changeKeypairPassword(keypair, newPassword);
+      await changeKeypairPin(keypair, newPin);
       if (biometricEnabled) {
-        await enableBiometrics(newPassword);
+        await enableBiometrics(newPin);
       }
     },
     [keypair, biometricEnabled],
@@ -225,7 +225,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       lock,
       biometricEnabled,
       setBiometricEnabled,
-      changePassword: changePasswordAction,
+      changePin: changePinAction,
       resetWallet,
       getSecretKeyHex,
     }),
@@ -241,7 +241,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       lock,
       biometricEnabled,
       setBiometricEnabled,
-      changePasswordAction,
+      changePinAction,
       resetWallet,
       getSecretKeyHex,
     ],

@@ -5,23 +5,22 @@ import { ArrowLeft, Copy } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import { StyleSheet } from "react-native";
 
-import { PasswordInput } from "@/components/wallet/PasswordInput";
-import { MIN_PASSWORD_LENGTH } from "@/lib/wallet/password-strength";
+import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
 
-type Step = "password" | "confirm" | "backup";
+type Step = "pin" | "confirm" | "backup";
 
 type Props = {
-  onComplete: (keypair: Keypair, password: string) => void;
+  onComplete: (keypair: Keypair, pin: string) => void;
 };
 
 export function CreateWalletScreen({ onComplete }: Props) {
   const { createWallet } = useWallet();
 
-  const [step, setStep] = useState<Step>("password");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [step, setStep] = useState<Step>("pin");
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
   const [copied, setCopied] = useState(false);
@@ -32,22 +31,25 @@ export function CreateWalletScreen({ onComplete }: Props) {
         .join("")
     : "";
 
-  const handleContinuePassword = useCallback(() => {
-    if (password.length < MIN_PASSWORD_LENGTH) return;
+  const handlePinComplete = useCallback((nextPin: string) => {
+    setPin(nextPin);
     setStep("confirm");
-    setConfirmPassword("");
+    setConfirmPin("");
     setConfirmError(null);
-  }, [password]);
+  }, []);
 
-  const handleContinueConfirm = useCallback(() => {
-    if (confirmPassword !== password) {
-      setConfirmError("Passwords don't match");
-      setConfirmPassword("");
+  const handleConfirmComplete = useCallback((nextConfirmPin: string) => {
+    setConfirmPin(nextConfirmPin);
+
+    if (nextConfirmPin !== pin) {
+      setConfirmError("PINs don't match");
+      setConfirmPin("");
       return;
     }
+
     setConfirmError(null);
     try {
-      const kp = createWallet(confirmPassword);
+      const kp = createWallet(nextConfirmPin);
       setPendingKeypair(kp);
       setStep("backup");
     } catch (e) {
@@ -55,11 +57,11 @@ export function CreateWalletScreen({ onComplete }: Props) {
         e instanceof Error ? e.message : "Failed to create wallet",
       );
     }
-  }, [confirmPassword, password, createWallet]);
+  }, [pin, createWallet]);
 
   const handleBack = useCallback(() => {
-    setStep("password");
-    setConfirmPassword("");
+    setStep("pin");
+    setConfirmPin("");
     setConfirmError(null);
   }, []);
 
@@ -78,45 +80,31 @@ export function CreateWalletScreen({ onComplete }: Props) {
 
   const handleBackupConfirmed = useCallback(() => {
     if (!pendingKeypair) return;
-    onComplete(pendingKeypair, password);
-  }, [pendingKeypair, password, onComplete]);
+    onComplete(pendingKeypair, pin);
+  }, [pendingKeypair, pin, onComplete]);
 
-  // --- Password step ---
-  if (step === "password") {
+  // --- PIN step ---
+  if (step === "pin") {
     return (
       <ScrollView
         className="flex-1 bg-white"
         contentContainerClassName="flex-grow px-6 pt-16 pb-10"
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-1">
-          <Text style={styles.title}>Create Password</Text>
+        <View className="flex-1 justify-center pb-16">
+          <Text style={styles.title}>Create PIN</Text>
           <Text style={styles.subtitle}>
-            This password encrypts your wallet
+            Use a 4-digit PIN to protect your wallet
           </Text>
 
-          <View className="mt-8">
-            <PasswordInput
-              value={password}
-              onChange={setPassword}
-              onSubmit={handleContinuePassword}
-              showStrength
-              autoFocus
-              placeholder="Create a password"
+          <View className="mt-10">
+            <PinPadInput
+              value={pin}
+              onChange={setPin}
+              onComplete={handlePinComplete}
             />
           </View>
         </View>
-
-        <Pressable
-          onPress={handleContinuePassword}
-          disabled={password.length < MIN_PASSWORD_LENGTH}
-          style={[
-            styles.primaryButton,
-            password.length < MIN_PASSWORD_LENGTH && styles.primaryButtonDisabled,
-          ]}
-        >
-          <Text style={styles.primaryButtonText}>Continue</Text>
-        </Pressable>
       </ScrollView>
     );
   }
@@ -129,7 +117,7 @@ export function CreateWalletScreen({ onComplete }: Props) {
         contentContainerClassName="flex-grow px-6 pt-16 pb-10"
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-1">
+        <View className="flex-1 justify-center pb-16">
           <Pressable
             onPress={handleBack}
             hitSlop={16}
@@ -139,32 +127,21 @@ export function CreateWalletScreen({ onComplete }: Props) {
             <ArrowLeft size={20} color="#000" strokeWidth={2} />
           </Pressable>
 
-          <Text style={styles.title}>Confirm Password</Text>
-          <Text style={styles.subtitle}>Enter your password again</Text>
+          <Text style={styles.title}>Confirm PIN</Text>
+          <Text style={styles.subtitle}>Enter your PIN again</Text>
 
-          <View className="mt-8">
-            <PasswordInput
-              value={confirmPassword}
-              onChange={setConfirmPassword}
-              onSubmit={handleContinueConfirm}
+          <View className="mt-10">
+            <PinPadInput
+              value={confirmPin}
+              onChange={(value) => {
+                setConfirmPin(value);
+                if (confirmError) setConfirmError(null);
+              }}
+              onComplete={handleConfirmComplete}
               error={confirmError}
-              autoFocus
-              placeholder="Confirm your password"
             />
           </View>
         </View>
-
-        <Pressable
-          onPress={handleContinueConfirm}
-          disabled={confirmPassword.length < MIN_PASSWORD_LENGTH}
-          style={[
-            styles.primaryButton,
-            confirmPassword.length < MIN_PASSWORD_LENGTH &&
-              styles.primaryButtonDisabled,
-          ]}
-        >
-          <Text style={styles.primaryButtonText}>Continue</Text>
-        </Pressable>
       </ScrollView>
     );
   }
@@ -233,10 +210,10 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontFamily: "Geist_400Regular",
-    fontSize: 16,
+    fontSize: 18,
     color: "rgba(0,0,0,0.5)",
     marginTop: 8,
-    lineHeight: 22,
+    lineHeight: 24,
   },
   primaryButton: {
     height: 52,
@@ -244,9 +221,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
-  },
-  primaryButtonDisabled: {
-    backgroundColor: "#CCCDCD",
   },
   primaryButtonText: {
     fontFamily: "Geist_600SemiBold",

@@ -1,136 +1,59 @@
-import { useKeyboardHeight } from "@/hooks/useKeyboardHeight";
-import { Pressable, Text, View } from "@/tw";
-import { LinearGradient } from "expo-linear-gradient";
+import { PinPadInput } from "@/components/wallet/PinPadInput";
+import { Text, View } from "@/tw";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { Eye, EyeOff } from "lucide-react-native";
-import { useCallback, useRef, useState } from "react";
-import { Keyboard, Platform, StyleSheet, TextInput } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCallback, useState } from "react";
+import { StyleSheet } from "react-native";
 
-const VALID_PASSWORD = "qwerty";
+const VALID_PIN = "1234";
 
-export default function PasswordScreen() {
+export default function PinScreen() {
   const router = useRouter();
-  const { bottom } = useSafeAreaInsets();
-  const kbHeight = useKeyboardHeight();
-  const inputRef = useRef<TextInput>(null);
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState(false);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  const handleChangeText = useCallback(
+  const handleChangePin = useCallback(
     (text: string) => {
-      if (error) setError(false);
-      setPassword(text);
+      if (error) setError(null);
+      setPin(text);
     },
     [error],
   );
 
-  const handleContinue = useCallback(() => {
-    if (!password) return;
-    if (Platform.OS !== "web") {
+  const handlePinComplete = useCallback((nextPin: string) => {
+    if (process.env.EXPO_OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    Keyboard.dismiss();
 
-    if (password === VALID_PASSWORD) {
+    if (nextPin === VALID_PIN) {
       router.dismissAll();
       router.replace("/");
     } else {
-      if (Platform.OS !== "web") {
+      if (process.env.EXPO_OS !== "web") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-      setError(true);
+      setError("Invalid PIN. Please, try again");
+      setPin("");
     }
-  }, [password, router]);
-
-  const handleToggleShow = useCallback(() => {
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    setShowPassword((prev) => !prev);
-  }, []);
-
-  const hasValue = password.length >= 4;
-  const EyeIcon = showPassword ? Eye : EyeOff;
-  const keyboardUp = kbHeight > 0;
+  }, [router]);
 
   return (
     <View className="flex-1 bg-white">
-      <Pressable
-        style={styles.content}
-        onPress={() => inputRef.current?.focus()}
-      >
+      <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.title}>Enter Password</Text>
+          <Text style={styles.title}>Enter PIN</Text>
           <Text style={styles.subtitle}>
-            You have Two-Step Verification enabled, so your Telegram account is
-            protected with an additional password
+            Enter your 4-digit verification PIN to continue
           </Text>
         </View>
 
-        <View style={styles.inputWrapper}>
-          <View
-            style={[
-              styles.inputContainer,
-              error && styles.inputContainerError,
-            ]}
-          >
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              value={password}
-              onChangeText={handleChangeText}
-              placeholder="Password"
-              placeholderTextColor="rgba(60,60,67,0.6)"
-              secureTextEntry={!showPassword}
-              autoFocus
-              autoCapitalize="none"
-              autoCorrect={false}
-              selectionColor="#000"
-            />
-            <Pressable style={styles.eyeIcon} onPress={handleToggleShow}>
-              <EyeIcon
-                size={24}
-                color="rgba(60,60,67,0.3)"
-                strokeWidth={1.5}
-              />
-            </Pressable>
-          </View>
-          {error && (
-            <View style={styles.hint}>
-              <Text style={styles.errorText}>
-                Invalid password. Please, try again
-              </Text>
-            </View>
-          )}
-        </View>
-      </Pressable>
-
-      <View
-        style={[
-          styles.buttonBody,
-          { bottom: keyboardUp ? kbHeight : 0 },
-        ]}
-      >
-        <LinearGradient
-          colors={["rgba(255,255,255,0)", "#fff"]}
-          style={styles.gradient}
-        />
-        <View
-          style={[
-            styles.buttonWrap,
-            { paddingBottom: keyboardUp ? 24 : bottom + 24 },
-          ]}
-        >
-          <Pressable
-            style={[styles.button, !hasValue && styles.buttonDisabled]}
-            onPress={handleContinue}
-            disabled={!hasValue}
-          >
-            <Text style={styles.buttonText}>Continue</Text>
-          </Pressable>
+        <View style={styles.pinPadWrap}>
+          <PinPadInput
+            value={pin}
+            onChange={handleChangePin}
+            onComplete={handlePinComplete}
+            error={error}
+          />
         </View>
       </View>
     </View>
@@ -163,73 +86,8 @@ const styles = StyleSheet.create({
     color: "rgba(60,60,67,0.6)",
     textAlign: "center",
   },
-  inputWrapper: {
+  pinPadWrap: {
     width: "100%",
-  },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f2f2f7",
-    borderRadius: 47,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  inputContainerError: {
-    borderColor: "#F9363C",
-  },
-  input: {
-    flex: 1,
-    fontFamily: "Geist_400Regular",
-    fontSize: 17,
-    lineHeight: 22,
-    color: "#000",
-    paddingVertical: 15,
-  },
-  eyeIcon: {
-    paddingLeft: 12,
-    paddingVertical: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  hint: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 6,
-  },
-  errorText: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 13,
-    lineHeight: 16,
-    color: "#F9363C",
-  },
-  buttonBody: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-  },
-  gradient: {
-    height: 16,
-  },
-  buttonWrap: {
-    backgroundColor: "#fff",
-    paddingHorizontal: 32,
-  },
-  button: {
-    height: 50,
-    backgroundColor: "#000",
-    borderRadius: 78,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  buttonDisabled: {
-    backgroundColor: "#d0d0d2",
-  },
-  buttonText: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 17,
-    lineHeight: 22,
-    color: "#fff",
+    maxWidth: 340,
   },
 });

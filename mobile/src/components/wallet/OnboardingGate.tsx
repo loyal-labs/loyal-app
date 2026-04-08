@@ -18,37 +18,37 @@ export function OnboardingGate() {
   const [step, setStep] = useState<Step>("choose");
   const [flow, setFlow] = useState<Flow>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
-  const [pendingPassword, setPendingPassword] = useState<string | null>(null);
+  const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
 
   const handleCreateComplete = useCallback(
-    (keypair: Keypair, password: string) => {
+    (keypair: Keypair, pin: string) => {
       setPendingKeypair(keypair);
-      setPendingPassword(password);
+      setPendingPin(pin);
       setStep("biometric-setup");
     },
     [],
   );
 
   const handleImportComplete = useCallback(
-    (keypair: Keypair, password: string) => {
+    (keypair: Keypair, pin: string) => {
       setPendingKeypair(keypair);
-      setPendingPassword(password);
+      setPendingPin(pin);
       setStep("biometric-setup");
     },
     [],
   );
 
   const handleBiometricComplete = useCallback(async () => {
-    if (!pendingKeypair || !pendingPassword) return;
+    if (!pendingKeypair || !pendingPin) return;
     setFinalizing(true);
     if (flow === "create") {
-      await finalizeSigner(pendingKeypair, pendingPassword);
+      await finalizeSigner(pendingKeypair, pendingPin);
     } else {
       // Import: keypair already stored, just unlock
-      await finalizeSigner(pendingKeypair, pendingPassword, { alreadyStored: true });
+      await finalizeSigner(pendingKeypair, pendingPin, { alreadyStored: true });
     }
-  }, [flow, pendingKeypair, pendingPassword, finalizeSigner]);
+  }, [flow, pendingKeypair, pendingPin, finalizeSigner]);
 
   // --- Finalizing (encrypting + storing) ---
   if (finalizing) {
@@ -117,7 +117,7 @@ export function OnboardingGate() {
   // --- Biometric setup step ---
   return (
     <BiometricSetupScreen
-      password={pendingPassword!}
+      pin={pendingPin!}
       onComplete={handleBiometricComplete}
     />
   );

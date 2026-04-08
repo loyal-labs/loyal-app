@@ -10,16 +10,14 @@ import {
 } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 
-import { MIN_PASSWORD_LENGTH } from "@/lib/wallet/password-strength";
+import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, SafeAreaView, Text, View } from "@/tw";
 
-import { PasswordInput } from "./PasswordInput";
-
-type Step = "password" | "confirm" | "import";
+type Step = "pin" | "confirm" | "import";
 
 type Props = {
-  onComplete: (keypair: Keypair, password: string) => void;
+  onComplete: (keypair: Keypair, pin: string) => void;
 };
 
 const HEX_REGEX = /^[0-9a-fA-F]+$/;
@@ -55,39 +53,42 @@ function parseHexKey(raw: string): { bytes: Uint8Array | null; error: string | n
 export function ImportWalletScreen({ onComplete }: Props) {
   const { importWallet } = useWallet();
 
-  const [step, setStep] = useState<Step>("password");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [step, setStep] = useState<Step>("pin");
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const [hexKey, setHexKey] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
 
-  const handlePasswordContinue = useCallback(() => {
-    if (password.length >= MIN_PASSWORD_LENGTH) {
-      setConfirmError(null);
-      setConfirmPassword("");
-      setStep("confirm");
-    }
-  }, [password]);
+  const handlePinComplete = useCallback((nextPin: string) => {
+    setPin(nextPin);
+    setConfirmError(null);
+    setConfirmPin("");
+    setStep("confirm");
+  }, []);
 
-  const handleConfirmContinue = useCallback(() => {
-    if (confirmPassword !== password) {
-      setConfirmError("Passwords don't match");
+  const handleConfirmComplete = useCallback((nextConfirmPin: string) => {
+    setConfirmPin(nextConfirmPin);
+
+    if (nextConfirmPin !== pin) {
+      setConfirmError("PINs don't match");
+      setConfirmPin("");
       return;
     }
+
     setConfirmError(null);
     setImportError(null);
     setHexKey("");
     setStep("import");
-  }, [confirmPassword, password]);
+  }, [pin]);
 
   const handleBack = useCallback(() => {
     if (step === "confirm") {
       setConfirmError(null);
-      setConfirmPassword("");
-      setStep("password");
+      setConfirmPin("");
+      setStep("pin");
     } else if (step === "import") {
       setImportError(null);
       setHexKey("");
@@ -106,16 +107,14 @@ export function ImportWalletScreen({ onComplete }: Props) {
     setImportError(null);
 
     try {
-      const keypair = await importWallet(bytes, password);
-      onComplete(keypair, password);
+      const keypair = await importWallet(bytes, pin);
+      onComplete(keypair, pin);
     } catch (e) {
       setImportError(e instanceof Error ? e.message : "Failed to import wallet");
     } finally {
       setIsImporting(false);
     }
-  }, [hexKey, password, importWallet, onComplete]);
-
-  const isPasswordValid = password.length >= MIN_PASSWORD_LENGTH;
+  }, [hexKey, pin, importWallet, onComplete]);
 
   // Full-screen loading while encrypting + storing
   if (isImporting) {
@@ -139,7 +138,7 @@ export function ImportWalletScreen({ onComplete }: Props) {
         <View className="flex-1 px-6 pt-4">
           {/* Header */}
           <View className="mb-8 flex-row items-center">
-            {step !== "password" && (
+            {step !== "pin" && (
               <Pressable onPress={handleBack} hitSlop={12} className="mr-3">
                 <ArrowLeft size={24} color="#000" strokeWidth={1.5} />
               </Pressable>
@@ -147,65 +146,39 @@ export function ImportWalletScreen({ onComplete }: Props) {
             <View className="flex-1" />
           </View>
 
-          {/* Step: Password */}
-          {step === "password" && (
-            <View className="flex-1">
-              <Text style={styles.title}>Create Password</Text>
+          {/* Step: PIN */}
+          {step === "pin" && (
+            <View className="flex-1 justify-center pb-16">
+              <Text style={styles.title}>Create PIN</Text>
               <Text style={styles.subtitle}>
-                This password encrypts your wallet
+                Use a 4-digit PIN to protect your wallet
               </Text>
-              <View className="mt-6">
-                <PasswordInput
-                  value={password}
-                  onChange={setPassword}
-                  onSubmit={handlePasswordContinue}
-                  showStrength
-                  autoFocus
-                  placeholder="Enter password"
+              <View className="mt-10">
+                <PinPadInput
+                  value={pin}
+                  onChange={setPin}
+                  onComplete={handlePinComplete}
                 />
               </View>
-              <View className="flex-1" />
-              <Pressable
-                onPress={handlePasswordContinue}
-                style={[styles.primaryButton, !isPasswordValid && styles.buttonDisabled]}
-                disabled={!isPasswordValid}
-              >
-                <Text style={styles.primaryButtonText}>Continue</Text>
-              </Pressable>
-              <View className="h-8" />
             </View>
           )}
 
           {/* Step: Confirm */}
           {step === "confirm" && (
-            <View className="flex-1">
-              <Text style={styles.title}>Confirm Password</Text>
-              <Text style={styles.subtitle}>Enter your password again</Text>
-              <View className="mt-6">
-                <PasswordInput
-                  value={confirmPassword}
-                  onChange={(text) => {
-                    setConfirmPassword(text);
+            <View className="flex-1 justify-center pb-16">
+              <Text style={styles.title}>Confirm PIN</Text>
+              <Text style={styles.subtitle}>Enter your PIN again</Text>
+              <View className="mt-10">
+                <PinPadInput
+                  value={confirmPin}
+                  onChange={(value) => {
+                    setConfirmPin(value);
                     setConfirmError(null);
                   }}
-                  onSubmit={handleConfirmContinue}
+                  onComplete={handleConfirmComplete}
                   error={confirmError}
-                  autoFocus
-                  placeholder="Confirm password"
                 />
               </View>
-              <View className="flex-1" />
-              <Pressable
-                onPress={handleConfirmContinue}
-                style={[
-                  styles.primaryButton,
-                  confirmPassword.length === 0 && styles.buttonDisabled,
-                ]}
-                disabled={confirmPassword.length === 0}
-              >
-                <Text style={styles.primaryButtonText}>Continue</Text>
-              </Pressable>
-              <View className="h-8" />
             </View>
           )}
 
@@ -281,8 +254,9 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontFamily: "Geist_400Regular",
-    fontSize: 16,
+    fontSize: 18,
     color: "rgba(0,0,0,0.5)",
+    lineHeight: 24,
   },
   primaryButton: {
     height: 52,

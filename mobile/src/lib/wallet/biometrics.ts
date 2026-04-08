@@ -1,7 +1,7 @@
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 
-const BIOMETRIC_PASSWORD_KEY = "wallet_biometric_password";
+const BIOMETRIC_PIN_KEY = "wallet_biometric_password";
 const BIOMETRIC_ENABLED_KEY = "wallet_biometric_enabled";
 
 export async function isBiometricAvailable(): Promise<boolean> {
@@ -20,11 +20,11 @@ export async function getBiometricType(): Promise<"faceid" | "fingerprint" | "no
   return "none";
 }
 
-export async function enableBiometrics(password: string): Promise<boolean> {
+export async function enableBiometrics(pin: string): Promise<boolean> {
   const available = await isBiometricAvailable();
   if (!available) return false;
 
-  await SecureStore.setItemAsync(BIOMETRIC_PASSWORD_KEY, password, {
+  await SecureStore.setItemAsync(BIOMETRIC_PIN_KEY, pin, {
     requireAuthentication: true,
     authenticationPrompt: "Authenticate to enable biometric unlock",
   });
@@ -33,7 +33,7 @@ export async function enableBiometrics(password: string): Promise<boolean> {
 }
 
 export async function disableBiometrics(): Promise<void> {
-  await SecureStore.deleteItemAsync(BIOMETRIC_PASSWORD_KEY);
+  await SecureStore.deleteItemAsync(BIOMETRIC_PIN_KEY);
   await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
 }
 
@@ -44,11 +44,11 @@ export async function isBiometricEnabled(): Promise<boolean> {
 
 export async function authenticateWithBiometrics(): Promise<string | null> {
   try {
-    const password = await SecureStore.getItemAsync(BIOMETRIC_PASSWORD_KEY, {
+    const pin = await SecureStore.getItemAsync(BIOMETRIC_PIN_KEY, {
       requireAuthentication: true,
       authenticationPrompt: "Unlock your wallet",
     });
-    return password;
+    return pin;
   } catch {
     return null;
   }
