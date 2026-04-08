@@ -33,6 +33,12 @@ const config: ExpoConfig = {
     "expo-router",
     "expo-local-authentication",
     [
+      "expo-camera",
+      {
+        cameraPermission: "Allow Loyal to scan wallet QR codes",
+      },
+    ],
+    [
       "expo-splash-screen",
       {
         image: "./assets/images/splash-icon.png",

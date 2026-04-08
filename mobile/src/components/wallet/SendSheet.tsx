@@ -4,6 +4,11 @@ import {
   BottomSheetScrollView,
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
+import {
+  CameraView,
+  type BarcodeScanningResult,
+  useCameraPermissions,
+} from "expo-camera";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
@@ -63,6 +68,51 @@ type SendAsset = {
   priceUsd: number | null;
   imageUrl: string | null;
 };
+
+const SOL_ADDRESS_CANDIDATE_REGEX = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
+
+function safeDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function extractSolanaAddressFromScan(rawData: string): string | null {
+  const trimmed = rawData.trim();
+  if (!trimmed) return null;
+
+  const possibleInputs = [trimmed, safeDecodeUriComponent(trimmed)];
+  const queryKeys = ["to", "address", "recipient", "pubkey"];
+
+  for (const input of possibleInputs) {
+    const solanaPrefixed = input
+      .replace(/^solana:(\/\/)?/i, "")
+      .split("?")[0]
+      .split("#")[0];
+    if (isValidSolanaAddress(solanaPrefixed)) return solanaPrefixed;
+
+    try {
+      const parsed = new URL(input);
+      for (const key of queryKeys) {
+        const paramValue = parsed.searchParams.get(key);
+        if (!paramValue) continue;
+        const normalizedValue = safeDecodeUriComponent(paramValue).trim();
+        if (isValidSolanaAddress(normalizedValue)) return normalizedValue;
+      }
+    } catch {
+      // Not a URL; continue with regex candidate scan.
+    }
+
+    const candidates = input.match(SOL_ADDRESS_CANDIDATE_REGEX) ?? [];
+    for (const candidate of candidates) {
+      if (isValidSolanaAddress(candidate)) return candidate;
+    }
+  }
+
+  return null;
+}
 
 function toRawAmount(amount: number, decimals: number): bigint {
   const scale = 10 ** decimals;
@@ -131,10 +181,15 @@ export function SendSheet({
   onSendComplete,
 }: SendSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const scanLockRef = useRef(false);
+  const scanUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [step, setStep] = useState<SendStep>("form");
+  const [showQrScanner, setShowQrScanner] = useState(false);
   const [showTokenPicker, setShowTokenPicker] = useState(false);
   const [selectedMint, setSelectedMint] = useState<string>(NATIVE_SOL_MINT);
   const [recipient, setRecipient] = useState("");
+  const [scanError, setScanError] = useState<string | null>(null);
   const [amountStr, setAmountStr] = useState("");
   const [currencyMode, setCurrencyMode] = useState<"TOKEN" | "USD">("TOKEN");
   const [isSending, setIsSending] = useState(false);
@@ -184,19 +239,34 @@ export function SendSheet({
     }
   }, [sendAssets, selectedMint]);
 
+  useEffect(() => {
+    return () => {
+      if (scanUnlockTimerRef.current) {
+        clearTimeout(scanUnlockTimerRef.current);
+      }
+    };
+  }, []);
+
   // Reset state when opening
   useEffect(() => {
     if (open) {
       bottomSheetRef.current?.present();
       setStep("form");
+      setShowQrScanner(false);
       setShowTokenPicker(false);
       setSelectedMint(NATIVE_SOL_MINT);
       setRecipient("");
+      setScanError(null);
       setAmountStr("");
       setCurrencyMode("TOKEN");
       setSendError(null);
       setTxSignature(null);
       setIsSending(false);
+      scanLockRef.current = false;
+      if (scanUnlockTimerRef.current) {
+        clearTimeout(scanUnlockTimerRef.current);
+        scanUnlockTimerRef.current = null;
+      }
     } else {
       bottomSheetRef.current?.dismiss();
     }
@@ -241,6 +311,8 @@ export function SendSheet({
   }, [isFormValid, isSending, selectedAsset, amountInToken, recipient, onSendComplete]);
 
   const handleClose = useCallback(() => {
+    setShowQrScanner(false);
+    setShowTokenPicker(false);
     bottomSheetRef.current?.dismiss();
     onClose();
   }, [onClose]);
@@ -266,6 +338,55 @@ export function SendSheet({
     setRecipient(normalized);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
+
+  const handleOpenQrScanner = useCallback(async () => {
+    Keyboard.dismiss();
+    setScanError(null);
+    setShowTokenPicker(false);
+    setShowQrScanner(true);
+
+    let granted = cameraPermission?.granted ?? false;
+    if (!granted) {
+      const response = await requestCameraPermission();
+      granted = response.granted;
+    }
+
+    if (!granted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
+    scanLockRef.current = false;
+    if (scanUnlockTimerRef.current) {
+      clearTimeout(scanUnlockTimerRef.current);
+      scanUnlockTimerRef.current = null;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [cameraPermission, requestCameraPermission]);
+
+  const handleBarcodeScanned = useCallback(
+    (event: BarcodeScanningResult) => {
+      if (scanLockRef.current) return;
+      scanLockRef.current = true;
+
+      const scannedAddress = extractSolanaAddressFromScan(event.data);
+      if (!scannedAddress) {
+        setScanError("No valid Solana address found in that QR code.");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        scanUnlockTimerRef.current = setTimeout(() => {
+          scanLockRef.current = false;
+          scanUnlockTimerRef.current = null;
+        }, 800);
+        return;
+      }
+
+      setRecipient(scannedAddress);
+      setScanError(null);
+      setShowQrScanner(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    [],
+  );
 
   const handleSelectAsset = useCallback((mint: string) => {
     setSelectedMint(mint);
@@ -328,10 +449,15 @@ export function SendSheet({
         <View className="px-6 pb-12 pt-2">
           {/* Header */}
           <View className="mb-4 flex-row items-center justify-center">
-            {(step === "confirm" || showTokenPicker) && (
+            {(step === "confirm" || showTokenPicker || showQrScanner) && (
               <Pressable
                 className="absolute left-0"
                 onPress={() => {
+                  if (showQrScanner) {
+                    setShowQrScanner(false);
+                    setScanError(null);
+                    return;
+                  }
                   if (showTokenPicker) {
                     setShowTokenPicker(false);
                     return;
@@ -346,7 +472,9 @@ export function SendSheet({
               className="text-[17px] font-semibold text-black"
               style={{ lineHeight: 22 }}
             >
-              {showTokenPicker
+              {showQrScanner
+                ? "Scan QR"
+                : showTokenPicker
                 ? "Select Token"
                 : step === "form"
                 ? "Send"
@@ -358,7 +486,15 @@ export function SendSheet({
 
           {step === "form" && (
             <>
-              {showTokenPicker ? (
+              {showQrScanner ? (
+                <AddressScannerStep
+                  scanError={scanError}
+                  onScan={handleBarcodeScanned}
+                  onRequestPermission={requestCameraPermission}
+                  permissionGranted={cameraPermission?.granted === true}
+                  canAskPermissionAgain={cameraPermission?.canAskAgain !== false}
+                />
+              ) : showTokenPicker ? (
                 <TokenPicker
                   assets={sendAssets}
                   onSelect={handleSelectAsset}
@@ -371,6 +507,7 @@ export function SendSheet({
                   recipient={recipient}
                   onRecipientChange={setRecipient}
                   onPasteRecipient={handlePasteRecipient}
+                  onScanRecipient={handleOpenQrScanner}
                   amountStr={amountStr}
                   onAmountChange={setAmountStr}
                   currencyMode={currencyMode}
@@ -426,6 +563,7 @@ function FormStep({
   recipient,
   onRecipientChange,
   onPasteRecipient,
+  onScanRecipient,
   amountStr,
   onAmountChange,
   currencyMode,
@@ -443,6 +581,7 @@ function FormStep({
   recipient: string;
   onRecipientChange: (v: string) => void;
   onPasteRecipient: () => void;
+  onScanRecipient: () => void;
   amountStr: string;
   onAmountChange: (v: string) => void;
   currencyMode: "TOKEN" | "USD";
@@ -460,12 +599,20 @@ function FormStep({
       {/* Recipient */}
       <View className="mb-1.5 flex-row items-center justify-between">
         <Text className="text-[14px] font-medium text-neutral-700">To</Text>
-        <Pressable
-          className="rounded-lg bg-neutral-200 px-2.5 py-1"
-          onPress={onPasteRecipient}
-        >
-          <Text className="text-[12px] font-semibold text-neutral-700">Paste</Text>
-        </Pressable>
+        <View className="flex-row items-center gap-2">
+          <Pressable
+            className="rounded-lg bg-neutral-200 px-2.5 py-1"
+            onPress={onScanRecipient}
+          >
+            <Text className="text-[12px] font-semibold text-neutral-700">Scan</Text>
+          </Pressable>
+          <Pressable
+            className="rounded-lg bg-neutral-200 px-2.5 py-1"
+            onPress={onPasteRecipient}
+          >
+            <Text className="text-[12px] font-semibold text-neutral-700">Paste</Text>
+          </Pressable>
+        </View>
       </View>
       <BottomSheetTextInput
         style={{
@@ -565,6 +712,69 @@ function FormStep({
           Review
         </Text>
       </Pressable>
+    </>
+  );
+}
+
+function AddressScannerStep({
+  permissionGranted,
+  canAskPermissionAgain,
+  onRequestPermission,
+  onScan,
+  scanError,
+}: {
+  permissionGranted: boolean;
+  canAskPermissionAgain: boolean;
+  onRequestPermission: () => Promise<{ granted: boolean }>;
+  onScan: (event: BarcodeScanningResult) => void;
+  scanError: string | null;
+}) {
+  const handleGrantPermission = useCallback(async () => {
+    await onRequestPermission();
+  }, [onRequestPermission]);
+
+  if (!permissionGranted) {
+    return (
+      <View className="items-center rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
+        <Text className="text-center text-[14px] text-neutral-600">
+          Camera access is required to scan wallet address QR codes.
+        </Text>
+        {canAskPermissionAgain ? (
+          <Pressable
+            className="mt-4 rounded-xl bg-black px-4 py-2.5"
+            onPress={handleGrantPermission}
+          >
+            <Text className="text-[13px] font-semibold text-white">
+              Grant Camera Access
+            </Text>
+          </Pressable>
+        ) : (
+          <Text className="mt-3 text-center text-[12px] text-neutral-500">
+            Enable camera permission in device settings.
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <View className="overflow-hidden rounded-2xl border border-neutral-200 bg-black">
+        <CameraView
+          style={{ height: 360, width: "100%" }}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          onBarcodeScanned={onScan}
+        />
+      </View>
+      <Text className="mt-3 text-center text-[13px] text-neutral-500">
+        Align a wallet QR code inside the frame.
+      </Text>
+      {scanError && (
+        <Text className="mt-2 text-center text-[12px] text-red-500">
+          {scanError}
+        </Text>
+      )}
     </>
   );
 }

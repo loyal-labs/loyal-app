@@ -675,13 +675,7 @@ function FormStep({
             onChangeText={onAmountChange}
             keyboardType="decimal-pad"
           />
-          <View className="ml-2 flex-row gap-1.5">
-            <Pressable className="rounded-lg bg-neutral-200 px-2 py-1" onPress={() => onPercentage(25)}>
-              <Text className="text-[11px] font-semibold text-neutral-700">25%</Text>
-            </Pressable>
-            <Pressable className="rounded-lg bg-neutral-200 px-2 py-1" onPress={() => onPercentage(50)}>
-              <Text className="text-[11px] font-semibold text-neutral-700">50%</Text>
-            </Pressable>
+          <View className="ml-2">
             <Pressable className="rounded-lg bg-neutral-200 px-2 py-1" onPress={() => onPercentage(100)}>
               <Text className="text-[11px] font-semibold text-neutral-700">MAX</Text>
             </Pressable>
