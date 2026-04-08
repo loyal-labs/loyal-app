@@ -94,6 +94,19 @@ export declare class LoyalPrivateTransactionsClient {
     getBaseDeposit(user: PublicKey, tokenMint: PublicKey): Promise<DepositData | null>;
     getEphemeralDeposit(user: PublicKey, tokenMint: PublicKey): Promise<DepositData | null>;
     /**
+     * Enumerate every Deposit account owned by a user across both the base
+     * program and the ephemeral program. Used by the wallet UI to discover
+     * shielded holdings even when the user no longer has a matching base-chain
+     * token balance.
+     *
+     * Delegated deposits only exist on the ephemeral chain (on base the PDA is
+     * owned by the delegation program and Anchor cannot deserialize it as a
+     * `Deposit`). Undelegated deposits only exist on base. We query both and
+     * merge by PDA address, preferring the ephemeral amount when both return
+     * an entry because ephemeral reflects the live balance.
+     */
+    getAllDepositsByUser(user: PublicKey): Promise<DepositData[]>;
+    /**
      * Get username deposit data
      */
     getBaseUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
