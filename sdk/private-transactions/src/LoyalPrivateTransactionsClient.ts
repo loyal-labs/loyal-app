@@ -1171,6 +1171,80 @@ export class LoyalPrivateTransactionsClient {
   }
 
   /**
+   * Enumerate every Deposit account owned by a user across both the base
+   * program and the ephemeral program. Used by the wallet UI to discover
+   * shielded holdings even when the user no longer has a matching base-chain
+   * token balance.
+   *
+   * Delegated deposits only exist on the ephemeral chain (on base the PDA is
+   * owned by the delegation program and Anchor cannot deserialize it as a
+   * `Deposit`). Undelegated deposits only exist on base. We query both and
+   * merge by PDA address, preferring the ephemeral amount when both return
+   * an entry because ephemeral reflects the live balance.
+   */
+  async getAllDepositsByUser(user: PublicKey): Promise<DepositData[]> {
+    // Deposit layout after the 8-byte discriminator:
+    //   user: pubkey (32 bytes) @ offset 8
+    //   token_mint: pubkey (32 bytes) @ offset 40
+    //   amount: u64 (8 bytes) @ offset 72
+    const userFilter = [
+      {
+        memcmp: {
+          offset: 8,
+          bytes: user.toBase58(),
+        },
+      },
+    ];
+
+    const [baseResults, ephemeralResults] = await Promise.allSettled([
+      this.baseProgram.account.deposit.all(userFilter),
+      this.ephemeralProgram.account.deposit.all(userFilter),
+    ]);
+
+    const byPda = new Map<string, DepositData>();
+
+    const ingest = (
+      results: Array<{
+        publicKey: PublicKey;
+        account: { user: PublicKey; tokenMint: PublicKey; amount: BN };
+      }>,
+      preferOverwrite: boolean
+    ) => {
+      for (const { publicKey, account } of results) {
+        const key = publicKey.toBase58();
+        if (!preferOverwrite && byPda.has(key)) continue;
+        byPda.set(key, {
+          user: account.user,
+          tokenMint: account.tokenMint,
+          amount: BigInt(account.amount.toString()),
+          address: publicKey,
+        });
+      }
+    };
+
+    if (baseResults.status === "fulfilled") {
+      ingest(baseResults.value, /* preferOverwrite */ false);
+    } else {
+      console.warn(
+        "[getAllDepositsByUser] base program enumeration failed",
+        baseResults.reason
+      );
+    }
+
+    // Ephemeral state wins over base state for live balances.
+    if (ephemeralResults.status === "fulfilled") {
+      ingest(ephemeralResults.value, /* preferOverwrite */ true);
+    } else {
+      console.warn(
+        "[getAllDepositsByUser] ephemeral program enumeration failed",
+        ephemeralResults.reason
+      );
+    }
+
+    return Array.from(byPda.values());
+  }
+
+  /**
    * Get username deposit data
    */
   async getBaseUsernameDeposit(
