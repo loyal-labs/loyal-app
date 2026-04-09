@@ -8,6 +8,12 @@ export interface TokenRow {
   value: string;
   icon: string;
   isSecured?: boolean;
+  /** Supply APY in basis points (e.g. 565 = 5.65%) — shown as badge when set. */
+  apyBps?: number | null;
+  /** USD value earned since principal was recorded (formatted, signed). */
+  earnedValueDisplay?: string | null;
+  /** USD value of principal (formatted) — shown next to earned delta. */
+  principalValueDisplay?: string | null;
 }
 
 export interface ActivityRow {
