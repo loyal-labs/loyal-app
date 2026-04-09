@@ -84,4 +84,28 @@ describe("server config", () => {
       "Stake11111111111111111111111111111111111111"
     );
   });
+
+  test("derives optional auth session config from passkey-compatible env vars", () => {
+    const env = createServerEnv({
+      PHALA_API_KEY: "server-key",
+      DATABASE_URL: "postgresql://localhost/test",
+      AUTH_JWT_SECRET: "jwt-secret-jwt-secret-jwt-secret-123",
+      AUTH_JWT_RS256_PRIVATE_KEY: "private\\nkey",
+      AUTH_JWT_RS256_PUBLIC_KEY: "public\\nkey",
+      AUTH_JWT_TTL_SECONDS: "7200",
+      GRID_ALLOWED_PARENT_DOMAIN: "askloyal.com",
+      GRID_ALLOW_LOCALHOST: "false",
+      GRID_APP_NAME: "loyal-web",
+      DEPLOYMENT_PK: "deployment-key",
+    });
+
+    expect(env.authAppName).toBe("loyal-web");
+    expect(env.authCookieAllowLocalhost).toBe(false);
+    expect(env.authCookieParentDomain).toBe("askloyal.com");
+    expect(env.authJwtSecret).toBe("jwt-secret-jwt-secret-jwt-secret-123");
+    expect(env.authJwtTtlSeconds).toBe(7200);
+    expect(env.authSessionRs256PrivateKey).toBe("private\nkey");
+    expect(env.authSessionRs256PublicKey).toBe("public\nkey");
+    expect(env.deploymentPrivateKey).toBe("deployment-key");
+  });
 });

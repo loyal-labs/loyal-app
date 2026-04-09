@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHash } from "node:crypto";
 import {
   importPKCS8,
@@ -14,15 +16,6 @@ import {
 } from "@loyal-labs/auth-core";
 
 export type AuthSessionTokenClaims = JWTPayload & AuthSessionTokenClaimsData;
-
-export type EmailAccessTokenClaims = AuthSessionTokenClaims & {
-  sub: string;
-  email: string;
-  subjectAddress: string;
-  displayAddress: string;
-  authMethod: "email";
-  provider?: string;
-};
 
 function createSecretKey(secret: string): Uint8Array {
   return createHash("sha256").update(secret).digest();
@@ -52,11 +45,6 @@ export async function verifyAuthSessionToken(
   return authSessionTokenClaimsSchema.parse(payload);
 }
 
-export const issueEmailAccessToken = issueAuthSessionToken;
-export const verifyEmailAccessToken = verifyAuthSessionToken;
-
-// --- RS256 support ---
-
 const RS256_ALG = "RS256";
 
 let cachedRs256PrivateKey: JoseCryptoKey | null = null;
@@ -69,6 +57,7 @@ async function getRs256PrivateKey(pem: string): Promise<JoseCryptoKey> {
   if (cachedRs256PrivateKey && cachedRs256PrivateKeyPem === pem) {
     return cachedRs256PrivateKey;
   }
+
   cachedRs256PrivateKey = await importPKCS8(pem, RS256_ALG);
   cachedRs256PrivateKeyPem = pem;
   return cachedRs256PrivateKey;
@@ -78,6 +67,7 @@ async function getRs256PublicKey(pem: string): Promise<JoseCryptoKey> {
   if (cachedRs256PublicKey && cachedRs256PublicKeyPem === pem) {
     return cachedRs256PublicKey;
   }
+
   cachedRs256PublicKey = await importSPKI(pem, RS256_ALG);
   cachedRs256PublicKeyPem = pem;
   return cachedRs256PublicKey;
@@ -89,6 +79,7 @@ export async function issueAuthSessionTokenRS256(
   ttlSeconds: number
 ): Promise<string> {
   const key = await getRs256PrivateKey(privateKeyPem);
+
   return new SignJWT(claims)
     .setProtectedHeader({ alg: RS256_ALG, typ: "JWT" })
     .setIssuedAt()
@@ -104,6 +95,7 @@ export async function verifyAuthSessionTokenRS256(
   const { payload } = await jwtVerify<AuthSessionTokenClaims>(token, key, {
     algorithms: [RS256_ALG],
   });
+
   return authSessionTokenClaimsSchema.parse(payload);
 }
 
@@ -115,7 +107,7 @@ export async function verifyAuthSessionTokenMulti(
     try {
       return await verifyAuthSessionTokenRS256(token, options.rs256PublicKey);
     } catch {
-      // RS256 verification failed — fall through to HS256
+      // Fall through to HS256 verification below.
     }
   }
 

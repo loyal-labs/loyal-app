@@ -1,10 +1,11 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import {
   appUserSmartAccounts,
   type AppUserSmartAccount,
   type AppUserSmartAccountSolanaEnv,
+  type AppUserSmartAccountState,
 } from "@loyal-labs/db-core/schema";
 
 import { getDatabase } from "@/lib/core/database";
@@ -17,6 +18,9 @@ type SmartAccountRepositoryRecord = Pick<
   | "settingsPda"
   | "state"
   | "creationSignature"
+  | "lastCheckedAt"
+  | "lastErrorCode"
+  | "lastErrorMessage"
   | "createdAt"
   | "updatedAt"
 >;
@@ -68,7 +72,27 @@ export async function findAppUserSmartAccountByUserIdAndEnv(
   );
 }
 
-export async function upsertPendingAppUserSmartAccount(
+export async function listStaleAppUserSmartAccounts(args: {
+  limit: number;
+  staleBefore: Date;
+  states?: AppUserSmartAccountState[];
+}): Promise<AppUserSmartAccountRecord[]> {
+  const db = getDatabase();
+
+  return db.query.appUserSmartAccounts.findMany({
+    where: and(
+      inArray(
+        appUserSmartAccounts.state,
+        args.states ?? ["provisioning", "failed"]
+      ),
+      lte(appUserSmartAccounts.updatedAt, args.staleBefore)
+    ),
+    orderBy: asc(appUserSmartAccounts.updatedAt),
+    limit: args.limit,
+  });
+}
+
+export async function reserveProvisioningAppUserSmartAccount(
   input: {
     userId: string;
     solanaEnv: AppUserSmartAccountSolanaEnv;
@@ -86,8 +110,11 @@ export async function upsertPendingAppUserSmartAccount(
         userId: input.userId,
         solanaEnv: input.solanaEnv,
         settingsPda: input.settingsPda,
-        state: "pending",
+        state: "provisioning",
         creationSignature: null,
+        lastCheckedAt: now,
+        lastErrorCode: null,
+        lastErrorMessage: null,
         createdAt: now,
         updatedAt: now,
       })
@@ -95,15 +122,18 @@ export async function upsertPendingAppUserSmartAccount(
         target: [appUserSmartAccounts.userId, appUserSmartAccounts.solanaEnv],
         set: {
           settingsPda: input.settingsPda,
-          state: "pending",
+          state: "provisioning",
           creationSignature: null,
+          lastCheckedAt: now,
+          lastErrorCode: null,
+          lastErrorMessage: null,
           updatedAt: now,
         },
       })
       .returning();
 
     if (!result[0]) {
-      throw new Error("Failed to upsert pending app user smart account");
+      throw new Error("Failed to reserve app user smart account provisioning");
     }
 
     return result[0];
@@ -134,6 +164,9 @@ export async function markAppUserSmartAccountReady(
       ...(input.creationSignature !== undefined
         ? { creationSignature: input.creationSignature }
         : {}),
+      lastCheckedAt: now,
+      lastErrorCode: null,
+      lastErrorMessage: null,
       updatedAt: now,
     })
     .where(
@@ -146,6 +179,46 @@ export async function markAppUserSmartAccountReady(
 
   if (!result[0]) {
     throw new Error("Failed to mark app user smart account ready");
+  }
+
+  return result[0];
+}
+
+export async function markAppUserSmartAccountFailed(
+  input: {
+    userId: string;
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    errorCode: string;
+    errorMessage: string;
+    creationSignature?: string | null;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppUserSmartAccountRecord> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .update(appUserSmartAccounts)
+    .set({
+      state: "failed",
+      ...(input.creationSignature !== undefined
+        ? { creationSignature: input.creationSignature }
+        : {}),
+      lastCheckedAt: now,
+      lastErrorCode: input.errorCode,
+      lastErrorMessage: input.errorMessage,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(appUserSmartAccounts.userId, input.userId),
+        eq(appUserSmartAccounts.solanaEnv, input.solanaEnv)
+      )
+    )
+    .returning();
+
+  if (!result[0]) {
+    throw new Error("Failed to mark app user smart account failed");
   }
 
   return result[0];

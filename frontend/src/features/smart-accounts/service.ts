@@ -1,34 +1,48 @@
 import { PublicKey } from "@solana/web3.js";
-import type { AppUserSmartAccountSolanaEnv } from "@loyal-labs/db-core/schema";
+import type {
+  AppUserSmartAccount,
+  AppUserSmartAccountSolanaEnv,
+  AppWalletAuthProvisioningOutcome,
+} from "@loyal-labs/db-core/schema";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
-import type { SmartAccountProvisioningResponse } from "@/features/smart-accounts/contracts";
 import {
   deriveCanonicalSmartAccountAddress,
   deriveSettingsPdaAddress,
 } from "@/features/smart-accounts/derivation";
 
-type ServiceRecord = {
-  id: string;
-  userId: string;
-  solanaEnv: AppUserSmartAccountSolanaEnv;
-  settingsPda: string;
-  state: "pending" | "ready";
-  creationSignature: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
+type ServiceRecord = Pick<
+  AppUserSmartAccount,
+  | "id"
+  | "userId"
+  | "solanaEnv"
+  | "settingsPda"
+  | "state"
+  | "creationSignature"
+  | "lastCheckedAt"
+  | "lastErrorCode"
+  | "lastErrorMessage"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 type PendingRecordResolution =
   | { kind: "missing" }
   | { kind: "owner_mismatch" }
   | { kind: "ready"; record: ServiceRecord };
 
+export type SmartAccountProvisioningOutcome = AppWalletAuthProvisioningOutcome;
+
 export type SmartAccountSummary = {
   programId: string;
   settingsPda: string;
   smartAccountAddress: string;
   creationSignature: string | null;
+};
+
+export type EnsureUserSmartAccountResult = {
+  smartAccount: SmartAccountSummary;
+  provisioningOutcome: SmartAccountProvisioningOutcome;
 };
 
 export type SmartAccountServiceDependencies = {
@@ -40,7 +54,7 @@ export type SmartAccountServiceDependencies = {
     userId: string,
     solanaEnv: AppUserSmartAccountSolanaEnv
   ) => Promise<ServiceRecord | null>;
-  upsertPending: (input: {
+  reserveProvisioning: (input: {
     userId: string;
     solanaEnv: AppUserSmartAccountSolanaEnv;
     settingsPda: string;
@@ -50,6 +64,13 @@ export type SmartAccountServiceDependencies = {
     solanaEnv: AppUserSmartAccountSolanaEnv;
     creationSignature?: string | null;
   }) => Promise<ServiceRecord>;
+  markFailed: (input: {
+    userId: string;
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    errorCode: string;
+    errorMessage: string;
+    creationSignature?: string | null;
+  }) => Promise<ServiceRecord>;
   fetchProgramConfig: (input: {
     solanaEnv: SolanaEnv;
     programId: string;
@@ -57,6 +78,13 @@ export type SmartAccountServiceDependencies = {
     smartAccountIndex: { toString(): string };
     treasury: PublicKey;
   }>;
+  createSmartAccount: (input: {
+    solanaEnv: SolanaEnv;
+    programId: string;
+    settingsPda: string;
+    treasury: PublicKey;
+    walletAddress: string;
+  }) => Promise<string>;
   findSignerAddressesForSettings: (input: {
     solanaEnv: SolanaEnv;
     programId: string;
@@ -107,52 +135,40 @@ function toSummary(args: {
   };
 }
 
-function toProvisioningResponse(args: {
-  solanaEnv: SolanaEnv;
-  programId: string;
-  record: ServiceRecord;
-  treasury: string | null;
-}): SmartAccountProvisioningResponse {
-  const summary = toSummary({
-    programId: args.programId,
-    settingsPda: args.record.settingsPda,
-    creationSignature: args.record.creationSignature,
-  });
-
-  return {
-    state: args.record.state,
-    solanaEnv: args.solanaEnv,
-    programId: summary.programId,
-    settingsPda: summary.settingsPda,
-    smartAccountAddress: summary.smartAccountAddress,
-    creationSignature: summary.creationSignature,
-    treasury: args.treasury,
-  };
-}
-
-function assertMatchingSettingsPda(
-  record: ServiceRecord,
-  settingsPda: string | undefined
-): void {
-  if (!settingsPda || record.settingsPda === settingsPda) {
-    return;
+function toFailure(args: { error: unknown }): SmartAccountProvisioningError {
+  if (args.error instanceof SmartAccountProvisioningError) {
+    return args.error;
   }
 
-  throw new SmartAccountProvisioningError({
-    code: "settings_pda_mismatch",
-    message: "The submitted settings PDA does not match the pending record.",
-    status: 409,
+  if (
+    args.error instanceof Error &&
+    /DEPLOYMENT_PK is not set/i.test(args.error.message)
+  ) {
+    return new SmartAccountProvisioningError({
+      code: "smart_account_sponsor_not_configured",
+      message:
+        "Sponsored smart account creation is not configured on this environment.",
+      status: 500,
+    });
+  }
+
+  return new SmartAccountProvisioningError({
+    code: "smart_account_provisioning_failed",
+    message:
+      args.error instanceof Error
+        ? args.error.message
+        : "Failed to provision the smart account.",
+    status: 502,
   });
 }
 
-async function maybePromotePendingRecord(args: {
+async function maybePromoteRecord(args: {
   record: ServiceRecord;
   programId: string;
   walletAddress: string;
-  creationSignature?: string | null;
   dependencies: SmartAccountServiceDependencies;
 }): Promise<PendingRecordResolution> {
-  if (args.record.state !== "pending") {
+  if (args.record.state === "ready") {
     return { kind: "ready", record: args.record };
   }
 
@@ -175,20 +191,19 @@ async function maybePromotePendingRecord(args: {
     record: await args.dependencies.markReady({
       userId: args.record.userId,
       solanaEnv: args.record.solanaEnv,
-      creationSignature:
-        args.creationSignature ?? args.record.creationSignature ?? undefined,
+      creationSignature: args.record.creationSignature ?? undefined,
     }),
   };
 }
 
-async function reservePendingRecord(args: {
+async function reserveProvisioningRecord(args: {
   userId: string;
   solanaEnv: AppUserSmartAccountSolanaEnv;
   programId: string;
   dependencies: SmartAccountServiceDependencies;
 }): Promise<{
   record: ServiceRecord;
-  treasury: string;
+  treasury: PublicKey;
 }> {
   let lastConflictError: unknown = null;
 
@@ -203,7 +218,7 @@ async function reservePendingRecord(args: {
     });
 
     try {
-      const record = await args.dependencies.upsertPending({
+      const record = await args.dependencies.reserveProvisioning({
         userId: args.userId,
         solanaEnv: args.solanaEnv,
         settingsPda: nextSettingsPda,
@@ -211,7 +226,7 @@ async function reservePendingRecord(args: {
 
       return {
         record,
-        treasury: programConfig.treasury.toBase58(),
+        treasury: programConfig.treasury,
       };
     } catch (error) {
       if (!args.dependencies.isSettingsReservationConflict(error)) {
@@ -235,102 +250,171 @@ async function reservePendingRecord(args: {
   });
 }
 
+async function sponsorRecord(args: {
+  record: ServiceRecord;
+  programId: string;
+  walletAddress: string;
+  treasury: PublicKey;
+  dependencies: SmartAccountServiceDependencies;
+}): Promise<ServiceRecord> {
+  let signature: string | null = null;
+
+  try {
+    signature = await args.dependencies.createSmartAccount({
+      solanaEnv: args.record.solanaEnv,
+      programId: args.programId,
+      settingsPda: args.record.settingsPda,
+      treasury: args.treasury,
+      walletAddress: args.walletAddress,
+    });
+
+    return await args.dependencies.markReady({
+      userId: args.record.userId,
+      solanaEnv: args.record.solanaEnv,
+      creationSignature: signature,
+    });
+  } catch (error) {
+    const reconciledRecord = await maybePromoteRecord({
+      record: args.record,
+      programId: args.programId,
+      walletAddress: args.walletAddress,
+      dependencies: args.dependencies,
+    });
+
+    if (reconciledRecord.kind === "ready") {
+      return reconciledRecord.record;
+    }
+
+    const failure = toFailure({ error });
+    await args.dependencies.markFailed({
+      userId: args.record.userId,
+      solanaEnv: args.record.solanaEnv,
+      errorCode: failure.code,
+      errorMessage: failure.message,
+      ...(signature ? { creationSignature: signature } : {}),
+    });
+    throw failure;
+  }
+}
+
 export async function ensureUserSmartAccount(
   args: {
     userId: string;
     walletAddress: string;
-    refreshPending?: boolean;
-    settingsPda?: string;
-    signature?: string;
   },
   dependencies: SmartAccountServiceDependencies
-): Promise<SmartAccountProvisioningResponse> {
+): Promise<EnsureUserSmartAccountResult> {
   const { solanaEnv, programId } = dependencies.getCurrentConfig();
   const existingRecord = await dependencies.findByUserIdAndEnv(
     args.userId,
     solanaEnv
   );
 
-  if (args.settingsPda && !existingRecord) {
-    throw new SmartAccountProvisioningError({
-      code: "smart_account_not_found",
-      message: "No smart account provisioning record exists for this user.",
-      status: 404,
-    });
+  if (existingRecord?.state === "ready") {
+    return {
+      smartAccount: toSummary({
+        programId,
+        settingsPda: existingRecord.settingsPda,
+        creationSignature: existingRecord.creationSignature,
+      }),
+      provisioningOutcome: "existing_ready",
+    };
   }
 
   if (existingRecord) {
-    assertMatchingSettingsPda(existingRecord, args.settingsPda);
-
-    if (existingRecord.state === "ready") {
-      if (args.signature && !existingRecord.creationSignature) {
-        const updatedRecord = await dependencies.markReady({
-          userId: existingRecord.userId,
-          solanaEnv: existingRecord.solanaEnv,
-          creationSignature: args.signature,
-        });
-
-        return toProvisioningResponse({
-          solanaEnv,
-          programId,
-          record: updatedRecord,
-          treasury: null,
-        });
-      }
-
-      return toProvisioningResponse({
-        solanaEnv,
-        programId,
-        record: existingRecord,
-        treasury: null,
-      });
-    }
-
-    const reconciledRecord = await maybePromotePendingRecord({
+    const reconciledRecord = await maybePromoteRecord({
       record: existingRecord,
       programId,
       walletAddress: args.walletAddress,
-      creationSignature: args.signature ?? null,
       dependencies,
     });
 
     if (reconciledRecord.kind === "ready") {
-      return toProvisioningResponse({
-        solanaEnv,
-        programId,
-        record: reconciledRecord.record,
-        treasury: null,
-      });
+      return {
+        smartAccount: toSummary({
+          programId,
+          settingsPda: reconciledRecord.record.settingsPda,
+          creationSignature: reconciledRecord.record.creationSignature,
+        }),
+        provisioningOutcome: "reconciled_ready",
+      };
     }
 
-    if (reconciledRecord.kind === "missing" && !args.refreshPending) {
+    if (reconciledRecord.kind === "missing") {
       const programConfig = await dependencies.fetchProgramConfig({
         solanaEnv,
         programId,
       });
-
-      return toProvisioningResponse({
-        solanaEnv,
-        programId,
+      const readyRecord = await sponsorRecord({
         record: existingRecord,
-        treasury: programConfig.treasury.toBase58(),
+        programId,
+        walletAddress: args.walletAddress,
+        treasury: programConfig.treasury,
+        dependencies,
       });
+
+      return {
+        smartAccount: toSummary({
+          programId,
+          settingsPda: readyRecord.settingsPda,
+          creationSignature: readyRecord.creationSignature,
+        }),
+        provisioningOutcome:
+          existingRecord.state === "failed"
+            ? "retried_failed_record"
+            : "sponsored_existing_record",
+      };
     }
+
+    const reservation = await reserveProvisioningRecord({
+      userId: args.userId,
+      solanaEnv,
+      programId,
+      dependencies,
+    });
+    const readyRecord = await sponsorRecord({
+      record: reservation.record,
+      programId,
+      walletAddress: args.walletAddress,
+      treasury: reservation.treasury,
+      dependencies,
+    });
+
+    return {
+      smartAccount: toSummary({
+        programId,
+        settingsPda: readyRecord.settingsPda,
+        creationSignature: readyRecord.creationSignature,
+      }),
+      provisioningOutcome:
+        existingRecord.state === "failed"
+          ? "retried_failed_record"
+          : "sponsored_existing_record",
+    };
   }
 
-  const reservation = await reservePendingRecord({
+  const reservation = await reserveProvisioningRecord({
     userId: args.userId,
     solanaEnv,
     programId,
     dependencies,
   });
-
-  return toProvisioningResponse({
-    solanaEnv,
-    programId,
+  const readyRecord = await sponsorRecord({
     record: reservation.record,
+    programId,
+    walletAddress: args.walletAddress,
     treasury: reservation.treasury,
+    dependencies,
   });
+
+  return {
+    smartAccount: toSummary({
+      programId,
+      settingsPda: readyRecord.settingsPda,
+      creationSignature: readyRecord.creationSignature,
+    }),
+    provisioningOutcome: "sponsored_new_record",
+  };
 }
 
 export async function findReadyUserSmartAccount(

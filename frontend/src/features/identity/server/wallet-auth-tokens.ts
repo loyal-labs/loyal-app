@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHash } from "node:crypto";
 
 import { errors as joseErrors, jwtVerify, SignJWT, type JWTPayload } from "jose";
@@ -7,7 +9,7 @@ import {
   type WalletChallengeTokenClaimsData,
 } from "@loyal-labs/auth-core";
 
-import { WalletAuthError } from "./wallet-errors";
+import { WalletAuthError } from "./wallet-auth-errors";
 
 export type WalletChallengeTokenClaims = JWTPayload &
   WalletChallengeTokenClaimsData;

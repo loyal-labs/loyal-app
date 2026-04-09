@@ -6,7 +6,11 @@ import { createAuthClient } from "@loyal-labs/auth-core";
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { createAuthApiClient } from "@/lib/auth/client";
+import {
+  createAuthApiClient,
+  createSharedAuthApiClient,
+  createWalletAuthApiClient,
+} from "@/lib/auth/client";
 import { resetAuthenticatedUser, trackAuthLogout } from "@/lib/core/analytics";
 import type { AuthApiClient } from "@/lib/auth/client";
 
@@ -27,12 +31,23 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthSessionUser | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const authApiClient = useMemo(
-    () =>
-      createAuthApiClient(
+    () => {
+      const sharedClient = createSharedAuthApiClient(
         createAuthClient({
           authBaseUrl: publicEnv.gridAuthBaseUrl ?? "",
         })
-      ),
+      );
+      const walletClient = createWalletAuthApiClient(
+        createAuthClient({
+          authBaseUrl: "",
+        })
+      );
+
+      return createAuthApiClient({
+        sharedClient,
+        walletClient,
+      });
+    },
     [publicEnv.gridAuthBaseUrl]
   );
 

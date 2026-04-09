@@ -99,7 +99,7 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
             ? "Connecting your wallet..."
             : state.status === "awaiting_signature"
               ? "Approve the message signature in your wallet..."
-              : "Verifying wallet ownership..."}
+              : "Verifying your wallet and preparing your smart account..."}
         </p>
       </div>
     );

@@ -1,14 +1,16 @@
 import "server-only";
 
 import {
+  AUTH_SESSION_COOKIE_NAME,
   buildAuthUrl,
   extractApiErrorMessage,
   getAuthSessionResponseSchema,
+  mapAuthSessionTokenClaimsToUser,
 } from "@loyal-labs/auth-core";
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
-import { importSPKI, jwtVerify, type CryptoKey as JoseCryptoKey } from "jose";
 
 import { getServerEnv } from "@/lib/core/config/server";
+import { verifyAuthSessionTokenMulti } from "@/features/identity/server/session-token";
 
 export type AuthenticatedPrincipal = {
   provider: "solana";
@@ -38,20 +40,6 @@ export class AuthGatewayError extends Error {
   }
 }
 
-const SESSION_COOKIE_NAME = "loyal_email_session";
-
-let cachedPublicKey: JoseCryptoKey | null = null;
-let cachedPublicKeyPem: string | null = null;
-
-async function getPublicKey(pem: string): Promise<JoseCryptoKey> {
-  if (cachedPublicKey && cachedPublicKeyPem === pem) {
-    return cachedPublicKey;
-  }
-  cachedPublicKey = await importSPKI(pem, "RS256");
-  cachedPublicKeyPem = pem;
-  return cachedPublicKey;
-}
-
 function extractCookieValue(
   cookieHeader: string,
   name: string
@@ -68,41 +56,24 @@ function extractCookieValue(
 async function verifySessionLocally(
   request: Request
 ): Promise<AuthenticatedPrincipal | null> {
-  const { authSessionRs256PublicKey } = getServerEnv();
-  if (!authSessionRs256PublicKey) return null;
+  const { authJwtSecret, authSessionRs256PublicKey } = getServerEnv();
+  if (!authSessionRs256PublicKey && !authJwtSecret) return null;
 
   const cookieHeader = request.headers.get("cookie");
   if (!cookieHeader) return null;
 
-  const token = extractCookieValue(cookieHeader, SESSION_COOKIE_NAME);
+  const token = extractCookieValue(cookieHeader, AUTH_SESSION_COOKIE_NAME);
   if (!token) return null;
 
   try {
-    const key = await getPublicKey(authSessionRs256PublicKey);
-    const { payload } = await jwtVerify(token, key, { algorithms: ["RS256"] });
+    const payload = await verifyAuthSessionTokenMulti(token, {
+      rs256PublicKey: authSessionRs256PublicKey,
+      hs256Secret: authJwtSecret,
+    });
 
-    const session: AuthSessionUser = {
-      authMethod: payload.authMethod as AuthSessionUser["authMethod"],
-      subjectAddress: payload.subjectAddress as string,
-      displayAddress: payload.displayAddress as string,
-      ...(payload.email ? { email: payload.email as string } : {}),
-      ...(payload.sub ? { gridUserId: payload.sub } : {}),
-      ...(payload.provider ? { provider: payload.provider as string } : {}),
-      ...(payload.passkeyAccount
-        ? { passkeyAccount: payload.passkeyAccount as string }
-        : {}),
-      ...(payload.walletAddress
-        ? { walletAddress: payload.walletAddress as string }
-        : {}),
-      ...(payload.smartAccountAddress
-        ? { smartAccountAddress: payload.smartAccountAddress as string }
-        : {}),
-      ...(payload.sessionKey
-        ? { sessionKey: payload.sessionKey as AuthSessionUser["sessionKey"] }
-        : {}),
-    };
-
-    return mapAuthSessionUserToAuthenticatedPrincipal(session);
+    return mapAuthSessionUserToAuthenticatedPrincipal(
+      mapAuthSessionTokenClaimsToUser(payload)
+    );
   } catch {
     return null;
   }

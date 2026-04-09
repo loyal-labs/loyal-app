@@ -1,4 +1,9 @@
-import type { AuthSessionUser } from "@loyal-labs/auth-core";
+import {
+  AUTH_SESSION_COOKIE_NAME,
+  createAuthSessionTokenClaims,
+  mapAuthSessionTokenClaimsToUser,
+  type AuthSessionUser,
+} from "@loyal-labs/auth-core";
 
 import type { PasskeyServerConfig } from "@/lib/core/config/types";
 import { resolvePasskeyRequestContext } from "@/lib/passkeys/host-resolution";
@@ -9,7 +14,7 @@ import {
   verifyAuthSessionTokenMulti,
 } from "./session-token";
 
-export const AUTH_SESSION_COOKIE_NAME = "loyal_email_session";
+export { AUTH_SESSION_COOKIE_NAME };
 export const EMAIL_AUTH_SESSION_COOKIE_NAME = AUTH_SESSION_COOKIE_NAME;
 
 export type SessionCookieOptions = {
@@ -81,20 +86,7 @@ export function createAuthSessionCookieService(
   return {
     async issueSessionToken(user: AuthSessionUser) {
       const config = dependencies.getConfig();
-      const claims = {
-        authMethod: user.authMethod,
-        subjectAddress: user.subjectAddress,
-        displayAddress: user.displayAddress,
-        ...(user.gridUserId ? { sub: user.gridUserId } : {}),
-        ...(user.email ? { email: user.email } : {}),
-        ...(user.provider ? { provider: user.provider } : {}),
-        ...(user.passkeyAccount ? { passkeyAccount: user.passkeyAccount } : {}),
-        ...(user.walletAddress ? { walletAddress: user.walletAddress } : {}),
-        ...(user.smartAccountAddress
-          ? { smartAccountAddress: user.smartAccountAddress }
-          : {}),
-        ...(user.sessionKey ? { sessionKey: user.sessionKey } : {}),
-      };
+      const claims = createAuthSessionTokenClaims(user);
 
       if (config.authRs256PrivateKey) {
         return issueAuthSessionTokenRS256(
@@ -125,24 +117,7 @@ export function createAuthSessionCookieService(
           rs256PublicKey: config.authRs256PublicKey,
           hs256Secret: config.authJwtSecret,
         });
-        return {
-          authMethod: claims.authMethod,
-          subjectAddress: claims.subjectAddress,
-          displayAddress: claims.displayAddress,
-          ...(claims.email ? { email: claims.email } : {}),
-          ...(claims.sub ? { gridUserId: claims.sub } : {}),
-          ...(claims.provider ? { provider: claims.provider } : {}),
-          ...(claims.passkeyAccount
-            ? { passkeyAccount: claims.passkeyAccount }
-            : {}),
-          ...(claims.walletAddress
-            ? { walletAddress: claims.walletAddress }
-            : {}),
-          ...(claims.smartAccountAddress
-            ? { smartAccountAddress: claims.smartAccountAddress }
-            : {}),
-          ...(claims.sessionKey ? { sessionKey: claims.sessionKey } : {}),
-        };
+        return mapAuthSessionTokenClaimsToUser(claims);
       } catch {
         return null;
       }

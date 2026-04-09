@@ -137,6 +137,22 @@ function createAppUserDependencies(): AppUserDependencies {
   };
 }
 
+export async function findAppUserById(userId: string): Promise<AppUser | null> {
+  const db = getDatabase();
+
+  return (
+    (await db.query.appUsers.findFirst({
+      columns: {
+        id: true,
+        provider: true,
+        subjectAddress: true,
+        gridUserId: true,
+      },
+      where: eq(appUsers.id, userId),
+    })) ?? null
+  );
+}
+
 export async function getOrCreateCurrentUser(
   principal: AuthenticatedPrincipal,
   dependencies: AppUserDependencies = createAppUserDependencies()

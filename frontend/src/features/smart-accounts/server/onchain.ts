@@ -1,7 +1,9 @@
 import "server-only";
 
-import { Connection, PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
+  codecs,
   createLoyalSmartAccountsClient,
   pda,
   type LoyalSmartAccountsClient,
@@ -9,7 +11,10 @@ import {
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { getSolanaEndpoints } from "@loyal-labs/solana-rpc";
 
+import { getServerEnv } from "@/lib/core/config/server";
+
 const connectionCache = new Map<SolanaEnv, Connection>();
+let cachedSponsorKeypair: Keypair | null = null;
 
 function getSmartAccountsConnection(solanaEnv: SolanaEnv): Connection {
   const cachedConnection = connectionCache.get(solanaEnv);
@@ -36,6 +41,20 @@ function getSmartAccountsClient(args: {
     defaultCommitment: "confirmed",
     programId: new PublicKey(args.programId),
   });
+}
+
+function getSponsorKeypair(): Keypair {
+  if (cachedSponsorKeypair) {
+    return cachedSponsorKeypair;
+  }
+
+  const deploymentPrivateKey = getServerEnv().deploymentPrivateKey;
+  if (!deploymentPrivateKey) {
+    throw new Error("DEPLOYMENT_PK is not set");
+  }
+
+  cachedSponsorKeypair = Keypair.fromSecretKey(bs58.decode(deploymentPrivateKey));
+  return cachedSponsorKeypair;
 }
 
 function isMissingAccountError(error: unknown, accountName: string): boolean {
@@ -77,4 +96,35 @@ export async function findSettingsSignerAddresses(args: {
 
     throw error;
   }
+}
+
+export async function createSponsoredSmartAccount(args: {
+  solanaEnv: SolanaEnv;
+  programId: string;
+  settingsPda: string;
+  treasury: PublicKey;
+  walletAddress: string;
+}): Promise<string> {
+  const client = getSmartAccountsClient(args);
+  const sponsor = getSponsorKeypair();
+  const prepared = await client.features.smartAccounts.prepare.create({
+    programId: new PublicKey(args.programId),
+    treasury: args.treasury,
+    creator: sponsor.publicKey,
+    settings: new PublicKey(args.settingsPda),
+    settingsAuthority: null,
+    threshold: 1,
+    signers: [
+      {
+        key: new PublicKey(args.walletAddress),
+        permissions: codecs.Permissions.all(),
+      },
+    ],
+    timeLock: 0,
+    rentCollector: null,
+  });
+
+  return client.send(prepared, {
+    signers: [sponsor],
+  });
 }

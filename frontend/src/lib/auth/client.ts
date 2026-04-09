@@ -11,15 +11,15 @@ import {
   walletCompleteResponseSchema,
 } from "@loyal-labs/auth-core";
 import type {
-  AuthSessionUser,
   AuthClient,
+  AuthSessionUser,
   StartEmailAuthRequest,
   StartEmailAuthResponse,
   StartPasskeySignInInput,
+  VerifyEmailAuthRequest,
   WalletChallengeRequest,
   WalletChallengeResponse,
   WalletCompleteRequest,
-  VerifyEmailAuthRequest,
 } from "@loyal-labs/auth-core";
 
 import { getPublicEnv } from "@/lib/core/config/public";
@@ -50,17 +50,22 @@ function withPasskeyEmbedParams(url: string): string {
   return nextUrl.toString();
 }
 
-export type AuthApiClient = {
+export type SharedAuthApiClient = {
   startEmailAuth(payload: StartEmailAuthRequest): Promise<StartEmailAuthResponse>;
   verifyEmailAuth(payload: VerifyEmailAuthRequest): Promise<AuthSessionUser>;
   startPasskeySignIn(payload: StartPasskeySignInInput): Promise<string>;
+  getSession(): Promise<AuthSessionUser | null>;
+  logout(): Promise<void>;
+};
+
+export type WalletAuthApiClient = {
   challengeWalletAuth(
     payload: WalletChallengeRequest
   ): Promise<WalletChallengeResponse>;
   completeWalletAuth(payload: WalletCompleteRequest): Promise<AuthSessionUser>;
-  getSession(): Promise<AuthSessionUser | null>;
-  logout(): Promise<void>;
 };
+
+export type AuthApiClient = SharedAuthApiClient & WalletAuthApiClient;
 
 function toErrorCode(payload: unknown, fallback: string): string {
   if (
@@ -79,8 +84,16 @@ function toErrorCode(payload: unknown, fallback: string): string {
 }
 
 function assertSuccessfulResponse<T>(
-  outcome: { ok: boolean; status: number; body: unknown },
-  schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } },
+  outcome: {
+    ok: boolean;
+    status: number;
+    body: unknown;
+  },
+  schema: {
+    safeParse: (
+      value: unknown
+    ) => { success: true; data: T } | { success: false };
+  },
   options: {
     invalidResponseMessage: string;
     errorCode: string;
@@ -105,11 +118,11 @@ function assertSuccessfulResponse<T>(
   return parsed.data;
 }
 
-export function createAuthApiClient(
+export function createSharedAuthApiClient(
   rawClient: AuthClient = createAuthClient({
     authBaseUrl: getPublicEnv().gridAuthBaseUrl ?? "",
   })
-): AuthApiClient {
+): SharedAuthApiClient {
   return {
     async startEmailAuth(payload) {
       const outcome = await rawClient.startEmailAuth(payload);
@@ -163,30 +176,6 @@ export function createAuthApiClient(
       );
     },
 
-    async challengeWalletAuth(payload) {
-      const outcome = await rawClient.challengeWalletAuth(payload);
-      return assertSuccessfulResponse(outcome, walletChallengeResponseSchema, {
-        invalidResponseMessage:
-          "The auth server returned an invalid wallet challenge response.",
-        errorCode: "wallet_auth_challenge_failed",
-      });
-    },
-
-    async completeWalletAuth(payload) {
-      const outcome = await rawClient.completeWalletAuth(payload);
-      const parsed = assertSuccessfulResponse(
-        outcome,
-        walletCompleteResponseSchema,
-        {
-          invalidResponseMessage:
-            "The auth server returned an invalid wallet completion response.",
-          errorCode: "wallet_auth_complete_failed",
-        }
-      );
-
-      return parsed.user;
-    },
-
     async getSession() {
       const outcome = await rawClient.getAuthSession();
       if (!outcome.ok) {
@@ -227,5 +216,50 @@ export function createAuthApiClient(
         details: parseApiErrorDetails(outcome.body),
       });
     },
+  };
+}
+
+export function createWalletAuthApiClient(
+  rawClient: AuthClient = createAuthClient({
+    authBaseUrl: "",
+  })
+): WalletAuthApiClient {
+  return {
+    async challengeWalletAuth(payload) {
+      const outcome = await rawClient.challengeWalletAuth(payload);
+      return assertSuccessfulResponse(outcome, walletChallengeResponseSchema, {
+        invalidResponseMessage:
+          "The auth server returned an invalid wallet challenge response.",
+        errorCode: "wallet_auth_challenge_failed",
+      });
+    },
+
+    async completeWalletAuth(payload) {
+      const outcome = await rawClient.completeWalletAuth(payload);
+      const parsed = assertSuccessfulResponse(
+        outcome,
+        walletCompleteResponseSchema,
+        {
+          invalidResponseMessage:
+            "The auth server returned an invalid wallet completion response.",
+          errorCode: "wallet_auth_complete_failed",
+        }
+      );
+
+      return parsed.user;
+    },
+  };
+}
+
+export function createAuthApiClient(args?: {
+  sharedClient?: SharedAuthApiClient;
+  walletClient?: WalletAuthApiClient;
+}): AuthApiClient {
+  const sharedClient = args?.sharedClient ?? createSharedAuthApiClient();
+  const walletClient = args?.walletClient ?? createWalletAuthApiClient();
+
+  return {
+    ...sharedClient,
+    ...walletClient,
   };
 }
