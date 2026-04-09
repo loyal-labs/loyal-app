@@ -13,8 +13,8 @@ import {
   smartAccountProvisioningResponseSchema,
 } from "@/features/smart-accounts/contracts";
 import {
-  isUserRejectedSmartAccountProvisionError,
   provisionSmartAccountForWalletSession,
+  shouldRetrySmartAccountProvisionError,
   shouldProvisionWalletSmartAccount,
 } from "@/features/smart-accounts/client/provisioning";
 import { useAuthSession } from "@/contexts/auth-session-context";
@@ -74,6 +74,7 @@ export function SmartAccountProvisioner() {
   const {
     connected,
     publicKey,
+    signTransaction,
     sendTransaction,
   } = useWallet();
   const {
@@ -148,6 +149,7 @@ export function SmartAccountProvisioner() {
     void provisionSmartAccountForWalletSession({
       connection,
       walletAddress: walletAddress!,
+      signTransaction,
       sendTransaction: sendTransaction!,
       ensure,
     })
@@ -171,7 +173,7 @@ export function SmartAccountProvisioner() {
         console.warn("[smart-account] provisioning failed:", error);
         attemptKeyRef.current = null;
 
-        if (!isUserRejectedSmartAccountProvisionError(error)) {
+        if (shouldRetrySmartAccountProvisionError(error)) {
           scheduleRetry();
         }
       })
@@ -183,6 +185,7 @@ export function SmartAccountProvisioner() {
     connection,
     isHydrated,
     publicKey,
+    signTransaction,
     sendTransaction,
     setAuthenticatedUser,
     solanaEnv,

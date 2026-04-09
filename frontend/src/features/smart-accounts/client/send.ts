@@ -15,7 +15,44 @@ export type WalletSendTransaction = (
   options?: SendOptions
 ) => Promise<string>;
 
+export type WalletSignTransaction = (
+  transaction: VersionedTransaction
+) => Promise<VersionedTransaction>;
+
+export class SmartAccountProvisioningNetworkMismatchError extends Error {
+  readonly solanaEnv: SolanaEnv;
+
+  constructor(args: {
+    solanaEnv: SolanaEnv;
+    cause?: unknown;
+  }) {
+    super(
+      `Unable to submit the smart account creation transaction on ${args.solanaEnv}. Switch the connected wallet to ${args.solanaEnv} and make sure the frontend and server are using the same Solana environment.`
+    );
+    this.name = "SmartAccountProvisioningNetworkMismatchError";
+    this.solanaEnv = args.solanaEnv;
+    if (args.cause !== undefined) {
+      this.cause = args.cause;
+    }
+  }
+}
+
 const provisioningConnectionCache = new Map<SolanaEnv, Connection>();
+
+function isWalletSendTransactionWithoutDetails(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "WalletSendTransactionError" &&
+    (error.message.trim().length === 0 ||
+      error.message.trim().toLowerCase() === "unexpected error")
+  );
+}
+
+export function isSmartAccountProvisioningNetworkMismatchError(
+  error: unknown
+): error is SmartAccountProvisioningNetworkMismatchError {
+  return error instanceof SmartAccountProvisioningNetworkMismatchError;
+}
 
 function getProvisioningConnectionForEnv(solanaEnv: SolanaEnv): Connection {
   const cachedConnection = provisioningConnectionCache.get(solanaEnv);
@@ -48,6 +85,7 @@ export async function sendCreateSmartAccountTransaction(args: {
   connection: Connection;
   walletAddress: string;
   sendTransaction: WalletSendTransaction;
+  signTransaction?: WalletSignTransaction;
   response: SmartAccountProvisioningResponse;
 }): Promise<string> {
   if (!args.response.treasury) {
@@ -64,12 +102,35 @@ export async function sendCreateSmartAccountTransaction(args: {
     connection: provisioningConnection,
     defaultCommitment: "confirmed",
     programId,
-    sendPrepared: async (_prepared, _signers, context) =>
-      args.sendTransaction(
-        context.compileUnsignedTransaction(),
-        provisioningConnection,
-        context.sendOptions
-      ),
+    sendPrepared: async (_prepared, _signers, context) => {
+      if (args.signTransaction) {
+        const signedTransaction = await args.signTransaction(
+          context.compileUnsignedTransaction()
+        );
+
+        return provisioningConnection.sendRawTransaction(
+          signedTransaction.serialize(),
+          context.sendOptions
+        );
+      }
+
+      try {
+        return await args.sendTransaction(
+          context.compileUnsignedTransaction(),
+          provisioningConnection,
+          context.sendOptions
+        );
+      } catch (error) {
+        if (isWalletSendTransactionWithoutDetails(error)) {
+          throw new SmartAccountProvisioningNetworkMismatchError({
+            solanaEnv: args.response.solanaEnv,
+            cause: error,
+          });
+        }
+
+        throw error;
+      }
+    },
   });
   const prepared = await smartAccounts.prepare.create({
     creator,

@@ -29,6 +29,7 @@ mock.module("@loyal-labs/loyal-smart-accounts", () => ({
 
 let provisionSmartAccountForWalletSession: typeof import("../provisioning").provisionSmartAccountForWalletSession;
 let shouldProvisionWalletSmartAccount: typeof import("../provisioning").shouldProvisionWalletSmartAccount;
+let SmartAccountProvisioningNetworkMismatchError: typeof import("../send").SmartAccountProvisioningNetworkMismatchError;
 
 const programId = "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG";
 const pendingSettingsPda = deriveSettingsPdaAddress({
@@ -63,6 +64,7 @@ describe("smart-account client provisioning", () => {
       provisionSmartAccountForWalletSession,
       shouldProvisionWalletSmartAccount,
     } = await import("../provisioning"));
+    ({ SmartAccountProvisioningNetworkMismatchError } = await import("../send"));
   });
 
   beforeEach(() => {
@@ -95,6 +97,7 @@ describe("smart-account client provisioning", () => {
     const response = await provisionSmartAccountForWalletSession({
       connection: {} as Connection,
       walletAddress,
+      signTransaction: async (transaction) => transaction,
       sendTransaction: async () => "sig-123",
       ensure,
     });
@@ -111,6 +114,7 @@ describe("smart-account client provisioning", () => {
     const response = await provisionSmartAccountForWalletSession({
       connection: {} as Connection,
       walletAddress,
+      signTransaction: async (transaction) => transaction,
       sendTransaction: async () => "sig-123",
       ensure,
     });
@@ -173,6 +177,7 @@ describe("smart-account client provisioning", () => {
     const response = await provisionSmartAccountForWalletSession({
       connection: {} as Connection,
       walletAddress,
+      signTransaction: async (transaction) => transaction,
       sendTransaction: async () => "sig-123",
       ensure,
     });
@@ -209,6 +214,7 @@ describe("smart-account client provisioning", () => {
     const response = await provisionSmartAccountForWalletSession({
       connection: {} as Connection,
       walletAddress,
+      signTransaction: async (transaction) => transaction,
       sendTransaction: async () => "sig-123",
       ensure,
     });
@@ -248,10 +254,33 @@ describe("smart-account client provisioning", () => {
       provisionSmartAccountForWalletSession({
         connection: {} as Connection,
         walletAddress,
+        signTransaction: async (transaction) => transaction,
         sendTransaction: async () => "sig-123",
         ensure,
       })
     ).rejects.toThrow("User rejected the request");
+
+    expect(ensure.mock.calls).toEqual([[]]);
+    expect(clientSend).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not refresh and retry when the wallet network does not match", async () => {
+    clientSend.mockImplementationOnce(async () => {
+      throw new SmartAccountProvisioningNetworkMismatchError({
+        solanaEnv: "devnet",
+      });
+    });
+    const ensure = mock(async () => pendingResponse);
+
+    await expect(
+      provisionSmartAccountForWalletSession({
+        connection: {} as Connection,
+        walletAddress,
+        signTransaction: async (transaction) => transaction,
+        sendTransaction: async () => "sig-123",
+        ensure,
+      })
+    ).rejects.toThrow("Switch the connected wallet to devnet");
 
     expect(ensure.mock.calls).toEqual([[]]);
     expect(clientSend).toHaveBeenCalledTimes(1);

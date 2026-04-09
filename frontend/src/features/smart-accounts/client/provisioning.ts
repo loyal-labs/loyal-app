@@ -6,7 +6,9 @@ import type {
   SmartAccountProvisioningResponse,
 } from "@/features/smart-accounts/contracts";
 import {
+  isSmartAccountProvisioningNetworkMismatchError,
   sendCreateSmartAccountTransaction,
+  type WalletSignTransaction,
   type WalletSendTransaction,
 } from "@/features/smart-accounts/client/send";
 
@@ -14,6 +16,7 @@ type ProvisionSmartAccountDependencies = {
   connection: Connection;
   walletAddress: string;
   sendTransaction: WalletSendTransaction;
+  signTransaction?: WalletSignTransaction;
   ensure: (
     request?: EnsureSmartAccountRequest
   ) => Promise<SmartAccountProvisioningResponse>;
@@ -61,6 +64,15 @@ export function isUserRejectedSmartAccountProvisionError(
   );
 }
 
+export function shouldRetrySmartAccountProvisionError(
+  error: unknown
+): boolean {
+  return (
+    !isUserRejectedSmartAccountProvisionError(error) &&
+    !isSmartAccountProvisioningNetworkMismatchError(error)
+  );
+}
+
 async function reconcileReadyStateAfterSend(args: {
   settingsPda: string;
   signature: string;
@@ -105,6 +117,7 @@ async function reconcileProvisioningResult(args: {
       connection: args.dependencies.connection,
       walletAddress: args.dependencies.walletAddress,
       sendTransaction: args.dependencies.sendTransaction,
+      signTransaction: args.dependencies.signTransaction,
       response: args.response,
     });
     const reconciledResponse = await reconcileReadyStateAfterSend({
@@ -130,10 +143,7 @@ async function reconcileProvisioningResult(args: {
 
     return reconciledResponse;
   } catch (error) {
-    if (
-      args.hasRetried ||
-      isUserRejectedSmartAccountProvisionError(error)
-    ) {
+    if (args.hasRetried || !shouldRetrySmartAccountProvisionError(error)) {
       throw error;
     }
 
