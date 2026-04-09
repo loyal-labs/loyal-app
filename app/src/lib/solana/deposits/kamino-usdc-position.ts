@@ -18,6 +18,7 @@ export type StoredKaminoUsdcPosition = {
   mint: string;
   principalLiquidityAmountRaw: string;
   collateralSharesAmountRaw: string;
+  cumulativeEarnedLiquidityAmountRaw: string;
   averageEntryExchangeRate: string | null;
   updatedAt: number;
 };
@@ -66,6 +67,8 @@ function parseStoredPosition(
       parsed.mint !== mint ||
       typeof parsed.principalLiquidityAmountRaw !== "string" ||
       typeof parsed.collateralSharesAmountRaw !== "string" ||
+      (parsed.cumulativeEarnedLiquidityAmountRaw !== undefined &&
+        typeof parsed.cumulativeEarnedLiquidityAmountRaw !== "string") ||
       (parsed.averageEntryExchangeRate !== null &&
         parsed.averageEntryExchangeRate !== undefined &&
         typeof parsed.averageEntryExchangeRate !== "string") ||
@@ -76,12 +79,15 @@ function parseStoredPosition(
 
     BigInt(parsed.principalLiquidityAmountRaw);
     BigInt(parsed.collateralSharesAmountRaw);
+    BigInt(parsed.cumulativeEarnedLiquidityAmountRaw ?? "0");
 
     return {
       version: 1,
       mint: parsed.mint,
       principalLiquidityAmountRaw: parsed.principalLiquidityAmountRaw,
       collateralSharesAmountRaw: parsed.collateralSharesAmountRaw,
+      cumulativeEarnedLiquidityAmountRaw:
+        parsed.cumulativeEarnedLiquidityAmountRaw ?? "0",
       averageEntryExchangeRate: parsed.averageEntryExchangeRate ?? null,
       updatedAt: parsed.updatedAt,
     };
@@ -112,12 +118,16 @@ function createStoredPosition(args: {
   mint: string;
   principalLiquidityAmountRaw: bigint;
   collateralSharesAmountRaw: bigint;
+  cumulativeEarnedLiquidityAmountRaw?: bigint;
 }): StoredKaminoUsdcPosition {
   return {
     version: 1,
     mint: args.mint,
     principalLiquidityAmountRaw: args.principalLiquidityAmountRaw.toString(),
     collateralSharesAmountRaw: args.collateralSharesAmountRaw.toString(),
+    cumulativeEarnedLiquidityAmountRaw: (
+      args.cumulativeEarnedLiquidityAmountRaw ?? BigInt(0)
+    ).toString(),
     averageEntryExchangeRate: computeAverageEntryExchangeRate(
       args.collateralSharesAmountRaw,
       args.principalLiquidityAmountRaw
@@ -126,7 +136,19 @@ function createStoredPosition(args: {
   };
 }
 
-export function resolveTrackedKaminoUsdcMint(solanaEnv: SolanaEnv): string | null {
+export function resolveKaminoCumulativeEarnedLiquidityAmountRaw(
+  trackedPosition: StoredKaminoUsdcPosition | null
+): bigint {
+  if (!trackedPosition) {
+    return BigInt(0);
+  }
+
+  return BigInt(trackedPosition.cumulativeEarnedLiquidityAmountRaw);
+}
+
+export function resolveTrackedKaminoUsdcMint(
+  solanaEnv: SolanaEnv
+): string | null {
   if (solanaEnv === "mainnet") {
     return SOLANA_USDC_MINT_MAINNET;
   }
@@ -169,12 +191,16 @@ export function applyKaminoShieldToTrackedPosition(args: {
   const currentShares = args.trackedPosition
     ? BigInt(args.trackedPosition.collateralSharesAmountRaw)
     : BigInt(0);
+  const cumulativeEarnedLiquidityAmountRaw =
+    resolveKaminoCumulativeEarnedLiquidityAmountRaw(args.trackedPosition);
 
   return createStoredPosition({
     mint: args.mint,
     principalLiquidityAmountRaw:
       currentPrincipal + args.addedPrincipalLiquidityAmountRaw,
-    collateralSharesAmountRaw: currentShares + args.addedCollateralSharesAmountRaw,
+    collateralSharesAmountRaw:
+      currentShares + args.addedCollateralSharesAmountRaw,
+    cumulativeEarnedLiquidityAmountRaw,
   });
 }
 
@@ -189,13 +215,24 @@ export function applyKaminoUnshieldToTrackedPosition(args: {
     return args.trackedPosition;
   }
 
-  const trackedPrincipal = BigInt(args.trackedPosition.principalLiquidityAmountRaw);
+  const trackedPrincipal = BigInt(
+    args.trackedPosition.principalLiquidityAmountRaw
+  );
   const trackedShares = BigInt(args.trackedPosition.collateralSharesAmountRaw);
+  const cumulativeEarnedLiquidityAmountRaw =
+    resolveKaminoCumulativeEarnedLiquidityAmountRaw(args.trackedPosition);
   if (
     trackedShares <= BigInt(0) ||
     args.burnedCollateralSharesAmountRaw >= trackedShares
   ) {
-    return null;
+    return cumulativeEarnedLiquidityAmountRaw > BigInt(0)
+      ? createStoredPosition({
+          mint: args.trackedPosition.mint,
+          principalLiquidityAmountRaw: BigInt(0),
+          collateralSharesAmountRaw: BigInt(0),
+          cumulativeEarnedLiquidityAmountRaw,
+        })
+      : null;
   }
 
   const remainingShares = trackedShares - args.burnedCollateralSharesAmountRaw;
@@ -208,7 +245,181 @@ export function applyKaminoUnshieldToTrackedPosition(args: {
     mint: args.trackedPosition.mint,
     principalLiquidityAmountRaw: remainingPrincipal,
     collateralSharesAmountRaw: remainingShares,
+    cumulativeEarnedLiquidityAmountRaw,
   });
+}
+
+// Helpers
+function bigintMin(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
+function bigintMax(a: bigint, b: bigint): bigint {
+  return a > b ? a : b;
+}
+
+export function applyKaminoUnshieldAccounting(args: {
+  trackedPosition: StoredKaminoUsdcPosition | null;
+  actualCollateralSharesAmountRawBeforeUnshield: bigint;
+  currentLiquidityAmountRawBeforeUnshield?: bigint | null;
+  burnedCollateralSharesAmountRaw: bigint;
+  redeemedLiquidityAmountRaw?: bigint | null;
+}): {
+  nextTrackedPosition: StoredKaminoUsdcPosition | null;
+  realizedPrincipalLiquidityAmountRaw: bigint;
+  realizedEarnedLiquidityAmountRaw: bigint;
+} {
+  const ZERO = BigInt(0);
+  const pos = args.trackedPosition;
+
+  if (!pos) {
+    return {
+      nextTrackedPosition: null,
+      realizedPrincipalLiquidityAmountRaw: ZERO,
+      realizedEarnedLiquidityAmountRaw: ZERO,
+    };
+  }
+
+  // Normalize inputs — treat negative/missing values as zero
+  const actualShares = bigintMax(
+    args.actualCollateralSharesAmountRawBeforeUnshield,
+    ZERO
+  );
+  const burnedShares = bigintMax(args.burnedCollateralSharesAmountRaw, ZERO);
+  const redeemed = bigintMax(args.redeemedLiquidityAmountRaw ?? ZERO, ZERO);
+  const currentLiquidity = bigintMax(
+    args.currentLiquidityAmountRawBeforeUnshield ?? ZERO,
+    ZERO
+  );
+
+  const cumulativeEarned = resolveKaminoCumulativeEarnedLiquidityAmountRaw(pos);
+  const trackedShares = BigInt(pos.collateralSharesAmountRaw);
+  const trackedPrincipal = BigInt(pos.principalLiquidityAmountRaw);
+
+  // Early exit: nothing to burn
+  if (actualShares <= ZERO || burnedShares <= ZERO) {
+    const nextTrackedPosition =
+      trackedShares > ZERO || cumulativeEarned > ZERO
+        ? createStoredPosition({
+            mint: pos.mint,
+            principalLiquidityAmountRaw: trackedPrincipal,
+            collateralSharesAmountRaw: trackedShares,
+            cumulativeEarnedLiquidityAmountRaw: cumulativeEarned,
+          })
+        : null;
+    return {
+      nextTrackedPosition,
+      realizedPrincipalLiquidityAmountRaw: ZERO,
+      realizedEarnedLiquidityAmountRaw: ZERO,
+    };
+  }
+
+  // --- Split shares into "tracked" (matched to our position) vs "unmatched" ---
+
+  const effectiveTrackedShares = bigintMin(actualShares, trackedShares);
+  const unmatchedShares = actualShares - effectiveTrackedShares;
+
+  const effectiveTrackedPrincipal =
+    trackedShares <= ZERO || effectiveTrackedShares <= ZERO
+      ? ZERO
+      : effectiveTrackedShares === trackedShares
+      ? trackedPrincipal
+      : ceilDiv(trackedPrincipal * effectiveTrackedShares, trackedShares);
+
+  // Split burned shares between unmatched and tracked buckets
+  const normalizedBurned = bigintMin(burnedShares, actualShares);
+  const burnedUnmatched = bigintMin(normalizedBurned, unmatchedShares);
+  const burnedTracked = normalizedBurned - burnedUnmatched;
+
+  // --- Compute remaining tracked position after burn ---
+
+  const remainingTrackedShares = bigintMax(
+    effectiveTrackedShares - burnedTracked,
+    ZERO
+  );
+  const remainingTrackedPrincipal =
+    effectiveTrackedShares <= ZERO || remainingTrackedShares <= ZERO
+      ? ZERO
+      : ceilDiv(
+          effectiveTrackedPrincipal * remainingTrackedShares,
+          effectiveTrackedShares
+        );
+
+  const realizedTrackedPrincipal = bigintMax(
+    effectiveTrackedPrincipal - remainingTrackedPrincipal,
+    ZERO
+  );
+
+  // --- Compute principal attributable to burned unmatched shares ---
+
+  let realizedUnmatchedPrincipal = ZERO;
+  if (burnedUnmatched > ZERO) {
+    if (currentLiquidity > ZERO && unmatchedShares > ZERO) {
+      const trackedLiquidity =
+        effectiveTrackedShares > ZERO
+          ? (currentLiquidity * effectiveTrackedShares) / actualShares
+          : ZERO;
+      const unmatchedLiquidity = bigintMax(
+        currentLiquidity - trackedLiquidity,
+        ZERO
+      );
+      realizedUnmatchedPrincipal = ceilDiv(
+        unmatchedLiquidity * burnedUnmatched,
+        unmatchedShares
+      );
+    } else {
+      // No reliable liquidity quote — treat entire redeemed amount as principal
+      // to avoid overstating all-time earnings.
+      realizedUnmatchedPrincipal = redeemed;
+    }
+  }
+
+  // --- Final realized amounts ---
+
+  const realizedPrincipal =
+    realizedTrackedPrincipal + realizedUnmatchedPrincipal;
+  const realizedEarned = bigintMax(redeemed - realizedPrincipal, ZERO);
+  const nextCumulativeEarned = cumulativeEarned + realizedEarned;
+
+  const nextTrackedPosition =
+    remainingTrackedShares > ZERO || nextCumulativeEarned > ZERO
+      ? createStoredPosition({
+          mint: pos.mint,
+          principalLiquidityAmountRaw: remainingTrackedPrincipal,
+          collateralSharesAmountRaw: remainingTrackedShares,
+          cumulativeEarnedLiquidityAmountRaw: nextCumulativeEarned,
+        })
+      : null;
+
+  return {
+    nextTrackedPosition,
+    realizedPrincipalLiquidityAmountRaw: realizedPrincipal,
+    realizedEarnedLiquidityAmountRaw: realizedEarned,
+  };
+}
+
+export function resolveKaminoTotalEarnedLiquidityAmountRaw(args: {
+  trackedPosition: StoredKaminoUsdcPosition | null;
+  unrealizedEarnedLiquidityAmountRaw?: bigint | null;
+}): bigint | null {
+  const cumulativeEarnedLiquidityAmountRaw =
+    resolveKaminoCumulativeEarnedLiquidityAmountRaw(args.trackedPosition);
+  const unrealizedEarnedLiquidityAmountRaw =
+    args.unrealizedEarnedLiquidityAmountRaw === undefined ||
+    args.unrealizedEarnedLiquidityAmountRaw === null
+      ? null
+      : args.unrealizedEarnedLiquidityAmountRaw;
+
+  if (
+    cumulativeEarnedLiquidityAmountRaw <= BigInt(0) &&
+    unrealizedEarnedLiquidityAmountRaw === null
+  ) {
+    return null;
+  }
+
+  return (
+    cumulativeEarnedLiquidityAmountRaw +
+    (unrealizedEarnedLiquidityAmountRaw ?? BigInt(0))
+  );
 }
 
 export function resolveKaminoPrincipalLiquidityAmountRaw(args: {
@@ -216,8 +427,11 @@ export function resolveKaminoPrincipalLiquidityAmountRaw(args: {
   actualCollateralSharesAmountRaw: bigint;
   currentLiquidityAmountRaw: bigint;
 }): bigint | null {
-  const { trackedPosition, actualCollateralSharesAmountRaw, currentLiquidityAmountRaw } =
-    args;
+  const {
+    trackedPosition,
+    actualCollateralSharesAmountRaw,
+    currentLiquidityAmountRaw,
+  } = args;
 
   if (!trackedPosition) {
     return null;
@@ -245,7 +459,8 @@ export function resolveKaminoPrincipalLiquidityAmountRaw(args: {
   }
 
   const trackedCurrentLiquidity =
-    (currentLiquidityAmountRaw * trackedShares) / actualCollateralSharesAmountRaw;
+    (currentLiquidityAmountRaw * trackedShares) /
+    actualCollateralSharesAmountRaw;
   const unmatchedCurrentLiquidity =
     currentLiquidityAmountRaw - trackedCurrentLiquidity;
 
@@ -311,7 +526,10 @@ export async function recordKaminoUsdcShield(args: {
 export async function recordKaminoUsdcUnshield(args: {
   publicKey: string;
   solanaEnv: SolanaEnv;
+  actualCollateralSharesAmountRawBeforeUnshield: bigint;
+  currentLiquidityAmountRawBeforeUnshield?: bigint | null;
   burnedCollateralSharesAmountRaw: bigint;
+  redeemedLiquidityAmountRaw?: bigint | null;
 }): Promise<boolean> {
   const storageKey = getKaminoUsdcPositionStorageKey(
     args.publicKey,
@@ -326,14 +544,19 @@ export async function recordKaminoUsdcUnshield(args: {
     publicKey: args.publicKey,
     solanaEnv: args.solanaEnv,
   });
-  const next = applyKaminoUnshieldToTrackedPosition({
+  const { nextTrackedPosition } = applyKaminoUnshieldAccounting({
     trackedPosition: current,
+    actualCollateralSharesAmountRawBeforeUnshield:
+      args.actualCollateralSharesAmountRawBeforeUnshield,
+    currentLiquidityAmountRawBeforeUnshield:
+      args.currentLiquidityAmountRawBeforeUnshield,
     burnedCollateralSharesAmountRaw: args.burnedCollateralSharesAmountRaw,
+    redeemedLiquidityAmountRaw: args.redeemedLiquidityAmountRaw,
   });
 
-  if (!next) {
+  if (!nextTrackedPosition) {
     return deleteCloudValue(storageKey);
   }
 
-  return setCloudValue(storageKey, JSON.stringify(next));
+  return setCloudValue(storageKey, JSON.stringify(nextTrackedPosition));
 }
