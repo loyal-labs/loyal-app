@@ -4,13 +4,12 @@ import {
   findUsernameDepositPda,
   getErValidatorForSolanaEnv,
   LoyalPrivateTransactionsClient,
-  PROGRAM_ID,
-  waitForAccountOwnerChange,
+  MAGIC_CONTEXT_ID,
+  MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
-import { createCommitAndUndelegateInstruction } from "@magicblock-labs/ephemeral-rollups-sdk";
 import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
 import type { Connection, Keypair } from "@solana/web3.js";
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import {
   getConnection,
@@ -104,117 +103,6 @@ async function waitForAccount(
     const info = await connection.getAccountInfo(pda);
     if (info) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
-
-const DELEGATED_TO_ER_ERROR_FRAGMENT = "Account is delegated to ER";
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isDelegatedToErError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  return error.message.includes(DELEGATED_TO_ER_ERROR_FRAGMENT);
-}
-
-async function sendCommitAndUndelegateOnConnection(params: {
-  connection: Connection;
-  feePayer: PublicKey;
-  keypair: Keypair;
-  depositPda: PublicKey;
-}): Promise<void> {
-  const { connection, feePayer, keypair, depositPda } = params;
-  const instruction = createCommitAndUndelegateInstruction(feePayer, [depositPda]);
-  const latest = await connection.getLatestBlockhash("confirmed");
-  const transaction = new Transaction({
-    feePayer,
-    recentBlockhash: latest.blockhash,
-  }).add(instruction);
-  transaction.sign(keypair);
-  const signature = await connection.sendRawTransaction(transaction.serialize(), {
-    preflightCommitment: "confirmed",
-  });
-  await connection.confirmTransaction(
-    {
-      signature,
-      blockhash: latest.blockhash,
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-    },
-    "confirmed",
-  );
-}
-
-async function ensureBaseDepositUndelegated(params: {
-  client: LoyalPrivateTransactionsClientType;
-  tokenMint: PublicKey;
-  user: PublicKey;
-  keypair: Keypair;
-  maxAttempts?: number;
-}): Promise<void> {
-  const {
-    client,
-    tokenMint,
-    user,
-    keypair,
-    maxAttempts = 6,
-  } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const baseConnection = client.baseProgram.provider.connection;
-  const ephemeralConnection = client.ephemeralProgram.provider.connection;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const baseAccountInfo = await baseConnection.getAccountInfo(depositPda);
-    if (baseAccountInfo && !baseAccountInfo.owner.equals(DELEGATION_PROGRAM_ID)) {
-      return;
-    }
-
-    const ownerChangeWatcher = waitForAccountOwnerChange(
-      baseConnection,
-      depositPda,
-      PROGRAM_ID,
-      30_000,
-      1_000,
-    );
-
-    try {
-      await sendCommitAndUndelegateOnConnection({
-        connection: ephemeralConnection,
-        feePayer: user,
-        keypair,
-        depositPda,
-      });
-    } catch {
-      // Continue to base-connection attempt below.
-    }
-
-    try {
-      await sendCommitAndUndelegateOnConnection({
-        connection: baseConnection,
-        feePayer: user,
-        keypair,
-        depositPda,
-      });
-    } catch {
-      // Keep polling owner change after both attempts.
-    }
-
-    try {
-      await ownerChangeWatcher.wait();
-    } catch {
-      await ownerChangeWatcher.cancel();
-    }
-
-    await wait(500);
-  }
-
-  const finalBaseInfo = await baseConnection.getAccountInfo(depositPda);
-  if (finalBaseInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-    throw new Error(
-      `Failed to undelegate base deposit after ${maxAttempts} attempts: ${depositPda.toBase58()}`,
-    );
   }
 }
 
@@ -358,22 +246,45 @@ export async function sendPrivateTransferToTelegramUsername(params: {
   const requiredAmount = BigInt(rawAmount);
   const existingDeposit = await client.getEphemeralDeposit(user, tokenMint);
   const existingBalance = existingDeposit?.amount ?? BigInt(0);
-  const existingBaseDeposit = await client.getBaseDeposit(user, tokenMint);
-  const existingBaseBalance = existingBaseDeposit?.amount ?? BigInt(0);
-  const availableShieldedBalance =
-    existingBalance > existingBaseBalance ? existingBalance : existingBaseBalance;
-  const requiresShield = availableShieldedBalance < requiredAmount;
+  const requiresShield = existingBalance < requiredAmount;
   const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
+  console.log("[sendPrivate] v2 enter", {
+    username: normalizedUsername,
+    requiresShield,
+    existingBalance: existingBalance.toString(),
+    requiredAmount: requiredAmount.toString(),
+  });
+
   if (requiresShield) {
-    if (!existingBaseDeposit) {
+    const [depositPda] = findDepositPda(user, tokenMint);
+    const depositAccountInfo = await connection.getAccountInfo(depositPda);
+    console.log("[sendPrivate] depositAccountInfo", {
+      pda: depositPda.toBase58(),
+      exists: !!depositAccountInfo,
+      owner: depositAccountInfo?.owner.toBase58(),
+      isDelegationProgram:
+        depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false,
+    });
+
+    if (!depositAccountInfo) {
+      console.log("[sendPrivate] initializing deposit");
       await client.initializeDeposit({
         tokenMint,
         user,
         payer: user,
       });
-      const [depositPda] = findDepositPda(user, tokenMint);
       await waitForAccount(connection, depositPda);
+    } else if (depositAccountInfo.owner.equals(DELEGATION_PROGRAM_ID)) {
+      console.log("[sendPrivate] undelegating deposit via SDK");
+      await client.undelegateDeposit({
+        tokenMint,
+        user,
+        payer: user,
+        magicProgram: MAGIC_PROGRAM_ID,
+        magicContext: MAGIC_CONTEXT_ID,
+      });
+      console.log("[sendPrivate] undelegate complete");
     }
 
     let createdAta = false;
@@ -393,40 +304,14 @@ export async function sendPrivateTransferToTelegramUsername(params: {
       TOKEN_PROGRAM_ID,
     );
 
-    await ensureBaseDepositUndelegated({
-      client,
+    await client.modifyBalance({
       tokenMint,
+      amount: rawAmount,
+      increase: true,
       user,
-      keypair,
+      payer: user,
+      userTokenAccount,
     });
-
-    try {
-      await client.modifyBalance({
-        tokenMint,
-        amount: rawAmount,
-        increase: true,
-        user,
-        payer: user,
-        userTokenAccount,
-      });
-    } catch (error) {
-      if (isDelegatedToErError(error)) {
-        await ensureBaseDepositUndelegated({
-          client,
-          tokenMint,
-          user,
-          keypair,
-        });
-      }
-      await client.modifyBalance({
-        tokenMint,
-        amount: rawAmount,
-        increase: true,
-        user,
-        payer: user,
-        userTokenAccount,
-      });
-    }
 
     if (isNativeSol && createdAta) {
       await closeWsolAta({
@@ -458,32 +343,36 @@ export async function sendPrivateTransferToTelegramUsername(params: {
     }
   }
 
-  const existingBaseUsernameDeposit = await client.getBaseUsernameDeposit(
-    normalizedUsername,
-    tokenMint,
-  );
-  const existingEphemeralUsernameDeposit =
-    await client.getEphemeralUsernameDeposit(normalizedUsername, tokenMint);
-
-  if (!existingBaseUsernameDeposit && !existingEphemeralUsernameDeposit) {
-    await client.initializeUsernameDeposit({
-      tokenMint,
-      username: normalizedUsername,
-      payer: user,
-    });
-    const [usernameDepositPda] = await findUsernameDepositPda(
-      normalizedUsername,
-      tokenMint,
-    );
-    await waitForAccount(connection, usernameDepositPda);
-  }
-
   const [usernameDepositPda] = await findUsernameDepositPda(
     normalizedUsername,
     tokenMint,
   );
   const usernameDepositInfo = await connection.getAccountInfo(usernameDepositPda);
-  if (!usernameDepositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
+  console.log("[sendPrivate] usernameDepositInfo", {
+    pda: usernameDepositPda.toBase58(),
+    exists: !!usernameDepositInfo,
+    owner: usernameDepositInfo?.owner.toBase58(),
+    isDelegationProgram:
+      usernameDepositInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false,
+  });
+
+  if (!usernameDepositInfo) {
+    console.log("[sendPrivate] initializing username deposit");
+    await client.initializeUsernameDeposit({
+      tokenMint,
+      username: normalizedUsername,
+      payer: user,
+    });
+    await waitForAccount(connection, usernameDepositPda);
+    console.log("[sendPrivate] delegating username deposit after init");
+    await client.delegateUsernameDeposit({
+      tokenMint,
+      username: normalizedUsername,
+      payer: user,
+      validator,
+    });
+  } else if (!usernameDepositInfo.owner.equals(DELEGATION_PROGRAM_ID)) {
+    console.log("[sendPrivate] delegating existing username deposit");
     await client.delegateUsernameDeposit({
       tokenMint,
       username: normalizedUsername,
