@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { Image as RNImage } from "react-native";
 
+import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Pressable, Text, View } from "@/tw";
@@ -76,12 +78,13 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
 }
 
 export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: TokensListProps) {
-  const displayHoldings = holdings
-    .filter((h) => h.balance > 0)
-    .sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0))
-    .slice(0, maxItems);
+  const allDisplayHoldings = useMemo(
+    () => getDisplayTokenHoldings(holdings),
+    [holdings],
+  );
+  const displayHoldings = allDisplayHoldings.slice(0, maxItems);
 
-  if (isLoading && displayHoldings.length === 0) {
+  if (isLoading && holdings.length === 0) {
     return (
       <View className="px-4 py-6">
         <Text
@@ -107,7 +110,7 @@ export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: Toke
     );
   }
 
-  const totalCount = holdings.filter((h) => h.balance > 0).length;
+  const totalCount = allDisplayHoldings.length;
 
   return (
     <View>

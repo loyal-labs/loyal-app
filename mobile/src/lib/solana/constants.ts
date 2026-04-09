@@ -21,6 +21,7 @@ export const SOLANA_USDC_MINT_DEVNET =
 
 export const SOLANA_USDT_MINT_MAINNET =
   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+export const LOYAL_TOKEN_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 
 export const LAST_AMOUNT_KEY = "lastSendAmount";
 export const RECENT_RECIPIENTS_KEY = "recentRecipients";

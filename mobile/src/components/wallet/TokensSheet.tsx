@@ -6,6 +6,7 @@ import {
 import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
 
+import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Text, View } from "@/tw";
@@ -68,10 +69,7 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
     const snapPoints = useMemo(() => ["70%", "90%"], []);
 
     const displayHoldings = useMemo(
-      () =>
-        holdings
-          .filter((h) => h.balance > 0)
-          .sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0)),
+      () => getDisplayTokenHoldings(holdings),
       [holdings],
     );
 

@@ -1,4 +1,5 @@
 import {
+  LOYAL_TOKEN_MINT,
   NATIVE_SOL_MINT,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
@@ -9,6 +10,7 @@ export const CACHE_TTL_MS = 30_000;
 
 // Known token icons — on mobile we use public URLs instead of local assets
 export const KNOWN_TOKEN_ICONS: Record<string, string> = {
+  [LOYAL_TOKEN_MINT]: "https://avatars.githubusercontent.com/u/210601628?s=200&v=4",
   [NATIVE_SOL_MINT]:
     "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
   [SOLANA_USDT_MINT_MAINNET]:
