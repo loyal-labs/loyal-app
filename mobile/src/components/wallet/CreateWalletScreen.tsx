@@ -60,6 +60,7 @@ export function CreateWalletScreen({ onComplete }: Props) {
   }, [pin, createWallet]);
 
   const handleBack = useCallback(() => {
+    setPin("");
     setStep("pin");
     setConfirmPin("");
     setConfirmError(null);
@@ -92,6 +93,8 @@ export function CreateWalletScreen({ onComplete }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <View className="flex-1 justify-center pb-16">
+          <View style={styles.stepHeader} />
+
           <Text style={styles.title}>Create PIN</Text>
           <Text style={styles.subtitle}>
             Use a 4-digit PIN to protect your wallet
@@ -118,14 +121,16 @@ export function CreateWalletScreen({ onComplete }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <View className="flex-1 justify-center pb-16">
-          <Pressable
-            onPress={handleBack}
-            hitSlop={16}
-            className="mb-6 h-10 w-10 items-center justify-center rounded-full"
-            style={{ backgroundColor: "rgba(0,0,0,0.05)" }}
-          >
-            <ArrowLeft size={20} color="#000" strokeWidth={2} />
-          </Pressable>
+          <View style={styles.stepHeader}>
+            <Pressable
+              onPress={handleBack}
+              hitSlop={16}
+              className="h-10 w-10 items-center justify-center rounded-full"
+              style={{ backgroundColor: "rgba(0,0,0,0.05)" }}
+            >
+              <ArrowLeft size={20} color="#000" strokeWidth={2} />
+            </Pressable>
+          </View>
 
           <Text style={styles.title}>Confirm PIN</Text>
           <Text style={styles.subtitle}>Enter your PIN again</Text>
@@ -202,6 +207,11 @@ export function CreateWalletScreen({ onComplete }: Props) {
 }
 
 const styles = StyleSheet.create({
+  stepHeader: {
+    height: 56,
+    justifyContent: "center",
+    marginBottom: 16,
+  },
   title: {
     fontFamily: "Geist_700Bold",
     fontSize: 28,

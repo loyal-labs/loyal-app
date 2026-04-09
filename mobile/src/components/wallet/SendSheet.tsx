@@ -19,6 +19,7 @@ import { ActivityIndicator, Image, Keyboard } from "react-native";
 import { NATIVE_SOL_MINT, SOLANA_FEE_SOL } from "@/lib/solana/constants";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
+import { sendPrivateTransferToTelegramUsername } from "@/lib/solana/wallet/private-send";
 import { sendSolTransaction, sendSplTokenTransaction } from "@/lib/solana/wallet/wallet-details";
 import { Pressable, Text, View } from "@/tw";
 
@@ -32,6 +33,16 @@ const isValidSolanaAddress = (address: string): boolean => {
   } catch {
     return false;
   }
+};
+
+const isValidTelegramUsername = (value: string): boolean => {
+  if (!value.startsWith("@")) return false;
+  const usernameWithoutAt = value.slice(1);
+  return (
+    /^[a-zA-Z0-9_]+$/.test(usernameWithoutAt) &&
+    usernameWithoutAt.length >= 5 &&
+    usernameWithoutAt.length <= 32
+  );
 };
 
 function getFriendlyError(raw: string): string {
@@ -121,6 +132,16 @@ function toRawAmount(amount: number, decimals: number): bigint {
     throw new Error("Enter a valid amount");
   }
   return BigInt(scaled);
+}
+
+const DIRECT_SEND_FEE_TX_COUNT = 1;
+const PRIVATE_SEND_FEE_TX_COUNT = 3;
+
+function getSendFeeReserveSol(params: { isTelegramRecipient: boolean }): number {
+  return (
+    (params.isTelegramRecipient ? PRIVATE_SEND_FEE_TX_COUNT : DIRECT_SEND_FEE_TX_COUNT) *
+    SOLANA_FEE_SOL
+  );
 }
 
 function buildSendAssets(
@@ -224,13 +245,35 @@ export function SendSheet({
         ? amountNum * tokenPriceUsd
         : 0;
 
+  const recipientTrimmed = recipient.trim();
+  const isWalletRecipient = isValidSolanaAddress(recipientTrimmed);
+  const isTelegramRecipient = isValidTelegramUsername(recipientTrimmed);
+  const isValidRecipient = isWalletRecipient || isTelegramRecipient;
+  const isTelegramRecipientTokenSupported =
+    !isTelegramRecipient || selectedAsset?.mint === NATIVE_SOL_MINT;
+  const sendFeeReserveSol = getSendFeeReserveSol({ isTelegramRecipient });
+  const maxSpendableInToken =
+    selectedAsset?.mint === NATIVE_SOL_MINT
+      ? Math.max(0, balanceInToken - sendFeeReserveSol)
+      : balanceInToken;
   const minAmountInToken = selectedAsset ? 1 / (10 ** selectedAsset.decimals) : 0;
-  const isValidRecipient = isValidSolanaAddress(recipient.trim());
   const isValidAmount =
     !!selectedAsset &&
     amountInToken >= minAmountInToken &&
-    amountInToken <= balanceInToken;
-  const isFormValid = !!selectedAsset && isValidRecipient && isValidAmount;
+    amountInToken <= maxSpendableInToken;
+  const recipientError =
+    recipientTrimmed.length === 0
+      ? null
+      : !isValidRecipient
+      ? "Enter a valid wallet address or @username"
+      : !isTelegramRecipientTokenSupported
+      ? "Telegram username transfers currently support SOL only."
+      : null;
+  const isFormValid =
+    !!selectedAsset &&
+    isValidRecipient &&
+    isTelegramRecipientTokenSupported &&
+    isValidAmount;
 
   useEffect(() => {
     if (sendAssets.length === 0) return;
@@ -286,13 +329,20 @@ export function SendSheet({
       }
 
       const sig =
-        selectedAsset.mint === NATIVE_SOL_MINT
+        isTelegramRecipient
+          ? await sendPrivateTransferToTelegramUsername({
+              username: recipientTrimmed,
+              tokenMint: selectedAsset.mint,
+              amount: amountInToken,
+              decimals: selectedAsset.decimals,
+            })
+          : selectedAsset.mint === NATIVE_SOL_MINT
           ? await sendSolTransaction(
-              recipient.trim(),
+              recipientTrimmed,
               Math.floor(amountInToken * LAMPORTS_PER_SOL),
             )
           : await sendSplTokenTransaction(
-              recipient.trim(),
+              recipientTrimmed,
               selectedAsset.mint,
               toRawAmount(amountInToken, selectedAsset.decimals),
               selectedAsset.decimals,
@@ -308,7 +358,15 @@ export function SendSheet({
     } finally {
       setIsSending(false);
     }
-  }, [isFormValid, isSending, selectedAsset, amountInToken, recipient, onSendComplete]);
+  }, [
+    isFormValid,
+    isSending,
+    selectedAsset,
+    isTelegramRecipient,
+    recipientTrimmed,
+    amountInToken,
+    onSendComplete,
+  ]);
 
   const handleClose = useCallback(() => {
     setShowQrScanner(false);
@@ -400,10 +458,7 @@ export function SendSheet({
     (pct: number) => {
       if (!selectedAsset) return;
 
-      let maxAmount = balanceInToken;
-      if (selectedAsset.mint === NATIVE_SOL_MINT) {
-        maxAmount = Math.max(0, balanceInToken - SOLANA_FEE_SOL);
-      }
+      const maxAmount = maxSpendableInToken;
       const val = pct === 100 ? maxAmount : maxAmount * (pct / 100);
 
       if (currencyMode === "TOKEN") {
@@ -413,7 +468,7 @@ export function SendSheet({
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
-    [selectedAsset, balanceInToken, currencyMode, tokenPriceUsd],
+    [selectedAsset, maxSpendableInToken, currencyMode, tokenPriceUsd],
   );
 
   const renderBackdrop = useCallback(
@@ -429,8 +484,8 @@ export function SendSheet({
   );
 
   const feeDisplay = solPriceUsd
-    ? `~$${(SOLANA_FEE_SOL * solPriceUsd).toFixed(4)}`
-    : `${SOLANA_FEE_SOL} SOL`;
+    ? `~$${(sendFeeReserveSol * solPriceUsd).toFixed(4)}`
+    : `${sendFeeReserveSol} SOL`;
 
   return (
     <BottomSheetModal
@@ -513,9 +568,9 @@ export function SendSheet({
                   currencyMode={currencyMode}
                   onToggleCurrency={toggleCurrency}
                   onPercentage={handlePercentage}
-                  balanceInToken={balanceInToken}
+                  maxSpendableInToken={maxSpendableInToken}
                   tokenPriceUsd={tokenPriceUsd}
-                  isValidRecipient={recipient.trim().length > 0 ? isValidRecipient : true}
+                  recipientError={recipientError}
                   isValidAmount={amountStr.length > 0 ? isValidAmount : true}
                   isFormValid={isFormValid}
                   onNext={() => {
@@ -529,7 +584,7 @@ export function SendSheet({
 
           {step === "confirm" && (
             <ConfirmStep
-              recipient={recipient}
+              recipient={recipientTrimmed}
               amountInToken={amountInToken}
               tokenSymbol={selectedAsset?.symbol ?? "TOKEN"}
               amountInUsd={amountInUsd}
@@ -546,7 +601,7 @@ export function SendSheet({
               txSignature={txSignature}
               amountInToken={amountInToken}
               tokenSymbol={selectedAsset?.symbol ?? "TOKEN"}
-              recipient={recipient}
+              recipient={recipientTrimmed}
               onDone={handleClose}
             />
           )}
@@ -569,9 +624,9 @@ function FormStep({
   currencyMode,
   onToggleCurrency,
   onPercentage,
-  balanceInToken,
+  maxSpendableInToken,
   tokenPriceUsd,
-  isValidRecipient,
+  recipientError,
   isValidAmount,
   isFormValid,
   onNext,
@@ -587,9 +642,9 @@ function FormStep({
   currencyMode: "TOKEN" | "USD";
   onToggleCurrency: () => void;
   onPercentage: (pct: number) => void;
-  balanceInToken: number;
+  maxSpendableInToken: number;
   tokenPriceUsd: number | null;
-  isValidRecipient: boolean;
+  recipientError: string | null;
   isValidAmount: boolean;
   isFormValid: boolean;
   onNext: () => void;
@@ -626,17 +681,17 @@ function FormStep({
           fontSize: 16,
           color: "#000",
         }}
-        placeholder="Wallet address"
+        placeholder="Wallet address or @username"
         placeholderTextColor="#999"
         value={recipient}
         onChangeText={onRecipientChange}
         autoCapitalize="none"
         autoCorrect={false}
       />
-      {!isValidRecipient && (
-        <Text className="mb-2 text-[12px] text-red-500">Invalid Solana address</Text>
+      {recipientError && (
+        <Text className="mb-2 text-[12px] text-red-500">{recipientError}</Text>
       )}
-      {isValidRecipient && <View className="mb-3" />}
+      {!recipientError && <View className="mb-3" />}
 
       {/* Asset */}
       <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">Asset</Text>
@@ -687,7 +742,7 @@ function FormStep({
             ? parseFloat(amountStr)
             : tokenPriceUsd
               ? parseFloat(amountStr) / tokenPriceUsd
-              : 0) > balanceInToken
+              : 0) > maxSpendableInToken
             ? "Insufficient balance"
             : "Enter a valid amount"}
         </Text>
@@ -695,9 +750,9 @@ function FormStep({
 
       {/* Balance info */}
       <Text className="mb-6 text-[12px] text-neutral-400">
-        Balance: {balanceInToken.toFixed(4)} {selectedAsset?.symbol ?? "TOKEN"}
+        Balance: {maxSpendableInToken.toFixed(4)} {selectedAsset?.symbol ?? "TOKEN"}
         {tokenPriceUsd
-          ? ` (~$${(balanceInToken * tokenPriceUsd).toFixed(2)})`
+          ? ` (~$${(maxSpendableInToken * tokenPriceUsd).toFixed(2)})`
           : ""}
       </Text>
 
@@ -912,12 +967,15 @@ function ConfirmStep({
   isSending: boolean;
   onConfirm: () => void;
 }) {
-  const shortAddr = `${recipient.slice(0, 6)}...${recipient.slice(-4)}`;
+  const recipientDisplay =
+    recipient.startsWith("@") || recipient.length <= 12
+      ? recipient
+      : `${recipient.slice(0, 6)}...${recipient.slice(-4)}`;
 
   return (
     <>
       <View className="mb-6 rounded-2xl bg-neutral-50 p-4">
-        <Row label="To" value={shortAddr} />
+        <Row label="To" value={recipientDisplay} />
         <Row label="Amount" value={`${amountInToken.toFixed(4)} ${tokenSymbol}`} />
         {amountInUsd > 0 && (
           <Row label="" value={`~$${amountInUsd.toFixed(2)}`} isSubtle />
@@ -982,6 +1040,11 @@ function ResultStep({
   recipient: string;
   onDone: () => void;
 }) {
+  const recipientDisplay =
+    recipient.startsWith("@") || recipient.length <= 12
+      ? recipient
+      : `${recipient.slice(0, 6)}...${recipient.slice(-4)}`;
+
   if (isSending) {
     return (
       <View className="items-center py-12">
@@ -1021,7 +1084,7 @@ function ResultStep({
         {amountInToken.toFixed(4)} {tokenSymbol} sent
       </Text>
       <Text className="mt-1 text-[14px] text-neutral-500">
-        to {recipient.slice(0, 6)}...{recipient.slice(-4)}
+        to {recipientDisplay}
       </Text>
       {txSignature && (
         <Text className="mt-2 text-[12px] text-neutral-400" numberOfLines={1}>

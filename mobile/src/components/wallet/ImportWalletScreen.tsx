@@ -86,6 +86,7 @@ export function ImportWalletScreen({ onComplete }: Props) {
 
   const handleBack = useCallback(() => {
     if (step === "confirm") {
+      setPin("");
       setConfirmError(null);
       setConfirmPin("");
       setStep("pin");
