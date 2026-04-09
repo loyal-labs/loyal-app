@@ -31,7 +31,7 @@
     "passkey:dev": "bun run --cwd passkey dev",
     "passkey:build": "bun run --cwd passkey build",
     "passkey:lint": "bun run --cwd passkey lint",
-    "build:packages": "turbo run build --filter='./packages/*'",
+    "build:packages": "turbo run build --filter='./packages/*' --filter='./sdk/*'",
     "build:grid-packages": "bun run --cwd packages/grid-core build && bun run --cwd packages/auth-core build",
     "typecheck:grid-packages": "bun run --cwd packages/grid-core typecheck && bun run --cwd packages/auth-core typecheck",
     "build:solana-packages": "bun run --cwd packages/solana-rpc build && bun run --cwd packages/solana-wallet build",

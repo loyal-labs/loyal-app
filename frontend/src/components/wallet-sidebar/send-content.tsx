@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, ChevronRight, Globe, Send, Share, Wallet, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, ChevronRight, Globe, Send, Share, Wallet, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -363,15 +363,17 @@ function SendTransactionDetail({
 }
 
 export function SendContent({
+  onBack,
   onClose,
   onDone,
   onNavigate,
   token,
   addLocalActivity,
 }: {
+  onBack?: () => void;
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
 }) {
@@ -420,10 +422,13 @@ export function SendContent({
 
   const handlePercentage = useCallback(
     (pct: number) => {
-      const val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      let val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL" && token.balance - val < 0.00005) {
+        val = Math.max(0, token.balance - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [token.balance],
+    [token.balance, token.symbol],
   );
 
   const handleConfirm = useCallback(async () => {
@@ -577,7 +582,7 @@ export function SendContent({
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <style jsx>{`
-          .send-close:hover { background: rgba(0, 0, 0, 0.08) !important; }
+          .send-back:hover, .send-close:hover { background: rgba(0, 0, 0, 0.08) !important; }
           .pct-btn:hover { opacity: 0.7; }
           .confirm-btn:not(:disabled):hover { background: #333 !important; }
           .private-card:hover { background: rgba(0, 0, 0, 0.06) !important; }
@@ -586,8 +591,20 @@ export function SendContent({
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px" }}>
-          <div style={{ flex: 1, paddingLeft: "12px", paddingTop: "4px", paddingBottom: "4px" }}>
-            <span style={{ fontFamily: font, fontSize: "18px", fontWeight: 600, lineHeight: "28px", color: "#000" }}>Send</span>
+          <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+            {onBack && (
+              <button
+                className="send-back"
+                onClick={onBack}
+                style={{ width: "36px", height: "36px", display: "flex", justifyContent: "center", alignItems: "center", background: "rgba(0, 0, 0, 0.04)", border: "none", borderRadius: "9999px", cursor: "pointer", transition: "all 0.2s ease", color: "#3C3C43" }}
+                type="button"
+              >
+                <ArrowLeft size={24} />
+              </button>
+            )}
+            <div style={{ paddingLeft: onBack ? "8px" : "12px", paddingTop: "4px", paddingBottom: "4px" }}>
+              <span style={{ fontFamily: font, fontSize: "18px", fontWeight: 600, lineHeight: "28px", color: "#000" }}>Send</span>
+            </div>
           </div>
           <button
             className="send-close"
@@ -603,7 +620,7 @@ export function SendContent({
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px", overflow: "auto", padding: "8px 8px 16px" }}>
           {/* Amount card */}
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ background: "#fff", borderRadius: "16px", padding: "10px 12px" }}>
+            <div style={{ border: "1px solid rgba(0, 0, 0, 0.08)", borderRadius: "16px", padding: "10px 12px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: font, fontWeight: 400, lineHeight: "20px", whiteSpace: "nowrap" }}>
                 <span style={{ fontSize: "16px", color: secondary }}>Amount</span>
                 <div style={{ display: "flex", gap: "16px", alignItems: "center", fontSize: "14px", color: red }}>
@@ -670,7 +687,7 @@ export function SendContent({
             <div style={{ padding: "12px 12px 8px" }}>
               <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: secondary }}>Recipient</span>
             </div>
-            <div style={{ background: "#fff", borderRadius: "16px", display: "flex", alignItems: "flex-start", padding: "0 12px", overflow: "hidden" }}>
+            <div style={{ border: "1px solid rgba(0, 0, 0, 0.08)", borderRadius: "16px", display: "flex", alignItems: "flex-start", padding: "0 12px", overflow: "hidden" }}>
               {hasRecipient && (
                 <div style={{ display: "flex", alignItems: "center", paddingRight: "12px", flexShrink: 0, color: "#3C3C43", paddingTop: "15px" }}>
                   {startsWithAt ? <Send size={20} /> : <Wallet size={20} />}
@@ -704,14 +721,14 @@ export function SendContent({
           {/* Private Send card */}
           <div
             className="private-card"
-            onClick={() => setIsPrivate(!isPrivate)}
+            onClick={isTg ? undefined : () => setIsPrivate(!isPrivate)}
             style={{
               display: "flex",
               alignItems: "center",
               padding: "0 12px",
               borderRadius: "16px",
-              cursor: "pointer",
-              background: isPrivate ? "rgba(0, 0, 0, 0.04)" : "transparent",
+              cursor: isTg ? "default" : "pointer",
+              background: isPrivate || isTg ? "rgba(0, 0, 0, 0.04)" : "transparent",
               transition: "background 0.15s ease",
             }}
           >
@@ -720,38 +737,44 @@ export function SendContent({
               <img alt="Private" src="/hero-new/Shield_40.svg" style={{ width: "40px", height: "40px" }} />
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 0", minWidth: 0 }}>
-              <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>Private Send</span>
+              <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>
+                {isTg ? "Private Send Active" : "Private Send"}
+              </span>
               <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
-                Prevents the recipient from seeing which wallet sent the funds
+                {isTg
+                  ? "Telegram transfers are always private"
+                  : "Prevents the recipient from seeing which wallet sent the funds"}
               </span>
             </div>
-            <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-              <div
-                style={{
-                  width: "51px",
-                  height: "31px",
-                  borderRadius: "100px",
-                  background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
-                  position: "relative",
-                  transition: "background 0.2s ease",
-                }}
-              >
+            {!isTg && (
+              <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                 <div
                   style={{
-                    position: "absolute",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    left: isPrivate ? "22px" : "2px",
-                    width: "27px",
-                    height: "27px",
+                    width: "51px",
+                    height: "31px",
                     borderRadius: "100px",
-                    background: "#fff",
-                    boxShadow: "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
-                    transition: "left 0.2s ease",
+                    background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
+                    position: "relative",
+                    transition: "background 0.2s ease",
                   }}
-                />
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      left: isPrivate ? "22px" : "2px",
+                      width: "27px",
+                      height: "27px",
+                      borderRadius: "100px",
+                      background: "#fff",
+                      boxShadow: "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
+                      transition: "left 0.2s ease",
+                    }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 

@@ -8,20 +8,12 @@ import {
   type JWTPayload,
 } from "jose";
 
-import type { AuthMethod, AuthSessionUser } from "@loyal-labs/auth-core";
+import {
+  authSessionTokenClaimsSchema,
+  type AuthSessionTokenClaimsData,
+} from "@loyal-labs/auth-core";
 
-export type AuthSessionTokenClaims = JWTPayload & {
-  sub?: string;
-  authMethod: AuthMethod;
-  subjectAddress: string;
-  displayAddress: string;
-  email?: string;
-  provider?: string;
-  passkeyAccount?: string;
-  walletAddress?: string;
-  smartAccountAddress?: string;
-  sessionKey?: AuthSessionUser["sessionKey"];
-};
+export type AuthSessionTokenClaims = JWTPayload & AuthSessionTokenClaimsData;
 
 export type EmailAccessTokenClaims = AuthSessionTokenClaims & {
   sub: string;
@@ -57,7 +49,7 @@ export async function verifyAuthSessionToken(
     createSecretKey(secret)
   );
 
-  return payload;
+  return authSessionTokenClaimsSchema.parse(payload);
 }
 
 export const issueEmailAccessToken = issueAuthSessionToken;
@@ -112,7 +104,7 @@ export async function verifyAuthSessionTokenRS256(
   const { payload } = await jwtVerify<AuthSessionTokenClaims>(token, key, {
     algorithms: [RS256_ALG],
   });
-  return payload;
+  return authSessionTokenClaimsSchema.parse(payload);
 }
 
 export async function verifyAuthSessionTokenMulti(

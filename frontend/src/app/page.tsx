@@ -196,11 +196,17 @@ export default function LandingPage() {
   }, [isAuthHydrated, isChatMode, isSignedIn, isWalletLoading, openSignIn]);
 
   // Pre-fill input from URL query parameter (e.g., ?req=hello)
+  // Read ?connect= param for agent connection request
+  const [connectAgentName, setConnectAgentName] = useState<string | undefined>();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const reqParam = params.get("req");
     if (reqParam) {
       setPendingText(reqParam);
+    }
+    const connectParam = params.get("connect");
+    if (connectParam) {
+      setConnectAgentName(connectParam);
     }
   }, []);
 
@@ -375,6 +381,7 @@ export default function LandingPage() {
           onNewChat={onNewChat}
           onSelectChat={onSelectChat}
           currentChatId={currentChatId}
+          connectAgentName={connectAgentName}
         />
         {/* End of first section */}
 

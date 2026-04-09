@@ -95,15 +95,8 @@ function buildFrontendProfileProperties(user: AuthSessionUser): AnalyticsPropert
     auth_method: user.authMethod,
   };
 
-  if (user.gridUserId) {
-    profileProperties.grid_user_id = user.gridUserId;
-  }
   if (user.provider) {
     profileProperties.provider = user.provider;
-  }
-  if (user.email) {
-    profileProperties.email = user.email;
-    profileProperties.$email = user.email;
   }
   if (user.displayAddress) {
     profileProperties.display_address = user.displayAddress;
@@ -114,19 +107,21 @@ function buildFrontendProfileProperties(user: AuthSessionUser): AnalyticsPropert
   if (user.smartAccountAddress) {
     profileProperties.smart_account_address = user.smartAccountAddress;
   }
+  if (user.settingsPda) {
+    profileProperties.settings_pda = user.settingsPda;
+  }
 
   return profileProperties;
 }
 
 function buildFrontendProfileFingerprint(user: AuthSessionUser): string {
   return JSON.stringify({
-    gridUserId: user.gridUserId ?? null,
     authMethod: user.authMethod,
     provider: user.provider ?? null,
-    email: user.email ?? null,
     displayAddress: user.displayAddress ?? null,
     walletAddress: user.walletAddress ?? null,
     smartAccountAddress: user.smartAccountAddress ?? null,
+    settingsPda: user.settingsPda ?? null,
   });
 }
 

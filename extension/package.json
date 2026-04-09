@@ -2,7 +2,7 @@
   "name": "@loyal-labs/extension",
   "description": "Loyal wallet browser extension",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.4.2",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -21,8 +21,10 @@
     "@solana/wallet-adapter-wallets": "^0.19.37",
     "@solana/web3.js": "^1.98.4",
     "buffer": "^6.0.3",
+    "flubber": "^0.4.2",
     "lottie-web": "^5.13.0",
     "lucide-react": "^0.577.0",
+    "mixpanel-browser": "^2.74.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -31,6 +33,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
+    "@types/flubber": "^0.4.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.1.5",

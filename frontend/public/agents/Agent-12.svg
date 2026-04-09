@@ -1,0 +1,22 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_1439_14913)">
+<rect width="48" height="48" fill="#D39DD5"/>
+<circle cx="39" cy="39" r="5" fill="#DDFF88"/>
+<circle cx="9" cy="39" r="5" fill="#DDFF88"/>
+<circle cx="39" cy="9" r="5" fill="#DDFF88"/>
+<path d="M56.1953 51.022L13.5293 46.0024L12.4434 43.4702L34.0469 44.4946L33.6719 43.061L11.1533 40.4585L6 28.4341H28.5879V10.8657L38.627 28.4341L41.1367 10.8657L56.1953 51.022Z" fill="#4F49FF"/>
+<path d="M34.4486 30.5693C38.6012 30.787 41.8147 33.8809 41.6261 37.4798L26.5882 36.6917C26.7768 33.0928 30.296 30.3517 34.4486 30.5693Z" fill="white"/>
+<mask id="mask0_1439_14913" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="26" y="30" width="16" height="8">
+<path d="M34.4486 30.5693C38.6012 30.787 41.8147 33.8809 41.6261 37.4798L26.5882 36.6917C26.7768 33.0928 30.296 30.3517 34.4486 30.5693Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_1439_14913)">
+<circle cx="34.0908" cy="37.0628" r="4.79357" transform="rotate(3 34.0908 37.0628)" fill="black"/>
+</g>
+<circle cx="9" cy="9" r="5" fill="#DDFF88"/>
+</g>
+<defs>
+<clipPath id="clip0_1439_14913">
+<rect width="48" height="48" fill="white"/>
+</clipPath>
+</defs>
+</svg>

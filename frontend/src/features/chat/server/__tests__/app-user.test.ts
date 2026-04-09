@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
-import type { AuthenticatedPrincipal } from "@/features/identity/server/auth-session";
+import type { CurrentUserPrincipal } from "../app-user";
 
 mock.module("server-only", () => ({}));
 
@@ -10,8 +10,6 @@ type StoredUser = {
   id: string;
   provider: "solana";
   subjectAddress: string;
-  gridUserId: string | null;
-  smartAccountAddress: string | null;
 };
 
 type StoredWallet = {
@@ -27,15 +25,13 @@ describe("app user provisioning", () => {
   });
 
   function createPrincipal(
-    overrides: Partial<AuthenticatedPrincipal> = {}
-  ): AuthenticatedPrincipal {
+    overrides: Partial<CurrentUserPrincipal> = {}
+  ): CurrentUserPrincipal {
     return {
       provider: "solana",
       authMethod: "wallet",
       subjectAddress: "wallet-1",
       walletAddress: "wallet-1",
-      gridUserId: null,
-      smartAccountAddress: null,
       ...overrides,
     };
   }
@@ -51,31 +47,22 @@ describe("app user provisioning", () => {
       wallets,
       dependencies: {
         now: () => new Date(`2026-03-12T00:00:0${nowCounter++}Z`),
-        findUserByPrincipal: async (principal: AuthenticatedPrincipal) =>
+        findUserByPrincipal: async (principal: CurrentUserPrincipal) =>
           users.find(
             (user) =>
               user.provider === principal.provider &&
               user.subjectAddress === principal.subjectAddress
           ) ?? null,
-        createUser: async (principal: AuthenticatedPrincipal) => {
+        createUser: async (principal: CurrentUserPrincipal) => {
           const user: StoredUser = {
             id: `user-${++idCounter}`,
             provider: principal.provider,
             subjectAddress: principal.subjectAddress,
-            gridUserId: principal.gridUserId,
-            smartAccountAddress: principal.smartAccountAddress,
           };
           users.push(user);
           return user;
         },
-        updateUserMetadata: async (
-          user: StoredUser,
-          principal: AuthenticatedPrincipal
-        ) => {
-          user.gridUserId = principal.gridUserId ?? user.gridUserId;
-          user.smartAccountAddress =
-            principal.smartAccountAddress ?? user.smartAccountAddress;
-        },
+        updateUserMetadata: async () => {},
         upsertWalletForUser: async (
           userId: string,
           walletAddress: string,
@@ -113,8 +100,6 @@ describe("app user provisioning", () => {
         id: "user-1",
         provider: "solana",
         subjectAddress: "wallet-1",
-        gridUserId: null,
-        smartAccountAddress: null,
       },
     ]);
     expect(wallets).toHaveLength(1);
@@ -144,19 +129,27 @@ describe("app user provisioning", () => {
     );
   });
 
-  test("updates smart-account metadata when present", async () => {
-    const { dependencies } = createFakeDependencies();
+  test("recovers when user creation loses a race", async () => {
+    const { users, wallets, dependencies } = createFakeDependencies();
+    const racedUser: StoredUser = {
+      id: "user-raced",
+      provider: "solana",
+      subjectAddress: "wallet-1",
+    };
+    let created = false;
 
-    await getOrCreateCurrentUser(createPrincipal(), dependencies);
-    const user = await getOrCreateCurrentUser(
-      createPrincipal({
-        gridUserId: "grid-1",
-        smartAccountAddress: "smart-1",
-      }),
-      dependencies
-    );
+    const user = await getOrCreateCurrentUser(createPrincipal(), {
+      ...dependencies,
+      createUser: async () => {
+        created = true;
+        users.push(racedUser);
+        return null;
+      },
+    });
 
-    expect(user.gridUserId).toBe("grid-1");
-    expect(user.smartAccountAddress).toBe("smart-1");
+    expect(created).toBe(true);
+    expect(user).toEqual(racedUser);
+    expect(wallets).toHaveLength(1);
+    expect(wallets[0]?.userId).toBe("user-raced");
   });
 });

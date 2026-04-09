@@ -24,6 +24,14 @@ const logger = {
   },
 };
 
+function cleanSolanaErrorMessage(message: string): string {
+  const logsIndex = message.indexOf("Logs:");
+  if (logsIndex !== -1) {
+    return message.slice(0, logsIndex).trim();
+  }
+  return message;
+}
+
 // Constants
 const PERCENTAGE_MULTIPLIER = 100;
 
@@ -130,7 +138,8 @@ export function useSwap() {
       amount: string,
       fromTokenMint?: string,
       fromTokenDecimals?: number,
-      toTokenDecimals?: number
+      toTokenDecimals?: number,
+      toTokenMint?: string
     ): Promise<SwapQuote | null> => {
       try {
         setError(null);
@@ -142,7 +151,7 @@ export function useSwap() {
         // Convert token symbols to mint addresses
         // Use provided mints if available, otherwise look up
         const inputMint = fromTokenMint || getTokenMint(fromToken);
-        const outputMint = getTokenMint(toToken);
+        const outputMint = toTokenMint || getTokenMint(toToken);
 
         if (!inputMint) {
           throw new Error(
@@ -353,7 +362,7 @@ export function useSwap() {
           } else if (err.message.includes("User rejected")) {
             errorMessage = "Transaction was rejected in your wallet.";
           } else {
-            errorMessage = err.message;
+            errorMessage = cleanSolanaErrorMessage(err.message);
           }
         }
 

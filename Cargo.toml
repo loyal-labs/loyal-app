@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "cli/loyal-cli",
+    "cli/smart-accounts-cli",
     "sdk/loyal-smart-accounts-rs",
     "programs/telegram-private-transfer",
     "programs/telegram-verification",

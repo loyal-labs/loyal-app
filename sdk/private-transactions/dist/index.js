@@ -48,6 +48,94 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   throw Error('Dynamic require of "' + x + '" is not supported');
 });
 
+// node:process
+var exports_process = {};
+__export(exports_process, {
+  versions: () => versions,
+  version: () => version,
+  umask: () => umask,
+  title: () => title,
+  removeListener: () => removeListener,
+  removeAllListeners: () => removeAllListeners,
+  prependOnceListener: () => prependOnceListener,
+  prependListener: () => prependListener,
+  once: () => once,
+  on: () => on,
+  off: () => off,
+  nextTick: () => nextTick,
+  listeners: () => listeners,
+  env: () => env,
+  emit: () => emit,
+  cwd: () => cwd,
+  chdir: () => chdir,
+  browser: () => browser,
+  binding: () => binding,
+  argv: () => argv,
+  addListener: () => addListener
+});
+function cleanUpNextTick() {
+  if (!draining || !currentQueue)
+    return;
+  if (draining = false, currentQueue.length)
+    queue = currentQueue.concat(queue);
+  else
+    queueIndex = -1;
+  if (queue.length)
+    drainQueue();
+}
+function drainQueue() {
+  if (draining)
+    return;
+  var timeout = setTimeout(cleanUpNextTick, 0);
+  draining = true;
+  var len = queue.length;
+  while (len) {
+    currentQueue = queue, queue = [];
+    while (++queueIndex < len)
+      if (currentQueue) {
+        var item = currentQueue[queueIndex];
+        item.fun.apply(null, item.array);
+      }
+    queueIndex = -1, len = queue.length;
+  }
+  currentQueue = null, draining = false, clearTimeout(timeout, 0);
+}
+function nextTick(fun) {
+  var args = new Array(arguments.length - 1);
+  if (arguments.length > 1)
+    for (var i = 1;i < arguments.length; i++)
+      args[i - 1] = arguments[i];
+  if (queue.push({ fun, args }), queue.length === 1 && !draining)
+    setTimeout(drainQueue, 0);
+}
+function noop() {}
+var queue, draining = false, currentQueue, queueIndex = -1, title = "browser", browser = true, env, argv, version = "", versions, on, addListener, once, off, removeListener, removeAllListeners, emit, prependListener, prependOnceListener, listeners = function(name) {
+  return [];
+}, binding = function(name) {
+  throw new Error("process.binding is not supported in browser polyfill");
+}, cwd = function() {
+  return "/";
+}, chdir = function(dir) {
+  throw new Error("process.chdir is not supported in browser polyfill");
+}, umask = function() {
+  return 0;
+};
+var init_process = __esm(() => {
+  queue = [];
+  env = {};
+  argv = [];
+  versions = {};
+  on = noop;
+  addListener = noop;
+  once = noop;
+  off = noop;
+  removeListener = noop;
+  removeAllListeners = noop;
+  emit = noop;
+  prependListener = noop;
+  prependOnceListener = noop;
+});
+
 // node:buffer
 var exports_buffer2 = {};
 __export(exports_buffer2, {
@@ -404,11 +492,11 @@ function arrayIndexOf(arr, val, byteOffset, encoding, dir) {
       indexSize = 2, arrLength /= 2, valLength /= 2, byteOffset /= 2;
     }
   }
-  function read2(buf, i3) {
+  function read2(buf, i22) {
     if (indexSize === 1)
-      return buf[i3];
+      return buf[i22];
     else
-      return buf.readUInt16BE(i3 * indexSize);
+      return buf.readUInt16BE(i22 * indexSize);
   }
   let i2;
   if (dir) {
@@ -1409,7 +1497,6 @@ __export(exports_util, {
   inherits: () => inherits,
   format: () => format,
   deprecate: () => deprecate,
-  default: () => util_default,
   debuglog: () => debuglog,
   callbackifyOnRejected: () => callbackifyOnRejected,
   callbackify: () => callbackify,
@@ -1726,10 +1813,10 @@ function callbackify(original) {
   }
   return Object.setPrototypeOf(callbackified, Object.getPrototypeOf(original)), Object.defineProperties(callbackified, Object.getOwnPropertyDescriptors(original)), callbackified;
 }
-var formatRegExp, debuglog, inspect2, types = () => {}, months, promisify, TextEncoder2, TextDecoder, util_default;
+var formatRegExp, debuglog, inspect2, types = () => {}, months, promisify, TextEncoder2, TextDecoder;
 var init_util = __esm(() => {
   formatRegExp = /%[sdj%]/g;
-  debuglog = ((debugs = {}, debugEnvRegex = {}, debugEnv) => ((debugEnv = typeof process !== "undefined" && false) && (debugEnv = debugEnv.replace(/[|\\{}()[\]^$+?.]/g, "\\$&").replace(/\*/g, ".*").replace(/,/g, "$|^").toUpperCase()), debugEnvRegex = new RegExp("^" + debugEnv + "$", "i"), (set) => {
+  debuglog = ((debugs = {}, debugEnvRegex = {}, debugEnv) => ((debugEnv = typeof process !== "undefined" && process.env.NODE_DEBUG) && (debugEnv = debugEnv.replace(/[|\\{}()[\]^$+?.]/g, "\\$&").replace(/\*/g, ".*").replace(/,/g, "$|^").toUpperCase()), debugEnvRegex = new RegExp("^" + debugEnv + "$", "i"), (set) => {
     if (set = set.toUpperCase(), !debugs[set])
       if (debugEnvRegex.test(set))
         debugs[set] = function(...args) {
@@ -1791,14 +1878,13 @@ var init_util = __esm(() => {
     return Object.defineProperties(fn, Object.getOwnPropertyDescriptors(original));
   });
   ({ TextEncoder: TextEncoder2, TextDecoder } = globalThis);
-  util_default = { TextEncoder: TextEncoder2, TextDecoder, promisify, log, inherits, _extend, callbackifyOnRejected, callbackify };
 });
 
 // node:events
 var exports_events = {};
 __export(exports_events, {
   setMaxListeners: () => setMaxListeners2,
-  once: () => once2,
+  once: () => once22,
   listenerCount: () => listenerCount2,
   init: () => EventEmitter,
   getMaxListeners: () => getMaxListeners2,
@@ -1846,7 +1932,7 @@ function overflowWarning(emitter, type, handlers) {
 function onceWrapper(type, listener, ...args) {
   this.removeListener(type, listener), listener.apply(this, args);
 }
-function once2(emitter, type, options) {
+function once22(emitter, type, options) {
   var signal = options?.signal;
   if (validateAbortSignal(signal, "options.signal"), signal?.aborted)
     throw new AbortError(undefined, { cause: signal?.reason });
@@ -1950,7 +2036,7 @@ var SymbolFor, kCapture, kErrorMonitor, kMaxEventTargetListeners, kMaxEventTarge
     this._events = { __proto__: null }, this._eventsCount = 0;
   if (this._maxListeners ??= undefined, this[kCapture] = opts?.captureRejections ? Boolean(opts?.captureRejections) : EventEmitterPrototype[kCapture])
     this.emit = emitWithRejectionCapture;
-}, EventEmitterPrototype, emitWithoutRejectionCapture = function emit(type, ...args) {
+}, EventEmitterPrototype, emitWithoutRejectionCapture = function emit2(type, ...args) {
   if (type === "error")
     return emitError(this, args);
   var { _events: events } = this;
@@ -1981,7 +2067,7 @@ var SymbolFor, kCapture, kErrorMonitor, kMaxEventTargetListeners, kMaxEventTarge
     }
   }
   return true;
-}, emitWithRejectionCapture = function emit2(type, ...args) {
+}, emitWithRejectionCapture = function emit22(type, ...args) {
   if (type === "error")
     return emitError(this, args);
   var { _events: events } = this;
@@ -2036,7 +2122,7 @@ var init_events = __esm(() => {
     return this?._maxListeners ?? defaultMaxListeners;
   };
   EventEmitterPrototype.emit = emitWithoutRejectionCapture;
-  EventEmitterPrototype.addListener = function addListener(type, fn) {
+  EventEmitterPrototype.addListener = function addListener2(type, fn) {
     checkListener(fn);
     var events = this._events;
     if (!events)
@@ -2055,7 +2141,7 @@ var init_events = __esm(() => {
     return this;
   };
   EventEmitterPrototype.on = EventEmitterPrototype.addListener;
-  EventEmitterPrototype.prependListener = function prependListener(type, fn) {
+  EventEmitterPrototype.prependListener = function prependListener2(type, fn) {
     checkListener(fn);
     var events = this._events;
     if (!events)
@@ -2073,17 +2159,17 @@ var init_events = __esm(() => {
     }
     return this;
   };
-  EventEmitterPrototype.once = function once(type, fn) {
+  EventEmitterPrototype.once = function once2(type, fn) {
     checkListener(fn);
     let bound = onceWrapper.bind(this, type, fn);
     return bound.listener = fn, this.addListener(type, bound), this;
   };
-  EventEmitterPrototype.prependOnceListener = function prependOnceListener(type, fn) {
+  EventEmitterPrototype.prependOnceListener = function prependOnceListener2(type, fn) {
     checkListener(fn);
     let bound = onceWrapper.bind(this, type, fn);
     return bound.listener = fn, this.prependListener(type, bound), this;
   };
-  EventEmitterPrototype.removeListener = function removeListener(type, fn) {
+  EventEmitterPrototype.removeListener = function removeListener2(type, fn) {
     checkListener(fn);
     var { _events: events } = this;
     if (!events)
@@ -2109,7 +2195,7 @@ var init_events = __esm(() => {
     return this;
   };
   EventEmitterPrototype.off = EventEmitterPrototype.removeListener;
-  EventEmitterPrototype.removeAllListeners = function removeAllListeners(type) {
+  EventEmitterPrototype.removeAllListeners = function removeAllListeners2(type) {
     var { _events: events } = this;
     if (type && events) {
       if (events[type])
@@ -2118,7 +2204,7 @@ var init_events = __esm(() => {
       this._events = { __proto__: null };
     return this;
   };
-  EventEmitterPrototype.listeners = function listeners(type) {
+  EventEmitterPrototype.listeners = function listeners2(type) {
     var { _events: events } = this;
     if (!events)
       return [];
@@ -2163,7 +2249,7 @@ var init_events = __esm(() => {
   }, set: (arg) => {
     validateNumber2(arg, "defaultMaxListeners", 0), defaultMaxListeners = arg;
   } }, kMaxEventTargetListeners: { value: kMaxEventTargetListeners, enumerable: false, configurable: false, writable: false }, kMaxEventTargetListenersWarned: { value: kMaxEventTargetListenersWarned, enumerable: false, configurable: false, writable: false } });
-  Object.assign(EventEmitter, { once: once2, getEventListeners, getMaxListeners: getMaxListeners2, setMaxListeners: setMaxListeners2, EventEmitter, usingDomains: false, captureRejectionSymbol, errorMonitor: kErrorMonitor, addAbortListener, init: EventEmitter, listenerCount: listenerCount2 });
+  Object.assign(EventEmitter, { once: once22, getEventListeners, getMaxListeners: getMaxListeners2, setMaxListeners: setMaxListeners2, EventEmitter, usingDomains: false, captureRejectionSymbol, errorMonitor: kErrorMonitor, addAbortListener, init: EventEmitter, listenerCount: listenerCount2 });
   events_default = EventEmitter;
 });
 
@@ -2627,10 +2713,10 @@ var require_stream = __commonJS((exports, module) => {
       return x !== null && typeof x === "object";
     }
     function getListeners(eventTarget) {
-      let listeners2 = listenersMap.get(eventTarget);
-      if (listeners2 == null)
+      let listeners3 = listenersMap.get(eventTarget);
+      if (listeners3 == null)
         throw new TypeError("'this' is expected an EventTarget object, but got another value.");
-      return listeners2;
+      return listeners3;
     }
     function defineEventAttributeDescriptor(eventName) {
       return { get() {
@@ -2644,15 +2730,15 @@ var require_stream = __commonJS((exports, module) => {
       }, set(listener) {
         if (typeof listener !== "function" && !isObject2(listener))
           listener = null;
-        let listeners2 = getListeners(this), prev = null, node = listeners2.get(eventName);
+        let listeners3 = getListeners(this), prev = null, node = listeners3.get(eventName);
         while (node != null) {
           if (node.listenerType === ATTRIBUTE)
             if (prev !== null)
               prev.next = node.next;
             else if (node.next !== null)
-              listeners2.set(eventName, node.next);
+              listeners3.set(eventName, node.next);
             else
-              listeners2.delete(eventName);
+              listeners3.delete(eventName);
           else
             prev = node;
           node = node.next;
@@ -2660,7 +2746,7 @@ var require_stream = __commonJS((exports, module) => {
         if (listener !== null) {
           let newNode = { listener, listenerType: ATTRIBUTE, passive: false, once: false, next: null };
           if (prev === null)
-            listeners2.set(eventName, newNode);
+            listeners3.set(eventName, newNode);
           else
             prev.next = newNode;
         }
@@ -2698,9 +2784,9 @@ var require_stream = __commonJS((exports, module) => {
         return;
       if (typeof listener !== "function" && !isObject2(listener))
         throw new TypeError("'listener' should be a function or an object.");
-      let listeners2 = getListeners(this), optionsIsObj = isObject2(options), listenerType = (optionsIsObj ? Boolean(options.capture) : Boolean(options)) ? CAPTURE : BUBBLE, newNode = { listener, listenerType, passive: optionsIsObj && Boolean(options.passive), once: optionsIsObj && Boolean(options.once), next: null }, node = listeners2.get(eventName);
+      let listeners3 = getListeners(this), optionsIsObj = isObject2(options), listenerType = (optionsIsObj ? Boolean(options.capture) : Boolean(options)) ? CAPTURE : BUBBLE, newNode = { listener, listenerType, passive: optionsIsObj && Boolean(options.passive), once: optionsIsObj && Boolean(options.once), next: null }, node = listeners3.get(eventName);
       if (node === undefined) {
-        listeners2.set(eventName, newNode);
+        listeners3.set(eventName, newNode);
         return;
       }
       let prev = null;
@@ -2713,15 +2799,15 @@ var require_stream = __commonJS((exports, module) => {
     }, removeEventListener(eventName, listener, options) {
       if (listener == null)
         return;
-      let listeners2 = getListeners(this), listenerType = (isObject2(options) ? Boolean(options.capture) : Boolean(options)) ? CAPTURE : BUBBLE, prev = null, node = listeners2.get(eventName);
+      let listeners3 = getListeners(this), listenerType = (isObject2(options) ? Boolean(options.capture) : Boolean(options)) ? CAPTURE : BUBBLE, prev = null, node = listeners3.get(eventName);
       while (node != null) {
         if (node.listener === listener && node.listenerType === listenerType) {
           if (prev !== null)
             prev.next = node.next;
           else if (node.next !== null)
-            listeners2.set(eventName, node.next);
+            listeners3.set(eventName, node.next);
           else
-            listeners2.delete(eventName);
+            listeners3.delete(eventName);
           return;
         }
         prev = node, node = node.next;
@@ -2729,7 +2815,7 @@ var require_stream = __commonJS((exports, module) => {
     }, dispatchEvent(event) {
       if (event == null || typeof event.type !== "string")
         throw new TypeError('"event.type" should be a string.');
-      let listeners2 = getListeners(this), eventName = event.type, node = listeners2.get(eventName);
+      let listeners3 = getListeners(this), eventName = event.type, node = listeners3.get(eventName);
       if (node == null)
         return true;
       let wrappedEvent = wrapEvent(this, event), prev = null;
@@ -2738,9 +2824,9 @@ var require_stream = __commonJS((exports, module) => {
           if (prev !== null)
             prev.next = node.next;
           else if (node.next !== null)
-            listeners2.set(eventName, node.next);
+            listeners3.set(eventName, node.next);
           else
-            listeners2.delete(eventName);
+            listeners3.delete(eventName);
         else
           prev = node;
         if (setPassiveListener(wrappedEvent, node.passive ? node.listener : null), typeof node.listener === "function")
@@ -3055,7 +3141,7 @@ var require_stream = __commonJS((exports, module) => {
     module2.exports = { isInt32, isUint32, parseFileMode, validateArray, validateStringArray, validateBooleanArray, validateAbortSignalArray, validateBoolean: validateBoolean2, validateBuffer, validateDictionary, validateEncoding, validateFunction, validateInt32, validateInteger, validateNumber: validateNumber3, validateObject, validateOneOf, validatePlainFunction, validatePort, validateSignalName, validateString, validateUint32, validateUndefined, validateUnion, validateAbortSignal: validateAbortSignal2, validateLinkHeaderValue };
   });
   var require_process = __commonJS2((exports2, module2) => {
-    module2.exports = globalThis.process;
+    module2.exports = (init_process(), __toCommonJS(exports_process));
   });
   var require_utils = __commonJS2((exports2, module2) => {
     var { SymbolAsyncIterator, SymbolIterator, SymbolFor: SymbolFor2 } = require_primordials(), kIsDestroyed = SymbolFor2("nodejs.stream.destroyed"), kIsErrored = SymbolFor2("nodejs.stream.errored"), kIsReadable = SymbolFor2("nodejs.stream.readable"), kIsWritable = SymbolFor2("nodejs.stream.writable"), kIsDisturbed = SymbolFor2("nodejs.stream.disturbed"), kIsClosedPromise = SymbolFor2("nodejs.webstream.isClosedPromise"), kControllerErrorFunction = SymbolFor2("nodejs.webstream.controllerErrorFunction");
@@ -3587,13 +3673,13 @@ var require_stream = __commonJS((exports, module) => {
         if (cleanup(), EE.listenerCount(this, "error") === 0)
           this.emit("error", er);
       }
-      prependListener2(source, "error", onerror), prependListener2(dest, "error", onerror);
+      prependListener3(source, "error", onerror), prependListener3(dest, "error", onerror);
       function cleanup() {
         source.removeListener("data", ondata), dest.removeListener("drain", ondrain), source.removeListener("end", onend), source.removeListener("close", onclose), source.removeListener("error", onerror), dest.removeListener("error", onerror), source.removeListener("end", cleanup), source.removeListener("close", cleanup), dest.removeListener("close", cleanup);
       }
       return source.on("end", cleanup), source.on("close", cleanup), dest.on("close", cleanup), dest.emit("pipe", source), dest;
     };
-    function prependListener2(emitter, event, fn) {
+    function prependListener3(emitter, event, fn) {
       if (typeof emitter.prependListener === "function")
         return emitter.prependListener(event, fn);
       if (!emitter._events || !emitter._events[event])
@@ -3603,7 +3689,7 @@ var require_stream = __commonJS((exports, module) => {
       else
         emitter._events[event] = [fn, emitter._events[event]];
     }
-    module2.exports = { Stream, prependListener: prependListener2 };
+    module2.exports = { Stream, prependListener: prependListener3 };
   });
   var require_add_abort_signal = __commonJS2((exports2, module2) => {
     var { SymbolDispose } = require_primordials(), { AbortError: AbortError2, codes } = require_errors(), { isNodeStream, isWebStream, kControllerErrorFunction } = require_utils(), eos = require_end_of_stream(), { ERR_INVALID_ARG_TYPE: ERR_INVALID_ARG_TYPE3 } = codes, addAbortListener2, validateAbortSignal2 = (signal, name) => {
@@ -4089,7 +4175,7 @@ var require_stream = __commonJS((exports, module) => {
     var process2 = require_process(), { ArrayPrototypeIndexOf, NumberIsInteger, NumberIsNaN, NumberParseInt, ObjectDefineProperties, ObjectKeys, ObjectSetPrototypeOf, Promise: Promise2, SafeSet, SymbolAsyncDispose, SymbolAsyncIterator, Symbol: Symbol2 } = require_primordials();
     module2.exports = Readable;
     Readable.ReadableState = ReadableState;
-    var { EventEmitter: EE } = (init_events(), __toCommonJS(exports_events)), { Stream, prependListener: prependListener2 } = require_legacy(), { Buffer: Buffer3 } = (init_buffer(), __toCommonJS(exports_buffer2)), { addAbortSignal } = require_add_abort_signal(), eos = require_end_of_stream(), debug = require_util().debuglog("stream", (fn) => {
+    var { EventEmitter: EE } = (init_events(), __toCommonJS(exports_events)), { Stream, prependListener: prependListener3 } = require_legacy(), { Buffer: Buffer3 } = (init_buffer(), __toCommonJS(exports_buffer2)), { addAbortSignal } = require_add_abort_signal(), eos = require_end_of_stream(), debug = require_util().debuglog("stream", (fn) => {
       debug = fn;
     }), BufferList = require_buffer_list(), destroyImpl = require_destroy(), { getHighWaterMark, getDefaultHighWaterMark } = require_state(), { aggregateTwoErrors, codes: { ERR_INVALID_ARG_TYPE: ERR_INVALID_ARG_TYPE3, ERR_METHOD_NOT_IMPLEMENTED, ERR_OUT_OF_RANGE: ERR_OUT_OF_RANGE3, ERR_STREAM_PUSH_AFTER_EOF, ERR_STREAM_UNSHIFT_AFTER_END_EVENT }, AbortError: AbortError2 } = require_errors(), { validateObject } = require_validators(), kPaused = Symbol2("kPaused"), { StringDecoder } = require_string_decoder(), from2 = require_from();
     ObjectSetPrototypeOf(Readable.prototype, Stream.prototype);
@@ -4410,7 +4496,7 @@ var require_stream = __commonJS((exports, module) => {
             dest.emit("error", er);
         }
       }
-      prependListener2(dest, "error", onerror);
+      prependListener3(dest, "error", onerror);
       function onclose() {
         dest.removeListener("finish", onfinish), unpipe();
       }
@@ -5776,7 +5862,7 @@ var require_stream = __commonJS((exports, module) => {
       if ((options === null || options === undefined ? undefined : options.highWaterMark) != null)
         highWaterMark = MathFloor(options.highWaterMark);
       return validateInteger(concurrency, "options.concurrency", 1), validateInteger(highWaterMark, "options.highWaterMark", 0), highWaterMark += concurrency, async function* map() {
-        let signal = require_util().AbortSignalAny([options === null || options === undefined ? undefined : options.signal].filter(Boolean2)), stream = this, queue = [], signalOpt = { signal }, next, resume, done = false, cnt = 0;
+        let signal = require_util().AbortSignalAny([options === null || options === undefined ? undefined : options.signal].filter(Boolean2)), stream = this, queue2 = [], signalOpt = { signal }, next, resume, done = false, cnt = 0;
         function onCatch() {
           done = true, afterItemProcessed();
         }
@@ -5784,7 +5870,7 @@ var require_stream = __commonJS((exports, module) => {
           cnt -= 1, maybeResume();
         }
         function maybeResume() {
-          if (resume && !done && cnt < concurrency && queue.length < highWaterMark)
+          if (resume && !done && cnt < concurrency && queue2.length < highWaterMark)
             resume(), resume = null;
         }
         async function pump() {
@@ -5801,17 +5887,17 @@ var require_stream = __commonJS((exports, module) => {
               } catch (err) {
                 val = PromiseReject(err);
               }
-              if (cnt += 1, PromisePrototypeThen(val, afterItemProcessed, onCatch), queue.push(val), next)
+              if (cnt += 1, PromisePrototypeThen(val, afterItemProcessed, onCatch), queue2.push(val), next)
                 next(), next = null;
-              if (!done && (queue.length >= highWaterMark || cnt >= concurrency))
+              if (!done && (queue2.length >= highWaterMark || cnt >= concurrency))
                 await new Promise2((resolve) => {
                   resume = resolve;
                 });
             }
-            queue.push(kEof);
+            queue2.push(kEof);
           } catch (err) {
             let val = PromiseReject(err);
-            PromisePrototypeThen(val, afterItemProcessed, onCatch), queue.push(val);
+            PromisePrototypeThen(val, afterItemProcessed, onCatch), queue2.push(val);
           } finally {
             if (done = true, next)
               next(), next = null;
@@ -5820,15 +5906,15 @@ var require_stream = __commonJS((exports, module) => {
         pump();
         try {
           while (true) {
-            while (queue.length > 0) {
-              let val = await queue[0];
+            while (queue2.length > 0) {
+              let val = await queue2[0];
               if (val === kEof)
                 return;
               if (signal.aborted)
                 throw new AbortError2;
               if (val !== kEmpty)
                 yield val;
-              queue.shift(), maybeResume();
+              queue2.shift(), maybeResume();
             }
             await new Promise2((resolve) => {
               next = resolve;
@@ -6078,7 +6164,12 @@ var require_stream = __commonJS((exports, module) => {
   });
   var require_ours = __commonJS2((exports2, module2) => {
     var Stream = require_stream();
-    {
+    if (Stream && process.env.READABLE_STREAM === "disable") {
+      let promises = Stream.promises;
+      module2.exports._uint8ArrayToBuffer = Stream._uint8ArrayToBuffer, module2.exports._isUint8Array = Stream._isUint8Array, module2.exports.isDisturbed = Stream.isDisturbed, module2.exports.isErrored = Stream.isErrored, module2.exports.isReadable = Stream.isReadable, module2.exports.Readable = Stream.Readable, module2.exports.Writable = Stream.Writable, module2.exports.Duplex = Stream.Duplex, module2.exports.Transform = Stream.Transform, module2.exports.PassThrough = Stream.PassThrough, module2.exports.addAbortSignal = Stream.addAbortSignal, module2.exports.finished = Stream.finished, module2.exports.destroy = Stream.destroy, module2.exports.pipeline = Stream.pipeline, module2.exports.compose = Stream.compose, Object.defineProperty(Stream, "promises", { configurable: true, enumerable: true, get() {
+        return promises;
+      } }), module2.exports.Stream = Stream.Stream;
+    } else {
       let CustomStream = require_stream2(), promises = require_promises(), originalDestroy = CustomStream.Readable.destroy;
       module2.exports = CustomStream.Readable, module2.exports._uint8ArrayToBuffer = CustomStream._uint8ArrayToBuffer, module2.exports._isUint8Array = CustomStream._isUint8Array, module2.exports.isDisturbed = CustomStream.isDisturbed, module2.exports.isErrored = CustomStream.isErrored, module2.exports.isReadable = CustomStream.isReadable, module2.exports.Readable = CustomStream.Readable, module2.exports.Writable = CustomStream.Writable, module2.exports.Duplex = CustomStream.Duplex, module2.exports.Transform = CustomStream.Transform, module2.exports.PassThrough = CustomStream.PassThrough, module2.exports.addAbortSignal = CustomStream.addAbortSignal, module2.exports.finished = CustomStream.finished, module2.exports.destroy = CustomStream.destroy, module2.exports.destroy = originalDestroy, module2.exports.pipeline = CustomStream.pipeline, module2.exports.compose = CustomStream.compose, Object.defineProperty(CustomStream, "promises", { configurable: true, enumerable: true, get() {
         return promises;
@@ -6112,7 +6203,6 @@ __export(exports_crypto, {
   getDiffieHellman: () => getDiffieHellman2,
   getCurves: () => getCurves,
   getCiphers: () => getCiphers2,
-  default: () => crypto_default,
   createVerify: () => createVerify2,
   createSign: () => createSign2,
   createHmac: () => createHmac2,
@@ -6152,7 +6242,7 @@ var __create2, __getProtoOf2, __defProp2, __getOwnPropNames2, __hasOwnProp2, __t
   return crypto.getRandomValues(array);
 }, randomUUID = () => {
   return crypto.randomUUID();
-}, hardcoded_curves, webcrypto, crypto_default;
+}, hardcoded_curves, webcrypto;
 var init_crypto = __esm(() => {
   __create2 = Object.create;
   ({ getPrototypeOf: __getProtoOf2, defineProperty: __defProp2, getOwnPropertyNames: __getOwnPropNames2 } = Object);
@@ -6184,9 +6274,9 @@ var init_crypto = __esm(() => {
   });
   require_default_encoding = __commonJS2((exports, module) => {
     var defaultEncoding;
-    if (globalThis.process && globalThis.process.browser)
+    if ((init_process(), __toCommonJS(exports_process)) && (init_process(), __toCommonJS(exports_process)).browser)
       defaultEncoding = "utf-8";
-    else if (globalThis.process && globalThis.process.version)
+    else if ((init_process(), __toCommonJS(exports_process)) && (init_process(), __toCommonJS(exports_process)).version)
       pVersionMajor = parseInt(process.version.split(".")[0].slice(1), 10), defaultEncoding = pVersionMajor >= 6 ? "utf-8" : "binary";
     else
       defaultEncoding = "utf-8";
@@ -6273,9 +6363,9 @@ var init_crypto = __esm(() => {
     module.exports = pbkdf2;
   });
   require_async = __commonJS2((exports, module) => {
-    var Buffer22 = require_safe_buffer().Buffer, checkParameters = require_precondition(), defaultEncoding = require_default_encoding(), sync = require_sync(), toBuffer = require_to_buffer(), ZERO_BUF, subtle = globalThis.crypto && globalThis.crypto.subtle, toBrowser = { sha: "SHA-1", "sha-1": "SHA-1", sha1: "SHA-1", sha256: "SHA-256", "sha-256": "SHA-256", sha384: "SHA-384", "sha-384": "SHA-384", "sha-512": "SHA-512", sha512: "SHA-512" }, checks = [];
+    var Buffer22 = require_safe_buffer().Buffer, checkParameters = require_precondition(), defaultEncoding = require_default_encoding(), sync = require_sync(), toBuffer = require_to_buffer(), ZERO_BUF, subtle = global.crypto && global.crypto.subtle, toBrowser = { sha: "SHA-1", "sha-1": "SHA-1", sha1: "SHA-1", sha256: "SHA-256", "sha-256": "SHA-256", sha384: "SHA-384", "sha-384": "SHA-384", "sha-512": "SHA-512", sha512: "SHA-512" }, checks = [];
     function checkNative(algo) {
-      if (globalThis.process && !globalThis.process.browser)
+      if ((init_process(), __toCommonJS(exports_process)) && !(init_process(), __toCommonJS(exports_process)).browser)
         return Promise.resolve(false);
       if (!subtle || !subtle.importKey || !subtle.deriveBits)
         return Promise.resolve(false);
@@ -6289,19 +6379,19 @@ var init_crypto = __esm(() => {
       });
       return checks[algo] = prom, prom;
     }
-    var nextTick;
+    var nextTick2;
     function getNextTick() {
-      if (nextTick)
-        return nextTick;
-      if (globalThis.process && globalThis.process.nextTick)
-        nextTick = globalThis.process.nextTick;
-      else if (globalThis.queueMicrotask)
-        nextTick = globalThis.queueMicrotask;
-      else if (globalThis.setImmediate)
-        nextTick = globalThis.setImmediate;
+      if (nextTick2)
+        return nextTick2;
+      if ((init_process(), __toCommonJS(exports_process)) && (init_process(), __toCommonJS(exports_process)).nextTick)
+        nextTick2 = (init_process(), __toCommonJS(exports_process)).nextTick;
+      else if (global.queueMicrotask)
+        nextTick2 = global.queueMicrotask;
+      else if (global.setImmediate)
+        nextTick2 = global.setImmediate;
       else
-        nextTick = globalThis.setTimeout;
-      return nextTick;
+        nextTick2 = global.setTimeout;
+      return nextTick2;
     }
     function browserPbkdf2(password, salt, iterations, length, algo) {
       return subtle.importKey("raw", password, { name: "PBKDF2" }, false, ["deriveBits"]).then(function(key) {
@@ -6326,7 +6416,7 @@ var init_crypto = __esm(() => {
         callback = digest, digest = undefined;
       digest = digest || "sha1";
       var algo = toBrowser[digest.toLowerCase()];
-      if (!algo || typeof globalThis.Promise !== "function") {
+      if (!algo || typeof global.Promise !== "function") {
         getNextTick()(function() {
           var out;
           try {
@@ -6469,15 +6559,15 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil(number.length / 3), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var j, w, off = 0;
+        var j, w, off2 = 0;
         if (endian === "be") {
           for (i2 = number.length - 1, j = 0;i2 >= 0; i2 -= 3)
-            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         } else if (endian === "le") {
           for (i2 = 0, j = 0;i2 < number.length; i2 += 3)
-            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         }
         return this.strip();
       };
@@ -6500,20 +6590,20 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil((number.length - start) / 6), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var off = 0, j = 0, w;
+        var off2 = 0, j = 0, w;
         if (endian === "be")
           for (i2 = number.length - 1;i2 >= start; i2 -= 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         else {
           var parseLength = number.length - start;
           for (i2 = parseLength % 2 === 0 ? start + 1 : start;i2 < number.length; i2 += 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         }
         this.strip();
       };
@@ -6581,11 +6671,11 @@ var init_crypto = __esm(() => {
         var out;
         if (base === 16 || base === "hex") {
           out = "";
-          var off = 0, carry = 0;
+          var off2 = 0, carry = 0;
           for (var i2 = 0;i2 < this.length; i2++) {
-            var w = this.words[i2], word = ((w << off | carry) & 16777215).toString(16);
-            if (carry = w >>> 24 - off & 16777215, off += 2, off >= 26)
-              off -= 26, i2--;
+            var w = this.words[i2], word = ((w << off2 | carry) & 16777215).toString(16);
+            if (carry = w >>> 24 - off2 & 16777215, off2 += 2, off2 >= 26)
+              off2 -= 26, i2--;
             if (carry !== 0 || i2 !== this.length - 1)
               out = zeros[6 - word.length] + word + out;
             else
@@ -6690,8 +6780,8 @@ var init_crypto = __esm(() => {
       function toBitArray(num) {
         var w = new Array(num.bitLength());
         for (var bit = 0;bit < w.length; bit++) {
-          var off = bit / 26 | 0, wbit = bit % 26;
-          w[bit] = (num.words[off] & 1 << wbit) >>> wbit;
+          var off2 = bit / 26 | 0, wbit = bit % 26;
+          w[bit] = (num.words[off2] & 1 << wbit) >>> wbit;
         }
         return w;
       }
@@ -6794,11 +6884,11 @@ var init_crypto = __esm(() => {
         return this.clone().inotn(width);
       }, BN.prototype.setn = function setn(bit, val) {
         assert(typeof bit === "number" && bit >= 0);
-        var off = bit / 26 | 0, wbit = bit % 26;
-        if (this._expand(off + 1), val)
-          this.words[off] = this.words[off] | 1 << wbit;
+        var off2 = bit / 26 | 0, wbit = bit % 26;
+        if (this._expand(off2 + 1), val)
+          this.words[off2] = this.words[off2] | 1 << wbit;
         else
-          this.words[off] = this.words[off] & ~(1 << wbit);
+          this.words[off2] = this.words[off2] & ~(1 << wbit);
         return this.strip();
       }, BN.prototype.iadd = function iadd(num) {
         var r;
@@ -9699,11 +9789,11 @@ var init_crypto = __esm(() => {
       if (buf[p.place] === 0)
         return false;
       var val = 0;
-      for (var i2 = 0, off = p.place;i2 < octetLen; i2++, off++)
-        val <<= 8, val |= buf[off], val >>>= 0;
+      for (var i2 = 0, off2 = p.place;i2 < octetLen; i2++, off2++)
+        val <<= 8, val |= buf[off2], val >>>= 0;
       if (val <= 127)
         return false;
-      return p.place = off, val;
+      return p.place = off2, val;
     }
     function rmPadding(buf) {
       var i2 = 0, len2 = buf.length - 1;
@@ -10144,15 +10234,15 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil(number.length / 3), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var j, w, off = 0;
+        var j, w, off2 = 0;
         if (endian === "be") {
           for (i2 = number.length - 1, j = 0;i2 >= 0; i2 -= 3)
-            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         } else if (endian === "le") {
           for (i2 = 0, j = 0;i2 < number.length; i2 += 3)
-            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         }
         return this.strip();
       };
@@ -10175,20 +10265,20 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil((number.length - start) / 6), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var off = 0, j = 0, w;
+        var off2 = 0, j = 0, w;
         if (endian === "be")
           for (i2 = number.length - 1;i2 >= start; i2 -= 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         else {
           var parseLength = number.length - start;
           for (i2 = parseLength % 2 === 0 ? start + 1 : start;i2 < number.length; i2 += 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         }
         this.strip();
       };
@@ -10256,11 +10346,11 @@ var init_crypto = __esm(() => {
         var out;
         if (base === 16 || base === "hex") {
           out = "";
-          var off = 0, carry = 0;
+          var off2 = 0, carry = 0;
           for (var i2 = 0;i2 < this.length; i2++) {
-            var w = this.words[i2], word = ((w << off | carry) & 16777215).toString(16);
-            if (carry = w >>> 24 - off & 16777215, off += 2, off >= 26)
-              off -= 26, i2--;
+            var w = this.words[i2], word = ((w << off2 | carry) & 16777215).toString(16);
+            if (carry = w >>> 24 - off2 & 16777215, off2 += 2, off2 >= 26)
+              off2 -= 26, i2--;
             if (carry !== 0 || i2 !== this.length - 1)
               out = zeros[6 - word.length] + word + out;
             else
@@ -10365,8 +10455,8 @@ var init_crypto = __esm(() => {
       function toBitArray(num) {
         var w = new Array(num.bitLength());
         for (var bit = 0;bit < w.length; bit++) {
-          var off = bit / 26 | 0, wbit = bit % 26;
-          w[bit] = (num.words[off] & 1 << wbit) >>> wbit;
+          var off2 = bit / 26 | 0, wbit = bit % 26;
+          w[bit] = (num.words[off2] & 1 << wbit) >>> wbit;
         }
         return w;
       }
@@ -10469,11 +10559,11 @@ var init_crypto = __esm(() => {
         return this.clone().inotn(width);
       }, BN.prototype.setn = function setn(bit, val) {
         assert(typeof bit === "number" && bit >= 0);
-        var off = bit / 26 | 0, wbit = bit % 26;
-        if (this._expand(off + 1), val)
-          this.words[off] = this.words[off] | 1 << wbit;
+        var off2 = bit / 26 | 0, wbit = bit % 26;
+        if (this._expand(off2 + 1), val)
+          this.words[off2] = this.words[off2] | 1 << wbit;
         else
-          this.words[off] = this.words[off] & ~(1 << wbit);
+          this.words[off2] = this.words[off2] & ~(1 << wbit);
         return this.strip();
       }, BN.prototype.iadd = function iadd(num) {
         var r;
@@ -11607,15 +11697,15 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil(number.length / 3), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var j, w, off = 0;
+        var j, w, off2 = 0;
         if (endian === "be") {
           for (i2 = number.length - 1, j = 0;i2 >= 0; i2 -= 3)
-            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         } else if (endian === "le") {
           for (i2 = 0, j = 0;i2 < number.length; i2 += 3)
-            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         }
         return this.strip();
       };
@@ -11638,20 +11728,20 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil((number.length - start) / 6), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var off = 0, j = 0, w;
+        var off2 = 0, j = 0, w;
         if (endian === "be")
           for (i2 = number.length - 1;i2 >= start; i2 -= 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         else {
           var parseLength = number.length - start;
           for (i2 = parseLength % 2 === 0 ? start + 1 : start;i2 < number.length; i2 += 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         }
         this.strip();
       };
@@ -11719,11 +11809,11 @@ var init_crypto = __esm(() => {
         var out;
         if (base === 16 || base === "hex") {
           out = "";
-          var off = 0, carry = 0;
+          var off2 = 0, carry = 0;
           for (var i2 = 0;i2 < this.length; i2++) {
-            var w = this.words[i2], word = ((w << off | carry) & 16777215).toString(16);
-            if (carry = w >>> 24 - off & 16777215, off += 2, off >= 26)
-              off -= 26, i2--;
+            var w = this.words[i2], word = ((w << off2 | carry) & 16777215).toString(16);
+            if (carry = w >>> 24 - off2 & 16777215, off2 += 2, off2 >= 26)
+              off2 -= 26, i2--;
             if (carry !== 0 || i2 !== this.length - 1)
               out = zeros[6 - word.length] + word + out;
             else
@@ -11828,8 +11918,8 @@ var init_crypto = __esm(() => {
       function toBitArray(num) {
         var w = new Array(num.bitLength());
         for (var bit = 0;bit < w.length; bit++) {
-          var off = bit / 26 | 0, wbit = bit % 26;
-          w[bit] = (num.words[off] & 1 << wbit) >>> wbit;
+          var off2 = bit / 26 | 0, wbit = bit % 26;
+          w[bit] = (num.words[off2] & 1 << wbit) >>> wbit;
         }
         return w;
       }
@@ -11932,11 +12022,11 @@ var init_crypto = __esm(() => {
         return this.clone().inotn(width);
       }, BN.prototype.setn = function setn(bit, val) {
         assert(typeof bit === "number" && bit >= 0);
-        var off = bit / 26 | 0, wbit = bit % 26;
-        if (this._expand(off + 1), val)
-          this.words[off] = this.words[off] | 1 << wbit;
+        var off2 = bit / 26 | 0, wbit = bit % 26;
+        if (this._expand(off2 + 1), val)
+          this.words[off2] = this.words[off2] | 1 << wbit;
         else
-          this.words[off] = this.words[off] & ~(1 << wbit);
+          this.words[off2] = this.words[off2] & ~(1 << wbit);
         return this.strip();
       }, BN.prototype.iadd = function iadd(num) {
         var r;
@@ -14348,15 +14438,15 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil(number.length / 3), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var j, w, off = 0;
+        var j, w, off2 = 0;
         if (endian === "be") {
           for (i2 = number.length - 1, j = 0;i2 >= 0; i2 -= 3)
-            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         } else if (endian === "le") {
           for (i2 = 0, j = 0;i2 < number.length; i2 += 3)
-            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         }
         return this.strip();
       };
@@ -14379,20 +14469,20 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil((number.length - start) / 6), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var off = 0, j = 0, w;
+        var off2 = 0, j = 0, w;
         if (endian === "be")
           for (i2 = number.length - 1;i2 >= start; i2 -= 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         else {
           var parseLength = number.length - start;
           for (i2 = parseLength % 2 === 0 ? start + 1 : start;i2 < number.length; i2 += 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         }
         this.strip();
       };
@@ -14460,11 +14550,11 @@ var init_crypto = __esm(() => {
         var out;
         if (base === 16 || base === "hex") {
           out = "";
-          var off = 0, carry = 0;
+          var off2 = 0, carry = 0;
           for (var i2 = 0;i2 < this.length; i2++) {
-            var w = this.words[i2], word = ((w << off | carry) & 16777215).toString(16);
-            if (carry = w >>> 24 - off & 16777215, off += 2, off >= 26)
-              off -= 26, i2--;
+            var w = this.words[i2], word = ((w << off2 | carry) & 16777215).toString(16);
+            if (carry = w >>> 24 - off2 & 16777215, off2 += 2, off2 >= 26)
+              off2 -= 26, i2--;
             if (carry !== 0 || i2 !== this.length - 1)
               out = zeros[6 - word.length] + word + out;
             else
@@ -14569,8 +14659,8 @@ var init_crypto = __esm(() => {
       function toBitArray(num) {
         var w = new Array(num.bitLength());
         for (var bit = 0;bit < w.length; bit++) {
-          var off = bit / 26 | 0, wbit = bit % 26;
-          w[bit] = (num.words[off] & 1 << wbit) >>> wbit;
+          var off2 = bit / 26 | 0, wbit = bit % 26;
+          w[bit] = (num.words[off2] & 1 << wbit) >>> wbit;
         }
         return w;
       }
@@ -14673,11 +14763,11 @@ var init_crypto = __esm(() => {
         return this.clone().inotn(width);
       }, BN.prototype.setn = function setn(bit, val) {
         assert(typeof bit === "number" && bit >= 0);
-        var off = bit / 26 | 0, wbit = bit % 26;
-        if (this._expand(off + 1), val)
-          this.words[off] = this.words[off] | 1 << wbit;
+        var off2 = bit / 26 | 0, wbit = bit % 26;
+        if (this._expand(off2 + 1), val)
+          this.words[off2] = this.words[off2] | 1 << wbit;
         else
-          this.words[off] = this.words[off] & ~(1 << wbit);
+          this.words[off2] = this.words[off2] & ~(1 << wbit);
         return this.strip();
       }, BN.prototype.iadd = function iadd(num) {
         var r;
@@ -15752,15 +15842,15 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil(number.length / 3), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var j, w, off = 0;
+        var j, w, off2 = 0;
         if (endian === "be") {
           for (i2 = number.length - 1, j = 0;i2 >= 0; i2 -= 3)
-            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 - 1] << 8 | number[i2 - 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         } else if (endian === "le") {
           for (i2 = 0, j = 0;i2 < number.length; i2 += 3)
-            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off & 67108863, this.words[j + 1] = w >>> 26 - off & 67108863, off += 24, off >= 26)
-              off -= 26, j++;
+            if (w = number[i2] | number[i2 + 1] << 8 | number[i2 + 2] << 16, this.words[j] |= w << off2 & 67108863, this.words[j + 1] = w >>> 26 - off2 & 67108863, off2 += 24, off2 >= 26)
+              off2 -= 26, j++;
         }
         return this._strip();
       };
@@ -15785,20 +15875,20 @@ var init_crypto = __esm(() => {
         this.length = Math.ceil((number.length - start) / 6), this.words = new Array(this.length);
         for (var i2 = 0;i2 < this.length; i2++)
           this.words[i2] = 0;
-        var off = 0, j = 0, w;
+        var off2 = 0, j = 0, w;
         if (endian === "be")
           for (i2 = number.length - 1;i2 >= start; i2 -= 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         else {
           var parseLength = number.length - start;
           for (i2 = parseLength % 2 === 0 ? start + 1 : start;i2 < number.length; i2 += 2)
-            if (w = parseHexByte(number, start, i2) << off, this.words[j] |= w & 67108863, off >= 18)
-              off -= 18, j += 1, this.words[j] |= w >>> 26;
+            if (w = parseHexByte(number, start, i2) << off2, this.words[j] |= w & 67108863, off2 >= 18)
+              off2 -= 18, j += 1, this.words[j] |= w >>> 26;
             else
-              off += 8;
+              off2 += 8;
         }
         this._strip();
       };
@@ -15881,11 +15971,11 @@ var init_crypto = __esm(() => {
         var out;
         if (base === 16 || base === "hex") {
           out = "";
-          var off = 0, carry = 0;
+          var off2 = 0, carry = 0;
           for (var i2 = 0;i2 < this.length; i2++) {
-            var w = this.words[i2], word = ((w << off | carry) & 16777215).toString(16);
-            if (carry = w >>> 24 - off & 16777215, off += 2, off >= 26)
-              off -= 26, i2--;
+            var w = this.words[i2], word = ((w << off2 | carry) & 16777215).toString(16);
+            if (carry = w >>> 24 - off2 & 16777215, off2 += 2, off2 >= 26)
+              off2 -= 26, i2--;
             if (carry !== 0 || i2 !== this.length - 1)
               out = zeros[6 - word.length] + word + out;
             else
@@ -16028,8 +16118,8 @@ var init_crypto = __esm(() => {
       function toBitArray(num) {
         var w = new Array(num.bitLength());
         for (var bit = 0;bit < w.length; bit++) {
-          var off = bit / 26 | 0, wbit = bit % 26;
-          w[bit] = num.words[off] >>> wbit & 1;
+          var off2 = bit / 26 | 0, wbit = bit % 26;
+          w[bit] = num.words[off2] >>> wbit & 1;
         }
         return w;
       }
@@ -16132,11 +16222,11 @@ var init_crypto = __esm(() => {
         return this.clone().inotn(width);
       }, BN.prototype.setn = function setn(bit, val) {
         assert(typeof bit === "number" && bit >= 0);
-        var off = bit / 26 | 0, wbit = bit % 26;
-        if (this._expand(off + 1), val)
-          this.words[off] = this.words[off] | 1 << wbit;
+        var off2 = bit / 26 | 0, wbit = bit % 26;
+        if (this._expand(off2 + 1), val)
+          this.words[off2] = this.words[off2] | 1 << wbit;
         else
-          this.words[off] = this.words[off] & ~(1 << wbit);
+          this.words[off2] = this.words[off2] & ~(1 << wbit);
         return this._strip();
       }, BN.prototype.iadd = function iadd(num) {
         var r;
@@ -17304,7 +17394,7 @@ var init_crypto = __esm(() => {
       exports.publicDecrypt = crypto2.publicDecrypt;
   });
   require_browser3 = __commonJS2((exports) => {
-    var safeBuffer = require_safe_buffer(), randombytes = require_randombytes(), Buffer22 = safeBuffer.Buffer, kBufferMaxLength = safeBuffer.kMaxLength, crypto2 = globalThis.crypto || globalThis.msCrypto, kMaxUint32 = Math.pow(2, 32) - 1;
+    var safeBuffer = require_safe_buffer(), randombytes = require_randombytes(), Buffer22 = safeBuffer.Buffer, kBufferMaxLength = safeBuffer.kMaxLength, crypto2 = global.crypto || global.msCrypto, kMaxUint32 = Math.pow(2, 32) - 1;
     function assertOffset(offset, length) {
       if (typeof offset !== "number" || offset !== offset)
         throw new TypeError("offset must be a number");
@@ -17323,7 +17413,7 @@ var init_crypto = __esm(() => {
     }
     crypto2 && crypto2.getRandomValues, exports.randomFill = randomFill, exports.randomFillSync = randomFillSync;
     function randomFill(buf, offset, size, cb) {
-      if (!Buffer22.isBuffer(buf) && !(buf instanceof globalThis.Uint8Array))
+      if (!Buffer22.isBuffer(buf) && !(buf instanceof global.Uint8Array))
         throw new TypeError('"buf" argument must be a Buffer or Uint8Array');
       if (typeof offset === "function")
         cb = offset, offset = 0, size = buf.length;
@@ -17350,7 +17440,7 @@ var init_crypto = __esm(() => {
     function randomFillSync(buf, offset, size) {
       if (typeof offset === "undefined")
         offset = 0;
-      if (!Buffer22.isBuffer(buf) && !(buf instanceof globalThis.Uint8Array))
+      if (!Buffer22.isBuffer(buf) && !(buf instanceof global.Uint8Array))
         throw new TypeError('"buf" argument must be a Buffer or Uint8Array');
       if (assertOffset(offset, buf.length), size === undefined)
         size = buf.length - offset;
@@ -17455,7 +17545,6 @@ https://github.com/browserify/crypto-browserify`);
   constants2 = cryptoBrowserify.constants;
   hardcoded_curves = ["p192", "p224", "p256", "p384", "p521", "curve25519", "ed25519", "secp256k1", "secp224r1", "prime256v1", "prime192v1", "ed25519", "secp384r1", "secp521r1"];
   webcrypto = crypto;
-  crypto_default = crypto;
 });
 
 // ../../node_modules/tweetnacl/nacl-fast.js
@@ -21585,8 +21674,8 @@ import {
 var ER_VALIDATOR_DEVNET = new PublicKey("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
 var ER_VALIDATOR_MAINNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR = ER_VALIDATOR_DEVNET;
-function getErValidatorForSolanaEnv(env) {
-  return env === "mainnet" ? ER_VALIDATOR_MAINNET : ER_VALIDATOR_DEVNET;
+function getErValidatorForSolanaEnv(env2) {
+  return env2 === "mainnet" ? ER_VALIDATOR_MAINNET : ER_VALIDATOR_DEVNET;
 }
 function getErValidatorForRpcEndpoint(rpcEndpoint) {
   return rpcEndpoint.includes("mainnet-tee") ? ER_VALIDATOR_MAINNET : ER_VALIDATOR_DEVNET;

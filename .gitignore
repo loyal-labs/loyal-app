@@ -4,6 +4,7 @@
 .superset/
 .planning/
 .mcp.json
+claude-report-second.md
 
 # dependencies
 /app/node_modules
@@ -108,3 +109,8 @@ docs/scopes
 # internal workspace package build outputs
 /packages/*/dist/
 /sdk/*/dist/
+
+# Turbo cache
+.turbo/
+
+report.md

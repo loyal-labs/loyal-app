@@ -5,7 +5,9 @@ import { useShield } from "@loyal-labs/wallet-core/hooks";
 
 import type { FormButtonProps, SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
 
+import { getAnalyticsErrorProperties, track } from "~/src/lib/analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
+import { SHIELD_EVENTS } from "./shield-analytics";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -495,10 +497,13 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
-      const val = pct === 100 ? bal : bal * (pct / 100);
+      let val = pct === 100 ? bal : bal * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL" && sourceBalance - val < 0.00005) {
+        val = Math.max(0, sourceBalance - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [sourceBalance]
+    [sourceBalance, token.symbol]
   );
 
   const handleConfirm = useCallback(async () => {
@@ -528,9 +533,27 @@ export function ShieldContent({
     if (result.success) {
       setPhase("success");
       setAmount("");
+      track(
+        direction === "shield"
+          ? SHIELD_EVENTS.shieldTokens
+          : SHIELD_EVENTS.unshieldTokens,
+        {
+          token_symbol: token.symbol,
+          amount: numericAmount,
+        }
+      );
     } else {
       setErrorMessage(result.error);
       setPhase("error");
+      track(
+        direction === "shield"
+          ? SHIELD_EVENTS.shieldTokensFailed
+          : SHIELD_EVENTS.unshieldTokensFailed,
+        {
+          token_symbol: token.symbol,
+          ...getAnalyticsErrorProperties(result.error),
+        }
+      );
     }
   }, [
     hasAmount,

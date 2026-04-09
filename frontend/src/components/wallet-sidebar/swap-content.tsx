@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, ChevronRight, Globe, Share, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, ChevronRight, Globe, Share, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -102,10 +102,12 @@ function SwapStatusHeader({
   fromToken,
   toToken,
   onClose,
+  onBack,
 }: {
   fromToken: SwapToken;
   toToken: SwapToken;
   onClose: () => void;
+  onBack?: () => void;
 }) {
   return (
     <div
@@ -114,14 +116,39 @@ function SwapStatusHeader({
         alignItems: "center",
         justifyContent: "space-between",
         padding: "8px",
+        gap: "8px",
       }}
     >
+      {onBack && (
+        <button
+          className="swap-status-close"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+            flexShrink: 0,
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      )}
       <div
         style={{
           flex: 1,
-          paddingLeft: "12px",
+          paddingLeft: onBack ? "0" : "12px",
           paddingTop: "4px",
           paddingBottom: "4px",
+          textAlign: onBack ? "center" : undefined,
         }}
       >
         <span
@@ -151,6 +178,7 @@ function SwapStatusHeader({
           cursor: "pointer",
           transition: "all 0.2s ease",
           color: "#3C3C43",
+          flexShrink: 0,
         }}
         type="button"
       >
@@ -164,10 +192,12 @@ function SwapProcessing({
   fromToken,
   toToken,
   onClose,
+  onBack,
 }: {
   fromToken: SwapToken;
   toToken: SwapToken;
   onClose: () => void;
+  onBack?: () => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -188,6 +218,7 @@ function SwapProcessing({
 
       <SwapStatusHeader
         fromToken={fromToken}
+        onBack={onBack}
         onClose={onClose}
         toToken={toToken}
       />
@@ -319,6 +350,7 @@ function SwapResult({
   onClose,
   onDone,
   onDetails,
+  onBack,
 }: {
   variant: "success" | "error";
   fromToken: SwapToken;
@@ -328,6 +360,7 @@ function SwapResult({
   onClose: () => void;
   onDone: () => void;
   onDetails: () => void;
+  onBack?: () => void;
 }) {
   const isSuccess = variant === "success";
 
@@ -359,6 +392,7 @@ function SwapResult({
 
       <SwapStatusHeader
         fromToken={fromToken}
+        onBack={onBack}
         onClose={onClose}
         toToken={toToken}
       />
@@ -513,6 +547,7 @@ function SwapTransactionDetail({
   signature,
   onClose,
   onDone,
+  onBack,
 }: {
   fromToken: SwapToken;
   toToken: SwapToken;
@@ -521,6 +556,7 @@ function SwapTransactionDetail({
   signature?: string;
   onClose: () => void;
   onDone: () => void;
+  onBack?: () => void;
 }) {
   const publicEnv = usePublicEnv();
   const now = new Date();
@@ -550,6 +586,7 @@ function SwapTransactionDetail({
 
       <SwapStatusHeader
         fromToken={fromToken}
+        onBack={onBack}
         onClose={onClose}
         toToken={toToken}
       />
@@ -850,6 +887,7 @@ export function SwapContent({
   onClose,
   onDone,
   onNavigate,
+  onBack,
   fromToken: fromTokenProp,
   toToken: toTokenProp,
   onFromTokenChange,
@@ -862,7 +900,8 @@ export function SwapContent({
 }: {
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
+  onBack?: () => void;
   fromToken: SwapToken;
   toToken: SwapToken;
   onFromTokenChange: (t: SwapToken) => void;
@@ -930,7 +969,10 @@ export function SwapContent({
         fromToken.symbol,
         toToken.symbol,
         String(numericFrom),
-        fromToken.mint
+        fromToken.mint,
+        undefined,
+        undefined,
+        toToken.mint
       ).finally(() => setIsQuoting(false));
     }, 500);
     return () => {
@@ -941,6 +983,7 @@ export function SwapContent({
     fromToken.symbol,
     fromToken.mint,
     toToken.symbol,
+    toToken.mint,
     hasAmount,
     insufficientFunds,
     phase,
@@ -1041,7 +1084,7 @@ export function SwapContent({
       disabled: buttonDisabled,
       onClick: handleConfirm,
     });
-  });
+  }, [hideFormChrome, onFormButtonChange, phase, buttonLabel, buttonDisabled, handleConfirm]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);
@@ -1061,11 +1104,14 @@ export function SwapContent({
 
   const handlePercentage = useCallback(
     (pct: number) => {
-      const val =
+      let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
+      if (fromToken.symbol.toUpperCase() === "SOL" && fromToken.balance - val < 0.00005) {
+        val = Math.max(0, fromToken.balance - 0.00005);
+      }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [fromToken.balance]
+    [fromToken.balance, fromToken.symbol]
   );
 
   const renderPhaseContent = (p: SwapPhase) => {
@@ -1073,6 +1119,7 @@ export function SwapContent({
       return (
         <SwapProcessing
           fromToken={fromToken}
+          onBack={onBack}
           onClose={onClose}
           toToken={toToken}
         />
@@ -1083,6 +1130,7 @@ export function SwapContent({
         <SwapResult
           errorMessage={errorMessage}
           fromToken={fromToken}
+          onBack={onBack}
           onClose={onClose}
           onDetails={() => setPhase("details")}
           onDone={onDone}
@@ -1096,6 +1144,7 @@ export function SwapContent({
       return (
         <SwapTransactionDetail
           fromToken={fromToken}
+          onBack={onBack}
           onClose={onClose}
           onDone={onDone}
           receivedAmount={resultAmount}
@@ -1156,7 +1205,7 @@ export function SwapContent({
             {/* From card */}
             <div
               style={{
-                background: "#fff",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
                 borderRadius: "16px",
                 padding: "10px 12px",
                 position: "relative",
@@ -1363,7 +1412,7 @@ export function SwapContent({
             {/* To card */}
             <div
               style={{
-                background: "#fff",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
                 borderRadius: "16px",
                 padding: "12px",
                 zIndex: 1,

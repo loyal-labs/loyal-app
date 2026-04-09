@@ -104,6 +104,38 @@ export type GaslessClaimSolanaEnv = "mainnet" | "devnet";
 export type AppUserProvider = "solana";
 
 /**
+ * Solana environments tracked for app user smart accounts.
+ */
+export type AppUserSmartAccountSolanaEnv =
+  | "mainnet"
+  | "testnet"
+  | "devnet"
+  | "localnet";
+
+/**
+ * Lifecycle state for app user smart account provisioning.
+ */
+export type AppUserSmartAccountState = "provisioning" | "ready" | "failed";
+
+/**
+ * Lifecycle state for wallet auth completion attempts.
+ */
+export type AppWalletAuthCompletionState =
+  | "processing"
+  | "completed"
+  | "failed";
+
+/**
+ * Outcome of env-scoped smart-account ensure/provisioning.
+ */
+export type AppWalletAuthProvisioningOutcome =
+  | "existing_ready"
+  | "reconciled_ready"
+  | "sponsored_existing_record"
+  | "sponsored_new_record"
+  | "retried_failed_record";
+
+/**
  * Stored app chat message roles.
  */
 export type AppChatMessageRole = "user" | "assistant" | "system";
@@ -543,6 +575,7 @@ export const appUsers = pgTable(
     subjectAddress: text("subject_address").notNull(),
     gridUserId: text("grid_user_id"),
     smartAccountAddress: text("smart_account_address"),
+    smartAccountSettingsPda: text("smart_account_settings_pda"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -584,6 +617,109 @@ export const appUserWallets = pgTable(
       .notNull(),
   },
   (table) => [uniqueIndex("app_user_wallets_wallet_address_uidx").on(table.walletAddress)]
+);
+
+/**
+ * Env-scoped Loyal smart accounts attached to app users.
+ * The settings PDA is the source of truth for deriving smart account PDAs.
+ */
+export const appUserSmartAccounts = pgTable(
+  "app_user_smart_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUsers.id, { onDelete: "cascade" }),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    state: text("state").$type<AppUserSmartAccountState>().notNull(),
+    creationSignature: text("creation_signature"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_user_smart_accounts_user_env_uidx").on(
+      table.userId,
+      table.solanaEnv
+    ),
+    uniqueIndex("app_user_smart_accounts_env_settings_uidx").on(
+      table.solanaEnv,
+      table.settingsPda
+    ),
+    index("app_user_smart_accounts_user_id_idx").on(table.userId),
+    check(
+      "app_user_smart_accounts_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+    check(
+      "app_user_smart_accounts_state_check",
+      sql`${table.state} IN ('provisioning', 'ready', 'failed')`
+    ),
+  ]
+);
+
+/**
+ * Idempotency and replay records for wallet auth completion.
+ * One row per signed challenge token hash.
+ */
+export const appWalletAuthCompletions = pgTable(
+  "app_wallet_auth_completions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    challengeHash: text("challenge_hash").notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    state: text("state").$type<AppWalletAuthCompletionState>().notNull(),
+    processingToken: text("processing_token"),
+    processingStartedAt: timestamp("processing_started_at", {
+      withTimezone: true,
+    }),
+    userId: uuid("user_id").references(() => appUsers.id, { onDelete: "set null" }),
+    smartAccountAddress: text("smart_account_address"),
+    provisioningOutcome: text("provisioning_outcome").$type<
+      AppWalletAuthProvisioningOutcome | null
+    >(),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_wallet_auth_completions_challenge_hash_uidx").on(
+      table.challengeHash
+    ),
+    index("app_wallet_auth_completions_wallet_address_idx").on(table.walletAddress),
+    index("app_wallet_auth_completions_state_idx").on(table.state),
+    index("app_wallet_auth_completions_user_id_idx").on(table.userId),
+    check(
+      "app_wallet_auth_completions_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+    check(
+      "app_wallet_auth_completions_state_check",
+      sql`${table.state} IN ('processing', 'completed', 'failed')`
+    ),
+    check(
+      "app_wallet_auth_completions_provisioning_outcome_check",
+      sql`${table.provisioningOutcome} IS NULL OR ${table.provisioningOutcome} IN ('existing_ready', 'reconciled_ready', 'sponsored_existing_record', 'sponsored_new_record', 'retried_failed_record')`
+    ),
+  ]
 );
 
 /**
@@ -934,6 +1070,8 @@ export const botMessagesRelations = relations(botMessages, ({ one }) => ({
 
 export const appUsersRelations = relations(appUsers, ({ many }) => ({
   wallets: many(appUserWallets),
+  smartAccounts: many(appUserSmartAccounts),
+  walletAuthCompletions: many(appWalletAuthCompletions),
   chats: many(appChats),
 }));
 
@@ -943,6 +1081,26 @@ export const appUserWalletsRelations = relations(appUserWallets, ({ one }) => ({
     references: [appUsers.id],
   }),
 }));
+
+export const appUserSmartAccountsRelations = relations(
+  appUserSmartAccounts,
+  ({ one }) => ({
+    user: one(appUsers, {
+      fields: [appUserSmartAccounts.userId],
+      references: [appUsers.id],
+    }),
+  })
+);
+
+export const appWalletAuthCompletionsRelations = relations(
+  appWalletAuthCompletions,
+  ({ one }) => ({
+    user: one(appUsers, {
+      fields: [appWalletAuthCompletions.userId],
+      references: [appUsers.id],
+    }),
+  })
+);
 
 export const appChatsRelations = relations(appChats, ({ one, many }) => ({
   user: one(appUsers, {
@@ -1009,6 +1167,14 @@ export type InsertAppUser = typeof appUsers.$inferInsert;
 
 export type AppUserWallet = typeof appUserWallets.$inferSelect;
 export type InsertAppUserWallet = typeof appUserWallets.$inferInsert;
+
+export type AppUserSmartAccount = typeof appUserSmartAccounts.$inferSelect;
+export type InsertAppUserSmartAccount = typeof appUserSmartAccounts.$inferInsert;
+
+export type AppWalletAuthCompletion =
+  typeof appWalletAuthCompletions.$inferSelect;
+export type InsertAppWalletAuthCompletion =
+  typeof appWalletAuthCompletions.$inferInsert;
 
 export type AppChat = typeof appChats.$inferSelect;
 export type InsertAppChat = typeof appChats.$inferInsert;

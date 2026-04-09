@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { SearchInput, SubViewHeader } from "~/src/components/wallet/shared";
-import { TokenRowItem } from "~/src/components/wallet/token-row-item";
+import { TokenRowItem, type TokenRowActions } from "~/src/components/wallet/token-row-item";
 import type { TokenRow } from "@loyal-labs/wallet-core/types";
 
 export function AllTokensView({
@@ -9,11 +9,13 @@ export function AllTokensView({
   isBalanceHidden,
   onBack,
   onClose,
+  getTokenActions,
 }: {
   tokens: TokenRow[];
   isBalanceHidden: boolean;
   onBack: () => void;
   onClose: () => void;
+  getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   const [search, setSearch] = useState("");
   const filtered = tokens.filter((t) =>
@@ -47,6 +49,7 @@ export function AllTokensView({
       >
         {filtered.map((token, i) => (
           <TokenRowItem
+            actions={getTokenActions?.(token)}
             isBalanceHidden={isBalanceHidden}
             key={token.id ?? `${token.symbol}-${i}`}
             token={token}

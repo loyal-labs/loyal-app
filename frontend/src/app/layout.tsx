@@ -1,7 +1,8 @@
 import "./globals.css";
 
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
 import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
 import { SignInModal } from "@/components/auth/sign-in-modal";
 import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
@@ -14,15 +15,8 @@ import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
 import { UserChatsProvider } from "@/providers/user-chats";
 import { createPublicEnv } from "@/lib/core/config/public";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistSans = GeistSans;
+const geistMono = GeistMono;
 
 export const metadata: Metadata = {
   title: "Loyal: Privacy Preserving Intelligence",
@@ -95,7 +89,6 @@ export default function RootLayout({
             </AuthSessionProvider>
           </WalletConnectionProvider>
         </PublicEnvProvider>
-
       </body>
     </html>
   );

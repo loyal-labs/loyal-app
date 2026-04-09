@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  ArrowDownLeft,
   ArrowUpRight,
   Check,
   Copy,
   Eye,
   EyeOff,
   PanelRightOpen,
-  RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -1060,14 +1058,16 @@ export function ChatInput(props: ChatInputProps) {
                 flex: 1,
                 display: "flex",
                 gap: "8px",
-                alignItems: "center",
                 opacity: walletLoading || !props.isSignedIn ? 0.4 : 1,
                 pointerEvents:
                   walletLoading || !props.isSignedIn ? "none" : "auto",
                 transition: "opacity 0.3s ease",
               }}
             >
+              {/* Recent Activity Card */}
               <div
+                className="action-card"
+                onClick={() => props.onOpenRightSidebar("portfolio")}
                 style={{
                   flex: 1,
                   height: "116px",
@@ -1080,50 +1080,6 @@ export function ChatInput(props: ChatInputProps) {
                   border: "1px solid rgba(0, 0, 0, 0.08)",
                   overflow: "hidden",
                 }}
-                className="action-card"
-                onClick={() => props.onOpenRightSidebar("receive")}
-              >
-                <div
-                  style={{
-                    width: "36px",
-                    height: "36px",
-                    borderRadius: "9999px",
-                    background: "rgba(249, 54, 60, 0.14)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <ArrowDownLeft size={20} style={{ color: "#F9363C" }} />
-                </div>
-                <span
-                  style={{
-                    fontFamily: "var(--font-geist-sans), sans-serif",
-                    fontSize: "14px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    color: "rgba(60, 60, 67, 0.6)",
-                    fontFeatureSettings: "'liga' off, 'clig' off",
-                  }}
-                >
-                  Receive
-                </span>
-              </div>
-              <div
-                style={{
-                  flex: 1,
-                  height: "116px",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  padding: "16px 16px 12px",
-                  borderRadius: "20px",
-                  border: "1px solid rgba(0, 0, 0, 0.08)",
-                  overflow: "hidden",
-                }}
-                className="action-card"
-                onClick={() => props.onOpenRightSidebar("send")}
               >
                 <div
                   style={{
@@ -1138,20 +1094,38 @@ export function ChatInput(props: ChatInputProps) {
                 >
                   <ArrowUpRight size={20} style={{ color: "#F9363C" }} />
                 </div>
-                <span
-                  style={{
-                    fontFamily: "var(--font-geist-sans), sans-serif",
-                    fontSize: "14px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    color: "rgba(60, 60, 67, 0.6)",
-                    fontFeatureSettings: "'liga' off, 'clig' off",
-                  }}
-                >
-                  Send
-                </span>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-geist-sans), sans-serif",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      lineHeight: "20px",
+                      color: "#000",
+                      fontFeatureSettings: "'liga' off, 'clig' off",
+                    }}
+                  >
+                    Sent 0.5 SOL
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-geist-sans), sans-serif",
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                      color: "rgba(60, 60, 67, 0.6)",
+                      fontFeatureSettings: "'liga' off, 'clig' off",
+                    }}
+                  >
+                    to @alex · 2m ago
+                  </span>
+                </div>
               </div>
+
+              {/* Approval Request Card */}
               <div
+                className="action-card"
+                onClick={() => props.onOpenRightSidebar("portfolio")}
                 style={{
                   flex: 1,
                   height: "116px",
@@ -1164,34 +1138,39 @@ export function ChatInput(props: ChatInputProps) {
                   border: "1px solid rgba(0, 0, 0, 0.08)",
                   overflow: "hidden",
                 }}
-                className="action-card"
-                onClick={() => props.onOpenRightSidebar("swap")}
               >
-                <div
-                  style={{
-                    width: "36px",
-                    height: "36px",
-                    borderRadius: "9999px",
-                    background: "rgba(249, 54, 60, 0.14)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <RefreshCw size={20} style={{ color: "#F9363C" }} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Agent 47"
+                  src="/agents/Agent-02.svg"
+                  style={{ width: "36px", height: "36px", borderRadius: "10px" }}
+                />
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-geist-sans), sans-serif",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      lineHeight: "20px",
+                      color: "#000",
+                      fontFeatureSettings: "'liga' off, 'clig' off",
+                    }}
+                  >
+                    Agent 47
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-geist-sans), sans-serif",
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                      color: "rgba(200, 160, 0, 0.85)",
+                      fontFeatureSettings: "'liga' off, 'clig' off",
+                    }}
+                  >
+                    Needs approval
+                  </span>
                 </div>
-                <span
-                  style={{
-                    fontFamily: "var(--font-geist-sans), sans-serif",
-                    fontSize: "14px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    color: "rgba(60, 60, 67, 0.6)",
-                    fontFeatureSettings: "'liga' off, 'clig' off",
-                  }}
-                >
-                  Swap
-                </span>
               </div>
             </div>
           </div>

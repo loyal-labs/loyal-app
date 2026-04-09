@@ -24,6 +24,7 @@ export const authSessionUserSchema = z.object({
   passkeyAccount: z.string().min(1).optional(),
   walletAddress: z.string().min(1).optional(),
   smartAccountAddress: z.string().min(1).optional(),
+  settingsPda: z.string().min(1).optional(),
   sessionKey: sessionKeySchema.optional(),
 });
 

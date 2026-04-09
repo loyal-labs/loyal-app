@@ -1,4 +1,4 @@
-export type RightSidebarTab = "portfolio" | "receive" | "send" | "swap" | "sign-in";
+export type RightSidebarTab = "portfolio" | "receive" | "send" | "swap" | "sign-in" | "connect";
 
 export interface TokenRow {
   id?: string;
@@ -52,10 +52,20 @@ export type SubView =
   | null
   | "allTokens"
   | "allActivity"
+  | "allApprovals"
   | { type: "transaction"; detail: TransactionDetail; from: "portfolio" | "allActivity" }
   | { type: "tokenSelect"; field: "from" | "to" }
   | { type: "sendTokenSelect" }
-  | { type: "shieldTokenSelect" };
+  | { type: "shieldTokenSelect" }
+  | { type: "approvalReview" }
+  | { type: "accountPage"; account: "main" | "vault" }
+  | { type: "agentPage"; agentId: string; label: string; agentIcon?: string; balanceWhole: string; balanceFraction: string }
+  | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string }
+  | { type: "sendPanel" }
+  | { type: "receivePanel" }
+  | { type: "swapPanel"; mode?: "swap" | "shield" }
+  | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
+  | { type: "dappSign"; origin: string; favicon?: string; requestId: string; kind: "signTransaction" | "signMessage"; transactionBase64?: string; messageBase64?: string };
 
 export const LOYL_TOKEN: SwapToken = {
   mint: "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",

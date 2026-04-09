@@ -16,7 +16,6 @@ export type { AppEnvironment } from "./shared";
 const LOCAL_TURNSTILE_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
-const GRID_AUTH_BASE_URL_ENV_NAME = "NEXT_PUBLIC_GRID_AUTH_BASE_URL";
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
@@ -34,7 +33,6 @@ export type SwapConfig =
 export type PublicEnv = {
   appEnvironment: AppEnvironment;
   turnstile: TurnstileConfig;
-  gridAuthBaseUrl: string | undefined;
   solanaEnv: SolanaEnv;
   solanaRpcEndpoint: string;
   swap: SwapConfig;
@@ -97,7 +95,6 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
   return {
     appEnvironment,
     turnstile: resolveTurnstileConfig(env, appEnvironment),
-    gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
     solanaEnv,
     solanaRpcEndpoint: getSolanaEndpoints(solanaEnv).rpcEndpoint,
     swap: resolveSwapConfig(env),

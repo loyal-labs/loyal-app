@@ -3,29 +3,33 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { appUserWallets, appUsers } from "@loyal-labs/db-core/schema";
 
-import type { AuthenticatedPrincipal } from "@/features/identity/server/auth-session";
 import { getDatabase } from "@/lib/core/database";
+
+export type CurrentUserPrincipal = {
+  provider: "solana";
+  authMethod: "wallet";
+  subjectAddress: string;
+  walletAddress: string;
+};
 
 export type AppUser = {
   id: string;
   provider: "solana";
   subjectAddress: string;
-  gridUserId: string | null;
-  smartAccountAddress: string | null;
 };
 
 type AppUserDependencies = {
   now: () => Date;
   findUserByPrincipal: (
-    principal: AuthenticatedPrincipal
+    principal: CurrentUserPrincipal
   ) => Promise<AppUser | null>;
   createUser: (
-    principal: AuthenticatedPrincipal,
+    principal: CurrentUserPrincipal,
     now: Date
   ) => Promise<AppUser | null>;
   updateUserMetadata: (
     user: AppUser,
-    principal: AuthenticatedPrincipal,
+    principal: CurrentUserPrincipal,
     now: Date
   ) => Promise<void>;
   upsertWalletForUser: (
@@ -47,16 +51,8 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-function mergeUserMetadata(
-  user: AppUser,
-  principal: AuthenticatedPrincipal
-): AppUser {
-  return {
-    ...user,
-    gridUserId: principal.gridUserId ?? user.gridUserId,
-    smartAccountAddress:
-      principal.smartAccountAddress ?? user.smartAccountAddress,
-  };
+function mergeUserMetadata(user: AppUser): AppUser {
+  return user;
 }
 
 function createAppUserDependencies(): AppUserDependencies {
@@ -70,8 +66,6 @@ function createAppUserDependencies(): AppUserDependencies {
           id: true,
           provider: true,
           subjectAddress: true,
-          gridUserId: true,
-          smartAccountAddress: true,
         },
         where: and(
           eq(appUsers.provider, principal.provider),
@@ -85,8 +79,6 @@ function createAppUserDependencies(): AppUserDependencies {
           .values({
             provider: principal.provider,
             subjectAddress: principal.subjectAddress,
-            gridUserId: principal.gridUserId,
-            smartAccountAddress: principal.smartAccountAddress,
             createdAt: now,
             updatedAt: now,
           })
@@ -95,8 +87,6 @@ function createAppUserDependencies(): AppUserDependencies {
             id: appUsers.id,
             provider: appUsers.provider,
             subjectAddress: appUsers.subjectAddress,
-            gridUserId: appUsers.gridUserId,
-            smartAccountAddress: appUsers.smartAccountAddress,
           });
 
         return result[0] ?? null;
@@ -108,16 +98,10 @@ function createAppUserDependencies(): AppUserDependencies {
         throw error;
       }
     },
-    updateUserMetadata: async (user, principal, now) => {
+    updateUserMetadata: async (user, _principal, now) => {
       await db
         .update(appUsers)
         .set({
-          ...(principal.gridUserId
-            ? { gridUserId: principal.gridUserId }
-            : {}),
-          ...(principal.smartAccountAddress
-            ? { smartAccountAddress: principal.smartAccountAddress }
-            : {}),
           updatedAt: now,
         })
         .where(eq(appUsers.id, user.id));
@@ -146,8 +130,23 @@ function createAppUserDependencies(): AppUserDependencies {
   };
 }
 
+export async function findAppUserById(userId: string): Promise<AppUser | null> {
+  const db = getDatabase();
+
+  return (
+    (await db.query.appUsers.findFirst({
+      columns: {
+        id: true,
+        provider: true,
+        subjectAddress: true,
+      },
+      where: eq(appUsers.id, userId),
+    })) ?? null
+  );
+}
+
 export async function getOrCreateCurrentUser(
-  principal: AuthenticatedPrincipal,
+  principal: CurrentUserPrincipal,
   dependencies: AppUserDependencies = createAppUserDependencies()
 ): Promise<AppUser> {
   const now = dependencies.now();
@@ -160,7 +159,7 @@ export async function getOrCreateCurrentUser(
       principal.walletAddress,
       now
     );
-    return mergeUserMetadata(existingUser, principal);
+    return mergeUserMetadata(existingUser);
   }
 
   const createdUser = await dependencies.createUser(principal, now);
@@ -180,5 +179,5 @@ export async function getOrCreateCurrentUser(
 
   await dependencies.updateUserMetadata(racedUser, principal, now);
   await dependencies.upsertWalletForUser(racedUser.id, principal.walletAddress, now);
-  return mergeUserMetadata(racedUser, principal);
+  return mergeUserMetadata(racedUser);
 }

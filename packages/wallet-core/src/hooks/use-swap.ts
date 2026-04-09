@@ -131,6 +131,7 @@ export function useSwap(
 			fromTokenMint?: string,
 			fromTokenDecimals?: number,
 			toTokenDecimals?: number,
+			toTokenMint?: string,
 		): Promise<SwapQuote | null> => {
 			try {
 				setError(null);
@@ -140,7 +141,7 @@ export function useSwap(
 				}
 
 				const inputMint = fromTokenMint || getTokenMint(fromToken);
-				const outputMint = getTokenMint(toToken);
+				const outputMint = toTokenMint || getTokenMint(toToken);
 
 				if (!inputMint) {
 					throw new Error(

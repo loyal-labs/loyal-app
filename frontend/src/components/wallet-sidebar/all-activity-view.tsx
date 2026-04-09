@@ -23,7 +23,7 @@ export function AllActivityView({
   isBalanceHidden: boolean;
   onBack: () => void;
   onClose: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
 }) {
   const [search, setSearch] = useState("");
   const filtered = activities.filter(

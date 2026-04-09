@@ -57,11 +57,11 @@ export function trackAuthSignInSucceeded(
     {
       auth_method: user.authMethod,
       ...(user.provider ? { provider: user.provider } : {}),
-      ...(user.gridUserId ? { grid_user_id: user.gridUserId } : {}),
       ...(user.walletAddress ? { wallet_address: user.walletAddress } : {}),
       ...(user.smartAccountAddress
         ? { smart_account_address: user.smartAccountAddress }
         : {}),
+      ...(user.settingsPda ? { settings_pda: user.settingsPda } : {}),
     }
   );
 }
@@ -73,8 +73,8 @@ export function trackAuthLogout(
   trackFrontendAnalyticsEvent(publicEnv, FRONTEND_ANALYTICS_EVENTS.authLogout, {
     ...(user?.authMethod ? { auth_method: user.authMethod } : {}),
     ...(user?.provider ? { provider: user.provider } : {}),
-    ...(user?.gridUserId ? { grid_user_id: user.gridUserId } : {}),
     ...(user?.walletAddress ? { wallet_address: user.walletAddress } : {}),
+    ...(user?.settingsPda ? { settings_pda: user.settingsPda } : {}),
   });
 }
 
