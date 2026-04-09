@@ -15,6 +15,11 @@ import { PublicKey } from "@solana/web3.js";
 
 import { getSolanaEnv, getWebsocketConnection } from "../rpc/connection";
 import { getWalletKeypair } from "../wallet/wallet-details";
+import {
+  recordKaminoUsdcShield,
+  recordKaminoUsdcUnshield,
+  resolveTrackedKaminoUsdcMint,
+} from "./kamino-usdc-position";
 import { getPrivateClient } from "./private-client";
 import { closeWsolAta, wrapSolToWSol } from "./wsol-utils";
 
@@ -245,9 +250,14 @@ export async function shieldTokens(params: {
     console.log("undelegateDeposit sig", undelegateSig);
   }
 
+  const depositBeforeModify = await client.getBaseDeposit(
+    keypair.publicKey,
+    tokenMint
+  );
+
   // 4. Move tokens into the deposit vault
   console.log("modifyBalance");
-  const { signature } = await client.modifyBalance({
+  const { deposit, signature } = await client.modifyBalance({
     tokenMint,
     amount,
     increase: true,
@@ -256,6 +266,25 @@ export async function shieldTokens(params: {
     userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
+
+  const trackedKaminoMint = resolveTrackedKaminoUsdcMint(getSolanaEnv());
+  if (trackedKaminoMint === tokenMint.toBase58()) {
+    const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+    const addedCollateralSharesAmountRaw = deposit.amount - beforeShares;
+
+    if (addedCollateralSharesAmountRaw > BigInt(0)) {
+      try {
+        await recordKaminoUsdcShield({
+          publicKey: keypair.publicKey.toBase58(),
+          solanaEnv: getSolanaEnv(),
+          addedPrincipalLiquidityAmountRaw: BigInt(amount),
+          addedCollateralSharesAmountRaw,
+        });
+      } catch (error) {
+        console.warn("Failed to persist Kamino USDC shield basis", error);
+      }
+    }
+  }
 
   // Close temporary wSOL ATA if we created it
   if (isNativeSol && createdAta) {
@@ -317,6 +346,9 @@ export async function unshieldTokens(params: {
   const keypair = await getWalletKeypair();
   const client = await getPrivateClient();
   const connection = getWebsocketConnection();
+  const solanaEnv = getSolanaEnv();
+  const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+  const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
 
   // 1. Undelegate from PER if currently delegated (waits for owner to be PROGRAM_ID on both connections)
   const [depositPda] = findDepositPda(keypair.publicKey, tokenMint);
@@ -358,16 +390,60 @@ export async function unshieldTokens(params: {
     TOKEN_PROGRAM_ID
   );
 
+  const depositBeforeModify = await client.getBaseDeposit(
+    keypair.publicKey,
+    tokenMint
+  );
+
+  let modifyAmount = BigInt(amount);
+  if (isTrackedKaminoToken) {
+    const quotedCollateralSharesAmountRaw =
+      await client.getKaminoCollateralSharesForLiquidityAmount({
+        tokenMint,
+        liquidityAmountRaw: BigInt(amount),
+      });
+
+    if (quotedCollateralSharesAmountRaw !== null) {
+      modifyAmount = quotedCollateralSharesAmountRaw;
+    }
+
+    const currentCollateralSharesAmountRaw =
+      depositBeforeModify?.amount ?? BigInt(0);
+    if (
+      currentCollateralSharesAmountRaw > BigInt(0) &&
+      modifyAmount > currentCollateralSharesAmountRaw
+    ) {
+      modifyAmount = currentCollateralSharesAmountRaw;
+    }
+  }
+
   console.log("modifyBalance");
-  const { signature } = await client.modifyBalance({
+  const { deposit, signature } = await client.modifyBalance({
     tokenMint,
-    amount,
+    amount: modifyAmount,
     increase: false,
     user: keypair.publicKey,
     payer: keypair.publicKey,
     userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
+
+  if (isTrackedKaminoToken) {
+    const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+    const burnedCollateralSharesAmountRaw = beforeShares - deposit.amount;
+
+    if (burnedCollateralSharesAmountRaw > BigInt(0)) {
+      try {
+        await recordKaminoUsdcUnshield({
+          publicKey: keypair.publicKey.toBase58(),
+          solanaEnv,
+          burnedCollateralSharesAmountRaw,
+        });
+      } catch (error) {
+        console.warn("Failed to persist Kamino USDC unshield basis", error);
+      }
+    }
+  }
 
   // 3. Unwrap wSOL back to native SOL
   if (isNativeSol) {
