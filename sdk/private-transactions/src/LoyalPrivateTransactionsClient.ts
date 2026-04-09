@@ -26,6 +26,12 @@ import {
   isKaminoMainnetModifyBalanceAccounts,
 } from "./constants";
 import {
+  calculateKaminoShareAmountForLiquidityAmountRaw,
+  calculateKaminoCollateralExchangeRateSfFromAmounts,
+  calculateKaminoCollateralValuation,
+  fetchKaminoReserveSnapshot,
+} from "./kamino";
+import {
   findDepositPda,
   findUsernameDepositPda,
   findVaultPda,
@@ -45,6 +51,10 @@ import type {
   InitializeDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
+  GetKaminoShieldedBalanceQuoteParams,
+  GetKaminoCollateralSharesForLiquidityAmountParams,
+  KaminoReserveSnapshot,
+  KaminoShieldedBalanceQuote,
   CreatePermissionParams,
   CreateUsernamePermissionParams,
   DelegateDepositParams,
@@ -61,6 +71,7 @@ import { sha256hash } from "./utils";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
+const KAMINO_DEVNET_ENV = "devnet";
 
 type KaminoReserveMetricsResponseItem = {
   reserve: string;
@@ -101,15 +112,36 @@ function programFromRpc(
   return new Program(idl as TelegramPrivateTransfer, baseProvider);
 }
 
-async function fetchKaminoReserveSupplyApyBps(args: {
+function getKaminoApiEnv(
+  accounts: ReturnType<typeof getKaminoModifyBalanceAccountsForTokenMint>
+): string {
+  return accounts && isKaminoMainnetModifyBalanceAccounts(accounts)
+    ? KAMINO_MAINNET_ENV
+    : KAMINO_DEVNET_ENV;
+}
+
+function normalizeBigInt(value: number | bigint): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`Expected a non-negative integer amount, received ${value}`);
+  }
+
+  return BigInt(value);
+}
+
+async function fetchKaminoReserveMetrics(args: {
   lendingMarket: PublicKey;
   reserve: PublicKey;
-}): Promise<number> {
+  env: string;
+}): Promise<KaminoReserveMetricsResponseItem> {
   const url = new URL(
     `/kamino-market/${args.lendingMarket.toBase58()}/reserves/metrics`,
     KAMINO_API_BASE_URL
   );
-  url.searchParams.set("env", KAMINO_MAINNET_ENV);
+  url.searchParams.set("env", args.env);
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -151,10 +183,19 @@ async function fetchKaminoReserveSupplyApyBps(args: {
     );
   }
 
+  return reserveMetrics;
+}
+
+async function fetchKaminoReserveSupplyApyBps(args: {
+  lendingMarket: PublicKey;
+  reserve: PublicKey;
+  env: string;
+}): Promise<number> {
+  const reserveMetrics = await fetchKaminoReserveMetrics(args);
   const supplyApy = Number(reserveMetrics.supplyApy);
   if (!Number.isFinite(supplyApy) || supplyApy < 0) {
     throw new Error(
-      `Kamino reserve metrics returned an invalid supplyApy for reserve ${reserveAddress}`
+      `Kamino reserve metrics returned an invalid supplyApy for reserve ${args.reserve.toBase58()}`
     );
   }
 
@@ -1305,10 +1346,87 @@ export class LoyalPrivateTransactionsClient {
       return 0;
     }
 
-    // TODO: add devnet env
     return fetchKaminoReserveSupplyApyBps({
       lendingMarket: kaminoAccounts.lendingMarket,
       reserve: kaminoAccounts.reserve,
+      env: getKaminoApiEnv(kaminoAccounts),
+    });
+  }
+
+  async getKaminoReserveSnapshot(
+    tokenMint: PublicKey
+  ): Promise<KaminoReserveSnapshot | null> {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+
+    return fetchKaminoReserveSnapshot({
+      connection: this.baseProgram.provider.connection,
+      tokenMint,
+    });
+  }
+
+  async getKaminoShieldedBalanceQuote(
+    params: GetKaminoShieldedBalanceQuoteParams
+  ): Promise<KaminoShieldedBalanceQuote | null> {
+    const snapshot = await this.getKaminoReserveSnapshot(params.tokenMint);
+    if (!snapshot) {
+      return null;
+    }
+
+    const collateralSharesAmountRaw = normalizeBigInt(
+      params.collateralSharesAmountRaw
+    );
+    const principalLiquidityAmountRaw =
+      params.principalLiquidityAmountRaw === undefined ||
+      params.principalLiquidityAmountRaw === null
+        ? null
+        : normalizeBigInt(params.principalLiquidityAmountRaw);
+    const shieldCollateralExchangeRateSf =
+      params.shieldCollateralExchangeRateSf === undefined ||
+      params.shieldCollateralExchangeRateSf === null
+        ? null
+        : normalizeBigInt(params.shieldCollateralExchangeRateSf);
+    const valuation = calculateKaminoCollateralValuation({
+      snapshot,
+      collateralAmount: collateralSharesAmountRaw,
+      principalLiquidityAmount: principalLiquidityAmountRaw,
+      shieldCollateralExchangeRateSf,
+    });
+
+    return {
+      snapshot,
+      collateralSharesAmountRaw,
+      redeemableLiquidityAmountRaw: valuation.currentLiquidityAmount,
+      principalLiquidityAmountRaw: valuation.principalLiquidityAmount,
+      earnedLiquidityAmountRaw: valuation.earnedLiquidityAmount,
+      shieldCollateralExchangeRateSf,
+    };
+  }
+
+  async getKaminoCollateralSharesForLiquidityAmount(
+    params: GetKaminoCollateralSharesForLiquidityAmountParams
+  ): Promise<bigint | null> {
+    const snapshot = await this.getKaminoReserveSnapshot(params.tokenMint);
+    if (!snapshot) {
+      return null;
+    }
+
+    return calculateKaminoShareAmountForLiquidityAmountRaw({
+      snapshot,
+      liquidityAmountRaw: normalizeBigInt(params.liquidityAmountRaw),
+      rounding: "ceil",
+    });
+  }
+
+  calculateKaminoCollateralExchangeRateSfFromAmounts(args: {
+    collateralAmountRaw: number | bigint;
+    liquidityAmountRaw: number | bigint;
+  }): bigint | null {
+    return calculateKaminoCollateralExchangeRateSfFromAmounts({
+      collateralAmount: normalizeBigInt(args.collateralAmountRaw),
+      liquidityAmount: normalizeBigInt(args.liquidityAmountRaw),
     });
   }
 
