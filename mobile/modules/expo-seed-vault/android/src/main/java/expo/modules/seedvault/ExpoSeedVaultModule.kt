@@ -307,7 +307,7 @@ class ExpoSeedVaultModule : Module() {
     private fun parseDerivationPath(path: String): Uri {
         require(path.startsWith("m/")) { "Derivation path must start with m/" }
         val segments = path.removePrefix("m/").split("/").filter { it.isNotEmpty() }
-        val builder = Bip32DerivationPath.Builder()
+        val builder = Bip32DerivationPath.newBuilder()
         for (segment in segments) {
             val hardened = segment.endsWith("'") || segment.endsWith("h")
             val raw = segment.trimEnd('\'', 'h')
