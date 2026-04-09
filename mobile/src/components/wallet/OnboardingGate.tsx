@@ -6,16 +6,22 @@ import { LogoHeader } from "@/components/LogoHeader";
 import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
 import { CreateWalletScreen } from "@/components/wallet/CreateWalletScreen";
 import { ImportWalletScreen } from "@/components/wallet/ImportWalletScreen";
+import { OnboardingSlidesScreen } from "@/components/wallet/OnboardingSlidesScreen";
 import { useWallet } from "@/lib/wallet/wallet-provider";
-import { Pressable, SafeAreaView, Text, View } from "@/tw";
+import { Pressable, Text, View } from "@/tw";
 
-type Step = "choose" | "create" | "import" | "biometric-setup";
+type Step = "slides" | "choose" | "create" | "import" | "biometric-setup";
 type Flow = "create" | "import" | null;
 
-export function OnboardingGate() {
+type Props = {
+  mode?: "setup" | "replay";
+  onReplayDone?: () => void;
+};
+
+export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const { finalizeSigner } = useWallet();
 
-  const [step, setStep] = useState<Step>("choose");
+  const [step, setStep] = useState<Step>("slides");
   const [flow, setFlow] = useState<Flow>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
   const [pendingPin, setPendingPin] = useState<string | null>(null);
@@ -70,9 +76,24 @@ export function OnboardingGate() {
   }
 
   // --- Choose step ---
+  if (step === "slides") {
+    return (
+      <OnboardingSlidesScreen
+        onDone={() => {
+          if (mode === "replay") {
+            onReplayDone?.();
+            return;
+          }
+          setStep("choose");
+        }}
+      />
+    );
+  }
+
+  // --- Choose step ---
   if (step === "choose") {
     return (
-      <SafeAreaView className="flex-1 bg-white">
+      <View className="flex-1 bg-white">
         <LogoHeader />
         <View className="flex-1 items-center justify-center px-6">
           <Text style={styles.title}>Welcome to Loyal</Text>
@@ -100,7 +121,7 @@ export function OnboardingGate() {
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 

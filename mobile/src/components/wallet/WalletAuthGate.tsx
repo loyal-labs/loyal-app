@@ -12,9 +12,9 @@ import { View } from "@/tw";
  * Returns null when unlocked — the normal tab UI shows through.
  */
 export function WalletAuthGate() {
-  const { state } = useWallet();
+  const { state, onboardingReplayActive, finishOnboardingReplay } = useWallet();
 
-  if (state === "unlocked") return null;
+  if (state === "unlocked" && !onboardingReplayActive) return null;
 
   return (
     <Animated.View
@@ -22,13 +22,16 @@ export function WalletAuthGate() {
       exiting={FadeOut.duration(250)}
       style={styles.overlay}
     >
-      {state === "loading" && (
+      {onboardingReplayActive && (
+        <OnboardingGate mode="replay" onReplayDone={finishOnboardingReplay} />
+      )}
+      {!onboardingReplayActive && state === "loading" && (
         <View className="flex-1 items-center justify-center bg-white">
           <ActivityIndicator size="large" color="#000" />
         </View>
       )}
-      {state === "noWallet" && <OnboardingGate />}
-      {state === "locked" && <LockScreen />}
+      {!onboardingReplayActive && state === "noWallet" && <OnboardingGate />}
+      {!onboardingReplayActive && state === "locked" && <LockScreen />}
     </Animated.View>
   );
 }

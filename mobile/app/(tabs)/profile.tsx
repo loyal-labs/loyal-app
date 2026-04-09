@@ -7,6 +7,7 @@ import {
   Fingerprint,
   Globe,
   Key,
+  RotateCcw,
   Trash2,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -136,6 +137,13 @@ export default function ProfileScreen() {
     Linking.openURL(SUPPORT_URL);
   }, []);
 
+  const handleReplayOnboarding = useCallback(() => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    wallet.startOnboardingReplay();
+  }, [wallet]);
+
   const handleNotificationToggle = useCallback((value: boolean) => {
     if (process.env.EXPO_OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -258,6 +266,13 @@ export default function ProfileScreen() {
             subtitle="Report a bug or ask any question"
             showChevron
             onPress={handleSupport}
+          />
+          <ProfileCell
+            icon={<RotateCcw size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+            title="Replay Onboarding"
+            subtitle="View intro slides again"
+            showChevron
+            onPress={handleReplayOnboarding}
           />
         </SettingsSection>
 

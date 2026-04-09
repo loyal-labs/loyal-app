@@ -39,6 +39,7 @@ interface WalletContextValue {
   state: WalletState;
   keypair: Keypair | null;
   publicKey: string | null;
+  onboardingReplayActive: boolean;
 
   // Wallet setup
   createWallet: (pin: string) => Keypair;
@@ -58,6 +59,8 @@ interface WalletContextValue {
   changePin: (newPin: string) => Promise<void>;
   resetWallet: () => Promise<void>;
   getSecretKeyHex: () => string | null;
+  startOnboardingReplay: () => void;
+  finishOnboardingReplay: () => void;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -73,6 +76,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [keypair, setKeypair] = useState<Keypair | null>(null);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
+  const [onboardingReplayActive, setOnboardingReplayActive] = useState(false);
 
   // Initialize — check if a wallet exists
   useEffect(() => {
@@ -212,11 +216,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       .join("");
   }, [keypair]);
 
+  const startOnboardingReplay = useCallback(() => {
+    setOnboardingReplayActive(true);
+  }, []);
+
+  const finishOnboardingReplay = useCallback(() => {
+    setOnboardingReplayActive(false);
+  }, []);
+
   const value = useMemo<WalletContextValue>(
     () => ({
       state,
       keypair,
       publicKey,
+      onboardingReplayActive,
       createWallet,
       importWallet,
       finalizeSigner,
@@ -228,11 +241,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       changePin: changePinAction,
       resetWallet,
       getSecretKeyHex,
+      startOnboardingReplay,
+      finishOnboardingReplay,
     }),
     [
       state,
       keypair,
       publicKey,
+      onboardingReplayActive,
       createWallet,
       importWallet,
       finalizeSigner,
@@ -244,6 +260,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       changePinAction,
       resetWallet,
       getSecretKeyHex,
+      startOnboardingReplay,
+      finishOnboardingReplay,
     ],
   );
 
