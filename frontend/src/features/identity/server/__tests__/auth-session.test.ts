@@ -1,6 +1,12 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 mock.module("server-only", () => ({}));
+mock.module("@/lib/core/config/server", () => ({
+  getServerEnv: () => ({
+    authSessionRs256PublicKey: null,
+    gridAuthBaseUrl: "https://auth.askloyal.com",
+  }),
+}));
 
 let AuthGatewayError: typeof import("../auth-session").AuthGatewayError;
 let mapAuthSessionUserToAuthenticatedPrincipal: typeof import("../auth-session").mapAuthSessionUserToAuthenticatedPrincipal;
@@ -24,7 +30,6 @@ describe("auth session gateway", () => {
         provider: "solana",
         walletAddress: "wallet-1",
         gridUserId: "grid-1",
-        smartAccountAddress: "smart-1",
       })
     ).toEqual({
       provider: "solana",
@@ -32,7 +37,6 @@ describe("auth session gateway", () => {
       subjectAddress: "wallet-1",
       walletAddress: "wallet-1",
       gridUserId: "grid-1",
-      smartAccountAddress: "smart-1",
     });
   });
 

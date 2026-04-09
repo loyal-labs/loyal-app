@@ -104,6 +104,20 @@ export type GaslessClaimSolanaEnv = "mainnet" | "devnet";
 export type AppUserProvider = "solana";
 
 /**
+ * Solana environments tracked for app user smart accounts.
+ */
+export type AppUserSmartAccountSolanaEnv =
+  | "mainnet"
+  | "testnet"
+  | "devnet"
+  | "localnet";
+
+/**
+ * Lifecycle state for app user smart account provisioning.
+ */
+export type AppUserSmartAccountState = "pending" | "ready";
+
+/**
  * Stored app chat message roles.
  */
 export type AppChatMessageRole = "user" | "assistant" | "system";
@@ -588,6 +602,51 @@ export const appUserWallets = pgTable(
 );
 
 /**
+ * Env-scoped Loyal smart accounts attached to app users.
+ * The settings PDA is the source of truth for deriving smart account PDAs.
+ */
+export const appUserSmartAccounts = pgTable(
+  "app_user_smart_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUsers.id, { onDelete: "cascade" }),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    state: text("state").$type<AppUserSmartAccountState>().notNull(),
+    creationSignature: text("creation_signature"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_user_smart_accounts_user_env_uidx").on(
+      table.userId,
+      table.solanaEnv
+    ),
+    uniqueIndex("app_user_smart_accounts_env_settings_uidx").on(
+      table.solanaEnv,
+      table.settingsPda
+    ),
+    index("app_user_smart_accounts_user_id_idx").on(table.userId),
+    check(
+      "app_user_smart_accounts_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+    check(
+      "app_user_smart_accounts_state_check",
+      sql`${table.state} IN ('pending', 'ready')`
+    ),
+  ]
+);
+
+/**
  * Persisted chat sessions per app user.
  */
 export const appChats = pgTable(
@@ -935,6 +994,7 @@ export const botMessagesRelations = relations(botMessages, ({ one }) => ({
 
 export const appUsersRelations = relations(appUsers, ({ many }) => ({
   wallets: many(appUserWallets),
+  smartAccounts: many(appUserSmartAccounts),
   chats: many(appChats),
 }));
 
@@ -944,6 +1004,16 @@ export const appUserWalletsRelations = relations(appUserWallets, ({ one }) => ({
     references: [appUsers.id],
   }),
 }));
+
+export const appUserSmartAccountsRelations = relations(
+  appUserSmartAccounts,
+  ({ one }) => ({
+    user: one(appUsers, {
+      fields: [appUserSmartAccounts.userId],
+      references: [appUsers.id],
+    }),
+  })
+);
 
 export const appChatsRelations = relations(appChats, ({ one, many }) => ({
   user: one(appUsers, {
@@ -1010,6 +1080,9 @@ export type InsertAppUser = typeof appUsers.$inferInsert;
 
 export type AppUserWallet = typeof appUserWallets.$inferSelect;
 export type InsertAppUserWallet = typeof appUserWallets.$inferInsert;
+
+export type AppUserSmartAccount = typeof appUserSmartAccounts.$inferSelect;
+export type InsertAppUserSmartAccount = typeof appUserSmartAccounts.$inferInsert;
 
 export type AppChat = typeof appChats.$inferSelect;
 export type InsertAppChat = typeof appChats.$inferInsert;

@@ -11,7 +11,6 @@ export type AppUser = {
   provider: "solana";
   subjectAddress: string;
   gridUserId: string | null;
-  smartAccountAddress: string | null;
 };
 
 type AppUserDependencies = {
@@ -54,8 +53,6 @@ function mergeUserMetadata(
   return {
     ...user,
     gridUserId: principal.gridUserId ?? user.gridUserId,
-    smartAccountAddress:
-      principal.smartAccountAddress ?? user.smartAccountAddress,
   };
 }
 
@@ -71,7 +68,6 @@ function createAppUserDependencies(): AppUserDependencies {
           provider: true,
           subjectAddress: true,
           gridUserId: true,
-          smartAccountAddress: true,
         },
         where: and(
           eq(appUsers.provider, principal.provider),
@@ -86,7 +82,6 @@ function createAppUserDependencies(): AppUserDependencies {
             provider: principal.provider,
             subjectAddress: principal.subjectAddress,
             gridUserId: principal.gridUserId,
-            smartAccountAddress: principal.smartAccountAddress,
             createdAt: now,
             updatedAt: now,
           })
@@ -96,7 +91,6 @@ function createAppUserDependencies(): AppUserDependencies {
             provider: appUsers.provider,
             subjectAddress: appUsers.subjectAddress,
             gridUserId: appUsers.gridUserId,
-            smartAccountAddress: appUsers.smartAccountAddress,
           });
 
         return result[0] ?? null;
@@ -114,9 +108,6 @@ function createAppUserDependencies(): AppUserDependencies {
         .set({
           ...(principal.gridUserId
             ? { gridUserId: principal.gridUserId }
-            : {}),
-          ...(principal.smartAccountAddress
-            ? { smartAccountAddress: principal.smartAccountAddress }
             : {}),
           updatedAt: now,
         })

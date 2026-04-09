@@ -16,7 +16,6 @@ export type AuthenticatedPrincipal = {
   subjectAddress: string;
   walletAddress: string;
   gridUserId: string | null;
-  smartAccountAddress: string | null;
 };
 
 type AuthGatewayErrorCode =
@@ -173,7 +172,6 @@ export function mapAuthSessionUserToAuthenticatedPrincipal(
     subjectAddress: session.walletAddress,
     walletAddress: session.walletAddress,
     gridUserId: session.gridUserId ?? null,
-    smartAccountAddress: session.smartAccountAddress ?? null,
   };
 }
 

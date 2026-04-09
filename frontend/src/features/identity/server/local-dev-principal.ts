@@ -12,5 +12,4 @@ export const LOCAL_DEV_PRINCIPAL: AuthenticatedPrincipal = {
   subjectAddress: "LocalDevUser000000000000000000000000000000000",
   walletAddress: "LocalDevUser000000000000000000000000000000000",
   gridUserId: null,
-  smartAccountAddress: null,
 };

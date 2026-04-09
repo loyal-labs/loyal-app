@@ -7,6 +7,7 @@ import {
   recordAssistantReply,
 } from "@/features/chat/server/chat-persistence";
 import { trackChatThreadCreatedServer } from "@/features/chat/server/chat-analytics";
+import { resolveChatUserSmartAccount } from "@/features/chat/server/smart-account-resolver";
 import { prepareChatTurn } from "@/features/chat/server/chat-service";
 import type { AuthenticatedPrincipal } from "@/features/identity/server/auth-session";
 import {
@@ -189,6 +190,7 @@ export async function POST(req: Request) {
   let chatId: string;
   let chatWasCreated = false;
   let turnId: string;
+  let userId: string;
   try {
     const turn = await prepareChatTurn({
       principal: principal!,
@@ -201,6 +203,7 @@ export async function POST(req: Request) {
     chatId = turn.chatId;
     chatWasCreated = turn.chatWasCreated;
     turnId = turn.turnId;
+    userId = turn.userId;
   } catch (error) {
     console.error("[chat] prepareChatTurn failed:", error);
     return Response.json(
@@ -210,8 +213,11 @@ export async function POST(req: Request) {
   }
 
   if (chatWasCreated) {
+    const smartAccount = await resolveChatUserSmartAccount(userId);
+
     trackChatThreadCreatedServer({
       principal: principal!,
+      smartAccountAddress: smartAccount?.smartAccountAddress ?? null,
       chatId,
       initialMessageLength: submittedTurn.text.length,
       source: "main_chat_input",

@@ -11,7 +11,6 @@ type StoredUser = {
   provider: "solana";
   subjectAddress: string;
   gridUserId: string | null;
-  smartAccountAddress: string | null;
 };
 
 type StoredWallet = {
@@ -35,7 +34,6 @@ describe("app user provisioning", () => {
       subjectAddress: "wallet-1",
       walletAddress: "wallet-1",
       gridUserId: null,
-      smartAccountAddress: null,
       ...overrides,
     };
   }
@@ -63,7 +61,6 @@ describe("app user provisioning", () => {
             provider: principal.provider,
             subjectAddress: principal.subjectAddress,
             gridUserId: principal.gridUserId,
-            smartAccountAddress: principal.smartAccountAddress,
           };
           users.push(user);
           return user;
@@ -73,8 +70,6 @@ describe("app user provisioning", () => {
           principal: AuthenticatedPrincipal
         ) => {
           user.gridUserId = principal.gridUserId ?? user.gridUserId;
-          user.smartAccountAddress =
-            principal.smartAccountAddress ?? user.smartAccountAddress;
         },
         upsertWalletForUser: async (
           userId: string,
@@ -114,7 +109,6 @@ describe("app user provisioning", () => {
         provider: "solana",
         subjectAddress: "wallet-1",
         gridUserId: null,
-        smartAccountAddress: null,
       },
     ]);
     expect(wallets).toHaveLength(1);
@@ -144,19 +138,17 @@ describe("app user provisioning", () => {
     );
   });
 
-  test("updates smart-account metadata when present", async () => {
+  test("updates grid metadata when present", async () => {
     const { dependencies } = createFakeDependencies();
 
     await getOrCreateCurrentUser(createPrincipal(), dependencies);
     const user = await getOrCreateCurrentUser(
       createPrincipal({
         gridUserId: "grid-1",
-        smartAccountAddress: "smart-1",
       }),
       dependencies
     );
 
     expect(user.gridUserId).toBe("grid-1");
-    expect(user.smartAccountAddress).toBe("smart-1");
   });
 });

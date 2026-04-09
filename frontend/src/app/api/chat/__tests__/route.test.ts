@@ -53,13 +53,20 @@ mock.module("ai", () => ({
   }),
 }));
 
+mock.module("@/features/chat/server/smart-account-resolver", () => ({
+  resolveChatUserSmartAccount: async () => null,
+}));
+
+mock.module("@/lib/core/analytics-server", () => ({
+  trackServerAnalyticsEvent: () => {},
+}));
+
 const fakeDbState = {
   users: [] as Array<{
     id: string;
     provider: "solana";
     subjectAddress: string;
     gridUserId: string | null;
-    smartAccountAddress: string | null;
   }>,
   wallets: [] as Array<{
     userId: string;
@@ -108,8 +115,6 @@ function createInsertBuilder(table: unknown) {
                   provider: values.provider as "solana",
                   subjectAddress: values.subjectAddress as string,
                   gridUserId: (values.gridUserId as string | null) ?? null,
-                  smartAccountAddress:
-                    (values.smartAccountAddress as string | null) ?? null,
                 };
                 fakeDbState.users.push(row);
                 return [row];
@@ -227,13 +232,6 @@ function createUpdateBuilder(table: unknown) {
               ...(values.gridUserId !== undefined
                 ? { gridUserId: values.gridUserId as string | null }
                 : {}),
-              ...(values.smartAccountAddress !== undefined
-                ? {
-                    smartAccountAddress: values.smartAccountAddress as
-                      | string
-                      | null,
-                  }
-                : {}),
             };
             return;
           }
@@ -312,9 +310,11 @@ describe("chat route", () => {
     delete process.env.PHALA_API_KEY;
     delete process.env.DATABASE_URL;
     delete process.env.NEXT_PUBLIC_GRID_AUTH_BASE_URL;
+    delete process.env.NEXT_PUBLIC_APP_ENVIRONMENT;
   });
 
   test("returns 401 when the auth session is missing", async () => {
+    process.env.NEXT_PUBLIC_APP_ENVIRONMENT = "prod";
     const response = await POST(createRequest());
 
     expect(response.status).toBe(401);
@@ -327,6 +327,7 @@ describe("chat route", () => {
   });
 
   test("returns 403 when the auth gateway rejects a non-wallet session", async () => {
+    process.env.NEXT_PUBLIC_APP_ENVIRONMENT = "prod";
     process.env.PHALA_API_KEY = "test-key";
     process.env.DATABASE_URL = "postgresql://localhost/test";
     process.env.NEXT_PUBLIC_GRID_AUTH_BASE_URL = "https://auth.askloyal.com";
@@ -380,6 +381,7 @@ describe("chat route", () => {
   });
 
   test("returns 403 when the auth gateway rejects a mismatched wallet principal", async () => {
+    process.env.NEXT_PUBLIC_APP_ENVIRONMENT = "prod";
     process.env.PHALA_API_KEY = "test-key";
     process.env.DATABASE_URL = "postgresql://localhost/test";
     process.env.NEXT_PUBLIC_GRID_AUTH_BASE_URL = "https://auth.askloyal.com";
@@ -435,6 +437,7 @@ describe("chat route", () => {
   });
 
   test("derives a stable turn id and persists an assistant reply on the happy path", async () => {
+    process.env.NEXT_PUBLIC_APP_ENVIRONMENT = "prod";
     process.env.PHALA_API_KEY = "test-key";
     process.env.DATABASE_URL = "postgresql://localhost/test";
     process.env.NEXT_PUBLIC_GRID_AUTH_BASE_URL = "https://auth.askloyal.com";
@@ -487,7 +490,6 @@ describe("chat route", () => {
         provider: "solana",
         subjectAddress: "wallet-1",
         gridUserId: null,
-        smartAccountAddress: null,
       },
     ]);
     expect(fakeDbState.wallets).toEqual([
