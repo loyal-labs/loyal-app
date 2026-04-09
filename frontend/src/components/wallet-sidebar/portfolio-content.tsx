@@ -4,6 +4,8 @@ import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useState } from "react";
 
+import type { WalletEarningsSummary } from "@/hooks/use-wallet-desktop-data";
+
 import { ActivityRowItem } from "./activity-row-item";
 import { TokenRowItem } from "./token-row-item";
 import type {
@@ -12,6 +14,24 @@ import type {
   TokenRow,
   TransactionDetail,
 } from "./types";
+
+function formatSignedPercent(value: number): string {
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+function formatSignedUsd(value: number): string {
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(value).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 const skeletonBar = (width: string, height: string) => ({
   width,
@@ -101,6 +121,7 @@ export function PortfolioContent({
   balanceFraction,
   balanceSolLabel,
   balanceWhole,
+  earningsSummary,
   isBalanceHidden,
   isLoading,
   onBalanceHiddenChange,
@@ -115,6 +136,7 @@ export function PortfolioContent({
   balanceFraction: string;
   balanceSolLabel: string;
   balanceWhole: string;
+  earningsSummary: WalletEarningsSummary | null;
   isBalanceHidden: boolean;
   isLoading: boolean;
   onBalanceHiddenChange: (hidden: boolean) => void;
@@ -125,6 +147,8 @@ export function PortfolioContent({
   walletAddress: string | null;
   walletLabel: string;
 }) {
+  const showEarningsPill =
+    earningsSummary !== null && earningsSummary.totalPrincipalUsd > 0;
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
     (e: React.MouseEvent) => {
@@ -416,22 +440,77 @@ export function PortfolioContent({
               )}
             </button>
           </div>
-          <div style={{ borderRadius: "6px", overflow: "hidden" }}>
-            <span
-              style={{
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "14px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: isBalanceHidden ? "#C8C8CC" : "rgba(60, 60, 67, 0.6)",
-                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                transition: "filter 0.15s ease, color 0.15s ease",
-                userSelect: isBalanceHidden ? "none" : "auto",
-                display: "block",
-              }}
-            >
-              {balanceSolLabel}
-            </span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+              <span
+                style={{
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "14px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: isBalanceHidden ? "#C8C8CC" : "rgba(60, 60, 67, 0.6)",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                  display: "block",
+                }}
+              >
+                {balanceSolLabel}
+              </span>
+            </div>
+            {showEarningsPill && earningsSummary && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "2px 8px",
+                  borderRadius: "9999px",
+                  background: isBalanceHidden
+                    ? "rgba(0, 0, 0, 0.04)"
+                    : "rgba(52, 199, 89, 0.12)",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  lineHeight: "16px",
+                  letterSpacing: "-0.1px",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  transition: "filter 0.15s ease, background 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                }}
+              >
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#C8C8CC" : "#2EA043",
+                    fontWeight: 600,
+                  }}
+                >
+                  {formatSignedPercent(earningsSummary.changePercent)}
+                </span>
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#C8C8CC" : "#2EA043",
+                  }}
+                >
+                  ({formatSignedUsd(earningsSummary.totalEarnedUsd)})
+                </span>
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#C8C8CC" : "rgba(60, 60, 67, 0.5)",
+                    fontWeight: 400,
+                  }}
+                >
+                  All time
+                </span>
+              </span>
+            )}
           </div>
         </div>
       </div>

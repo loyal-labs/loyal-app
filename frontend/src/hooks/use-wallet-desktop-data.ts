@@ -13,6 +13,11 @@ import type {
   TokenRow,
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
+import { usePublicEnv } from "@/contexts/public-env-context";
+import {
+  enrichSnapshotWithKaminoUsdcEarnings,
+  type KaminoEarnings,
+} from "@/lib/kamino/enrich-portfolio";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
@@ -20,6 +25,12 @@ import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 export type BalanceHistoryPoint = {
   timestamp: number;
   valueUsd: number;
+};
+
+export type WalletEarningsSummary = {
+  totalEarnedUsd: number;
+  totalPrincipalUsd: number;
+  changePercent: number;
 };
 
 export type WalletDesktopData = {
@@ -37,6 +48,7 @@ export type WalletDesktopData = {
   transactionDetails: Record<string, TransactionDetail>;
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
+  earningsSummary: WalletEarningsSummary | null;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
@@ -301,6 +313,17 @@ function mapActivityToRowAndDetail(
   };
 }
 
+function formatSignedUsd(value: number): string {
+  const sign = value >= 0 ? "+" : "-";
+  const abs = Math.abs(value);
+  return `${sign}${abs.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
   return {
     id: position.asset.mint,
@@ -312,8 +335,11 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
   };
 }
 
-function mapPositionToSecuredTokenRow(position: PortfolioPosition): TokenRow {
-  return {
+function mapPositionToSecuredTokenRow(
+  position: PortfolioPosition,
+  earnings: KaminoEarnings | undefined
+): TokenRow {
+  const row: TokenRow = {
     id: `${position.asset.mint}-secured`,
     symbol: position.asset.symbol,
     price: formatUsd(position.priceUsd),
@@ -322,18 +348,62 @@ function mapPositionToSecuredTokenRow(position: PortfolioPosition): TokenRow {
     icon: resolveTokenIcon(position),
     isSecured: true,
   };
+
+  if (!earnings) {
+    return row;
+  }
+
+  row.apyBps = earnings.apyBps ?? null;
+
+  if (
+    typeof earnings.earnedValueUsd === "number" &&
+    typeof earnings.principalValueUsd === "number"
+  ) {
+    row.earnedValueDisplay = formatSignedUsd(earnings.earnedValueUsd);
+    row.principalValueDisplay = formatUsd(earnings.principalValueUsd);
+  }
+
+  return row;
 }
+
+const EMPTY_EARNINGS_BY_MINT: ReadonlyMap<string, KaminoEarnings> = new Map();
 
 export function useWalletDesktopData(): WalletDesktopData {
   const client = useSolanaWalletDataClient();
+  const publicEnv = usePublicEnv();
   const wallet = useWallet();
   const walletAddress = wallet.publicKey?.toBase58() ?? null;
   const [portfolioSnapshot, setPortfolioSnapshot] =
     useState<PortfolioSnapshot | null>(null);
+  const [earningsByMint, setEarningsByMint] =
+    useState<ReadonlyMap<string, KaminoEarnings>>(EMPTY_EARNINGS_BY_MINT);
+  const [earningsSummary, setEarningsSummary] =
+    useState<WalletEarningsSummary | null>(null);
   const [activities, setActivities] = useState<WalletActivity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [localRows, setLocalRows] = useState<ActivityRow[]>([]);
   const [localDetails, setLocalDetails] = useState<Record<string, TransactionDetail>>({});
+
+  const applyEnrichment = useCallback(
+    async (snapshot: PortfolioSnapshot, address: string) => {
+      try {
+        const enriched = await enrichSnapshotWithKaminoUsdcEarnings({
+          snapshot,
+          walletAddress: address,
+          solanaEnv: publicEnv.solanaEnv,
+        });
+        return enriched;
+      } catch (error) {
+        console.warn("[wallet-data] Kamino enrichment failed", error);
+        return {
+          snapshot,
+          earningsTotals: null,
+          earningsByMint: EMPTY_EARNINGS_BY_MINT as Map<string, KaminoEarnings>,
+        };
+      }
+    },
+    [publicEnv.solanaEnv]
+  );
 
   // Load local activity from localStorage when wallet connects
   useEffect(() => {
@@ -384,6 +454,8 @@ export function useWalletDesktopData(): WalletDesktopData {
 
     if (!(wallet.connected && wallet.publicKey)) {
       setPortfolioSnapshot(null);
+      setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
+      setEarningsSummary(null);
       setActivities([]);
       setIsLoading(false);
       return;
@@ -392,18 +464,40 @@ export function useWalletDesktopData(): WalletDesktopData {
     let cancelled = false;
     setIsLoading(true);
 
-    console.log("[wallet-data] fetching portfolio for", wallet.publicKey.toBase58());
+    const publicKey = wallet.publicKey;
+    const address = publicKey.toBase58();
+    console.log("[wallet-data] fetching portfolio for", address);
 
     void Promise.all([
-      client.getPortfolio(wallet.publicKey),
-      client.getActivity(wallet.publicKey, { limit: 25 }),
+      client.getPortfolio(publicKey),
+      client.getActivity(publicKey, { limit: 25 }),
     ])
-      .then(([nextPortfolio, history]) => {
+      .then(async ([nextPortfolio, history]) => {
         if (cancelled) {
           return;
         }
 
-        setPortfolioSnapshot(nextPortfolio);
+        const enriched = await applyEnrichment(nextPortfolio, address);
+        if (cancelled) {
+          return;
+        }
+
+        setPortfolioSnapshot(enriched.snapshot);
+        setEarningsByMint(enriched.earningsByMint);
+        setEarningsSummary(
+          enriched.earningsTotals
+            ? {
+                totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
+                totalPrincipalUsd: enriched.earningsTotals.totalPrincipalUsd,
+                changePercent:
+                  enriched.earningsTotals.totalPrincipalUsd > 0
+                    ? (enriched.earningsTotals.totalEarnedUsd /
+                        enriched.earningsTotals.totalPrincipalUsd) *
+                      100
+                    : 0,
+              }
+            : null
+        );
         setActivities(history.activities);
         setIsLoading(false);
       })
@@ -417,7 +511,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     return () => {
       cancelled = true;
     };
-  }, [client, wallet.connected, wallet.publicKey]);
+  }, [client, wallet.connected, wallet.publicKey, applyEnrichment]);
 
   useEffect(() => {
     if (!(wallet.connected && wallet.publicKey)) {
@@ -428,13 +522,35 @@ export function useWalletDesktopData(): WalletDesktopData {
     let unsubscribePortfolio: (() => Promise<void>) | null = null;
     let unsubscribeActivity: (() => Promise<void>) | null = null;
 
+    const subscriptionAddress = wallet.publicKey.toBase58();
+
     void client
       .subscribePortfolio(
         wallet.publicKey,
         (snapshot) => {
-          if (!closed) {
-            setPortfolioSnapshot(snapshot);
-          }
+          if (closed) return;
+          void applyEnrichment(snapshot, subscriptionAddress).then(
+            (enriched) => {
+              if (closed) return;
+              setPortfolioSnapshot(enriched.snapshot);
+              setEarningsByMint(enriched.earningsByMint);
+              setEarningsSummary(
+                enriched.earningsTotals
+                  ? {
+                      totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
+                      totalPrincipalUsd:
+                        enriched.earningsTotals.totalPrincipalUsd,
+                      changePercent:
+                        enriched.earningsTotals.totalPrincipalUsd > 0
+                          ? (enriched.earningsTotals.totalEarnedUsd /
+                              enriched.earningsTotals.totalPrincipalUsd) *
+                            100
+                          : 0,
+                    }
+                  : null
+              );
+            }
+          );
         },
         { emitInitial: false }
       )
@@ -492,7 +608,7 @@ export function useWalletDesktopData(): WalletDesktopData {
         void unsubscribeActivity();
       }
     };
-  }, [client, wallet.connected, wallet.publicKey]);
+  }, [client, wallet.connected, wallet.publicKey, applyEnrichment]);
 
   // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
@@ -527,7 +643,12 @@ export function useWalletDesktopData(): WalletDesktopData {
       }
       // Add secured row right after the public one
       if (position.securedBalance > 0) {
-        rows.push(mapPositionToSecuredTokenRow(position));
+        rows.push(
+          mapPositionToSecuredTokenRow(
+            position,
+            earningsByMint.get(position.asset.mint)
+          )
+        );
       }
     }
 
@@ -556,7 +677,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     }
 
     return rows;
-  }, [positions, loylPriceUsd]);
+  }, [positions, loylPriceUsd, earningsByMint]);
 
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
@@ -666,6 +787,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     transactionDetails: mergedActivityData.details,
     positions,
     balanceHistory,
+    earningsSummary,
     addLocalActivity,
   };
 }

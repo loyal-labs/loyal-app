@@ -500,6 +500,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                     balanceFraction={props.walletDesktopData.balanceFraction}
                     balanceSolLabel={props.walletDesktopData.balanceSolLabel}
                     balanceWhole={props.walletDesktopData.balanceWhole}
+                    earningsSummary={props.walletDesktopData.earningsSummary}
                     isBalanceHidden={props.isBalanceHidden}
                     isLoading={props.walletDesktopData.isLoading}
                     onBalanceHiddenChange={props.onBalanceHiddenChange}
