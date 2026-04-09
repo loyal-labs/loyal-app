@@ -33,7 +33,7 @@ export default function TokensSheet({
   tokenHoldings,
 }: TokensSheetProps) {
   const formatEarnedLabel = (earnedBalance: number, symbol: string): string =>
-    `Earned ${earnedBalance.toLocaleString("en-US", {
+    `Total Earned ${earnedBalance.toLocaleString("en-US", {
       maximumFractionDigits: 4,
     })} ${symbol}`;
 

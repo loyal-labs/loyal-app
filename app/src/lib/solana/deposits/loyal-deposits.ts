@@ -394,8 +394,11 @@ export async function unshieldTokens(params: {
     keypair.publicKey,
     tokenMint
   );
+  const currentCollateralSharesAmountRaw = depositBeforeModify?.amount ?? BigInt(0);
 
   let modifyAmount = BigInt(amount);
+  let currentLiquidityAmountRawBeforeUnshield: bigint | null = null;
+  let redeemedLiquidityAmountRaw: bigint | null = null;
   if (isTrackedKaminoToken) {
     const quotedCollateralSharesAmountRaw =
       await client.getKaminoCollateralSharesForLiquidityAmount({
@@ -415,6 +418,30 @@ export async function unshieldTokens(params: {
     ) {
       modifyAmount = currentCollateralSharesAmountRaw;
     }
+
+    if (currentCollateralSharesAmountRaw > BigInt(0)) {
+      try {
+        const [currentPositionQuote, redeemedLiquidityQuote] = await Promise.all([
+          client.getKaminoShieldedBalanceQuote({
+            tokenMint,
+            collateralSharesAmountRaw: currentCollateralSharesAmountRaw,
+          }),
+          modifyAmount > BigInt(0)
+            ? client.getKaminoShieldedBalanceQuote({
+                tokenMint,
+                collateralSharesAmountRaw: modifyAmount,
+              })
+            : Promise.resolve(null),
+        ]);
+
+        currentLiquidityAmountRawBeforeUnshield =
+          currentPositionQuote?.redeemableLiquidityAmountRaw ?? null;
+        redeemedLiquidityAmountRaw =
+          redeemedLiquidityQuote?.redeemableLiquidityAmountRaw ?? null;
+      } catch (error) {
+        console.warn("Failed to quote Kamino USDC unshield earnings", error);
+      }
+    }
   }
 
   console.log("modifyBalance");
@@ -429,7 +456,7 @@ export async function unshieldTokens(params: {
   console.log("modifyBalance sig", signature);
 
   if (isTrackedKaminoToken) {
-    const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+    const beforeShares = currentCollateralSharesAmountRaw;
     const burnedCollateralSharesAmountRaw = beforeShares - deposit.amount;
 
     if (burnedCollateralSharesAmountRaw > BigInt(0)) {
@@ -437,7 +464,10 @@ export async function unshieldTokens(params: {
         await recordKaminoUsdcUnshield({
           publicKey: keypair.publicKey.toBase58(),
           solanaEnv,
+          actualCollateralSharesAmountRawBeforeUnshield: beforeShares,
+          currentLiquidityAmountRawBeforeUnshield,
           burnedCollateralSharesAmountRaw,
+          redeemedLiquidityAmountRaw,
         });
       } catch (error) {
         console.warn("Failed to persist Kamino USDC unshield basis", error);

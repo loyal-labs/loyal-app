@@ -20,7 +20,7 @@ export function TokensList({
   onShowAll,
 }: TokensListProps) {
   const formatEarnedLabel = (earnedBalance: number, symbol: string): string =>
-    `Earned ${earnedBalance.toLocaleString("en-US", {
+    `Total Earned ${earnedBalance.toLocaleString("en-US", {
       maximumFractionDigits: 4,
     })} ${symbol}`;
 
