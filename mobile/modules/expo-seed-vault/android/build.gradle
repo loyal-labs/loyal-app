@@ -1,0 +1,39 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'expo.modules.seedvault'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+
+// If Ksp and Reanimated are set up, this will enable them.
+useCoreDependencies()
+useExpoPublishing()
+
+// If you want to use the managed Android SDK versions from expo-modules-core, set this to true.
+// The Android SDK versions will then be defined by your expo-modules-core version, instead of your
+// `android/build.gradle`.
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "expo.modules.seedvault"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+  publishing {
+    singleVariant("release") {
+      withSourcesJar()
+    }
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+  implementation "com.solanamobile:seedvault-wallet-sdk:0.4.0"
+}
