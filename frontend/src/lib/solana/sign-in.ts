@@ -4,9 +4,9 @@ import type {
 } from "@solana/wallet-standard-features";
 import { verifySignIn } from "@solana/wallet-standard-util";
 import { PublicKey } from "@solana/web3.js";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
 import {
-  CHAIN_NETWORK,
   DOMAIN_NAME,
   SIGN_IN_STATEMENT,
 } from "@/lib/solana/constants";
@@ -17,6 +17,7 @@ const NONCE_CHARSET =
 const NONCE_LENGTH = 32;
 const NONCE_REGEX = /^[A-Za-z0-9]{8,64}$/;
 const SIGN_IN_VALIDITY_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_SIGN_IN_ENV: SolanaEnv = "devnet";
 
 const isByteArray = (value: unknown): value is number[] =>
   Array.isArray(value) &&
@@ -48,6 +49,12 @@ const generateNonce = (): string => {
 };
 
 export const createSignInData = async (): Promise<SolanaSignInInput> => {
+  return createSignInDataForEnv(DEFAULT_SIGN_IN_ENV);
+};
+
+export const createSignInDataForEnv = async (
+  solanaEnv: SolanaEnv
+): Promise<SolanaSignInInput> => {
   const now: Date = new Date();
   const domain = DOMAIN_NAME;
   const nonce = generateNonce();
@@ -59,7 +66,7 @@ export const createSignInData = async (): Promise<SolanaSignInInput> => {
     statement: SIGN_IN_STATEMENT,
     version: "1",
     nonce,
-    chainId: CHAIN_NETWORK,
+    chainId: solanaEnv,
     issuedAt: currentDateTime,
   };
 
@@ -70,13 +77,21 @@ export function verifySIWS(
   input: SolanaSignInInput,
   output: SerializedSolanaSignInOutput
 ): boolean {
+  return verifySIWSForEnv(input, output, DEFAULT_SIGN_IN_ENV);
+}
+
+export function verifySIWSForEnv(
+  input: SolanaSignInInput,
+  output: SerializedSolanaSignInOutput,
+  solanaEnv: SolanaEnv
+): boolean {
   if (input.domain !== DOMAIN_NAME) {
     return false;
   }
   if (input.version !== "1") {
     return false;
   }
-  if (CHAIN_NETWORK && input.chainId !== CHAIN_NETWORK) {
+  if (input.chainId !== solanaEnv) {
     return false;
   }
   if (input.statement !== SIGN_IN_STATEMENT) {
