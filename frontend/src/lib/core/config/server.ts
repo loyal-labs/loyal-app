@@ -26,9 +26,9 @@ const AUTH_JWT_SECRET_ENV_NAME = "AUTH_JWT_SECRET";
 const AUTH_JWT_RS256_PUBLIC_KEY_ENV_NAME = "AUTH_JWT_RS256_PUBLIC_KEY";
 const AUTH_JWT_RS256_PRIVATE_KEY_ENV_NAME = "AUTH_JWT_RS256_PRIVATE_KEY";
 const AUTH_JWT_TTL_SECONDS_ENV_NAME = "AUTH_JWT_TTL_SECONDS";
-const AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME = "GRID_ALLOWED_PARENT_DOMAIN";
-const AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME = "GRID_ALLOW_LOCALHOST";
-const AUTH_APP_NAME_ENV_NAME = "GRID_APP_NAME";
+const AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME = "AUTH_COOKIE_PARENT_DOMAIN";
+const AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME = "AUTH_COOKIE_ALLOW_LOCALHOST";
+const AUTH_APP_NAME_ENV_NAME = "AUTH_APP_NAME";
 const DEPLOYMENT_PRIVATE_KEY_ENV_NAME = "DEPLOYMENT_PK";
 
 export type ChatRuntimeConfig = {
@@ -44,7 +44,6 @@ export type ServerEnv = {
   appEnvironment: AppEnvironment;
   chatRuntime: ChatRuntimeConfig;
   databaseUrl: string;
-  gridAuthBaseUrl: string | undefined;
   authAppName: string;
   authCookieAllowLocalhost: boolean;
   authCookieParentDomain: string | undefined;
@@ -113,7 +112,6 @@ export function createServerEnv(env: EnvSource): ServerEnv {
     ),
     chatRuntime: createChatRuntimeConfig(env),
     databaseUrl: getRequiredEnv(env, "DATABASE_URL"),
-    gridAuthBaseUrl: getOptionalEnv(env, "NEXT_PUBLIC_GRID_AUTH_BASE_URL"),
     authAppName: getOptionalEnv(env, AUTH_APP_NAME_ENV_NAME) ?? "askloyal",
     authCookieAllowLocalhost: isStrictTrue(
       getOptionalEnv(env, AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME) ?? "true"

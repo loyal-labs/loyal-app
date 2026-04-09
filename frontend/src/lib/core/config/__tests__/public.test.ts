@@ -47,14 +47,6 @@ describe("public config", () => {
     });
   });
 
-  test("returns trimmed grid auth base url when set", () => {
-    const env = createPublicEnv({
-      NEXT_PUBLIC_GRID_AUTH_BASE_URL: "  https://auth.askloyal.com  ",
-    });
-
-    expect(env.gridAuthBaseUrl).toBe("https://auth.askloyal.com");
-  });
-
   test("returns trimmed mixpanel config when set", () => {
     const env = createPublicEnv({
       NEXT_PUBLIC_MIXPANEL_TOKEN: "  token  ",

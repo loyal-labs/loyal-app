@@ -24,7 +24,6 @@ const getOrCreateUser = mock(async () => ({
   id: "user-1",
   provider: "solana" as const,
   subjectAddress: "wallet-1",
-  gridUserId: null,
 }));
 const ensureSmartAccount = mock(async () => ({
   smartAccount: smartAccountSummary,
@@ -173,7 +172,6 @@ describe("wallet auth service", () => {
       id: "user-1",
       provider: "solana" as const,
       subjectAddress: signer.walletAddress,
-      gridUserId: null,
     }));
     const challenge = await createWalletAuthChallenge(
       {
@@ -208,6 +206,7 @@ describe("wallet auth service", () => {
         walletAddress: signer.walletAddress,
         provider: "solana",
         smartAccountAddress: "smart-account-1",
+        settingsPda: "settings-1",
       },
       smartAccount: smartAccountSummary,
       sessionClaims: {
@@ -217,6 +216,7 @@ describe("wallet auth service", () => {
         provider: "solana",
         walletAddress: signer.walletAddress,
         smartAccountAddress: "smart-account-1",
+        settingsPda: "settings-1",
       },
       provisioningOutcome: "sponsored_new_record",
       sessionToken: "session-token",
@@ -226,7 +226,6 @@ describe("wallet auth service", () => {
       authMethod: "wallet",
       subjectAddress: signer.walletAddress,
       walletAddress: signer.walletAddress,
-      gridUserId: null,
     });
     expect(ensureSmartAccount).toHaveBeenCalledWith({
       userId: "user-1",

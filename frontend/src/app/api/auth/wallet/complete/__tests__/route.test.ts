@@ -27,6 +27,7 @@ const completeWalletAuth = mock(async () => ({
     walletAddress: "wallet-1",
     provider: "solana",
     smartAccountAddress: "smart-account-1",
+    settingsPda: "settings-1",
   },
   sessionToken: "session-token",
 }));
@@ -46,15 +47,13 @@ mock.module("@/features/identity/server/wallet-auth-errors", () => ({
   WalletAuthError: MockWalletAuthError,
 }));
 mock.module("@/features/identity/server/session-cookie", () => ({
+  WALLET_AUTH_SESSION_COOKIE_NAME: "loyal_wallet_session",
   createAuthSessionCookieService: () => ({
     createSessionCookieOptions,
   }),
 }));
 mock.module("@/features/smart-accounts/server/service", () => ({
   isSmartAccountProvisioningError,
-}));
-mock.module("@/lib/core/config/server", () => ({
-  getServerEnv: () => ({}),
 }));
 
 let POST: typeof import("../route").POST;
@@ -65,6 +64,8 @@ describe("wallet completion route", () => {
   });
 
   beforeEach(() => {
+    process.env.PHALA_API_KEY = "test-key";
+    process.env.DATABASE_URL = "postgresql://localhost/test";
     completeWalletAuth.mockClear();
     createSessionCookieOptions.mockClear();
     isSmartAccountProvisioningError.mockClear();
@@ -97,7 +98,7 @@ describe("wallet completion route", () => {
     );
     expect(createSessionCookieOptions).toHaveBeenCalled();
     expect(response.headers.get("set-cookie")).toContain(
-      "loyal_email_session=session-token"
+      "loyal_wallet_session=session-token"
     );
     await expect(response.json()).resolves.toEqual({
       user: {
@@ -107,6 +108,7 @@ describe("wallet completion route", () => {
         walletAddress: "wallet-1",
         provider: "solana",
         smartAccountAddress: "smart-account-1",
+        settingsPda: "settings-1",
       },
     });
   });

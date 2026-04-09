@@ -1,15 +1,12 @@
 import "server-only";
 
 import {
-  AUTH_SESSION_COOKIE_NAME,
-  buildAuthUrl,
-  extractApiErrorMessage,
-  getAuthSessionResponseSchema,
   mapAuthSessionTokenClaimsToUser,
 } from "@loyal-labs/auth-core";
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { getServerEnv } from "@/lib/core/config/server";
+import { WALLET_AUTH_SESSION_COOKIE_NAME } from "@/features/identity/server/session-cookie";
 import { verifyAuthSessionTokenMulti } from "@/features/identity/server/session-token";
 
 export type AuthenticatedPrincipal = {
@@ -17,7 +14,8 @@ export type AuthenticatedPrincipal = {
   authMethod: "wallet";
   subjectAddress: string;
   walletAddress: string;
-  gridUserId: string | null;
+  smartAccountAddress: string;
+  settingsPda: string;
 };
 
 type AuthGatewayErrorCode =
@@ -62,35 +60,22 @@ async function verifySessionLocally(
   const cookieHeader = request.headers.get("cookie");
   if (!cookieHeader) return null;
 
-  const token = extractCookieValue(cookieHeader, AUTH_SESSION_COOKIE_NAME);
+  const token = extractCookieValue(cookieHeader, WALLET_AUTH_SESSION_COOKIE_NAME);
   if (!token) return null;
 
+  let payload;
   try {
-    const payload = await verifyAuthSessionTokenMulti(token, {
+    payload = await verifyAuthSessionTokenMulti(token, {
       rs256PublicKey: authSessionRs256PublicKey,
       hs256Secret: authJwtSecret,
     });
-
-    return mapAuthSessionUserToAuthenticatedPrincipal(
-      mapAuthSessionTokenClaimsToUser(payload)
-    );
   } catch {
     return null;
   }
-}
 
-type AuthSessionResolverDependencies = {
-  authBaseUrl?: string;
-  authSessionRs256PublicKey?: string;
-  fetchFn?: typeof fetch;
-};
-
-function getRequiredAuthBaseUrl(authBaseUrl: string | undefined): string {
-  if (!authBaseUrl) {
-    throw new Error("NEXT_PUBLIC_GRID_AUTH_BASE_URL is not set");
-  }
-
-  return authBaseUrl;
+  return mapAuthSessionUserToAuthenticatedPrincipal(
+    mapAuthSessionTokenClaimsToUser(payload)
+  );
 }
 
 export function isAuthGatewayError(error: unknown): error is AuthGatewayError {
@@ -137,65 +122,31 @@ export function mapAuthSessionUserToAuthenticatedPrincipal(
     });
   }
 
+  if (!session.smartAccountAddress || !session.settingsPda) {
+    throw new AuthGatewayError({
+      code: "invalid_wallet_principal",
+      message:
+        "Wallet sessions must include a provisioned smart account and settings PDA.",
+    });
+  }
+
   return {
     provider: "solana",
     authMethod: "wallet",
     subjectAddress: session.walletAddress,
     walletAddress: session.walletAddress,
-    gridUserId: session.gridUserId ?? null,
+    smartAccountAddress: session.smartAccountAddress,
+    settingsPda: session.settingsPda,
   };
 }
 
 export async function resolveAuthenticatedPrincipalFromRequest(
-  request: Request,
-  dependencies: AuthSessionResolverDependencies = {}
+  request: Request
 ): Promise<AuthenticatedPrincipal | null> {
   const cookie = request.headers.get("cookie");
   if (!cookie) {
     return null;
   }
 
-  // Try local RS256 verification first (no network hop)
-  const localResult = await verifySessionLocally(request);
-  if (localResult) return localResult;
-
-  // Fall back to HTTP call to passkey service
-  const authBaseUrl = getRequiredAuthBaseUrl(
-    dependencies.authBaseUrl ?? getServerEnv().gridAuthBaseUrl
-  );
-  const fetchFn = dependencies.fetchFn ?? fetch;
-  const response = await fetchFn(buildAuthUrl(authBaseUrl, "/api/auth/session"), {
-    method: "GET",
-    headers: {
-      cookie,
-      ...(request.headers.get("origin")
-        ? { origin: request.headers.get("origin") as string }
-        : {}),
-    },
-    cache: "no-store",
-  });
-
-  let payload: unknown = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-
-  if (response.status === 401) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to resolve auth session: ${extractApiErrorMessage(payload)}`
-    );
-  }
-
-  const parsed = getAuthSessionResponseSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new Error("Auth session response was invalid");
-  }
-
-  return mapAuthSessionUserToAuthenticatedPrincipal(parsed.data.user);
+  return verifySessionLocally(request);
 }

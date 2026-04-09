@@ -1,7 +1,6 @@
 import "server-only";
 
 import {
-  AUTH_SESSION_COOKIE_NAME,
   createAuthSessionTokenClaims,
   mapAuthSessionTokenClaimsToUser,
   type AuthSessionUser,
@@ -12,10 +11,12 @@ import type { ServerEnv } from "@/lib/core/config/server";
 import {
   issueAuthSessionToken,
   issueAuthSessionTokenRS256,
+  type AuthSessionTokenClaims,
   verifyAuthSessionTokenMulti,
 } from "./session-token";
 
-export { AUTH_SESSION_COOKIE_NAME };
+export const WALLET_AUTH_SESSION_COOKIE_NAME = "loyal_wallet_session";
+export const SESSION_REFRESH_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type SessionCookieOptions = {
   httpOnly: true;
@@ -24,6 +25,11 @@ export type SessionCookieOptions = {
   path: "/";
   maxAge: number;
   domain?: string;
+};
+
+export type WalletSessionMetadata = {
+  expiresAt: string;
+  refreshAfter: string;
 };
 
 type SessionCookieServiceDependencies = {
@@ -68,6 +74,14 @@ function parseCookieHeader(cookieHeader: string | null): Record<string, string> 
   }, {});
 }
 
+function toIsoStringFromUnixSeconds(value: number): string {
+  return new Date(value * 1000).toISOString();
+}
+
+function toRefreshAfterIsoString(iat: number): string {
+  return new Date(iat * 1000 + SESSION_REFRESH_MIN_AGE_MS).toISOString();
+}
+
 function resolveCookieOptions(
   request: Request,
   config: ReturnType<SessionCookieServiceDependencies["getConfig"]>,
@@ -101,7 +115,7 @@ function resolveCookieOptions(
     config.authCookieParentDomain ?? ""
   );
   if (!allowedParentDomain) {
-    throw new Error("GRID_ALLOWED_PARENT_DOMAIN is not set");
+    throw new Error("AUTH_COOKIE_PARENT_DOMAIN is not set");
   }
 
   if (
@@ -124,6 +138,26 @@ function resolveCookieOptions(
 export function createAuthSessionCookieService(
   dependencies: SessionCookieServiceDependencies
 ) {
+  async function readSessionClaimsFromRequest(request: Request) {
+    const config = dependencies.getConfig();
+    const token = parseCookieHeader(request.headers.get("cookie"))[
+      WALLET_AUTH_SESSION_COOKIE_NAME
+    ];
+
+    if (!token) {
+      return null;
+    }
+
+    try {
+      return await verifyAuthSessionTokenMulti(token, {
+        rs256PublicKey: config.authSessionRs256PublicKey,
+        hs256Secret: config.authJwtSecret,
+      });
+    } catch {
+      return null;
+    }
+  }
+
   return {
     async issueSessionToken(user: AuthSessionUser) {
       const config = dependencies.getConfig();
@@ -150,26 +184,41 @@ export function createAuthSessionCookieService(
       );
     },
 
+    getSessionMetadata(claims: Pick<AuthSessionTokenClaims, "iat" | "exp">) {
+      if (typeof claims.iat !== "number" || typeof claims.exp !== "number") {
+        throw new Error("Wallet session is missing iat/exp claims");
+      }
+
+      return {
+        expiresAt: toIsoStringFromUnixSeconds(claims.exp),
+        refreshAfter: toRefreshAfterIsoString(claims.iat),
+      } satisfies WalletSessionMetadata;
+    },
+
+    readSessionClaimsFromRequest,
+
     async readSessionFromRequest(request: Request) {
-      const config = dependencies.getConfig();
-      const token = parseCookieHeader(request.headers.get("cookie"))[
-        AUTH_SESSION_COOKIE_NAME
-      ];
-
-      if (!token) {
+      const claims = await readSessionClaimsFromRequest(request);
+      if (!claims) {
         return null;
       }
 
-      try {
-        const claims = await verifyAuthSessionTokenMulti(token, {
-          rs256PublicKey: config.authSessionRs256PublicKey,
-          hs256Secret: config.authJwtSecret,
-        });
+      return mapAuthSessionTokenClaimsToUser(claims);
+    },
 
-        return mapAuthSessionTokenClaimsToUser(claims);
-      } catch {
-        return null;
+    shouldRefreshSessionToken(
+      claims: Pick<AuthSessionTokenClaims, "authMethod" | "iat">,
+      now = new Date()
+    ) {
+      if (claims.authMethod !== "wallet") {
+        return false;
       }
+
+      if (typeof claims.iat !== "number") {
+        return false;
+      }
+
+      return now.getTime() - claims.iat * 1000 >= SESSION_REFRESH_MIN_AGE_MS;
     },
 
     createSessionCookieOptions(request: Request) {

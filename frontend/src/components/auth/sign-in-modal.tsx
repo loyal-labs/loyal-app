@@ -15,20 +15,8 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 
-import { EmailTab } from "./email-tab";
-import { PasskeyTab } from "./passkey-tab";
 import { TurnstileWidget } from "./turnstile-widget";
 import { WalletTab } from "./wallet-tab";
-
-function Divider() {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 border-t border-neutral-200" />
-      <span className="text-neutral-400 text-xs uppercase tracking-wide">or</span>
-      <div className="flex-1 border-t border-neutral-200" />
-    </div>
-  );
-}
 
 function ConnectedView() {
   const { publicKey, disconnect } = useWallet();
@@ -37,7 +25,6 @@ function ConnectedView() {
   const { hasAuthSession, hasWalletConnection } = useAuthCapability();
   const [copied, setCopied] = useState(false);
   const address = publicKey?.toBase58() ?? user?.displayAddress ?? "";
-  const email = user?.email ?? "";
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(address);
@@ -53,11 +40,6 @@ function ConnectedView() {
       <p className="font-medium text-sm">
         {hasWalletConnection ? "Connected" : "Signed in"}
       </p>
-      {email ? (
-        <p className="max-w-full break-all px-4 text-center text-neutral-500 text-xs">
-          {email}
-        </p>
-      ) : null}
       {address ? (
         <button
           className="group max-w-full cursor-pointer break-all px-4 text-center font-mono text-neutral-500 text-xs transition hover:text-neutral-700"
@@ -103,10 +85,6 @@ export function SignInModal() {
   const { isOpen, close } = useSignInModal();
   const { capability } = useAuthCapability();
   const publicEnv = usePublicEnv();
-  const { wallets } = useWallet();
-  const [activeSection, setActiveSection] = useState<
-    "email" | "passkey" | "wallet" | null
-  >(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const turnstileMode = publicEnv.turnstile.mode;
   const turnstileVerificationToken =
@@ -131,22 +109,15 @@ export function SignInModal() {
     turnstileVerificationToken,
   ]);
 
-  const hasInstalledWallets = wallets.some(
-    (w) => w.readyState === "Installed"
-  );
-
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
         close();
-        setActiveSection(null);
         setCaptchaToken(null);
       }
     },
     [close]
   );
-
-  const handleBack = useCallback(() => setActiveSection(null), []);
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
@@ -178,39 +149,7 @@ export function SignInModal() {
               </div>
             ) : (
               <div className="flex flex-col gap-4">
-                {activeSection && (
-                  <button
-                    className="self-start text-neutral-400 text-xs transition hover:text-neutral-700"
-                    onClick={handleBack}
-                    type="button"
-                  >
-                    ← All sign-in options
-                  </button>
-                )}
-
-                {(!activeSection || activeSection === "email") && (
-                  <EmailTab
-                    captchaToken={captchaToken}
-                    onFlowStart={() => setActiveSection("email")}
-                  />
-                )}
-
-                {!activeSection && <Divider />}
-
-                {(!activeSection || activeSection === "passkey") && (
-                  <PasskeyTab
-                    onFlowStart={() => setActiveSection("passkey")}
-                  />
-                )}
-
-                {!activeSection && hasInstalledWallets && <Divider />}
-
-                {hasInstalledWallets &&
-                  (!activeSection || activeSection === "wallet") && (
-                    <WalletTab
-                      onFlowStart={() => setActiveSection("wallet")}
-                    />
-                  )}
+                <WalletTab />
               </div>
             )}
           </>

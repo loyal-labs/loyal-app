@@ -61,7 +61,6 @@ type WalletOnboardingDependencies = {
     authMethod: "wallet";
     subjectAddress: string;
     walletAddress: string;
-    gridUserId: string | null;
   }) => Promise<AppUser>;
   ensureSmartAccount: (input: {
     userId: string;
@@ -121,6 +120,7 @@ function hashChallengeToken(challengeToken: string): string {
 function buildWalletSessionUser(args: {
   walletAddress: string;
   smartAccountAddress: string;
+  settingsPda: string;
 }): AuthSessionUser {
   return {
     authMethod: "wallet",
@@ -129,6 +129,7 @@ function buildWalletSessionUser(args: {
     displayAddress: args.walletAddress,
     provider: "solana",
     smartAccountAddress: args.smartAccountAddress,
+    settingsPda: args.settingsPda,
   };
 }
 
@@ -174,7 +175,8 @@ async function replayCompletedOnboarding(args: {
 
   const user = buildWalletSessionUser({
     walletAddress: args.record.walletAddress,
-    smartAccountAddress: args.record.smartAccountAddress,
+    smartAccountAddress: smartAccount.smartAccountAddress,
+    settingsPda: smartAccount.settingsPda,
   });
   const sessionClaims = createAuthSessionTokenClaims(user);
 
@@ -402,7 +404,6 @@ export async function completeWalletOnboarding(
     authMethod: "wallet" as const,
     subjectAddress: claims.walletAddress,
     walletAddress: claims.walletAddress,
-    gridUserId: null,
   };
 
   let userRecord: AppUser | null = null;
@@ -432,6 +433,7 @@ export async function completeWalletOnboarding(
     const user = buildWalletSessionUser({
       walletAddress: claims.walletAddress,
       smartAccountAddress: completedRecord.smartAccountAddress!,
+      settingsPda: ensureResult.smartAccount.settingsPda,
     });
     const sessionClaims = createAuthSessionTokenClaims(user);
     const eventType = classifyProvisioningOutcome(ensureResult.provisioningOutcome);

@@ -6,7 +6,6 @@ import { FRONTEND_ANALYTICS_EVENTS } from "@/lib/core/analytics/events";
 
 export function trackChatThreadCreatedServer(args: {
   principal: AuthenticatedPrincipal;
-  smartAccountAddress?: string | null;
   chatId: string;
   initialMessageLength: number;
   source: string;
@@ -18,12 +17,8 @@ export function trackChatThreadCreatedServer(args: {
     auth_method: args.principal.authMethod,
     provider: args.principal.provider,
     wallet_address: args.principal.walletAddress,
-    ...(args.principal.gridUserId
-      ? { grid_user_id: args.principal.gridUserId }
-      : {}),
-    ...(args.smartAccountAddress
-      ? { smart_account_address: args.smartAccountAddress }
-      : {}),
+    smart_account_address: args.principal.smartAccountAddress,
+    settings_pda: args.principal.settingsPda,
     chat_id: args.chatId,
     source: args.source,
     initial_message_length: args.initialMessageLength,

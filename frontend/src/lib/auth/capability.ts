@@ -43,7 +43,6 @@ export function useAuthCapability() {
     isSignedIn: capability !== "anonymous",
     hasAuthSession: isAuthenticated,
     hasWalletConnection: connected,
-    hasEmailSession: user?.authMethod === "email",
     hasWalletProofSession: user?.authMethod === "wallet",
   };
 }

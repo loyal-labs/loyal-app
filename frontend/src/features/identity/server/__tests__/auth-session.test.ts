@@ -1,16 +1,6 @@
-import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("server-only", () => ({}));
-
-const mockedServerEnv = {
-  authJwtSecret: null as string | null,
-  authSessionRs256PublicKey: null as string | null,
-  gridAuthBaseUrl: "https://auth.askloyal.com",
-};
-
-mock.module("@/lib/core/config/server", () => ({
-  getServerEnv: () => mockedServerEnv,
-}));
 
 let AuthGatewayError: typeof import("../auth-session").AuthGatewayError;
 let issueAuthSessionToken: typeof import("../session-token").issueAuthSessionToken;
@@ -27,6 +17,14 @@ describe("auth session gateway", () => {
     ({ issueAuthSessionToken } = await import("../session-token"));
   });
 
+  beforeEach(() => {
+    process.env.PHALA_API_KEY = "test-key";
+    process.env.DATABASE_URL = "postgresql://localhost/test";
+    process.env.AUTH_JWT_SECRET = "local-auth-secret";
+    delete process.env.AUTH_JWT_RS256_PUBLIC_KEY;
+    delete process.env.AUTH_SESSION_RS256_PUBLIC_KEY;
+  });
+
   test("maps wallet sessions to a stable authenticated principal", () => {
     expect(
       mapAuthSessionUserToAuthenticatedPrincipal({
@@ -35,14 +33,16 @@ describe("auth session gateway", () => {
         displayAddress: "wallet-1",
         provider: "solana",
         walletAddress: "wallet-1",
-        gridUserId: "grid-1",
+        smartAccountAddress: "smart-account-1",
+        settingsPda: "settings-1",
       })
     ).toEqual({
       provider: "solana",
       authMethod: "wallet",
       subjectAddress: "wallet-1",
       walletAddress: "wallet-1",
-      gridUserId: "grid-1",
+      smartAccountAddress: "smart-account-1",
+      settingsPda: "settings-1",
     });
   });
 
@@ -54,30 +54,12 @@ describe("auth session gateway", () => {
     expect(principal).toBeNull();
   });
 
-  test("throws when the auth service returns malformed claims", async () => {
-    await expect(
-      resolveAuthenticatedPrincipalFromRequest(
-        new Request("https://app.askloyal.com/api/chat", {
-          headers: { cookie: "session=1" },
-        }),
-        {
-          authBaseUrl: "https://auth.askloyal.com",
-          fetchFn: async () =>
-            new Response(JSON.stringify({ user: { authMethod: "wallet" } }), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            }),
-        }
-      )
-    ).rejects.toThrow("Auth session response was invalid");
-  });
-
   test("rejects authenticated non-wallet sessions at the gateway boundary", () => {
     expect(() =>
       mapAuthSessionUserToAuthenticatedPrincipal({
         authMethod: "email",
-        subjectAddress: "grid-1",
-        displayAddress: "grid-1",
+        subjectAddress: "user-1",
+        displayAddress: "user-1",
         email: "user@example.com",
       })
     ).toThrow("Wallet authentication is required to use chat.");
@@ -102,6 +84,8 @@ describe("auth session gateway", () => {
         displayAddress: "wallet-1",
         provider: "solana",
         walletAddress: "wallet-1",
+        smartAccountAddress: "smart-account-1",
+        settingsPda: "settings-1",
       });
       throw new Error("Expected wallet principal mismatch to throw");
     } catch (error) {
@@ -115,8 +99,21 @@ describe("auth session gateway", () => {
     }
   });
 
+  test("rejects wallet sessions without smart account metadata", () => {
+    expect(() =>
+      mapAuthSessionUserToAuthenticatedPrincipal({
+        authMethod: "wallet",
+        subjectAddress: "wallet-1",
+        displayAddress: "wallet-1",
+        provider: "solana",
+        walletAddress: "wallet-1",
+      })
+    ).toThrow(
+      "Wallet sessions must include a provisioned smart account and settings PDA."
+    );
+  });
+
   test("verifies compatible local auth cookies without an upstream auth request", async () => {
-    mockedServerEnv.authJwtSecret = "local-auth-secret";
     const token = await issueAuthSessionToken(
       {
         authMethod: "wallet",
@@ -124,23 +121,19 @@ describe("auth session gateway", () => {
         displayAddress: "wallet-1",
         provider: "solana",
         walletAddress: "wallet-1",
+        smartAccountAddress: "smart-account-1",
+        settingsPda: "settings-1",
       },
-      mockedServerEnv.authJwtSecret,
+      process.env.AUTH_JWT_SECRET!,
       3600
     );
-    const fetchFn = mock(async () => {
-      throw new Error("Expected local auth cookie verification to short-circuit");
-    });
 
     const principal = await resolveAuthenticatedPrincipalFromRequest(
       new Request("https://app.askloyal.com/api/chat", {
         headers: {
-          cookie: `loyal_email_session=${token}`,
+          cookie: `loyal_wallet_session=${token}`,
         },
-      }),
-      {
-        fetchFn,
-      }
+      })
     );
 
     expect(principal).toEqual({
@@ -148,9 +141,8 @@ describe("auth session gateway", () => {
       authMethod: "wallet",
       subjectAddress: "wallet-1",
       walletAddress: "wallet-1",
-      gridUserId: null,
+      smartAccountAddress: "smart-account-1",
+      settingsPda: "settings-1",
     });
-    expect(fetchFn).not.toHaveBeenCalled();
-    mockedServerEnv.authJwtSecret = null;
   });
 });

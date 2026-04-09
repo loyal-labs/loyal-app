@@ -42,7 +42,8 @@ export async function verifyAuthSessionToken(
     createSecretKey(secret)
   );
 
-  return authSessionTokenClaimsSchema.parse(payload);
+  authSessionTokenClaimsSchema.parse(payload);
+  return payload;
 }
 
 const RS256_ALG = "RS256";
@@ -96,7 +97,8 @@ export async function verifyAuthSessionTokenRS256(
     algorithms: [RS256_ALG],
   });
 
-  return authSessionTokenClaimsSchema.parse(payload);
+  authSessionTokenClaimsSchema.parse(payload);
+  return payload;
 }
 
 export async function verifyAuthSessionTokenMulti(

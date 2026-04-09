@@ -85,7 +85,7 @@ describe("server config", () => {
     );
   });
 
-  test("derives optional auth session config from passkey-compatible env vars", () => {
+  test("derives optional wallet auth session config from local env vars", () => {
     const env = createServerEnv({
       PHALA_API_KEY: "server-key",
       DATABASE_URL: "postgresql://localhost/test",
@@ -93,9 +93,9 @@ describe("server config", () => {
       AUTH_JWT_RS256_PRIVATE_KEY: "private\\nkey",
       AUTH_JWT_RS256_PUBLIC_KEY: "public\\nkey",
       AUTH_JWT_TTL_SECONDS: "7200",
-      GRID_ALLOWED_PARENT_DOMAIN: "askloyal.com",
-      GRID_ALLOW_LOCALHOST: "false",
-      GRID_APP_NAME: "loyal-web",
+      AUTH_COOKIE_PARENT_DOMAIN: "askloyal.com",
+      AUTH_COOKIE_ALLOW_LOCALHOST: "false",
+      AUTH_APP_NAME: "loyal-web",
       DEPLOYMENT_PK: "deployment-key",
     });
 

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { AUTH_SESSION_COOKIE_NAME } from "@loyal-labs/auth-core";
 
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
-import { createAuthSessionCookieService } from "@/features/identity/server/session-cookie";
+import {
+  createAuthSessionCookieService,
+  WALLET_AUTH_SESSION_COOKIE_NAME,
+} from "@/features/identity/server/session-cookie";
 import { completeWalletAuth } from "@/features/identity/server/wallet-auth-service";
 import {
   isSmartAccountProvisioningError,
@@ -24,7 +26,7 @@ export async function POST(request: Request) {
     });
 
     nextResponse.cookies.set({
-      name: AUTH_SESSION_COOKIE_NAME,
+      name: WALLET_AUTH_SESSION_COOKIE_NAME,
       value: response.sessionToken,
       ...sessionCookieService.createSessionCookieOptions(request),
     });
