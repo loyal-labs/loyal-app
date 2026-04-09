@@ -48,6 +48,29 @@ export interface DepositData {
     amount: bigint;
     address: PublicKey;
 }
+export interface KaminoReserveSnapshot {
+    reserve: PublicKey;
+    tokenMint: PublicKey;
+    liquidityDecimals: number;
+    collateralSupplyRaw: bigint;
+    totalLiquiditySupplyScaled: bigint;
+    collateralExchangeRateSf: bigint;
+}
+export interface KaminoTrackedBalanceCostBasis {
+    trackedShareAmountRaw: bigint;
+    trackedLiquidityAmountRaw: bigint;
+}
+export interface KaminoPositionYieldInfo {
+    reserve: PublicKey;
+    tokenMint: PublicKey;
+    liquidityDecimals: number;
+    shareAmountRaw: bigint;
+    currentLiquidityAmountRaw: bigint;
+    trackedShareAmountRaw: bigint | null;
+    trackedLiquidityAmountRaw: bigint | null;
+    currentTrackedLiquidityCostBasisRaw: bigint | null;
+    earnedLiquidityAmountRaw: bigint | null;
+}
 /**
  * Data structure for a username-based deposit account
  */
@@ -90,6 +113,24 @@ export interface ModifyBalanceParams {
 export interface ModifyBalanceResult {
     signature: string;
     deposit: DepositData;
+}
+export interface GetKaminoShieldedBalanceQuoteParams {
+    tokenMint: PublicKey;
+    collateralSharesAmountRaw: number | bigint;
+    principalLiquidityAmountRaw?: number | bigint | null;
+    shieldCollateralExchangeRateSf?: number | bigint | null;
+}
+export interface GetKaminoCollateralSharesForLiquidityAmountParams {
+    tokenMint: PublicKey;
+    liquidityAmountRaw: number | bigint;
+}
+export interface KaminoShieldedBalanceQuote {
+    snapshot: KaminoReserveSnapshot;
+    collateralSharesAmountRaw: bigint;
+    redeemableLiquidityAmountRaw: bigint;
+    principalLiquidityAmountRaw: bigint | null;
+    earnedLiquidityAmountRaw: bigint | null;
+    shieldCollateralExchangeRateSf: bigint | null;
 }
 export interface ClaimUsernameDepositToDepositParams {
     username: string;

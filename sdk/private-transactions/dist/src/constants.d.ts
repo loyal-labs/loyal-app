@@ -24,6 +24,7 @@ export interface KaminoModifyBalanceAccounts {
     reserve: PublicKey;
     reserveLiquiditySupply: PublicKey;
     reserveCollateralMint: PublicKey;
+    liquidityDecimals: number;
     instructionSysvarAccount: PublicKey;
     klendProgram: PublicKey;
 }

@@ -1,7 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { Program } from "@coral-xyz/anchor";
 import type { TelegramPrivateTransfer } from "./idl/telegram_private_transfer.ts";
-import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
+import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
 export declare function waitForAccountOwnerChange(connection: Connection, account: PublicKey, expectedOwner: PublicKey, timeoutMs?: number, intervalMs?: number): {
     wait: () => Promise<void>;
     cancel: () => Promise<void>;
@@ -118,6 +118,13 @@ export declare class LoyalPrivateTransactionsClient {
      * Devnet reserves intentionally return 0 because the UI APY source is mainnet-only.
      */
     getKaminoLendingApyBps(tokenMint: PublicKey): Promise<number | null>;
+    getKaminoReserveSnapshot(tokenMint: PublicKey): Promise<KaminoReserveSnapshot | null>;
+    getKaminoShieldedBalanceQuote(params: GetKaminoShieldedBalanceQuoteParams): Promise<KaminoShieldedBalanceQuote | null>;
+    getKaminoCollateralSharesForLiquidityAmount(params: GetKaminoCollateralSharesForLiquidityAmountParams): Promise<bigint | null>;
+    calculateKaminoCollateralExchangeRateSfFromAmounts(args: {
+        collateralAmountRaw: number | bigint;
+        liquidityAmountRaw: number | bigint;
+    }): bigint | null;
     /**
      * Get the connected wallet's public key
      */

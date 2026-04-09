@@ -66,6 +66,7 @@ export interface KaminoModifyBalanceAccounts {
   reserve: PublicKey;
   reserveLiquiditySupply: PublicKey;
   reserveCollateralMint: PublicKey;
+  liquidityDecimals: number;
   instructionSysvarAccount: PublicKey;
   klendProgram: PublicKey;
 }
@@ -90,6 +91,7 @@ const KAMINO_MODIFY_BALANCE_ACCOUNTS_DEVNET: KaminoModifyBalanceAccounts = {
   reserveCollateralMint: new PublicKey(
     "8GoBXfEq3aTiWTxEP2tAaygJMx3LhG764iN5e6gqaLA"
   ),
+  liquidityDecimals: 6,
   instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
   klendProgram: KLEND_PROGRAM_ID,
 };
@@ -107,6 +109,7 @@ const KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET: KaminoModifyBalanceAccounts = {
   reserveCollateralMint: new PublicKey(
     "DKaVQFXD6Qz4USTkRWyPun3oU6r1RfYsWJ8YqLpnSnN5"
   ),
+  liquidityDecimals: 6,
   instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
   klendProgram: KLEND_PROGRAM_ID,
 };
