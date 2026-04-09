@@ -77,6 +77,7 @@ test-ledger-magicblock/
 sdk/private-transactions/.cache/devnet-mint.json
 sdk/private-transactions/tests/.auth-token-cache.json
 sdk/private-transactions/tests/.mint-cache.json
+sdk/private-transactions/tests/.squads-grid-auth-cache.json
 
 /app/testing.ts
 .vercel
