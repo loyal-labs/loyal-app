@@ -12,6 +12,11 @@ import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
 import {
+  recordKaminoUsdcShield,
+  recordKaminoUsdcUnshield,
+  resolveTrackedKaminoUsdcMint,
+} from "@/lib/solana/deposits/kamino-usdc-position";
+import {
   getConnection,
   getEndpoints,
   getPerEndpoints,
@@ -299,8 +304,12 @@ export function useShield(): {
           });
         }
 
+        // Snapshot the deposit before modify so we can compute how many
+        // Kamino collateral shares this shield minted (USDC only).
+        const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
+
         // Move tokens into deposit vault (increase balance)
-        await client.modifyBalance({
+        const { deposit: depositAfterModify } = await client.modifyBalance({
           tokenMint,
           amount: rawAmount,
           increase: true,
@@ -308,6 +317,29 @@ export function useShield(): {
           payer: user,
           userTokenAccount,
         });
+
+        // Record Kamino USDC position basis if this token is the tracked one.
+        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+        if (trackedKaminoMint === tokenMint.toBase58()) {
+          const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+          const addedCollateralSharesAmountRaw =
+            depositAfterModify.amount - beforeShares;
+          if (addedCollateralSharesAmountRaw > BigInt(0)) {
+            try {
+              await recordKaminoUsdcShield({
+                publicKey: signer.publicKey.toBase58(),
+                solanaEnv,
+                addedPrincipalLiquidityAmountRaw: BigInt(rawAmount),
+                addedCollateralSharesAmountRaw,
+              });
+            } catch (err) {
+              console.warn(
+                "[useShield] failed to persist Kamino USDC shield basis",
+                err,
+              );
+            }
+          }
+        }
 
         // Close wSOL ATA if we created it
         if (isNativeSol && createdAta) {
@@ -413,15 +445,60 @@ export function useShield(): {
           });
         }
 
+        // For tracked Kamino USDC the deposit stores collateral shares.
+        // Convert the user's intended liquidity amount to a share burn,
+        // then pass that to modifyBalance. Clamp to the current deposit
+        // so we never try to burn more shares than we hold.
+        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+        const isTrackedKaminoToken =
+          trackedKaminoMint === tokenMint.toBase58();
+
+        const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
+        let modifyAmount = BigInt(rawAmount);
+        if (isTrackedKaminoToken) {
+          const quotedShares =
+            await client.getKaminoCollateralSharesForLiquidityAmount({
+              tokenMint,
+              liquidityAmountRaw: BigInt(rawAmount),
+            });
+          if (quotedShares !== null) {
+            modifyAmount = quotedShares;
+          }
+          const currentShares = depositBeforeModify?.amount ?? BigInt(0);
+          if (currentShares > BigInt(0) && modifyAmount > currentShares) {
+            modifyAmount = currentShares;
+          }
+        }
+
         // Move tokens out of deposit vault (decrease balance)
-        await client.modifyBalance({
+        const { deposit: depositAfterModify } = await client.modifyBalance({
           tokenMint,
-          amount: rawAmount,
+          amount: modifyAmount,
           increase: false,
           user,
           payer: user,
           userTokenAccount,
         });
+
+        if (isTrackedKaminoToken) {
+          const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+          const burnedCollateralSharesAmountRaw =
+            beforeShares - depositAfterModify.amount;
+          if (burnedCollateralSharesAmountRaw > BigInt(0)) {
+            try {
+              await recordKaminoUsdcUnshield({
+                publicKey: signer.publicKey.toBase58(),
+                solanaEnv,
+                burnedCollateralSharesAmountRaw,
+              });
+            } catch (err) {
+              console.warn(
+                "[useShield] failed to persist Kamino USDC unshield basis",
+                err,
+              );
+            }
+          }
+        }
 
         // Unwrap wSOL if native SOL
         if (isNativeSol) {

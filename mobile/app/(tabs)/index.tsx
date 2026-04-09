@@ -19,6 +19,7 @@ import { TokensList } from "@/components/wallet/TokensList";
 import { TokensSheet } from "@/components/wallet/TokensSheet";
 import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
+import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
@@ -46,6 +47,8 @@ export default function WalletScreen() {
     isFetchingTransactions,
     loadWalletTransactions,
   } = useWalletTransactions(walletAddress);
+  const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
+    useKaminoEarnings();
 
   // Include shielded SOL in displayed balance
   const securedSolHolding = tokenHoldings.find(
@@ -120,7 +123,13 @@ export default function WalletScreen() {
     refreshBalance(true);
     refreshTokenHoldings(true);
     loadWalletTransactions({ force: true });
-  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
+    void refreshKaminoEarnings();
+  }, [
+    refreshBalance,
+    refreshTokenHoldings,
+    loadWalletTransactions,
+    refreshKaminoEarnings,
+  ]);
 
   const handleTransactionPress = useCallback(
     (transaction: Transaction) => {
@@ -183,6 +192,7 @@ export default function WalletScreen() {
           isLoading={isLoading}
           walletError={walletError}
           onRetry={retryWalletInit}
+          earnings={kaminoEarnings}
         />
 
         {/* Action buttons */}

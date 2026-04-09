@@ -5,6 +5,7 @@ import { Copy, RefreshCcw } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 
+import type { KaminoUsdcEarnings } from "@/lib/solana/deposits/kamino-earnings";
 import { formatAddress } from "@/lib/solana/wallet/formatters";
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
 import { Pressable, Text, View } from "@/tw";
@@ -22,7 +23,20 @@ type BalanceCardProps = {
   isLoading: boolean;
   walletError?: string | null;
   onRetry?: () => void;
+  /** Aggregate Kamino USDC earnings pill. Hidden when null or zero. */
+  earnings?: KaminoUsdcEarnings | null;
 };
+
+function formatEarnedPct(pct: number): string {
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+}
+
+function formatEarnedUsd(usd: number): string {
+  return `$${usd.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 export function BalanceCard({
   walletAddress,
@@ -34,7 +48,10 @@ export function BalanceCard({
   isLoading,
   walletError,
   onRetry,
+  earnings,
 }: BalanceCardProps) {
+  const showEarningsPill =
+    !!earnings && earnings.earnedUsd > 0 && earnings.earnedPct > 0;
   const [addressCopied, setAddressCopied] = useState(false);
   const solanaEnv = getSolanaEnv();
 
@@ -171,6 +188,17 @@ export function BalanceCard({
                   <Text className="text-[40px] font-semibold leading-[48px] text-white">
                     {formatPrimary()}
                   </Text>
+                  {showEarningsPill && earnings && (
+                    <View style={styles.earningsRow}>
+                      <View style={styles.earningsPill}>
+                        <Text style={styles.earningsPillText}>
+                          {formatEarnedPct(earnings.earnedPct)} (
+                          {formatEarnedUsd(earnings.earnedUsd)})
+                        </Text>
+                      </View>
+                      <Text style={styles.earningsAllTime}>All time</Text>
+                    </View>
+                  )}
                   <Text
                     className="mt-1 text-[17px] text-white/60"
                     style={{ lineHeight: 22 }}
@@ -193,5 +221,29 @@ const styles = StyleSheet.create({
   bgImage: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 26,
+  },
+  earningsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+  },
+  earningsPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+  },
+  earningsPillText: {
+    color: "#15803d",
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  earningsAllTime: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontFamily: "Geist_500Medium",
+    fontSize: 13,
+    lineHeight: 18,
   },
 });
