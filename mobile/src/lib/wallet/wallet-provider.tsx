@@ -12,8 +12,8 @@ import type { ReactNode } from "react";
 import { AppState } from "react-native";
 
 import {
-  clearWalletKeypairCache,
-  setWalletKeypair,
+  clearWalletSignerCache,
+  setWalletSigner,
 } from "@/lib/solana/wallet/wallet-details";
 
 import {
@@ -32,12 +32,13 @@ import {
   storeKeypair,
   changePin as changeKeypairPin,
 } from "./keypair-storage";
+import { LocalKeypairSigner, Signer } from "./signer";
 
 export type WalletState = "loading" | "noWallet" | "locked" | "unlocked";
 
 interface WalletContextValue {
   state: WalletState;
-  keypair: Keypair | null;
+  signer: Signer | null;
   publicKey: string | null;
   onboardingReplayActive: boolean;
 
@@ -73,7 +74,7 @@ export function useWallet(): WalletContextValue {
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WalletState>("loading");
-  const [keypair, setKeypair] = useState<Keypair | null>(null);
+  const [signer, setSigner] = useState<Signer | null>(null);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
   const [onboardingReplayActive, setOnboardingReplayActive] = useState(false);
@@ -99,8 +100,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const backgroundedAt = useRef<number | null>(null);
   const AUTO_LOCK_GRACE_MS = 30_000;
   const lock = useCallback(() => {
-    setKeypair(null);
-    clearWalletKeypairCache();
+    setSigner(null);
+    clearWalletSignerCache();
     setState("locked");
   }, []);
 
@@ -142,9 +143,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!opts?.alreadyStored) {
         await storeKeypair(kp, pin);
       }
-      setKeypair(kp);
+      const next = new LocalKeypairSigner(kp);
+      setSigner(next);
       setPublicKey(kp.publicKey.toBase58());
-      setWalletKeypair(kp);
+      setWalletSigner(next);
       setState("unlocked");
     },
     [],
@@ -153,9 +155,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const unlock = useCallback(async (pin: string) => {
     const kp = await loadKeypair(pin);
     if (!kp) throw new Error("Incorrect PIN");
-    setKeypair(kp);
+    const next = new LocalKeypairSigner(kp);
+    setSigner(next);
     setPublicKey(kp.publicKey.toBase58());
-    setWalletKeypair(kp);
+    setWalletSigner(next);
     setState("unlocked");
   }, []);
 
@@ -165,9 +168,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const kp = await loadKeypair(pin);
       if (!kp) return false;
-      setKeypair(kp);
+      const next = new LocalKeypairSigner(kp);
+      setSigner(next);
       setPublicKey(kp.publicKey.toBase58());
-      setWalletKeypair(kp);
+      setWalletSigner(next);
       setState("unlocked");
       return true;
     } catch {
@@ -190,31 +194,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const changePinAction = useCallback(
     async (newPin: string) => {
-      if (!keypair) throw new Error("Wallet must be unlocked");
-      await changeKeypairPin(keypair, newPin);
+      if (!signer || !(signer instanceof LocalKeypairSigner)) {
+        throw new Error("Wallet must be unlocked");
+      }
+      await changeKeypairPin(signer.keypair, newPin);
       if (biometricEnabled) {
         await enableBiometrics(newPin);
       }
     },
-    [keypair, biometricEnabled],
+    [signer, biometricEnabled],
   );
 
   const resetWallet = useCallback(async () => {
     await clearStoredKeypair();
     await disableBiometrics();
-    setKeypair(null);
+    setSigner(null);
     setPublicKey(null);
-    clearWalletKeypairCache();
+    clearWalletSignerCache();
     setBiometricEnabledState(false);
     setState("noWallet");
   }, []);
 
   const getSecretKeyHex = useCallback(() => {
-    if (!keypair) return null;
-    return Array.from(keypair.secretKey)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  }, [keypair]);
+    if (!signer || !(signer instanceof LocalKeypairSigner)) return null;
+    return signer.getSecretKeyHex();
+  }, [signer]);
 
   const startOnboardingReplay = useCallback(() => {
     setOnboardingReplayActive(true);
@@ -227,7 +231,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WalletContextValue>(
     () => ({
       state,
-      keypair,
+      signer,
       publicKey,
       onboardingReplayActive,
       createWallet,
@@ -246,7 +250,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
-      keypair,
+      signer,
       publicKey,
       onboardingReplayActive,
       createWallet,

@@ -23,41 +23,10 @@ async function getWsolAdapter() {
   return await import("@/lib/solana/wsol-adapter");
 }
 
-type TweetNaclModule = typeof import("tweetnacl");
-type TweetNaclInteropModule = TweetNaclModule & {
-  default?: Partial<TweetNaclModule> & {
-    sign?: {
-      detached?: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-    };
-  };
-};
 type PerAuthToken = {
   token: string;
   expiresAt: number;
 };
-
-function resolveTweetNaclModule(
-  module: TweetNaclInteropModule,
-): {
-  sign: {
-    detached: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-  };
-} {
-  const direct = module as unknown as {
-    sign?: {
-      detached?: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-    };
-  };
-  if (typeof direct.sign?.detached === "function") {
-    return { sign: { detached: direct.sign.detached } };
-  }
-
-  if (typeof module.default?.sign?.detached === "function") {
-    return { sign: { detached: module.default.sign.detached } };
-  }
-
-  throw new Error("tweetnacl sign.detached is unavailable");
-}
 
 function encodeBase58(bytes: Uint8Array): string {
   if (bytes.length === 0) return "";
@@ -82,10 +51,6 @@ function encodeBase58(bytes: Uint8Array): string {
   }
 
   return encoded || "1";
-}
-
-async function getTweetNacl() {
-  return resolveTweetNaclModule(await import("tweetnacl"));
 }
 
 async function getSplToken() {
@@ -138,7 +103,7 @@ export function useShield(): {
   loading: boolean;
   error: string | null;
 } {
-  const { keypair } = useWallet();
+  const { signer } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<LoyalPrivateTransactionsClientType | null>(null);
@@ -154,11 +119,11 @@ export function useShield(): {
         return cached;
       }
 
-      if (!keypair) {
-        throw new Error("Wallet keypair is not available");
+      if (!signer) {
+        throw new Error("Wallet signer is not available");
       }
 
-      const walletAddress = keypair.publicKey.toBase58();
+      const walletAddress = signer.publicKey.toBase58();
       const challengeUrl = `${perRpcEndpoint}/auth/challenge?pubkey=${walletAddress}`;
       const challengeResponse = await fetch(challengeUrl);
       const challengeData = (await challengeResponse.json()) as {
@@ -178,9 +143,8 @@ export function useShield(): {
         throw new Error("PER auth challenge is missing");
       }
 
-      const { sign } = await getTweetNacl();
       const challengeBytes = new TextEncoder().encode(challengeData.challenge);
-      const signature = sign.detached(challengeBytes, keypair.secretKey);
+      const signature = await signer.signMessage(challengeBytes);
       const signatureBase58 = encodeBase58(signature);
 
       const loginResponse = await fetch(`${perRpcEndpoint}/auth/login`, {
@@ -216,15 +180,15 @@ export function useShield(): {
       perAuthTokenRef.current = token;
       return token;
     },
-    [keypair],
+    [signer],
   );
 
   const getClient = useCallback(
     async (): Promise<LoyalPrivateTransactionsClientType> => {
       if (clientRef.current) return clientRef.current;
 
-      if (!keypair) {
-        throw new Error("Wallet keypair is not available");
+      if (!signer) {
+        throw new Error("Wallet signer is not available");
       }
 
       const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
@@ -235,7 +199,7 @@ export function useShield(): {
           : undefined;
 
       const client = await LoyalPrivateTransactionsClient.fromConfig({
-        signer: keypair,
+        signer,
         baseRpcEndpoint: rpcEndpoint,
         baseWsEndpoint: websocketEndpoint,
         ephemeralRpcEndpoint: perRpcEndpoint,
@@ -246,15 +210,15 @@ export function useShield(): {
       clientRef.current = client;
       return client;
     },
-    [getPerAuthToken, keypair, solanaEnv],
+    [getPerAuthToken, signer, solanaEnv],
   );
 
   // Reset client when wallet changes
-  const prevPubkey = useRef(keypair?.publicKey.toBase58());
-  if (keypair?.publicKey.toBase58() !== prevPubkey.current) {
+  const prevPubkey = useRef(signer?.publicKey.toBase58());
+  if (signer?.publicKey.toBase58() !== prevPubkey.current) {
     clientRef.current = null;
     perAuthTokenRef.current = null;
-    prevPubkey.current = keypair?.publicKey.toBase58();
+    prevPubkey.current = signer?.publicKey.toBase58();
   }
 
   const executeShield = useCallback(
@@ -263,7 +227,7 @@ export function useShield(): {
       amount: number;
       tokenMint?: string;
     }): Promise<ShieldResult> => {
-      if (!keypair) {
+      if (!signer) {
         return {
           success: false,
           error: "Wallet not connected",
@@ -288,7 +252,7 @@ export function useShield(): {
         const decimals =
           TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
-        const user = keypair.publicKey;
+        const user = signer.publicKey;
         const validator = getErValidatorForSolanaEnv(solanaEnv);
         const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
@@ -309,7 +273,7 @@ export function useShield(): {
         if (isNativeSol) {
           const result = await wrapSolToWSol({
             connection,
-            keypair,
+            signer,
             lamports: rawAmount,
           });
           createdAta = result.createdAta;
@@ -349,7 +313,7 @@ export function useShield(): {
         if (isNativeSol && createdAta) {
           await closeWsolAta({
             connection,
-            keypair,
+            signer,
             wsolAta: userTokenAccount,
           });
         }
@@ -392,7 +356,7 @@ export function useShield(): {
         return { success: false, error: errorMessage };
       }
     },
-    [keypair, connection, getClient, solanaEnv],
+    [signer, connection, getClient, solanaEnv],
   );
 
   const executeUnshield = useCallback(
@@ -401,7 +365,7 @@ export function useShield(): {
       amount: number;
       tokenMint?: string;
     }): Promise<ShieldResult> => {
-      if (!keypair) {
+      if (!signer) {
         return {
           success: false,
           error: "Wallet not connected",
@@ -426,7 +390,7 @@ export function useShield(): {
         const decimals =
           TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
-        const user = keypair.publicKey;
+        const user = signer.publicKey;
         const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
         const userTokenAccount = getAssociatedTokenAddressSync(
@@ -463,7 +427,7 @@ export function useShield(): {
         if (isNativeSol) {
           await closeWsolAta({
             connection,
-            keypair,
+            signer,
             wsolAta: userTokenAccount,
           });
         }
@@ -496,7 +460,7 @@ export function useShield(): {
         return { success: false, error: errorMessage };
       }
     },
-    [keypair, connection, getClient, solanaEnv],
+    [signer, connection, getClient, solanaEnv],
   );
 
   return { executeShield, executeUnshield, loading, error };

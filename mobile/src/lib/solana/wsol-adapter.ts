@@ -1,5 +1,7 @@
-import type { PublicKey } from "@solana/web3.js";
-import { Connection, Keypair, SystemProgram, Transaction } from "@solana/web3.js";
+import type { Connection, PublicKey } from "@solana/web3.js";
+import { SystemProgram, Transaction } from "@solana/web3.js";
+
+import type { Signer } from "@/lib/wallet/signer";
 
 // Lazy-load @solana/spl-token to avoid top-level Buffer usage
 async function getSplToken() {
@@ -8,10 +10,10 @@ async function getSplToken() {
 
 export async function wrapSolToWSol(opts: {
   connection: Connection;
-  keypair: Keypair;
+  signer: Signer;
   lamports: number;
 }): Promise<{ wsolAta: PublicKey; createdAta: boolean }> {
-  const { connection, keypair, lamports } = opts;
+  const { connection, signer, lamports } = opts;
   const {
     createAssociatedTokenAccountInstruction,
     createSyncNativeInstruction,
@@ -19,10 +21,8 @@ export async function wrapSolToWSol(opts: {
     NATIVE_MINT,
   } = await getSplToken();
 
-  const wsolAta = await getAssociatedTokenAddress(
-    NATIVE_MINT,
-    keypair.publicKey,
-  );
+  const owner = signer.publicKey;
+  const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, owner);
 
   const tx = new Transaction();
   let createdAta = false;
@@ -32,9 +32,9 @@ export async function wrapSolToWSol(opts: {
     createdAta = true;
     tx.add(
       createAssociatedTokenAccountInstruction(
-        keypair.publicKey,
+        owner,
         wsolAta,
-        keypair.publicKey,
+        owner,
         NATIVE_MINT,
       ),
     );
@@ -42,7 +42,7 @@ export async function wrapSolToWSol(opts: {
 
   tx.add(
     SystemProgram.transfer({
-      fromPubkey: keypair.publicKey,
+      fromPubkey: owner,
       toPubkey: wsolAta,
       lamports,
     }),
@@ -53,8 +53,8 @@ export async function wrapSolToWSol(opts: {
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash();
   tx.recentBlockhash = blockhash;
-  tx.feePayer = keypair.publicKey;
-  tx.sign(keypair);
+  tx.feePayer = owner;
+  await signer.signTransaction(tx);
 
   const signature = await connection.sendRawTransaction(tx.serialize());
   await connection.confirmTransaction(
@@ -67,26 +67,23 @@ export async function wrapSolToWSol(opts: {
 
 export async function closeWsolAta(opts: {
   connection: Connection;
-  keypair: Keypair;
+  signer: Signer;
   wsolAta: PublicKey;
 }): Promise<void> {
-  const { connection, keypair, wsolAta } = opts;
+  const { connection, signer, wsolAta } = opts;
   const { createCloseAccountInstruction } = await getSplToken();
 
   try {
+    const owner = signer.publicKey;
     const tx = new Transaction().add(
-      createCloseAccountInstruction(
-        wsolAta,
-        keypair.publicKey,
-        keypair.publicKey,
-      ),
+      createCloseAccountInstruction(wsolAta, owner, owner),
     );
 
     const { blockhash, lastValidBlockHeight } =
       await connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
-    tx.feePayer = keypair.publicKey;
-    tx.sign(keypair);
+    tx.feePayer = owner;
+    await signer.signTransaction(tx);
 
     const signature = await connection.sendRawTransaction(tx.serialize());
     await connection.confirmTransaction(

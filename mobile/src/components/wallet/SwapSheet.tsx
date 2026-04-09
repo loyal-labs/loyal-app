@@ -37,7 +37,7 @@ import {
   KNOWN_TOKEN_ICONS,
 } from "@/lib/solana/token-holdings/constants";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
-import { getWalletKeypair } from "@/lib/solana/wallet/wallet-details";
+import { getWalletSigner } from "@/lib/solana/wallet/wallet-details";
 import { Pressable, Text, View } from "@/tw";
 
 type SwapStep = "form" | "confirm" | "result";
@@ -244,8 +244,8 @@ export function SwapSheet({
 
       const txBuf = Buffer.from(swapTxResponse.swapTransaction, "base64");
       const transaction = VersionedTransaction.deserialize(txBuf);
-      const keypair = await getWalletKeypair();
-      transaction.sign([keypair]);
+      const signer = await getWalletSigner();
+      await signer.signTransaction(transaction);
 
       const connection = getConnection();
       const sig = await connection.sendRawTransaction(transaction.serialize(), {

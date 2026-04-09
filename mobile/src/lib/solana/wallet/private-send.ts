@@ -8,8 +8,10 @@ import {
   MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
 import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
-import type { Connection, Keypair } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
+
+import type { Signer } from "@/lib/wallet/signer";
 
 import {
   getConnection,
@@ -18,16 +20,7 @@ import {
   getSolanaEnv,
 } from "../rpc/connection";
 import { closeWsolAta, wrapSolToWSol } from "../wsol-adapter";
-import { getWalletKeypair } from "./wallet-details";
-
-type TweetNaclModule = typeof import("tweetnacl");
-type TweetNaclInteropModule = TweetNaclModule & {
-  default?: Partial<TweetNaclModule> & {
-    sign?: {
-      detached?: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-    };
-  };
-};
+import { getWalletSigner } from "./wallet-details";
 
 type PerAuthToken = {
   token: string;
@@ -37,29 +30,6 @@ type PerAuthToken = {
 let cachedClient: LoyalPrivateTransactionsClientType | null = null;
 let cachedClientOwner: string | null = null;
 let cachedAuthToken: PerAuthToken | null = null;
-
-function resolveTweetNaclModule(
-  module: TweetNaclInteropModule,
-): {
-  sign: {
-    detached: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-  };
-} {
-  const direct = module as unknown as {
-    sign?: {
-      detached?: (message: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-    };
-  };
-  if (typeof direct.sign?.detached === "function") {
-    return { sign: { detached: direct.sign.detached } };
-  }
-
-  if (typeof module.default?.sign?.detached === "function") {
-    return { sign: { detached: module.default.sign.detached } };
-  }
-
-  throw new Error("tweetnacl sign.detached is unavailable");
-}
 
 function encodeBase58(bytes: Uint8Array): string {
   if (bytes.length === 0) return "";
@@ -86,10 +56,6 @@ function encodeBase58(bytes: Uint8Array): string {
   return encoded || "1";
 }
 
-async function getTweetNacl() {
-  return resolveTweetNaclModule(await import("tweetnacl"));
-}
-
 async function getSplToken() {
   return await import("@solana/spl-token");
 }
@@ -107,14 +73,14 @@ async function waitForAccount(
 }
 
 async function getPerAuthToken(
-  keypair: Keypair,
+  signer: Signer,
   perRpcEndpoint: string,
 ): Promise<PerAuthToken> {
   if (cachedAuthToken && cachedAuthToken.expiresAt > Date.now() + 60_000) {
     return cachedAuthToken;
   }
 
-  const walletAddress = keypair.publicKey.toBase58();
+  const walletAddress = signer.publicKey.toBase58();
   const challengeUrl = `${perRpcEndpoint}/auth/challenge?pubkey=${walletAddress}`;
   const challengeResponse = await fetch(challengeUrl);
   const challengeData = (await challengeResponse.json()) as {
@@ -134,9 +100,8 @@ async function getPerAuthToken(
     throw new Error("PER auth challenge is missing");
   }
 
-  const { sign } = await getTweetNacl();
   const challengeBytes = new TextEncoder().encode(challengeData.challenge);
-  const signature = sign.detached(challengeBytes, keypair.secretKey);
+  const signature = await signer.signMessage(challengeBytes);
   const signatureBase58 = encodeBase58(signature);
 
   const loginResponse = await fetch(`${perRpcEndpoint}/auth/login`, {
@@ -176,9 +141,9 @@ async function getPerAuthToken(
 }
 
 async function getPrivateTransactionsClient(
-  keypair: Keypair,
+  signer: Signer,
 ): Promise<LoyalPrivateTransactionsClientType> {
-  const walletAddress = keypair.publicKey.toBase58();
+  const walletAddress = signer.publicKey.toBase58();
   if (cachedClient && cachedClientOwner === walletAddress) {
     return cachedClient;
   }
@@ -192,11 +157,11 @@ async function getPrivateTransactionsClient(
   const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
   const authToken =
     perRpcEndpoint.includes("tee")
-      ? await getPerAuthToken(keypair, perRpcEndpoint)
+      ? await getPerAuthToken(signer, perRpcEndpoint)
       : undefined;
 
   const client = await LoyalPrivateTransactionsClient.fromConfig({
-    signer: keypair,
+    signer,
     baseRpcEndpoint: rpcEndpoint,
     baseWsEndpoint: websocketEndpoint,
     ephemeralRpcEndpoint: perRpcEndpoint,
@@ -234,10 +199,10 @@ export async function sendPrivateTransferToTelegramUsername(params: {
     throw new Error("Enter a valid amount.");
   }
 
-  const keypair = await getWalletKeypair();
-  const user = keypair.publicKey;
+  const signer = await getWalletSigner();
+  const user = signer.publicKey;
   const connection = getConnection();
-  const client = await getPrivateTransactionsClient(keypair);
+  const client = await getPrivateTransactionsClient(signer);
   const tokenMint = new PublicKey(params.tokenMint);
   const validator = getErValidatorForSolanaEnv(getSolanaEnv());
   const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
@@ -291,7 +256,7 @@ export async function sendPrivateTransferToTelegramUsername(params: {
     if (isNativeSol) {
       const result = await wrapSolToWSol({
         connection,
-        keypair,
+        signer,
         lamports: rawAmount,
       });
       createdAta = result.createdAta;
@@ -316,7 +281,7 @@ export async function sendPrivateTransferToTelegramUsername(params: {
     if (isNativeSol && createdAta) {
       await closeWsolAta({
         connection,
-        keypair,
+        signer,
         wsolAta: userTokenAccount,
       });
     }

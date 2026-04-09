@@ -1,10 +1,11 @@
 import { AnchorProvider } from "@coral-xyz/anchor";
 import {
-  Keypair,
   PublicKey,
   SystemProgram,
   Transaction,
 } from "@solana/web3.js";
+
+import type { Signer } from "@/lib/wallet/signer";
 
 import { getConnection, getWebsocketConnection } from "../rpc/connection";
 import { SimpleWallet } from "./wallet-implementation";
@@ -14,40 +15,40 @@ async function getSplToken() {
   return await import("@solana/spl-token");
 }
 
-let cachedWalletKeypair: Keypair | null = null;
+let cachedWalletSigner: Signer | null = null;
 
-export const setWalletKeypair = (kp: Keypair) => {
-  cachedWalletKeypair = kp;
+export const setWalletSigner = (signer: Signer) => {
+  cachedWalletSigner = signer;
 };
 
-export const clearWalletKeypairCache = () => {
-  cachedWalletKeypair = null;
+export const clearWalletSignerCache = () => {
+  cachedWalletSigner = null;
 };
 
-export const getWalletKeypair = async (): Promise<Keypair> => {
-  if (cachedWalletKeypair) return cachedWalletKeypair;
-  throw new Error("Wallet keypair not set. Unlock the wallet first.");
+export const getWalletSigner = async (): Promise<Signer> => {
+  if (cachedWalletSigner) return cachedWalletSigner;
+  throw new Error("Wallet signer not set. Unlock the wallet first.");
 };
 
 export const getWalletProvider = async (): Promise<AnchorProvider> => {
-  const keypair = await getWalletKeypair();
+  const signer = await getWalletSigner();
   const connection = getConnection();
-  const wallet = new SimpleWallet(keypair);
+  const wallet = new SimpleWallet(signer);
 
   return new AnchorProvider(connection, wallet);
 };
 
 export const getCustomWalletProvider = async (
-  keypair: Keypair
+  signer: Signer,
 ): Promise<AnchorProvider> => {
   const connection = getWebsocketConnection();
-  const wallet = new SimpleWallet(keypair);
+  const wallet = new SimpleWallet(signer);
   return new AnchorProvider(connection, wallet);
 };
 
 export const getWalletPublicKey = async (): Promise<PublicKey> => {
-  const keypair = await getWalletKeypair();
-  return keypair.publicKey;
+  const signer = await getWalletSigner();
+  return signer.publicKey;
 };
 
 type CachedBalance = {
@@ -110,13 +111,13 @@ export const getWalletBalance = async (
 
   const loader = (async () => {
     const connection = getConnection();
-    const keypair = await getWalletKeypair();
+    const signer = await getWalletSigner();
     let lastError: unknown = null;
 
     for (let attempt = 0; attempt <= BALANCE_RETRY_DELAYS_MS.length; attempt++) {
       try {
         const lamports = await connection.getBalance(
-          keypair.publicKey,
+          signer.publicKey,
           "confirmed"
         );
         setCachedBalance(lamports);
@@ -159,12 +160,12 @@ export const subscribeToWalletBalance = async (
   onChange: (lamports: number) => void
 ): Promise<() => Promise<void>> => {
   const connection = getWebsocketConnection();
-  const keypair = await getWalletKeypair();
+  const signer = await getWalletSigner();
 
   let lastLamports = balanceCache?.lamports;
 
   const subscriptionId = connection.onAccountChange(
-    keypair.publicKey,
+    signer.publicKey,
     (accountInfo) => {
       const lamports = accountInfo.lamports;
       if (typeof lastLamports === "number" && lamports === lastLamports) {
@@ -196,27 +197,29 @@ export const sendSolTransaction = async (
   }
 
   const connection = getConnection();
-  const keypair = await getWalletKeypair();
+  const signer = await getWalletSigner();
   const toPubkey =
     typeof destination === "string" ? new PublicKey(destination) : destination;
 
   const transaction = new Transaction().add(
     SystemProgram.transfer({
-      fromPubkey: keypair.publicKey,
+      fromPubkey: signer.publicKey,
       toPubkey,
       lamports,
     })
   );
 
-  transaction.feePayer = keypair.publicKey;
+  transaction.feePayer = signer.publicKey;
 
   const latestBlockhash = await connection.getLatestBlockhash("confirmed");
   transaction.recentBlockhash = latestBlockhash.blockhash;
   transaction.lastValidBlockHeight = latestBlockhash.lastValidBlockHeight;
 
-  const signature = await connection.sendTransaction(transaction, [keypair], {
-    skipPreflight: false,
-  });
+  await signer.signTransaction(transaction);
+  const signature = await connection.sendRawTransaction(
+    transaction.serialize(),
+    { skipPreflight: false },
+  );
 
   console.log("Transaction sent:", signature);
 
@@ -250,7 +253,7 @@ export const sendSplTokenTransaction = async (
   }
 
   const connection = getConnection();
-  const keypair = await getWalletKeypair();
+  const signer = await getWalletSigner();
   const toPubkey =
     typeof destination === "string" ? new PublicKey(destination) : destination;
   const mintPubkey =
@@ -262,9 +265,10 @@ export const sendSplTokenTransaction = async (
     getAssociatedTokenAddressSync,
   } = await getSplToken();
 
+  const owner = signer.publicKey;
   const senderAta = getAssociatedTokenAddressSync(
     mintPubkey,
-    keypair.publicKey,
+    owner,
     false,
     TOKEN_PROGRAM_ID,
   );
@@ -280,7 +284,7 @@ export const sendSplTokenTransaction = async (
   if (!recipientAtaInfo) {
     transaction.add(
       createAssociatedTokenAccountInstruction(
-        keypair.publicKey,
+        owner,
         recipientAta,
         toPubkey,
         mintPubkey,
@@ -294,7 +298,7 @@ export const sendSplTokenTransaction = async (
       senderAta,
       mintPubkey,
       recipientAta,
-      keypair.publicKey,
+      owner,
       rawAmount,
       decimals,
       [],
@@ -302,15 +306,17 @@ export const sendSplTokenTransaction = async (
     ),
   );
 
-  transaction.feePayer = keypair.publicKey;
+  transaction.feePayer = owner;
 
   const latestBlockhash = await connection.getLatestBlockhash("confirmed");
   transaction.recentBlockhash = latestBlockhash.blockhash;
   transaction.lastValidBlockHeight = latestBlockhash.lastValidBlockHeight;
 
-  const signature = await connection.sendTransaction(transaction, [keypair], {
-    skipPreflight: false,
-  });
+  await signer.signTransaction(transaction);
+  const signature = await connection.sendRawTransaction(
+    transaction.serialize(),
+    { skipPreflight: false },
+  );
 
   console.log("Token transaction sent:", signature);
 

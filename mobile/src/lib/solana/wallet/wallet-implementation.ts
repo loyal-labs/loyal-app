@@ -1,38 +1,31 @@
-import {
-  Keypair,
+import type {
   PublicKey,
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
 
+import type { Signer } from "@/lib/wallet/signer";
+
+/**
+ * Thin WalletLike adapter over a Signer, suitable for AnchorProvider.
+ * Delegates all signing to the underlying signer (local keypair or vault).
+ */
 export class SimpleWallet {
-  constructor(readonly payer: Keypair) {}
+  constructor(readonly signer: Signer) {}
 
   async signTransaction<T extends Transaction | VersionedTransaction>(
-    tx: T
+    tx: T,
   ): Promise<T> {
-    if (tx instanceof VersionedTransaction) {
-      tx.sign([this.payer]);
-    } else {
-      (tx as Transaction).partialSign(this.payer);
-    }
-    return tx;
+    return this.signer.signTransaction(tx);
   }
 
   async signAllTransactions<T extends Transaction | VersionedTransaction>(
-    txs: T[]
+    txs: T[],
   ): Promise<T[]> {
-    return txs.map((t) => {
-      if (t instanceof VersionedTransaction) {
-        t.sign([this.payer]);
-      } else {
-        (t as Transaction).partialSign(this.payer);
-      }
-      return t;
-    });
+    return this.signer.signAllTransactions(txs);
   }
 
   get publicKey(): PublicKey {
-    return this.payer.publicKey;
+    return this.signer.publicKey;
   }
 }
