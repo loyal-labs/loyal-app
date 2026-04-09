@@ -32,6 +32,11 @@ export default function TokensSheet({
   onOpenChange,
   tokenHoldings,
 }: TokensSheetProps) {
+  const formatEarnedLabel = (earnedBalance: number, symbol: string): string =>
+    `Earned ${earnedBalance.toLocaleString("en-US", {
+      maximumFractionDigits: 4,
+    })} ${symbol}`;
+
   const { bottom: safeBottom } = useTelegramSafeArea();
   const [searchQuery, setSearchQuery] = useState("");
   const [mounted, setMounted] = useState(false);
@@ -307,7 +312,9 @@ export default function TokensSheet({
                     className="text-[15px] leading-5"
                     style={{ color: "rgba(60, 60, 67, 0.6)" }}
                   >
-                    {token.priceUsd !== null
+                    {typeof token.earnedBalance === "number"
+                      ? formatEarnedLabel(token.earnedBalance, token.symbol)
+                      : token.priceUsd !== null
                       ? `$${token.priceUsd.toLocaleString("en-US", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,

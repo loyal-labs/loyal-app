@@ -22,7 +22,15 @@ import {
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
+  getKaminoModifyBalanceAccountsForTokenMint,
+  isKaminoMainnetModifyBalanceAccounts,
 } from "./constants";
+import {
+  calculateKaminoShareAmountForLiquidityAmountRaw,
+  calculateKaminoCollateralExchangeRateSfFromAmounts,
+  calculateKaminoCollateralValuation,
+  fetchKaminoReserveSnapshot,
+} from "./kamino";
 import {
   findDepositPda,
   findUsernameDepositPda,
@@ -43,6 +51,10 @@ import type {
   InitializeDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
+  GetKaminoShieldedBalanceQuoteParams,
+  GetKaminoCollateralSharesForLiquidityAmountParams,
+  KaminoReserveSnapshot,
+  KaminoShieldedBalanceQuote,
   CreatePermissionParams,
   CreateUsernamePermissionParams,
   DelegateDepositParams,
@@ -56,6 +68,15 @@ import type {
   DelegationStatusResponse,
 } from "./types";
 import { sha256hash } from "./utils";
+
+const KAMINO_API_BASE_URL = "https://api.kamino.finance";
+const KAMINO_MAINNET_ENV = "mainnet-beta";
+const KAMINO_DEVNET_ENV = "devnet";
+
+type KaminoReserveMetricsResponseItem = {
+  reserve: string;
+  supplyApy: number | string;
+};
 
 function prettyStringify(obj: unknown): string {
   const json = JSON.stringify(
@@ -89,6 +110,96 @@ function programFromRpc(
     commitment,
   });
   return new Program(idl as TelegramPrivateTransfer, baseProvider);
+}
+
+function getKaminoApiEnv(
+  accounts: ReturnType<typeof getKaminoModifyBalanceAccountsForTokenMint>
+): string {
+  return accounts && isKaminoMainnetModifyBalanceAccounts(accounts)
+    ? KAMINO_MAINNET_ENV
+    : KAMINO_DEVNET_ENV;
+}
+
+function normalizeBigInt(value: number | bigint): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`Expected a non-negative integer amount, received ${value}`);
+  }
+
+  return BigInt(value);
+}
+
+async function fetchKaminoReserveMetrics(args: {
+  lendingMarket: PublicKey;
+  reserve: PublicKey;
+  env: string;
+}): Promise<KaminoReserveMetricsResponseItem> {
+  const url = new URL(
+    `/kamino-market/${args.lendingMarket.toBase58()}/reserves/metrics`,
+    KAMINO_API_BASE_URL
+  );
+  url.searchParams.set("env", args.env);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Kamino reserve metrics request failed with status ${response.status}`
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!Array.isArray(payload)) {
+    throw new Error("Kamino reserve metrics response was not an array");
+  }
+
+  const reserveAddress = args.reserve.toBase58();
+  const reserveMetrics = payload.find(
+    (item): item is KaminoReserveMetricsResponseItem => {
+      if (!item || typeof item !== "object") {
+        return false;
+      }
+
+      const candidate = item as Record<string, unknown>;
+      return (
+        candidate.reserve === reserveAddress &&
+        (typeof candidate.supplyApy === "number" ||
+          typeof candidate.supplyApy === "string")
+      );
+    }
+  );
+
+  if (!reserveMetrics) {
+    throw new Error(
+      `Kamino reserve metrics not found for reserve ${reserveAddress}`
+    );
+  }
+
+  return reserveMetrics;
+}
+
+async function fetchKaminoReserveSupplyApyBps(args: {
+  lendingMarket: PublicKey;
+  reserve: PublicKey;
+  env: string;
+}): Promise<number> {
+  const reserveMetrics = await fetchKaminoReserveMetrics(args);
+  const supplyApy = Number(reserveMetrics.supplyApy);
+  if (!Number.isFinite(supplyApy) || supplyApy < 0) {
+    throw new Error(
+      `Kamino reserve metrics returned an invalid supplyApy for reserve ${args.reserve.toBase58()}`
+    );
+  }
+
+  return Math.round(supplyApy * 10_000);
 }
 
 /**
@@ -414,6 +525,16 @@ export class LoyalPrivateTransactionsClient {
       TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    const vaultCollateralTokenAccount = kaminoAccounts
+      ? getAssociatedTokenAddressSync(
+          kaminoAccounts.reserveCollateralMint,
+          vaultPda,
+          true,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      : null;
 
     console.log("modifyBalance", {
       payer: payer.toString(),
@@ -423,12 +544,23 @@ export class LoyalPrivateTransactionsClient {
       userTokenAccount: userTokenAccount.toString(),
       vaultTokenAccount: vaultTokenAccount.toString(),
       tokenMint: tokenMint.toString(),
-      // tokenProgram: TOKEN_PROGRAM_ID,
-      // associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      // systemProgram: SystemProgram.programId,
+      kaminoAccounts: kaminoAccounts
+        ? {
+            lendingMarket: kaminoAccounts.lendingMarket.toString(),
+            lendingMarketAuthority:
+              kaminoAccounts.lendingMarketAuthority.toString(),
+            reserve: kaminoAccounts.reserve.toString(),
+            reserveLiquiditySupply:
+              kaminoAccounts.reserveLiquiditySupply.toString(),
+            reserveCollateralMint:
+              kaminoAccounts.reserveCollateralMint.toString(),
+            vaultCollateralTokenAccount:
+              vaultCollateralTokenAccount?.toString() ?? null,
+          }
+        : null,
     });
 
-    const signature = await this.baseProgram.methods
+    let methodBuilder = this.baseProgram.methods
       .modifyBalance({ amount: new BN(amount.toString()), increase })
       .accountsPartial({
         payer,
@@ -441,8 +573,54 @@ export class LoyalPrivateTransactionsClient {
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-      })
-      .rpc(rpcOptions);
+      });
+
+    if (kaminoAccounts && vaultCollateralTokenAccount) {
+      methodBuilder = methodBuilder.remainingAccounts([
+        {
+          pubkey: kaminoAccounts.lendingMarket,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: kaminoAccounts.lendingMarketAuthority,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: kaminoAccounts.reserve,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: kaminoAccounts.reserveLiquiditySupply,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: kaminoAccounts.reserveCollateralMint,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: vaultCollateralTokenAccount,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: kaminoAccounts.instructionSysvarAccount,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: kaminoAccounts.klendProgram,
+          isSigner: false,
+          isWritable: false,
+        },
+      ]);
+    }
+
+    const signature = await methodBuilder.rpc(rpcOptions);
 
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {
@@ -1034,6 +1212,80 @@ export class LoyalPrivateTransactionsClient {
   }
 
   /**
+   * Enumerate every Deposit account owned by a user across both the base
+   * program and the ephemeral program. Used by the wallet UI to discover
+   * shielded holdings even when the user no longer has a matching base-chain
+   * token balance.
+   *
+   * Delegated deposits only exist on the ephemeral chain (on base the PDA is
+   * owned by the delegation program and Anchor cannot deserialize it as a
+   * `Deposit`). Undelegated deposits only exist on base. We query both and
+   * merge by PDA address, preferring the ephemeral amount when both return
+   * an entry because ephemeral reflects the live balance.
+   */
+  async getAllDepositsByUser(user: PublicKey): Promise<DepositData[]> {
+    // Deposit layout after the 8-byte discriminator:
+    //   user: pubkey (32 bytes) @ offset 8
+    //   token_mint: pubkey (32 bytes) @ offset 40
+    //   amount: u64 (8 bytes) @ offset 72
+    const userFilter = [
+      {
+        memcmp: {
+          offset: 8,
+          bytes: user.toBase58(),
+        },
+      },
+    ];
+
+    const [baseResults, ephemeralResults] = await Promise.allSettled([
+      this.baseProgram.account.deposit.all(userFilter),
+      this.ephemeralProgram.account.deposit.all(userFilter),
+    ]);
+
+    const byPda = new Map<string, DepositData>();
+
+    const ingest = (
+      results: Array<{
+        publicKey: PublicKey;
+        account: { user: PublicKey; tokenMint: PublicKey; amount: BN };
+      }>,
+      preferOverwrite: boolean
+    ) => {
+      for (const { publicKey, account } of results) {
+        const key = publicKey.toBase58();
+        if (!preferOverwrite && byPda.has(key)) continue;
+        byPda.set(key, {
+          user: account.user,
+          tokenMint: account.tokenMint,
+          amount: BigInt(account.amount.toString()),
+          address: publicKey,
+        });
+      }
+    };
+
+    if (baseResults.status === "fulfilled") {
+      ingest(baseResults.value, /* preferOverwrite */ false);
+    } else {
+      console.warn(
+        "[getAllDepositsByUser] base program enumeration failed",
+        baseResults.reason
+      );
+    }
+
+    // Ephemeral state wins over base state for live balances.
+    if (ephemeralResults.status === "fulfilled") {
+      ingest(ephemeralResults.value, /* preferOverwrite */ true);
+    } else {
+      console.warn(
+        "[getAllDepositsByUser] ephemeral program enumeration failed",
+        ephemeralResults.reason
+      );
+    }
+
+    return Array.from(byPda.values());
+  }
+
+  /**
    * Get username deposit data
    */
   async getBaseUsernameDeposit(
@@ -1076,6 +1328,106 @@ export class LoyalPrivateTransactionsClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get the live base lending APY for the configured Kamino reserve in basis points.
+   * This is reserve supply APY only and does not include farm reward APY.
+   * Returns null when the token mint has no hardcoded Kamino reserve config.
+   * Devnet reserves intentionally return 0 because the UI APY source is mainnet-only.
+   */
+  async getKaminoLendingApyBps(tokenMint: PublicKey): Promise<number | null> {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+
+    if (!isKaminoMainnetModifyBalanceAccounts(kaminoAccounts)) {
+      return 0;
+    }
+
+    return fetchKaminoReserveSupplyApyBps({
+      lendingMarket: kaminoAccounts.lendingMarket,
+      reserve: kaminoAccounts.reserve,
+      env: getKaminoApiEnv(kaminoAccounts),
+    });
+  }
+
+  async getKaminoReserveSnapshot(
+    tokenMint: PublicKey
+  ): Promise<KaminoReserveSnapshot | null> {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+
+    return fetchKaminoReserveSnapshot({
+      connection: this.baseProgram.provider.connection,
+      tokenMint,
+    });
+  }
+
+  async getKaminoShieldedBalanceQuote(
+    params: GetKaminoShieldedBalanceQuoteParams
+  ): Promise<KaminoShieldedBalanceQuote | null> {
+    const snapshot = await this.getKaminoReserveSnapshot(params.tokenMint);
+    if (!snapshot) {
+      return null;
+    }
+
+    const collateralSharesAmountRaw = normalizeBigInt(
+      params.collateralSharesAmountRaw
+    );
+    const principalLiquidityAmountRaw =
+      params.principalLiquidityAmountRaw === undefined ||
+      params.principalLiquidityAmountRaw === null
+        ? null
+        : normalizeBigInt(params.principalLiquidityAmountRaw);
+    const shieldCollateralExchangeRateSf =
+      params.shieldCollateralExchangeRateSf === undefined ||
+      params.shieldCollateralExchangeRateSf === null
+        ? null
+        : normalizeBigInt(params.shieldCollateralExchangeRateSf);
+    const valuation = calculateKaminoCollateralValuation({
+      snapshot,
+      collateralAmount: collateralSharesAmountRaw,
+      principalLiquidityAmount: principalLiquidityAmountRaw,
+      shieldCollateralExchangeRateSf,
+    });
+
+    return {
+      snapshot,
+      collateralSharesAmountRaw,
+      redeemableLiquidityAmountRaw: valuation.currentLiquidityAmount,
+      principalLiquidityAmountRaw: valuation.principalLiquidityAmount,
+      earnedLiquidityAmountRaw: valuation.earnedLiquidityAmount,
+      shieldCollateralExchangeRateSf,
+    };
+  }
+
+  async getKaminoCollateralSharesForLiquidityAmount(
+    params: GetKaminoCollateralSharesForLiquidityAmountParams
+  ): Promise<bigint | null> {
+    const snapshot = await this.getKaminoReserveSnapshot(params.tokenMint);
+    if (!snapshot) {
+      return null;
+    }
+
+    return calculateKaminoShareAmountForLiquidityAmountRaw({
+      snapshot,
+      liquidityAmountRaw: normalizeBigInt(params.liquidityAmountRaw),
+      rounding: "ceil",
+    });
+  }
+
+  calculateKaminoCollateralExchangeRateSfFromAmounts(args: {
+    collateralAmountRaw: number | bigint;
+    liquidityAmountRaw: number | bigint;
+  }): bigint | null {
+    return calculateKaminoCollateralExchangeRateSfFromAmounts({
+      collateralAmount: normalizeBigInt(args.collateralAmountRaw),
+      liquidityAmount: normalizeBigInt(args.liquidityAmountRaw),
+    });
   }
 
   // ============================================================

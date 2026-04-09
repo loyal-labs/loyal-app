@@ -21406,6 +21406,16 @@ var telegram_private_transfer_default = {
       code: 6011,
       name: "InvalidDepositor",
       msg: "Invalid Depositor"
+    },
+    {
+      code: 6012,
+      name: "InvalidKaminoAccounts",
+      msg: "Invalid Kamino accounts"
+    },
+    {
+      code: 6013,
+      name: "InvalidAmount",
+      msg: "Invalid amount"
     }
   ],
   types: [
@@ -21427,6 +21437,10 @@ var telegram_private_transfer_default = {
           },
           {
             name: "amount",
+            docs: [
+              "For USDC deposits, this stores the Kamino share token amount.",
+              "For all other mints, this stores the deposited liquidity token amount."
+            ],
             type: "u64"
           }
         ]
@@ -21534,6 +21548,10 @@ var telegram_private_transfer_default = {
           },
           {
             name: "amount",
+            docs: [
+              "For USDC deposits, this stores the Kamino share token amount.",
+              "For all other mints, this stores the deposited liquidity token amount."
+            ],
             type: "u64"
           }
         ]
@@ -21559,7 +21577,11 @@ var telegram_private_transfer_default = {
 };
 
 // src/constants.ts
-import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  PublicKey,
+  LAMPORTS_PER_SOL,
+  SYSVAR_INSTRUCTIONS_PUBKEY
+} from "@solana/web3.js";
 var ER_VALIDATOR_DEVNET = new PublicKey("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
 var ER_VALIDATOR_MAINNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR = ER_VALIDATOR_DEVNET;
@@ -21569,7 +21591,44 @@ function getErValidatorForSolanaEnv(env) {
 function getErValidatorForRpcEndpoint(rpcEndpoint) {
   return rpcEndpoint.includes("mainnet-tee") ? ER_VALIDATOR_MAINNET : ER_VALIDATOR_DEVNET;
 }
+function getKaminoModifyBalanceAccountsForTokenMint(tokenMint) {
+  if (tokenMint.equals(USDC_MINT_MAINNET)) {
+    return KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET;
+  }
+  if (tokenMint.equals(USDC_MINT_DEVNET)) {
+    return KAMINO_MODIFY_BALANCE_ACCOUNTS_DEVNET;
+  }
+  return null;
+}
 var PROGRAM_ID = new PublicKey("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
+var USDC_MINT_DEVNET = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+var USDC_MINT_MAINNET = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+var KLEND_PROGRAM_ID = new PublicKey("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
+var DEVNET_LENDING_MARKET = new PublicKey("27MKCQo5qP7ijrwWSMKX2Jeb3PhK2NZmHQ9befWVRS4J");
+var MAINNET_LENDING_MARKET = new PublicKey("CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA");
+var KAMINO_MODIFY_BALANCE_ACCOUNTS_DEVNET = {
+  lendingMarket: DEVNET_LENDING_MARKET,
+  lendingMarketAuthority: PublicKey.findProgramAddressSync([Buffer.from("lma"), DEVNET_LENDING_MARKET.toBuffer()], KLEND_PROGRAM_ID)[0],
+  reserve: new PublicKey("9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy"),
+  reserveLiquiditySupply: new PublicKey("Bh45cPkpfRvz9hAs23ye5TowsGbhbh4BXT4AGww8JfES"),
+  reserveCollateralMint: new PublicKey("8GoBXfEq3aTiWTxEP2tAaygJMx3LhG764iN5e6gqaLA"),
+  liquidityDecimals: 6,
+  instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
+  klendProgram: KLEND_PROGRAM_ID
+};
+var KAMINO_MODIFY_BALANCE_ACCOUNTS_MAINNET = {
+  lendingMarket: MAINNET_LENDING_MARKET,
+  lendingMarketAuthority: PublicKey.findProgramAddressSync([Buffer.from("lma"), MAINNET_LENDING_MARKET.toBuffer()], KLEND_PROGRAM_ID)[0],
+  reserve: new PublicKey("9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu"),
+  reserveLiquiditySupply: new PublicKey("H6JUwz8c61eQnYUx8avGXydKztKPyGvgWAUjmZUPS3BC"),
+  reserveCollateralMint: new PublicKey("DKaVQFXD6Qz4USTkRWyPun3oU6r1RfYsWJ8YqLpnSnN5"),
+  liquidityDecimals: 6,
+  instructionSysvarAccount: SYSVAR_INSTRUCTIONS_PUBKEY,
+  klendProgram: KLEND_PROGRAM_ID
+};
+function isKaminoMainnetModifyBalanceAccounts(accounts) {
+  return accounts.lendingMarket.equals(MAINNET_LENDING_MARKET);
+}
 var DELEGATION_PROGRAM_ID = new PublicKey("DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh");
 var PERMISSION_PROGRAM_ID = new PublicKey("ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1");
 var MAGIC_PROGRAM_ID = new PublicKey("Magic11111111111111111111111111111111111111");
@@ -21587,6 +21646,135 @@ function solToLamports(sol) {
 }
 function lamportsToSol(lamports) {
   return lamports / LAMPORTS_PER_SOL;
+}
+
+// src/kamino.ts
+var KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
+  43,
+  242,
+  204,
+  202,
+  26,
+  247,
+  59,
+  127
+]);
+var KAMINO_FRACTION_BITS = 60n;
+var KAMINO_FRACTION_SCALE = 1n << KAMINO_FRACTION_BITS;
+var KAMINO_RESERVE_LAYOUT_OFFSETS = {
+  liquidityAvailableAmount: 216,
+  liquidityBorrowedAmountSf: 224,
+  liquidityMintDecimals: 264,
+  liquidityAccumulatedProtocolFeesSf: 336,
+  liquidityAccumulatedReferrerFeesSf: 352,
+  liquidityPendingReferrerFeesSf: 368,
+  collateralMintTotalSupply: 2584
+};
+function readUint64LE(data, offset) {
+  return data.readBigUInt64LE(offset);
+}
+function readUint128LE(data, offset) {
+  const low = data.readBigUInt64LE(offset);
+  const high = data.readBigUInt64LE(offset + 8);
+  return low + (high << 64n);
+}
+function toRawBigInt(value) {
+  return typeof value === "bigint" ? value : BigInt(value);
+}
+function divCeil(numerator, denominator) {
+  if (denominator === 0n) {
+    throw new Error("Cannot divide by zero");
+  }
+  return (numerator + denominator - 1n) / denominator;
+}
+function parseKaminoReserveSnapshotFromAccountData(args) {
+  const { data, reserve, tokenMint } = args;
+  if (data.length < 8 || !data.subarray(0, 8).equals(KAMINO_RESERVE_DISCRIMINATOR)) {
+    throw new Error(`Kamino reserve ${reserve.toBase58()} has an invalid discriminator`);
+  }
+  const accountData = data.subarray(8);
+  const requiredLength = KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply + 8;
+  if (accountData.length < requiredLength) {
+    throw new Error(`Kamino reserve ${reserve.toBase58()} is too small: expected at least ${requiredLength} bytes`);
+  }
+  const liquidityAvailableAmount = readUint64LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAvailableAmount);
+  const liquidityBorrowedAmountSf = readUint128LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityBorrowedAmountSf);
+  const liquidityAccumulatedProtocolFeesSf = readUint128LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedProtocolFeesSf);
+  const liquidityAccumulatedReferrerFeesSf = readUint128LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedReferrerFeesSf);
+  const liquidityPendingReferrerFeesSf = readUint128LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityPendingReferrerFeesSf);
+  const collateralSupplyRaw = readUint64LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply);
+  const liquidityDecimals = Number(readUint64LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityMintDecimals));
+  const grossLiquiditySupplyScaled = (liquidityAvailableAmount << KAMINO_FRACTION_BITS) + liquidityBorrowedAmountSf;
+  const totalFeeAmountScaled = liquidityAccumulatedProtocolFeesSf + liquidityAccumulatedReferrerFeesSf + liquidityPendingReferrerFeesSf;
+  return {
+    reserve,
+    tokenMint,
+    liquidityDecimals,
+    collateralSupplyRaw,
+    totalLiquiditySupplyScaled: grossLiquiditySupplyScaled > totalFeeAmountScaled ? grossLiquiditySupplyScaled - totalFeeAmountScaled : 0n,
+    collateralExchangeRateSf: collateralSupplyRaw === 0n || grossLiquiditySupplyScaled <= totalFeeAmountScaled ? KAMINO_FRACTION_SCALE : collateralSupplyRaw * KAMINO_FRACTION_SCALE * KAMINO_FRACTION_SCALE / (grossLiquiditySupplyScaled - totalFeeAmountScaled)
+  };
+}
+function calculateKaminoRedeemableLiquidityAmountRaw(snapshot, shareAmountRaw) {
+  const shareAmount = toRawBigInt(shareAmountRaw);
+  if (shareAmount <= 0n) {
+    return 0n;
+  }
+  if (snapshot.collateralSupplyRaw === 0n || snapshot.totalLiquiditySupplyScaled === 0n) {
+    return shareAmount;
+  }
+  const numerator = shareAmount * snapshot.totalLiquiditySupplyScaled;
+  const denominator = snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE;
+  return numerator / denominator;
+}
+function calculateKaminoShareAmountForLiquidityAmountRaw(args) {
+  const liquidityAmount = toRawBigInt(args.liquidityAmountRaw);
+  if (liquidityAmount <= 0n) {
+    return 0n;
+  }
+  if (args.snapshot.collateralSupplyRaw === 0n || args.snapshot.totalLiquiditySupplyScaled === 0n) {
+    return liquidityAmount;
+  }
+  const numerator = liquidityAmount * args.snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE;
+  return args.rounding === "ceil" ? divCeil(numerator, args.snapshot.totalLiquiditySupplyScaled) : numerator / args.snapshot.totalLiquiditySupplyScaled;
+}
+function calculateKaminoCollateralExchangeRateSfFromAmounts(args) {
+  const collateralAmount = toRawBigInt(args.collateralAmount);
+  const liquidityAmount = toRawBigInt(args.liquidityAmount);
+  if (collateralAmount <= 0n || liquidityAmount <= 0n) {
+    return null;
+  }
+  return collateralAmount * KAMINO_FRACTION_SCALE / liquidityAmount;
+}
+function calculateKaminoCollateralValuation(args) {
+  const currentLiquidityAmount = calculateKaminoRedeemableLiquidityAmountRaw(args.snapshot, args.collateralAmount);
+  let principalLiquidityAmount = args.principalLiquidityAmount == null ? null : toRawBigInt(args.principalLiquidityAmount);
+  if (principalLiquidityAmount === null && args.shieldCollateralExchangeRateSf != null) {
+    const shieldRate = toRawBigInt(args.shieldCollateralExchangeRateSf);
+    if (shieldRate > 0n) {
+      principalLiquidityAmount = toRawBigInt(args.collateralAmount) * KAMINO_FRACTION_SCALE / shieldRate;
+    }
+  }
+  return {
+    currentLiquidityAmount,
+    principalLiquidityAmount,
+    earnedLiquidityAmount: principalLiquidityAmount === null ? null : currentLiquidityAmount - principalLiquidityAmount
+  };
+}
+async function fetchKaminoReserveSnapshot(args) {
+  const kaminoAccounts = args.kaminoAccounts ?? getKaminoModifyBalanceAccountsForTokenMint(args.tokenMint);
+  if (!kaminoAccounts) {
+    return null;
+  }
+  const accountInfo = await args.connection.getAccountInfo(kaminoAccounts.reserve, "confirmed");
+  if (!accountInfo) {
+    throw new Error(`Kamino reserve ${kaminoAccounts.reserve.toBase58()} was not found`);
+  }
+  return parseKaminoReserveSnapshotFromAccountData({
+    data: accountInfo.data,
+    reserve: kaminoAccounts.reserve,
+    tokenMint: args.tokenMint
+  });
 }
 
 // src/pda.ts
@@ -21693,6 +21881,9 @@ class InternalWalletAdapter {
 }
 
 // src/LoyalPrivateTransactionsClient.ts
+var KAMINO_API_BASE_URL = "https://api.kamino.finance";
+var KAMINO_MAINNET_ENV = "mainnet-beta";
+var KAMINO_DEVNET_ENV = "devnet";
 function prettyStringify(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
     if (value instanceof PublicKey4)
@@ -21716,6 +21907,55 @@ function programFromRpc(signer, commitment, rpcEndpoint, wsEndpoint) {
     commitment
   });
   return new Program(telegram_private_transfer_default, baseProvider);
+}
+function getKaminoApiEnv(accounts) {
+  return accounts && isKaminoMainnetModifyBalanceAccounts(accounts) ? KAMINO_MAINNET_ENV : KAMINO_DEVNET_ENV;
+}
+function normalizeBigInt(value) {
+  if (typeof value === "bigint") {
+    return value;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`Expected a non-negative integer amount, received ${value}`);
+  }
+  return BigInt(value);
+}
+async function fetchKaminoReserveMetrics(args) {
+  const url = new URL(`/kamino-market/${args.lendingMarket.toBase58()}/reserves/metrics`, KAMINO_API_BASE_URL);
+  url.searchParams.set("env", args.env);
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      accept: "application/json"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Kamino reserve metrics request failed with status ${response.status}`);
+  }
+  const payload = await response.json();
+  if (!Array.isArray(payload)) {
+    throw new Error("Kamino reserve metrics response was not an array");
+  }
+  const reserveAddress = args.reserve.toBase58();
+  const reserveMetrics = payload.find((item) => {
+    if (!item || typeof item !== "object") {
+      return false;
+    }
+    const candidate = item;
+    return candidate.reserve === reserveAddress && (typeof candidate.supplyApy === "number" || typeof candidate.supplyApy === "string");
+  });
+  if (!reserveMetrics) {
+    throw new Error(`Kamino reserve metrics not found for reserve ${reserveAddress}`);
+  }
+  return reserveMetrics;
+}
+async function fetchKaminoReserveSupplyApyBps(args) {
+  const reserveMetrics = await fetchKaminoReserveMetrics(args);
+  const supplyApy = Number(reserveMetrics.supplyApy);
+  if (!Number.isFinite(supplyApy) || supplyApy < 0) {
+    throw new Error(`Kamino reserve metrics returned an invalid supplyApy for reserve ${args.reserve.toBase58()}`);
+  }
+  return Math.round(supplyApy * 1e4);
 }
 function deriveMessageSigner(signer) {
   if (isKeypair(signer)) {
@@ -21866,6 +22106,8 @@ class LoyalPrivateTransactionsClient {
     await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda");
     const [vaultPda] = findVaultPda(tokenMint);
     const vaultTokenAccount = getAssociatedTokenAddressSync(tokenMint, vaultPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    const vaultCollateralTokenAccount = kaminoAccounts ? getAssociatedTokenAddressSync(kaminoAccounts.reserveCollateralMint, vaultPda, true, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID) : null;
     console.log("modifyBalance", {
       payer: payer.toString(),
       user: user.toString(),
@@ -21873,9 +22115,17 @@ class LoyalPrivateTransactionsClient {
       deposit: depositPda.toString(),
       userTokenAccount: userTokenAccount.toString(),
       vaultTokenAccount: vaultTokenAccount.toString(),
-      tokenMint: tokenMint.toString()
+      tokenMint: tokenMint.toString(),
+      kaminoAccounts: kaminoAccounts ? {
+        lendingMarket: kaminoAccounts.lendingMarket.toString(),
+        lendingMarketAuthority: kaminoAccounts.lendingMarketAuthority.toString(),
+        reserve: kaminoAccounts.reserve.toString(),
+        reserveLiquiditySupply: kaminoAccounts.reserveLiquiditySupply.toString(),
+        reserveCollateralMint: kaminoAccounts.reserveCollateralMint.toString(),
+        vaultCollateralTokenAccount: vaultCollateralTokenAccount?.toString() ?? null
+      } : null
     });
-    const signature = await this.baseProgram.methods.modifyBalance({ amount: new BN(amount.toString()), increase }).accountsPartial({
+    let methodBuilder = this.baseProgram.methods.modifyBalance({ amount: new BN(amount.toString()), increase }).accountsPartial({
       payer,
       user,
       vault: vaultPda,
@@ -21886,7 +22136,52 @@ class LoyalPrivateTransactionsClient {
       tokenProgram: TOKEN_PROGRAM_ID,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId
-    }).rpc(rpcOptions);
+    });
+    if (kaminoAccounts && vaultCollateralTokenAccount) {
+      methodBuilder = methodBuilder.remainingAccounts([
+        {
+          pubkey: kaminoAccounts.lendingMarket,
+          isSigner: false,
+          isWritable: false
+        },
+        {
+          pubkey: kaminoAccounts.lendingMarketAuthority,
+          isSigner: false,
+          isWritable: false
+        },
+        {
+          pubkey: kaminoAccounts.reserve,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: kaminoAccounts.reserveLiquiditySupply,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: kaminoAccounts.reserveCollateralMint,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: vaultCollateralTokenAccount,
+          isSigner: false,
+          isWritable: true
+        },
+        {
+          pubkey: kaminoAccounts.instructionSysvarAccount,
+          isSigner: false,
+          isWritable: false
+        },
+        {
+          pubkey: kaminoAccounts.klendProgram,
+          isSigner: false,
+          isWritable: false
+        }
+      ]);
+    }
+    const signature = await methodBuilder.rpc(rpcOptions);
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {
       throw new Error("Failed to fetch deposit after modification");
@@ -22222,6 +22517,45 @@ class LoyalPrivateTransactionsClient {
       return null;
     }
   }
+  async getAllDepositsByUser(user) {
+    const userFilter = [
+      {
+        memcmp: {
+          offset: 8,
+          bytes: user.toBase58()
+        }
+      }
+    ];
+    const [baseResults, ephemeralResults] = await Promise.allSettled([
+      this.baseProgram.account.deposit.all(userFilter),
+      this.ephemeralProgram.account.deposit.all(userFilter)
+    ]);
+    const byPda = new Map;
+    const ingest = (results, preferOverwrite) => {
+      for (const { publicKey, account } of results) {
+        const key = publicKey.toBase58();
+        if (!preferOverwrite && byPda.has(key))
+          continue;
+        byPda.set(key, {
+          user: account.user,
+          tokenMint: account.tokenMint,
+          amount: BigInt(account.amount.toString()),
+          address: publicKey
+        });
+      }
+    };
+    if (baseResults.status === "fulfilled") {
+      ingest(baseResults.value, false);
+    } else {
+      console.warn("[getAllDepositsByUser] base program enumeration failed", baseResults.reason);
+    }
+    if (ephemeralResults.status === "fulfilled") {
+      ingest(ephemeralResults.value, true);
+    } else {
+      console.warn("[getAllDepositsByUser] ephemeral program enumeration failed", ephemeralResults.reason);
+    }
+    return Array.from(byPda.values());
+  }
   async getBaseUsernameDeposit(username, tokenMint) {
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     try {
@@ -22249,6 +22583,70 @@ class LoyalPrivateTransactionsClient {
     } catch {
       return null;
     }
+  }
+  async getKaminoLendingApyBps(tokenMint) {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+    if (!isKaminoMainnetModifyBalanceAccounts(kaminoAccounts)) {
+      return 0;
+    }
+    return fetchKaminoReserveSupplyApyBps({
+      lendingMarket: kaminoAccounts.lendingMarket,
+      reserve: kaminoAccounts.reserve,
+      env: getKaminoApiEnv(kaminoAccounts)
+    });
+  }
+  async getKaminoReserveSnapshot(tokenMint) {
+    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    if (!kaminoAccounts) {
+      return null;
+    }
+    return fetchKaminoReserveSnapshot({
+      connection: this.baseProgram.provider.connection,
+      tokenMint
+    });
+  }
+  async getKaminoShieldedBalanceQuote(params) {
+    const snapshot = await this.getKaminoReserveSnapshot(params.tokenMint);
+    if (!snapshot) {
+      return null;
+    }
+    const collateralSharesAmountRaw = normalizeBigInt(params.collateralSharesAmountRaw);
+    const principalLiquidityAmountRaw = params.principalLiquidityAmountRaw === undefined || params.principalLiquidityAmountRaw === null ? null : normalizeBigInt(params.principalLiquidityAmountRaw);
+    const shieldCollateralExchangeRateSf = params.shieldCollateralExchangeRateSf === undefined || params.shieldCollateralExchangeRateSf === null ? null : normalizeBigInt(params.shieldCollateralExchangeRateSf);
+    const valuation = calculateKaminoCollateralValuation({
+      snapshot,
+      collateralAmount: collateralSharesAmountRaw,
+      principalLiquidityAmount: principalLiquidityAmountRaw,
+      shieldCollateralExchangeRateSf
+    });
+    return {
+      snapshot,
+      collateralSharesAmountRaw,
+      redeemableLiquidityAmountRaw: valuation.currentLiquidityAmount,
+      principalLiquidityAmountRaw: valuation.principalLiquidityAmount,
+      earnedLiquidityAmountRaw: valuation.earnedLiquidityAmount,
+      shieldCollateralExchangeRateSf
+    };
+  }
+  async getKaminoCollateralSharesForLiquidityAmount(params) {
+    const snapshot = await this.getKaminoReserveSnapshot(params.tokenMint);
+    if (!snapshot) {
+      return null;
+    }
+    return calculateKaminoShareAmountForLiquidityAmountRaw({
+      snapshot,
+      liquidityAmountRaw: normalizeBigInt(params.liquidityAmountRaw),
+      rounding: "ceil"
+    });
+  }
+  calculateKaminoCollateralExchangeRateSfFromAmounts(args) {
+    return calculateKaminoCollateralExchangeRateSfFromAmounts({
+      collateralAmount: normalizeBigInt(args.collateralAmountRaw),
+      liquidityAmount: normalizeBigInt(args.liquidityAmountRaw)
+    });
   }
   get publicKey() {
     return this.wallet.publicKey;
