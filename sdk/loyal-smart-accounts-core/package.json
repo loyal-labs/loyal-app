@@ -27,9 +27,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bun run clean && bun run build:js && bun run build:types",
-    "build:js": "bun build ./index.ts ./internal.ts ./loyal.ts --outdir ./dist --target browser --format esm --external @loyal-labs/solana-rpc --external @solana/web3.js --external @solana/spl-token",
-    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run clean && tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build",
     "clean": "rm -rf dist",
     "test": "bun test"

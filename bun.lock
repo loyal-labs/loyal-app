@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "dependencies": {
@@ -148,7 +147,7 @@
     },
     "extension": {
       "name": "@loyal-labs/extension",
-      "version": "0.3.1",
+      "version": "0.4.2",
       "dependencies": {
         "@solana/wallet-adapter-base": "^0.9.27",
         "@solana/wallet-adapter-react": "^0.15.39",
@@ -156,6 +155,7 @@
         "@solana/wallet-adapter-wallets": "^0.19.37",
         "@solana/web3.js": "^1.98.4",
         "buffer": "^6.0.3",
+        "flubber": "^0.4.2",
         "lottie-web": "^5.13.0",
         "lucide-react": "^0.577.0",
         "mixpanel-browser": "^2.74.0",
@@ -167,6 +167,7 @@
       },
       "devDependencies": {
         "@tailwindcss/postcss": "^4.2.1",
+        "@types/flubber": "^0.4.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "@wxt-dev/module-react": "^1.1.5",
@@ -191,6 +192,7 @@
         "@loyal-labs/db-core": "workspace:*",
         "@loyal-labs/grid-core": "workspace:*",
         "@loyal-labs/llm-core": "workspace:*",
+        "@loyal-labs/loyal-smart-accounts": "workspace:*",
         "@loyal-labs/private-transactions": "workspace:*",
         "@loyal-labs/shared": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
