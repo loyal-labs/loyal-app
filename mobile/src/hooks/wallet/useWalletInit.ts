@@ -9,7 +9,7 @@ import {
   setCachedWalletBalance,
   walletBalanceListeners,
 } from "@/lib/solana/wallet-cache";
-import { useWallet } from "@/lib/wallet/wallet-provider";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 
 export function useWalletInit(): {
   walletAddress: string | null;
@@ -18,7 +18,7 @@ export function useWalletInit(): {
   retryWalletInit: () => void;
 } {
   const { publicKey, state } = useWallet();
-  const isUnlocked = state === "unlocked";
+  const isUnlocked = isWalletUnlocked(state);
 
   const [walletAddress, setWalletAddress] = useState<string | null>(
     isUnlocked ? publicKey : null,

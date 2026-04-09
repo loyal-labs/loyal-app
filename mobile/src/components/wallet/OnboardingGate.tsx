@@ -1,16 +1,25 @@
 import { Keypair } from "@solana/web3.js";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
+import * as SeedVault from "expo-seed-vault";
+import type { VaultAccount } from "expo-seed-vault";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
 import { CreateWalletScreen } from "@/components/wallet/CreateWalletScreen";
 import { ImportWalletScreen } from "@/components/wallet/ImportWalletScreen";
 import { OnboardingSlidesScreen } from "@/components/wallet/OnboardingSlidesScreen";
+import { SeedVaultChooserScreen } from "@/components/wallet/SeedVaultChooserScreen";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
-type Step = "slides" | "choose" | "create" | "import" | "biometric-setup";
+type Step =
+  | "slides"
+  | "choose"
+  | "seed-vault"
+  | "create"
+  | "import"
+  | "biometric-setup";
 type Flow = "create" | "import" | null;
 
 type Props = {
@@ -19,13 +28,18 @@ type Props = {
 };
 
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
-  const { finalizeSigner } = useWallet();
+  const { finalizeSigner, finalizeVaultSigner } = useWallet();
 
   const [step, setStep] = useState<Step>("slides");
   const [flow, setFlow] = useState<Flow>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+  const [seedVaultAvailable, setSeedVaultAvailable] = useState(false);
+
+  useEffect(() => {
+    SeedVault.isAvailable().then(setSeedVaultAvailable);
+  }, []);
 
   const handleCreateComplete = useCallback(
     (keypair: Keypair, pin: string) => {
@@ -56,6 +70,14 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     }
   }, [flow, pendingKeypair, pendingPin, finalizeSigner]);
 
+  const handleSeedVaultComplete = useCallback(
+    async (account: VaultAccount) => {
+      setFinalizing(true);
+      await finalizeVaultSigner(account);
+    },
+    [finalizeVaultSigner],
+  );
+
   // --- Finalizing (encrypting + storing) ---
   if (finalizing) {
     return (
@@ -75,7 +97,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     );
   }
 
-  // --- Choose step ---
+  // --- Slides step ---
   if (step === "slides") {
     return (
       <OnboardingSlidesScreen
@@ -100,13 +122,39 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
           <Text style={styles.subtitle}>Your Solana wallet</Text>
           <View className="mt-10 w-full gap-3">
             <Pressable
-              style={styles.primaryButton}
+              style={[
+                styles.primaryButton,
+                !seedVaultAvailable && styles.disabledButton,
+              ]}
+              onPress={() => {
+                if (!seedVaultAvailable) return;
+                setFlow(null);
+                setStep("seed-vault");
+              }}
+              disabled={!seedVaultAvailable}
+            >
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  !seedVaultAvailable && styles.disabledButtonText,
+                ]}
+              >
+                Use Seed Vault
+              </Text>
+            </Pressable>
+            {!seedVaultAvailable && (
+              <Text style={styles.helperText}>
+                Only available on Solana Seeker
+              </Text>
+            )}
+            <Pressable
+              style={styles.secondaryButton}
               onPress={() => {
                 setFlow("create");
                 setStep("create");
               }}
             >
-              <Text style={styles.primaryButtonText}>Create New Wallet</Text>
+              <Text style={styles.secondaryButtonText}>Create New Wallet</Text>
             </Pressable>
             <Pressable
               style={styles.secondaryButton}
@@ -122,6 +170,16 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
           </View>
         </View>
       </View>
+    );
+  }
+
+  // --- Seed Vault chooser step ---
+  if (step === "seed-vault") {
+    return (
+      <SeedVaultChooserScreen
+        onComplete={handleSeedVaultComplete}
+        onBack={() => setStep("choose")}
+      />
     );
   }
 
@@ -171,6 +229,20 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_600SemiBold",
     fontSize: 16,
     color: "#fff",
+  },
+  disabledButton: {
+    backgroundColor: "rgba(0,0,0,0.08)",
+  },
+  disabledButtonText: {
+    color: "rgba(0,0,0,0.35)",
+  },
+  helperText: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 12,
+    color: "rgba(0,0,0,0.45)",
+    textAlign: "center",
+    marginTop: -4,
+    marginBottom: 4,
   },
   secondaryButton: {
     height: 52,

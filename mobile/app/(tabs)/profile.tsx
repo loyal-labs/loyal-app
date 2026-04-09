@@ -17,7 +17,7 @@ import { LogoHeader } from "@/components/LogoHeader";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
-import { useWallet } from "@/lib/wallet/wallet-provider";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
@@ -119,7 +119,7 @@ export default function ProfileScreen() {
   const [bioPinError, setBioPinError] = useState<string | null>(null);
 
   const wallet = useWallet();
-  const isUnlocked = wallet.state === "unlocked";
+  const isUnlocked = isWalletUnlocked(wallet.state);
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricsAvailable);

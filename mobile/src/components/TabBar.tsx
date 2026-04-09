@@ -11,7 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useWallet } from "@/lib/wallet/wallet-provider";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
 const TAB_ICONS = {
@@ -74,7 +74,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   );
 
   // Hide tab bar when wallet is not unlocked (onboarding, lock screen)
-  if (wallet.state !== "unlocked") return null;
+  if (!isWalletUnlocked(wallet.state)) return null;
 
   return (
     <View style={wrapperStyle}>

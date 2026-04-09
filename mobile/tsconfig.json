@@ -11,6 +11,9 @@
       ],
       "@loyal-labs/shared": [
         "../packages/shared/src/index.ts"
+      ],
+      "expo-seed-vault": [
+        "./modules/expo-seed-vault/src/index.ts"
       ]
     }
   },

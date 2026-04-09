@@ -1,4 +1,6 @@
 import { Keypair } from "@solana/web3.js";
+import * as SeedVault from "expo-seed-vault";
+import type { VaultAccount } from "expo-seed-vault";
 import {
   createContext,
   useCallback,
@@ -32,9 +34,26 @@ import {
   storeKeypair,
   changePin as changeKeypairPin,
 } from "./keypair-storage";
+import { SeedVaultSigner } from "./seed-vault-signer";
 import { LocalKeypairSigner, Signer } from "./signer";
+import {
+  clearVaultAccount,
+  hasVaultAccount,
+  loadVaultAccount,
+  storeVaultAccount,
+} from "./vault-account-storage";
 
-export type WalletState = "loading" | "noWallet" | "locked" | "unlocked";
+export type WalletState =
+  | "loading"
+  | "noWallet"
+  | "locked"
+  | "unlocked"
+  | "vault-unlocked";
+
+/** True while the wallet is usable for signing (local unlocked or vault). */
+export function isWalletUnlocked(state: WalletState): boolean {
+  return state === "unlocked" || state === "vault-unlocked";
+}
 
 interface WalletContextValue {
   state: WalletState;
@@ -45,7 +64,12 @@ interface WalletContextValue {
   // Wallet setup
   createWallet: (pin: string) => Keypair;
   importWallet: (secretKey: Uint8Array, pin: string) => Promise<Keypair>;
-  finalizeSigner: (keypair: Keypair, pin: string, opts?: { alreadyStored?: boolean }) => Promise<void>;
+  finalizeSigner: (
+    keypair: Keypair,
+    pin: string,
+    opts?: { alreadyStored?: boolean },
+  ) => Promise<void>;
+  finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
 
   // Lock / unlock
   unlock: (pin: string) => Promise<void>;
@@ -79,9 +103,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
   const [onboardingReplayActive, setOnboardingReplayActive] = useState(false);
 
-  // Initialize — check if a wallet exists
+  // Initialize — check if a wallet exists (vault metadata wins over local
+  // encrypted storage; they are mutually exclusive on disk because resetWallet
+  // clears both).
   useEffect(() => {
     (async () => {
+      const vaultExists = await hasVaultAccount();
+      if (vaultExists) {
+        const vault = await loadVaultAccount();
+        if (vault) {
+          const next = new SeedVaultSigner(
+            vault.authToken,
+            vault.derivationPath,
+            vault.publicKey,
+          );
+          setSigner(next);
+          setPublicKey(vault.publicKey);
+          setWalletSigner(next);
+          setState("vault-unlocked");
+          return;
+        }
+      }
+
       const exists = await hasStoredKeypair();
       if (exists) {
         const pk = await getStoredPublicKey();
@@ -95,22 +138,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // Auto-lock with 30s grace period.
-  // Record when app went to background; lock only if >30s when it returns.
+  // Auto-lock with 30s grace period — local signers only.
+  // Vault-backed signers do not auto-lock; the vault prompts for each signature
+  // so there is no in-memory secret to protect.
   const backgroundedAt = useRef<number | null>(null);
   const AUTO_LOCK_GRACE_MS = 30_000;
   const lock = useCallback(() => {
+    if (state === "vault-unlocked") return; // no-op for vault
     setSigner(null);
     clearWalletSignerCache();
     setState("locked");
-  }, []);
+  }, [state]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "background" && state === "unlocked") {
         backgroundedAt.current = Date.now();
       }
-      if (nextState === "active" && state === "unlocked" && backgroundedAt.current) {
+      if (
+        nextState === "active" &&
+        state === "unlocked" &&
+        backgroundedAt.current
+      ) {
         const elapsed = Date.now() - backgroundedAt.current;
         backgroundedAt.current = null;
         if (elapsed > AUTO_LOCK_GRACE_MS) {
@@ -151,6 +200,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  // Seed Vault accounts finalize without PIN/biometric setup. The vault owns
+  // all authorization UI going forward.
+  const finalizeVaultSigner = useCallback(async (account: VaultAccount) => {
+    await storeVaultAccount({
+      authToken: account.authToken,
+      derivationPath: account.derivationPath,
+      publicKey: account.publicKey,
+    });
+    const next = new SeedVaultSigner(
+      account.authToken,
+      account.derivationPath,
+      account.publicKey,
+    );
+    setSigner(next);
+    setPublicKey(account.publicKey);
+    setWalletSigner(next);
+    setState("vault-unlocked");
+  }, []);
 
   const unlock = useCallback(async (pin: string) => {
     const kp = await loadKeypair(pin);
@@ -206,6 +274,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const resetWallet = useCallback(async () => {
+    // Deauthorize the vault first, if the current wallet is vault-backed.
+    // Swallow errors — if the vault rejects (already revoked, etc.), we
+    // still want local cleanup to proceed.
+    if (signer instanceof SeedVaultSigner) {
+      try {
+        await SeedVault.deauthorize(signer.authToken);
+      } catch (error) {
+        console.warn("[wallet] SeedVault.deauthorize failed", error);
+      }
+    }
+
+    await clearVaultAccount();
     await clearStoredKeypair();
     await disableBiometrics();
     setSigner(null);
@@ -213,7 +293,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     clearWalletSignerCache();
     setBiometricEnabledState(false);
     setState("noWallet");
-  }, []);
+  }, [signer]);
 
   const getSecretKeyHex = useCallback(() => {
     if (!signer || !(signer instanceof LocalKeypairSigner)) return null;
@@ -237,6 +317,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       createWallet,
       importWallet,
       finalizeSigner,
+      finalizeVaultSigner,
       unlock,
       unlockWithBiometrics,
       lock,
@@ -256,6 +337,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       createWallet,
       importWallet,
       finalizeSigner,
+      finalizeVaultSigner,
       unlock,
       unlockWithBiometrics,
       lock,
