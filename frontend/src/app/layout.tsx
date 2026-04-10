@@ -9,6 +9,7 @@ import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { Header } from "@/components/ui/header";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
 import { ChatModeProvider } from "@/contexts/chat-mode-context";
+import { FeatureFlagsProvider } from "@/providers/feature-flags-provider";
 import { PublicEnvProvider } from "@/contexts/public-env-context";
 import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
 import { UserChatsProvider } from "@/providers/user-chats";
@@ -81,21 +82,22 @@ export default function RootLayout({
         <PublicEnvProvider value={publicEnv}>
           <WalletConnectionProvider>
             <AuthSessionProvider>
-              <SignInModalProvider>
-                <WalletAutoReauth />
-                <UserChatsProvider>
-                  <ChatModeProvider>
-                    <AnalyticsBootstrap />
-                    <Header />
-                    {children}
-                    <SignInModal />
-                  </ChatModeProvider>
-                </UserChatsProvider>
-              </SignInModalProvider>
+              <FeatureFlagsProvider>
+                <SignInModalProvider>
+                  <WalletAutoReauth />
+                  <UserChatsProvider>
+                    <ChatModeProvider>
+                      <AnalyticsBootstrap />
+                      <Header />
+                      {children}
+                      <SignInModal />
+                    </ChatModeProvider>
+                  </UserChatsProvider>
+                </SignInModalProvider>
+              </FeatureFlagsProvider>
             </AuthSessionProvider>
           </WalletConnectionProvider>
         </PublicEnvProvider>
-
       </body>
     </html>
   );

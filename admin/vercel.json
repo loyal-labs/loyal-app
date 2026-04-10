@@ -1,5 +1,5 @@
 {
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ../packages ../app/src/features/private-transfer-analytics",
+  "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ]; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../packages ../app/src/features/private-transfer-analytics",
   "installCommand": "rm -rf node_modules && cd .. && bun install --frozen-lockfile",
   "buildCommand": "bun run build"
 }

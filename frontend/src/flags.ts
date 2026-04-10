@@ -1,11 +1,20 @@
 import { getPublicEnv } from "@/lib/core/config/public";
 
-/**
- * Feature flag for Skills activation
- * Controls whether the Skills feature (slash commands for Swap/Send) is enabled
- *
- * Set NEXT_PUBLIC_SKILLS_ENABLED=false in .env to disable Skills
- */
+export type FrontendFlagsManifest = {
+  version: string;
+  generatedAt: string;
+  flags: Array<{
+    key: string;
+    enabled: boolean;
+    audience: "all" | "public" | "team";
+    targetEnvironments: Array<"development" | "preview" | "production">;
+  }>;
+};
+
+export function getFlagsManifestUrl() {
+  return getPublicEnv().flagsManifestUrl;
+}
+
 export function isSkillsEnabled(): boolean {
   return getPublicEnv().skillsEnabled;
 }
