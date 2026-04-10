@@ -11,6 +11,10 @@ export type WalletSetupAction = {
   helperText?: string;
 };
 
+export type OnboardingMode = "setup" | "replay";
+
+export type OnboardingStartStep = "slides" | "setup-onboarding";
+
 export const ONBOARDING_SLIDES: OnboardingSlide[] = [
   {
     title: "Group Summaries",
@@ -45,13 +49,17 @@ export function buildWalletSetupActions(
     },
     {
       id: "create",
-      label: "Create Wallet",
+      label: "Create New Wallet",
       disabled: false,
     },
     {
       id: "import",
-      label: "I already have a wallet",
+      label: "Import Existing Wallet",
       disabled: false,
     },
   ];
+}
+
+export function getSetupStartStep(mode: OnboardingMode): OnboardingStartStep {
+  return mode === "setup" ? "setup-onboarding" : "slides";
 }

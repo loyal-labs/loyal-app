@@ -1,5 +1,6 @@
 import {
   buildWalletSetupActions,
+  getSetupStartStep,
   ONBOARDING_SLIDES,
 } from "../onboarding-slides";
 
@@ -32,5 +33,12 @@ describe("buildWalletSetupActions", () => {
     const actions = buildWalletSetupActions(false);
     expect(actions[1].disabled).toBe(false);
     expect(actions[2].disabled).toBe(false);
+  });
+});
+
+describe("getSetupStartStep", () => {
+  it("starts setup in the combined onboarding and replay in slides", () => {
+    expect(getSetupStartStep("setup")).toBe("setup-onboarding");
+    expect(getSetupStartStep("replay")).toBe("slides");
   });
 });

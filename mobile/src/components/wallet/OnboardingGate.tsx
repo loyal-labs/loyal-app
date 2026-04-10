@@ -1,21 +1,24 @@
 import { Keypair } from "@solana/web3.js";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { ActivityIndicator } from "react-native";
 import * as SeedVault from "expo-seed-vault";
 import type { VaultAccount } from "expo-seed-vault";
 
-import { LogoHeader } from "@/components/LogoHeader";
 import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
 import { CreateWalletScreen } from "@/components/wallet/CreateWalletScreen";
 import { ImportWalletScreen } from "@/components/wallet/ImportWalletScreen";
 import { OnboardingSlidesScreen } from "@/components/wallet/OnboardingSlidesScreen";
 import { SeedVaultChooserScreen } from "@/components/wallet/SeedVaultChooserScreen";
+import {
+  getSetupStartStep,
+  type OnboardingStartStep,
+} from "@/components/wallet/onboarding-slides";
+import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
 import { useWallet } from "@/lib/wallet/wallet-provider";
-import { Pressable, Text, View } from "@/tw";
+import { Text, View } from "@/tw";
 
 type Step =
-  | "slides"
-  | "choose"
+  | OnboardingStartStep
   | "seed-vault"
   | "create"
   | "import"
@@ -30,7 +33,7 @@ type Props = {
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const { finalizeSigner, finalizeVaultSigner } = useWallet();
 
-  const [step, setStep] = useState<Step>("slides");
+  const [step, setStep] = useState<Step>(() => getSetupStartStep(mode));
   const [flow, setFlow] = useState<Flow>(null);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
   const [pendingPin, setPendingPin] = useState<string | null>(null);
@@ -106,70 +109,30 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
             onReplayDone?.();
             return;
           }
-          setStep("choose");
+          setStep("setup-onboarding");
         }}
       />
     );
   }
 
-  // --- Choose step ---
-  if (step === "choose") {
+  // --- Combined setup onboarding step ---
+  if (step === "setup-onboarding") {
     return (
-      <View className="flex-1 bg-white">
-        <LogoHeader />
-        <View className="flex-1 items-center justify-center px-6">
-          <Text style={styles.title}>Welcome to Loyal</Text>
-          <Text style={styles.subtitle}>Your Solana wallet</Text>
-          <View className="mt-10 w-full gap-3">
-            <Pressable
-              style={[
-                styles.primaryButton,
-                !seedVaultAvailable && styles.disabledButton,
-              ]}
-              onPress={() => {
-                if (!seedVaultAvailable) return;
-                setFlow(null);
-                setStep("seed-vault");
-              }}
-              disabled={!seedVaultAvailable}
-            >
-              <Text
-                style={[
-                  styles.primaryButtonText,
-                  !seedVaultAvailable && styles.disabledButtonText,
-                ]}
-              >
-                Use Seed Vault
-              </Text>
-            </Pressable>
-            {!seedVaultAvailable && (
-              <Text style={styles.helperText}>
-                Only available on Solana Seeker
-              </Text>
-            )}
-            <Pressable
-              style={styles.secondaryButton}
-              onPress={() => {
-                setFlow("create");
-                setStep("create");
-              }}
-            >
-              <Text style={styles.secondaryButtonText}>Create New Wallet</Text>
-            </Pressable>
-            <Pressable
-              style={styles.secondaryButton}
-              onPress={() => {
-                setFlow("import");
-                setStep("import");
-              }}
-            >
-              <Text style={styles.secondaryButtonText}>
-                Import Existing Wallet
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
+      <WalletSetupOnboardingScreen
+        seedVaultAvailable={seedVaultAvailable}
+        onUseSeedVault={() => {
+          setFlow(null);
+          setStep("seed-vault");
+        }}
+        onCreateWallet={() => {
+          setFlow("create");
+          setStep("create");
+        }}
+        onImportWallet={() => {
+          setFlow("import");
+          setStep("import");
+        }}
+      />
     );
   }
 
@@ -178,7 +141,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     return (
       <SeedVaultChooserScreen
         onComplete={handleSeedVaultComplete}
-        onBack={() => setStep("choose")}
+        onBack={() => setStep("setup-onboarding")}
       />
     );
   }
@@ -201,59 +164,3 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     />
   );
 }
-
-const styles = StyleSheet.create({
-  title: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 28,
-    color: "#000",
-    textAlign: "center",
-    lineHeight: 34,
-  },
-  subtitle: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 16,
-    color: "rgba(0,0,0,0.5)",
-    marginTop: 8,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  primaryButton: {
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryButtonText: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 16,
-    color: "#fff",
-  },
-  disabledButton: {
-    backgroundColor: "rgba(0,0,0,0.08)",
-  },
-  disabledButtonText: {
-    color: "rgba(0,0,0,0.35)",
-  },
-  helperText: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 12,
-    color: "rgba(0,0,0,0.45)",
-    textAlign: "center",
-    marginTop: -4,
-    marginBottom: 4,
-  },
-  secondaryButton: {
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.04)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryButtonText: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 16,
-    color: "#000",
-  },
-});

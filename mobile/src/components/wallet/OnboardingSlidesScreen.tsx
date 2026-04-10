@@ -75,10 +75,9 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
       <View className="flex-1">
         <View className="relative flex-row items-center justify-center px-4 pb-2 pt-4">
           <View className="flex-row items-center gap-[6px]">
-            {ONBOARDING_SLIDES.map((_, index) => (
+            {ONBOARDING_SLIDES.map((slide, index) => (
               <View
-                // eslint-disable-next-line react/no-array-index-key
-                key={index}
+                key={`dot-${slide.title}`}
                 style={[
                   styles.dot,
                   {
@@ -113,10 +112,9 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
           onMomentumScrollEnd={handleMomentumEnd}
           className="flex-1"
         >
-          {ONBOARDING_SLIDES.map((slide, index) => (
+          {ONBOARDING_SLIDES.map((slide) => (
             <View
-              // eslint-disable-next-line react/no-array-index-key
-              key={index}
+              key={slide.title}
               style={{ width }}
               className="items-center justify-center px-8"
             >
