@@ -961,6 +961,9 @@ export const featureEvidence = pgTable(
       "feature_evidence_type_check",
       sql`${table.type} IN ('path', 'branch', 'pr', 'linear', 'commit', 'doc')`
     ),
+    index("feature_evidence_feature_app_status_id_idx").on(
+      table.featureAppStatusId
+    ),
   ]
 );
 
@@ -992,6 +995,10 @@ export const runtimeFlags = pgTable(
     check(
       "runtime_flags_audience_check",
       sql`${table.audience} IN ('all', 'public', 'team')`
+    ),
+    check(
+      "runtime_flags_target_environments_check",
+      sql`jsonb_typeof(${table.targetEnvironments}) = 'array' AND ${table.targetEnvironments} <@ '["development","preview","production"]'::jsonb`
     ),
   ]
 );
