@@ -1,7 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { Program } from "@coral-xyz/anchor";
 import type { TelegramPrivateTransfer } from "./idl/telegram_private_transfer.ts";
-import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
+import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
 export declare function waitForAccountOwnerChange(connection: Connection, account: PublicKey, expectedOwner: PublicKey, timeoutMs?: number, intervalMs?: number): {
     wait: () => Promise<void>;
     cancel: () => Promise<void>;
@@ -94,10 +94,37 @@ export declare class LoyalPrivateTransactionsClient {
     getBaseDeposit(user: PublicKey, tokenMint: PublicKey): Promise<DepositData | null>;
     getEphemeralDeposit(user: PublicKey, tokenMint: PublicKey): Promise<DepositData | null>;
     /**
+     * Enumerate every Deposit account owned by a user across both the base
+     * program and the ephemeral program. Used by the wallet UI to discover
+     * shielded holdings even when the user no longer has a matching base-chain
+     * token balance.
+     *
+     * Delegated deposits only exist on the ephemeral chain (on base the PDA is
+     * owned by the delegation program and Anchor cannot deserialize it as a
+     * `Deposit`). Undelegated deposits only exist on base. We query both and
+     * merge by PDA address, preferring the ephemeral amount when both return
+     * an entry because ephemeral reflects the live balance.
+     */
+    getAllDepositsByUser(user: PublicKey): Promise<DepositData[]>;
+    /**
      * Get username deposit data
      */
     getBaseUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
     getEphemeralUsernameDeposit(username: string, tokenMint: PublicKey): Promise<UsernameDepositData | null>;
+    /**
+     * Get the live base lending APY for the configured Kamino reserve in basis points.
+     * This is reserve supply APY only and does not include farm reward APY.
+     * Returns null when the token mint has no hardcoded Kamino reserve config.
+     * Devnet reserves intentionally return 0 because the UI APY source is mainnet-only.
+     */
+    getKaminoLendingApyBps(tokenMint: PublicKey): Promise<number | null>;
+    getKaminoReserveSnapshot(tokenMint: PublicKey): Promise<KaminoReserveSnapshot | null>;
+    getKaminoShieldedBalanceQuote(params: GetKaminoShieldedBalanceQuoteParams): Promise<KaminoShieldedBalanceQuote | null>;
+    getKaminoCollateralSharesForLiquidityAmount(params: GetKaminoCollateralSharesForLiquidityAmountParams): Promise<bigint | null>;
+    calculateKaminoCollateralExchangeRateSfFromAmounts(args: {
+        collateralAmountRaw: number | bigint;
+        liquidityAmountRaw: number | bigint;
+    }): bigint | null;
     /**
      * Get the connected wallet's public key
      */

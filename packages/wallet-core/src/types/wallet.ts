@@ -8,6 +8,7 @@ export interface TokenRow {
   value: string;
   icon: string;
   isSecured?: boolean;
+  apyBps?: number | null;
 }
 
 export interface ActivityRow {

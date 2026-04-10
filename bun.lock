@@ -148,7 +148,7 @@
     },
     "extension": {
       "name": "@loyal-labs/extension",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "@solana/wallet-adapter-base": "^0.9.27",
         "@solana/wallet-adapter-react": "^0.15.39",

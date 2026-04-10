@@ -10,10 +10,25 @@ export declare const ER_VALIDATOR_MAINNET: PublicKey;
 export declare const ER_VALIDATOR: PublicKey;
 export declare function getErValidatorForSolanaEnv(env: string): PublicKey;
 export declare function getErValidatorForRpcEndpoint(rpcEndpoint: string): PublicKey;
+export declare function getKaminoModifyBalanceAccountsForTokenMint(tokenMint: PublicKey): KaminoModifyBalanceAccounts | null;
 /**
  * Telegram Private Transfer program ID
  */
 export declare const PROGRAM_ID: PublicKey;
+export declare const USDC_MINT_DEVNET: PublicKey;
+export declare const USDC_MINT_MAINNET: PublicKey;
+export declare const KLEND_PROGRAM_ID: PublicKey;
+export interface KaminoModifyBalanceAccounts {
+    lendingMarket: PublicKey;
+    lendingMarketAuthority: PublicKey;
+    reserve: PublicKey;
+    reserveLiquiditySupply: PublicKey;
+    reserveCollateralMint: PublicKey;
+    liquidityDecimals: number;
+    instructionSysvarAccount: PublicKey;
+    klendProgram: PublicKey;
+}
+export declare function isKaminoMainnetModifyBalanceAccounts(accounts: KaminoModifyBalanceAccounts): boolean;
 /**
  * MagicBlock Delegation Program ID
  */

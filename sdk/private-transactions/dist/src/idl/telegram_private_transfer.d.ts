@@ -1636,6 +1636,16 @@ export type TelegramPrivateTransfer = {
             "code": 6011;
             "name": "invalidDepositor";
             "msg": "Invalid Depositor";
+        },
+        {
+            "code": 6012;
+            "name": "invalidKaminoAccounts";
+            "msg": "Invalid Kamino accounts";
+        },
+        {
+            "code": 6013;
+            "name": "invalidAmount";
+            "msg": "Invalid amount";
         }
     ];
     "types": [
@@ -1657,6 +1667,10 @@ export type TelegramPrivateTransfer = {
                     },
                     {
                         "name": "amount";
+                        "docs": [
+                            "For USDC deposits, this stores the Kamino share token amount.",
+                            "For all other mints, this stores the deposited liquidity token amount."
+                        ];
                         "type": "u64";
                     }
                 ];
@@ -1764,6 +1778,10 @@ export type TelegramPrivateTransfer = {
                     },
                     {
                         "name": "amount";
+                        "docs": [
+                            "For USDC deposits, this stores the Kamino share token amount.",
+                            "For all other mints, this stores the deposited liquidity token amount."
+                        ];
                         "type": "u64";
                     }
                 ];

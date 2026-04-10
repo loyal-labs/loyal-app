@@ -8,6 +8,7 @@ import type {
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getCachedKaminoLendingApyBps } from "../lib/kamino-apy";
 import { getTokenIconUrl } from "../lib/token-icon";
 import type { ActivityRow, TokenRow, TransactionDetail } from "../types/wallet";
 
@@ -621,6 +622,49 @@ export function useWalletData(params: {
 		return rows;
 	}, [positions, loylPriceUsd]);
 
+	// Enrich secured rows with Kamino APY
+	const [apyByMint, setApyByMint] = useState<
+		Record<string, number | null>
+	>({});
+	useEffect(() => {
+		const securedMints = allTokenRows
+			.filter((r) => r.isSecured && r.id)
+			.map((r) => r.id!.replace(/-secured$/, ""));
+		if (securedMints.length === 0) return;
+
+		let cancelled = false;
+		Promise.all(
+			securedMints.map(async (mint) => {
+				const apyBps = await getCachedKaminoLendingApyBps({
+					solanaEnv,
+					mint,
+				});
+				return [mint, apyBps] as const;
+			}),
+		).then((results) => {
+			if (cancelled) return;
+			const next: Record<string, number | null> = {};
+			for (const [mint, apyBps] of results) {
+				if (apyBps !== null) next[mint] = apyBps;
+			}
+			if (Object.keys(next).length > 0) setApyByMint(next);
+		});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [allTokenRows, solanaEnv]);
+
+	const enrichedTokenRows = useMemo(() => {
+		if (Object.keys(apyByMint).length === 0) return allTokenRows;
+		return allTokenRows.map((row) => {
+			if (!row.isSecured || !row.id) return row;
+			const mint = row.id.replace(/-secured$/, "");
+			const apyBps = apyByMint[mint];
+			return apyBps != null ? { ...row, apyBps } : row;
+		});
+	}, [allTokenRows, apyByMint]);
+
 	const activityData = useMemo(() => {
 		const details: Record<string, TransactionDetail> = {};
 		const SHIELD_PLUMBING_ACTIONS = new Set([
@@ -739,8 +783,8 @@ export function useWalletData(params: {
 						maximumFractionDigits: 5,
 					})} SOL`,
 		walletLabel,
-		tokenRows: allTokenRows.slice(0, 3),
-		allTokenRows,
+		tokenRows: enrichedTokenRows.slice(0, 3),
+		allTokenRows: enrichedTokenRows,
 		activityRows: mergedActivityData.rows.slice(0, 5),
 		allActivityRows: mergedActivityData.rows,
 		transactionDetails: mergedActivityData.details,

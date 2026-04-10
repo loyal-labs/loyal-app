@@ -18,7 +18,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "bun run build:js && bun run build:types",
-    "build:js": "bun build ./index.ts --outdir ./dist --target browser --format esm --external @coral-xyz/anchor --external @solana/web3.js --external @solana/spl-token --external @magicblock-labs/ephemeral-rollups-sdk --external bn.js --external tweetnacl",
+    "build:js": "bun build ./index.ts --outdir ./dist --target browser --format esm --external @coral-xyz/anchor --external @solana/web3.js --external @solana/spl-token --external @magicblock-labs/ephemeral-rollups-sdk --external bn.js",
     "build:types": "tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build",
     "clean": "rm -rf dist",
