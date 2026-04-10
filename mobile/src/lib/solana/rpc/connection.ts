@@ -1,5 +1,7 @@
 import { Connection } from "@solana/web3.js";
 
+import { mmkv } from "@/lib/storage";
+
 import {
   LOCALNET_RPC_URL,
   LOCALNET_RPC_WS,
@@ -16,17 +18,42 @@ import {
 } from "./constants";
 import type { SolanaEnv } from "./types";
 
-export const getSolanaEnv = (): SolanaEnv => {
-  const env = process.env.EXPO_PUBLIC_SOLANA_ENV ?? "devnet";
+const SOLANA_ENV_OVERRIDE_KEY = "settings_solana_env";
+
+const envChangeListeners = new Set<(env: SolanaEnv) => void>();
+
+export const onSolanaEnvChange = (cb: (env: SolanaEnv) => void) => {
+  envChangeListeners.add(cb);
+  return () => { envChangeListeners.delete(cb); };
+};
+
+function resolveEnv(raw: string | undefined): SolanaEnv {
   if (
-    env === "mainnet" ||
-    env === "testnet" ||
-    env === "devnet" ||
-    env === "localnet"
+    raw === "mainnet" ||
+    raw === "testnet" ||
+    raw === "devnet" ||
+    raw === "localnet"
   ) {
-    return env;
+    return raw;
   }
   return "devnet";
+}
+
+export const getSolanaEnv = (): SolanaEnv => {
+  const override = mmkv.getString(SOLANA_ENV_OVERRIDE_KEY);
+  if (override) return resolveEnv(override);
+  return resolveEnv(process.env.EXPO_PUBLIC_SOLANA_ENV);
+};
+
+export const setSolanaEnvOverride = (env: SolanaEnv): void => {
+  mmkv.setString(SOLANA_ENV_OVERRIDE_KEY, env);
+  invalidateConnectionCache();
+  envChangeListeners.forEach((cb) => cb(env));
+};
+
+export const clearSolanaEnvOverride = (): void => {
+  mmkv.delete(SOLANA_ENV_OVERRIDE_KEY);
+  invalidateConnectionCache();
 };
 
 export const getEndpoints = (
@@ -75,24 +102,38 @@ export const getPerEndpoints = (
   }
 };
 
-const selectedSolanaEnv = getSolanaEnv();
-export const { rpcEndpoint, websocketEndpoint } =
-  getEndpoints(selectedSolanaEnv);
-export const { perRpcEndpoint, perWsEndpoint } =
-  getPerEndpoints(selectedSolanaEnv);
-
 let cachedConnection: Connection | null = null;
 let cachedWebsocketConnection: Connection | null = null;
+let cachedEnv: SolanaEnv | null = null;
 const connectionConfig = { commitment: "confirmed" as const };
 
+function invalidateConnectionCache(): void {
+  cachedConnection = null;
+  cachedWebsocketConnection = null;
+  cachedEnv = null;
+}
+
+function ensureEnv(): SolanaEnv {
+  const env = getSolanaEnv();
+  if (cachedEnv && cachedEnv !== env) {
+    invalidateConnectionCache();
+  }
+  cachedEnv = env;
+  return env;
+}
+
 export const getConnection = (): Connection => {
+  const env = ensureEnv();
   if (cachedConnection) return cachedConnection;
+  const { rpcEndpoint } = getEndpoints(env);
   cachedConnection = new Connection(rpcEndpoint, connectionConfig);
   return cachedConnection;
 };
 
 export const getWebsocketConnection = (): Connection => {
+  const env = ensureEnv();
   if (cachedWebsocketConnection) return cachedWebsocketConnection;
+  const { rpcEndpoint, websocketEndpoint } = getEndpoints(env);
   cachedWebsocketConnection = new Connection(rpcEndpoint, {
     ...connectionConfig,
     wsEndpoint: websocketEndpoint,

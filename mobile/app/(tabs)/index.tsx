@@ -1,6 +1,6 @@
 import { BottomSheetModal } from "@gorhom/bottom-sheet";
 import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -25,8 +25,11 @@ import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
+import { onSolanaEnvChange } from "@/lib/solana/rpc/connection";
+import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import {
   getCachedBalanceBg,
+  resetWalletBalanceSubscription,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
 import { ScrollView, Text, View } from "@/tw";
@@ -49,6 +52,26 @@ export default function WalletScreen() {
   } = useWalletTransactions(walletAddress);
   const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
     useKaminoEarnings();
+
+  // Re-fetch everything when the Solana network is switched in Settings
+  const [networkLoading, setNetworkLoading] = useState(false);
+  const [networkKey, setNetworkKey] = useState(0);
+
+  useEffect(() => {
+    return onSolanaEnvChange(() => {
+      clearHoldingsCache();
+      setNetworkLoading(true);
+      setNetworkKey((k) => k + 1);
+
+      void resetWalletBalanceSubscription().then(() =>
+        Promise.all([
+          refreshBalance(true),
+          refreshTokenHoldings(true),
+          loadWalletTransactions({ force: true }),
+        ]).finally(() => setNetworkLoading(false)),
+      );
+    });
+  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
 
   // Include shielded SOL in displayed balance
   const securedSolHolding = tokenHoldings.find(
@@ -183,13 +206,14 @@ export default function WalletScreen() {
         }
       >
         <BalanceCard
+          key={networkKey}
           walletAddress={walletAddress}
           solBalanceLamports={totalSolLamports}
           solPriceUsd={solPriceUsd}
           totalPortfolioUsd={totalPortfolioUsd}
           displayCurrency={displayCurrency}
           onToggleCurrency={handleToggleCurrency}
-          isLoading={isLoading}
+          isLoading={isLoading || networkLoading}
           walletError={walletError}
           onRetry={retryWalletInit}
           earnings={kaminoEarnings}
@@ -225,8 +249,8 @@ export default function WalletScreen() {
         {/* Token holdings */}
         <View>
           <TokensList
-            holdings={tokenHoldings}
-            isLoading={isHoldingsLoading}
+            holdings={networkLoading ? [] : tokenHoldings}
+            isLoading={isHoldingsLoading || networkLoading}
             onSeeAll={handleShowAllTokens}
           />
         </View>
@@ -234,9 +258,9 @@ export default function WalletScreen() {
         {/* Activity feed */}
         <View>
           <ActivityFeed
-            transactions={walletTransactions}
-            tokenHoldings={tokenHoldings}
-            isLoading={isFetchingTransactions}
+            transactions={networkLoading ? [] : walletTransactions}
+            tokenHoldings={networkLoading ? [] : tokenHoldings}
+            isLoading={isFetchingTransactions || networkLoading}
             onTransactionPress={handleTransactionPress}
             onShowAll={handleShowAllActivity}
           />

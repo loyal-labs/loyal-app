@@ -1,3 +1,4 @@
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import {
@@ -6,30 +7,30 @@ import {
   CircleHelp,
   Fingerprint,
   Globe,
+  Heart,
   Key,
+  Network,
   RotateCcw,
   Trash2,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
+import {
+  getSolanaEnv,
+  setSolanaEnvOverride,
+} from "@/lib/solana/rpc/connection";
+import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
+import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
-import { Image } from "@/tw/image";
 
 const SUPPORT_URL = "https://t.me/spacesymmetry";
-
-const AVATARS = [
-  require("../../assets/images/avatars/avatar-01.png"),
-  require("../../assets/images/avatars/avatar-02.png"),
-  require("../../assets/images/avatars/avatar-03.png"),
-  require("../../assets/images/avatars/avatar-04.png"),
-  require("../../assets/images/avatars/Avatar-05.png"),
-];
+const ANALYTICS_OPT_IN_KEY = "settings_analytics_opt_in";
 
 const TAB_BAR_HEIGHT = 90;
 
@@ -113,6 +114,10 @@ function ProfileCell({
 
 export default function ProfileScreen() {
   const [pushNotifications, setPushNotifications] = useState(true);
+  const [analyticsOptIn, setAnalyticsOptIn] = useState(
+    () => mmkv.getBoolean(ANALYTICS_OPT_IN_KEY) ?? true,
+  );
+  const [isMainnet, setIsMainnet] = useState(() => getSolanaEnv() === "mainnet");
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
@@ -124,11 +129,6 @@ export default function ProfileScreen() {
   useEffect(() => {
     isBiometricAvailable().then(setBiometricsAvailable);
   }, []);
-
-  const avatarSource = useMemo(
-    () => AVATARS[Math.floor(Math.random() * AVATARS.length)],
-    [],
-  );
 
   const handleSupport = useCallback(() => {
     if (process.env.EXPO_OS !== "web") {
@@ -149,6 +149,36 @@ export default function ProfileScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     setPushNotifications(value);
+  }, []);
+
+  const handleAnalyticsToggle = useCallback((value: boolean) => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setAnalyticsOptIn(value);
+    mmkv.setBoolean(ANALYTICS_OPT_IN_KEY, value);
+  }, []);
+
+  const handleNetworkToggle = useCallback((value: boolean) => {
+    const nextEnv = value ? "mainnet" : "devnet";
+    Alert.alert(
+      `Switch to ${nextEnv}?`,
+      "The wallet will reload balances for the selected network.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Switch",
+          onPress: () => {
+            if (process.env.EXPO_OS !== "web") {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+            setSolanaEnvOverride(nextEnv);
+            clearHoldingsCache();
+            setIsMainnet(value);
+          },
+        },
+      ],
+    );
   }, []);
 
   const handleBiometricToggle = useCallback(
@@ -196,7 +226,13 @@ export default function ProfileScreen() {
     }
     const hex = wallet.getSecretKeyHex();
     if (hex) {
-      Alert.alert("Secret Key", hex);
+      Alert.alert("Secret Key", hex, [
+        {
+          text: "Copy",
+          onPress: () => Clipboard.setStringAsync(hex),
+        },
+        { text: "Done" },
+      ]);
     } else {
       Alert.alert("Error", "Unable to export secret key");
     }
@@ -221,25 +257,13 @@ export default function ProfileScreen() {
   }, [wallet]);
 
   return (
-    <ScrollView
-      className="flex-1 bg-white"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
-    >
+    <View className="flex-1 bg-white">
       <LogoHeader />
-
-      {/* Avatar + Name */}
-      <View style={styles.header}>
-        <View style={styles.avatarWrap}>
-          <Image source={avatarSource} style={styles.avatar} transition={150} />
-        </View>
-        <View style={styles.nameContainer}>
-          <Text style={styles.name}>Test User</Text>
-        </View>
-      </View>
-
-      {/* Settings */}
-      <View style={styles.container}>
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
+      >
+        <View style={styles.container}>
         {/* Language + Push Notifications */}
         <SettingsSection>
           <ProfileCell
@@ -254,6 +278,15 @@ export default function ProfileScreen() {
             toggle={{
               value: pushNotifications,
               onValueChange: handleNotificationToggle,
+            }}
+          />
+          <ProfileCell
+            icon={<Network size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+            title="Mainnet"
+            subtitle={isMainnet ? "Using mainnet" : "Using devnet"}
+            toggle={{
+              value: isMainnet,
+              onValueChange: handleNetworkToggle,
             }}
           />
         </SettingsSection>
@@ -343,43 +376,25 @@ export default function ProfileScreen() {
             />
           </SettingsSection>
         )}
-      </View>
-    </ScrollView>
+        <SettingsSection>
+          <ProfileCell
+            icon={<Heart size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+            title="Anonymously improve Loyal for everyone"
+            toggle={{
+              value: analyticsOptIn,
+              onValueChange: handleAnalyticsToggle,
+            }}
+          />
+        </SettingsSection>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    alignItems: "center",
-    paddingTop: 32,
-    paddingBottom: 24,
-    paddingHorizontal: 32,
-    gap: 16,
-  },
-  avatarWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "#e5e5ea",
-    overflow: "hidden",
-  },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-  },
-  nameContainer: {
-    alignItems: "center",
-    gap: 4,
-  },
-  name: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 24,
-    lineHeight: 28,
-    color: "#000",
-    textAlign: "center",
-  },
   container: {
+    paddingTop: 20,
     paddingHorizontal: 16,
     gap: 16,
   },

@@ -94,6 +94,18 @@ export const ensureWalletBalanceSubscription = async (
   return walletBalanceSubscriptionPromise;
 };
 
+/** Tear down the current balance websocket so it reconnects on the new network. */
+export const resetWalletBalanceSubscription = async (): Promise<void> => {
+  if (!walletBalanceSubscriptionPromise) return;
+  try {
+    const unsub = await walletBalanceSubscriptionPromise;
+    await unsub();
+  } catch {
+    // already dead — ignore
+  }
+  walletBalanceSubscriptionPromise = null;
+};
+
 // --- Display currency preference (MMKV-backed) ---
 
 export const getCachedDisplayCurrency = (): "USD" | "SOL" | null => {

@@ -20,6 +20,11 @@ import type {
 
 const holdingsCache = new Map<string, CachedHoldings>();
 const inflightRequests = new Map<string, Promise<TokenHolding[]>>();
+
+export function clearHoldingsCache(): void {
+  holdingsCache.clear();
+  inflightRequests.clear();
+}
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 
 type JupiterTokenSearchResult = {
