@@ -1,5 +1,5 @@
-import { evaluateFlag } from "./evaluate-flag";
-import type { FlagDefinition, FlagEvaluationContext } from "./types";
+import { evaluateFlag } from "./evaluate-flag.js";
+import type { FlagDefinition, FlagEvaluationContext } from "./types.js";
 
 export function evaluateFlags(
   flags: FlagDefinition[],

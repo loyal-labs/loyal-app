@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
-import { evaluateFlag, evaluateFlags, getFlagValue } from "../index";
-import type { FlagDefinition, FlagEvaluationContext } from "../types";
+import { evaluateFlag, evaluateFlags, getFlagValue } from "../index.js";
+import type { FlagDefinition, FlagEvaluationContext } from "../types.js";
 
 const baseFlag: FlagDefinition = {
   key: "wallet_new_send_flow",
@@ -31,6 +31,62 @@ describe("evaluateFlag", () => {
     };
 
     expect(evaluateFlag(baseFlag, context)).toBe(false);
+  });
+
+  it("returns false when the flag is disabled", () => {
+    const context: FlagEvaluationContext = {
+      app: "website",
+      environment: "preview",
+      isTeam: true,
+    };
+
+    expect(
+      evaluateFlag(
+        {
+          ...baseFlag,
+          enabled: false,
+        },
+        context,
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false when the app does not match", () => {
+    const context: FlagEvaluationContext = {
+      app: "mobile",
+      environment: "preview",
+      isTeam: true,
+    };
+
+    expect(evaluateFlag(baseFlag, context)).toBe(false);
+  });
+
+  it("returns false when the environment does not match", () => {
+    const context: FlagEvaluationContext = {
+      app: "website",
+      environment: "production",
+      isTeam: true,
+    };
+
+    expect(evaluateFlag(baseFlag, context)).toBe(false);
+  });
+
+  it("returns true for audience all when app and environment match", () => {
+    const context: FlagEvaluationContext = {
+      app: "website",
+      environment: "preview",
+      isTeam: false,
+    };
+
+    expect(
+      evaluateFlag(
+        {
+          ...baseFlag,
+          audience: "all",
+        },
+        context,
+      ),
+    ).toBe(true);
   });
 });
 
