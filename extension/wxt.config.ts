@@ -16,10 +16,8 @@ export default defineConfig({
       "../packages/solana-wallet/src",
       import.meta.url
     ).pathname,
-    "@loyal-labs/shared": new URL(
-      "../packages/shared/src",
-      import.meta.url
-    ).pathname,
+    "@loyal-labs/shared": new URL("../packages/shared/src", import.meta.url)
+      .pathname,
     "@loyal-labs/private-transactions": new URL(
       "../sdk/private-transactions/dist/index.js",
       import.meta.url
@@ -27,8 +25,12 @@ export default defineConfig({
   },
 
   manifest: ({ mode, browser }) => ({
-    name: mode === "development" ? "Loyal (Dev)" : "Loyal",
-    description: "Loyal standalone wallet extension",
+    name:
+      mode === "development"
+        ? "Loyal (Dev)"
+        : "Loyal — Private Solana Wallet & AI Agent",
+    description:
+      "Private open-source Solana wallet with AI agents and shielded transfers. Connect to any dApp, send via Telegram.",
     permissions: [
       "storage",
       "idle",

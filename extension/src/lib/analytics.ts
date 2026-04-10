@@ -64,6 +64,19 @@ export function resetAnalytics(): void {
   lastIdentifiedDistinctId = null;
 }
 
+/**
+ * Check if a fresh-install event is pending (set by background on
+ * chrome.runtime.onInstalled) and fire it once from the UI context
+ * where the Mixpanel browser client is available.
+ */
+export async function flushInstallEvent(): Promise<void> {
+  const { installEventPending } = await import("~/src/lib/storage");
+  const pending = await installEventPending.getValue();
+  if (!pending) return;
+  track("Installed Extension");
+  await installEventPending.setValue(false);
+}
+
 export function getAnalyticsErrorProperties(error: unknown): {
   error_name: string;
   error_message: string;

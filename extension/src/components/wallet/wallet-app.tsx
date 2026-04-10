@@ -25,12 +25,20 @@ import type {
 } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
 import { Keypair } from "@solana/web3.js";
-import { generateKeypair, getPinLockoutRemaining, PinLockedError } from "~/src/lib/keypair-storage";
+import {
+  generateKeypair,
+  getPinLockoutRemaining,
+  PinLockedError,
+} from "~/src/lib/keypair-storage";
 import { credentialVersion as credentialVersionStorage } from "~/src/lib/storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
 import { DogMascot } from "./dog-mascot";
 import type { DogMood } from "./dog-mascot";
-import { MIN_PASSWORD_LENGTH, PasswordInput, getPasswordStrength } from "./shared";
+import {
+  MIN_PASSWORD_LENGTH,
+  PasswordInput,
+  getPasswordStrength,
+} from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
 import type { TokenRowActions } from "./token-row-item";
@@ -48,12 +56,10 @@ import { DappApprovalView } from "./dapp-approval-view";
 import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
-import {
-  pendingDappApproval,
-  onboardingCompleted,
-} from "~/src/lib/storage";
+import { pendingDappApproval, onboardingCompleted } from "~/src/lib/storage";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
+  flushInstallEvent,
   initAnalytics,
   identifyWallet,
   track,
@@ -461,7 +467,9 @@ function CreateWalletScreen({
           error={!!error}
           errorMessage={error ?? undefined}
           showStrength={step === "enter"}
-          placeholder={step === "enter" ? "Create a password" : "Confirm your password"}
+          placeholder={
+            step === "enter" ? "Create a password" : "Confirm your password"
+          }
           autoFocus
         />
 
@@ -473,7 +481,10 @@ function CreateWalletScreen({
               const val = step === "enter" ? password : confirmPassword;
               if (val.length > 0) handlePasswordSubmit(val);
             }}
-            disabled={loading || (step === "enter" ? password : confirmPassword).length === 0}
+            disabled={
+              loading ||
+              (step === "enter" ? password : confirmPassword).length === 0
+            }
             style={{
               width: "100%",
               display: "flex",
@@ -483,8 +494,14 @@ function CreateWalletScreen({
               marginTop: "16px",
               borderRadius: "9999px",
               border: "none",
-              cursor: (step === "enter" ? password : confirmPassword).length === 0 ? "default" : "pointer",
-              background: (step === "enter" ? password : confirmPassword).length === 0 ? "#CCCDCD" : "#000",
+              cursor:
+                (step === "enter" ? password : confirmPassword).length === 0
+                  ? "default"
+                  : "pointer",
+              background:
+                (step === "enter" ? password : confirmPassword).length === 0
+                  ? "#CCCDCD"
+                  : "#000",
               fontFamily: "var(--font-geist-sans), sans-serif",
               fontSize: "16px",
               fontWeight: 400,
@@ -615,7 +632,6 @@ function CreateWalletScreen({
             );
           })()}
         </div>
-
       </div>
 
       {/* Backup key screen — slides in from right */}
@@ -805,7 +821,8 @@ function formatLockoutRemaining(ms: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  if (minutes < 60) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  if (minutes < 60)
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
@@ -848,7 +865,9 @@ function UnlockScreen() {
       }
     });
 
-    return () => { if (timer) clearInterval(timer); };
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, []);
 
   function startLockoutCountdown(ms: number) {
@@ -947,14 +966,20 @@ function UnlockScreen() {
         error={!!error}
         errorMessage={error ?? undefined}
         disabled={loading || lockoutRemaining > 0}
-        label={lockoutRemaining > 0 ? `Try again in ${formatLockoutRemaining(lockoutRemaining)}` : undefined}
+        label={
+          lockoutRemaining > 0
+            ? `Try again in ${formatLockoutRemaining(lockoutRemaining)}`
+            : undefined
+        }
         placeholder="Enter your password or PIN"
         autoFocus
       />
 
       <button
         type="button"
-        onClick={() => { if (password.length > 0) void handleUnlock(password); }}
+        onClick={() => {
+          if (password.length > 0) void handleUnlock(password);
+        }}
         disabled={loading || lockoutRemaining > 0 || password.length === 0}
         style={{
           width: "100%",
@@ -965,8 +990,14 @@ function UnlockScreen() {
           marginTop: "16px",
           borderRadius: "9999px",
           border: "none",
-          cursor: loading || lockoutRemaining > 0 || password.length === 0 ? "default" : "pointer",
-          background: loading || lockoutRemaining > 0 || password.length === 0 ? "#CCCDCD" : "#000",
+          cursor:
+            loading || lockoutRemaining > 0 || password.length === 0
+              ? "default"
+              : "pointer",
+          background:
+            loading || lockoutRemaining > 0 || password.length === 0
+              ? "#CCCDCD"
+              : "#000",
           fontFamily: "var(--font-geist-sans), sans-serif",
           fontSize: "16px",
           fontWeight: 400,
@@ -1315,7 +1346,9 @@ function WalletInterface() {
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(swapTokens.map((t) => t.mint).filter(Boolean));
-    const extras = popularTokens.filter((t) => t.mint && !heldMints.has(t.mint));
+    const extras = popularTokens.filter(
+      (t) => t.mint && !heldMints.has(t.mint)
+    );
     return [...swapTokens, ...extras];
   }, [swapTokens, popularTokens]);
 
@@ -1339,14 +1372,23 @@ function WalletInterface() {
       if (isSecured) {
         return {
           onSend: () => handleTabChange("send"),
-          onUnshield: () => { setSwapMode("shield"); handleTabChange("shield"); },
+          onUnshield: () => {
+            setSwapMode("shield");
+            handleTabChange("shield");
+          },
         };
       }
 
       const actions: TokenRowActions = {
         onSend: () => handleTabChange("send"),
-        onSwap: () => { setSwapMode("swap"); handleTabChange("swap"); },
-        onShield: () => { setSwapMode("shield"); handleTabChange("shield"); },
+        onSwap: () => {
+          setSwapMode("swap");
+          handleTabChange("swap");
+        },
+        onShield: () => {
+          setSwapMode("shield");
+          handleTabChange("shield");
+        },
       };
 
       if (isLoyal) {
@@ -1361,7 +1403,7 @@ function WalletInterface() {
 
       return actions;
     },
-    [handleTabChange, setSwapMode],
+    [handleTabChange, setSwapMode]
   );
 
   // Tab content with real components (uses displayTab for cross-fade)
@@ -1719,7 +1761,9 @@ function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
           await credentialVersionStorage.setValue(2);
           onComplete();
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Failed to update password");
+          setError(
+            e instanceof Error ? e.message : "Failed to update password"
+          );
         } finally {
           setLoading(false);
         }
@@ -1789,13 +1833,17 @@ function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
         error={!!error}
         errorMessage={error ?? undefined}
         showStrength={step === "enter"}
-        placeholder={step === "enter" ? "Enter new password" : "Re-enter your password"}
+        placeholder={
+          step === "enter" ? "Enter new password" : "Re-enter your password"
+        }
         autoFocus
       />
 
       <button
         type="button"
-        onClick={() => { if (currentValue.length > 0) void handleSubmit(currentValue); }}
+        onClick={() => {
+          if (currentValue.length > 0) void handleSubmit(currentValue);
+        }}
         disabled={loading || currentValue.length === 0}
         style={{
           width: "100%",
@@ -1816,7 +1864,11 @@ function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
           transition: "background 0.15s ease",
         }}
       >
-        {loading ? "Updating..." : step === "enter" ? "Continue" : "Set Password"}
+        {loading
+          ? "Updating..."
+          : step === "enter"
+          ? "Continue"
+          : "Set Password"}
       </button>
 
       {step === "confirm" && (
@@ -1861,7 +1913,7 @@ function WalletAppInner() {
   const [showPasswordUpgrade, setShowPasswordUpgrade] = useState(false);
 
   useEffect(() => {
-    void initAnalytics();
+    void initAnalytics().then(() => flushInstallEvent());
   }, []);
 
   // Check onboarding flag on mount
@@ -1880,9 +1932,10 @@ function WalletAppInner() {
       setTransitioning(true);
 
       // Check if legacy PIN user needs password upgrade before showing confetti
-      const upgradeCheck = prev === "locked"
-        ? credentialVersionStorage.getValue()
-        : Promise.resolve(2 as number | null);
+      const upgradeCheck =
+        prev === "locked"
+          ? credentialVersionStorage.getValue()
+          : Promise.resolve(2 as number | null);
 
       void upgradeCheck.then((version) => {
         const needsUpgrade = version === null;
@@ -1934,10 +1987,12 @@ function WalletAppInner() {
     ) : displayState === "locked" ? (
       <UnlockScreen />
     ) : showPasswordUpgrade ? (
-      <PasswordUpgradeScreen onComplete={() => {
-        setShowPasswordUpgrade(false);
-        setShowConfetti(true);
-      }} />
+      <PasswordUpgradeScreen
+        onComplete={() => {
+          setShowPasswordUpgrade(false);
+          setShowConfetti(true);
+        }}
+      />
     ) : (
       <WalletInterface />
     );

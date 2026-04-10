@@ -15,6 +15,7 @@ import {
   autoLockTimeout,
   connectedDappOrigins,
   connectedExternalWallet,
+  installEventPending,
   isWalletUnlocked,
   lastActivityAt,
   pendingDappApproval,
@@ -95,7 +96,7 @@ function base64ToUint8Array(b64: string): Uint8Array {
 
 /** Extract the browser-verified page origin from the message sender. */
 function getVerifiedOrigin(
-  sender: browser.runtime.MessageSender,
+  sender: browser.runtime.MessageSender
 ): string | null {
   if (sender.origin) return sender.origin;
   const url = sender.url ?? sender.tab?.url;
@@ -110,7 +111,7 @@ function getVerifiedOrigin(
 }
 
 function isTrustedExtensionPageSender(
-  sender: browser.runtime.MessageSender,
+  sender: browser.runtime.MessageSender
 ): boolean {
   const extensionOrigin = new URL(browser.runtime.getURL("/")).origin;
   if (sender.origin === extensionOrigin) return true;
@@ -128,6 +129,16 @@ function createApprovalToken(): string {
 }
 
 export default defineBackground(() => {
+  // --- Offboarding: redirect to questionnaire on uninstall ---
+  void browser.runtime.setUninstallURL("https://tally.so/r/RGJY6K");
+
+  // --- Install tracking: flag for UI to fire Mixpanel event ---
+  browser.runtime.onInstalled.addListener((details) => {
+    if (details.reason === "install") {
+      void installEventPending.setValue(true);
+    }
+  });
+
   // Track how many extension UI instances (popup/sidepanel) are currently open.
   // The counter is best-effort — it resets on service worker restart.
   // openExtensionForApproval() uses getContexts() as the authoritative check.
@@ -272,19 +283,15 @@ export default defineBackground(() => {
       pendingSignRequests.set(request.id, sendResponse);
 
       // Forward to the connect tab
-      browser.tabs
-        .sendMessage(connectTabId, request)
-        .catch((err: unknown) => {
-          pendingSignRequests.delete(request.id);
-          sendResponse({
-            type: "SIGN_TRANSACTION_RESPONSE",
-            id: request.id,
-            error:
-              err instanceof Error
-                ? err.message
-                : "Failed to reach wallet tab",
-          } satisfies SignTransactionResponse);
-        });
+      browser.tabs.sendMessage(connectTabId, request).catch((err: unknown) => {
+        pendingSignRequests.delete(request.id);
+        sendResponse({
+          type: "SIGN_TRANSACTION_RESPONSE",
+          id: request.id,
+          error:
+            err instanceof Error ? err.message : "Failed to reach wallet tab",
+        } satisfies SignTransactionResponse);
+      });
 
       // Return true to indicate we will call sendResponse asynchronously
       return true;
@@ -309,13 +316,15 @@ export default defineBackground(() => {
     if (uiConnectionCount > 0) return true;
     // Authoritative check: query live extension contexts (survives SW restart)
     try {
-      const contexts = await (chrome.runtime as typeof chrome.runtime).getContexts({});
+      const contexts = await (
+        chrome.runtime as typeof chrome.runtime
+      ).getContexts({});
       return contexts.some(
         (ctx) =>
           ctx.contextType === "SIDE_PANEL" ||
           ctx.contextType === "POPUP" ||
           (ctx.contextType === "TAB" &&
-            ctx.documentUrl?.includes(browser.runtime.id)),
+            ctx.documentUrl?.includes(browser.runtime.id))
       );
     } catch {
       // Firefox / older Chrome — fall back to counter only
@@ -543,7 +552,7 @@ export default defineBackground(() => {
       void (async () => {
         const origins = await connectedDappOrigins.getValue();
         await connectedDappOrigins.setValue(
-          origins.filter((o) => o !== origin),
+          origins.filter((o) => o !== origin)
         );
       })();
       return;
@@ -632,10 +641,14 @@ export default defineBackground(() => {
           try {
             if (pending.kind === "connect") {
               const publicKey = await getStoredPublicKey();
-              if (!publicKey) throw new Error("Wallet public key is unavailable.");
+              if (!publicKey)
+                throw new Error("Wallet public key is unavailable.");
               const origins = await connectedDappOrigins.getValue();
               if (!origins.includes(pending.origin)) {
-                await connectedDappOrigins.setValue([...origins, pending.origin]);
+                await connectedDappOrigins.setValue([
+                  ...origins,
+                  pending.origin,
+                ]);
               }
               pending.respond({
                 type: "DAPP_CONNECT_RESPONSE",
@@ -650,7 +663,7 @@ export default defineBackground(() => {
               const { Keypair, Transaction, VersionedTransaction } =
                 await import("@solana/web3.js");
               const keypair = Keypair.fromSecretKey(
-                new Uint8Array(JSON.parse(sessionSecretKey)),
+                new Uint8Array(JSON.parse(sessionSecretKey))
               );
 
               if (pending.kind === "signTransaction" && pending.transaction) {
