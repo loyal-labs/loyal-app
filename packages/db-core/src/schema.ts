@@ -108,6 +108,46 @@ export type AppUserProvider = "solana";
  */
 export type AppChatMessageRole = "user" | "assistant" | "system";
 
+/**
+ * Supported apps for feature registry tracking.
+ */
+export type FeatureApp =
+  | "telegram_miniapp"
+  | "website"
+  | "mobile"
+  | "extension";
+
+/**
+ * Lifecycle state for a feature in a specific app.
+ */
+export type FeatureStatus =
+  | "missing"
+  | "planned"
+  | "in_progress"
+  | "implemented"
+  | "live";
+
+/**
+ * Evidence types attached to feature status entries.
+ */
+export type FeatureEvidenceType =
+  | "path"
+  | "branch"
+  | "pr"
+  | "linear"
+  | "commit"
+  | "doc";
+
+/**
+ * Audience classification for runtime flags.
+ */
+export type FlagAudience = "all" | "public" | "team";
+
+/**
+ * Environments that runtime flags can target.
+ */
+export type FlagTargetEnvironment = "development" | "preview" | "production";
+
 // ============================================================================
 // TABLES
 // ============================================================================
@@ -837,6 +877,150 @@ export const gaslessClaimTransactions = pgTable(
   ]
 );
 
+/**
+ * Canonical feature registry shared across apps.
+ */
+export const featureRegistry = pgTable(
+  "feature_registry",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    owner: text("owner"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("feature_registry_key_idx").on(table.key)]
+);
+
+/**
+ * Per-app feature status rows.
+ */
+export const featureAppStatuses = pgTable(
+  "feature_app_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    featureId: uuid("feature_id")
+      .notNull()
+      .references(() => featureRegistry.id, { onDelete: "cascade" }),
+    app: text("app").$type<FeatureApp>().notNull(),
+    status: text("status").$type<FeatureStatus>().notNull(),
+    statusNote: text("status_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("feature_app_statuses_feature_app_idx").on(
+      table.featureId,
+      table.app
+    ),
+    check(
+      "feature_app_statuses_app_check",
+      sql`${table.app} IN ('telegram_miniapp', 'website', 'mobile', 'extension')`
+    ),
+    check(
+      "feature_app_statuses_status_check",
+      sql`${table.status} IN ('missing', 'planned', 'in_progress', 'implemented', 'live')`
+    ),
+  ]
+);
+
+/**
+ * Evidence attached to a feature status row.
+ */
+export const featureEvidence = pgTable(
+  "feature_evidence",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    featureAppStatusId: uuid("feature_app_status_id")
+      .notNull()
+      .references(() => featureAppStatuses.id, { onDelete: "cascade" }),
+    type: text("type").$type<FeatureEvidenceType>().notNull(),
+    label: text("label").notNull(),
+    value: text("value").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "feature_evidence_type_check",
+      sql`${table.type} IN ('path', 'branch', 'pr', 'linear', 'commit', 'doc')`
+    ),
+  ]
+);
+
+/**
+ * Runtime flags exposed to the frontend.
+ */
+export const runtimeFlags = pgTable(
+  "runtime_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    description: text("description").notNull(),
+    enabled: boolean("enabled").default(false).notNull(),
+    audience: text("audience").$type<FlagAudience>().notNull(),
+    targetEnvironments: jsonb("target_environments")
+      .$type<FlagTargetEnvironment[]>()
+      .default(["development", "preview", "production"])
+      .notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("runtime_flags_key_idx").on(table.key),
+    check(
+      "runtime_flags_audience_check",
+      sql`${table.audience} IN ('all', 'public', 'team')`
+    ),
+  ]
+);
+
+/**
+ * Links runtime flags to features.
+ */
+export const featureFlagLinks = pgTable(
+  "feature_flag_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    featureId: uuid("feature_id")
+      .notNull()
+      .references(() => featureRegistry.id, { onDelete: "cascade" }),
+    flagId: uuid("flag_id")
+      .notNull()
+      .references(() => runtimeFlags.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("feature_flag_links_unique_idx").on(
+      table.featureId,
+      table.flagId
+    ),
+  ]
+);
+
 // ============================================================================
 // RELATIONS (for type-safe queries with Drizzle)
 // ============================================================================
@@ -959,6 +1143,47 @@ export const appChatMessagesRelations = relations(appChatMessages, ({ one }) => 
   }),
 }));
 
+export const featureRegistryRelations = relations(featureRegistry, ({ many }) => ({
+  appStatuses: many(featureAppStatuses),
+  flagLinks: many(featureFlagLinks),
+}));
+
+export const featureAppStatusesRelations = relations(
+  featureAppStatuses,
+  ({ one, many }) => ({
+    feature: one(featureRegistry, {
+      fields: [featureAppStatuses.featureId],
+      references: [featureRegistry.id],
+    }),
+    evidence: many(featureEvidence),
+  })
+);
+
+export const featureEvidenceRelations = relations(featureEvidence, ({ one }) => ({
+  featureAppStatus: one(featureAppStatuses, {
+    fields: [featureEvidence.featureAppStatusId],
+    references: [featureAppStatuses.id],
+  }),
+}));
+
+export const runtimeFlagsRelations = relations(runtimeFlags, ({ many }) => ({
+  featureLinks: many(featureFlagLinks),
+}));
+
+export const featureFlagLinksRelations = relations(
+  featureFlagLinks,
+  ({ one }) => ({
+    feature: one(featureRegistry, {
+      fields: [featureFlagLinks.featureId],
+      references: [featureRegistry.id],
+    }),
+    flag: one(runtimeFlags, {
+      fields: [featureFlagLinks.flagId],
+      references: [runtimeFlags.id],
+    }),
+  })
+);
+
 // ============================================================================
 // TYPE EXPORTS
 // ============================================================================
@@ -1015,6 +1240,21 @@ export type InsertAppChat = typeof appChats.$inferInsert;
 
 export type AppChatMessage = typeof appChatMessages.$inferSelect;
 export type InsertAppChatMessage = typeof appChatMessages.$inferInsert;
+
+export type FeatureRegistry = typeof featureRegistry.$inferSelect;
+export type InsertFeatureRegistry = typeof featureRegistry.$inferInsert;
+
+export type FeatureAppStatus = typeof featureAppStatuses.$inferSelect;
+export type InsertFeatureAppStatus = typeof featureAppStatuses.$inferInsert;
+
+export type FeatureEvidence = typeof featureEvidence.$inferSelect;
+export type InsertFeatureEvidence = typeof featureEvidence.$inferInsert;
+
+export type RuntimeFlag = typeof runtimeFlags.$inferSelect;
+export type InsertRuntimeFlag = typeof runtimeFlags.$inferInsert;
+
+export type FeatureFlagLink = typeof featureFlagLinks.$inferSelect;
+export type InsertFeatureFlagLink = typeof featureFlagLinks.$inferInsert;
 
 export type Topic = { title: string; content: string; sources: string[] };
 
