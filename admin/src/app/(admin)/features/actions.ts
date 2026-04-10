@@ -32,6 +32,11 @@ export async function getFeaturesForMatrix() {
       appStatuses: {
         orderBy: [asc(featureAppStatuses.app)],
       },
+      flagLinks: {
+        with: {
+          flag: true,
+        },
+      },
     },
   });
 }

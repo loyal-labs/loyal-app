@@ -12,7 +12,16 @@ export const dynamic = "force-dynamic";
 
 export default async function FlagsPage() {
   const db = getDatabase();
-  const flags = await db.select().from(runtimeFlags).orderBy(asc(runtimeFlags.key));
+  const flags = await db.query.runtimeFlags.findMany({
+    orderBy: [asc(runtimeFlags.key)],
+    with: {
+      featureLinks: {
+        with: {
+          feature: true,
+        },
+      },
+    },
+  });
 
   const serializedFlags = flags.map((flag) => ({
     id: flag.id,
@@ -22,6 +31,11 @@ export default async function FlagsPage() {
     audience: flag.audience,
     targetEnvironments: flag.targetEnvironments,
     notes: flag.notes,
+    linkedFeatures: flag.featureLinks.map((link) => ({
+      id: link.feature.id,
+      title: link.feature.title,
+      key: link.feature.key,
+    })),
   }));
 
   return (

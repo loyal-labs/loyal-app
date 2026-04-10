@@ -16,6 +16,11 @@ type FlagListItem = {
   audience: FlagAudience;
   targetEnvironments: FlagTargetEnvironment[];
   notes: string | null;
+  linkedFeatures: Array<{
+    id: string;
+    title: string;
+    key: string;
+  }>;
 };
 
 function FlagRow({ flag }: { flag: FlagListItem }) {
@@ -64,6 +69,13 @@ function FlagRow({ flag }: { flag: FlagListItem }) {
           </span>
         </div>
         <p className="text-sm text-muted-foreground">{flag.description}</p>
+        <p className="text-xs text-muted-foreground">
+          {flag.linkedFeatures.length > 0
+            ? `Linked features: ${flag.linkedFeatures
+                .map((feature) => feature.title)
+                .join(", ")}`
+            : "Linked features: none"}
+        </p>
         {flag.notes ? <p className="text-xs text-muted-foreground">{flag.notes}</p> : null}
       </div>
 

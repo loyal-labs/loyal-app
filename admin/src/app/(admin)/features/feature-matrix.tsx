@@ -1,6 +1,11 @@
 import Link from "next/link";
 
-import { type FeatureAppStatus, type FeatureRegistry } from "@loyal-labs/db-core/schema";
+import {
+  type FeatureAppStatus,
+  type FeatureFlagLink,
+  type FeatureRegistry,
+  type RuntimeFlag,
+} from "@loyal-labs/db-core/schema";
 
 import { FeatureStatusBadge } from "./feature-status-badge";
 
@@ -13,6 +18,7 @@ const APPS = [
 
 type FeatureWithStatuses = FeatureRegistry & {
   appStatuses: FeatureAppStatus[];
+  flagLinks: (FeatureFlagLink & { flag: RuntimeFlag })[];
 };
 
 export function FeatureMatrix({ features }: { features: FeatureWithStatuses[] }) {
@@ -41,6 +47,11 @@ export function FeatureMatrix({ features }: { features: FeatureWithStatuses[] })
                     {feature.title}
                   </Link>
                   <p className="text-xs text-muted-foreground">{feature.key}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {feature.flagLinks.length > 0
+                      ? `Flags: ${feature.flagLinks.map((link) => link.flag.key).join(", ")}`
+                      : "Flags: none linked"}
+                  </p>
                 </td>
                 {APPS.map((app) => {
                   const status =
