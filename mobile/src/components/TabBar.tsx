@@ -1,7 +1,7 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
-import { Settings, Wallet } from "lucide-react-native";
+import { GraduationCap, Settings, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet } from "react-native";
 import Animated, {
@@ -14,8 +14,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
+const TAB_ORDER = ["index", "library", "profile"] as const;
+
 const TAB_ICONS = {
   index: Wallet,
+  library: GraduationCap,
   profile: Settings,
 } as const;
 
@@ -30,7 +33,12 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     () =>
       state.routes
         .map((route, index) => ({ route, index }))
-        .filter(({ route }) => route.name in TAB_ICONS),
+        .filter(({ route }) => route.name in TAB_ICONS)
+        .sort(
+          (left, right) =>
+            TAB_ORDER.indexOf(left.route.name as (typeof TAB_ORDER)[number]) -
+            TAB_ORDER.indexOf(right.route.name as (typeof TAB_ORDER)[number]),
+        ),
     [state.routes],
   );
   const tabCount = visibleRoutes.length;
@@ -54,8 +62,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   }, [visibleIndex]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
-    left: `${(indicatorPosition.value / tabCount) * 100}%`,
-    width: `${100 / tabCount}%`,
+    left: `${(indicatorPosition.value / Math.max(tabCount, 1)) * 100}%`,
+    width: `${100 / Math.max(tabCount, 1)}%`,
   }));
 
   const handlePress = useCallback(
