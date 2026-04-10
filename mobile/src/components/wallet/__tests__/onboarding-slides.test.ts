@@ -1,4 +1,7 @@
-import { ONBOARDING_SLIDES } from "../onboarding-slides";
+import {
+  buildWalletSetupActions,
+  ONBOARDING_SLIDES,
+} from "../onboarding-slides";
 
 describe("ONBOARDING_SLIDES", () => {
   it("preserves the existing slide order and copy", () => {
@@ -13,5 +16,21 @@ describe("ONBOARDING_SLIDES", () => {
   it("exposes image and description for each slide", () => {
     expect(ONBOARDING_SLIDES.every((slide) => slide.description.length > 0)).toBe(true);
     expect(ONBOARDING_SLIDES.every((slide) => typeof slide.image === "number")).toBe(true);
+  });
+});
+
+describe("buildWalletSetupActions", () => {
+  it("marks Seed Vault unavailable when the device does not support it", () => {
+    expect(buildWalletSetupActions(false)[0]).toMatchObject({
+      id: "seed-vault",
+      disabled: true,
+      helperText: "Only available on Solana Seeker",
+    });
+  });
+
+  it("keeps create and import actions enabled", () => {
+    const actions = buildWalletSetupActions(false);
+    expect(actions[1].disabled).toBe(false);
+    expect(actions[2].disabled).toBe(false);
   });
 });

@@ -4,6 +4,13 @@ export type OnboardingSlide = {
   image: number;
 };
 
+export type WalletSetupAction = {
+  id: "seed-vault" | "create" | "import";
+  label: string;
+  disabled: boolean;
+  helperText?: string;
+};
+
 export const ONBOARDING_SLIDES: OnboardingSlide[] = [
   {
     title: "Group Summaries",
@@ -23,3 +30,28 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
     image: require("../../../assets/images/onboarding/on3.png"),
   },
 ];
+
+export function buildWalletSetupActions(
+  seedVaultAvailable: boolean,
+): WalletSetupAction[] {
+  return [
+    {
+      id: "seed-vault",
+      label: "Use Seed Vault",
+      disabled: !seedVaultAvailable,
+      helperText: !seedVaultAvailable
+        ? "Only available on Solana Seeker"
+        : undefined,
+    },
+    {
+      id: "create",
+      label: "Create Wallet",
+      disabled: false,
+    },
+    {
+      id: "import",
+      label: "I already have a wallet",
+      disabled: false,
+    },
+  ];
+}
