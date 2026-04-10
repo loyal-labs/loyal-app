@@ -5,17 +5,24 @@ import {
   BottomSheetTextInput,
 } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { AlertCircle, ArrowDownUp, ArrowLeft, CheckCircle2 } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard } from "react-native";
 
 import { useShield } from "@/hooks/wallet/useShield";
 import { NATIVE_SOL_MINT } from "@/lib/solana/constants";
+import {
+  buildShieldAssets,
+  getShieldDirection,
+  type ShieldAsset,
+  type ShieldDirection,
+} from "@/lib/solana/shielding";
+import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
+import { Image } from "@/tw/image";
 import { Pressable, Text, View } from "@/tw";
 
 type ShieldStep = "form" | "confirm" | "result";
-type ShieldDirection = "shield" | "unshield";
 
 type ShieldSheetProps = {
   open: boolean;
@@ -41,6 +48,21 @@ function getFriendlyError(raw: string): string {
   return raw;
 }
 
+function formatBalance(balance: number, decimals: number): string {
+  if (balance <= 0) return "0";
+  if (balance < 0.0001) return "<0.0001";
+  const precision = decimals > 4 ? 4 : decimals;
+  return balance.toFixed(precision);
+}
+
+function getBalanceSourceLabel(asset: Pick<ShieldAsset, "isSecured">): string {
+  return asset.isSecured ? "Shielded balance" : "Public balance";
+}
+
+function getOperationLabel(direction: ShieldDirection): string {
+  return direction === "shield" ? "Shield" : "Unshield";
+}
+
 export function ShieldSheet({
   open,
   onClose,
@@ -50,7 +72,8 @@ export function ShieldSheet({
 }: ShieldSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [step, setStep] = useState<ShieldStep>("form");
-  const [direction, setDirection] = useState<ShieldDirection>("shield");
+  const [showTokenPicker, setShowTokenPicker] = useState(false);
+  const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(null);
   const [amountStr, setAmountStr] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultError, setResultError] = useState<string | null>(null);
@@ -58,28 +81,36 @@ export function ShieldSheet({
 
   const { executeShield, executeUnshield } = useShield();
 
-  // Find public and secured SOL holdings
-  const publicSolHolding = tokenHoldings.find(
-    (t) => t.mint === NATIVE_SOL_MINT && !t.isSecured,
-  );
-  const securedSolHolding = tokenHoldings.find(
-    (t) => t.mint === NATIVE_SOL_MINT && t.isSecured,
+  const shieldAssets = useMemo(
+    () => buildShieldAssets(tokenHoldings),
+    [tokenHoldings],
   );
 
-  const publicBalance = publicSolHolding?.balance ?? 0;
-  const securedBalance = securedSolHolding?.balance ?? 0;
-  const sourceBalance = direction === "shield" ? publicBalance : securedBalance;
+  const selectedAsset = useMemo(
+    () =>
+      shieldAssets.find((asset) => asset.key === selectedAssetKey) ??
+      shieldAssets[0] ??
+      null,
+    [selectedAssetKey, shieldAssets],
+  );
 
+  const direction = getShieldDirection(selectedAsset);
+  const selectedAssetIcon = resolveTokenIcon({
+    mint: selectedAsset?.mint ?? NATIVE_SOL_MINT,
+    imageUrl: selectedAsset?.imageUrl ?? null,
+  });
+  const sourceBalance = selectedAsset?.balance ?? 0;
   const amountNum = parseFloat(amountStr) || 0;
-  const isValidAmount = amountNum > 0 && amountNum <= sourceBalance;
+  const isValidAmount =
+    Boolean(selectedAsset) && amountNum > 0 && amountNum <= sourceBalance;
   const isFormValid = isValidAmount;
 
-  // Reset state when opening
   useEffect(() => {
     if (open) {
       bottomSheetRef.current?.present();
       setStep("form");
-      setDirection("shield");
+      setShowTokenPicker(false);
+      setSelectedAssetKey(null);
       setAmountStr("");
       setResultError(null);
       setResultSuccess(false);
@@ -89,8 +120,15 @@ export function ShieldSheet({
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    if (!selectedAssetKey || !shieldAssets.some((asset) => asset.key === selectedAssetKey)) {
+      setSelectedAssetKey(shieldAssets[0]?.key ?? null);
+    }
+  }, [open, selectedAssetKey, shieldAssets]);
+
   const handleConfirm = useCallback(async () => {
-    if (!isFormValid || isProcessing || !walletAddress) return;
+    if (!isFormValid || isProcessing || !walletAddress || !selectedAsset) return;
 
     Keyboard.dismiss();
     setIsProcessing(true);
@@ -100,9 +138,10 @@ export function ShieldSheet({
 
     try {
       const params = {
-        tokenSymbol: "SOL",
+        tokenSymbol: selectedAsset.symbol,
         amount: amountNum,
-        tokenMint: NATIVE_SOL_MINT,
+        tokenMint: selectedAsset.mint,
+        tokenDecimals: selectedAsset.decimals,
       };
 
       const result =
@@ -127,44 +166,42 @@ export function ShieldSheet({
       setIsProcessing(false);
     }
   }, [
-    isFormValid,
-    isProcessing,
-    walletAddress,
     amountNum,
     direction,
     executeShield,
     executeUnshield,
+    isFormValid,
+    isProcessing,
     onShieldComplete,
+    selectedAsset,
+    walletAddress,
   ]);
 
   const handleClose = useCallback(() => {
     bottomSheetRef.current?.dismiss();
-    onClose();
-  }, [onClose]);
+  }, []);
 
   const handlePercentage = useCallback(
     (pct: number) => {
+      if (!selectedAsset) return;
+
       let val = pct === 100 ? sourceBalance : sourceBalance * (pct / 100);
-      // Reserve fee for SOL
-      if (sourceBalance - val < 0.00005) {
+      if (selectedAsset.mint === NATIVE_SOL_MINT && sourceBalance - val < 0.00005) {
         val = Math.max(0, sourceBalance - 0.00005);
       }
+
       setAmountStr(val > 0 ? String(Number(val.toFixed(6))) : "");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
-    [sourceBalance],
+    [selectedAsset, sourceBalance],
   );
 
-  const handleDirectionChange = useCallback(
-    (newDirection: ShieldDirection) => {
-      if (newDirection !== direction) {
-        setDirection(newDirection);
-        setAmountStr("");
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-    },
-    [direction],
-  );
+  const handleSelectAsset = useCallback((assetKey: string) => {
+    setSelectedAssetKey(assetKey);
+    setAmountStr("");
+    setShowTokenPicker(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -177,6 +214,12 @@ export function ShieldSheet({
     ),
     [],
   );
+
+  const title = showTokenPicker
+    ? "Select Token"
+    : step === "confirm"
+      ? "Confirm"
+      : getOperationLabel(direction);
 
   return (
     <BottomSheetModal
@@ -193,12 +236,17 @@ export function ShieldSheet({
     >
       <BottomSheetScrollView keyboardShouldPersistTaps="handled">
         <View className="px-6 pb-12 pt-2">
-          {/* Header */}
           <View className="mb-4 flex-row items-center justify-center">
-            {step === "confirm" && (
+            {(showTokenPicker || step === "confirm") && (
               <Pressable
                 className="absolute left-0"
-                onPress={() => setStep("form")}
+                onPress={() => {
+                  if (showTokenPicker) {
+                    setShowTokenPicker(false);
+                    return;
+                  }
+                  setStep("form");
+                }}
               >
                 <ArrowLeft size={24} color="#000" />
               </Pressable>
@@ -207,20 +255,28 @@ export function ShieldSheet({
               className="text-[17px] font-semibold text-black"
               style={{ lineHeight: 22 }}
             >
-              {step === "form"
-                ? "Shield"
-                : step === "confirm"
-                  ? "Confirm"
-                  : ""}
+              {step === "result" ? "" : title}
             </Text>
           </View>
 
-          {step === "form" && (
+          {showTokenPicker ? (
+            <TokenPicker
+              assets={shieldAssets}
+              onSelect={handleSelectAsset}
+            />
+          ) : null}
+
+          {!showTokenPicker && step === "form" ? (
             <FormStep
               direction={direction}
-              onDirectionChange={handleDirectionChange}
+              selectedAsset={selectedAsset}
+              selectedAssetIcon={selectedAssetIcon}
               amountStr={amountStr}
               onAmountChange={setAmountStr}
+              onOpenTokenPicker={() => {
+                Keyboard.dismiss();
+                setShowTokenPicker(true);
+              }}
               onPercentage={handlePercentage}
               sourceBalance={sourceBalance}
               isValidAmount={amountStr.length > 0 ? isValidAmount : true}
@@ -230,84 +286,42 @@ export function ShieldSheet({
                 setStep("confirm");
               }}
             />
-          )}
+          ) : null}
 
-          {step === "confirm" && (
+          {!showTokenPicker && step === "confirm" ? (
             <ConfirmStep
               direction={direction}
               amountNum={amountNum}
+              selectedAsset={selectedAsset}
               isProcessing={isProcessing}
               onConfirm={handleConfirm}
             />
-          )}
+          ) : null}
 
-          {step === "result" && (
+          {!showTokenPicker && step === "result" ? (
             <ResultStep
               isProcessing={isProcessing}
               resultError={resultError}
               resultSuccess={resultSuccess}
               direction={direction}
               amountNum={amountNum}
+              selectedAsset={selectedAsset}
               onDone={handleClose}
             />
-          )}
+          ) : null}
         </View>
       </BottomSheetScrollView>
     </BottomSheetModal>
   );
 }
 
-// --- Direction Toggle ---
-function DirectionToggle({
-  direction,
-  onDirectionChange,
-}: {
-  direction: ShieldDirection;
-  onDirectionChange: (d: ShieldDirection) => void;
-}) {
-  return (
-    <View
-      className="mb-4 flex-row self-start rounded-full p-1"
-      style={{ backgroundColor: "rgba(0,0,0,0.04)" }}
-    >
-      <Pressable
-        className="items-center justify-center rounded-full px-4 py-2"
-        style={{
-          backgroundColor: direction === "shield" ? "#000" : "transparent",
-        }}
-        onPress={() => onDirectionChange("shield")}
-      >
-        <Text
-          className="text-[15px] font-medium"
-          style={{ color: direction === "shield" ? "#fff" : "rgba(60,60,67,0.6)" }}
-        >
-          Shield
-        </Text>
-      </Pressable>
-      <Pressable
-        className="items-center justify-center rounded-full px-4 py-2"
-        style={{
-          backgroundColor: direction === "unshield" ? "#000" : "transparent",
-        }}
-        onPress={() => onDirectionChange("unshield")}
-      >
-        <Text
-          className="text-[15px] font-medium"
-          style={{ color: direction === "unshield" ? "#fff" : "rgba(60,60,67,0.6)" }}
-        >
-          Unshield
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
-// --- Form Step ---
 function FormStep({
   direction,
-  onDirectionChange,
+  selectedAsset,
+  selectedAssetIcon,
   amountStr,
   onAmountChange,
+  onOpenTokenPicker,
   onPercentage,
   sourceBalance,
   isValidAmount,
@@ -315,31 +329,56 @@ function FormStep({
   onNext,
 }: {
   direction: ShieldDirection;
-  onDirectionChange: (d: ShieldDirection) => void;
+  selectedAsset: ShieldAsset | null;
+  selectedAssetIcon: string;
   amountStr: string;
-  onAmountChange: (v: string) => void;
+  onAmountChange: (value: string) => void;
+  onOpenTokenPicker: () => void;
   onPercentage: (pct: number) => void;
   sourceBalance: number;
   isValidAmount: boolean;
   isFormValid: boolean;
   onNext: () => void;
 }) {
+  const balanceLabel = selectedAsset
+    ? getBalanceSourceLabel(selectedAsset)
+    : "Available balances";
+
   return (
     <>
-      {/* Direction toggle */}
-      <DirectionToggle
-        direction={direction}
-        onDirectionChange={onDirectionChange}
+      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
+        Token
+      </Text>
+      <TokenSelectorButton
+        asset={selectedAsset}
+        icon={selectedAssetIcon}
+        onPress={onOpenTokenPicker}
       />
 
-      {/* Token display */}
+      {selectedAsset ? (
+        <View className="mb-4 mt-3 rounded-2xl bg-neutral-50 p-4">
+          <Row label="Operation" value={getOperationLabel(direction)} />
+          <Row label="Using" value={balanceLabel} />
+        </View>
+      ) : (
+        <Text className="mb-4 mt-3 text-[13px] text-neutral-500">
+          No token balances are available to shield right now.
+        </Text>
+      )}
+
       <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
-        {direction === "shield" ? "From (Public)" : "From (Shielded)"}
+        Amount
       </Text>
       <View className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
         <View className="flex-row items-center">
           <View className="flex-row items-center rounded-xl bg-neutral-100 px-3 py-2">
-            <Text className="text-[14px] font-semibold text-black">SOL</Text>
+            <Image
+              source={selectedAsset ? selectedAssetIcon : resolveTokenIcon({ mint: NATIVE_SOL_MINT })}
+              style={{ width: 20, height: 20, borderRadius: 10 }}
+            />
+            <Text className="ml-2 text-[14px] font-semibold text-black">
+              {selectedAsset?.symbol ?? "Token"}
+            </Text>
           </View>
           <BottomSheetTextInput
             style={{
@@ -349,6 +388,7 @@ function FormStep({
               fontSize: 18,
               color: "#000",
             }}
+            editable={Boolean(selectedAsset)}
             placeholder="0.00"
             placeholderTextColor="#999"
             value={amountStr}
@@ -357,8 +397,9 @@ function FormStep({
           />
           <View className="ml-2">
             <Pressable
-              className="rounded-lg bg-neutral-200 px-2 py-1"
+              className={`rounded-lg bg-neutral-200 px-2 py-1 ${!selectedAsset ? "opacity-40" : ""}`}
               onPress={() => onPercentage(100)}
+              disabled={!selectedAsset}
             >
               <Text className="text-[11px] font-semibold text-neutral-700">
                 MAX
@@ -367,46 +408,20 @@ function FormStep({
           </View>
         </View>
         <Text className="mt-1 text-[12px] text-neutral-400">
-          Balance: {sourceBalance.toFixed(4)} SOL
+          Balance: {formatBalance(sourceBalance, selectedAsset?.decimals ?? 4)}
+          {selectedAsset ? ` ${selectedAsset.symbol}` : ""}
         </Text>
       </View>
-      {!isValidAmount && amountStr.length > 0 && (
+      {!isValidAmount && amountStr.length > 0 ? (
         <Text className="mb-1 text-[12px] text-red-500">
           {parseFloat(amountStr) > sourceBalance
             ? "Insufficient balance"
             : "Enter a valid amount"}
         </Text>
-      )}
-
-      {/* Direction indicator */}
-      <View className="my-2 items-center">
-        <View className="rounded-full bg-neutral-100 p-2">
-          <ArrowDownUp size={20} color="#000" />
-        </View>
-      </View>
-
-      {/* Destination */}
-      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
-        {direction === "shield" ? "To (Shielded)" : "To (Public)"}
-      </Text>
-      <View className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-        <View className="flex-row items-center">
-          <View className="flex-row items-center rounded-xl bg-neutral-100 px-3 py-2">
-            <Text className="text-[14px] font-semibold text-black">SOL</Text>
-          </View>
-          <View className="ml-3 flex-1 items-end">
-            <Text className="text-[18px] text-neutral-300">
-              {amountStr && parseFloat(amountStr) > 0
-                ? parseFloat(amountStr).toFixed(4)
-                : "0.00"}
-            </Text>
-          </View>
-        </View>
-      </View>
+      ) : null}
 
       <View className="mb-4" />
 
-      {/* Review button */}
       <Pressable
         className={`items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
         style={{ backgroundColor: "#f9363c" }}
@@ -419,34 +434,117 @@ function FormStep({
   );
 }
 
-// --- Confirm Step ---
+function TokenSelectorButton({
+  asset,
+  icon,
+  onPress,
+}: {
+  asset: ShieldAsset | null;
+  icon: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      className="flex-row items-center justify-between rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-3"
+      onPress={onPress}
+    >
+      <View className="flex-row items-center">
+        <Image
+          source={icon}
+          style={{ width: 28, height: 28, borderRadius: 14 }}
+        />
+        <View className="ml-2.5">
+          <Text className="text-[14px] font-semibold text-black">
+            {asset?.symbol ?? "Select token"}
+          </Text>
+          <Text className="text-[12px] text-neutral-500">
+            {asset
+              ? `${asset.name} • ${getBalanceSourceLabel(asset)}`
+              : "Available balances"}
+          </Text>
+        </View>
+      </View>
+      <ChevronDown size={16} color="#666" />
+    </Pressable>
+  );
+}
+
+function TokenPicker({
+  assets,
+  onSelect,
+}: {
+  assets: ShieldAsset[];
+  onSelect: (assetKey: string) => void;
+}) {
+  if (assets.length === 0) {
+    return (
+      <Text className="py-8 text-center text-[14px] text-neutral-400">
+        No token balances available
+      </Text>
+    );
+  }
+
+  return (
+    <>
+      {assets.map((asset) => {
+        const icon = resolveTokenIcon({
+          mint: asset.mint,
+          imageUrl: asset.imageUrl,
+        });
+
+        return (
+          <Pressable
+            key={asset.key}
+            className="flex-row items-center rounded-xl px-2 py-3 active:bg-neutral-100"
+            onPress={() => onSelect(asset.key)}
+          >
+            <Image
+              source={icon}
+              style={{ width: 32, height: 32, borderRadius: 16 }}
+            />
+            <View className="ml-3 flex-1">
+              <Text className="text-[14px] font-medium text-black">
+                {asset.symbol}
+              </Text>
+              <Text className="text-[12px] text-neutral-500" numberOfLines={1}>
+                {asset.name} • {getBalanceSourceLabel(asset)}
+              </Text>
+            </View>
+            <Text className="text-[14px] text-neutral-600">
+              {formatBalance(asset.balance, asset.decimals)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </>
+  );
+}
+
 function ConfirmStep({
   direction,
   amountNum,
+  selectedAsset,
   isProcessing,
   onConfirm,
 }: {
   direction: ShieldDirection;
   amountNum: number;
+  selectedAsset: ShieldAsset | null;
   isProcessing: boolean;
   onConfirm: () => void;
 }) {
   return (
     <>
       <View className="mb-6 rounded-2xl bg-neutral-50 p-4">
+        <Row label="Operation" value={getOperationLabel(direction)} />
+        <Row label="Token" value={selectedAsset?.symbol ?? "Token"} />
         <Row
-          label="Direction"
-          value={direction === "shield" ? "Shield" : "Unshield"}
-        />
-        <Row label="Token" value="SOL" />
-        <Row label="Amount" value={`${amountNum.toFixed(4)} SOL`} />
-        <Row
-          label="From"
-          value={direction === "shield" ? "Public" : "Shielded"}
+          label="Amount"
+          value={`${amountNum.toFixed(4)} ${selectedAsset?.symbol ?? ""}`.trim()}
         />
         <Row
-          label="To"
-          value={direction === "shield" ? "Shielded" : "Public"}
+          label="Using"
+          value={selectedAsset ? getBalanceSourceLabel(selectedAsset) : "Balance"}
         />
       </View>
 
@@ -460,7 +558,7 @@ function ConfirmStep({
           <ActivityIndicator color="#fff" />
         ) : (
           <Text className="text-[16px] font-semibold text-white">
-            {direction === "shield" ? "Confirm and Shield" : "Confirm and Unshield"}
+            {`Confirm and ${getOperationLabel(direction)}`}
           </Text>
         )}
       </Pressable>
@@ -489,13 +587,13 @@ function Row({
   );
 }
 
-// --- Result Step ---
 function ResultStep({
   isProcessing,
   resultError,
   resultSuccess,
   direction,
   amountNum,
+  selectedAsset,
   onDone,
 }: {
   isProcessing: boolean;
@@ -503,8 +601,11 @@ function ResultStep({
   resultSuccess: boolean;
   direction: ShieldDirection;
   amountNum: number;
+  selectedAsset: ShieldAsset | null;
   onDone: () => void;
 }) {
+  const tokenSymbol = selectedAsset?.symbol ?? "tokens";
+
   if (isProcessing) {
     return (
       <View className="items-center py-12">
@@ -544,7 +645,7 @@ function ResultStep({
       <View className="items-center py-8">
         <CheckCircle2 size={48} color="#22c55e" />
         <Text className="mt-4 text-[16px] font-medium text-black">
-          {amountNum.toFixed(4)} SOL{" "}
+          {amountNum.toFixed(4)} {tokenSymbol}{" "}
           {direction === "shield" ? "shielded" : "unshielded"}
         </Text>
         <Text className="mt-1 text-[14px] text-neutral-500">

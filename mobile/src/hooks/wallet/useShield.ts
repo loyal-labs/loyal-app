@@ -22,6 +22,7 @@ import {
   getPerEndpoints,
   getSolanaEnv,
 } from "@/lib/solana/rpc/connection";
+import { getShieldTokenDecimals } from "@/lib/solana/shielding";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 // Lazy-loaded alongside the SDK to avoid top-level Buffer usage
 async function getWsolAdapter() {
@@ -69,17 +70,17 @@ const TOKEN_MINTS: Record<string, string> = {
   BONK: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
 };
 
-const TOKEN_DECIMALS: Record<string, number> = {
-  SOL: 9,
-  USDC: 6,
-  USDT: 6,
-  BONK: 5,
-};
-
 export type ShieldResult = {
   signature?: string;
   success: boolean;
   error?: string;
+};
+
+type ShieldParams = {
+  tokenSymbol: string;
+  amount: number;
+  tokenMint?: string;
+  tokenDecimals?: number;
 };
 
 async function waitForAccount(
@@ -95,16 +96,8 @@ async function waitForAccount(
 }
 
 export function useShield(): {
-  executeShield: (params: {
-    tokenSymbol: string;
-    amount: number;
-    tokenMint?: string;
-  }) => Promise<ShieldResult>;
-  executeUnshield: (params: {
-    tokenSymbol: string;
-    amount: number;
-    tokenMint?: string;
-  }) => Promise<ShieldResult>;
+  executeShield: (params: ShieldParams) => Promise<ShieldResult>;
+  executeUnshield: (params: ShieldParams) => Promise<ShieldResult>;
   loading: boolean;
   error: string | null;
 } {
@@ -227,11 +220,7 @@ export function useShield(): {
   }
 
   const executeShield = useCallback(
-    async (params: {
-      tokenSymbol: string;
-      amount: number;
-      tokenMint?: string;
-    }): Promise<ShieldResult> => {
+    async (params: ShieldParams): Promise<ShieldResult> => {
       if (!signer) {
         return {
           success: false,
@@ -254,8 +243,7 @@ export function useShield(): {
           throw new Error(`Unknown token: ${params.tokenSymbol}`);
         }
         const tokenMint = new PublicKey(resolvedMint);
-        const decimals =
-          TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
+        const decimals = getShieldTokenDecimals(params);
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = signer.publicKey;
         const validator = getErValidatorForSolanaEnv(solanaEnv);
@@ -392,11 +380,7 @@ export function useShield(): {
   );
 
   const executeUnshield = useCallback(
-    async (params: {
-      tokenSymbol: string;
-      amount: number;
-      tokenMint?: string;
-    }): Promise<ShieldResult> => {
+    async (params: ShieldParams): Promise<ShieldResult> => {
       if (!signer) {
         return {
           success: false,
@@ -419,8 +403,7 @@ export function useShield(): {
           throw new Error(`Unknown token: ${params.tokenSymbol}`);
         }
         const tokenMint = new PublicKey(resolvedMint);
-        const decimals =
-          TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
+        const decimals = getShieldTokenDecimals(params);
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = signer.publicKey;
         const isNativeSol = tokenMint.equals(NATIVE_MINT);
