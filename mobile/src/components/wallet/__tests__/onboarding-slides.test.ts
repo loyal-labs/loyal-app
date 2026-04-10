@@ -9,4 +9,9 @@ describe("ONBOARDING_SLIDES", () => {
     ]);
     expect(ONBOARDING_SLIDES).toHaveLength(3);
   });
+
+  it("exposes image and description for each slide", () => {
+    expect(ONBOARDING_SLIDES.every((slide) => slide.description.length > 0)).toBe(true);
+    expect(ONBOARDING_SLIDES.every((slide) => typeof slide.image === "number")).toBe(true);
+  });
 });

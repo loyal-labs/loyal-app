@@ -9,6 +9,7 @@ import {
 } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { ONBOARDING_SLIDES } from "@/components/wallet/onboarding-slides";
 import { Pressable, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
@@ -16,38 +17,12 @@ type Props = {
   onDone: () => void;
 };
 
-type Slide = {
-  title: string;
-  description: string;
-  image: number;
-};
-
-const SLIDES: Slide[] = [
-  {
-    title: "Group Summaries",
-    description:
-      "Filter noise and Instantly see what’s happening in group chats you don’t have time to read.",
-    image: require("../../../assets/images/onboarding/on1.png"),
-  },
-  {
-    title: "Swipe Through Your DMs",
-    description: "Quickly review and manage your Telegram DMs in one place.",
-    image: require("../../../assets/images/onboarding/on2.png"),
-  },
-  {
-    title: "Private Transactions",
-    description:
-      "Send crypto privately over Telegram username. Don’t reveal your address and sensitive data onchain.",
-    image: require("../../../assets/images/onboarding/on3.png"),
-  },
-];
-
 export function OnboardingSlidesScreen({ onDone }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const isLast = currentIndex === SLIDES.length - 1;
+  const isLast = currentIndex === ONBOARDING_SLIDES.length - 1;
 
   const imageHeight = useMemo(
     () => Math.min(Math.max(height * 0.38, 240), 380),
@@ -74,7 +49,7 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
       return;
     }
 
-    const next = Math.min(currentIndex + 1, SLIDES.length - 1);
+    const next = Math.min(currentIndex + 1, ONBOARDING_SLIDES.length - 1);
     scrollToIndex(next);
   }, [currentIndex, isLast, onDone, scrollToIndex, triggerLightHaptic]);
 
@@ -100,7 +75,7 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
       <View className="flex-1">
         <View className="relative flex-row items-center justify-center px-4 pb-2 pt-4">
           <View className="flex-row items-center gap-[6px]">
-            {SLIDES.map((_, index) => (
+            {ONBOARDING_SLIDES.map((_, index) => (
               <View
                 // eslint-disable-next-line react/no-array-index-key
                 key={index}
@@ -138,7 +113,7 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
           onMomentumScrollEnd={handleMomentumEnd}
           className="flex-1"
         >
-          {SLIDES.map((slide, index) => (
+          {ONBOARDING_SLIDES.map((slide, index) => (
             <View
               // eslint-disable-next-line react/no-array-index-key
               key={index}
