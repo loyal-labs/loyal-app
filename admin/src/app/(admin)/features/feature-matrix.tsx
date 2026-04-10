@@ -47,11 +47,24 @@ export function FeatureMatrix({ features }: { features: FeatureWithStatuses[] })
                     {feature.title}
                   </Link>
                   <p className="text-xs text-muted-foreground">{feature.key}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {feature.flagLinks.length > 0
-                      ? `Flags: ${feature.flagLinks.map((link) => link.flag.key).join(", ")}`
-                      : "Flags: none linked"}
-                  </p>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {feature.flagLinks.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        <span>Flags:</span>
+                        {feature.flagLinks.map((link) => (
+                          <Link
+                            key={link.id}
+                            href={`/flags#flag-${link.flag.id}`}
+                            className="underline-offset-4 hover:underline"
+                          >
+                            {link.flag.key}
+                          </Link>
+                        ))}
+                      </div>
+                    ) : (
+                      <span>Flags: none linked</span>
+                    )}
+                  </div>
                 </td>
                 {APPS.map((app) => {
                   const status =

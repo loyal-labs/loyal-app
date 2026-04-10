@@ -1,10 +1,11 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
 import {
+  featureFlagLinks,
   runtimeFlags,
   type FlagAudience,
   type FlagTargetEnvironment,
@@ -97,10 +98,10 @@ export async function createRuntimeFlag(formData: FormData) {
 }
 
 export async function updateRuntimeFlag(id: string, formData: FormData) {
-  const { description, audience, targetEnvironments, notes, enabled } =
+  const { key, description, audience, targetEnvironments, notes, enabled } =
     getFlagValues(formData);
 
-  if (!description || !audience) {
+  if (!key || !description || !audience) {
     return;
   }
 
@@ -110,6 +111,7 @@ export async function updateRuntimeFlag(id: string, formData: FormData) {
     await db
       .update(runtimeFlags)
       .set({
+        key,
         description,
         enabled,
         audience,
@@ -138,4 +140,52 @@ export async function toggleRuntimeFlag(id: string, enabled: boolean) {
     .where(eq(runtimeFlags.id, id));
 
   revalidatePath("/flags");
+}
+
+function revalidateFlagSurfaces(featureId?: string) {
+  revalidatePath("/flags");
+  revalidatePath("/features");
+  if (featureId) {
+    revalidatePath(`/features/${featureId}`);
+  }
+}
+
+export async function deleteRuntimeFlag(id: string) {
+  const db = getDatabase();
+
+  await db.delete(runtimeFlags).where(eq(runtimeFlags.id, id));
+  revalidateFlagSurfaces();
+}
+
+export async function linkFlagToFeature(formData: FormData) {
+  const flagId = getTrimmedString(formData, "flagId");
+  const featureId = getTrimmedString(formData, "featureId");
+
+  if (!flagId || !featureId) {
+    return;
+  }
+
+  const db = getDatabase();
+  const existingLink = await db.query.featureFlagLinks.findFirst({
+    where: and(
+      eq(featureFlagLinks.flagId, flagId),
+      eq(featureFlagLinks.featureId, featureId),
+    ),
+  });
+
+  if (!existingLink) {
+    await db.insert(featureFlagLinks).values({
+      flagId,
+      featureId,
+    });
+  }
+
+  revalidateFlagSurfaces(featureId);
+}
+
+export async function unlinkFlagFromFeature(linkId: string, featureId: string) {
+  const db = getDatabase();
+
+  await db.delete(featureFlagLinks).where(eq(featureFlagLinks.id, linkId));
+  revalidateFlagSurfaces(featureId);
 }

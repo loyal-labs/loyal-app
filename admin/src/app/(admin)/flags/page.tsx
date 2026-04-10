@@ -3,7 +3,7 @@ import { asc } from "drizzle-orm";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import { getDatabase } from "@/lib/core/database";
-import { runtimeFlags } from "@loyal-labs/db-core/schema";
+import { featureRegistry, runtimeFlags } from "@loyal-labs/db-core/schema";
 
 import { FlagForm } from "./flag-form";
 import { FlagList } from "./flag-list";
@@ -12,6 +12,9 @@ export const dynamic = "force-dynamic";
 
 export default async function FlagsPage() {
   const db = getDatabase();
+  const features = await db.query.featureRegistry.findMany({
+    orderBy: [asc(featureRegistry.title)],
+  });
   const flags = await db.query.runtimeFlags.findMany({
     orderBy: [asc(runtimeFlags.key)],
     with: {
@@ -32,6 +35,7 @@ export default async function FlagsPage() {
     targetEnvironments: flag.targetEnvironments,
     notes: flag.notes,
     linkedFeatures: flag.featureLinks.map((link) => ({
+      linkId: link.id,
       id: link.feature.id,
       title: link.feature.title,
       key: link.feature.key,
@@ -47,7 +51,14 @@ export default async function FlagsPage() {
       />
 
       <FlagForm />
-      <FlagList flags={serializedFlags} />
+      <FlagList
+        flags={serializedFlags}
+        availableFeatures={features.map((feature) => ({
+          id: feature.id,
+          title: feature.title,
+          key: feature.key,
+        }))}
+      />
     </PageContainer>
   );
 }
