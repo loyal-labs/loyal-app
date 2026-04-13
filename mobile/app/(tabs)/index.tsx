@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { ActionButton } from "@/components/wallet/ActionButton";
@@ -18,6 +19,7 @@ import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { TokensList } from "@/components/wallet/TokensList";
 import { TokensSheet } from "@/components/wallet/TokensSheet";
 import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
+import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -37,6 +39,7 @@ import type { Transaction } from "@/types/wallet";
 
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { walletAddress, isLoading, walletError, retryWalletInit } =
     useWalletInit();
   const { solBalanceLamports, refreshBalance } =
@@ -166,6 +169,13 @@ export default function WalletScreen() {
     tokensSheetRef.current?.present();
   }, []);
 
+  const handleTokenPress = useCallback(
+    (mint: string) => {
+      router.push(buildTokenDetailHref(mint));
+    },
+    [router],
+  );
+
   const handleShowAllActivity = useCallback(() => {
     activitySheetRef.current?.present();
   }, []);
@@ -252,6 +262,7 @@ export default function WalletScreen() {
             holdings={networkLoading ? [] : tokenHoldings}
             isLoading={isHoldingsLoading || networkLoading}
             onSeeAll={handleShowAllTokens}
+            onTokenPress={handleTokenPress}
           />
         </View>
 
@@ -305,7 +316,11 @@ export default function WalletScreen() {
         onSelect={handleBgSelect}
       />
 
-      <TokensSheet ref={tokensSheetRef} holdings={tokenHoldings} />
+      <TokensSheet
+        ref={tokensSheetRef}
+        holdings={tokenHoldings}
+        onTokenPress={handleTokenPress}
+      />
 
       <ActivitySheet
         ref={activitySheetRef}

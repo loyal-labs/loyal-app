@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { Image as RNImage } from "react-native";
 
+import { Pressable, Text, View } from "@/tw";
 import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
-import { Pressable, Text, View } from "@/tw";
 
 const shieldBadge = require("../../../assets/images/shield-badge.png");
 
@@ -13,9 +13,16 @@ type TokensListProps = {
   isLoading: boolean;
   maxItems?: number;
   onSeeAll?: () => void;
+  onTokenPress?: (mint: string) => void;
 };
 
-function TokenRow({ holding }: { holding: TokenHolding }) {
+function TokenRow({
+  holding,
+  onPress,
+}: {
+  holding: TokenHolding;
+  onPress?: () => void;
+}) {
   const icon = resolveTokenIcon({ mint: holding.mint, imageUrl: holding.imageUrl });
   const valueStr = holding.valueUsd !== null
     ? `$${holding.valueUsd.toFixed(2)}`
@@ -27,57 +34,69 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
     : "0";
 
   return (
-    <View
-      className="flex-row items-center rounded-[20px] px-4 py-2"
-      style={{ borderWidth: 2, borderColor: "#f2f2f7" }}
+    <Pressable
+      className="rounded-[20px]"
+      onPress={onPress}
+      disabled={!onPress}
     >
-      <View className="py-1.5 pr-3" style={{ position: "relative" }}>
-        <RNImage
-          source={{ uri: icon }}
-          style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
-        />
-        {holding.isSecured && (
+      <View
+        className="flex-row items-center rounded-[20px] px-4 py-2"
+        style={{ borderWidth: 2, borderColor: "#f2f2f7" }}
+      >
+        <View className="py-1.5 pr-3" style={{ position: "relative" }}>
           <RNImage
-            source={shieldBadge}
-            style={{ position: "absolute", bottom: 4, right: 10, width: 24, height: 24 }}
+            source={{ uri: icon }}
+            style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
           />
-        )}
-      </View>
-      <View className="flex-1 py-2.5">
-        <Text
-          className="text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.187 }}
-        >
-          {holding.symbol}
-        </Text>
-        <Text
-          className="text-[15px]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {holding.name}
-        </Text>
-      </View>
-      <View className="items-end pl-3">
-        <Text
-          className="text-[17px] text-black"
-          style={{ letterSpacing: -0.187 }}
-        >
-          {balanceStr}
-        </Text>
-        {valueStr ? (
+          {holding.isSecured && (
+            <RNImage
+              source={shieldBadge}
+              style={{ position: "absolute", bottom: 4, right: 10, width: 24, height: 24 }}
+            />
+          )}
+        </View>
+        <View className="flex-1 py-2.5">
+          <Text
+            className="text-[17px] font-medium text-black"
+            style={{ letterSpacing: -0.187 }}
+          >
+            {holding.symbol}
+          </Text>
           <Text
             className="text-[15px]"
             style={{ color: "rgba(60, 60, 67, 0.6)" }}
           >
-            {valueStr}
+            {holding.name}
           </Text>
-        ) : null}
+        </View>
+        <View className="items-end pl-3">
+          <Text
+            className="text-[17px] text-black"
+            style={{ letterSpacing: -0.187 }}
+          >
+            {balanceStr}
+          </Text>
+          {valueStr ? (
+            <Text
+              className="text-[15px]"
+              style={{ color: "rgba(60, 60, 67, 0.6)" }}
+            >
+              {valueStr}
+            </Text>
+          ) : null}
+        </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
-export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: TokensListProps) {
+export function TokensList({
+  holdings,
+  isLoading,
+  maxItems = 5,
+  onSeeAll,
+  onTokenPress,
+}: TokensListProps) {
   const allDisplayHoldings = useMemo(
     () => getDisplayTokenHoldings(holdings),
     [holdings],
@@ -122,7 +141,11 @@ export function TokensList({ holdings, isLoading, maxItems = 5, onSeeAll }: Toke
       </Text>
       <View className="gap-2 px-3">
         {displayHoldings.map((holding) => (
-          <TokenRow key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`} holding={holding} />
+          <TokenRow
+            key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`}
+            holding={holding}
+            onPress={onTokenPress ? () => onTokenPress(holding.mint) : undefined}
+          />
         ))}
       </View>
       {totalCount > maxItems && (

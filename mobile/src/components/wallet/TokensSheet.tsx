@@ -9,13 +9,20 @@ import { Image as RNImage } from "react-native";
 import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
-import { Text, View } from "@/tw";
+import { Pressable, Text, View } from "@/tw";
 
 type TokensSheetProps = {
   holdings: TokenHolding[];
+  onTokenPress?: (mint: string) => void;
 };
 
-function TokenRow({ holding }: { holding: TokenHolding }) {
+function TokenRow({
+  holding,
+  onPress,
+}: {
+  holding: TokenHolding;
+  onPress?: () => void;
+}) {
   const icon = resolveTokenIcon({
     mint: holding.mint,
     imageUrl: holding.imageUrl,
@@ -24,48 +31,50 @@ function TokenRow({ holding }: { holding: TokenHolding }) {
     holding.valueUsd !== null ? `$${holding.valueUsd.toFixed(2)}` : "";
   const balanceStr =
     holding.balance > 0
-      ? holding.balance < 0.0001
-        ? "<0.0001"
-        : holding.balance.toFixed(4)
-      : "0";
+    ? holding.balance < 0.0001
+      ? "<0.0001"
+      : holding.balance.toFixed(4)
+    : "0";
 
   return (
-    <View className="flex-row items-center px-4 py-2.5">
-      <RNImage
-        source={{ uri: icon }}
-        style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
-      />
-      <View className="ml-3 flex-1">
-        <Text
-          className="text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.187 }}
-        >
-          {holding.symbol}
-        </Text>
-        <Text
-          className="text-[15px]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {holding.name}
-        </Text>
-      </View>
-      <View className="items-end">
-        <Text className="text-[17px] text-black">{balanceStr}</Text>
-        {valueStr ? (
+    <Pressable onPress={onPress} disabled={!onPress}>
+      <View className="flex-row items-center px-4 py-2.5">
+        <RNImage
+          source={{ uri: icon }}
+          style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
+        />
+        <View className="ml-3 flex-1">
+          <Text
+            className="text-[17px] font-medium text-black"
+            style={{ letterSpacing: -0.187 }}
+          >
+            {holding.symbol}
+          </Text>
           <Text
             className="text-[15px]"
             style={{ color: "rgba(60, 60, 67, 0.6)" }}
           >
-            {valueStr}
+            {holding.name}
           </Text>
-        ) : null}
+        </View>
+        <View className="items-end">
+          <Text className="text-[17px] text-black">{balanceStr}</Text>
+          {valueStr ? (
+            <Text
+              className="text-[15px]"
+              style={{ color: "rgba(60, 60, 67, 0.6)" }}
+            >
+              {valueStr}
+            </Text>
+          ) : null}
+        </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
 export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
-  function TokensSheet({ holdings }, ref) {
+  function TokensSheet({ holdings, onTokenPress }, ref) {
     const snapPoints = useMemo(() => ["70%", "90%"], []);
 
     const displayHoldings = useMemo(
@@ -74,8 +83,13 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
     );
 
     const renderItem = useCallback(
-      ({ item }: { item: TokenHolding }) => <TokenRow holding={item} />,
-      [],
+      ({ item }: { item: TokenHolding }) => (
+        <TokenRow
+          holding={item}
+          onPress={onTokenPress ? () => onTokenPress(item.mint) : undefined}
+        />
+      ),
+      [onTokenPress],
     );
 
     const keyExtractor = useCallback(
