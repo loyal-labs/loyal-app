@@ -9,8 +9,21 @@ import {
   openUrl,
 } from "../model/browser-session";
 import { coerceBrowserUrl, normalizeOrigin } from "../model/origin";
+import {
+  resolveDappRequest,
+  type DappRequestResolution,
+} from "../model/request-controller";
 import { TRUSTED_DAPPS } from "../model/trusted-dapps";
-import type { DappHistoryEntry, TrustedDapp } from "../model/types";
+import type {
+  DappHistoryEntry,
+  PendingApproval,
+  TrustedDapp,
+} from "../model/types";
+import {
+  forgetConnectedOrigin,
+  listConnectedOrigins,
+  rememberConnectedOrigin,
+} from "../storage/connected-origins";
 import {
   listRecentHistory,
   recordRecentHistory,
@@ -19,6 +32,7 @@ import { buildInjectedProviderScript } from "../bridge/build-injected-provider-s
 import { buildWebViewResponseScript } from "../bridge/build-webview-response-script";
 import { BRIDGE_MESSAGE_SOURCE } from "../bridge/messages";
 import { parseWebViewMessage } from "../bridge/parse-webview-message";
+import { DappApprovalSheet } from "./DappApprovalSheet";
 import { BrowserHome } from "./BrowserHome";
 import { BrowserToolbar } from "./BrowserToolbar";
 
@@ -28,6 +42,9 @@ export function DappBrowserScreen() {
   const webViewRef = useRef<WebView>(null);
   const [session, setSession] = useState(createBrowserSession);
   const [recentHistory, setRecentHistory] = useState<DappHistoryEntry[]>([]);
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(
+    null,
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -102,36 +119,108 @@ export function DappBrowserScreen() {
     [],
   );
 
-  const handleWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
-    try {
-      const request = parseWebViewMessage(event.nativeEvent.data);
+  const injectResponse = useCallback((resolution: DappRequestResolution) => {
+    if (resolution.kind === "response") {
+      webViewRef.current?.injectJavaScript(
+        buildWebViewResponseScript(resolution.response),
+      );
+    }
+  }, []);
+
+  const handleApproveApproval = useCallback(() => {
+    const approval = pendingApproval;
+    if (!approval) {
+      return;
+    }
+
+    void (async () => {
+      if (approval.type === "connect") {
+        await rememberConnectedOrigin(approval.origin);
+      }
+
       webViewRef.current?.injectJavaScript(
         buildWebViewResponseScript({
           source: BRIDGE_MESSAGE_SOURCE,
-          id: request.id,
-          ok: false,
-          error: "Request handling not ready.",
+          id: approval.requestId,
+          ok: true,
         }),
       );
+      setPendingApproval((current) =>
+        current?.requestId === approval.requestId ? null : current,
+      );
+    })();
+  }, [pendingApproval]);
+
+  const handleRejectApproval = useCallback(() => {
+    const approval = pendingApproval;
+    if (!approval) {
       return;
-    } catch {
-      try {
-        const parsed = JSON.parse(event.nativeEvent.data) as { id?: unknown };
-        if (typeof parsed.id === "string") {
-          webViewRef.current?.injectJavaScript(
-            buildWebViewResponseScript({
-              source: BRIDGE_MESSAGE_SOURCE,
-              id: parsed.id,
-              ok: false,
-              error: "Malformed bridge payload.",
-            }),
-          );
-        }
-      } catch {
-        // Ignore malformed messages that cannot be associated with a request id.
-      }
     }
-  }, []);
+
+    webViewRef.current?.injectJavaScript(
+      buildWebViewResponseScript({
+        source: BRIDGE_MESSAGE_SOURCE,
+        id: approval.requestId,
+        ok: false,
+        error: "Request rejected.",
+      }),
+    );
+    setPendingApproval((current) =>
+      current?.requestId === approval.requestId ? null : current,
+    );
+  }, [pendingApproval]);
+
+  const handleWebViewMessage = useCallback(
+    async (event: { nativeEvent: { data: string } }) => {
+      try {
+        const request = parseWebViewMessage(event.nativeEvent.data);
+        const currentUrl = session.currentUrl;
+        if (
+          !currentUrl ||
+          (!currentUrl.startsWith("http://") &&
+            !currentUrl.startsWith("https://"))
+        ) {
+          return;
+        }
+        const origin = normalizeOrigin(currentUrl);
+
+        const connectedOrigins = await listConnectedOrigins();
+        const resolution = resolveDappRequest({
+          origin,
+          request,
+          connectedOrigins,
+        });
+
+        if (resolution.kind === "response") {
+          injectResponse(resolution);
+          if (request.type === "disconnect") {
+            await forgetConnectedOrigin(origin);
+          }
+          return;
+        }
+
+        setPendingApproval(resolution.approval);
+        return;
+      } catch {
+        try {
+          const parsed = JSON.parse(event.nativeEvent.data) as { id?: unknown };
+          if (typeof parsed.id === "string") {
+            webViewRef.current?.injectJavaScript(
+              buildWebViewResponseScript({
+                source: BRIDGE_MESSAGE_SOURCE,
+                id: parsed.id,
+                ok: false,
+                error: "Malformed bridge payload.",
+              }),
+            );
+          }
+        } catch {
+          // Ignore malformed messages that cannot be associated with a request id.
+        }
+      }
+    },
+    [injectResponse, session.currentUrl],
+  );
 
   return (
     <View className="flex-1 bg-white">
@@ -175,6 +264,11 @@ export function DappBrowserScreen() {
           />
         </>
       )}
+      <DappApprovalSheet
+        approval={pendingApproval}
+        onReject={handleRejectApproval}
+        onApprove={handleApproveApproval}
+      />
     </View>
   );
 }
