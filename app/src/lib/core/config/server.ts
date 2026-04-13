@@ -112,6 +112,9 @@ export const serverEnv = {
   get jupiterApiKey(): string {
     return getRequiredEnv("JUPITER_API_KEY");
   },
+  get birdeyeApiKey(): string {
+    return getRequiredEnv("BIRDEYE_API_KEY");
+  },
   get irysSolanaKey(): string {
     return getRequiredEnv("IRYS_SOLANA_KEY");
   },
