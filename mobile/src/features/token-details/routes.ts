@@ -1,3 +1,5 @@
-export function buildTokenDetailHref(mint: string) {
-  return `/token/${mint}`;
+import type { Href } from "expo-router";
+
+export function buildTokenDetailHref(mint: string): Href {
+  return `/token/${mint}` as Href;
 }
