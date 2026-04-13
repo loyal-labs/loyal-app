@@ -182,7 +182,7 @@ export default function WalletScreen() {
   }, []);
 
   const handleOpenBrowser = useCallback(() => {
-    router.push(buildBrowserHref() as never);
+    router.push(buildBrowserHref());
   }, [router]);
 
   const handleBgSelect = useCallback((bg: string | null) => {
