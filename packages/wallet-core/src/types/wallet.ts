@@ -39,6 +39,7 @@ export interface SwapToken {
   icon: string;
   price: number;
   balance: number;
+  isSecured?: boolean;
 }
 
 export type SwapMode = "swap" | "shield";

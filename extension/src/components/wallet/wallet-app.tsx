@@ -1327,12 +1327,6 @@ function WalletInterface() {
     addLocalActivity,
   } = walletData;
 
-  const shieldSecuredBalance = useMemo(() => {
-    if (!shieldToken.mint) return 0;
-    const position = positions.find((p) => p.asset.mint === shieldToken.mint);
-    return position?.securedBalance ?? 0;
-  }, [shieldToken.mint, positions]);
-
   // Convert allTokenRows to SwapToken[] for token-select views
   const swapTokens: SwapToken[] = positions.map((p) => ({
     mint: p.asset.mint,
@@ -1341,6 +1335,29 @@ function WalletInterface() {
     price: p.priceUsd ?? 0,
     balance: p.totalBalance,
   }));
+
+  // Shield token list — one entry per balance variant (liquid + shielded).
+  // Direction is derived from the selected token's `isSecured` flag.
+  const shieldTokens = useMemo<SwapToken[]>(
+    () =>
+      positions.flatMap((p) => {
+        const base = {
+          mint: p.asset.mint,
+          symbol: p.asset.symbol,
+          icon: p.asset.imageUrl || getTokenIconUrl(p.asset.symbol),
+          price: p.priceUsd ?? 0,
+        };
+        const entries: SwapToken[] = [];
+        if (p.publicBalance > 0 || p.securedBalance <= 0) {
+          entries.push({ ...base, balance: p.publicBalance, isSecured: false });
+        }
+        if (p.securedBalance > 0) {
+          entries.push({ ...base, balance: p.securedBalance, isSecured: true });
+        }
+        return entries;
+      }),
+    [positions]
+  );
 
   // Merge user's held tokens with popular tokens for swap target selection
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
@@ -1357,7 +1374,9 @@ function WalletInterface() {
     if (swapTokens.length > 0 && swapTokens[0].mint) {
       setFromToken(swapTokens[0]);
       setSendToken(swapTokens[0]);
-      setShieldToken(swapTokens[0]);
+      if (shieldTokens.length > 0) {
+        setShieldToken(shieldTokens[0]);
+      }
       setToToken(
         swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
       );
@@ -1369,10 +1388,18 @@ function WalletInterface() {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
       const isSecured = token.isSecured === true;
 
+      const pickShieldTokenVariant = (wantSecured: boolean) => {
+        const match = shieldTokens.find(
+          (t) => t.mint === token.id && t.isSecured === wantSecured
+        );
+        if (match) setShieldToken(match);
+      };
+
       if (isSecured) {
         return {
           onSend: () => handleTabChange("send"),
           onUnshield: () => {
+            pickShieldTokenVariant(true);
             setSwapMode("shield");
             handleTabChange("shield");
           },
@@ -1386,6 +1413,7 @@ function WalletInterface() {
           handleTabChange("swap");
         },
         onShield: () => {
+          pickShieldTokenVariant(false);
           setSwapMode("shield");
           handleTabChange("shield");
         },
@@ -1403,7 +1431,7 @@ function WalletInterface() {
 
       return actions;
     },
-    [handleTabChange, setSwapMode]
+    [handleTabChange, setSwapMode, shieldTokens]
   );
 
   // Tab content with real components (uses displayTab for cross-fade)
@@ -1470,11 +1498,9 @@ function WalletInterface() {
         return (
           <ShieldContent
             token={shieldToken}
-            onTokenChange={setShieldToken}
             onClose={handleClose}
             onNavigate={handleNavigate}
             onDone={handleDone}
-            securedBalance={shieldSecuredBalance}
             swapMode={swapMode}
             onSwapModeChange={handleSwapModeChange}
           />
@@ -1553,7 +1579,7 @@ function WalletInterface() {
     if (subView.type === "shieldTokenSelect") {
       return (
         <TokenSelectView
-          title="Shield token"
+          title="Select token"
           currentToken={shieldToken}
           onSelect={(token) => {
             setShieldToken(token);
@@ -1561,7 +1587,7 @@ function WalletInterface() {
           }}
           onBack={goBack}
           onClose={handleClose}
-          tokens={swapTokens}
+          tokens={shieldTokens}
         />
       );
     }

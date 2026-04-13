@@ -1,4 +1,4 @@
-import { ArrowDownUp, ChevronRight, X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useShield } from "@loyal-labs/wallet-core/hooks";
@@ -181,71 +181,6 @@ function StatusHeader({
   );
 }
 
-function ShieldedTokenPill({ token }: { token: SwapToken }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        padding: "0 4px",
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "4px 14px 4px 4px",
-          position: "relative",
-        }}
-      >
-        <div
-          style={{
-            width: "28px",
-            height: "28px",
-            borderRadius: "9999px",
-            overflow: "hidden",
-            marginRight: "-8px",
-          }}
-        >
-          <img
-            alt={token.symbol}
-            height={28}
-            src={token.icon}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            width={28}
-          />
-        </div>
-        <img
-          alt="Shielded"
-          src="/hero-new/Shield.png"
-          style={{
-            width: "16px",
-            height: "16px",
-            position: "absolute",
-            bottom: "2px",
-            right: "2px",
-          }}
-        />
-      </div>
-      <span
-        style={{
-          fontFamily: font,
-          fontSize: "16px",
-          fontWeight: 500,
-          lineHeight: "20px",
-          color: "#000",
-          letterSpacing: "-0.176px",
-          whiteSpace: "nowrap",
-          padding: "8px 0",
-        }}
-      >
-        {token.symbol}
-      </span>
-    </div>
-  );
-}
-
 function SelectableTokenPill({
   token,
   onClick,
@@ -417,8 +352,6 @@ export function ShieldContent({
   onDone,
   onNavigate,
   token: tokenProp,
-  onTokenChange,
-  securedBalance,
   swapMode,
   onSwapModeChange,
   hideFormChrome,
@@ -429,8 +362,6 @@ export function ShieldContent({
   onDone: () => void;
   onNavigate: (view: SubView) => void;
   token: SwapToken;
-  onTokenChange: (t: SwapToken) => void;
-  securedBalance: number;
   swapMode: SwapMode;
   onSwapModeChange: (mode: SwapMode) => void;
   hideFormChrome?: boolean;
@@ -443,7 +374,6 @@ export function ShieldContent({
   const solanaEnv = network === "mainnet" ? "mainnet" : "devnet";
 
   const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield(signer, connection, solanaEnv);
-  const [direction, setDirection] = useState<"shield" | "unshield">("shield");
   const [amount, setAmount] = useState("");
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
@@ -455,11 +385,11 @@ export function ShieldContent({
   }, [phase, onFormActiveChange]);
 
   const token = tokenProp;
+  const direction: "shield" | "unshield" = token.isSecured ? "unshield" : "shield";
   const numericAmount = Number.parseFloat(amount) || 0;
   const hasAmount = numericAmount > 0;
 
-  const sourceBalance = direction === "shield" ? token.balance : securedBalance;
-  const destBalance = direction === "shield" ? securedBalance : token.balance;
+  const sourceBalance = token.balance;
   const insufficientFunds = numericAmount > sourceBalance;
 
   const usdValue = useMemo(
@@ -471,15 +401,6 @@ export function ShieldContent({
     [numericAmount, token.price]
   );
 
-  const exchangeRate = useMemo(
-    () =>
-      `1 ${token.symbol} ≈ $${token.price.toLocaleString("en-US", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 4,
-      })}`,
-    [token.symbol, token.price]
-  );
-
   const buttonLabel = !hasAmount
     ? "Enter Amount"
     : insufficientFunds
@@ -489,10 +410,6 @@ export function ShieldContent({
     : "Confirm and Unshield";
   const buttonDisabled = !hasAmount || insufficientFunds;
   const amountColor = insufficientFunds && hasAmount ? red : "#000";
-
-  const handleToggleDirection = useCallback(() => {
-    setDirection((d) => (d === "shield" ? "unshield" : "shield"));
-  }, []);
 
   const handlePercentage = useCallback(
     (pct: number) => {
@@ -1323,189 +1240,6 @@ export function ShieldContent({
                   justifyContent: "space-between",
                 }}
               >
-                <div
-                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
-                >
-                  <div
-                    style={{
-                      width: "20px",
-                      height: "20px",
-                      borderRadius: "9999px",
-                      background: "#F5F5F5",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <ArrowDownUp
-                      size={12}
-                      style={{ color: secondary, opacity: 0.4 }}
-                    />
-                  </div>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "14px",
-                      fontWeight: 400,
-                      lineHeight: "20px",
-                      color: secondary,
-                    }}
-                  >
-                    {exchangeRate}
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "14px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    color: secondary,
-                  }}
-                >
-                  Balance: {sourceBalance.toLocaleString()}{" "}
-                </span>
-              </div>
-
-              {/* Swap circle — toggles shield/unshield */}
-              <button
-                className="swap-circle"
-                onClick={handleToggleDirection}
-                style={{
-                  position: "absolute",
-                  bottom: "-18px",
-                  left: "calc(50% + 4px)",
-                  transform: "translateX(-50%)",
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "9999px",
-                  background: "#000",
-                  border: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  zIndex: 3,
-                  transition: "background 0.15s ease",
-                }}
-                type="button"
-              >
-                <ArrowDownUp size={16} style={{ color: "#fff" }} />
-              </button>
-            </div>
-
-            {/* To card */}
-            <div
-              style={{
-                border: "1px solid rgba(0, 0, 0, 0.08)",
-                borderRadius: "16px",
-                padding: "12px",
-                zIndex: 1,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    color: secondary,
-                  }}
-                >
-                  You receive
-                </span>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "4px",
-                  height: "48px",
-                  alignItems: "center",
-                }}
-              >
-                <span
-                  style={{
-                    flex: 1,
-                    fontFamily: font,
-                    fontSize: "32px",
-                    fontWeight: 600,
-                    lineHeight: "36px",
-                    color:
-                      insufficientFunds && hasAmount
-                        ? red
-                        : hasAmount
-                        ? "#000"
-                        : "rgba(60, 60, 67, 0.4)",
-                    minWidth: 0,
-                  }}
-                >
-                  {hasAmount ? amount : "0"}
-                </span>
-                {direction === "shield" ? (
-                  <ShieldedTokenPill token={token} />
-                ) : (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "0 4px",
-                      flexShrink: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        paddingRight: "6px",
-                        padding: "4px 6px 4px 4px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: "28px",
-                          height: "28px",
-                          borderRadius: "9999px",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <img
-                          alt={token.symbol}
-                          height={28}
-                          src={token.icon}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                          width={28}
-                        />
-                      </div>
-                    </div>
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "16px",
-                        fontWeight: 500,
-                        lineHeight: "20px",
-                        color: "#000",
-                        letterSpacing: "-0.176px",
-                        whiteSpace: "nowrap",
-                        padding: "8px 0",
-                      }}
-                    >
-                      {token.symbol}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
                 <span
                   style={{
                     fontFamily: font,
@@ -1526,17 +1260,15 @@ export function ShieldContent({
                     color: secondary,
                   }}
                 >
-                  Balance: {destBalance.toLocaleString()}{" "}
+                  Balance: {sourceBalance.toLocaleString()}{" "}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Spacer to push info card to bottom */}
-          <div style={{ flex: 1 }} />
-
-          {/* Info card about shielded assets */}
-          <div style={{ padding: "0 12px" }}>
+          {/* Info card about shielded assets — sits directly below the
+              operation card so it's not lost near the bottom action button. */}
+          <div style={{ padding: "12px 4px 0" }}>
             <div
               style={{
                 background: "rgba(0, 0, 0, 0.04)",
@@ -1598,6 +1330,9 @@ export function ShieldContent({
               </div>
             </div>
           </div>
+
+          {/* Spacer so the info card stays anchored near the operation card */}
+          <div style={{ flex: 1 }} />
         </div>
 
         {/* Bottom button — hidden when parent owns chrome */}

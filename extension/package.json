@@ -2,7 +2,7 @@
   "name": "@loyal-labs/extension",
   "description": "Loyal wallet browser extension",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -24,7 +24,6 @@
     "flubber": "^0.4.2",
     "lottie-web": "^5.13.0",
     "lucide-react": "^0.577.0",
-    "mixpanel-browser": "^2.74.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
