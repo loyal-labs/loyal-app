@@ -399,6 +399,7 @@ export default function TokenDetailScreen() {
   const marketHasData =
     viewModel.market !== null || viewModel.chart.length > 0 || viewModel.links !== null;
   const showUnavailable = !loading && !localHasData && !marketHasData;
+  const showEmptyPosition = viewModel.position.totalBalance === 0;
 
   const spotPrice = resolveSpotPrice(
     tokenMint ?? "",
@@ -408,6 +409,8 @@ export default function TokenDetailScreen() {
   const initialSwapFromMint = viewModel.position.publicBalance > 0 ? viewModel.mint : undefined;
   const initialSwapToMint = viewModel.position.publicBalance > 0 ? undefined : viewModel.mint;
   const explorerUrl = tokenMint ? buildExplorerUrl(tokenMint) : null;
+  const shieldActionLabel =
+    !viewModel.canShield && viewModel.canUnshield ? "Unshield" : "Shield";
 
   if (!tokenMint) {
     return (
@@ -539,7 +542,7 @@ export default function TokenDetailScreen() {
             />
             <ActionRailButton
               icon={<Shield size={28} color="#000" strokeWidth={1.5} />}
-              label="Shield"
+              label={shieldActionLabel}
               onPress={() => setIsShieldOpen(true)}
               disabled={!viewModel.canShield && !viewModel.canUnshield}
               muted={!viewModel.canShield}
@@ -551,22 +554,38 @@ export default function TokenDetailScreen() {
               title="Your Position"
               subtitle="Local wallet balances update immediately."
             >
-              <StatRow
-                label="Total"
-                value={`${formatBalance(viewModel.position.totalBalance)} ${viewModel.token.symbol}`}
-              />
-              <StatRow
-                label="Public"
-                value={`${formatBalance(viewModel.position.publicBalance)} ${viewModel.token.symbol}`}
-              />
-              <StatRow
-                label="Shielded"
-                value={`${formatBalance(viewModel.position.shieldedBalance)} ${viewModel.token.symbol}`}
-              />
-              <StatRow
-                label="Value"
-                value={formatCurrency(viewModel.position.totalValueUsd)}
-              />
+              {showEmptyPosition ? (
+                <View
+                  className="rounded-[22px] px-4 py-4"
+                  style={{ backgroundColor: "#efefea" }}
+                >
+                  <Text className="text-[15px] font-medium text-black">
+                    You don&apos;t hold this token yet
+                  </Text>
+                  <Text className="mt-1 text-[13px]" style={{ color: MUTED_TEXT }}>
+                    Receive, swap, or unshield into this asset when you&apos;re ready.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <StatRow
+                    label="Total"
+                    value={`${formatBalance(viewModel.position.totalBalance)} ${viewModel.token.symbol}`}
+                  />
+                  <StatRow
+                    label="Public"
+                    value={`${formatBalance(viewModel.position.publicBalance)} ${viewModel.token.symbol}`}
+                  />
+                  <StatRow
+                    label="Shielded"
+                    value={`${formatBalance(viewModel.position.shieldedBalance)} ${viewModel.token.symbol}`}
+                  />
+                  <StatRow
+                    label="Value"
+                    value={formatCurrency(viewModel.position.totalValueUsd)}
+                  />
+                </>
+              )}
             </SectionCard>
 
             <SectionCard
@@ -610,7 +629,7 @@ export default function TokenDetailScreen() {
             >
               <LinkRow label="Website" url={viewModel.links?.website ?? null} />
               <LinkRow label="Twitter" url={viewModel.links?.twitter ?? null} />
-              <LinkRow label="Explorer" url={viewModel.links?.explorer ?? explorerUrl} />
+              <LinkRow label="Explorer" url={explorerUrl} />
             </SectionCard>
 
             <View className="rounded-[28px] px-2 py-1" style={SECTION_CARD_STYLE}>
