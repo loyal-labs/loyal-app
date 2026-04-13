@@ -33,6 +33,25 @@ type BuildTokenDetailViewModelInput = {
   market: MobileTokenDetailResponse | null;
 };
 
+function derivePriceChange24hPercent(
+  market: MobileTokenDetailResponse | null,
+): number | null {
+  const explicitPriceChange = market?.market.priceChange24hPercent;
+
+  if (typeof explicitPriceChange === "number" && Number.isFinite(explicitPriceChange)) {
+    return explicitPriceChange;
+  }
+
+  const firstPoint = market?.chart[0];
+  const lastPoint = market?.chart[market.chart.length - 1];
+
+  if (!firstPoint || !lastPoint || firstPoint.priceUsd <= 0) {
+    return null;
+  }
+
+  return ((lastPoint.priceUsd - firstPoint.priceUsd) / firstPoint.priceUsd) * 100;
+}
+
 function resolveTokenIdentity(
   position: TokenPosition,
   market: MobileTokenDetailResponse | null,
@@ -62,6 +81,12 @@ export function buildTokenDetailViewModel({
 }: BuildTokenDetailViewModelInput): TokenDetailViewModel {
   const position = buildTokenPosition(mint, holdings);
   const activity = filterTransactionsForMint(transactions, mint);
+  const marketSummary = market
+    ? {
+        ...market.market,
+        priceChange24hPercent: derivePriceChange24hPercent(market),
+      }
+    : null;
 
   return {
     mint,
@@ -70,7 +95,7 @@ export function buildTokenDetailViewModel({
     activity,
     chart: market?.chart ?? [],
     links: market ? market.links : null,
-    market: market?.market ?? null,
+    market: marketSummary,
     canSend: position.publicBalance > 0,
     canReceive: true,
     canSwap: true,

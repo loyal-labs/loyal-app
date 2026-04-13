@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 import { SOL_PRICE_USD } from "@/lib/solana/constants";
 import { fetchSolUsdPrice } from "@/lib/solana/fetch-sol-price";
 
-import { getCachedSolPrice, setCachedSolPrice } from "@/lib/solana/wallet-cache";
+import {
+  getCachedSolPrice,
+  hasFreshCachedSolPrice,
+  setCachedSolPrice,
+} from "@/lib/solana/wallet-cache";
 
 export function useSolPrice(): {
   solPriceUsd: number | null;
@@ -29,6 +33,12 @@ export function useSolPrice(): {
       setIsSolPriceLoading(false);
     }
 
+    if (hasFreshCachedSolPrice()) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
     const loadPrice = async () => {
       while (retryCount < MAX_RETRIES && isMounted) {
         try {
@@ -50,9 +60,10 @@ export function useSolPrice(): {
         }
       }
       if (isMounted) {
+        const fallbackPrice = cached ?? SOL_PRICE_USD;
         console.warn("Using fallback SOL price after all retries failed");
-        setCachedSolPrice(SOL_PRICE_USD);
-        setSolPriceUsd(SOL_PRICE_USD);
+        setCachedSolPrice(fallbackPrice);
+        setSolPriceUsd(fallbackPrice);
         setIsSolPriceLoading(false);
       }
     };

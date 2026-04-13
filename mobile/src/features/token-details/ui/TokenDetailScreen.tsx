@@ -194,7 +194,7 @@ function TokenLineChart({
     );
   }
 
-  const lineColor = points[points.length - 1].priceUsd >= points[0].priceUsd ? GREEN : "#111111";
+  const lineColor = points[points.length - 1].priceUsd >= points[0].priceUsd ? GREEN : CORAL;
   const path = buildChartPath(points, chartWidth, chartHeight - 12);
 
   return (
@@ -406,9 +406,49 @@ export default function TokenDetailScreen() {
     tokenHoldings,
     viewModel.market?.priceUsd ?? null,
   );
+  const explorerUrl = tokenMint ? buildExplorerUrl(tokenMint) : null;
+  const marketRows = [
+    {
+      label: "Market Cap",
+      value:
+        viewModel.market?.marketCapUsd != null
+          ? formatCompactUsd(viewModel.market.marketCapUsd)
+          : null,
+    },
+    {
+      label: "Liquidity",
+      value:
+        viewModel.market?.liquidityUsd != null
+          ? formatCompactUsd(viewModel.market.liquidityUsd)
+          : null,
+    },
+    {
+      label: "24H Volume",
+      value:
+        viewModel.market?.volume24hUsd != null
+          ? formatCompactUsd(viewModel.market.volume24hUsd)
+          : null,
+    },
+    {
+      label: "FDV",
+      value:
+        viewModel.market?.fdvUsd != null ? formatCompactUsd(viewModel.market.fdvUsd) : null,
+    },
+    {
+      label: "Holders",
+      value:
+        viewModel.market?.holderCount != null
+          ? new Intl.NumberFormat("en-US").format(viewModel.market.holderCount)
+          : null,
+    },
+  ].filter((row) => row.value !== null);
+  const linkRows = [
+    { label: "Website", url: viewModel.links?.website ?? null },
+    { label: "Twitter", url: viewModel.links?.twitter ?? null },
+    { label: "Explorer", url: explorerUrl },
+  ].filter((row) => row.url);
   const initialSwapFromMint = viewModel.position.publicBalance > 0 ? viewModel.mint : undefined;
   const initialSwapToMint = viewModel.position.publicBalance > 0 ? undefined : viewModel.mint;
-  const explorerUrl = tokenMint ? buildExplorerUrl(tokenMint) : null;
   const shieldActionLabel =
     !viewModel.canShield && viewModel.canUnshield ? "Unshield" : "Shield";
 
@@ -568,10 +608,23 @@ export default function TokenDetailScreen() {
                 </View>
               ) : (
                 <>
-                  <StatRow
-                    label="Total"
-                    value={`${formatBalance(viewModel.position.totalBalance)} ${viewModel.token.symbol}`}
-                  />
+                  <View
+                    className="mb-4 rounded-[22px] px-4 py-4"
+                    style={{ backgroundColor: "#efefea" }}
+                  >
+                    <Text className="text-[12px]" style={{ color: MUTED_TEXT }}>
+                      Total
+                    </Text>
+                    <Text className="mt-1 text-[28px] font-semibold text-black">
+                      {formatBalance(viewModel.position.totalBalance)} {viewModel.token.symbol}
+                    </Text>
+                    <Text className="mt-4 text-[12px]" style={{ color: MUTED_TEXT }}>
+                      Value
+                    </Text>
+                    <Text className="mt-1 text-[24px] font-semibold" style={{ color: CORAL }}>
+                      {formatCurrency(viewModel.position.totalValueUsd)}
+                    </Text>
+                  </View>
                   <StatRow
                     label="Public"
                     value={`${formatBalance(viewModel.position.publicBalance)} ${viewModel.token.symbol}`}
@@ -579,10 +632,6 @@ export default function TokenDetailScreen() {
                   <StatRow
                     label="Shielded"
                     value={`${formatBalance(viewModel.position.shieldedBalance)} ${viewModel.token.symbol}`}
-                  />
-                  <StatRow
-                    label="Value"
-                    value={formatCurrency(viewModel.position.totalValueUsd)}
                   />
                 </>
               )}
@@ -592,30 +641,15 @@ export default function TokenDetailScreen() {
               title="Market Stats"
               subtitle={loading ? "Fetching market data." : "Free-tier market snapshot."}
             >
-              <StatRow
-                label="Market Cap"
-                value={formatCompactUsd(viewModel.market?.marketCapUsd ?? null)}
-              />
-              <StatRow
-                label="Liquidity"
-                value={formatCompactUsd(viewModel.market?.liquidityUsd ?? null)}
-              />
-              <StatRow
-                label="24H Volume"
-                value={formatCompactUsd(viewModel.market?.volume24hUsd ?? null)}
-              />
-              <StatRow
-                label="FDV"
-                value={formatCompactUsd(viewModel.market?.fdvUsd ?? null)}
-              />
-              <StatRow
-                label="Holders"
-                value={
-                  viewModel.market?.holderCount != null
-                    ? new Intl.NumberFormat("en-US").format(viewModel.market.holderCount)
-                    : "Unavailable"
-                }
-              />
+              {marketRows.length > 0 ? (
+                marketRows.map((row) => (
+                  <StatRow key={row.label} label={row.label} value={row.value as string} />
+                ))
+              ) : (
+                <Text className="text-[14px]" style={{ color: MUTED_TEXT }}>
+                  Market stats unavailable right now.
+                </Text>
+              )}
               {!loading && !viewModel.market && error ? (
                 <Text className="pt-2 text-[13px]" style={{ color: MUTED_TEXT }}>
                   {error}
@@ -623,14 +657,16 @@ export default function TokenDetailScreen() {
               ) : null}
             </SectionCard>
 
-            <SectionCard
-              title="Links"
-              subtitle="Official links when available."
-            >
-              <LinkRow label="Website" url={viewModel.links?.website ?? null} />
-              <LinkRow label="Twitter" url={viewModel.links?.twitter ?? null} />
-              <LinkRow label="Explorer" url={explorerUrl} />
-            </SectionCard>
+            {linkRows.length > 0 ? (
+              <SectionCard
+                title="Links"
+                subtitle="Official links when available."
+              >
+                {linkRows.map((row) => (
+                  <LinkRow key={row.label} label={row.label} url={row.url} />
+                ))}
+              </SectionCard>
+            ) : null}
 
             <View className="rounded-[28px] px-2 py-1" style={SECTION_CARD_STYLE}>
               <ActivityFeed

@@ -56,17 +56,23 @@ export const setCachedWalletBalance = (
 
 const SOL_PRICE_KEY = "cachedSolPriceUsd";
 const SOL_PRICE_TS_KEY = "solPriceFetchedAt";
-const SOL_PRICE_CACHE_TTL = 60_000;
+const SOL_PRICE_CACHE_TTL = 5 * 60_000;
 
 export const getCachedSolPrice = (): number | null => {
   const price = mmkv.getNumber(SOL_PRICE_KEY);
   if (typeof price !== "number") return null;
+  return price;
+};
+
+export const hasFreshCachedSolPrice = (): boolean => {
+  const price = mmkv.getNumber(SOL_PRICE_KEY);
   const ts = mmkv.getNumber(SOL_PRICE_TS_KEY);
-  // Return cached price regardless of TTL (caller may refresh in bg)
-  if (typeof ts === "number" && Date.now() - ts < SOL_PRICE_CACHE_TTL) {
-    return price;
-  }
-  return price; // stale but still returned
+
+  return (
+    typeof price === "number" &&
+    typeof ts === "number" &&
+    Date.now() - ts < SOL_PRICE_CACHE_TTL
+  );
 };
 
 export const setCachedSolPrice = (price: number): void => {

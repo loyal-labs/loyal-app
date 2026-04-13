@@ -158,4 +158,25 @@ describe("buildTokenDetailViewModel", () => {
     expect(viewModel.canShield).toBe(true);
     expect(viewModel.canUnshield).toBe(true);
   });
+
+  it("derives 24h price change from the chart when market change is unavailable", () => {
+    const viewModel = buildTokenDetailViewModel({
+      mint: "mint-sol",
+      holdings: [],
+      transactions: [],
+      market: {
+        ...marketDetail,
+        market: {
+          ...marketDetail.market,
+          priceChange24hPercent: null,
+        },
+        chart: [
+          { timestamp: 1, priceUsd: 100 },
+          { timestamp: 2, priceUsd: 110 },
+        ],
+      },
+    });
+
+    expect(viewModel.market?.priceChange24hPercent).toBe(10);
+  });
 });
