@@ -12,6 +12,30 @@ export type GroupChat = {
   photoMimeType?: string;
 };
 
+export type MobileTokenDetailResponse = {
+  mint: string;
+  token: {
+    decimals: number | null;
+    logoUrl: string | null;
+    name: string | null;
+    symbol: string | null;
+  };
+  market: {
+    fdvUsd: number | null;
+    holderCount: number | null;
+    liquidityUsd: number | null;
+    marketCapUsd: number | null;
+    priceChange24hPercent: number | null;
+    priceUsd: number | null;
+    updatedAt: string | null;
+    volume24hUsd: number | null;
+  };
+  chart: Array<{
+    timestamp: number;
+    priceUsd: number;
+  }>;
+};
+
 /**
  * Fetch all summaries from the API.
  */
@@ -38,6 +62,20 @@ export async function fetchSummariesByGroup(
   }
   const data: SummariesApiResponse = await response.json();
   return data.summaries;
+}
+
+export async function fetchTokenDetailMarket(
+  mint: string,
+): Promise<MobileTokenDetailResponse> {
+  const response = await fetch(
+    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch token detail: ${response.status}`);
+  }
+
+  return response.json();
 }
 
 /**
