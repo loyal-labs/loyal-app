@@ -95,6 +95,10 @@ export default function RootLayout() {
               name="login"
               options={{ headerShown: false, presentation: "modal" }}
             />
+            <Stack.Screen
+              name="browser"
+              options={{ headerShown: false }}
+            />
             {/* Summaries detail screen commented out — kept for potential reinstatement */}
             {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
           </Stack>

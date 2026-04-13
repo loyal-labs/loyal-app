@@ -1,5 +1,5 @@
 import { BottomSheetModal } from "@gorhom/bottom-sheet";
-import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
+import { ArrowDown, ArrowLeftRight, ArrowUp, Globe, Shield } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +20,7 @@ import { TokensList } from "@/components/wallet/TokensList";
 import { TokensSheet } from "@/components/wallet/TokensSheet";
 import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
+import { buildBrowserHref } from "@/features/dapp-browser/routes";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -180,6 +181,10 @@ export default function WalletScreen() {
     activitySheetRef.current?.present();
   }, []);
 
+  const handleOpenBrowser = useCallback(() => {
+    router.push(buildBrowserHref() as never);
+  }, [router]);
+
   const handleBgSelect = useCallback((bg: string | null) => {
     setBalanceBg(bg);
     setCachedBalanceBg(bg);
@@ -230,7 +235,7 @@ export default function WalletScreen() {
         />
 
         {/* Action buttons */}
-        <View className="mt-6 flex-row justify-center gap-8 px-4">
+        <View className="mt-6 flex-row flex-wrap justify-center gap-6 px-4">
           <ActionButton
             icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
             label="Send"
@@ -250,6 +255,11 @@ export default function WalletScreen() {
             icon={<Shield size={28} color="#000" strokeWidth={1.5} />}
             label="Shield"
             onPress={() => setIsShieldOpen(true)}
+          />
+          <ActionButton
+            icon={<Globe size={28} color="#000" strokeWidth={1.5} />}
+            label="Browser"
+            onPress={handleOpenBrowser}
           />
         </View>
 
