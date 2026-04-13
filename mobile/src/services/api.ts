@@ -20,6 +20,11 @@ export type MobileTokenDetailResponse = {
     name: string | null;
     symbol: string | null;
   };
+  links: {
+    website: string | null;
+    twitter: string | null;
+    explorer: string | null;
+  };
   market: {
     fdvUsd: number | null;
     holderCount: number | null;

@@ -130,6 +130,10 @@ describe("fetchBirdeyePriceHistory", () => {
             logoURI: "https://cdn.example.com/token.png",
             name: "Loyal",
             symbol: "LOYAL",
+            extensions: {
+              twitter: "https://x.com/loyal",
+              website: "https://loyal.example.com",
+            },
           },
           success: true,
         }),
@@ -144,6 +148,8 @@ describe("fetchBirdeyePriceHistory", () => {
       logoUrl: "https://cdn.example.com/token.png",
       name: "Loyal",
       symbol: "LOYAL",
+      twitter: "https://x.com/loyal",
+      website: "https://loyal.example.com",
     });
   });
 });

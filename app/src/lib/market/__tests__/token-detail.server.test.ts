@@ -25,6 +25,8 @@ const fetchBirdeyeTokenMetadata = mock(async () => ({
   logoUrl: "https://cdn.example.com/loyal.png",
   name: "Loyal",
   symbol: "LOYAL",
+  twitter: "https://x.com/loyal",
+  website: "https://loyal.example.com",
 }));
 
 const fetchBirdeyePriceHistory = mock(async () => [
@@ -64,6 +66,12 @@ describe("fetchTokenDetailByMint", () => {
         { priceUsd: 0.12, timestamp: 1_712_534_400 },
         { priceUsd: 0.15, timestamp: 1_712_620_800 },
       ],
+      links: {
+        explorer:
+          "https://solscan.io/token/So11111111111111111111111111111111111111112",
+        twitter: "https://x.com/loyal",
+        website: "https://loyal.example.com",
+      },
       market: {
         fdvUsd: 3_350_000.12,
         holderCount: 1_572,
@@ -95,5 +103,46 @@ describe("fetchTokenDetailByMint", () => {
     expect(fetchBirdeyePriceHistory).toHaveBeenCalledWith(
       "So11111111111111111111111111111111111111112"
     );
+  });
+
+  test("returns a payload with null and empty fallbacks when Birdeye sections fail", async () => {
+    fetchBirdeyeTokenMarketData.mockImplementationOnce(async () => {
+      throw new Error("market unavailable");
+    });
+    fetchBirdeyeTokenMetadata.mockImplementationOnce(async () => {
+      throw new Error("metadata unavailable");
+    });
+    fetchBirdeyePriceHistory.mockImplementationOnce(async () => {
+      throw new Error("history unavailable");
+    });
+
+    await expect(
+      fetchTokenDetailByMint("So11111111111111111111111111111111111111112")
+    ).resolves.toEqual({
+      chart: [],
+      links: {
+        explorer:
+          "https://solscan.io/token/So11111111111111111111111111111111111111112",
+        twitter: null,
+        website: null,
+      },
+      market: {
+        fdvUsd: 3_341_945.81,
+        holderCount: 1_572,
+        liquidityUsd: 402_595.31,
+        marketCapUsd: 2_029_828.31,
+        priceChange24hPercent: null,
+        priceUsd: 0.16245,
+        updatedAt: "2026-04-13T10:15:00.000Z",
+        volume24hUsd: null,
+      },
+      mint: "So11111111111111111111111111111111111111112",
+      token: {
+        decimals: null,
+        logoUrl: null,
+        name: null,
+        symbol: null,
+      },
+    });
   });
 });

@@ -32,6 +32,10 @@ type BirdeyeTokenMarketDataResponse = {
 
 type BirdeyeTokenMetadataResponse = {
   decimals?: number;
+  extensions?: {
+    twitter?: string;
+    website?: string;
+  };
   logoURI?: string;
   name?: string;
   symbol?: string;
@@ -56,6 +60,8 @@ export type BirdeyeTokenMetadata = {
   logoUrl: string | null;
   name: string | null;
   symbol: string | null;
+  twitter: string | null;
+  website: string | null;
 };
 
 function getBirdeyeHeaders(): HeadersInit {
@@ -160,5 +166,7 @@ export async function fetchBirdeyeTokenMetadata(
     logoUrl: response.logoURI ?? null,
     name: response.name ?? null,
     symbol: response.symbol ?? null,
+    twitter: response.extensions?.twitter ?? null,
+    website: response.extensions?.website ?? null,
   };
 }

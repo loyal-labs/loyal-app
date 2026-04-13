@@ -4,6 +4,11 @@ mock.module("server-only", () => ({}));
 
 const fetchTokenDetailByMint = mock(async () => ({
   chart: [{ priceUsd: 0.12, timestamp: 1_712_534_400 }],
+  links: {
+    explorer: "https://solscan.io/token/target-mint",
+    twitter: "https://x.com/loyal",
+    website: "https://loyal.example.com",
+  },
   market: {
     fdvUsd: 3_350_000.12,
     holderCount: 1_572,
@@ -63,6 +68,11 @@ describe("mobile token detail route", () => {
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(await response.json()).toEqual({
       chart: [{ priceUsd: 0.12, timestamp: 1_712_534_400 }],
+      links: {
+        explorer: "https://solscan.io/token/target-mint",
+        twitter: "https://x.com/loyal",
+        website: "https://loyal.example.com",
+      },
       market: {
         fdvUsd: 3_350_000.12,
         holderCount: 1_572,
