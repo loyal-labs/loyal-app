@@ -4,8 +4,8 @@ import { serverEnv } from "../core/config/server";
 import { fetchJson } from "../core/http";
 
 const BIRDEYE_BASE_URL = "https://public-api.birdeye.so";
-const BIRDEYE_DEFAULT_HISTORY_INTERVAL = "1D";
-const BIRDEYE_DEFAULT_HISTORY_DAYS = 30;
+const BIRDEYE_DEFAULT_HISTORY_INTERVAL = "1H";
+const BIRDEYE_DEFAULT_HISTORY_HOURS = 24;
 
 type BirdeyeEnvelope<T> = {
   data?: T;
@@ -21,12 +21,41 @@ type BirdeyeHistoryResponse = {
   items?: BirdeyeHistoryPoint[];
 };
 
-type BirdeyeTokenMarketData = Record<string, unknown>;
-type BirdeyeTokenMetadata = Record<string, unknown>;
+type BirdeyeTokenMarketDataResponse = {
+  fdv?: number;
+  liquidity?: number;
+  marketcap?: number;
+  price?: number;
+  price_change_24h_percent?: number;
+  volume_24h_usd?: number;
+};
+
+type BirdeyeTokenMetadataResponse = {
+  decimals?: number;
+  logoURI?: string;
+  name?: string;
+  symbol?: string;
+};
 
 export type BirdeyePriceHistoryPoint = {
   timestamp: number;
   priceUsd: number;
+};
+
+export type BirdeyeTokenMarketData = {
+  fullyDilutedValueUsd: number | null;
+  liquidityUsd: number | null;
+  marketCapUsd: number | null;
+  priceChange24hPercent: number | null;
+  priceUsd: number | null;
+  volume24hUsd: number | null;
+};
+
+export type BirdeyeTokenMetadata = {
+  decimals: number | null;
+  logoUrl: string | null;
+  name: string | null;
+  symbol: string | null;
 };
 
 function getBirdeyeHeaders(): HeadersInit {
@@ -62,7 +91,7 @@ async function fetchBirdeyeData<T>(
     }
   );
 
-  if (response.data === undefined) {
+  if (response.success === false || response.data === undefined) {
     throw new Error("Invalid Birdeye response.");
   }
 
@@ -73,8 +102,7 @@ export async function fetchBirdeyePriceHistory(
   mint: string
 ): Promise<BirdeyePriceHistoryPoint[]> {
   const timeTo = Math.floor(Date.now() / 1000);
-  const timeFrom =
-    timeTo - BIRDEYE_DEFAULT_HISTORY_DAYS * 24 * 60 * 60;
+  const timeFrom = timeTo - BIRDEYE_DEFAULT_HISTORY_HOURS * 60 * 60;
 
   const response = await fetchBirdeyeData<BirdeyeHistoryResponse>(
     "/defi/history_price",
@@ -100,21 +128,37 @@ export async function fetchBirdeyePriceHistory(
 export async function fetchBirdeyeTokenMarketData(
   mint: string
 ): Promise<BirdeyeTokenMarketData> {
-  return fetchBirdeyeData<BirdeyeTokenMarketData>(
+  const response = await fetchBirdeyeData<BirdeyeTokenMarketDataResponse>(
     "/defi/v3/token/market-data",
     {
       address: mint,
     }
   );
+
+  return {
+    fullyDilutedValueUsd: response.fdv ?? null,
+    liquidityUsd: response.liquidity ?? null,
+    marketCapUsd: response.marketcap ?? null,
+    priceChange24hPercent: response.price_change_24h_percent ?? null,
+    priceUsd: response.price ?? null,
+    volume24hUsd: response.volume_24h_usd ?? null,
+  };
 }
 
 export async function fetchBirdeyeTokenMetadata(
   mint: string
 ): Promise<BirdeyeTokenMetadata> {
-  return fetchBirdeyeData<BirdeyeTokenMetadata>(
-    "/defi/v3/token/meta-data",
+  const response = await fetchBirdeyeData<BirdeyeTokenMetadataResponse>(
+    "/defi/v3/token/meta-data/single",
     {
       address: mint,
     }
   );
+
+  return {
+    decimals: response.decimals ?? null,
+    logoUrl: response.logoURI ?? null,
+    name: response.name ?? null,
+    symbol: response.symbol ?? null,
+  };
 }
