@@ -19,7 +19,7 @@ type DappApprovalSheetProps = {
 function getRequestLabel(type: PendingApproval["type"]): string {
   switch (type) {
     case "connect":
-      return "Connect";
+      return "Connect wallet";
     case "signMessage":
       return "Sign message";
     case "signTransaction":

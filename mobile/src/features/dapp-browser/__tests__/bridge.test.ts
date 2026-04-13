@@ -61,17 +61,23 @@ describe("dapp browser bridge", () => {
     });
   });
 
-  it("injects a Loyal provider with wallet-standard registration and bridge posting", () => {
+  it("injects a wallet-standard compatible Loyal provider", () => {
     const script = buildInjectedProviderScript();
 
     expect(script).toContain("window.ReactNativeWebView.postMessage");
-    expect(script).toContain('window.loyal');
+    expect(script).toContain("window.loyal");
     expect(script).toContain("wallet-standard:register-wallet");
-    expect(script).toContain('connect');
-    expect(script).toContain('disconnect');
-    expect(script).toContain('signMessage');
-    expect(script).toContain('signTransaction');
-    expect(script).toContain('signAndSendTransaction');
+    expect(script).toContain("wallet-standard:app-ready");
+    expect(script).toContain("window.navigator.wallets");
+    expect(script).toContain('features: {');
+    expect(script).toContain('"standard:connect"');
+    expect(script).toContain('"standard:disconnect"');
+    expect(script).toContain('"standard:events"');
+    expect(script).toContain('"solana:signTransaction"');
+    expect(script).toContain('"solana:signMessage"');
+    expect(script).toContain("emit(\"change\"");
+    expect(script).toContain("accounts: []");
+    expect(script).toContain("signAndSendTransaction(payload)");
     expect(script).toContain("loyal-mobile-wallet");
   });
 });

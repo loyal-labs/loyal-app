@@ -29,8 +29,12 @@ import {
   recordRecentHistory,
 } from "../storage/recent-history";
 import { buildInjectedProviderScript } from "../bridge/build-injected-provider-script";
+import { executeApprovedRequest } from "../bridge/execute-approved-request";
 import { buildWebViewResponseScript } from "../bridge/build-webview-response-script";
-import { BRIDGE_MESSAGE_SOURCE } from "../bridge/messages";
+import {
+  BRIDGE_MESSAGE_SOURCE,
+  type BridgeResponse,
+} from "../bridge/messages";
 import { parseWebViewMessage } from "../bridge/parse-webview-message";
 import { DappApprovalSheet } from "./DappApprovalSheet";
 import { BrowserHome } from "./BrowserHome";
@@ -119,13 +123,56 @@ export function DappBrowserScreen() {
     [],
   );
 
-  const injectResponse = useCallback((resolution: DappRequestResolution) => {
-    if (resolution.kind === "response") {
-      webViewRef.current?.injectJavaScript(
-        buildWebViewResponseScript(resolution.response),
-      );
-    }
+  const injectBridgeResponse = useCallback((response: BridgeResponse) => {
+    webViewRef.current?.injectJavaScript(buildWebViewResponseScript(response));
   }, []);
+
+  const injectResponse = useCallback(
+    (resolution: DappRequestResolution) => {
+      if (resolution.kind === "response") {
+        injectBridgeResponse(resolution.response);
+      }
+    },
+    [injectBridgeResponse],
+  );
+
+  const executeApproval = useCallback(
+    async (
+      approval: PendingApproval,
+      options?: {
+        rememberOrigin?: boolean;
+      },
+    ) => {
+      try {
+        if (approval.type === "connect" && options?.rememberOrigin !== false) {
+          await rememberConnectedOrigin(approval.origin);
+        }
+
+        const result = await executeApprovedRequest(approval);
+        injectBridgeResponse({
+          source: BRIDGE_MESSAGE_SOURCE,
+          id: approval.requestId,
+          ok: true,
+          result,
+        });
+      } catch (error) {
+        injectBridgeResponse({
+          source: BRIDGE_MESSAGE_SOURCE,
+          id: approval.requestId,
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to execute approved request.",
+        });
+      } finally {
+        setPendingApproval((current) =>
+          current?.requestId === approval.requestId ? null : current,
+        );
+      }
+    },
+    [injectBridgeResponse],
+  );
 
   const handleApproveApproval = useCallback(() => {
     const approval = pendingApproval;
@@ -133,23 +180,8 @@ export function DappBrowserScreen() {
       return;
     }
 
-    void (async () => {
-      if (approval.type === "connect") {
-        await rememberConnectedOrigin(approval.origin);
-      }
-
-      webViewRef.current?.injectJavaScript(
-        buildWebViewResponseScript({
-          source: BRIDGE_MESSAGE_SOURCE,
-          id: approval.requestId,
-          ok: true,
-        }),
-      );
-      setPendingApproval((current) =>
-        current?.requestId === approval.requestId ? null : current,
-      );
-    })();
-  }, [pendingApproval]);
+    void executeApproval(approval);
+  }, [executeApproval, pendingApproval]);
 
   const handleRejectApproval = useCallback(() => {
     const approval = pendingApproval;
@@ -192,6 +224,20 @@ export function DappBrowserScreen() {
         });
 
         if (resolution.kind === "response") {
+          if (request.type === "connect") {
+            await executeApproval(
+              {
+                requestId: request.id,
+                origin,
+                trustState: "connected",
+                type: "connect",
+                payload: request.payload ?? {},
+              },
+              { rememberOrigin: false },
+            );
+            return;
+          }
+
           injectResponse(resolution);
           if (request.type === "disconnect") {
             await forgetConnectedOrigin(origin);
@@ -219,7 +265,7 @@ export function DappBrowserScreen() {
         }
       }
     },
-    [injectResponse, session.currentUrl],
+    [executeApproval, injectResponse, session.currentUrl],
   );
 
   return (
