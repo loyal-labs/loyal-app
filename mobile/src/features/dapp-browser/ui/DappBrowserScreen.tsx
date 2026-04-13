@@ -288,6 +288,7 @@ export function DappBrowserScreen() {
             <WebView
               ref={webViewRef}
               source={{ uri: session.currentUrl }}
+              originWhitelist={["http://*", "https://*", "blob:*", "data:*"]}
               onNavigationStateChange={handleNavigationStateChange}
               onMessage={handleWebViewMessage}
               injectedJavaScriptBeforeContentLoaded={buildInjectedProviderScript()}

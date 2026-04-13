@@ -4,7 +4,6 @@ export type TrustedDapp = {
   origin: string;
   name: string;
   startUrl: string;
-  iconSlug: "jupiter";
 };
 
 export type DappHistoryEntry = {

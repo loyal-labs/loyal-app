@@ -1,6 +1,7 @@
-import { Globe, History, Search } from "lucide-react-native";
+import { Search } from "lucide-react-native";
 
 import type { DappHistoryEntry, TrustedDapp } from "../model/types";
+import { SiteAvatar } from "./SiteAvatar";
 
 import { Pressable, ScrollView, Text, TextInput, View } from "@/tw";
 
@@ -16,7 +17,6 @@ type BrowserHomeProps = {
 
 const SURFACE = "#f6f6f2";
 const MUTED = "rgba(60, 60, 67, 0.6)";
-const CORAL = "#f97362";
 
 export function BrowserHome({
   trustedDapps,
@@ -74,12 +74,7 @@ export function BrowserHome({
               style={{ backgroundColor: SURFACE }}
               onPress={() => onOpenTrustedDapp(dapp)}
             >
-              <View
-                className="h-11 w-11 items-center justify-center rounded-full"
-                style={{ backgroundColor: "rgba(249, 115, 98, 0.14)" }}
-              >
-                <Globe size={20} color={CORAL} strokeWidth={2} />
-              </View>
+              <SiteAvatar origin={dapp.origin} fallback="globe" />
               <View className="ml-3 flex-1">
                 <Text className="text-[16px] font-[Geist_600SemiBold] text-black">
                   {dapp.name}
@@ -118,12 +113,7 @@ export function BrowserHome({
                 style={{ backgroundColor: SURFACE }}
                 onPress={() => onOpenHistoryItem(item)}
               >
-                <View
-                  className="h-11 w-11 items-center justify-center rounded-full"
-                  style={{ backgroundColor: "rgba(60, 60, 67, 0.08)" }}
-                >
-                  <History size={18} color="#000" strokeWidth={2} />
-                </View>
+                <SiteAvatar origin={item.origin} fallback="history" />
                 <View className="ml-3 flex-1">
                   <Text className="text-[16px] font-[Geist_600SemiBold] text-black">
                     {item.title ?? item.origin}

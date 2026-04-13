@@ -14,6 +14,10 @@ export function normalizeOrigin(url: string): string {
   return parsed.origin;
 }
 
+export function buildOriginFaviconUrl(origin: string): string {
+  return new URL("/favicon.ico", origin).toString();
+}
+
 export function getTrustState(
   origin: string,
   connectedOrigins: string[],

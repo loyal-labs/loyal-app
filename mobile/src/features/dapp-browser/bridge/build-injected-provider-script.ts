@@ -4,11 +4,15 @@ import {
   BRIDGE_RESPONSE_RESOLVER,
 } from "./messages";
 
+const LOYAL_WALLET_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 35 28" fill="none"><path d="M5.25 24.5 0 12.25h15.75V0l7 12.25L24.5 0 35 28 5.25 24.5Z" fill="#F9363C"/><path d="M19.37 15.14c2.89.15 5.13 2.31 5 4.82l-10.49-.55c.13-2.51 2.58-4.42 5.49-4.27Z" fill="#fff"/><circle cx="19.25" cy="17.41" r="2.36" fill="#000"/></svg>`;
+const LOYAL_WALLET_ICON = `data:image/svg+xml,${encodeURIComponent(LOYAL_WALLET_ICON_SVG)}`;
+
 export function buildInjectedProviderScript() {
   return `(() => {
   const source = ${JSON.stringify(BRIDGE_MESSAGE_SOURCE)};
   const requestTypes = ${JSON.stringify(BRIDGE_REQUEST_TYPES)};
   const resolverKey = ${JSON.stringify(BRIDGE_RESPONSE_RESOLVER)};
+  const walletIcon = ${JSON.stringify(LOYAL_WALLET_ICON)};
   const pending = new Map();
   const listeners = new Map();
   const walletChains = ["solana:mainnet", "solana:devnet"];
@@ -124,7 +128,7 @@ export function buildInjectedProviderScript() {
       chains: walletChains.slice(),
       features: ["solana:signTransaction", "solana:signMessage"],
       label: "Loyal",
-      icon: undefined,
+      icon: walletIcon,
     };
   }
 
@@ -133,7 +137,7 @@ export function buildInjectedProviderScript() {
   const wallet = {
     version: "1.0.0",
     name: "Loyal",
-    icon: "",
+    icon: walletIcon,
     chains: walletChains.slice(),
     get accounts() {
       return accounts.slice();

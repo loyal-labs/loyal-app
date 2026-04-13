@@ -97,7 +97,10 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="browser"
-              options={{ headerShown: false }}
+              options={{
+                title: "",
+                headerShadowVisible: false,
+              }}
             />
             {/* Summaries detail screen commented out — kept for potential reinstatement */}
             {/* <Stack.Screen name="summaries/[groupChatId]" /> */}

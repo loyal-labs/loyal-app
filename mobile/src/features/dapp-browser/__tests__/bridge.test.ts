@@ -75,6 +75,7 @@ describe("dapp browser bridge", () => {
     expect(script).toContain('"standard:events"');
     expect(script).toContain('"solana:signTransaction"');
     expect(script).toContain('"solana:signMessage"');
+    expect(script).toContain("data:image/svg+xml");
     expect(script).toContain("emit(\"change\"");
     expect(script).toContain("accounts: []");
     expect(script).toContain("signAndSendTransaction(payload)");

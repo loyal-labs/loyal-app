@@ -7,6 +7,7 @@ import { AlertCircle } from "lucide-react-native";
 import { useEffect, useMemo, useRef, type ComponentProps } from "react";
 
 import type { PendingApproval } from "../model/types";
+import { SiteAvatar } from "./SiteAvatar";
 
 import { Pressable, Text, View } from "@/tw";
 
@@ -43,6 +44,32 @@ function getRequestLabel(type: PendingApproval["type"]): string {
   }
 }
 
+function getRequestDescription(type: PendingApproval["type"]): string {
+  switch (type) {
+    case "connect":
+      return "Allow this site to view your public wallet address and request signatures.";
+    case "signMessage":
+      return "Review this message request carefully before you sign it with Loyal.";
+    case "signTransaction":
+      return "Review this transaction carefully. It will be signed but not sent yet.";
+    case "signAndSendTransaction":
+      return "Review this transaction carefully. It will be signed and sent from Loyal.";
+    default:
+      return "Review this request carefully before approving it.";
+  }
+}
+
+function getPrimaryActionLabel(type: PendingApproval["type"]): string {
+  switch (type) {
+    case "connect":
+      return "Connect";
+    case "signAndSendTransaction":
+      return "Sign & send";
+    default:
+      return "Sign";
+  }
+}
+
 function getTrustLabel(trustState: PendingApproval["trustState"]): string {
   switch (trustState) {
     case "trusted":
@@ -62,7 +89,7 @@ export function DappApprovalSheet({
   onApprove,
 }: DappApprovalSheetProps) {
   const modalRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ["42%"], []);
+  const snapPoints = useMemo(() => ["52%"], []);
   const backdrop = useMemo(() => ApprovalBackdrop, []);
 
   useEffect(() => {
@@ -87,53 +114,79 @@ export function DappApprovalSheet({
       enableDynamicSizing={false}
       enablePanDownToClose={false}
       backdropComponent={backdrop}
+      handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.12)", width: 40 }}
+      backgroundStyle={{ borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
     >
-      <BottomSheetView className="flex-1 px-4 pb-6 pt-1">
-        <View className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-black/10" />
-        <Text className="text-[17px] font-[Geist_700Bold] text-black">
-          {getRequestLabel(approval.type)}
-        </Text>
-        <Text
-          className="mt-2 text-[13px] font-[Geist_400Regular]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {approval.origin}
-        </Text>
+      <BottomSheetView className="flex-1 px-5 pb-6 pt-1">
+        <View className="items-center pt-4">
+          <SiteAvatar
+            origin={approval.origin}
+            fallback="globe"
+            size={56}
+            rounded={18}
+          />
+          <Text className="mt-4 text-center text-[24px] font-[Geist_700Bold] text-black">
+            {getRequestLabel(approval.type)}
+          </Text>
+          <Text
+            className="mt-2 text-center text-[14px] font-[Geist_400Regular]"
+            style={{ color: "rgba(60, 60, 67, 0.6)" }}
+          >
+            {approval.origin}
+          </Text>
+        </View>
 
         <View
-          className="mt-4 flex-row items-center self-start rounded-full px-3 py-1.5"
+          className="mt-5 rounded-[24px] border px-4 py-4"
           style={{
-            backgroundColor: isUntrusted
-              ? "rgba(234, 88, 12, 0.12)"
-              : "rgba(50, 229, 94, 0.12)",
+            backgroundColor: "#faf8f4",
+            borderColor: "rgba(60, 60, 67, 0.08)",
           }}
         >
-          <Text
-            className="text-[12px] font-[Geist_600SemiBold]"
-            style={{ color: isUntrusted ? "#ea580c" : "#16a34a" }}
+          <View
+            className="self-start rounded-full px-3 py-1.5"
+            style={{
+              backgroundColor: isUntrusted
+                ? "rgba(234, 88, 12, 0.12)"
+                : "rgba(50, 229, 94, 0.12)",
+            }}
           >
-            {getTrustLabel(approval.trustState)}
+            <Text
+              className="text-[12px] font-[Geist_600SemiBold]"
+              style={{ color: isUntrusted ? "#ea580c" : "#16a34a" }}
+            >
+              {getTrustLabel(approval.trustState)}
+            </Text>
+          </View>
+          <Text
+            className="mt-3 text-[14px] leading-6 font-[Geist_400Regular]"
+            style={{ color: "#1c1c1e" }}
+          >
+            {getRequestDescription(approval.type)}
           </Text>
         </View>
 
         {isUntrusted ? (
           <View
-            className="mt-4 flex-row rounded-[20px] px-4 py-3"
-            style={{ backgroundColor: "rgba(234, 88, 12, 0.12)" }}
+            className="mt-4 flex-row rounded-[22px] border px-4 py-4"
+            style={{
+              backgroundColor: "#fff6f0",
+              borderColor: "rgba(234, 88, 12, 0.16)",
+            }}
           >
             <AlertCircle size={18} color="#ea580c" strokeWidth={2} />
             <Text
-              className="ml-2 flex-1 text-[13px] font-[Geist_400Regular]"
+              className="ml-3 flex-1 text-[13px] leading-5 font-[Geist_500Medium]"
               style={{ color: "#9a3412" }}
             >
-              This site is not remembered yet. Only approve if you trust it.
+              This site is not in your trusted list yet. Only approve if you trust the origin and the request.
             </Text>
           </View>
         ) : null}
 
-        <View className="mt-auto gap-3 pt-5">
+        <View className="mt-auto flex-row gap-3 pt-6">
           <Pressable
-            className="items-center rounded-[22px] px-4 py-4"
+            className="flex-1 items-center rounded-[22px] px-4 py-4"
             style={{ backgroundColor: "rgba(60, 60, 67, 0.08)" }}
             onPress={onReject}
           >
@@ -142,12 +195,12 @@ export function DappApprovalSheet({
             </Text>
           </Pressable>
           <Pressable
-            className="items-center rounded-[22px] px-4 py-4"
+            className="flex-1 items-center rounded-[22px] px-4 py-4"
             style={{ backgroundColor: "#f97362" }}
             onPress={onApprove}
           >
             <Text className="text-[16px] font-[Geist_700Bold] text-white">
-              Approve
+              {getPrimaryActionLabel(approval.type)}
             </Text>
           </Pressable>
         </View>
