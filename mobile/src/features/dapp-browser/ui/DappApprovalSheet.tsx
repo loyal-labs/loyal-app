@@ -16,6 +16,18 @@ type DappApprovalSheetProps = {
   onApprove: () => void;
 };
 
+function ApprovalBackdrop(props: ComponentProps<typeof BottomSheetBackdrop>) {
+  return (
+    <BottomSheetBackdrop
+      {...props}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      pressBehavior="none"
+      opacity={0.32}
+    />
+  );
+}
+
 function getRequestLabel(type: PendingApproval["type"]): string {
   switch (type) {
     case "connect":
@@ -51,19 +63,7 @@ export function DappApprovalSheet({
 }: DappApprovalSheetProps) {
   const modalRef = useRef<BottomSheetModal>(null);
   const snapPoints = useMemo(() => ["42%"], []);
-  const backdrop = useMemo(
-    () =>
-      (props: ComponentProps<typeof BottomSheetBackdrop>) => (
-        <BottomSheetBackdrop
-          {...props}
-          appearsOnIndex={0}
-          disappearsOnIndex={-1}
-          pressBehavior="none"
-          opacity={0.32}
-        />
-      ),
-    [],
-  );
+  const backdrop = useMemo(() => ApprovalBackdrop, []);
 
   useEffect(() => {
     if (approval) {
