@@ -68,6 +68,7 @@ type SendSheetProps = {
   solPriceUsd: number | null;
   tokenHoldings: TokenHolding[];
   onSendComplete?: () => void;
+  initialMint?: string;
 };
 
 type SendAsset = {
@@ -193,6 +194,17 @@ function buildSendAssets(
   });
 }
 
+function resolveInitialSendMint(
+  sendAssets: SendAsset[],
+  initialMint?: string,
+): string {
+  if (initialMint && sendAssets.some((asset) => asset.mint === initialMint)) {
+    return initialMint;
+  }
+
+  return sendAssets[0]?.mint ?? NATIVE_SOL_MINT;
+}
+
 export function SendSheet({
   open,
   onClose,
@@ -200,6 +212,7 @@ export function SendSheet({
   solPriceUsd,
   tokenHoldings,
   onSendComplete,
+  initialMint,
 }: SendSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -278,9 +291,9 @@ export function SendSheet({
   useEffect(() => {
     if (sendAssets.length === 0) return;
     if (!sendAssets.some((asset) => asset.mint === selectedMint)) {
-      setSelectedMint(sendAssets[0].mint);
+      setSelectedMint(resolveInitialSendMint(sendAssets, initialMint));
     }
-  }, [sendAssets, selectedMint]);
+  }, [initialMint, selectedMint, sendAssets]);
 
   useEffect(() => {
     return () => {
@@ -297,7 +310,7 @@ export function SendSheet({
       setStep("form");
       setShowQrScanner(false);
       setShowTokenPicker(false);
-      setSelectedMint(NATIVE_SOL_MINT);
+      setSelectedMint(resolveInitialSendMint(sendAssets, initialMint));
       setRecipient("");
       setScanError(null);
       setAmountStr("");
@@ -313,7 +326,7 @@ export function SendSheet({
     } else {
       bottomSheetRef.current?.dismiss();
     }
-  }, [open]);
+  }, [initialMint, open, sendAssets]);
 
   const handleSend = useCallback(async () => {
     if (!isFormValid || isSending) return;

@@ -12,6 +12,7 @@ import { ActivityIndicator, Keyboard } from "react-native";
 import { useShield } from "@/hooks/wallet/useShield";
 import { NATIVE_SOL_MINT } from "@/lib/solana/constants";
 import {
+  buildShieldAssetKey,
   buildShieldAssets,
   getShieldDirection,
   type ShieldAsset,
@@ -30,6 +31,7 @@ type ShieldSheetProps = {
   walletAddress: string | null;
   tokenHoldings: TokenHolding[];
   onShieldComplete?: () => void;
+  initialMint?: string;
 };
 
 function getFriendlyError(raw: string): string {
@@ -63,12 +65,37 @@ function getOperationLabel(direction: ShieldDirection): string {
   return direction === "shield" ? "Shield" : "Unshield";
 }
 
+function resolveInitialShieldAssetKey(
+  shieldAssets: ShieldAsset[],
+  initialMint?: string,
+): string | null {
+  if (shieldAssets.length === 0) {
+    return null;
+  }
+
+  if (!initialMint) {
+    return shieldAssets[0]?.key ?? null;
+  }
+
+  return (
+    shieldAssets.find(
+      (asset) => asset.key === buildShieldAssetKey(initialMint, false),
+    )?.key ??
+    shieldAssets.find(
+      (asset) => asset.key === buildShieldAssetKey(initialMint, true),
+    )?.key ??
+    shieldAssets[0]?.key ??
+    null
+  );
+}
+
 export function ShieldSheet({
   open,
   onClose,
   walletAddress,
   tokenHoldings,
   onShieldComplete,
+  initialMint,
 }: ShieldSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [step, setStep] = useState<ShieldStep>("form");
@@ -110,7 +137,7 @@ export function ShieldSheet({
       bottomSheetRef.current?.present();
       setStep("form");
       setShowTokenPicker(false);
-      setSelectedAssetKey(null);
+      setSelectedAssetKey(resolveInitialShieldAssetKey(shieldAssets, initialMint));
       setAmountStr("");
       setResultError(null);
       setResultSuccess(false);
@@ -118,14 +145,14 @@ export function ShieldSheet({
     } else {
       bottomSheetRef.current?.dismiss();
     }
-  }, [open]);
+  }, [initialMint, open, shieldAssets]);
 
   useEffect(() => {
     if (!open) return;
     if (!selectedAssetKey || !shieldAssets.some((asset) => asset.key === selectedAssetKey)) {
-      setSelectedAssetKey(shieldAssets[0]?.key ?? null);
+      setSelectedAssetKey(resolveInitialShieldAssetKey(shieldAssets, initialMint));
     }
-  }, [open, selectedAssetKey, shieldAssets]);
+  }, [initialMint, open, selectedAssetKey, shieldAssets]);
 
   const handleConfirm = useCallback(async () => {
     if (!isFormValid || isProcessing || !walletAddress || !selectedAsset) return;

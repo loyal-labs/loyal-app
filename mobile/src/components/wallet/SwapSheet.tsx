@@ -48,6 +48,8 @@ type SwapSheetProps = {
   walletAddress: string | null;
   tokenHoldings: TokenHolding[];
   onSwapComplete?: () => void;
+  initialFromMint?: string;
+  initialToMint?: string;
 };
 
 const getDefaultUsdcMint = (): string => {
@@ -74,12 +76,59 @@ function getFriendlyError(raw: string): string {
   return raw;
 }
 
+function resolveInitialSwapMints(params: {
+  initialFromMint?: string;
+  initialToMint?: string;
+  publicHoldings: TokenHolding[];
+  toPickerTokens: TokenHolding[];
+}) {
+  const defaultToMint = getDefaultUsdcMint();
+  const requestedFromMint = params.publicHoldings.some(
+    (holding) => holding.mint === params.initialFromMint,
+  )
+    ? (params.initialFromMint as string)
+    : null;
+  const requestedToMint = params.toPickerTokens.some(
+    (holding) => holding.mint === params.initialToMint,
+  )
+    ? (params.initialToMint as string)
+    : null;
+
+  let fromMint = requestedFromMint ?? NATIVE_SOL_MINT;
+  let toMint = requestedToMint ?? defaultToMint;
+
+  if (fromMint === toMint) {
+    if (requestedFromMint) {
+      const nextTo = params.toPickerTokens.find((holding) => holding.mint !== fromMint);
+      if (nextTo) {
+        toMint = nextTo.mint;
+      }
+    } else {
+      const nextFrom = params.publicHoldings.find((holding) => holding.mint !== toMint);
+      if (nextFrom) {
+        fromMint = nextFrom.mint;
+      }
+    }
+  }
+
+  if (fromMint === toMint) {
+    const nextTo = params.toPickerTokens.find((holding) => holding.mint !== fromMint);
+    if (nextTo) {
+      toMint = nextTo.mint;
+    }
+  }
+
+  return { fromMint, toMint };
+}
+
 export function SwapSheet({
   open,
   onClose,
   walletAddress,
   tokenHoldings,
   onSwapComplete,
+  initialFromMint,
+  initialToMint,
 }: SwapSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [step, setStep] = useState<SwapStep>("form");
@@ -123,10 +172,16 @@ export function SwapSheet({
   // Reset state when opening
   useEffect(() => {
     if (open) {
+      const initialMints = resolveInitialSwapMints({
+        initialFromMint,
+        initialToMint,
+        publicHoldings,
+        toPickerTokens,
+      });
       bottomSheetRef.current?.present();
       setStep("form");
-      setFromMint(NATIVE_SOL_MINT);
-      setToMint(getDefaultUsdcMint());
+      setFromMint(initialMints.fromMint);
+      setToMint(initialMints.toMint);
       setAmountStr("");
       setQuote(null);
       setSwapError(null);
@@ -137,7 +192,7 @@ export function SwapSheet({
     } else {
       bottomSheetRef.current?.dismiss();
     }
-  }, [open]);
+  }, [initialFromMint, initialToMint, open, publicHoldings, toPickerTokens]);
 
   // Fetch quote when amount/tokens change
   useEffect(() => {
