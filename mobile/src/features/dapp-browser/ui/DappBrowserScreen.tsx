@@ -15,6 +15,10 @@ import {
   listRecentHistory,
   recordRecentHistory,
 } from "../storage/recent-history";
+import { buildInjectedProviderScript } from "../bridge/build-injected-provider-script";
+import { buildWebViewResponseScript } from "../bridge/build-webview-response-script";
+import { BRIDGE_MESSAGE_SOURCE } from "../bridge/messages";
+import { parseWebViewMessage } from "../bridge/parse-webview-message";
 import { BrowserHome } from "./BrowserHome";
 import { BrowserToolbar } from "./BrowserToolbar";
 
@@ -98,6 +102,37 @@ export function DappBrowserScreen() {
     [],
   );
 
+  const handleWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+    try {
+      const request = parseWebViewMessage(event.nativeEvent.data);
+      webViewRef.current?.injectJavaScript(
+        buildWebViewResponseScript({
+          source: BRIDGE_MESSAGE_SOURCE,
+          id: request.id,
+          ok: false,
+          error: "Request handling not ready.",
+        }),
+      );
+      return;
+    } catch {
+      try {
+        const parsed = JSON.parse(event.nativeEvent.data) as { id?: unknown };
+        if (typeof parsed.id === "string") {
+          webViewRef.current?.injectJavaScript(
+            buildWebViewResponseScript({
+              source: BRIDGE_MESSAGE_SOURCE,
+              id: parsed.id,
+              ok: false,
+              error: "Malformed bridge payload.",
+            }),
+          );
+        }
+      } catch {
+        // Ignore malformed messages that cannot be associated with a request id.
+      }
+    }
+  }, []);
+
   return (
     <View className="flex-1 bg-white">
       {session.mode === "home" ? (
@@ -119,6 +154,8 @@ export function DappBrowserScreen() {
               ref={webViewRef}
               source={{ uri: session.currentUrl }}
               onNavigationStateChange={handleNavigationStateChange}
+              onMessage={handleWebViewMessage}
+              injectedJavaScriptBeforeContentLoaded={buildInjectedProviderScript()}
               startInLoadingState
               renderLoading={() => (
                 <View className="flex-1 items-center justify-center bg-white">
