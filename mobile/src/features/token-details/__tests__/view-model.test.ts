@@ -179,4 +179,20 @@ describe("buildTokenDetailViewModel", () => {
 
     expect(viewModel.market?.priceChange24hPercent).toBe(10);
   });
+
+  it("ignores market data for a different mint", () => {
+    const viewModel = buildTokenDetailViewModel({
+      mint: "mint-loyal",
+      holdings: [],
+      transactions: [],
+      market: marketDetail,
+    });
+
+    expect(viewModel.token.name).toBe("mint-loyal");
+    expect(viewModel.token.symbol).toBe("mint-loyal");
+    expect(viewModel.token.decimals).toBeNull();
+    expect(viewModel.chart).toEqual([]);
+    expect(viewModel.market).toBeNull();
+    expect(viewModel.links).toBeNull();
+  });
 });

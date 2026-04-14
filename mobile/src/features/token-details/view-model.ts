@@ -1,3 +1,4 @@
+import { derivePriceChange24hPercent } from "@/lib/solana/token-holdings/price-change";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import type { MobileTokenDetailResponse } from "@/services/api";
 import type { Transaction } from "@/types/wallet";
@@ -33,25 +34,6 @@ type BuildTokenDetailViewModelInput = {
   market: MobileTokenDetailResponse | null;
 };
 
-function derivePriceChange24hPercent(
-  market: MobileTokenDetailResponse | null,
-): number | null {
-  const explicitPriceChange = market?.market.priceChange24hPercent;
-
-  if (typeof explicitPriceChange === "number" && Number.isFinite(explicitPriceChange)) {
-    return explicitPriceChange;
-  }
-
-  const firstPoint = market?.chart[0];
-  const lastPoint = market?.chart[market.chart.length - 1];
-
-  if (!firstPoint || !lastPoint || firstPoint.priceUsd <= 0) {
-    return null;
-  }
-
-  return ((lastPoint.priceUsd - firstPoint.priceUsd) / firstPoint.priceUsd) * 100;
-}
-
 function resolveTokenIdentity(
   position: TokenPosition,
   market: MobileTokenDetailResponse | null,
@@ -79,22 +61,26 @@ export function buildTokenDetailViewModel({
   transactions,
   market,
 }: BuildTokenDetailViewModelInput): TokenDetailViewModel {
+  const marketForMint = market?.mint === mint ? market : null;
   const position = buildTokenPosition(mint, holdings);
   const activity = filterTransactionsForMint(transactions, mint);
-  const marketSummary = market
+  const marketSummary = marketForMint
     ? {
-        ...market.market,
-        priceChange24hPercent: derivePriceChange24hPercent(market),
+        ...marketForMint.market,
+        priceChange24hPercent: derivePriceChange24hPercent({
+          explicitPriceChange24hPercent: marketForMint.market.priceChange24hPercent,
+          chart: marketForMint.chart,
+        }),
       }
     : null;
 
   return {
     mint,
-    token: resolveTokenIdentity(position, market),
+    token: resolveTokenIdentity(position, marketForMint),
     position,
     activity,
-    chart: market?.chart ?? [],
-    links: market ? market.links : null,
+    chart: marketForMint?.chart ?? [],
+    links: marketForMint ? marketForMint.links : null,
     market: marketSummary,
     canSend: position.publicBalance > 0,
     canReceive: true,

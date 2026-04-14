@@ -1,5 +1,6 @@
 import { BottomSheetModal } from "@gorhom/bottom-sheet";
-import { ArrowDown, ArrowLeftRight, ArrowUp, Globe, Shield } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,7 +21,6 @@ import { TokensSheet } from "@/components/wallet/TokensSheet";
 import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
 import { shouldShowWalletTopUp } from "@/components/wallet/wallet-screen-helpers";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
-import { buildBrowserHref } from "@/features/dapp-browser/routes";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -60,12 +60,15 @@ export default function WalletScreen() {
   // Re-fetch everything when the Solana network is switched in Settings
   const [networkLoading, setNetworkLoading] = useState(false);
   const [networkKey, setNetworkKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [tokenMarketRefreshKey, setTokenMarketRefreshKey] = useState(0);
 
   useEffect(() => {
     return onSolanaEnvChange(() => {
       clearHoldingsCache();
       setNetworkLoading(true);
       setNetworkKey((k) => k + 1);
+      setTokenMarketRefreshKey((k) => k + 1);
 
       void resetWalletBalanceSubscription().then(() =>
         Promise.all([
@@ -128,11 +131,17 @@ export default function WalletScreen() {
   }, [setDisplayCurrency]);
 
   const handleRefresh = useCallback(async () => {
-    await Promise.all([
-      refreshBalance(true),
-      refreshTokenHoldings(true),
-      loadWalletTransactions({ force: true }),
-    ]);
+    setIsRefreshing(true);
+    setTokenMarketRefreshKey((k) => k + 1);
+    try {
+      await Promise.all([
+        refreshBalance(true),
+        refreshTokenHoldings(true),
+        loadWalletTransactions({ force: true }),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
 
   const handleSendComplete = useCallback(() => {
@@ -172,6 +181,9 @@ export default function WalletScreen() {
 
   const handleTokenPress = useCallback(
     (mint: string) => {
+      if (process.env.EXPO_OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
       router.push(buildTokenDetailHref(mint));
     },
     [router],
@@ -180,10 +192,6 @@ export default function WalletScreen() {
   const handleShowAllActivity = useCallback(() => {
     activitySheetRef.current?.present();
   }, []);
-
-  const handleOpenBrowser = useCallback(() => {
-    router.push(buildBrowserHref());
-  }, [router]);
 
   const handleBgSelect = useCallback((bg: string | null) => {
     setBalanceBg(bg);
@@ -229,7 +237,7 @@ export default function WalletScreen() {
         className="flex-1"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 132) }}
         refreshControl={
-          <RefreshControl refreshing={false} onRefresh={handleRefresh} />
+          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
         }
       >
         <BalanceCard
@@ -270,11 +278,6 @@ export default function WalletScreen() {
             label="Shield"
             onPress={() => setIsShieldOpen(true)}
           />
-          <ActionButton
-            icon={<Globe size={28} color="#000" strokeWidth={1.5} />}
-            label="Browser"
-            onPress={handleOpenBrowser}
-          />
         </View>
 
         {/* Banner carousel */}
@@ -285,6 +288,7 @@ export default function WalletScreen() {
           <TokensList
             holdings={networkLoading ? [] : tokenHoldings}
             isLoading={isHoldingsLoading || networkLoading}
+            marketRefreshKey={tokenMarketRefreshKey}
             onSeeAll={handleShowAllTokens}
             onTokenPress={handleTokenPress}
           />

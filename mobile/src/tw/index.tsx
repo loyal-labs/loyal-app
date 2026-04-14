@@ -3,10 +3,14 @@ import {
   useNativeVariable as useFunctionalVariable,
 } from "react-native-css";
 
+import {
+  resolveTextFontProps,
+} from "@/tw/font-family";
 import { Link as RouterLink } from "expo-router";
 import Animated from "react-native-reanimated";
 import React from "react";
 import {
+  Platform,
   View as RNView,
   Text as RNText,
   Pressable as RNPressable,
@@ -14,8 +18,14 @@ import {
   TouchableHighlight as RNTouchableHighlight,
   TextInput as RNTextInput,
   StyleSheet,
+  type TextStyle,
 } from "react-native";
 import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
+
+const MONO_FONT_FAMILY = Platform.select({
+  ios: "Menlo",
+  default: "monospace",
+});
 
 // CSS-enabled Link
 export const Link = (
@@ -49,7 +59,18 @@ View.displayName = "CSS(View)";
 export const Text = (
   props: React.ComponentProps<typeof RNText> & { className?: string }
 ) => {
-  return useCssElement(RNText, props, { className: "style" });
+  const { className, fontFamily } = resolveTextFontProps(
+    props.className,
+    StyleSheet.flatten(props.style as TextStyle | TextStyle[] | undefined)
+      ?.fontFamily,
+    MONO_FONT_FAMILY,
+  );
+  const style = fontFamily ? [{ fontFamily }, props.style] : props.style;
+  return useCssElement(
+    RNText,
+    { ...props, className, style },
+    { className: "style" },
+  );
 };
 Text.displayName = "CSS(Text)";
 
@@ -79,7 +100,18 @@ Pressable.displayName = "CSS(Pressable)";
 export const TextInput = (
   props: React.ComponentProps<typeof RNTextInput> & { className?: string }
 ) => {
-  return useCssElement(RNTextInput, props, { className: "style" });
+  const { className, fontFamily } = resolveTextFontProps(
+    props.className,
+    StyleSheet.flatten(props.style as TextStyle | TextStyle[] | undefined)
+      ?.fontFamily,
+    MONO_FONT_FAMILY,
+  );
+  const style = fontFamily ? [{ fontFamily }, props.style] : props.style;
+  return useCssElement(
+    RNTextInput,
+    { ...props, className, style },
+    { className: "style" },
+  );
 };
 TextInput.displayName = "CSS(TextInput)";
 

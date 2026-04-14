@@ -117,12 +117,11 @@ describe("fetchTokenDetailByMint", () => {
     });
 
     await expect(
-      fetchTokenDetailByMint("So11111111111111111111111111111111111111112")
+      fetchTokenDetailByMint("failed-mint")
     ).resolves.toEqual({
       chart: [],
       links: {
-        explorer:
-          "https://solscan.io/token/So11111111111111111111111111111111111111112",
+        explorer: "https://solscan.io/token/failed-mint",
         twitter: null,
         website: null,
       },
@@ -136,7 +135,7 @@ describe("fetchTokenDetailByMint", () => {
         updatedAt: "2026-04-13T10:15:00.000Z",
         volume24hUsd: null,
       },
-      mint: "So11111111111111111111111111111111111111112",
+      mint: "failed-mint",
       token: {
         decimals: null,
         logoUrl: null,
@@ -144,5 +143,52 @@ describe("fetchTokenDetailByMint", () => {
         symbol: null,
       },
     });
+  });
+
+  test("caches repeated requests for the same mint", async () => {
+    await fetchTokenDetailByMint("cached-mint");
+    await fetchTokenDetailByMint("cached-mint");
+
+    expect(fetchTokenMetricsByMint).toHaveBeenCalledTimes(1);
+    expect(fetchBirdeyeTokenMarketData).toHaveBeenCalledTimes(1);
+    expect(fetchBirdeyeTokenMetadata).toHaveBeenCalledTimes(1);
+    expect(fetchBirdeyePriceHistory).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not cache an incomplete response with missing chart history", async () => {
+    fetchBirdeyeTokenMarketData.mockImplementationOnce(async () => ({
+      fullyDilutedValueUsd: 3_350_000.12,
+      liquidityUsd: 410_250.55,
+      marketCapUsd: 2_040_111.99,
+      priceChange24hPercent: null,
+      priceUsd: 0.16312,
+      volume24hUsd: 120_034.55,
+    }));
+    fetchBirdeyePriceHistory
+      .mockImplementationOnce(async () => {
+        throw new Error("history unavailable");
+      })
+      .mockImplementationOnce(async () => [
+        { timestamp: 1_712_534_400, priceUsd: 0.12 },
+        { timestamp: 1_712_620_800, priceUsd: 0.15 },
+      ]);
+
+    await expect(fetchTokenDetailByMint("incomplete-mint")).resolves.toMatchObject({
+      chart: [],
+      mint: "incomplete-mint",
+    });
+
+    await expect(fetchTokenDetailByMint("incomplete-mint")).resolves.toMatchObject({
+      chart: [
+        { priceUsd: 0.12, timestamp: 1_712_534_400 },
+        { priceUsd: 0.15, timestamp: 1_712_620_800 },
+      ],
+      mint: "incomplete-mint",
+    });
+
+    expect(fetchTokenMetricsByMint).toHaveBeenCalledTimes(2);
+    expect(fetchBirdeyeTokenMarketData).toHaveBeenCalledTimes(2);
+    expect(fetchBirdeyeTokenMetadata).toHaveBeenCalledTimes(2);
+    expect(fetchBirdeyePriceHistory).toHaveBeenCalledTimes(2);
   });
 });

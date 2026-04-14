@@ -1,5 +1,6 @@
 import { Link, Stack } from "expo-router";
-import { Text, View } from "react-native";
+
+import { Text, View } from "@/tw";
 
 export default function NotFoundScreen() {
   return (

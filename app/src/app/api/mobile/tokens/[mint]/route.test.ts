@@ -66,6 +66,7 @@ describe("mobile token detail route", () => {
     expect(fetchTokenDetailByMint).toHaveBeenCalledWith("target-mint");
     expect(response.status).toBe(200);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({
       chart: [{ priceUsd: 0.12, timestamp: 1_712_534_400 }],
       links: {
@@ -105,6 +106,7 @@ describe("mobile token detail route", () => {
 
     expect(response.status).toBe(500);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({
       error: "Failed to fetch token detail",
     });

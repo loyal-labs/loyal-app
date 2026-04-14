@@ -1,5 +1,5 @@
 import { DappBrowserScreen } from "@/features/dapp-browser/ui/DappBrowserScreen";
 
-export default function BrowserRoute() {
+export default function BrowserTab() {
   return <DappBrowserScreen />;
 }

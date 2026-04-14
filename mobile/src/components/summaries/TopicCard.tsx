@@ -1,6 +1,6 @@
 import type { Topic } from "@loyal-labs/shared";
 
-import { Text, View } from "react-native";
+import { Text, View } from "@/tw";
 
 import { SourceAvatars } from "./SourceAvatars";
 

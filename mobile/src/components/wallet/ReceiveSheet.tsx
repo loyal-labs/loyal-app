@@ -10,7 +10,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Share } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 
-import { formatAddress } from "@/lib/solana/wallet/formatters";
 import { Pressable, Text, View } from "@/tw";
 
 const COPIED_RESET_MS = 2000;
@@ -138,13 +137,6 @@ export function ReceiveSheet({
               <Text className="text-[12px] text-neutral-500">Share</Text>
             </Pressable>
           </View>
-
-          {/* Short address for quick reference */}
-          {walletAddress && (
-            <Text className="mt-4 text-[12px] text-neutral-400">
-              {formatAddress(walletAddress)}
-            </Text>
-          )}
         </View>
       </BottomSheetView>
     </BottomSheetModal>

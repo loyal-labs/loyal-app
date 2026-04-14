@@ -54,6 +54,9 @@ export function useTokenDetail({
   }, [mint]);
 
   useEffect(() => {
+    setMarket(null);
+    setLoading(true);
+    setError(null);
     void reload();
   }, [reload]);
 

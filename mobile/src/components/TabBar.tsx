@@ -1,7 +1,7 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
-import { GraduationCap, Settings, Wallet } from "lucide-react-native";
+import { Globe, GraduationCap, Settings, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet } from "react-native";
 import Animated, {
@@ -14,10 +14,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
-const TAB_ORDER = ["index", "library", "profile"] as const;
+const TAB_ORDER = ["index", "browser", "library", "profile"] as const;
 
 const TAB_ICONS = {
   index: Wallet,
+  browser: Globe,
   library: GraduationCap,
   profile: Settings,
 } as const;
