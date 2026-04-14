@@ -14,7 +14,6 @@ import {
   verifyTeeRpcIntegrity,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { sign } from "tweetnacl";
 import type { TelegramPrivateTransfer } from "./idl/telegram_private_transfer.ts";
 import idl from "./idl/telegram_private_transfer.json";
 import {
@@ -68,6 +67,7 @@ import type {
   DelegationStatusResponse,
 } from "./types";
 import { sha256hash } from "./utils";
+import { createKeypairMessageSigner } from "./webcrypto";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -210,8 +210,7 @@ function deriveMessageSigner(
   signer: WalletSigner
 ): (message: Uint8Array) => Promise<Uint8Array> {
   if (isKeypair(signer)) {
-    return (message: Uint8Array) =>
-      Promise.resolve(sign.detached(message, signer.secretKey));
+    return createKeypairMessageSigner(signer);
   }
 
   if (isAnchorProvider(signer)) {
