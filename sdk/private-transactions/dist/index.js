@@ -14,7 +14,6 @@ import {
   verifyTeeRpcIntegrity,
   getAuthToken
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { sign } from "tweetnacl";
 // src/idl/telegram_private_transfer.json
 var telegram_private_transfer_default = {
   address: "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV",
@@ -2122,6 +2121,77 @@ class InternalWalletAdapter {
   }
 }
 
+// src/webcrypto.ts
+var ED25519_ALGORITHM = { name: "Ed25519" };
+var NODE_CRYPTO_SPECIFIER = "node:crypto";
+var subtleCryptoPromise = null;
+function getNodeProcess() {
+  return globalThis.process;
+}
+async function loadNodeWebCrypto() {
+  if (typeof getNodeProcess()?.versions?.node !== "string") {
+    return null;
+  }
+  const nodeCrypto = await import(NODE_CRYPTO_SPECIFIER);
+  return nodeCrypto.webcrypto ?? null;
+}
+async function loadSubtleCrypto() {
+  if (globalThis.crypto?.subtle) {
+    return globalThis.crypto.subtle;
+  }
+  const nodeWebCrypto = await loadNodeWebCrypto();
+  if (nodeWebCrypto?.subtle) {
+    return nodeWebCrypto.subtle;
+  }
+  throw new Error("Web Crypto Ed25519 signing is not available in this runtime");
+}
+async function getSubtleCrypto() {
+  subtleCryptoPromise ??= loadSubtleCrypto();
+  return subtleCryptoPromise;
+}
+function bytesToBase64Url(bytes) {
+  let base64;
+  if (typeof Buffer !== "undefined") {
+    base64 = Buffer.from(bytes).toString("base64");
+  } else {
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    base64 = btoa(binary);
+  }
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+async function importKeypairPrivateKey(keypair) {
+  const privateScalar = keypair.secretKey.slice(0, 32);
+  if (privateScalar.byteLength !== 32) {
+    throw new Error("Expected Keypair secret key to contain a 32-byte seed");
+  }
+  const subtle = await getSubtleCrypto();
+  return subtle.importKey("jwk", {
+    crv: "Ed25519",
+    d: bytesToBase64Url(privateScalar),
+    ext: false,
+    kty: "OKP",
+    x: bytesToBase64Url(keypair.publicKey.toBytes())
+  }, ED25519_ALGORITHM, false, ["sign"]);
+}
+function createKeypairMessageSigner(keypair) {
+  let privateKeyPromise = null;
+  const getPrivateKey = () => {
+    privateKeyPromise ??= importKeypairPrivateKey(keypair);
+    return privateKeyPromise;
+  };
+  return async (message) => {
+    const [subtle, privateKey] = await Promise.all([
+      getSubtleCrypto(),
+      getPrivateKey()
+    ]);
+    const signature = await subtle.sign(ED25519_ALGORITHM, privateKey, message);
+    return new Uint8Array(signature);
+  };
+}
+
 // src/LoyalPrivateTransactionsClient.ts
 var KAMINO_API_BASE_URL = "https://api.kamino.finance";
 var KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -2201,7 +2271,7 @@ async function fetchKaminoReserveSupplyApyBps(args) {
 }
 function deriveMessageSigner(signer) {
   if (isKeypair(signer)) {
-    return (message) => Promise.resolve(sign.detached(message, signer.secretKey));
+    return createKeypairMessageSigner(signer);
   }
   if (isAnchorProvider(signer)) {
     const wallet = signer.wallet;

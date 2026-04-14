@@ -39,9 +39,9 @@ import {
   verifyTeeRpcIntegrity,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { sign } from "tweetnacl";
 import path from "node:path";
 import type { TelegramVerification } from "../../../target/types/telegram_verification";
+import { createKeypairMessageSigner } from "../src/webcrypto";
 
 const AUTH_TOKEN_CACHE_PATH = path.join(
   import.meta.dir,
@@ -82,8 +82,7 @@ async function getOrCacheAuthToken(
     throw new Error("TEE RPC integrity verification failed");
   }
 
-  const signMessage = (message: Uint8Array) =>
-    Promise.resolve(sign.detached(message, keypair.secretKey));
+  const signMessage = createKeypairMessageSigner(keypair);
 
   const result = await getAuthToken(
     ephemeralRpcEndpoint,
