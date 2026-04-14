@@ -2,6 +2,11 @@ import * as Haptics from "expo-haptics";
 import { Delete } from "lucide-react-native";
 import { useCallback } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
+import Animated, {
+  Easing,
+  ZoomIn,
+  ZoomOut,
+} from "react-native-reanimated";
 
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
 import { Pressable, Text, View } from "@/tw";
@@ -24,6 +29,42 @@ type Props = {
   length?: number;
 };
 
+type PinPlaceholderProps = {
+  filled: boolean;
+  size: number;
+};
+
+function PinPlaceholder({ filled, size }: PinPlaceholderProps) {
+  return (
+    <View
+      style={[
+        styles.dot,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+        },
+        filled ? styles.dotFilledShell : undefined,
+      ]}
+    >
+      {filled ? (
+        <Animated.View
+          entering={ZoomIn.duration(180).easing(Easing.out(Easing.cubic))}
+          exiting={ZoomOut.duration(140).easing(Easing.out(Easing.quad))}
+          style={[
+            styles.dotFill,
+            {
+              width: size - 10,
+              height: size - 10,
+              borderRadius: (size - 10) / 2,
+            },
+          ]}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 export function PinPadInput({
   value,
   onChange,
@@ -39,7 +80,7 @@ export function PinPadInput({
   const keypadWidth = Math.max(300, Math.min(width - horizontalPadding, 420));
   const keyWidth = Math.floor((keypadWidth - keyGap * 2) / 3);
   const keyHeight = Math.round(keyWidth * 0.72);
-  const dotSize = Math.max(16, Math.min(22, Math.round(keyWidth * 0.18)));
+  const dotSize = Math.max(40, Math.min(52, Math.round(keyWidth * 0.42)));
   const keyTextSize = Math.max(30, Math.min(40, Math.round(keyHeight * 0.45)));
 
   const handleKeyPress = useCallback(
@@ -69,18 +110,11 @@ export function PinPadInput({
     <View style={styles.container}>
       <View style={styles.dotsRow}>
         {Array.from({ length }).map((_, index) => (
-          <View
+          <PinPlaceholder
             // eslint-disable-next-line react/no-array-index-key
             key={index}
-            style={[
-              styles.dot,
-              {
-                width: dotSize,
-                height: dotSize,
-                borderRadius: dotSize / 2,
-              },
-              index < value.length ? styles.dotFilled : undefined,
-            ]}
+            filled={index < value.length}
+            size={dotSize}
           />
         ))}
       </View>
@@ -160,18 +194,22 @@ const styles = StyleSheet.create({
   dotsRow: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 12,
-    marginTop: 10,
-    marginBottom: 4,
+    gap: 18,
+    marginTop: 16,
+    marginBottom: 10,
   },
   dot: {
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(0,0,0,0.18)",
     backgroundColor: "transparent",
   },
-  dotFilled: {
+  dotFilledShell: {
+    borderColor: "rgba(0,0,0,0.32)",
+  },
+  dotFill: {
     backgroundColor: "#000",
-    borderColor: "#000",
   },
   errorText: {
     fontFamily: "Geist_500Medium",

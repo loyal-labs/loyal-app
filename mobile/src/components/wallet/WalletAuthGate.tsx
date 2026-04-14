@@ -40,6 +40,7 @@ export function WalletAuthGate() {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#fff",
     zIndex: 100,
   },
 });

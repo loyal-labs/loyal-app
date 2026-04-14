@@ -316,9 +316,9 @@ export function ActivityFeed({
 
   if (isLoading && transactions.length === 0) {
     return (
-      <View>
+      <View className="px-4">
         <Text
-          className="px-3 pb-2 pt-3 text-[17px] font-medium text-black"
+          className="pb-2 pt-3 text-[17px] font-medium text-black"
           style={{ letterSpacing: -0.176 }}
         >
           Activity
@@ -342,9 +342,9 @@ export function ActivityFeed({
 
   if (transactions.length === 0) {
     return (
-      <View>
+      <View className="px-4">
         <Text
-          className="px-3 pb-2 pt-3 text-[17px] font-medium text-black"
+          className="pb-2 pt-3 text-[17px] font-medium text-black"
           style={{ letterSpacing: -0.176 }}
         >
           Activity
@@ -362,9 +362,9 @@ export function ActivityFeed({
   }
 
   return (
-    <View>
+    <View className="px-4">
       <Text
-        className="px-3 pb-2 pt-3 text-[17px] font-medium text-black"
+        className="pb-2 pt-3 text-[17px] font-medium text-black"
         style={{ letterSpacing: -0.176 }}
       >
         Activity
@@ -378,7 +378,7 @@ export function ActivityFeed({
         />
       ))}
       {transactions.length > maxItems && (
-        <View className="mt-2 items-center px-3">
+        <View className="mt-2 items-center">
           <Pressable
             onPress={onShowAll}
             className="flex-row items-center gap-1.5 rounded-full px-4 py-1.5"

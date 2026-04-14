@@ -11,7 +11,6 @@ import { ActivityFeed } from "@/components/wallet/ActivityFeed";
 import { ActivitySheet } from "@/components/wallet/ActivitySheet";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
-import { BannerCarousel } from "@/components/wallet/BannerCarousel";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { ShieldSheet } from "@/components/wallet/ShieldSheet";
@@ -19,6 +18,7 @@ import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { TokensList } from "@/components/wallet/TokensList";
 import { TokensSheet } from "@/components/wallet/TokensSheet";
 import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
+import { shouldShowWalletTopUp } from "@/components/wallet/wallet-screen-helpers";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { buildBrowserHref } from "@/features/dapp-browser/routes";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
@@ -190,6 +190,18 @@ export default function WalletScreen() {
     setCachedBalanceBg(bg);
   }, []);
 
+  const showTopUpAction = useMemo(
+    () =>
+      shouldShowWalletTopUp({
+        totalSolLamports,
+        holdings: tokenHoldings,
+        isLoading,
+        networkLoading,
+        walletError,
+      }),
+    [totalSolLamports, tokenHoldings, isLoading, networkLoading, walletError],
+  );
+
   if (isLoading && !walletAddress) {
     return (
       <ScrollView
@@ -232,6 +244,8 @@ export default function WalletScreen() {
           walletError={walletError}
           onRetry={retryWalletInit}
           earnings={kaminoEarnings}
+          showTopUpAction={showTopUpAction}
+          onTopUpPress={() => setIsReceiveOpen(true)}
         />
 
         {/* Action buttons */}
@@ -264,7 +278,7 @@ export default function WalletScreen() {
         </View>
 
         {/* Banner carousel */}
-        <BannerCarousel />
+        {/* <BannerCarousel /> */}
 
         {/* Token holdings */}
         <View>

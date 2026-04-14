@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -9,6 +9,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import {
+  advanceOnboardingSlidePlayback,
+  createOnboardingMomentumEndUpdater,
+  createOnboardingSlidePlaybackState,
+  disableOnboardingSlidePlayback,
+} from "@/components/wallet/onboarding-slide-playback";
 import {
   buildWalletSetupActions,
   ONBOARDING_SLIDES,
@@ -32,7 +38,10 @@ export function WalletSetupOnboardingScreen({
   const scrollRef = useRef<ScrollView>(null);
   const { bottom } = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [playbackState, setPlaybackState] = useState(() =>
+    createOnboardingSlidePlaybackState(),
+  );
+  const currentIndex = playbackState.currentIndex;
 
   const actions = useMemo(
     () => buildWalletSetupActions(seedVaultAvailable),
@@ -41,6 +50,13 @@ export function WalletSetupOnboardingScreen({
   const imageHeight = useMemo(
     () => Math.min(Math.max(height * 0.24, 180), 250),
     [height],
+  );
+
+  const scrollToIndex = useCallback(
+    (nextIndex: number) => {
+      scrollRef.current?.scrollTo({ x: nextIndex * width, animated: true });
+    },
+    [width],
   );
 
   const actionHandlers = useMemo(
@@ -52,14 +68,41 @@ export function WalletSetupOnboardingScreen({
     [onCreateWallet, onImportWallet, onUseSeedVault],
   );
 
-  const handleMomentumEnd = (
-    event: NativeSyntheticEvent<NativeScrollEvent>,
-  ) => {
-    const next = Math.round(event.nativeEvent.contentOffset.x / width);
-    if (next !== currentIndex) {
-      setCurrentIndex(next);
+  useEffect(() => {
+    if (!playbackState.autoAdvanceEnabled || ONBOARDING_SLIDES.length <= 1) {
+      return;
     }
-  };
+
+    const timer = setTimeout(() => {
+      const nextState = advanceOnboardingSlidePlayback(
+        playbackState,
+        ONBOARDING_SLIDES.length,
+      );
+      scrollToIndex(nextState.currentIndex);
+      setPlaybackState(nextState);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [currentIndex, playbackState, scrollToIndex]);
+
+  const handleMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      setPlaybackState(
+        createOnboardingMomentumEndUpdater(
+          event,
+          width,
+          ONBOARDING_SLIDES.length,
+        ),
+      );
+    },
+    [width],
+  );
+
+  const handleScrollBeginDrag = useCallback(() => {
+    setPlaybackState((currentState) =>
+      disableOnboardingSlidePlayback(currentState),
+    );
+  }, []);
 
   return (
     <View className="flex-1 bg-white">
@@ -92,6 +135,7 @@ export function WalletSetupOnboardingScreen({
           bounces={false}
           overScrollMode="never"
           showsHorizontalScrollIndicator={false}
+          onScrollBeginDrag={handleScrollBeginDrag}
           onMomentumScrollEnd={handleMomentumEnd}
           className="flex-1"
         >
@@ -124,7 +168,7 @@ export function WalletSetupOnboardingScreen({
         </ScrollView>
 
         <View
-          className="gap-3 px-6 pt-4"
+          className="px-6 pt-4"
           style={{ paddingBottom: Math.max(bottom + 12, 24) }}
         >
           {actions.map((action, index) => {
@@ -141,7 +185,18 @@ export function WalletSetupOnboardingScreen({
             ];
 
             return (
-              <View key={action.id} className="gap-2">
+              <View
+                key={action.id}
+                className="gap-2"
+                style={{
+                  marginBottom:
+                    index === actions.length - 1
+                      ? 0
+                      : action.helperText
+                        ? 20
+                        : 12,
+                }}
+              >
                 <Pressable
                   style={pressableStyle}
                   onPress={actionHandlers[action.id]}

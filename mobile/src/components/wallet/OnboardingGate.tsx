@@ -1,8 +1,15 @@
 import { Keypair } from "@solana/web3.js";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, StyleSheet } from "react-native";
 import * as SeedVault from "expo-seed-vault";
 import type { VaultAccount } from "expo-seed-vault";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInLeft,
+  FadeInRight,
+  FadeOut,
+} from "react-native-reanimated";
 
 import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
 import { CreateWalletScreen } from "@/components/wallet/CreateWalletScreen";
@@ -24,11 +31,24 @@ type Step =
   | "import"
   | "biometric-setup";
 type Flow = "create" | "import" | null;
+type TransitionDirection = "forward" | "backward";
 
 type Props = {
   mode?: "setup" | "replay";
   onReplayDone?: () => void;
 };
+
+function getScreenEnteringAnimation(direction: TransitionDirection) {
+  const easing = Easing.out(Easing.cubic);
+
+  return direction === "forward"
+    ? FadeInRight.duration(240).easing(easing)
+    : FadeInLeft.duration(240).easing(easing);
+}
+
+const SCREEN_EXITING_ANIMATION = FadeOut.duration(160).easing(
+  Easing.out(Easing.quad),
+);
 
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const { finalizeSigner, finalizeVaultSigner } = useWallet();
@@ -39,27 +59,42 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [seedVaultAvailable, setSeedVaultAvailable] = useState(false);
+  const [transitionDirection, setTransitionDirection] =
+    useState<TransitionDirection>("forward");
+  const [screenAnimationsReady, setScreenAnimationsReady] = useState(false);
 
   useEffect(() => {
     SeedVault.isAvailable().then(setSeedVaultAvailable);
   }, []);
 
+  useEffect(() => {
+    setScreenAnimationsReady(true);
+  }, []);
+
+  const navigateToStep = useCallback(
+    (nextStep: Step, direction: TransitionDirection = "forward") => {
+      setTransitionDirection(direction);
+      setStep(nextStep);
+    },
+    [],
+  );
+
   const handleCreateComplete = useCallback(
     (keypair: Keypair, pin: string) => {
       setPendingKeypair(keypair);
       setPendingPin(pin);
-      setStep("biometric-setup");
+      navigateToStep("biometric-setup", "forward");
     },
-    [],
+    [navigateToStep],
   );
 
   const handleImportComplete = useCallback(
     (keypair: Keypair, pin: string) => {
       setPendingKeypair(keypair);
       setPendingPin(pin);
-      setStep("biometric-setup");
+      navigateToStep("biometric-setup", "forward");
     },
-    [],
+    [navigateToStep],
   );
 
   const handleBiometricComplete = useCallback(async () => {
@@ -81,7 +116,6 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     [finalizeVaultSigner],
   );
 
-  // --- Finalizing (encrypting + storing) ---
   if (finalizing) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
@@ -100,67 +134,88 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     );
   }
 
-  // --- Slides step ---
+  let content: React.ReactNode;
+
   if (step === "slides") {
-    return (
+    content = (
       <OnboardingSlidesScreen
         onDone={() => {
           if (mode === "replay") {
             onReplayDone?.();
             return;
           }
-          setStep("setup-onboarding");
+          navigateToStep("setup-onboarding", "forward");
         }}
       />
     );
-  }
-
-  // --- Combined setup onboarding step ---
-  if (step === "setup-onboarding") {
-    return (
+  } else if (step === "setup-onboarding") {
+    content = (
       <WalletSetupOnboardingScreen
         seedVaultAvailable={seedVaultAvailable}
         onUseSeedVault={() => {
           setFlow(null);
-          setStep("seed-vault");
+          navigateToStep("seed-vault", "forward");
         }}
         onCreateWallet={() => {
           setFlow("create");
-          setStep("create");
+          navigateToStep("create", "forward");
         }}
         onImportWallet={() => {
           setFlow("import");
-          setStep("import");
+          navigateToStep("import", "forward");
         }}
       />
     );
-  }
-
-  // --- Seed Vault chooser step ---
-  if (step === "seed-vault") {
-    return (
+  } else if (step === "seed-vault") {
+    content = (
       <SeedVaultChooserScreen
         onComplete={handleSeedVaultComplete}
-        onBack={() => setStep("setup-onboarding")}
+        onBack={() => navigateToStep("setup-onboarding", "backward")}
+      />
+    );
+  } else if (step === "create") {
+    content = (
+      <CreateWalletScreen
+        onComplete={handleCreateComplete}
+        onBack={() => {
+          setFlow(null);
+          navigateToStep("setup-onboarding", "backward");
+        }}
+      />
+    );
+  } else if (step === "import") {
+    content = <ImportWalletScreen onComplete={handleImportComplete} />;
+  } else {
+    content = (
+      <BiometricSetupScreen
+        pin={pendingPin!}
+        onComplete={handleBiometricComplete}
       />
     );
   }
 
-  // --- Create step ---
-  if (step === "create") {
-    return <CreateWalletScreen onComplete={handleCreateComplete} />;
-  }
-
-  // --- Import step ---
-  if (step === "import") {
-    return <ImportWalletScreen onComplete={handleImportComplete} />;
-  }
-
-  // --- Biometric setup step ---
   return (
-    <BiometricSetupScreen
-      pin={pendingPin!}
-      onComplete={handleBiometricComplete}
-    />
+    <Animated.View
+      key={step}
+      style={styles.screen}
+      entering={
+        screenAnimationsReady
+          ? getScreenEnteringAnimation(transitionDirection)
+          : FadeIn.duration(0)
+      }
+      exiting={
+        screenAnimationsReady ? SCREEN_EXITING_ANIMATION : FadeOut.duration(0)
+      }
+    >
+      {content}
+    </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#fff",
+    overflow: "hidden",
+  },
+});

@@ -25,6 +25,8 @@ type BalanceCardProps = {
   onRetry?: () => void;
   /** Aggregate Kamino USDC earnings pill. Hidden when null or zero. */
   earnings?: KaminoUsdcEarnings | null;
+  showTopUpAction?: boolean;
+  onTopUpPress?: () => void;
 };
 
 function formatEarnedPct(pct: number): string {
@@ -49,6 +51,8 @@ export function BalanceCard({
   walletError,
   onRetry,
   earnings,
+  showTopUpAction = false,
+  onTopUpPress,
 }: BalanceCardProps) {
   const showEarningsPill =
     !!earnings && earnings.earnedUsd > 0 && earnings.earnedPct > 0;
@@ -83,6 +87,14 @@ export function BalanceCard({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     onToggleCurrency();
+  };
+
+  const handleTopUp = () => {
+    if (!onTopUpPress) return;
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onTopUpPress();
   };
 
   const showSkeleton = isLoading || solBalanceLamports === null;
@@ -184,10 +196,23 @@ export function BalanceCard({
                   <View className="h-5 w-28 rounded bg-white/10" />
                 </View>
               ) : (
-                <Pressable onPress={handleToggle} className="self-start">
-                  <Text className="text-[40px] font-semibold leading-[48px] text-white">
-                    {formatPrimary()}
-                  </Text>
+                <View className="self-start">
+                  <View className="flex-row items-center gap-3">
+                    <Pressable onPress={handleToggle}>
+                      <Text className="text-[40px] font-semibold leading-[48px] text-white">
+                        {formatPrimary()}
+                      </Text>
+                    </Pressable>
+                    {showTopUpAction && onTopUpPress ? (
+                      <Pressable
+                        onPress={handleTopUp}
+                        className="rounded-full px-4 py-2"
+                        style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                      >
+                        <Text style={styles.topUpText}>Top up</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                   {showEarningsPill && earnings && (
                     <View style={styles.earningsRow}>
                       <View style={styles.earningsPill}>
@@ -207,7 +232,7 @@ export function BalanceCard({
                       <ActivityIndicator size="small" color="rgba(255,255,255,0.4)" />
                     )}
                   </Text>
-                </Pressable>
+                </View>
               )}
             </View>
           </View>
@@ -244,6 +269,12 @@ const styles = StyleSheet.create({
     color: "rgba(255, 255, 255, 0.7)",
     fontFamily: "Geist_500Medium",
     fontSize: 13,
+    lineHeight: 18,
+  },
+  topUpText: {
+    color: "#fff",
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 15,
     lineHeight: 18,
   },
 });

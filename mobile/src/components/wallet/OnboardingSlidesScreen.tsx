@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -9,6 +9,12 @@ import {
 } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import {
+  advanceOnboardingSlidePlayback,
+  createOnboardingMomentumEndUpdater,
+  createOnboardingSlidePlaybackState,
+  disableOnboardingSlidePlayback,
+} from "@/components/wallet/onboarding-slide-playback";
 import { ONBOARDING_SLIDES } from "@/components/wallet/onboarding-slides";
 import { Pressable, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
@@ -20,7 +26,10 @@ type Props = {
 export function OnboardingSlidesScreen({ onDone }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const { width, height } = useWindowDimensions();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [playbackState, setPlaybackState] = useState(() =>
+    createOnboardingSlidePlaybackState(),
+  );
+  const currentIndex = playbackState.currentIndex;
 
   const isLast = currentIndex === ONBOARDING_SLIDES.length - 1;
 
@@ -42,6 +51,23 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
     [width],
   );
 
+  useEffect(() => {
+    if (!playbackState.autoAdvanceEnabled || ONBOARDING_SLIDES.length <= 1) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const nextState = advanceOnboardingSlidePlayback(
+        playbackState,
+        ONBOARDING_SLIDES.length,
+      );
+      scrollToIndex(nextState.currentIndex);
+      setPlaybackState(nextState);
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [currentIndex, playbackState, scrollToIndex]);
+
   const handleNext = useCallback(() => {
     triggerLightHaptic();
     if (isLast) {
@@ -50,6 +76,10 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
     }
 
     const next = Math.min(currentIndex + 1, ONBOARDING_SLIDES.length - 1);
+    setPlaybackState((currentState) => ({
+      ...currentState,
+      currentIndex: next,
+    }));
     scrollToIndex(next);
   }, [currentIndex, isLast, onDone, scrollToIndex, triggerLightHaptic]);
 
@@ -60,13 +90,22 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
 
   const handleMomentumEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const next = Math.round(event.nativeEvent.contentOffset.x / width);
-      if (next !== currentIndex) {
-        setCurrentIndex(next);
-      }
+      setPlaybackState(
+        createOnboardingMomentumEndUpdater(
+          event,
+          width,
+          ONBOARDING_SLIDES.length,
+        ),
+      );
     },
-    [currentIndex, width],
+    [width],
   );
+
+  const handleScrollBeginDrag = useCallback(() => {
+    setPlaybackState((currentState) =>
+      disableOnboardingSlidePlayback(currentState),
+    );
+  }, []);
 
   return (
     <View className="flex-1 bg-white">
@@ -109,6 +148,7 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
           bounces={false}
           overScrollMode="never"
           showsHorizontalScrollIndicator={false}
+          onScrollBeginDrag={handleScrollBeginDrag}
           onMomentumScrollEnd={handleMomentumEnd}
           className="flex-1"
         >
