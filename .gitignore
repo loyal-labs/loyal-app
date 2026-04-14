@@ -108,3 +108,13 @@ docs/scopes
 # internal workspace package build outputs
 /packages/*/dist/
 /sdk/*/dist/
+
+skills-lock**
+ss_claude_**
+second-report**
+
+docs/superpowers
+
+.superpowers
+
+.agents/**

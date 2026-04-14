@@ -14,6 +14,7 @@ import {
   verifyTeeRpcIntegrity,
   getAuthToken
 } from "@magicblock-labs/ephemeral-rollups-sdk";
+import { sign } from "tweetnacl";
 // src/idl/telegram_private_transfer.json
 var telegram_private_transfer_default = {
   address: "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV",
@@ -2271,7 +2272,7 @@ async function fetchKaminoReserveSupplyApyBps(args) {
 }
 function deriveMessageSigner(signer) {
   if (isKeypair(signer)) {
-    return createKeypairMessageSigner(signer);
+    return (message) => Promise.resolve(sign.detached(message, signer.secretKey));
   }
   if (isAnchorProvider(signer)) {
     const wallet = signer.wallet;
