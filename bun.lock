@@ -469,7 +469,7 @@
     },
     "sdk/private-transactions": {
       "name": "@loyal-labs/private-transactions",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "devDependencies": {
         "@coral-xyz/anchor": "^0.32.1",
         "@solana/web3.js": "^1.95.0",
