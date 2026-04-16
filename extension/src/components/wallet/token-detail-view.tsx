@@ -322,6 +322,86 @@ export function TokenDetailView({
             )}
           </div>
 
+          {/* Action buttons */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0 4px",
+            }}
+          >
+            {(
+              [
+                onSend && { label: "Send", Icon: ArrowUpRight, action: onSend },
+                onReceive && { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
+                onSwap && { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
+                onShield && { label: token.isSecured ? "Unshield" : "Shield", Icon: Shield, action: onShield },
+              ].filter(Boolean) as { label: string; Icon: typeof ArrowUpRight; action: () => void }[]
+            ).map(({ label, Icon, action }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={action}
+                onMouseEnter={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.22)";
+                }}
+                onMouseLeave={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.14)";
+                }}
+                onMouseDown={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.transform = "scale(0.93)";
+                }}
+                onMouseUp={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.transform = "scale(1)";
+                }}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  minWidth: 0,
+                  overflow: "hidden",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                <div
+                  data-action-circle
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "9999px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(249, 54, 60, 0.14)",
+                    transition: "background 0.15s ease, transform 0.15s ease",
+                  }}
+                >
+                  <Icon size={24} strokeWidth={1.5} style={{ color: "#000" }} />
+                </div>
+                <span
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                    color: COLOR_SECONDARY,
+                  }}
+                >
+                  {label}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {/* Chart */}
           {detail.chart.length >= 2 && (
             <div style={{ ...cardStyle, padding: "12px 0 0" }}>
@@ -368,7 +448,7 @@ export function TokenDetailView({
           )}
 
           {/* Position card */}
-          {token.amount !== "0" && (
+          {parseFloat(token.amount) > 0 && (
             <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: "8px" }}>
               <span style={labelStyle}>Your balance</span>
               <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
@@ -575,85 +655,6 @@ export function TokenDetailView({
             </div>
           )}
 
-          {/* Action buttons */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "4px 4px 0",
-            }}
-          >
-            {(
-              [
-                onSend && { label: "Send", Icon: ArrowUpRight, action: onSend },
-                onReceive && { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
-                onSwap && { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
-                onShield && { label: token.isSecured ? "Unshield" : "Shield", Icon: Shield, action: onShield },
-              ].filter(Boolean) as { label: string; Icon: typeof ArrowUpRight; action: () => void }[]
-            ).map(({ label, Icon, action }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={action}
-                onMouseEnter={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.22)";
-                }}
-                onMouseLeave={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.14)";
-                }}
-                onMouseDown={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.transform = "scale(0.93)";
-                }}
-                onMouseUp={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.transform = "scale(1)";
-                }}
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px",
-                  minWidth: 0,
-                  overflow: "hidden",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-              >
-                <div
-                  data-action-circle
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "9999px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "rgba(249, 54, 60, 0.14)",
-                    transition: "background 0.15s ease, transform 0.15s ease",
-                  }}
-                >
-                  <Icon size={24} strokeWidth={1.5} style={{ color: "#000" }} />
-                </div>
-                <span
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                    color: COLOR_SECONDARY,
-                  }}
-                >
-                  {label}
-                </span>
-              </button>
-            ))}
-          </div>
         </div>
       )}
     </div>
