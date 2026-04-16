@@ -76,6 +76,7 @@ function formatUsd(value: number | null | undefined): string {
 }
 
 function formatTokenBalance(balance: number): string {
+	if (balance === 0) return "0";
 	return balance.toLocaleString("en-US", {
 		minimumFractionDigits: balance >= 1 ? 0 : 2,
 		maximumFractionDigits: balance >= 1 ? 4 : 6,

@@ -1541,6 +1541,8 @@ function WalletInterface() {
             walletLabel={walletLabel}
             getTokenActions={getTokenActions}
             onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "portfolio" })}
+            totalTokenCount={enrichedTokenRows.length}
+            totalActivityCount={allActivityRows.length}
           />
         );
       case "send":

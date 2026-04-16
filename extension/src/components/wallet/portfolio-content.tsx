@@ -127,6 +127,8 @@ export function PortfolioContent({
   walletLabel,
   getTokenActions,
   onTokenDetail,
+  totalTokenCount,
+  totalActivityCount,
 }: {
   activityRows: ActivityRow[];
   balanceFraction: string;
@@ -148,6 +150,8 @@ export function PortfolioContent({
   walletLabel: string;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
+  totalTokenCount?: number;
+  totalActivityCount?: number;
 }) {
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
@@ -626,32 +630,34 @@ export function PortfolioContent({
             >
               Tokens
             </span>
-            <button
-              onClick={() => {
-                track(PORTFOLIO_EVENTS.viewAllTokens);
-                onNavigate("allTokens");
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.7";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-              }}
-              type="button"
-            >
-              See All
-            </button>
+            {(totalTokenCount ?? tokenRows.length) > 3 && (
+              <button
+                onClick={() => {
+                  track(PORTFOLIO_EVENTS.viewAllTokens);
+                  onNavigate("allTokens");
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = "0.7";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = "1";
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#F9363C",
+                }}
+                type="button"
+              >
+                See All
+              </button>
+            )}
           </div>
 
           {tokenRows.map((token) => (
@@ -696,32 +702,34 @@ export function PortfolioContent({
             >
               Activity
             </span>
-            <button
-              onClick={() => {
-                track(PORTFOLIO_EVENTS.viewAllActivity);
-                onNavigate("allActivity");
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.7";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-              }}
-              type="button"
-            >
-              See All
-            </button>
+            {(totalActivityCount ?? activityRows.length) > 7 && (
+              <button
+                onClick={() => {
+                  track(PORTFOLIO_EVENTS.viewAllActivity);
+                  onNavigate("allActivity");
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = "0.7";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = "1";
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#F9363C",
+                }}
+                type="button"
+              >
+                See All
+              </button>
+            )}
           </div>
 
           {activityRows.map((activity) => (
@@ -746,7 +754,6 @@ export function PortfolioContent({
             <div
               style={{
                 padding: "12px 20px",
-                textAlign: "center",
                 fontFamily: "var(--font-geist-sans), sans-serif",
                 fontSize: "14px",
                 color: "rgba(60, 60, 67, 0.6)",
