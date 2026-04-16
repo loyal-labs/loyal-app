@@ -24,6 +24,7 @@ import type {
   TokenRow,
 } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
+import bs58 from "bs58";
 import { Keypair } from "@solana/web3.js";
 import {
   generateKeypair,
@@ -236,6 +237,7 @@ function CreateWalletScreen({
   const [showImportKey, setShowImportKey] = useState(false);
   const [mode, setMode] = useState<"create" | "import">(initialMode);
   const [error, setError] = useState<string | null>(null);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
 
@@ -322,12 +324,23 @@ function CreateWalletScreen({
 
   const handleImport = async () => {
     try {
-      const hex = secretKeyInput.trim().replace(/^0x/, "");
-      if (!hex) throw new Error("Private key cannot be empty");
-      const pairs = hex.match(/.{1,2}/g);
-      if (!pairs) throw new Error("Invalid hex format");
-      const bytes = new Uint8Array(pairs.map((b) => parseInt(b, 16)));
-      setError(null);
+      const trimmed = secretKeyInput.trim();
+      if (!trimmed) throw new Error("Private key cannot be empty");
+
+      let bytes: Uint8Array;
+      const hex = trimmed.replace(/^0x/, "");
+      if (/^[0-9a-fA-F]+$/.test(hex)) {
+        const pairs = hex.match(/.{1,2}/g)!;
+        bytes = new Uint8Array(pairs.map((b) => parseInt(b, 16)));
+      } else {
+        try {
+          bytes = bs58.decode(trimmed);
+        } catch {
+          throw new Error("Invalid private key format");
+        }
+      }
+
+      setKeyError(null);
       setLoading(true);
       await importWallet(bytes, password);
       await credentialVersionStorage.setValue(2);
@@ -335,7 +348,7 @@ function CreateWalletScreen({
       identifyWallet(importedKeypair.publicKey.toBase58(), "imported");
       track(WALLET_SETUP_EVENTS.walletImported);
     } catch (e) {
-      setError(
+      setKeyError(
         e instanceof Error ? e.message : "Invalid secret key or import failed"
       );
     } finally {
@@ -348,6 +361,7 @@ function CreateWalletScreen({
     setConfirmPassword("");
     setPassword("");
     setError(null);
+    setKeyError(null);
   }, []);
 
   const showImportField =
@@ -543,7 +557,7 @@ function CreateWalletScreen({
           style={{
             width: "100%",
             overflow: "hidden",
-            maxHeight: showImportField ? "300px" : "0px",
+            maxHeight: showImportField ? "350px" : "0px",
             opacity: showImportField ? 1 : 0,
             transition:
               "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
@@ -552,14 +566,19 @@ function CreateWalletScreen({
           <div style={{ width: "100%", marginTop: "16px" }}>
             <div style={{ position: "relative", width: "100%" }}>
               <textarea
-                placeholder="Private key (hex)"
+                placeholder="Private key"
                 value={secretKeyInput}
-                onChange={(e) => setSecretKeyInput(e.target.value)}
+                onChange={(e) => {
+                  setSecretKeyInput(e.target.value);
+                  if (keyError) setKeyError(null);
+                }}
                 rows={4}
                 style={{
                   width: "100%",
                   background: "#fff",
-                  border: "none",
+                  border: keyError
+                    ? "2px solid #FF3B30"
+                    : "2px solid transparent",
                   borderRadius: "16px",
                   padding: "12px 40px 12px 16px",
                   fontFamily: showImportKey
@@ -573,6 +592,7 @@ function CreateWalletScreen({
                   resize: "none",
                   boxSizing: "border-box",
                   wordBreak: "break-all",
+                  transition: "border-color 0.15s ease",
                   ...(showImportKey
                     ? {}
                     : { WebkitTextSecurity: "disc" as never }),
@@ -597,6 +617,19 @@ function CreateWalletScreen({
                 {showImportKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+            {keyError && (
+              <p
+                style={{
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "13px",
+                  lineHeight: "16px",
+                  color: "#FF3B30",
+                  margin: "8px 0 0",
+                }}
+              >
+                {keyError}
+              </p>
+            )}
           </div>
 
           {/* Import button */}
