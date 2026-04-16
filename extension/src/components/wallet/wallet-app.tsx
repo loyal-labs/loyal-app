@@ -1541,6 +1541,14 @@ function WalletInterface() {
             walletLabel={walletLabel}
             getTokenActions={getTokenActions}
             onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "portfolio" })}
+            onShieldUsdc={() => {
+              const usdc = shieldTokens.find(
+                (t) => t.symbol === "USDC" && !t.isSecured
+              );
+              if (usdc) setShieldToken(usdc);
+              setSwapMode("shield");
+              handleTabChange("shield");
+            }}
             totalTokenCount={enrichedTokenRows.length}
             totalActivityCount={allActivityRows.length}
           />

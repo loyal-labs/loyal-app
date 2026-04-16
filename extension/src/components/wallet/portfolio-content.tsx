@@ -21,6 +21,7 @@ import type {
 import { track } from "~/src/lib/analytics";
 import { ActivityRowItem } from "~/src/components/wallet/activity-row-item";
 import { TokenRowItem, type TokenRowActions } from "~/src/components/wallet/token-row-item";
+import { BannerCarousel } from "./banner-carousel";
 import { PORTFOLIO_EVENTS } from "./portfolio-analytics";
 
 const skeletonBar = (width: string, height: string) => ({
@@ -127,6 +128,7 @@ export function PortfolioContent({
   walletLabel,
   getTokenActions,
   onTokenDetail,
+  onShieldUsdc,
   totalTokenCount,
   totalActivityCount,
 }: {
@@ -150,6 +152,7 @@ export function PortfolioContent({
   walletLabel: string;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
+  onShieldUsdc?: () => void;
   totalTokenCount?: number;
   totalActivityCount?: number;
 }) {
@@ -599,6 +602,13 @@ export function PortfolioContent({
           overflowX: "hidden",
         }}
       >
+        {/* Banners */}
+        {onShieldUsdc && (
+          <div style={{ padding: "4px 0 8px" }}>
+            <BannerCarousel onShieldUsdc={onShieldUsdc} />
+          </div>
+        )}
+
         {/* Tokens section */}
         <div
           style={{
