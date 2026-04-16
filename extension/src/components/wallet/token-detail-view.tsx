@@ -9,7 +9,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ExternalLink, Globe, Shield, ShieldOff } from "lucide-react";
+import {
+  ArrowLeftRight,
+  ArrowUpRight,
+  ExternalLink,
+  Globe,
+  Shield,
+  ShieldOff,
+} from "lucide-react";
 
 import type { TokenRow } from "@loyal-labs/wallet-core/types";
 import { SubViewHeader } from "./shared";
@@ -120,10 +127,16 @@ export function TokenDetailView({
   token,
   onBack,
   onClose,
+  onSend,
+  onSwap,
+  onShield,
 }: {
   token: TokenRow;
   onBack: () => void;
   onClose: () => void;
+  onSend?: () => void;
+  onSwap?: () => void;
+  onShield?: () => void;
 }) {
   const [detail, setDetail] = useState<TokenDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -399,7 +412,6 @@ export function TokenDetailView({
               <StatItem label="FDV" value={formatUsd(detail.token.fdvUsd)} />
               <StatItem label="Liquidity" value={formatUsd(detail.token.totalReserveUsd)} />
               <StatItem label="24h Volume" value={formatUsd(detail.token.volumeUsd24h)} />
-              <StatItem label="Holders" value={formatNumber(detail.info.holderCount)} />
             </div>
           </div>
 
@@ -487,39 +499,48 @@ export function TokenDetailView({
             </div>
           </div>
 
-          {/* Holder distribution */}
-          {detail.info.holderDistribution && (
+          {/* Holders */}
+          {(detail.info.holderCount !== null || detail.info.holderDistribution) && (
             <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: "8px" }}>
-              <span style={labelStyle}>Holder distribution</span>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div
-                  style={{
-                    flex: 1,
-                    height: "8px",
-                    borderRadius: "4px",
-                    background: "rgba(0, 0, 0, 0.06)",
-                    overflow: "hidden",
-                    display: "flex",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${parseFloat(detail.info.holderDistribution.top10)}%`,
-                      background: COLOR_ORANGE,
-                      borderRadius: "4px 0 0 4px",
-                      transition: "width 0.3s ease",
-                    }}
-                  />
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={labelStyle}>Holders</span>
+                {detail.info.holderCount !== null && (
+                  <span style={valueStyle}>{formatNumber(detail.info.holderCount)}</span>
+                )}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ ...labelStyle, fontSize: "12px" }}>
-                  Top 10: {parseFloat(detail.info.holderDistribution.top10).toFixed(1)}%
-                </span>
-                <span style={{ ...labelStyle, fontSize: "12px" }}>
-                  Rest: {parseFloat(detail.info.holderDistribution.rest).toFixed(1)}%
-                </span>
-              </div>
+              {detail.info.holderDistribution && (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div
+                      style={{
+                        flex: 1,
+                        height: "8px",
+                        borderRadius: "4px",
+                        background: "rgba(0, 0, 0, 0.06)",
+                        overflow: "hidden",
+                        display: "flex",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${parseFloat(detail.info.holderDistribution.top10)}%`,
+                          background: COLOR_ORANGE,
+                          borderRadius: "4px 0 0 4px",
+                          transition: "width 0.3s ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ ...labelStyle, fontSize: "12px" }}>
+                      Top 10: {parseFloat(detail.info.holderDistribution.top10).toFixed(1)}%
+                    </span>
+                    <span style={{ ...labelStyle, fontSize: "12px" }}>
+                      Rest: {parseFloat(detail.info.holderDistribution.rest).toFixed(1)}%
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -550,6 +571,23 @@ export function TokenDetailView({
               )}
             </div>
           )}
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+            {onSend && (
+              <ActionButton icon={ArrowUpRight} label="Send" onClick={onSend} />
+            )}
+            {onSwap && (
+              <ActionButton icon={ArrowLeftRight} label="Swap" onClick={onSwap} />
+            )}
+            {onShield && (
+              <ActionButton
+                icon={Shield}
+                label={token.isSecured ? "Unshield" : "Shield"}
+                onClick={onShield}
+              />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -559,6 +597,47 @@ export function TokenDetailView({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function ActionButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof ArrowUpRight;
+  label: string;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "6px",
+        padding: "10px 0",
+        borderRadius: "12px",
+        border: "none",
+        cursor: "pointer",
+        background: hovered ? "rgba(0, 0, 0, 0.08)" : "rgba(0, 0, 0, 0.04)",
+        fontFamily: FONT,
+        fontSize: "13px",
+        fontWeight: 500,
+        lineHeight: "16px",
+        color: COLOR_PRIMARY,
+        transition: "background 0.15s ease",
+      }}
+    >
+      <Icon size={16} strokeWidth={2} />
+      {label}
+    </button>
+  );
+}
 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (

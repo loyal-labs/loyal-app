@@ -1585,11 +1585,29 @@ function WalletInterface() {
     }
 
     if (subView.type === "tokenDetail") {
+      const t = subView.token;
+      const actions = getTokenActions(t);
+      const swapMatch = swapTokens.find((s) => s.mint === t.id);
       return (
         <TokenDetailView
-          token={subView.token}
+          token={t}
           onBack={goBack}
           onClose={handleClose}
+          onSend={actions?.onSend ? () => {
+            if (swapMatch) setSendToken(swapMatch);
+            handleTabChange("send");
+            setSubView(null);
+          } : undefined}
+          onSwap={actions?.onSwap ? () => {
+            if (swapMatch) setFromToken(swapMatch);
+            setSwapMode("swap");
+            handleTabChange("swap");
+            setSubView(null);
+          } : undefined}
+          onShield={(actions?.onShield || actions?.onUnshield) ? () => {
+            actions.onShield?.(t) ?? actions.onUnshield?.(t);
+            setSubView(null);
+          } : undefined}
         />
       );
     }
