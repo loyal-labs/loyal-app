@@ -1587,23 +1587,34 @@ function WalletInterface() {
     if (subView.type === "tokenDetail") {
       const t = subView.token;
       const actions = getTokenActions(t);
-      const swapMatch = swapTokens.find((s) => s.mint === t.id);
+      const asSwapToken: SwapToken = swapTokens.find((s) => s.mint === t.id) ?? {
+        mint: t.id,
+        symbol: t.symbol,
+        icon: t.icon,
+        price: parseFloat(t.price) || 0,
+        balance: parseFloat(t.amount) || 0,
+        isSecured: t.isSecured,
+      };
       return (
         <TokenDetailView
           token={t}
           onBack={goBack}
           onClose={handleClose}
-          onSend={actions?.onSend ? () => {
-            if (swapMatch) setSendToken(swapMatch);
+          onSend={() => {
+            setSendToken(asSwapToken);
             handleTabChange("send");
             setSubView(null);
-          } : undefined}
-          onSwap={actions?.onSwap ? () => {
-            if (swapMatch) setFromToken(swapMatch);
+          }}
+          onReceive={() => {
+            handleTabChange("receive");
+            setSubView(null);
+          }}
+          onSwap={() => {
+            setFromToken(asSwapToken);
             setSwapMode("swap");
             handleTabChange("swap");
             setSubView(null);
-          } : undefined}
+          }}
           onShield={(actions?.onShield || actions?.onUnshield) ? () => {
             actions.onShield?.(t) ?? actions.onUnshield?.(t);
             setSubView(null);

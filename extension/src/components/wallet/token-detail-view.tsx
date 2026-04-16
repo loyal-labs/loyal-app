@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
   ExternalLink,
@@ -128,6 +129,7 @@ export function TokenDetailView({
   onBack,
   onClose,
   onSend,
+  onReceive,
   onSwap,
   onShield,
 }: {
@@ -135,6 +137,7 @@ export function TokenDetailView({
   onBack: () => void;
   onClose: () => void;
   onSend?: () => void;
+  onReceive?: () => void;
   onSwap?: () => void;
   onShield?: () => void;
 }) {
@@ -573,20 +576,83 @@ export function TokenDetailView({
           )}
 
           {/* Action buttons */}
-          <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-            {onSend && (
-              <ActionButton icon={ArrowUpRight} label="Send" onClick={onSend} />
-            )}
-            {onSwap && (
-              <ActionButton icon={ArrowLeftRight} label="Swap" onClick={onSwap} />
-            )}
-            {onShield && (
-              <ActionButton
-                icon={Shield}
-                label={token.isSecured ? "Unshield" : "Shield"}
-                onClick={onShield}
-              />
-            )}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "4px 4px 0",
+            }}
+          >
+            {(
+              [
+                onSend && { label: "Send", Icon: ArrowUpRight, action: onSend },
+                onReceive && { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
+                onSwap && { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
+                onShield && { label: token.isSecured ? "Unshield" : "Shield", Icon: Shield, action: onShield },
+              ].filter(Boolean) as { label: string; Icon: typeof ArrowUpRight; action: () => void }[]
+            ).map(({ label, Icon, action }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={action}
+                onMouseEnter={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.22)";
+                }}
+                onMouseLeave={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.14)";
+                }}
+                onMouseDown={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.transform = "scale(0.93)";
+                }}
+                onMouseUp={(e) => {
+                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+                  if (circle) circle.style.transform = "scale(1)";
+                }}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  minWidth: 0,
+                  overflow: "hidden",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                <div
+                  data-action-circle
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "9999px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(249, 54, 60, 0.14)",
+                    transition: "background 0.15s ease, transform 0.15s ease",
+                  }}
+                >
+                  <Icon size={24} strokeWidth={1.5} style={{ color: "#000" }} />
+                </div>
+                <span
+                  style={{
+                    fontFamily: FONT,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                    color: COLOR_SECONDARY,
+                  }}
+                >
+                  {label}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -597,47 +663,6 @@ export function TokenDetailView({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function ActionButton({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: typeof ArrowUpRight;
-  label: string;
-  onClick: () => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        flex: 1,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "6px",
-        padding: "10px 0",
-        borderRadius: "12px",
-        border: "none",
-        cursor: "pointer",
-        background: hovered ? "rgba(0, 0, 0, 0.08)" : "rgba(0, 0, 0, 0.04)",
-        fontFamily: FONT,
-        fontSize: "13px",
-        fontWeight: 500,
-        lineHeight: "16px",
-        color: COLOR_PRIMARY,
-        transition: "background 0.15s ease",
-      }}
-    >
-      <Icon size={16} strokeWidth={2} />
-      {label}
-    </button>
-  );
-}
 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (
