@@ -145,8 +145,10 @@ export function TokenDetailView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const mint = token.id?.replace(/-secured$/, "") ?? null;
+
   const loadDetail = useCallback(async () => {
-    if (!token.id) {
+    if (!mint) {
       setError("No token address available");
       setLoading(false);
       return;
@@ -154,14 +156,14 @@ export function TokenDetailView({
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchTokenDetail(token.id);
+      const data = await fetchTokenDetail(mint);
       setDetail(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load token data");
     } finally {
       setLoading(false);
     }
-  }, [token.id]);
+  }, [mint]);
 
   useEffect(() => {
     void loadDetail();
@@ -476,6 +478,21 @@ export function TokenDetailView({
                 )}
               </div>
               <span style={{ ...labelStyle, fontSize: "14px" }}>{token.value}</span>
+              {typeof token.apyBps === "number" && token.apyBps > 0 && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "3px",
+                    fontFamily: FONT,
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    color: COLOR_GREEN,
+                  }}
+                >
+                  Earning {(token.apyBps / 100).toFixed(2)}% APY
+                </span>
+              )}
             </div>
           )}
 
