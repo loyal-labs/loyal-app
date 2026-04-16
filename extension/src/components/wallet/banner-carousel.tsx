@@ -38,7 +38,7 @@ function BannerCard({ banner }: { banner: Banner }) {
           "linear-gradient(90deg, rgba(249,54,60,0) 0%, rgba(249,54,60,0.14) 100%), #F5F5F5",
         display: "flex",
         alignItems: "stretch",
-        minHeight: "96px",
+        height: "96px",
       }}
     >
       {/* Text + CTA */}
