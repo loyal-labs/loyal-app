@@ -57,7 +57,7 @@ import { DappApprovalView } from "./dapp-approval-view";
 import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
-import { pendingDappApproval, onboardingCompleted } from "~/src/lib/storage";
+import { pendingDappApproval, onboardingCompleted, confettiShown } from "~/src/lib/storage";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
   flushInstallEvent,
@@ -1990,19 +1990,23 @@ function WalletAppInner() {
     if (state === "unlocked" && (prev === "locked" || prev === "noWallet")) {
       setTransitioning(true);
 
-      // Check if legacy PIN user needs password upgrade before showing confetti
+      // Check if legacy PIN user needs password upgrade
       const upgradeCheck =
         prev === "locked"
           ? credentialVersionStorage.getValue()
           : Promise.resolve(2 as number | null);
 
-      void upgradeCheck.then((version) => {
+      void upgradeCheck.then(async (version) => {
         const needsUpgrade = version === null;
         if (needsUpgrade) setShowPasswordUpgrade(true);
+        const alreadyShown = await confettiShown.getValue();
         setTimeout(() => {
           setDisplayState(state);
           setTransitioning(false);
-          if (!needsUpgrade) setShowConfetti(true);
+          if (!needsUpgrade && !alreadyShown) {
+            setShowConfetti(true);
+            void confettiShown.setValue(true);
+          }
         }, 250);
       });
 
@@ -2049,7 +2053,12 @@ function WalletAppInner() {
       <PasswordUpgradeScreen
         onComplete={() => {
           setShowPasswordUpgrade(false);
-          setShowConfetti(true);
+          void confettiShown.getValue().then((already) => {
+            if (!already) {
+              setShowConfetti(true);
+              void confettiShown.setValue(true);
+            }
+          });
         }}
       />
     ) : (

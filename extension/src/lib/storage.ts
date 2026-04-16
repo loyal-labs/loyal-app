@@ -88,6 +88,12 @@ export const pinLockedUntil = storage.defineItem<number>(
   { fallback: 0 }
 );
 
+/** Whether the confetti animation has been shown for the current wallet. */
+export const confettiShown = storage.defineItem<boolean>(
+  "local:confettiShown",
+  { fallback: false }
+);
+
 /** Flag set by background on fresh install; cleared after UI fires the Mixpanel event. */
 export const installEventPending = storage.defineItem<boolean>(
   "local:installEventPending",
