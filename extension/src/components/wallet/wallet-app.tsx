@@ -33,13 +33,8 @@ import {
 } from "~/src/lib/keypair-storage";
 import { credentialVersion as credentialVersionStorage } from "~/src/lib/storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
-import { DogMascot } from "./dog-mascot";
-import type { DogMood } from "./dog-mascot";
-import {
-  MIN_PASSWORD_LENGTH,
-  PasswordInput,
-  getPasswordStrength,
-} from "./shared";
+import { FourDogsMark } from "./four-dogs-mark";
+import { MIN_PASSWORD_LENGTH, PasswordInput } from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
 import type { TokenRowActions } from "./token-row-item";
@@ -189,39 +184,6 @@ function ConfettiOverlay({ onComplete }: { onComplete?: () => void }) {
   );
 }
 
-function Logotype() {
-  return (
-    <svg
-      width="49"
-      height="20"
-      viewBox="0 0 49 20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M41.8672 0H44.8439V13.3023C44.8439 13.8837 45.1695 14.2093 45.7509 14.2093H46.6811V16.5116H44.9835C43.123 16.5116 41.8672 15.3488 41.8672 13.4186V0Z"
-        fill="black"
-      />
-      <path
-        d="M28.7366 7.95325C29.225 5.37185 31.2018 3.90674 34.2483 3.90674C37.8064 3.90674 39.6669 5.74395 39.6669 9.20906V13.4416C39.6669 14.1393 39.9692 14.3486 40.4343 14.3486H40.9227V16.5114L40.225 16.5346C39.2715 16.5579 37.318 16.5812 37.0855 14.6277C36.5041 15.8602 35.1087 16.7905 32.9692 16.7905C30.4808 16.7905 28.5273 15.4649 28.5273 13.2788C28.5273 10.9067 30.318 10.0928 33.225 9.53464L36.6669 8.86023C36.6669 6.95325 35.8529 6.04627 34.2483 6.04627C32.9227 6.04627 32.0622 6.7672 31.7832 8.11604L28.7366 7.95325ZM31.6204 13.1858C31.6204 14.023 32.3413 14.6974 33.7832 14.6974C35.4576 14.6974 36.7366 13.4649 36.7366 11.0463V10.8835L34.3878 11.3021C32.8297 11.5812 31.6204 11.7905 31.6204 13.1858Z"
-        fill="black"
-      />
-      <path
-        d="M16.6719 4.18604H19.5556L22.8579 13.3953L26.044 4.18604H28.9277L24.0207 17.8139C23.4858 19.3256 22.4858 20 20.8347 20H18.8114V17.7209H20.323C21.044 17.7209 21.3928 17.4884 21.6486 16.907L21.9975 16H21.137L16.6719 4.18604Z"
-        fill="black"
-      />
-      <path
-        d="M11.1553 16.7905C7.45767 16.7905 5.03906 14.2556 5.03906 10.3486C5.03906 6.44162 7.45767 3.90674 11.1553 3.90674C14.8298 3.90674 17.2484 6.44162 17.2484 10.3486C17.2484 14.2556 14.8298 16.7905 11.1553 16.7905ZM8.13208 10.3486C8.13208 12.8835 9.22511 14.3719 11.1553 14.3719C13.0623 14.3719 14.1786 12.8835 14.1786 10.3486C14.1786 7.81371 13.0623 6.32534 11.1553 6.32534C9.22511 6.32534 8.13208 7.81371 8.13208 10.3486Z"
-        fill="black"
-      />
-      <path
-        d="M0 0H2.97674V13.3023C2.97674 13.8837 3.30232 14.2093 3.88372 14.2093H4.81395V16.5116H3.11628C1.25581 16.5116 0 15.3488 0 13.4186V0Z"
-        fill="black"
-      />
-    </svg>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Create / Import wallet screen
 // ---------------------------------------------------------------------------
@@ -242,17 +204,6 @@ function CreateWalletScreen({
   const [keyError, setKeyError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
-
-  // Dog mood derived from password strength on enter step
-  const createDogMood: DogMood | undefined = (() => {
-    if (step === "confirm") return undefined; // idle/main with normal behavior
-    const pw = password;
-    if (pw.length === 0) return undefined;
-    const { level } = getPasswordStrength(pw);
-    if (level === "weak") return "cry";
-    if (level === "fair") return "main";
-    return "excited"; // strong
-  })();
   const [copied, setCopied] = useState(false);
 
   const secretKeyHex = pendingKeypair
@@ -393,17 +344,8 @@ function CreateWalletScreen({
         }}
       >
         {/* Branding cluster */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "4px",
-            marginBottom: "32px",
-          }}
-        >
-          <DogMascot size={160} triggerMood={createDogMood} />
-          <Logotype />
+        <div style={{ marginBottom: "32px" }}>
+          <FourDogsMark size={320} />
         </div>
 
         {/* Tab toggle */}
@@ -870,13 +812,6 @@ function UnlockScreen() {
   const [loading, setLoading] = useState(false);
   const [lockoutRemaining, setLockoutRemaining] = useState(0);
   const [showForgot, setShowForgot] = useState(false);
-  const [dogMood, setDogMood] = useState<DogMood | undefined>(undefined);
-  const dogMoodTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const triggerDogMood = useCallback((mood: DogMood) => {
-    if (dogMoodTimerRef.current) clearTimeout(dogMoodTimerRef.current);
-    setDogMood(mood);
-    dogMoodTimerRef.current = setTimeout(() => setDogMood(undefined), 2000);
-  }, []);
 
   // Check lockout on mount and tick countdown
   useEffect(() => {
@@ -928,15 +863,11 @@ function UnlockScreen() {
       } catch (err) {
         if (err instanceof PinLockedError) {
           startLockoutCountdown(err.remainingMs);
-          triggerDogMood("scared");
           setError(null);
         } else {
           const remaining = await getPinLockoutRemaining();
           if (remaining > 0) {
             startLockoutCountdown(remaining);
-            triggerDogMood("scared");
-          } else {
-            triggerDogMood("cry");
           }
           setError("Wrong password");
         }
@@ -972,12 +903,11 @@ function UnlockScreen() {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "4px",
+          gap: "14px",
           marginBottom: "24px",
         }}
       >
-        <DogMascot size={160} triggerMood={dogMood} />
-        <Logotype />
+        <FourDogsMark size={320} />
         {truncatedKey && (
           <span
             style={{
@@ -985,7 +915,6 @@ function UnlockScreen() {
               fontSize: "13px",
               lineHeight: "16px",
               color: "rgba(60, 60, 67, 0.6)",
-              marginTop: "4px",
             }}
           >
             {truncatedKey}
