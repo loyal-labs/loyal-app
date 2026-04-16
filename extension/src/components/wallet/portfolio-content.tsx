@@ -126,6 +126,7 @@ export function PortfolioContent({
   walletAddress,
   walletLabel,
   getTokenActions,
+  onTokenDetail,
 }: {
   activityRows: ActivityRow[];
   balanceFraction: string;
@@ -146,6 +147,7 @@ export function PortfolioContent({
   walletAddress: string | null;
   walletLabel: string;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
@@ -658,6 +660,7 @@ export function PortfolioContent({
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}
+              onDetail={onTokenDetail}
             />
           ))}
         </div>

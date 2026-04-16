@@ -3,8 +3,6 @@ import { useState } from "react";
 
 import type { TokenRow } from "@loyal-labs/wallet-core/types";
 
-const LOYAL_JUP_URL = "https://jup.ag/tokens/LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
-
 export type TokenRowActions = {
   onSend?: (token: TokenRow) => void;
   onSwap?: (token: TokenRow) => void;
@@ -55,28 +53,20 @@ export function TokenRowItem({
   token,
   isBalanceHidden,
   actions,
+  onDetail,
 }: {
   token: TokenRow;
   isBalanceHidden: boolean;
   actions?: TokenRowActions;
+  onDetail?: (token: TokenRow) => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const isLoyal = token.symbol === "LOYAL";
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={
-        isLoyal
-          ? () =>
-              globalThis.open(
-                LOYAL_JUP_URL,
-                "_blank",
-                "noopener,noreferrer"
-              )
-          : undefined
-      }
+      onClick={() => onDetail?.(token)}
       style={{
         display: "flex",
         alignItems: "center",
@@ -86,7 +76,7 @@ export function TokenRowItem({
         overflow: "hidden",
         background: hovered ? "rgba(0, 0, 0, 0.04)" : "transparent",
         transition: "background-color 0.15s ease",
-        cursor: isLoyal ? "pointer" : "default",
+        cursor: onDetail ? "pointer" : "default",
       }}
     >
       <div

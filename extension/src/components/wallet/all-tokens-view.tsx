@@ -10,12 +10,14 @@ export function AllTokensView({
   onBack,
   onClose,
   getTokenActions,
+  onTokenDetail,
 }: {
   tokens: TokenRow[];
   isBalanceHidden: boolean;
   onBack: () => void;
   onClose: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
 }) {
   const [search, setSearch] = useState("");
   const filtered = tokens.filter((t) =>
@@ -53,6 +55,7 @@ export function AllTokensView({
             isBalanceHidden={isBalanceHidden}
             key={token.id ?? `${token.symbol}-${i}`}
             token={token}
+            onDetail={onTokenDetail}
           />
         ))}
         {filtered.length === 0 && (

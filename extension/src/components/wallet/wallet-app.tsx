@@ -50,6 +50,7 @@ import { ShieldContent, SwapShieldTabs } from "./shield-content";
 
 import { AllTokensView } from "./all-tokens-view";
 import { AllActivityView } from "./all-activity-view";
+import { TokenDetailView } from "./token-detail-view";
 import { TokenSelectView } from "./token-select-view";
 import { TransactionDetailView } from "./transaction-detail-view";
 import { Settings } from "./settings";
@@ -1331,6 +1332,9 @@ function WalletInterface() {
         if (current.from === "allTokens") return "allTokens";
         return null;
       }
+      if (typeof current === "object" && current.type === "tokenDetail") {
+        return current.from === "allTokens" ? "allTokens" : null;
+      }
       return null;
     });
   }, []);
@@ -1503,6 +1507,7 @@ function WalletInterface() {
             walletAddress={walletAddress}
             walletLabel={walletLabel}
             getTokenActions={getTokenActions}
+            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "portfolio" })}
           />
         );
       case "send":
@@ -1560,6 +1565,7 @@ function WalletInterface() {
             onBack={goBack}
             onClose={handleClose}
             getTokenActions={getTokenActions}
+            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "allTokens" })}
           />
         );
       }
@@ -1576,6 +1582,16 @@ function WalletInterface() {
         );
       }
       return null;
+    }
+
+    if (subView.type === "tokenDetail") {
+      return (
+        <TokenDetailView
+          token={subView.token}
+          onBack={goBack}
+          onClose={handleClose}
+        />
+      );
     }
 
     if (subView.type === "tokenSelect") {
