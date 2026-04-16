@@ -136,9 +136,14 @@ export async function fetchTokenInfo(
   };
 }
 
+interface ChartResult {
+  points: CoinGeckoChartPoint[];
+  volume24h: number | null;
+}
+
 export async function fetchChart(
   coingeckoCoinId: string,
-): Promise<CoinGeckoChartPoint[]> {
+): Promise<ChartResult> {
   const res = await fetch(
     `${BASE_URL}/coins/${coingeckoCoinId}/market_chart?vs_currency=usd&days=1`,
     { headers: getHeaders() },
@@ -148,10 +153,15 @@ export async function fetchChart(
   }
 
   const json = await res.json();
-  return (json.prices as [number, number][]).map(([timestamp, price]) => ({
+  const points = (json.prices as [number, number][]).map(([timestamp, price]) => ({
     timestamp,
     price,
   }));
+
+  const volumes = json.total_volumes as [number, number][] | undefined;
+  const volume24h = volumes?.length ? volumes[volumes.length - 1][1] : null;
+
+  return { points, volume24h };
 }
 
 export async function fetchPoolOhlcv(
@@ -215,7 +225,12 @@ async function fetchTokenDetailUncached(
   let chart: CoinGeckoChartPoint[] = [];
   try {
     if (token.coingeckoCoinId) {
-      chart = await fetchChart(token.coingeckoCoinId);
+      const result = await fetchChart(token.coingeckoCoinId);
+      chart = result.points;
+      // Prefer aggregated volume from main API over onchain pool volume
+      if (result.volume24h !== null) {
+        token.volumeUsd24h = result.volume24h;
+      }
     } else if (token.topPoolIds.length > 0) {
       chart = await fetchPoolOhlcv(token.topPoolIds[0]);
     }
