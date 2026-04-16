@@ -867,9 +867,7 @@ function UnlockScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lockoutRemaining, setLockoutRemaining] = useState(0);
-  const [resetAction, setResetAction] = useState<"create" | "import" | null>(
-    null
-  );
+  const [showForgot, setShowForgot] = useState(false);
   const [dogMood, setDogMood] = useState<DogMood | undefined>(undefined);
   const dogMoodTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerDogMood = useCallback((mood: DogMood) => {
@@ -955,6 +953,7 @@ function UnlockScreen() {
   return (
     <div
       style={{
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -962,6 +961,7 @@ function UnlockScreen() {
         height: "100%",
         padding: "0 20px",
         paddingBottom: "80px",
+        overflow: "hidden",
       }}
     >
       {/* Branding cluster */}
@@ -1042,155 +1042,161 @@ function UnlockScreen() {
         {loading ? "Unlocking..." : "Unlock"}
       </button>
 
-      {/* Reset wallet options */}
-      <div
+      {/* Forgot password link */}
+      <button
+        type="button"
+        onClick={() => setShowForgot(true)}
         style={{
-          display: "flex",
-          gap: "8px",
-          width: "100%",
           marginTop: "24px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "13px",
+          fontWeight: 500,
+          lineHeight: "16px",
+          color: "rgba(60, 60, 67, 0.6)",
+          padding: "4px 8px",
         }}
       >
-        <button
-          type="button"
-          onClick={() => setResetAction("create")}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 0",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            background: "rgba(255, 59, 48, 0.08)",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            fontWeight: 500,
-            lineHeight: "16px",
-            color: "#FF3B30",
-            transition: "background 0.15s ease",
-          }}
-        >
-          Create New Wallet
-        </button>
-        <button
-          type="button"
-          onClick={() => setResetAction("import")}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 0",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            background: "rgba(255, 59, 48, 0.08)",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            fontWeight: 500,
-            lineHeight: "16px",
-            color: "#FF3B30",
-            transition: "background 0.15s ease",
-          }}
-        >
-          Import Wallet
-        </button>
-      </div>
+        Forgot password?
+      </button>
 
-      {/* Confirmation card */}
+      {/* Forgot password overlay */}
       <div
         style={{
-          width: "100%",
-          maxHeight: resetAction ? "200px" : "0",
-          opacity: resetAction ? 1 : 0,
-          overflow: "hidden",
-          transition:
-            "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-          marginTop: resetAction ? "12px" : "0",
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 20px",
+          background: "#F5F5F5",
+          opacity: showForgot ? 1 : 0,
+          transform: showForgot ? "translateX(0)" : "translateX(20px)",
+          pointerEvents: showForgot ? "auto" : "none",
+          transition: "opacity 0.25s ease, transform 0.25s ease",
         }}
       >
         <div
           style={{
-            background: "#fff",
-            borderRadius: "16px",
-            border: "1px solid rgba(255, 59, 48, 0.2)",
-            padding: "16px",
             display: "flex",
             flexDirection: "column",
+            alignItems: "center",
             gap: "12px",
+            maxWidth: "320px",
           }}
         >
-          <span
+          <TriangleAlert
+            size={48}
+            style={{ color: "rgba(60, 60, 67, 0.3)" }}
+          />
+          <h2
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "22px",
+              fontWeight: 600,
+              lineHeight: "28px",
+              color: "#000",
+              margin: 0,
+              textAlign: "center",
+            }}
+          >
+            Forgot password
+          </h2>
+          <p
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "14px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "rgba(60, 60, 67, 0.6)",
+              margin: 0,
+              textAlign: "center",
+            }}
+          >
+            To reset your password, you will need to reset your wallet. Loyal
+            cannot recover your password for you.
+          </p>
+          <p
             style={{
               fontFamily: "var(--font-geist-sans), sans-serif",
               fontSize: "13px",
               fontWeight: 500,
               lineHeight: "18px",
               color: "#FF3B30",
+              margin: "4px 0 0",
               textAlign: "center",
             }}
           >
-            Your current wallet will be erased. Without an exported key you will
-            lose access forever.
-          </span>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={() => {
-                const action = resetAction;
-                setResetAction(null);
-                track(WALLET_SETUP_EVENTS.walletReset, {
-                  new_mode: action === "import" ? "import" : "create",
-                });
-                resetAnalytics();
-                void resetWallet(action === "import" ? "import" : "create");
-              }}
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "8px 0",
-                border: "none",
-                borderRadius: "10px",
-                cursor: "pointer",
-                background: "rgba(255, 59, 48, 0.12)",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "13px",
-                fontWeight: 500,
-                lineHeight: "16px",
-                color: "#FF3B30",
-                transition: "background 0.15s ease",
-              }}
-            >
-              I'm 100% sure
-            </button>
-            <button
-              type="button"
-              onClick={() => setResetAction(null)}
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "8px 0",
-                border: "none",
-                borderRadius: "10px",
-                cursor: "pointer",
-                background: "rgba(0, 0, 0, 0.04)",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "13px",
-                fontWeight: 500,
-                lineHeight: "16px",
-                color: "#000",
-                transition: "background 0.15s ease",
-              }}
-            >
-              Nevermind
-            </button>
-          </div>
+            Make sure you have your private key before proceeding. Without it,
+            you will lose access to this wallet forever.
+          </p>
+        </div>
+
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            marginTop: "32px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setShowForgot(false);
+              track(WALLET_SETUP_EVENTS.walletReset, {
+                new_mode: "import",
+              });
+              resetAnalytics();
+              void resetWallet("import");
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              border: "none",
+              cursor: "pointer",
+              background: "#FF3B30",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#fff",
+              transition: "background 0.15s ease",
+            }}
+          >
+            Reset wallet
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowForgot(false)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              border: "none",
+              cursor: "pointer",
+              background: "transparent",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "rgba(60, 60, 67, 0.6)",
+              transition: "background 0.15s ease",
+            }}
+          >
+            Go back
+          </button>
         </div>
       </div>
     </div>
