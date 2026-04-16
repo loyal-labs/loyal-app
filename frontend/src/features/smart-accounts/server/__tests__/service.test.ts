@@ -264,7 +264,7 @@ describe("smart-account service", () => {
       createDependencies();
     const expectedSettingsPda = deriveSettingsPdaAddress({
       programId: configuredProgramId,
-      accountIndex: 8n,
+      accountIndex: 9n,
     });
 
     const response = await ensureUserSmartAccount(
@@ -296,7 +296,7 @@ describe("smart-account service", () => {
     });
   });
 
-  test("sponsors an existing provisioning record when the on-chain settings are missing", async () => {
+  test("re-reserves a fresh settings PDA when an existing record is missing on-chain", async () => {
     const { ensureUserSmartAccount } = await loadServiceModule();
     const existingRecord = createRecord({
       state: "provisioning",
@@ -309,6 +309,10 @@ describe("smart-account service", () => {
       createDependencies({
         existingRecord,
       });
+    const expectedSettingsPda = deriveSettingsPdaAddress({
+      programId: configuredProgramId,
+      accountIndex: 9n,
+    });
 
     const response = await ensureUserSmartAccount(
       {
@@ -320,16 +324,20 @@ describe("smart-account service", () => {
 
     expect(response).toEqual({
       smartAccount: createSummary({
-        settingsPda: existingRecord.settingsPda,
+        settingsPda: expectedSettingsPda,
         creationSignature: "sig-created",
       }),
       provisioningOutcome: "sponsored_existing_record",
     });
-    expect(reserveProvisioning).not.toHaveBeenCalled();
+    expect(reserveProvisioning).toHaveBeenCalledWith({
+      userId: "user-1",
+      solanaEnv: "devnet",
+      settingsPda: expectedSettingsPda,
+    });
     expect(createSmartAccount).toHaveBeenCalledWith({
       solanaEnv: "devnet",
       programId: configuredProgramId,
-      settingsPda: existingRecord.settingsPda,
+      settingsPda: expectedSettingsPda,
       treasury,
       walletAddress: "wallet-1",
     });
@@ -358,7 +366,7 @@ describe("smart-account service", () => {
     const staleRecord = createRecord({ state: "provisioning" });
     const nextSettingsPda = deriveSettingsPdaAddress({
       programId: configuredProgramId,
-      accountIndex: 8n,
+      accountIndex: 9n,
     });
     const { createSmartAccount, dependencies, markReady, reserveProvisioning } =
       createDependencies({
@@ -434,7 +442,7 @@ describe("smart-account service", () => {
     });
     const expectedSettingsPda = deriveSettingsPdaAddress({
       programId: configuredProgramId,
-      accountIndex: 9n,
+      accountIndex: 10n,
     });
 
     const response = await ensureUserSmartAccount(
@@ -525,6 +533,10 @@ describe("smart-account service", () => {
       createSmartAccount,
       findSignerAddressesForSettings: mock(async () => null),
     });
+    const expectedSettingsPda = deriveSettingsPdaAddress({
+      programId: configuredProgramId,
+      accountIndex: 9n,
+    });
 
     try {
       await ensureUserSmartAccount(
@@ -547,6 +559,13 @@ describe("smart-account service", () => {
       solanaEnv: "devnet",
       errorCode: "smart_account_provisioning_failed",
       errorMessage: "rpc unavailable",
+    });
+    expect(createSmartAccount).toHaveBeenCalledWith({
+      solanaEnv: "devnet",
+      programId: configuredProgramId,
+      settingsPda: expectedSettingsPda,
+      treasury,
+      walletAddress: "wallet-1",
     });
   });
 });

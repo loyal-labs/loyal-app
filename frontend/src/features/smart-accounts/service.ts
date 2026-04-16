@@ -212,9 +212,11 @@ async function reserveProvisioningRecord(args: {
       solanaEnv: args.solanaEnv,
       programId: args.programId,
     });
+    const nextAccountIndex =
+      toBigInt(programConfig.smartAccountIndex) + BigInt(1);
     const nextSettingsPda = deriveSettingsPdaAddress({
       programId: args.programId,
-      accountIndex: toBigInt(programConfig.smartAccountIndex),
+      accountIndex: nextAccountIndex,
     });
 
     try {
