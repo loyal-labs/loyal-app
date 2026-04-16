@@ -174,7 +174,37 @@ export async function fetchPoolOhlcv(
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Cache (5-minute TTL, in-memory)
+// ---------------------------------------------------------------------------
+
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const cache = new Map<string, { data: TokenDetailData; expiresAt: number }>();
+const inflight = new Map<string, Promise<TokenDetailData>>();
+
 export async function fetchTokenDetail(
+  mint: string,
+): Promise<TokenDetailData> {
+  const cached = cache.get(mint);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  const existing = inflight.get(mint);
+  if (existing) return existing;
+
+  const promise = fetchTokenDetailUncached(mint).then((data) => {
+    cache.set(mint, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+    inflight.delete(mint);
+    return data;
+  }).catch((err) => {
+    inflight.delete(mint);
+    throw err;
+  });
+
+  inflight.set(mint, promise);
+  return promise;
+}
+
+async function fetchTokenDetailUncached(
   mint: string,
 ): Promise<TokenDetailData> {
   const [token, info] = await Promise.all([
