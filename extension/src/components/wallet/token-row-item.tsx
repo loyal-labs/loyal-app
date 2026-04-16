@@ -179,17 +179,48 @@ export function TokenRowItem({
             </span>
           )}
         </div>
-        <span
-          style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            fontWeight: 400,
-            lineHeight: "16px",
-            color: "rgba(60, 60, 67, 0.6)",
-          }}
-        >
-          {token.price}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: "rgba(60, 60, 67, 0.6)",
+            }}
+          >
+            {token.price}
+          </span>
+          {typeof token.priceChange24h === "number" && (
+            <span
+              style={{
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "11px",
+                fontWeight: 500,
+                lineHeight: "14px",
+                color:
+                  token.priceChange24h > 0
+                    ? "#34C759"
+                    : token.priceChange24h < 0
+                      ? "#FF3B30"
+                      : "rgba(60, 60, 67, 0.6)",
+                border: `1px solid ${
+                  token.priceChange24h > 0
+                    ? "rgba(52, 199, 89, 0.2)"
+                    : token.priceChange24h < 0
+                      ? "rgba(255, 59, 48, 0.2)"
+                      : "rgba(60, 60, 67, 0.12)"
+                }`,
+                borderRadius: "9999px",
+                padding: "1px 6px",
+                flexShrink: 0,
+              }}
+            >
+              {token.priceChange24h >= 0 ? "+" : ""}
+              {token.priceChange24h.toFixed(2)}%
+            </span>
+          )}
+        </div>
       </div>
       {/* Right side: balance (default) or action icons (on hover) */}
       <div

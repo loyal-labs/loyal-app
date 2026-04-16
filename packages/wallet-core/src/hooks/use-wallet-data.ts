@@ -36,10 +36,16 @@ export type WalletDesktopData = {
 };
 
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const LOYL_ICON_URL =
 	"https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
+const SOL_ICON_URL =
+	"https://coin-images.coingecko.com/coins/images/21629/large/solana.jpg";
+const USDC_ICON_URL =
+	"https://coin-images.coingecko.com/coins/images/6319/large/usdc.png";
 
 // In-memory local activity store (no localStorage dependency)
 const localActivityStore = new Map<
@@ -594,29 +600,36 @@ export function useWalletData(params: {
 			}
 		}
 
-		const existingLoylIndex = rows.findIndex(
-			(r) => r.id === LOYL_MINT,
-		);
-		if (existingLoylIndex >= 0) {
-			if (existingLoylIndex !== 2) {
-				const [loylRow] = rows.splice(existingLoylIndex, 1);
-				rows.splice(Math.min(2, rows.length), 0, loylRow);
+		// Ensure SOL, LOYAL, USDC are always present (in that order at the top)
+		const defaults: { mint: string; symbol: string; icon: string; price: number | null }[] = [
+			{ mint: SOL_MINT, symbol: "SOL", icon: SOL_ICON_URL, price: null },
+			{ mint: LOYL_MINT, symbol: "LOYAL", icon: LOYL_ICON_URL, price: loylPriceUsd },
+			{ mint: USDC_MINT, symbol: "USDC", icon: USDC_ICON_URL, price: 1 },
+		];
+
+		for (let i = defaults.length - 1; i >= 0; i--) {
+			const { mint, symbol, icon, price } = defaults[i];
+			const existingIndex = rows.findIndex((r) => r.id === mint);
+			if (existingIndex >= 0) {
+				// Move to correct position if not already there
+				if (existingIndex !== i) {
+					const [row] = rows.splice(existingIndex, 1);
+					rows.splice(Math.min(i, rows.length), 0, row);
+				}
+			} else {
+				const pos = positions.find((p) => p.asset.mint === mint);
+				const row: TokenRow = pos
+					? mapPositionToTokenRow(pos)
+					: {
+							id: mint,
+							symbol,
+							price: price !== null ? formatUsd(price) : "$0.00",
+							amount: "0",
+							value: "$0.00",
+							icon,
+						};
+				rows.splice(Math.min(i, rows.length), 0, row);
 			}
-		} else {
-			const loylPosition = positions.find(
-				(p) => p.asset.mint === LOYL_MINT,
-			);
-			const loylRow: TokenRow = loylPosition
-				? mapPositionToTokenRow(loylPosition)
-				: {
-						id: LOYL_MINT,
-						symbol: "LOYAL",
-						price: formatUsd(loylPriceUsd),
-						amount: "0",
-						value: "$0.00",
-						icon: LOYL_ICON_URL,
-					};
-			rows.splice(Math.min(2, rows.length), 0, loylRow);
 		}
 
 		return rows;

@@ -9,6 +9,7 @@ export interface TokenRow {
   icon: string;
   isSecured?: boolean;
   apyBps?: number | null;
+  priceChange24h?: number | null;
 }
 
 export interface ActivityRow {

@@ -58,6 +58,7 @@ import { DappApprovalView } from "./dapp-approval-view";
 import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
+import { fetchPriceChanges } from "~/src/lib/coingecko";
 import { pendingDappApproval, onboardingCompleted, confettiShown } from "~/src/lib/storage";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
@@ -1370,6 +1371,38 @@ function WalletInterface() {
     addLocalActivity,
   } = walletData;
 
+  // Enrich token rows with 24h price change from CoinGecko
+  const [priceChanges, setPriceChanges] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const mints = allTokenRows.map((t) => t.id).filter((id): id is string => !!id);
+    if (mints.length === 0) return;
+    let cancelled = false;
+    void fetchPriceChanges(mints).then((changes) => {
+      if (!cancelled) setPriceChanges(changes);
+    });
+    return () => { cancelled = true; };
+  }, [allTokenRows]);
+
+  const enrichedTokenRows = useMemo(() => {
+    if (Object.keys(priceChanges).length === 0) return allTokenRows;
+    return allTokenRows.map((row) => {
+      if (!row.id) return row;
+      const mint = row.id.replace(/-secured$/, "");
+      const change = priceChanges[mint];
+      return change !== undefined ? { ...row, priceChange24h: change } : row;
+    });
+  }, [allTokenRows, priceChanges]);
+
+  const enrichedPortfolioRows = useMemo(() => {
+    if (Object.keys(priceChanges).length === 0) return tokenRows;
+    return tokenRows.map((row) => {
+      if (!row.id) return row;
+      const mint = row.id.replace(/-secured$/, "");
+      const change = priceChanges[mint];
+      return change !== undefined ? { ...row, priceChange24h: change } : row;
+    });
+  }, [tokenRows, priceChanges]);
+
   // Convert allTokenRows to SwapToken[] for token-select views
   const swapTokens: SwapToken[] = positions.map((p) => ({
     mint: p.asset.mint,
@@ -1502,7 +1535,7 @@ function WalletInterface() {
               handleTabChange("shield");
             }}
             onSettings={() => setShowSettings(true)}
-            tokenRows={tokenRows}
+            tokenRows={enrichedPortfolioRows}
             transactionDetails={transactionDetails}
             walletAddress={walletAddress}
             walletLabel={walletLabel}
@@ -1560,7 +1593,7 @@ function WalletInterface() {
       if (subView === "allTokens") {
         return (
           <AllTokensView
-            tokens={allTokenRows}
+            tokens={enrichedTokenRows}
             isBalanceHidden={balanceHidden}
             onBack={goBack}
             onClose={handleClose}

@@ -1,8 +1,8 @@
-const BASE_URL = "https://api.coingecko.com/api/v3";
+const BASE_URL = "https://pro-api.coingecko.com/api/v3";
 
 function getHeaders(): HeadersInit {
   const apiKey = import.meta.env.VITE_COINGECKO_API_KEY;
-  return apiKey ? { "x-cg-demo-api-key": apiKey } : {};
+  return apiKey ? { "x-cg-pro-api-key": apiKey } : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +182,25 @@ export async function fetchPoolOhlcv(
     timestamp: candle[0],
     price: candle[4], // close price
   }));
+}
+
+export async function fetchPriceChanges(
+  mints: string[],
+): Promise<Record<string, number>> {
+  if (mints.length === 0) return {};
+  const res = await fetch(
+    `${BASE_URL}/simple/token_price/solana?contract_addresses=${mints.join(",")}&vs_currencies=usd&include_24hr_change=true`,
+    { headers: getHeaders() },
+  );
+  if (!res.ok) return {};
+  const json = await res.json() as Record<string, { usd_24h_change?: number }>;
+  const result: Record<string, number> = {};
+  for (const [mint, data] of Object.entries(json)) {
+    if (typeof data.usd_24h_change === "number") {
+      result[mint] = data.usd_24h_change;
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
