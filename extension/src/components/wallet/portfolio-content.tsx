@@ -753,7 +753,9 @@ export function PortfolioContent({
           {!isLoading && activityRows.length === 0 && (
             <div
               style={{
-                padding: "12px 20px",
+                padding: "4px 12px 12px",
+                width: "100%",
+                boxSizing: "border-box",
                 fontFamily: "var(--font-geist-sans), sans-serif",
                 fontSize: "14px",
                 color: "rgba(60, 60, 67, 0.6)",
