@@ -19,7 +19,7 @@ const config: ExpoConfig = {
     adaptiveIcon: {
       foregroundImage: "./assets/images/android-icon-foreground.png",
       monochromeImage: "./assets/images/android-icon-monochrome.png",
-      backgroundColor: "#000000",
+      backgroundColor: "#F9363C",
     },
     package: IS_DEV ? "com.loyallabs.app.dev" : "com.loyallabs.app",
     edgeToEdgeEnabled: true,

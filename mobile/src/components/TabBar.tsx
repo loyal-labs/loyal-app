@@ -1,6 +1,7 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import { Globe, GraduationCap, Settings, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet } from "react-native";
@@ -76,6 +77,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       });
 
       if (!event.defaultPrevented && state.index !== originalIndex) {
+        void Haptics.selectionAsync();
         navigation.navigate(routeName);
       }
     },
@@ -130,7 +132,7 @@ const styles = StyleSheet.create({
   blur: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(242, 242, 247, 0.7)",
+    backgroundColor: "rgba(242, 242, 247, 0.94)",
     borderRadius: 9999,
     padding: 4,
     overflow: "hidden",
