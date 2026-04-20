@@ -169,7 +169,6 @@ export function useShield() {
           increase: true,
           user,
           payer: user,
-          userTokenAccount,
         });
 
         // Persist Kamino principal basis for tracked USDC so the "earned"
@@ -310,7 +309,6 @@ export function useShield() {
           increase: false,
           user,
           payer: user,
-          userTokenAccount,
         });
 
         if (isTrackedKaminoToken) {

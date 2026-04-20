@@ -547,7 +547,6 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
           amount: config.initialAmount,
           increase: true,
           payer: user,
-          userTokenAccount,
           rpcOptions,
         }),
         config.retryAttempts,

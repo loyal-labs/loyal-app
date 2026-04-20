@@ -390,7 +390,6 @@ describe("private-transactions SDK (PER)", () => {
                     increase: delta > 0,
                     user,
                     payer: user,
-                    userTokenAccount,
                     rpcOptions,
                 }),
             );

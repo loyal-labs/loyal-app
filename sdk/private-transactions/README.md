@@ -51,7 +51,6 @@ await client.modifyBalance({
   tokenMint,
   user: signer.publicKey,
   payer: signer.publicKey,
-  userTokenAccount: new PublicKey("<sender-ata>"),
   amount: 1_000_000,
   increase: true,
 });
@@ -93,7 +92,6 @@ await client.modifyBalance({
   tokenMint,
   user: signer.publicKey,
   payer: signer.publicKey,
-  userTokenAccount: new PublicKey("<sender-ata>"),
   amount: 1_000_000,
   increase: false,
 });

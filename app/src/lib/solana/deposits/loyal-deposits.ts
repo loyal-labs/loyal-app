@@ -350,7 +350,6 @@ export async function unshieldTokens(params: {
     increase: false,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 
