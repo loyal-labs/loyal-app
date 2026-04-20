@@ -1028,6 +1028,36 @@ export const featureFlagLinks = pgTable(
   ]
 );
 
+/**
+ * Curated dApps shown on the mobile in-app browser home tile grid.
+ * Managed via the admin dashboard. Mobile fetches the active list and
+ * falls back to a bundled default if the request fails.
+ */
+export const trustedDapps = pgTable(
+  "trusted_dapps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    origin: text("origin").notNull(),
+    name: text("name").notNull(),
+    startUrl: text("start_url").notNull(),
+    displayOrder: integer("display_order").default(0).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("trusted_dapps_origin_uidx").on(table.origin),
+    index("trusted_dapps_active_order_idx").on(
+      table.isActive,
+      table.displayOrder
+    ),
+  ]
+);
+
 // ============================================================================
 // RELATIONS (for type-safe queries with Drizzle)
 // ============================================================================
@@ -1289,3 +1319,6 @@ export type GaslessClaimTransaction =
   typeof gaslessClaimTransactions.$inferSelect;
 export type InsertGaslessClaimTransaction =
   typeof gaslessClaimTransactions.$inferInsert;
+
+export type TrustedDapp = typeof trustedDapps.$inferSelect;
+export type InsertTrustedDapp = typeof trustedDapps.$inferInsert;
