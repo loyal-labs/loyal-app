@@ -63,7 +63,18 @@ function SparklineInner({
     if (!line) return;
 
     if (!revealed) {
-      const length = line.getTotalLength();
+      // getTotalLength throws InvalidStateError on non-rendered elements
+      // (e.g. inside a collapsed parent) in stricter engines like Android
+      // WebView. If unavailable, skip the draw-on animation and reveal
+      // immediately rather than crashing the whole tree.
+      let length = 0;
+      try {
+        length = line.getTotalLength();
+      } catch {
+        setRevealed(true);
+        return;
+      }
+
       line.style.strokeDasharray = `${length}`;
       line.style.strokeDashoffset = `${length}`;
       line.style.transition = "none";
