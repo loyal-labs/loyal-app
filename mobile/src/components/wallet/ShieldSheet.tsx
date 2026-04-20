@@ -23,6 +23,8 @@ import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Image } from "@/tw/image";
 import { Pressable, Text, View } from "@/tw";
 
+const shieldBadge = require("../../../assets/images/shield-badge.png");
+
 type ShieldStep = "form" | "confirm" | "result";
 
 type ShieldSheetProps = {
@@ -132,6 +134,9 @@ export function ShieldSheet({
     Boolean(selectedAsset) && amountNum > 0 && amountNum <= sourceBalance;
   const isFormValid = isValidAmount;
 
+  // Reset state on open/close transitions only. Re-running on shieldAssets
+  // change would clobber the result step after onShieldComplete refreshes
+  // holdings.
   useEffect(() => {
     if (open) {
       bottomSheetRef.current?.present();
@@ -145,7 +150,8 @@ export function ShieldSheet({
     } else {
       bottomSheetRef.current?.dismiss();
     }
-  }, [initialMint, open, shieldAssets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -217,7 +223,11 @@ export function ShieldSheet({
         val = Math.max(0, sourceBalance - 0.00005);
       }
 
-      setAmountStr(val > 0 ? String(Number(val.toFixed(6))) : "");
+      // Truncate (never round) so floating-point rounding can't push the
+      // amount past the balance minus the fee reserve.
+      const displayScale = 1e6;
+      const truncated = Math.floor(val * displayScale) / displayScale;
+      setAmountStr(truncated > 0 ? String(truncated) : "");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
     [selectedAsset, sourceBalance],
@@ -367,87 +377,104 @@ function FormStep({
   isFormValid: boolean;
   onNext: () => void;
 }) {
-  const balanceLabel = selectedAsset
-    ? getBalanceSourceLabel(selectedAsset)
-    : "Available balances";
+  const chipIcon = selectedAsset
+    ? selectedAssetIcon
+    : resolveTokenIcon({ mint: NATIVE_SOL_MINT });
+
+  if (!selectedAsset) {
+    return (
+      <Text className="mt-2 text-[13px] text-neutral-500">
+        No token balances are available to shield right now.
+      </Text>
+    );
+  }
 
   return (
     <>
       <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
-        Token
-      </Text>
-      <TokenSelectorButton
-        asset={selectedAsset}
-        icon={selectedAssetIcon}
-        onPress={onOpenTokenPicker}
-      />
-
-      {selectedAsset ? (
-        <View className="mb-4 mt-3 rounded-2xl bg-neutral-50 p-4">
-          <Row label="Operation" value={getOperationLabel(direction)} />
-          <Row label="Using" value={balanceLabel} />
-        </View>
-      ) : (
-        <Text className="mb-4 mt-3 text-[13px] text-neutral-500">
-          No token balances are available to shield right now.
-        </Text>
-      )}
-
-      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
         Amount
       </Text>
-      <View className="mb-1 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-        <View className="flex-row items-center">
-          <View className="flex-row items-center rounded-xl bg-neutral-100 px-3 py-2">
+      <View
+        className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50"
+        style={{ paddingRight: 6 }}
+      >
+        <BottomSheetTextInput
+          style={{
+            flex: 1,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            fontSize: 16,
+            color: "#000",
+          }}
+          placeholder="0.00"
+          placeholderTextColor="#999"
+          value={amountStr}
+          onChangeText={onAmountChange}
+          keyboardType="decimal-pad"
+        />
+        <Pressable
+          onPress={onOpenTokenPicker}
+          accessibilityRole="button"
+          accessibilityLabel="Change token"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingVertical: 6,
+            paddingHorizontal: 10,
+            borderRadius: 9999,
+            backgroundColor: "#fff",
+            borderWidth: 1,
+            borderColor: "rgba(0,0,0,0.08)",
+          }}
+        >
+          <View style={{ position: "relative" }}>
             <Image
-              source={selectedAsset ? selectedAssetIcon : resolveTokenIcon({ mint: NATIVE_SOL_MINT })}
+              source={chipIcon}
               style={{ width: 20, height: 20, borderRadius: 10 }}
             />
-            <Text className="ml-2 text-[14px] font-semibold text-black">
-              {selectedAsset?.symbol ?? "Token"}
-            </Text>
+            {selectedAsset.isSecured ? (
+              <Image
+                source={shieldBadge}
+                style={{
+                  position: "absolute",
+                  bottom: -3,
+                  right: -3,
+                  width: 12,
+                  height: 12,
+                }}
+              />
+            ) : null}
           </View>
-          <BottomSheetTextInput
-            style={{
-              flex: 1,
-              marginLeft: 12,
-              textAlign: "right",
-              fontSize: 18,
-              color: "#000",
-            }}
-            editable={Boolean(selectedAsset)}
-            placeholder="0.00"
-            placeholderTextColor="#999"
-            value={amountStr}
-            onChangeText={onAmountChange}
-            keyboardType="decimal-pad"
-          />
-          <View className="ml-2">
-            <Pressable
-              className={`rounded-lg bg-neutral-200 px-2 py-1 ${!selectedAsset ? "opacity-40" : ""}`}
-              onPress={() => onPercentage(100)}
-              disabled={!selectedAsset}
-            >
-              <Text className="text-[11px] font-semibold text-neutral-700">
-                MAX
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-        <Text className="mt-1 text-[12px] text-neutral-400">
-          Balance: {formatBalance(sourceBalance, selectedAsset?.decimals ?? 4)}
-          {selectedAsset ? ` ${selectedAsset.symbol}` : ""}
-        </Text>
+          <Text className="text-[14px] font-semibold text-black">
+            {selectedAsset.symbol}
+          </Text>
+          <ChevronDown size={14} color="#666" />
+        </Pressable>
       </View>
       {!isValidAmount && amountStr.length > 0 ? (
-        <Text className="mb-1 text-[12px] text-red-500">
+        <Text className="mt-1 text-[12px] text-red-500">
           {parseFloat(amountStr) > sourceBalance
             ? "Insufficient balance"
             : "Enter a valid amount"}
         </Text>
       ) : null}
 
-      <View className="mb-4" />
+      <View className="mb-6 mt-2 flex-row items-center justify-between">
+        <Text className="text-[12px] text-neutral-500">
+          {getBalanceSourceLabel(selectedAsset)}:{" "}
+          {formatBalance(sourceBalance, selectedAsset.decimals)}{" "}
+          {selectedAsset.symbol}
+        </Text>
+        <Pressable
+          className="rounded-lg bg-neutral-200 px-2.5 py-1"
+          onPress={() => onPercentage(100)}
+        >
+          <Text className="text-[12px] font-semibold text-neutral-700">
+            MAX
+          </Text>
+        </Pressable>
+      </View>
 
       <Pressable
         className={`items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
@@ -455,44 +482,11 @@ function FormStep({
         onPress={onNext}
         disabled={!isFormValid}
       >
-        <Text className="text-[16px] font-semibold text-white">Review</Text>
+        <Text className="text-[16px] font-semibold text-white">
+          Review {getOperationLabel(direction)}
+        </Text>
       </Pressable>
     </>
-  );
-}
-
-function TokenSelectorButton({
-  asset,
-  icon,
-  onPress,
-}: {
-  asset: ShieldAsset | null;
-  icon: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      className="flex-row items-center justify-between rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-3"
-      onPress={onPress}
-    >
-      <View className="flex-row items-center">
-        <Image
-          source={icon}
-          style={{ width: 28, height: 28, borderRadius: 14 }}
-        />
-        <View className="ml-2.5">
-          <Text className="text-[14px] font-semibold text-black">
-            {asset?.symbol ?? "Select token"}
-          </Text>
-          <Text className="text-[12px] text-neutral-500">
-            {asset
-              ? `${asset.name} • ${getBalanceSourceLabel(asset)}`
-              : "Available balances"}
-          </Text>
-        </View>
-      </View>
-      <ChevronDown size={16} color="#666" />
-    </Pressable>
   );
 }
 
@@ -525,13 +519,28 @@ function TokenPicker({
             className="flex-row items-center rounded-xl px-2 py-3 active:bg-neutral-100"
             onPress={() => onSelect(asset.key)}
           >
-            <Image
-              source={icon}
-              style={{ width: 32, height: 32, borderRadius: 16 }}
-            />
+            <View style={{ position: "relative" }}>
+              <Image
+                source={icon}
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+              />
+              {asset.isSecured ? (
+                <Image
+                  source={shieldBadge}
+                  style={{
+                    position: "absolute",
+                    bottom: -2,
+                    right: -2,
+                    width: 16,
+                    height: 16,
+                  }}
+                />
+              ) : null}
+            </View>
             <View className="ml-3 flex-1">
               <Text className="text-[14px] font-medium text-black">
                 {asset.symbol}
+                {asset.isSecured ? " · Shielded" : ""}
               </Text>
               <Text className="text-[12px] text-neutral-500" numberOfLines={1}>
                 {asset.name} • {getBalanceSourceLabel(asset)}
