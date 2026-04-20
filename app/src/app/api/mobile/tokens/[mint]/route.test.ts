@@ -4,8 +4,18 @@ mock.module("server-only", () => ({}));
 
 const fetchTokenDetailByMint = mock(async () => ({
   chart: [{ priceUsd: 0.12, timestamp: 1_712_534_400 }],
+  info: {
+    description: "Loyal token",
+    freezeAuthority: "no",
+    gtScore: 84.5,
+    gtVerified: true,
+    holderDistribution: { rest: "57.9", top10: "42.1" },
+    mintAuthority: "no",
+  },
   links: {
+    discord: "https://discord.gg/loyal",
     explorer: "https://solscan.io/token/target-mint",
+    telegram: "https://t.me/loyal_chat",
     twitter: "https://x.com/loyal",
     website: "https://loyal.example.com",
   },
@@ -68,8 +78,18 @@ describe("mobile token detail route", () => {
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(await response.json()).toEqual({
       chart: [{ priceUsd: 0.12, timestamp: 1_712_534_400 }],
+      info: {
+        description: "Loyal token",
+        freezeAuthority: "no",
+        gtScore: 84.5,
+        gtVerified: true,
+        holderDistribution: { rest: "57.9", top10: "42.1" },
+        mintAuthority: "no",
+      },
       links: {
+        discord: "https://discord.gg/loyal",
         explorer: "https://solscan.io/token/target-mint",
+        telegram: "https://t.me/loyal_chat",
         twitter: "https://x.com/loyal",
         website: "https://loyal.example.com",
       },
