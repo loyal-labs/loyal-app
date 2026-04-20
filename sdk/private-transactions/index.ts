@@ -37,6 +37,8 @@ export {
   waitForAccountOwnerChange,
 } from "./src/LoyalPrivateTransactionsClient";
 
+export { shieldTokens } from "./src/actions/shieldTokens";
+
 // Types
 export type {
   WalletSigner,
