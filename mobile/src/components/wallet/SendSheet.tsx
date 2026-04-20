@@ -12,16 +12,30 @@ import {
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown } from "lucide-react-native";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  ClipboardPaste,
+  ScanLine,
+  ShieldCheck,
+} from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Keyboard } from "react-native";
 
+import { useShield } from "@/hooks/wallet/useShield";
 import { NATIVE_SOL_MINT, SOLANA_FEE_SOL } from "@/lib/solana/constants";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
-import { sendPrivateTransferToTelegramUsername } from "@/lib/solana/wallet/private-send";
+import {
+  sendPrivateTransferToTelegramUsername,
+  sendPrivateTransferToWallet,
+} from "@/lib/solana/wallet/private-send";
 import { sendSolTransaction, sendSplTokenTransaction } from "@/lib/solana/wallet/wallet-details";
 import { Pressable, Text, View } from "@/tw";
+
+const shieldBadge = require("../../../assets/images/shield-badge.png");
 
 // Basic Solana address validation (base58, 32-44 chars)
 const isValidSolanaAddress = (address: string): boolean => {
@@ -72,6 +86,7 @@ type SendSheetProps = {
 };
 
 type SendAsset = {
+  key: string;
   mint: string;
   symbol: string;
   name: string;
@@ -79,7 +94,12 @@ type SendAsset = {
   balance: number;
   priceUsd: number | null;
   imageUrl: string | null;
+  isSecured: boolean;
 };
+
+function buildSendAssetKey(mint: string, isSecured: boolean): string {
+  return `${mint}:${isSecured ? "shielded" : "public"}`;
+}
 
 const SOL_ADDRESS_CANDIDATE_REGEX = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 
@@ -150,14 +170,17 @@ function buildSendAssets(
   solBalanceLamports: number | null,
   solPriceUsd: number | null,
 ): SendAsset[] {
-  const assetsByMint = new Map<string, SendAsset>();
-  const publicHoldings = tokenHoldings.filter(
-    (holding) => !holding.isSecured && holding.balance > 0,
+  const assetsByKey = new Map<string, SendAsset>();
+  const eligibleHoldings = tokenHoldings.filter(
+    (holding) => holding.balance > 0,
   );
 
-  for (const holding of publicHoldings) {
-    const existing = assetsByMint.get(holding.mint);
+  for (const holding of eligibleHoldings) {
+    const isSecured = Boolean(holding.isSecured);
+    const key = buildSendAssetKey(holding.mint, isSecured);
+    const existing = assetsByKey.get(key);
     const candidate: SendAsset = {
+      key,
       mint: holding.mint,
       symbol: holding.symbol || "TOKEN",
       name: holding.name || holding.symbol || "Token",
@@ -165,17 +188,21 @@ function buildSendAssets(
       balance: holding.balance,
       priceUsd: holding.priceUsd,
       imageUrl: holding.imageUrl,
+      isSecured,
     };
 
     if (!existing || candidate.balance > existing.balance) {
-      assetsByMint.set(holding.mint, candidate);
+      assetsByKey.set(key, candidate);
     }
   }
 
+  // Native SOL public balance comes from the wallet balance, not holdings.
   const solBalance = solBalanceLamports ? solBalanceLamports / LAMPORTS_PER_SOL : 0;
   if (solBalance > 0) {
-    const existingSol = assetsByMint.get(NATIVE_SOL_MINT);
-    assetsByMint.set(NATIVE_SOL_MINT, {
+    const publicSolKey = buildSendAssetKey(NATIVE_SOL_MINT, false);
+    const existingSol = assetsByKey.get(publicSolKey);
+    assetsByKey.set(publicSolKey, {
+      key: publicSolKey,
       mint: NATIVE_SOL_MINT,
       symbol: existingSol?.symbol || "SOL",
       name: existingSol?.name || "Solana",
@@ -183,26 +210,33 @@ function buildSendAssets(
       balance: solBalance,
       priceUsd: existingSol?.priceUsd ?? solPriceUsd,
       imageUrl: existingSol?.imageUrl ?? null,
+      isSecured: false,
     });
   }
 
-  return [...assetsByMint.values()].sort((a, b) => {
+  return [...assetsByKey.values()].sort((a, b) => {
     const aUsd = (a.priceUsd ?? 0) * a.balance;
     const bUsd = (b.priceUsd ?? 0) * b.balance;
     if (bUsd !== aUsd) return bUsd - aUsd;
-    return a.symbol.localeCompare(b.symbol);
+    if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
+    return a.isSecured ? 1 : -1;
   });
 }
 
-function resolveInitialSendMint(
+function resolveInitialSendKey(
   sendAssets: SendAsset[],
   initialMint?: string,
 ): string {
-  if (initialMint && sendAssets.some((asset) => asset.mint === initialMint)) {
-    return initialMint;
+  if (initialMint) {
+    const publicMatch = sendAssets.find(
+      (asset) => asset.mint === initialMint && !asset.isSecured,
+    );
+    if (publicMatch) return publicMatch.key;
+    const anyMatch = sendAssets.find((asset) => asset.mint === initialMint);
+    if (anyMatch) return anyMatch.key;
   }
 
-  return sendAssets[0]?.mint ?? NATIVE_SOL_MINT;
+  return sendAssets[0]?.key ?? buildSendAssetKey(NATIVE_SOL_MINT, false);
 }
 
 export function SendSheet({
@@ -221,14 +255,22 @@ export function SendSheet({
   const [step, setStep] = useState<SendStep>("form");
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [showTokenPicker, setShowTokenPicker] = useState(false);
-  const [selectedMint, setSelectedMint] = useState<string>(NATIVE_SOL_MINT);
+  const [selectedAssetKey, setSelectedAssetKey] = useState<string>(
+    buildSendAssetKey(NATIVE_SOL_MINT, false),
+  );
   const [recipient, setRecipient] = useState("");
   const [scanError, setScanError] = useState<string | null>(null);
   const [amountStr, setAmountStr] = useState("");
   const [currencyMode, setCurrencyMode] = useState<"TOKEN" | "USD">("TOKEN");
+  const [isPrivate, setIsPrivate] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
+  const [sendStage, setSendStage] = useState<
+    "idle" | "unshielding" | "sending"
+  >("idle");
+
+  const { executeUnshield } = useShield();
 
   const sendAssets = useMemo(
     () => buildSendAssets(tokenHoldings, solBalanceLamports, solPriceUsd),
@@ -236,11 +278,11 @@ export function SendSheet({
   );
   const selectedAsset = useMemo(() => {
     return (
-      sendAssets.find((asset) => asset.mint === selectedMint) ??
+      sendAssets.find((asset) => asset.key === selectedAssetKey) ??
       sendAssets[0] ??
       null
     );
-  }, [sendAssets, selectedMint]);
+  }, [sendAssets, selectedAssetKey]);
   const tokenPriceUsd = selectedAsset?.priceUsd ?? null;
   const balanceInToken = selectedAsset?.balance ?? 0;
 
@@ -262,9 +304,13 @@ export function SendSheet({
   const isWalletRecipient = isValidSolanaAddress(recipientTrimmed);
   const isTelegramRecipient = isValidTelegramUsername(recipientTrimmed);
   const isValidRecipient = isWalletRecipient || isTelegramRecipient;
-  const isTelegramRecipientTokenSupported =
-    !isTelegramRecipient || selectedAsset?.mint === NATIVE_SOL_MINT;
-  const sendFeeReserveSol = getSendFeeReserveSol({ isTelegramRecipient });
+  // Telegram recipients are always private. Wallet recipients honor the
+  // user toggle. Selecting a shielded source from the picker doesn't
+  // imply private — that just controls which balance gets debited.
+  const effectivePrivate = isTelegramRecipient || isPrivate;
+  const sendFeeReserveSol = getSendFeeReserveSol({
+    isTelegramRecipient: effectivePrivate,
+  });
   const maxSpendableInToken =
     selectedAsset?.mint === NATIVE_SOL_MINT
       ? Math.max(0, balanceInToken - sendFeeReserveSol)
@@ -279,21 +325,16 @@ export function SendSheet({
       ? null
       : !isValidRecipient
       ? "Enter a valid wallet address or @username"
-      : !isTelegramRecipientTokenSupported
-      ? "Telegram username transfers currently support SOL only."
       : null;
   const isFormValid =
-    !!selectedAsset &&
-    isValidRecipient &&
-    isTelegramRecipientTokenSupported &&
-    isValidAmount;
+    !!selectedAsset && isValidRecipient && isValidAmount;
 
   useEffect(() => {
     if (sendAssets.length === 0) return;
-    if (!sendAssets.some((asset) => asset.mint === selectedMint)) {
-      setSelectedMint(resolveInitialSendMint(sendAssets, initialMint));
+    if (!sendAssets.some((asset) => asset.key === selectedAssetKey)) {
+      setSelectedAssetKey(resolveInitialSendKey(sendAssets, initialMint));
     }
-  }, [initialMint, selectedMint, sendAssets]);
+  }, [initialMint, selectedAssetKey, sendAssets]);
 
   useEffect(() => {
     return () => {
@@ -303,18 +344,23 @@ export function SendSheet({
     };
   }, []);
 
-  // Reset state when opening
+  // Reset state on open/close transitions. Other derived inputs (sendAssets,
+  // initialMint) are intentionally read at open time — re-running the reset
+  // mid-flight would clobber the result step after onSendComplete refreshes
+  // holdings.
   useEffect(() => {
     if (open) {
       bottomSheetRef.current?.present();
       setStep("form");
       setShowQrScanner(false);
       setShowTokenPicker(false);
-      setSelectedMint(resolveInitialSendMint(sendAssets, initialMint));
+      setSelectedAssetKey(resolveInitialSendKey(sendAssets, initialMint));
       setRecipient("");
       setScanError(null);
       setAmountStr("");
       setCurrencyMode("TOKEN");
+      setIsPrivate(false);
+      setSendStage("idle");
       setSendError(null);
       setTxSignature(null);
       setIsSending(false);
@@ -326,7 +372,8 @@ export function SendSheet({
     } else {
       bottomSheetRef.current?.dismiss();
     }
-  }, [initialMint, open, sendAssets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleSend = useCallback(async () => {
     if (!isFormValid || isSending) return;
@@ -341,44 +388,89 @@ export function SendSheet({
         throw new Error("No available token balance");
       }
 
-      const sig =
-        isTelegramRecipient
+      // A private send (toggle on, or any telegram recipient) drains the
+      // user's ephemeral/shielded balance natively — no separate unshield
+      // step needed. A public send from a shielded source must unshield
+      // first to materialize the funds in the public token account.
+      const requiresExplicitUnshield =
+        selectedAsset.isSecured && !effectivePrivate;
+
+      if (requiresExplicitUnshield) {
+        setSendStage("unshielding");
+        const unshieldResult = await executeUnshield({
+          tokenSymbol: selectedAsset.symbol,
+          amount: amountInToken,
+          tokenMint: selectedAsset.mint,
+          tokenDecimals: selectedAsset.decimals,
+        });
+        if (!unshieldResult.success) {
+          throw new Error(unshieldResult.error ?? "Unshield failed");
+        }
+      }
+
+      setSendStage("sending");
+
+      let sig: string;
+      if (effectivePrivate) {
+        sig = isTelegramRecipient
           ? await sendPrivateTransferToTelegramUsername({
               username: recipientTrimmed,
               tokenMint: selectedAsset.mint,
               amount: amountInToken,
               decimals: selectedAsset.decimals,
             })
-          : selectedAsset.mint === NATIVE_SOL_MINT
-          ? await sendSolTransaction(
-              recipientTrimmed,
-              Math.floor(amountInToken * LAMPORTS_PER_SOL),
-            )
-          : await sendSplTokenTransaction(
-              recipientTrimmed,
-              selectedAsset.mint,
-              toRawAmount(amountInToken, selectedAsset.decimals),
-              selectedAsset.decimals,
-            );
+          : await sendPrivateTransferToWallet({
+              destination: recipientTrimmed,
+              tokenMint: selectedAsset.mint,
+              amount: amountInToken,
+              decimals: selectedAsset.decimals,
+            });
+      } else if (selectedAsset.mint === NATIVE_SOL_MINT) {
+        sig = await sendSolTransaction(
+          recipientTrimmed,
+          Math.floor(amountInToken * LAMPORTS_PER_SOL),
+        );
+      } else {
+        sig = await sendSplTokenTransaction(
+          recipientTrimmed,
+          selectedAsset.mint,
+          toRawAmount(amountInToken, selectedAsset.decimals),
+          selectedAsset.decimals,
+        );
+      }
+
       setTxSignature(sig);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSendComplete?.();
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Transaction failed";
-      setSendError(getFriendlyError(msg));
+      // If the unshield landed but the subsequent send failed, the funds
+      // are sitting public on the user's wallet now. Tell them rather
+      // than leaving silent state.
+      const stageAtFailure = sendStage;
+      const friendly = getFriendlyError(msg);
+      const recovery =
+        stageAtFailure === "sending" && selectedAsset?.isSecured && !effectivePrivate
+          ? `${friendly} Your ${selectedAsset.symbol} is now unshielded — retry the send to complete it.`
+          : friendly;
+      setSendError(recovery);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsSending(false);
+      setSendStage("idle");
     }
   }, [
     isFormValid,
     isSending,
     selectedAsset,
     isTelegramRecipient,
+    effectivePrivate,
+    executeUnshield,
     recipientTrimmed,
     amountInToken,
     onSendComplete,
+    sendStage,
   ]);
 
   const handleClose = useCallback(() => {
@@ -459,25 +551,43 @@ export function SendSheet({
     [],
   );
 
-  const handleSelectAsset = useCallback((mint: string) => {
-    setSelectedMint(mint);
-    setShowTokenPicker(false);
-    setAmountStr("");
-    setCurrencyMode("TOKEN");
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, []);
+  const handleSelectAsset = useCallback(
+    (key: string) => {
+      setSelectedAssetKey(key);
+      setShowTokenPicker(false);
+      setAmountStr("");
+      setCurrencyMode("TOKEN");
+      // Picking a shielded balance preserves privacy intent — flip the
+      // toggle on. User can still turn it off to do an unshield-then-public
+      // send.
+      const picked = sendAssets.find((asset) => asset.key === key);
+      if (picked?.isSecured) {
+        setIsPrivate(true);
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    },
+    [sendAssets],
+  );
 
   const handlePercentage = useCallback(
     (pct: number) => {
       if (!selectedAsset) return;
 
       const maxAmount = maxSpendableInToken;
-      const val = pct === 100 ? maxAmount : maxAmount * (pct / 100);
+      const raw = pct === 100 ? maxAmount : maxAmount * (pct / 100);
+      // Truncate (never round) to avoid floating-point rounding pushing the
+      // amount past the balance minus fee reserve, which caused
+      // "insufficient funds" when tapping MAX.
+      const displayScale = 1e6;
+      const truncatedTokens = Math.floor(raw * displayScale) / displayScale;
 
       if (currencyMode === "TOKEN") {
-        setAmountStr(val > 0 ? String(Number(val.toFixed(6))) : "");
+        setAmountStr(truncatedTokens > 0 ? String(truncatedTokens) : "");
       } else if (tokenPriceUsd) {
-        setAmountStr(val > 0 ? (val * tokenPriceUsd).toFixed(2) : "");
+        const usd = truncatedTokens * tokenPriceUsd;
+        setAmountStr(
+          usd > 0 ? (Math.floor(usd * 100) / 100).toFixed(2) : "",
+        );
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
@@ -586,6 +696,12 @@ export function SendSheet({
                   recipientError={recipientError}
                   isValidAmount={amountStr.length > 0 ? isValidAmount : true}
                   isFormValid={isFormValid}
+                  isPrivate={isPrivate}
+                  onTogglePrivate={() => {
+                    Haptics.selectionAsync();
+                    setIsPrivate((current) => !current);
+                  }}
+                  isTelegramRecipient={isTelegramRecipient}
                   onNext={() => {
                     Keyboard.dismiss();
                     setStep("confirm");
@@ -611,6 +727,7 @@ export function SendSheet({
             <ResultStep
               isSending={isSending}
               sendError={sendError}
+              sendStage={sendStage}
               txSignature={txSignature}
               amountInToken={amountInToken}
               tokenSymbol={selectedAsset?.symbol ?? "TOKEN"}
@@ -621,6 +738,81 @@ export function SendSheet({
         </View>
       </BottomSheetScrollView>
     </BottomSheetModal>
+  );
+}
+
+// --- Private Send card ---
+function PrivateSendCard({
+  isPrivate,
+  isLocked,
+  onToggle,
+}: {
+  isPrivate: boolean;
+  isLocked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={isLocked ? undefined : onToggle}
+      disabled={isLocked}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        padding: 12,
+        borderRadius: 16,
+        backgroundColor: isPrivate ? "rgba(0, 0, 0, 0.04)" : "transparent",
+      }}
+    >
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isPrivate ? "rgba(249, 54, 60, 0.14)" : "rgba(0, 0, 0, 0.06)",
+        }}
+      >
+        <ShieldCheck size={22} color={isPrivate ? "#f9363c" : "#666"} strokeWidth={1.8} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text className="text-[15px] font-medium text-black">
+          {isLocked ? "Private Send Active" : "Private Send"}
+        </Text>
+        <Text className="mt-0.5 text-[12px] text-neutral-500">
+          {isLocked
+            ? "Telegram transfers are always private"
+            : "Hide your wallet from the recipient"}
+        </Text>
+      </View>
+      {!isLocked ? (
+        <View
+          style={{
+            width: 44,
+            height: 26,
+            borderRadius: 9999,
+            backgroundColor: isPrivate ? "#f9363c" : "rgba(0, 0, 0, 0.08)",
+            justifyContent: "center",
+            paddingHorizontal: 2,
+          }}
+        >
+          <View
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 11,
+              backgroundColor: "#fff",
+              transform: [{ translateX: isPrivate ? 18 : 0 }],
+              shadowColor: "#000",
+              shadowOpacity: 0.12,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+            }}
+          />
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -642,6 +834,9 @@ function FormStep({
   recipientError,
   isValidAmount,
   isFormValid,
+  isPrivate,
+  onTogglePrivate,
+  isTelegramRecipient,
   onNext,
 }: {
   selectedAsset: SendAsset | null;
@@ -660,66 +855,72 @@ function FormStep({
   recipientError: string | null;
   isValidAmount: boolean;
   isFormValid: boolean;
+  isPrivate: boolean;
+  onTogglePrivate: () => void;
+  isTelegramRecipient: boolean;
   onNext: () => void;
 }) {
+  const assetIcon = resolveTokenIcon({
+    mint: selectedAsset?.mint ?? NATIVE_SOL_MINT,
+    imageUrl: selectedAsset?.imageUrl,
+  });
+
   return (
     <>
       {/* Recipient */}
-      <View className="mb-1.5 flex-row items-center justify-between">
-        <Text className="text-[14px] font-medium text-neutral-700">To</Text>
-        <View className="flex-row items-center gap-2">
-          <Pressable
-            className="rounded-lg bg-neutral-200 px-2.5 py-1"
-            onPress={onScanRecipient}
-          >
-            <Text className="text-[12px] font-semibold text-neutral-700">Scan</Text>
-          </Pressable>
-          <Pressable
-            className="rounded-lg bg-neutral-200 px-2.5 py-1"
-            onPress={onPasteRecipient}
-          >
-            <Text className="text-[12px] font-semibold text-neutral-700">Paste</Text>
-          </Pressable>
-        </View>
-      </View>
-      <BottomSheetTextInput
-        style={{
-          marginBottom: 4,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: "rgba(0,0,0,0.1)",
-          backgroundColor: "rgb(250,250,250)",
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          fontSize: 16,
-          color: "#000",
-        }}
-        placeholder="Wallet address or @username"
-        placeholderTextColor="#999"
-        value={recipient}
-        onChangeText={onRecipientChange}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      {recipientError && (
-        <Text className="mb-2 text-[12px] text-red-500">{recipientError}</Text>
-      )}
-      {!recipientError && <View className="mb-3" />}
-
-      {/* Asset */}
-      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">Asset</Text>
-      <View className="mb-3">
-        <TokenSelectorButton
-          asset={selectedAsset}
-          onPress={onAssetPress}
+      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">To</Text>
+      <View
+        className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50"
+        style={{ paddingRight: 4 }}
+      >
+        <BottomSheetTextInput
+          style={{
+            flex: 1,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            fontSize: 16,
+            color: "#000",
+          }}
+          placeholder="Wallet address or @username"
+          placeholderTextColor="#999"
+          value={recipient}
+          onChangeText={onRecipientChange}
+          autoCapitalize="none"
+          autoCorrect={false}
         />
+        <Pressable
+          className="items-center justify-center rounded-full p-2"
+          hitSlop={6}
+          onPress={onScanRecipient}
+          accessibilityRole="button"
+          accessibilityLabel="Scan QR code"
+        >
+          <ScanLine size={20} color="#666" strokeWidth={1.8} />
+        </Pressable>
+        <Pressable
+          className="items-center justify-center rounded-full p-2"
+          hitSlop={6}
+          onPress={onPasteRecipient}
+          accessibilityRole="button"
+          accessibilityLabel="Paste from clipboard"
+        >
+          <ClipboardPaste size={20} color="#666" strokeWidth={1.8} />
+        </Pressable>
       </View>
+      {recipientError ? (
+        <Text className="mb-3 text-[12px] text-red-500">{recipientError}</Text>
+      ) : (
+        <View className="mb-3" />
+      )}
 
       {/* Amount */}
       <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">
         Amount
       </Text>
-      <View className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50">
+      <View
+        className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50"
+        style={{ paddingRight: 6 }}
+      >
         <BottomSheetTextInput
           style={{
             flex: 1,
@@ -735,22 +936,49 @@ function FormStep({
           keyboardType="decimal-pad"
         />
         <Pressable
-          className="px-2 py-1"
-          onPress={onToggleCurrency}
-          disabled={!tokenPriceUsd}
+          onPress={onAssetPress}
+          accessibilityRole="button"
+          accessibilityLabel="Change token"
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            paddingVertical: 6,
+            paddingHorizontal: 10,
+            borderRadius: 9999,
+            backgroundColor: "#fff",
+            borderWidth: 1,
+            borderColor: "rgba(0,0,0,0.08)",
+          }}
         >
-          <Text className="text-[14px] font-medium text-neutral-600">
-            {currencyMode === "TOKEN" ? (selectedAsset?.symbol ?? "TOKEN") : "USD"}
+          {selectedAsset ? (
+            <View style={{ position: "relative" }}>
+              <Image
+                source={{ uri: assetIcon }}
+                style={{ width: 20, height: 20, borderRadius: 10 }}
+              />
+              {selectedAsset.isSecured ? (
+                <Image
+                  source={shieldBadge}
+                  style={{
+                    position: "absolute",
+                    bottom: -3,
+                    right: -3,
+                    width: 12,
+                    height: 12,
+                  }}
+                />
+              ) : null}
+            </View>
+          ) : null}
+          <Text className="text-[14px] font-semibold text-black">
+            {selectedAsset?.symbol ?? "Select"}
           </Text>
+          <ChevronDown size={14} color="#666" />
         </Pressable>
-        <View className="mr-3">
-          <Pressable className="rounded-lg bg-neutral-200 px-2.5 py-1" onPress={() => onPercentage(100)}>
-            <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
-          </Pressable>
-        </View>
       </View>
       {!isValidAmount && amountStr.length > 0 && (
-        <Text className="mb-2 text-[12px] text-red-500">
+        <Text className="mt-1 text-[12px] text-red-500">
           {(currencyMode === "TOKEN"
             ? parseFloat(amountStr)
             : tokenPriceUsd
@@ -761,17 +989,46 @@ function FormStep({
         </Text>
       )}
 
-      {/* Balance info */}
-      <Text className="mb-6 text-[12px] text-neutral-400">
-        Balance: {maxSpendableInToken.toFixed(4)} {selectedAsset?.symbol ?? "TOKEN"}
-        {tokenPriceUsd
-          ? ` (~$${(maxSpendableInToken * tokenPriceUsd).toFixed(2)})`
-          : ""}
-      </Text>
+      {/* Balance + MAX + currency toggle */}
+      <View className="mb-6 mt-2 flex-row items-center justify-between">
+        <Text className="text-[12px] text-neutral-500">
+          Balance: {maxSpendableInToken.toFixed(4)} {selectedAsset?.symbol ?? "TOKEN"}
+          {tokenPriceUsd
+            ? ` (~$${(maxSpendableInToken * tokenPriceUsd).toFixed(2)})`
+            : ""}
+        </Text>
+        <View className="flex-row items-center gap-2">
+          {tokenPriceUsd ? (
+            <Pressable
+              className="rounded-lg px-2 py-1"
+              onPress={onToggleCurrency}
+              accessibilityRole="button"
+              accessibilityLabel="Toggle currency"
+            >
+              <Text className="text-[12px] font-semibold text-neutral-600">
+                {currencyMode === "TOKEN" ? "USD" : selectedAsset?.symbol ?? "TOKEN"}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            className="rounded-lg bg-neutral-200 px-2.5 py-1"
+            onPress={() => onPercentage(100)}
+          >
+            <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Private Send card */}
+      <PrivateSendCard
+        isPrivate={isPrivate || isTelegramRecipient}
+        isLocked={isTelegramRecipient}
+        onToggle={onTogglePrivate}
+      />
 
       {/* Next button */}
       <Pressable
-        className={`items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
+        className={`mt-5 items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
         style={{ backgroundColor: "#f9363c" }}
         onPress={onNext}
         disabled={!isFormValid}
@@ -847,45 +1104,13 @@ function AddressScannerStep({
   );
 }
 
-function TokenSelectorButton({
-  asset,
-  onPress,
-}: {
-  asset: SendAsset | null;
-  onPress: () => void;
-}) {
-  const icon = resolveTokenIcon({ mint: asset?.mint ?? NATIVE_SOL_MINT, imageUrl: asset?.imageUrl });
-  return (
-    <Pressable
-      className="flex-row items-center justify-between rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-3"
-      onPress={onPress}
-    >
-      <View className="flex-row items-center">
-        <Image
-          source={{ uri: icon }}
-          style={{ width: 28, height: 28, borderRadius: 14 }}
-        />
-        <View className="ml-2.5">
-          <Text className="text-[14px] font-semibold text-black">
-            {asset?.symbol ?? "Select token"}
-          </Text>
-          <Text className="text-[12px] text-neutral-500">
-            {asset?.name ?? "Available tokens"}
-          </Text>
-        </View>
-      </View>
-      <ChevronDown size={16} color="#666" />
-    </Pressable>
-  );
-}
-
 function TokenPicker({
   assets,
   onSelect,
   onCancel,
 }: {
   assets: SendAsset[];
-  onSelect: (mint: string) => void;
+  onSelect: (key: string) => void;
   onCancel: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -923,17 +1148,32 @@ function TokenPicker({
         const icon = resolveTokenIcon({ mint: asset.mint, imageUrl: asset.imageUrl });
         return (
           <Pressable
-            key={asset.mint}
+            key={asset.key}
             className="flex-row items-center rounded-xl px-2 py-3 active:bg-neutral-100"
-            onPress={() => onSelect(asset.mint)}
+            onPress={() => onSelect(asset.key)}
           >
-            <Image
-              source={{ uri: icon }}
-              style={{ width: 32, height: 32, borderRadius: 16 }}
-            />
+            <View style={{ position: "relative" }}>
+              <Image
+                source={{ uri: icon }}
+                style={{ width: 32, height: 32, borderRadius: 16 }}
+              />
+              {asset.isSecured ? (
+                <Image
+                  source={shieldBadge}
+                  style={{
+                    position: "absolute",
+                    bottom: -2,
+                    right: -2,
+                    width: 16,
+                    height: 16,
+                  }}
+                />
+              ) : null}
+            </View>
             <View className="ml-3 flex-1">
               <Text className="text-[14px] font-medium text-black">
                 {asset.symbol}
+                {asset.isSecured ? " · Shielded" : ""}
               </Text>
               <Text className="text-[12px] text-neutral-500" numberOfLines={1}>
                 {asset.name}
@@ -1039,6 +1279,7 @@ function Row({
 function ResultStep({
   isSending,
   sendError,
+  sendStage,
   txSignature,
   amountInToken,
   tokenSymbol,
@@ -1047,6 +1288,7 @@ function ResultStep({
 }: {
   isSending: boolean;
   sendError: string | null;
+  sendStage: "idle" | "unshielding" | "sending";
   txSignature: string | null;
   amountInToken: number;
   tokenSymbol: string;
@@ -1059,12 +1301,21 @@ function ResultStep({
       : `${recipient.slice(0, 6)}...${recipient.slice(-4)}`;
 
   if (isSending) {
+    const primaryLabel =
+      sendStage === "unshielding"
+        ? "Unshielding funds…"
+        : "Sending transaction…";
     return (
       <View className="items-center py-12">
         <ActivityIndicator size="large" color="#000" />
         <Text className="mt-4 text-[16px] text-neutral-600">
-          Sending transaction...
+          {primaryLabel}
         </Text>
+        {sendStage === "unshielding" ? (
+          <Text className="mt-2 text-[12px] text-neutral-400">
+            Preparing public balance for this send…
+          </Text>
+        ) : null}
       </View>
     );
   }

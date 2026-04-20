@@ -356,3 +356,159 @@ export async function sendPrivateTransferToTelegramUsername(params: {
 
   return transferSignature;
 }
+
+export async function sendPrivateTransferToWallet(params: {
+  destination: string;
+  tokenMint: string;
+  amount: number;
+  decimals: number;
+}): Promise<string> {
+  cachedClient = null;
+  cachedClientOwner = null;
+  cachedAuthToken = null;
+
+  const trimmedDestination = params.destination.trim();
+  if (!trimmedDestination) {
+    throw new Error("Recipient wallet address is required.");
+  }
+
+  let destination: PublicKey;
+  try {
+    destination = new PublicKey(trimmedDestination);
+  } catch {
+    throw new Error("Recipient wallet address is invalid.");
+  }
+
+  const rawAmount = Math.floor(params.amount * 10 ** params.decimals);
+  if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
+    throw new Error("Enter a valid amount.");
+  }
+
+  const signer = await getWalletSigner();
+  const user = signer.publicKey;
+  const connection = getConnection();
+  const client = await getPrivateTransactionsClient(signer);
+  const tokenMint = new PublicKey(params.tokenMint);
+  const validator = getErValidatorForSolanaEnv(getSolanaEnv());
+  const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
+    await getSplToken();
+
+  const requiredAmount = BigInt(rawAmount);
+  const existingDeposit = await client.getEphemeralDeposit(user, tokenMint);
+  const existingBalance = existingDeposit?.amount ?? BigInt(0);
+  const requiresShield = existingBalance < requiredAmount;
+  const isNativeSol = tokenMint.equals(NATIVE_MINT);
+
+  if (requiresShield) {
+    const [depositPda] = findDepositPda(user, tokenMint);
+    const depositAccountInfo = await connection.getAccountInfo(depositPda);
+
+    if (!depositAccountInfo) {
+      await client.initializeDeposit({
+        tokenMint,
+        user,
+        payer: user,
+      });
+      await waitForAccount(connection, depositPda);
+    } else if (depositAccountInfo.owner.equals(DELEGATION_PROGRAM_ID)) {
+      await client.undelegateDeposit({
+        tokenMint,
+        user,
+        payer: user,
+        magicProgram: MAGIC_PROGRAM_ID,
+        magicContext: MAGIC_CONTEXT_ID,
+      });
+    }
+
+    let createdAta = false;
+    if (isNativeSol) {
+      const result = await wrapSolToWSol({
+        connection,
+        signer,
+        lamports: rawAmount,
+      });
+      createdAta = result.createdAta;
+    }
+
+    const userTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      user,
+      false,
+      TOKEN_PROGRAM_ID,
+    );
+
+    await client.modifyBalance({
+      tokenMint,
+      amount: rawAmount,
+      increase: true,
+      user,
+      payer: user,
+      userTokenAccount,
+    });
+
+    if (isNativeSol && createdAta) {
+      await closeWsolAta({
+        connection,
+        signer,
+        wsolAta: userTokenAccount,
+      });
+    }
+
+    try {
+      await client.createPermission({
+        tokenMint,
+        user,
+        payer: user,
+      });
+    } catch {
+      // Permission may already exist.
+    }
+
+    try {
+      await client.delegateDeposit({
+        tokenMint,
+        user,
+        payer: user,
+        validator,
+      });
+    } catch {
+      // Deposit may already be delegated.
+    }
+  }
+
+  // Ensure recipient's deposit exists & is delegated so transferDeposit lands.
+  const existingRecipientDeposit = await client.getBaseDeposit(
+    destination,
+    tokenMint,
+  );
+  if (!existingRecipientDeposit) {
+    await client.initializeDeposit({
+      tokenMint,
+      user: destination,
+      payer: user,
+    });
+    const [recipientPda] = findDepositPda(destination, tokenMint);
+    await waitForAccount(connection, recipientPda);
+  }
+
+  const [recipientPda] = findDepositPda(destination, tokenMint);
+  const recipientInfo = await connection.getAccountInfo(recipientPda);
+  if (!recipientInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
+    await client.delegateDeposit({
+      tokenMint,
+      user: destination,
+      payer: user,
+      validator,
+    });
+  }
+
+  const transferSignature = await client.transferDeposit({
+    user,
+    tokenMint,
+    destinationUser: destination,
+    amount: rawAmount,
+    payer: user,
+  });
+
+  return transferSignature;
+}
