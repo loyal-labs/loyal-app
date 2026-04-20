@@ -8,7 +8,9 @@ import { Keypair } from "@solana/web3.js";
 // Mock before imports so requireNativeModule resolves to the stub.
 const nativeStub = {
   isAvailable: jest.fn<Promise<boolean>, []>(),
+  requestPermission: jest.fn<Promise<boolean>, []>(),
   authorizeExistingSeed: jest.fn(),
+  listAuthorizedSeeds: jest.fn(),
   createNewSeed: jest.fn(),
   importSeed: jest.fn(),
   deauthorize: jest.fn(),
@@ -35,6 +37,8 @@ import {
   getPublicKey,
   importSeed,
   isAvailable,
+  listAuthorizedSeeds,
+  requestPermission,
   signMessage,
   signTransaction,
 } from "../index";
@@ -89,6 +93,21 @@ describe("isAvailable", () => {
   });
 });
 
+describe("requestPermission", () => {
+  it("delegates to native and resolves the grant result", async () => {
+    nativeStub.requestPermission.mockResolvedValueOnce(true);
+    expect(await requestPermission()).toBe(true);
+
+    nativeStub.requestPermission.mockResolvedValueOnce(false);
+    expect(await requestPermission()).toBe(false);
+  });
+
+  it("returns false if native throws", async () => {
+    nativeStub.requestPermission.mockRejectedValueOnce(new Error("boom"));
+    expect(await requestPermission()).toBe(false);
+  });
+});
+
 describe("seed authorization flows", () => {
   const kp = Keypair.generate();
   const nativeAccount = {
@@ -106,6 +125,21 @@ describe("seed authorization flows", () => {
     expect(account.authToken).toBe(42);
     expect(account.derivationPath).toBe(DEFAULT_SOLANA_DERIVATION_PATH);
     expect(account.publicKey).toBe(kp.publicKey.toBase58());
+  });
+
+  it("listAuthorizedSeeds maps every entry through the same decoder", async () => {
+    nativeStub.listAuthorizedSeeds.mockResolvedValueOnce([nativeAccount]);
+    const accounts = await listAuthorizedSeeds();
+    expect(nativeStub.listAuthorizedSeeds).toHaveBeenCalledWith(
+      DEFAULT_SOLANA_DERIVATION_PATH,
+    );
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].publicKey).toBe(kp.publicKey.toBase58());
+  });
+
+  it("listAuthorizedSeeds returns empty array when native throws", async () => {
+    nativeStub.listAuthorizedSeeds.mockRejectedValueOnce(new Error("boom"));
+    expect(await listAuthorizedSeeds()).toEqual([]);
   });
 
   it("createNewSeed forwards the path argument", async () => {

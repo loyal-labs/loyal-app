@@ -32,6 +32,13 @@ export function SeedVaultChooserScreen({ onComplete, onBack }: Props) {
       setPending(action.id);
       setError(null);
       try {
+        const granted = await SeedVault.requestPermission();
+        if (!granted) {
+          setError(
+            "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
+          );
+          return;
+        }
         const account = await action.run();
         onComplete(account);
       } catch (e) {
@@ -52,7 +59,11 @@ export function SeedVaultChooserScreen({ onComplete, onBack }: Props) {
         "Pick a seed that's already stored in your Seeker's Seed Vault.",
       icon: Key,
       loadingLabel: "Waiting for vault approval…",
-      run: () => SeedVault.authorizeExistingSeed(),
+      run: async () => {
+        const existing = await SeedVault.listAuthorizedSeeds();
+        if (existing.length > 0) return existing[0];
+        return SeedVault.authorizeExistingSeed();
+      },
     },
     {
       id: "create",

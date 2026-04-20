@@ -78,6 +78,24 @@ export async function isAvailable(): Promise<boolean> {
 }
 
 /**
+ * Prompt the user for the dangerous-level Seed Vault permission. Must be
+ * called and granted before any auth/sign flow — without it the SDK throws
+ * `IllegalStateException("No access to Seed Vault…")`.
+ *
+ * Returns `false` on iOS, on devices without Seed Vault, and on user denial.
+ * Safe to call repeatedly; resolves immediately if the permission is already
+ * held.
+ */
+export async function requestPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+  try {
+    return await ExpoSeedVault.requestPermission();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Prompt the user to authorize an existing seed already stored in the vault.
  * The vault's picker UI appears; on success we get back an auth token and
  * the public key for the requested derivation path.
@@ -87,6 +105,24 @@ export async function authorizeExistingSeed(
 ): Promise<VaultAccount> {
   const native = await ExpoSeedVault.authorizeExistingSeed(derivationPath);
   return toVaultAccount(native);
+}
+
+/**
+ * List seeds the vault has *already* authorized for this app — useful to
+ * recover orphaned auth tokens (e.g. when a previous authorize flow returned
+ * a token but the app failed to persist it). Returns an empty array if no
+ * authorizations exist or the platform is not Android.
+ */
+export async function listAuthorizedSeeds(
+  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH,
+): Promise<VaultAccount[]> {
+  if (Platform.OS !== "android") return [];
+  try {
+    const natives = await ExpoSeedVault.listAuthorizedSeeds(derivationPath);
+    return natives.map(toVaultAccount);
+  } catch {
+    return [];
+  }
 }
 
 /**

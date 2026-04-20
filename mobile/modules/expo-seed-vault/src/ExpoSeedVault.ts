@@ -18,7 +18,20 @@ export type NativeVaultAccount = {
 
 type NativeModule = {
   isAvailable(): Promise<boolean>;
+  /**
+   * Prompt the OS for the dangerous-level Seed Vault permission. Resolves to
+   * true if the app already holds it or the user granted it; false on denial.
+   */
+  requestPermission(): Promise<boolean>;
   authorizeExistingSeed(derivationPath: string): Promise<NativeVaultAccount>;
+  /**
+   * Returns previously authorized seeds for this app (auth tokens the vault
+   * still remembers). Used to recover orphaned authorizations across app
+   * reinstalls or after a failed authorize flow.
+   */
+  listAuthorizedSeeds(
+    derivationPath: string,
+  ): Promise<NativeVaultAccount[]>;
   createNewSeed(derivationPath: string): Promise<NativeVaultAccount>;
   importSeed(derivationPath: string): Promise<NativeVaultAccount>;
   deauthorize(authToken: number): Promise<void>;

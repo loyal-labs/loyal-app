@@ -29,6 +29,14 @@ describe("buildWalletSetupActions", () => {
     });
   });
 
+  it("enables Seed Vault and clears the helper text when available", () => {
+    expect(buildWalletSetupActions(true)[0]).toMatchObject({
+      id: "seed-vault",
+      disabled: false,
+      helperText: undefined,
+    });
+  });
+
   it("keeps create and import actions enabled", () => {
     const actions = buildWalletSetupActions(false);
     expect(actions[1].disabled).toBe(false);

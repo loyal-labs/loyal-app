@@ -10,6 +10,8 @@ import com.solanamobile.seedvault.BipLevel
 import com.solanamobile.seedvault.SeedVault
 import com.solanamobile.seedvault.Wallet
 import com.solanamobile.seedvault.WalletContractV1
+import expo.modules.interfaces.permissions.PermissionsResponseListener
+import expo.modules.interfaces.permissions.PermissionsStatus
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
@@ -54,11 +56,75 @@ class ExpoSeedVaultModule : Module() {
                 }
             }
 
+            AsyncFunction("requestPermission") { promise: Promise ->
+                val permissionsManager = appContext.permissions
+                if (permissionsManager == null) {
+                    promise.reject(
+                        SeedVaultException(
+                            "NO_PERMISSIONS_MANAGER",
+                            "Expo permissions manager is unavailable",
+                        ),
+                    )
+                    return@AsyncFunction
+                }
+                val perm = WalletContractV1.PERMISSION_ACCESS_SEED_VAULT
+                if (permissionsManager.hasGrantedPermissions(perm)) {
+                    promise.resolve(true)
+                    return@AsyncFunction
+                }
+                permissionsManager.askForPermissions(
+                    PermissionsResponseListener { results ->
+                        val granted =
+                            results[perm]?.status == PermissionsStatus.GRANTED
+                        promise.resolve(granted)
+                    },
+                    perm,
+                )
+            }
+
             AsyncFunction("authorizeExistingSeed") { derivationPath: String, promise: Promise ->
                 launchAuthIntent(PendingKind.AUTHORIZE_EXISTING, derivationPath, promise) { activity ->
                     Wallet.authorizeSeed(
                         activity,
                         WalletContractV1.PURPOSE_SIGN_SOLANA_TRANSACTION,
+                    )
+                }
+            }
+
+            AsyncFunction("listAuthorizedSeeds") { derivationPath: String, promise: Promise ->
+                val context = appContext.reactContext
+                if (context == null) {
+                    promise.reject(SeedVaultException("NO_CONTEXT", "No React context"))
+                    return@AsyncFunction
+                }
+                try {
+                    val accounts = mutableListOf<Map<String, Any>>()
+                    val authorizedCursor =
+                        Wallet.getAuthorizedSeeds(
+                            context,
+                            arrayOf(WalletContractV1.AUTHORIZED_SEEDS_AUTH_TOKEN),
+                        )
+                    authorizedCursor?.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val authToken = cursor.getLong(0)
+                            val pk = queryPublicKey(context, authToken, derivationPath)
+                                ?: continue
+                            accounts.add(
+                                mapOf(
+                                    "authToken" to authToken.toDouble(),
+                                    "derivationPath" to derivationPath,
+                                    "publicKey" to Base64.encodeToString(pk, Base64.NO_WRAP),
+                                ),
+                            )
+                        }
+                    }
+                    promise.resolve(accounts)
+                } catch (e: Throwable) {
+                    promise.reject(
+                        SeedVaultException(
+                            "LIST_AUTHORIZED_FAILED",
+                            e.message ?: "listAuthorizedSeeds failed",
+                        ),
                     )
                 }
             }
@@ -322,6 +388,10 @@ class ExpoSeedVaultModule : Module() {
      * `accounts` content provider table. Returns `null` if the path has not
      * been derived for this seed yet (the Solana defaults are pre-derived
      * at authorization time).
+     *
+     * Uses the SDK's [Wallet.getAccounts] helper rather than building the
+     * content URI by hand: the provider expects the auth token in the query
+     * `Bundle` (`EXTRA_AUTH_TOKEN`), not as a URI path segment.
      */
     private fun queryPublicKey(
         context: Context,
@@ -335,28 +405,17 @@ class ExpoSeedVaultModule : Module() {
                 rawPathUri,
                 WalletContractV1.PURPOSE_SIGN_SOLANA_TRANSACTION,
             )
-        val tableUri =
-            Uri.parse(
-                "content://${WalletContractV1.AUTHORITY_WALLET_PROVIDER}/" +
-                    "${WalletContractV1.ACCOUNTS_TABLE}/$authToken",
-            )
         val cursor =
-            context.contentResolver.query(
-                tableUri,
-                arrayOf(
-                    WalletContractV1.ACCOUNTS_BIP32_DERIVATION_PATH,
-                    WalletContractV1.ACCOUNTS_PUBLIC_KEY_RAW,
-                ),
-                "${WalletContractV1.ACCOUNTS_BIP32_DERIVATION_PATH} = ?",
-                arrayOf(resolvedPathUri.toString()),
-                null,
+            Wallet.getAccounts(
+                context,
+                authToken,
+                arrayOf(WalletContractV1.ACCOUNTS_PUBLIC_KEY_RAW),
+                WalletContractV1.ACCOUNTS_BIP32_DERIVATION_PATH,
+                resolvedPathUri.toString(),
             ) ?: return null
         cursor.use {
             if (it.moveToFirst()) {
-                val colIndex = it.getColumnIndex(WalletContractV1.ACCOUNTS_PUBLIC_KEY_RAW)
-                if (colIndex >= 0) {
-                    return it.getBlob(colIndex)
-                }
+                return it.getBlob(0)
             }
         }
         return null
