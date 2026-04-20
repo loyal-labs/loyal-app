@@ -6,6 +6,7 @@ describe("resolveDappRequest", () => {
       resolveDappRequest({
         origin: "https://jup.ag",
         connectedOrigins: [],
+        trustedOrigins: ["https://jup.ag"],
         request: {
           source: "loyal-mobile-wallet",
           id: "req-1",
@@ -27,6 +28,7 @@ describe("resolveDappRequest", () => {
       resolveDappRequest({
         origin: "https://jup.ag",
         connectedOrigins: ["https://jup.ag"],
+        trustedOrigins: [],
         request: {
           source: "loyal-mobile-wallet",
           id: "req-2",
@@ -48,6 +50,7 @@ describe("resolveDappRequest", () => {
       resolveDappRequest({
         origin: "https://jup.ag",
         connectedOrigins: [],
+        trustedOrigins: ["https://jup.ag"],
         request: {
           source: "loyal-mobile-wallet",
           id: "req-3",
@@ -70,6 +73,7 @@ describe("resolveDappRequest", () => {
       resolveDappRequest({
         origin: "https://example.com",
         connectedOrigins: [],
+        trustedOrigins: ["https://jup.ag"],
         request: {
           source: "loyal-mobile-wallet",
           id: "req-4",
@@ -93,6 +97,7 @@ describe("resolveDappRequest", () => {
       resolveDappRequest({
         origin: "https://jup.ag",
         connectedOrigins: [],
+        trustedOrigins: ["https://jup.ag"],
         request: {
           source: "loyal-mobile-wallet",
           id: "req-5",

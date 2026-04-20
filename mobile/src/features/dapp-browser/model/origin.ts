@@ -1,4 +1,3 @@
-import { TRUSTED_DAPPS } from "./trusted-dapps";
 import type { DappTrustState } from "./types";
 
 export function coerceBrowserUrl(raw: string): string {
@@ -21,8 +20,9 @@ export function buildOriginFaviconUrl(origin: string): string {
 export function getTrustState(
   origin: string,
   connectedOrigins: string[],
+  trustedOrigins: string[],
 ): DappTrustState {
-  if (TRUSTED_DAPPS.some((dapp) => dapp.origin === origin)) return "trusted";
+  if (trustedOrigins.includes(origin)) return "trusted";
   if (connectedOrigins.includes(origin)) return "connected";
   return "untrusted";
 }

@@ -19,8 +19,22 @@ describe("dapp browser origin helpers", () => {
   });
 
   it("prefers trusted origins over connected origins", () => {
-    expect(getTrustState("https://jup.ag", ["https://jup.ag", "https://example.com"])).toBe(
-      "trusted",
-    );
+    expect(
+      getTrustState(
+        "https://jup.ag",
+        ["https://jup.ag", "https://example.com"],
+        ["https://jup.ag"],
+      ),
+    ).toBe("trusted");
+  });
+
+  it("returns connected when origin is connected but not trusted", () => {
+    expect(
+      getTrustState("https://example.com", ["https://example.com"], []),
+    ).toBe("connected");
+  });
+
+  it("returns untrusted when origin is neither trusted nor connected", () => {
+    expect(getTrustState("https://example.com", [], [])).toBe("untrusted");
   });
 });

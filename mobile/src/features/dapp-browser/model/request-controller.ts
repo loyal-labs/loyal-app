@@ -17,6 +17,7 @@ type ResolveDappRequestArgs = {
   origin: string;
   request: BridgeRequest;
   connectedOrigins: string[];
+  trustedOrigins: string[];
 };
 
 function buildOkResponse(request: BridgeRequest): BridgeResponse {
@@ -40,6 +41,7 @@ export function resolveDappRequest({
   origin,
   request,
   connectedOrigins,
+  trustedOrigins,
 }: ResolveDappRequestArgs): DappRequestResolution {
   if (request.type === "disconnect") {
     return {
@@ -72,7 +74,7 @@ export function resolveDappRequest({
     approval: {
       requestId: request.id,
       origin,
-      trustState: getTrustState(origin, connectedOrigins),
+      trustState: getTrustState(origin, connectedOrigins, trustedOrigins),
       type: request.type,
       payload: request.payload ?? {},
     },
