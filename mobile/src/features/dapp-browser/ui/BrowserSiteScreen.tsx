@@ -18,6 +18,11 @@ import {
   listConnectedOrigins,
   rememberConnectedOrigin,
 } from "../storage/connected-origins";
+import {
+  buildConsoleForwardScript,
+  forwardWebViewConsoleMessage,
+  tryParseConsoleMessage,
+} from "../bridge/build-console-forward-script";
 import { buildInjectedProviderScript } from "../bridge/build-injected-provider-script";
 import { executeApprovedRequest } from "../bridge/execute-approved-request";
 import { buildWebViewResponseScript } from "../bridge/build-webview-response-script";
@@ -154,6 +159,12 @@ export function BrowserSiteScreen({ initialUrl }: BrowserSiteScreenProps) {
 
   const handleWebViewMessage = useCallback(
     async (event: { nativeEvent: { data: string } }) => {
+      const consoleMessage = tryParseConsoleMessage(event.nativeEvent.data);
+      if (consoleMessage) {
+        forwardWebViewConsoleMessage(consoleMessage);
+        return;
+      }
+
       try {
         const request = parseWebViewMessage(event.nativeEvent.data);
         const currentUrl = currentUrlRef.current;
@@ -226,7 +237,11 @@ export function BrowserSiteScreen({ initialUrl }: BrowserSiteScreenProps) {
         originWhitelist={["http://*", "https://*", "blob:*", "data:*"]}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleWebViewMessage}
-        injectedJavaScriptBeforeContentLoaded={buildInjectedProviderScript()}
+        injectedJavaScriptBeforeContentLoaded={
+          __DEV__
+            ? buildConsoleForwardScript() + buildInjectedProviderScript()
+            : buildInjectedProviderScript()
+        }
         startInLoadingState
         renderLoading={() => (
           <View className="flex-1 items-center justify-center bg-white">
