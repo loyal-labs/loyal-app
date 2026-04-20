@@ -9,7 +9,7 @@ export declare const ER_VALIDATOR_MAINNET: PublicKey;
  */
 export declare const ER_VALIDATOR: PublicKey;
 export declare function getErValidatorForSolanaEnv(env: string): PublicKey;
-export declare function getErValidatorForRpcEndpoint(rpcEndpoint: string): PublicKey;
+export declare function getErValidatorForRpcEndpoint(perRpcEndpoint: string): PublicKey;
 export declare function getKaminoModifyBalanceAccountsForTokenMint(tokenMint: PublicKey): KaminoModifyBalanceAccounts | null;
 /**
  * Telegram Private Transfer program ID

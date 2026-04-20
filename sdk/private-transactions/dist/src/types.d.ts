@@ -1,4 +1,4 @@
-import type { PublicKey, Transaction, VersionedTransaction, Keypair, Commitment } from "@solana/web3.js";
+import type { PublicKey, Transaction, VersionedTransaction, Keypair, Commitment, TransactionInstruction } from "@solana/web3.js";
 import type { AnchorProvider } from "@coral-xyz/anchor";
 /**
  * Minimal wallet interface matching @solana/wallet-adapter-base
@@ -16,6 +16,16 @@ export interface WalletLike {
  * - AnchorProvider: Existing Anchor projects
  */
 export type WalletSigner = WalletLike | Keypair | AnchorProvider;
+export type InstructionCheck = {
+    address: PublicKey;
+    delegated: boolean;
+    passNotExist: boolean;
+    label: string;
+};
+export type CheckedTransactionInstruction = {
+    ix: TransactionInstruction;
+    ensure: InstructionCheck[];
+};
 /**
  * RPC options for transactions
  */
@@ -104,8 +114,8 @@ export interface ModifyBalanceParams {
     amount: number | bigint;
     increase: boolean;
     payer: PublicKey;
-    userTokenAccount: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Result of a balance modification
@@ -148,6 +158,7 @@ export interface CreatePermissionParams {
     tokenMint: PublicKey;
     payer: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Parameters for creating a permission for a username deposit
@@ -169,6 +180,7 @@ export interface DelegateDepositParams {
     payer: PublicKey;
     validator: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Parameters for delegating a username deposit to an ephemeral rollup

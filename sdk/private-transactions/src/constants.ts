@@ -22,8 +22,10 @@ export function getErValidatorForSolanaEnv(env: string): PublicKey {
   return env === "mainnet" ? ER_VALIDATOR_MAINNET : ER_VALIDATOR_DEVNET;
 }
 
-export function getErValidatorForRpcEndpoint(rpcEndpoint: string): PublicKey {
-  return rpcEndpoint.includes("mainnet-tee")
+export function getErValidatorForRpcEndpoint(
+  perRpcEndpoint: string
+): PublicKey {
+  return perRpcEndpoint.includes("mainnet-tee")
     ? ER_VALIDATOR_MAINNET
     : ER_VALIDATOR_DEVNET;
 }

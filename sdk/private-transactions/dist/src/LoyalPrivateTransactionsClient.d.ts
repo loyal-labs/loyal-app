@@ -57,7 +57,7 @@ export declare class LoyalPrivateTransactionsClient {
     /**
      * Create a permission for a deposit account (required for PER)
      */
-    createPermission(params: CreatePermissionParams): Promise<string | null>;
+    createPermission(params: CreatePermissionParams): Promise<string>;
     /**
      * Create a permission for a username-based deposit account
      */
@@ -138,7 +138,6 @@ export declare class LoyalPrivateTransactionsClient {
      * Get the program ID
      */
     getProgramId(): PublicKey;
-    private validateUsername;
     private permissionAccountExists;
     private isAccountAlreadyInUse;
     private ensureNotDelegated;

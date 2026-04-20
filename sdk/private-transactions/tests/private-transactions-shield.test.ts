@@ -36,7 +36,7 @@ import {
   transfer,
 } from "@solana/spl-token";
 import {
-  verifyTeeRpcIntegrity,
+  verifyTeeIntegrity,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import path from "node:path";
@@ -77,10 +77,7 @@ async function getOrCacheAuthToken(
     return cached;
   }
 
-  const isVerified = await verifyTeeRpcIntegrity(ephemeralRpcEndpoint);
-  if (!isVerified) {
-    throw new Error("TEE RPC integrity verification failed");
-  }
+  await verifyTeeIntegrity(ephemeralRpcEndpoint);
 
   const signMessage = createKeypairMessageSigner(keypair);
 
@@ -613,7 +610,6 @@ export async function shieldTokens(params: {
     increase: true,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 
@@ -714,7 +710,6 @@ export async function unshieldTokens(params: {
     increase: false,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 

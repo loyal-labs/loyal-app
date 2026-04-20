@@ -309,7 +309,6 @@ describeIfEnabled("modify_balance devnet integration", () => {
       amount: USDC_INCREASE_AMOUNT,
       increase: true,
       payer: user,
-      userTokenAccount,
       rpcOptions: { skipPreflight: true },
     });
 
@@ -350,7 +349,6 @@ describeIfEnabled("modify_balance devnet integration", () => {
       amount: mintedShareDelta,
       increase: false,
       payer: user,
-      userTokenAccount,
       rpcOptions: { skipPreflight: true },
     });
 
@@ -420,7 +418,6 @@ describeIfEnabled("modify_balance devnet integration", () => {
       amount: WSOL_INCREASE_AMOUNT,
       increase: true,
       payer: user,
-      userTokenAccount: wsolAta,
       rpcOptions: { skipPreflight: true },
     });
 
@@ -449,7 +446,6 @@ describeIfEnabled("modify_balance devnet integration", () => {
       amount: WSOL_INCREASE_AMOUNT,
       increase: false,
       payer: user,
-      userTokenAccount: wsolAta,
       rpcOptions: { skipPreflight: true },
     });
 
