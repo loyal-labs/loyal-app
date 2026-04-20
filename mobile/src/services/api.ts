@@ -96,6 +96,29 @@ export async function fetchTokenDetailMarket(
   return response.json();
 }
 
+export type RemoteTrustedDapp = {
+  id: string;
+  origin: string;
+  name: string;
+  startUrl: string;
+  displayOrder: number;
+};
+
+export type TrustedDappsResponse = {
+  dapps: RemoteTrustedDapp[];
+};
+
+export async function fetchTrustedDapps(): Promise<RemoteTrustedDapp[]> {
+  const response = await fetch(`${env.apiBaseUrl}/api/mobile/dapps`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trusted dapps: ${response.status}`);
+  }
+
+  const data = (await response.json()) as TrustedDappsResponse;
+  return data.dapps;
+}
+
 /**
  * Transform flat summaries array into deduplicated group list.
  * Keeps the most recent summary per group (input assumed sorted newest-first from API).
