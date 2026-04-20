@@ -1,9 +1,23 @@
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowDown, ArrowLeft, ArrowLeftRight, ArrowUp, RefreshCw, Shield } from "lucide-react-native";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowLeftRight,
+  ArrowUp,
+  ExternalLink,
+  Globe,
+  MessageCircle,
+  RefreshCw,
+  Send,
+  Shield,
+  ShieldCheck,
+  ShieldOff,
+  Twitter,
+} from "lucide-react-native";
 import { type ReactNode, useCallback, useState } from "react";
-import { ActivityIndicator } from "react-native";
+import { ActivityIndicator, Linking } from "react-native";
 import Svg, {
   Circle,
   Defs,
@@ -364,6 +378,242 @@ function StatRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const ORANGE = "#ff9500";
+
+function trustScoreColor(score: number) {
+  if (score >= 70) return GREEN;
+  if (score >= 40) return ORANGE;
+  return CORAL;
+}
+
+function AuthorityChip({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  if (value === null) {
+    return null;
+  }
+  const safe = value === "no";
+  const color = safe ? GREEN : ORANGE;
+  const Icon = safe ? ShieldOff : Shield;
+  return (
+    <View
+      className="flex-row items-center gap-1.5 rounded-[10px] px-2.5 py-1.5"
+      style={{ backgroundColor: safe ? "rgba(50, 229, 94, 0.10)" : "rgba(255, 149, 0, 0.10)" }}
+    >
+      <Icon size={12} color={color} strokeWidth={2} />
+      <Text className="text-[11px] font-medium" style={{ color }}>
+        {label}: {safe ? "disabled" : "enabled"}
+      </Text>
+    </View>
+  );
+}
+
+function LinkRow({
+  icon,
+  label,
+  href,
+}: {
+  icon: ReactNode;
+  label: string;
+  href: string;
+}) {
+  const handlePress = useCallback(() => {
+    void Linking.openURL(href);
+  }, [href]);
+  return (
+    <Pressable
+      className="flex-row items-center gap-3 rounded-[14px] px-3 py-3"
+      onPress={handlePress}
+    >
+      {icon}
+      <Text
+        className="flex-1 text-[14px] font-medium text-black"
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      <ExternalLink size={14} color={MUTED_TEXT} strokeWidth={2} />
+    </Pressable>
+  );
+}
+
+function AboutCard({ description }: { description: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const longEnough = description.length > 220;
+  return (
+    <SectionCard title="About">
+      <Text
+        className="text-[14px] leading-[20px] text-black"
+        numberOfLines={expanded || !longEnough ? undefined : 4}
+      >
+        {description}
+      </Text>
+      {longEnough ? (
+        <Pressable className="mt-2" onPress={() => setExpanded((v) => !v)}>
+          <Text className="text-[13px] font-medium" style={{ color: CORAL }}>
+            {expanded ? "Show less" : "Read more"}
+          </Text>
+        </Pressable>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function TrustCard({ info }: { info: TokenDetailViewModel["info"] }) {
+  if (!info) {
+    return null;
+  }
+  const showAuthority =
+    info.mintAuthority !== null || info.freezeAuthority !== null;
+  if (!info.gtVerified && info.gtScore === null && !showAuthority) {
+    return null;
+  }
+  return (
+    <SectionCard title="Trust">
+      <View className="flex-row items-center gap-2">
+        {info.gtVerified ? (
+          <ShieldCheck size={16} color={GREEN} strokeWidth={2} />
+        ) : (
+          <Shield size={16} color={MUTED_TEXT} strokeWidth={2} />
+        )}
+        <Text
+          className="text-[14px] font-medium"
+          style={{ color: info.gtVerified ? GREEN : MUTED_TEXT }}
+        >
+          {info.gtVerified ? "Verified by GeckoTerminal" : "Unverified"}
+        </Text>
+      </View>
+
+      {info.gtScore !== null ? (
+        <View className="mt-4">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-[12px]" style={{ color: MUTED_TEXT }}>
+              Trust score
+            </Text>
+            <Text className="text-[12px] font-medium text-black">
+              {info.gtScore.toFixed(1)} / 100
+            </Text>
+          </View>
+          <View
+            className="mt-2 h-[6px] overflow-hidden rounded-full"
+            style={{ backgroundColor: "rgba(0,0,0,0.06)" }}
+          >
+            <View
+              style={{
+                width: `${Math.min(Math.max(info.gtScore, 0), 100)}%`,
+                height: "100%",
+                backgroundColor: trustScoreColor(info.gtScore),
+              }}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {showAuthority ? (
+        <View className="mt-4 flex-row flex-wrap gap-2">
+          <AuthorityChip label="Mint" value={info.mintAuthority} />
+          <AuthorityChip label="Freeze" value={info.freezeAuthority} />
+        </View>
+      ) : null}
+    </SectionCard>
+  );
+}
+
+function DistributionCard({
+  distribution,
+}: {
+  distribution: NonNullable<
+    NonNullable<TokenDetailViewModel["info"]>["holderDistribution"]
+  >;
+}) {
+  const top10 = Number.parseFloat(distribution.top10);
+  const rest = Number.parseFloat(distribution.rest);
+  if (!Number.isFinite(top10) || !Number.isFinite(rest)) {
+    return null;
+  }
+  return (
+    <SectionCard title="Distribution">
+      <View
+        className="h-[10px] flex-row overflow-hidden rounded-full"
+        style={{ backgroundColor: "rgba(0,0,0,0.06)" }}
+      >
+        <View
+          style={{
+            width: `${Math.min(Math.max(top10, 0), 100)}%`,
+            backgroundColor: ORANGE,
+          }}
+        />
+      </View>
+      <View className="mt-3 flex-row justify-between">
+        <Text className="text-[13px]" style={{ color: MUTED_TEXT }}>
+          Top 10: {top10.toFixed(1)}%
+        </Text>
+        <Text className="text-[13px]" style={{ color: MUTED_TEXT }}>
+          Rest: {rest.toFixed(1)}%
+        </Text>
+      </View>
+    </SectionCard>
+  );
+}
+
+function LinksCard({ links }: { links: TokenDetailViewModel["links"] }) {
+  if (!links) {
+    return null;
+  }
+  const hasAny =
+    links.website || links.twitter || links.discord || links.telegram || links.explorer;
+  if (!hasAny) {
+    return null;
+  }
+  const stripUrl = (url: string) =>
+    url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return (
+    <SectionCard title="Links">
+      <View className="-mx-1">
+        {links.website ? (
+          <LinkRow
+            href={links.website}
+            icon={<Globe size={16} color={MUTED_TEXT} strokeWidth={2} />}
+            label={stripUrl(links.website)}
+          />
+        ) : null}
+        {links.twitter ? (
+          <LinkRow
+            href={links.twitter}
+            icon={<Twitter size={16} color={MUTED_TEXT} strokeWidth={2} />}
+            label={stripUrl(links.twitter)}
+          />
+        ) : null}
+        {links.discord ? (
+          <LinkRow
+            href={links.discord}
+            icon={<MessageCircle size={16} color={MUTED_TEXT} strokeWidth={2} />}
+            label="Discord"
+          />
+        ) : null}
+        {links.telegram ? (
+          <LinkRow
+            href={links.telegram}
+            icon={<Send size={16} color={MUTED_TEXT} strokeWidth={2} />}
+            label={stripUrl(links.telegram)}
+          />
+        ) : null}
+        {links.explorer ? (
+          <LinkRow
+            href={links.explorer}
+            icon={<ExternalLink size={16} color={MUTED_TEXT} strokeWidth={2} />}
+            label="Solscan"
+          />
+        ) : null}
+      </View>
+    </SectionCard>
+  );
+}
+
 function TokenDetailBody({
   tokenMint,
   viewModel,
@@ -567,6 +817,18 @@ function TokenDetailBody({
             </Text>
           ) : null}
         </SectionCard>
+
+        {viewModel.info?.description ? (
+          <AboutCard description={viewModel.info.description} />
+        ) : null}
+
+        <TrustCard info={viewModel.info} />
+
+        {viewModel.info?.holderDistribution ? (
+          <DistributionCard distribution={viewModel.info.holderDistribution} />
+        ) : null}
+
+        <LinksCard links={viewModel.links} />
       </View>
     </>
   );

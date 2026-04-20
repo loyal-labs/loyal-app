@@ -16,6 +16,8 @@ const marketDetail: MobileTokenDetailResponse = {
     website: "https://example.com",
     twitter: "https://x.com/example",
     explorer: "https://solscan.io/token/mint-sol",
+    discord: null,
+    telegram: null,
   },
   market: {
     fdvUsd: 1000,
@@ -26,6 +28,14 @@ const marketDetail: MobileTokenDetailResponse = {
     priceUsd: 1.5,
     updatedAt: "2026-04-13T00:00:00Z",
     volume24hUsd: 100,
+  },
+  info: {
+    description: "Market Solana description",
+    gtScore: 90,
+    gtVerified: true,
+    mintAuthority: "no",
+    freezeAuthority: "no",
+    holderDistribution: { top10: "30", rest: "70" },
   },
   chart: [
     {
@@ -194,5 +204,19 @@ describe("buildTokenDetailViewModel", () => {
     expect(viewModel.chart).toEqual([]);
     expect(viewModel.market).toBeNull();
     expect(viewModel.links).toBeNull();
+    expect(viewModel.info).toBeNull();
+  });
+
+  it("forwards CoinGecko info when the market mint matches", () => {
+    const viewModel = buildTokenDetailViewModel({
+      mint: "mint-sol",
+      holdings: [],
+      transactions: [],
+      market: marketDetail,
+    });
+
+    expect(viewModel.info).toEqual(marketDetail.info);
+    expect(viewModel.links?.discord).toBeNull();
+    expect(viewModel.links?.telegram).toBeNull();
   });
 });

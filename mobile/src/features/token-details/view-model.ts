@@ -20,6 +20,7 @@ export type TokenDetailViewModel = {
   chart: MobileTokenDetailResponse["chart"];
   links: MobileTokenDetailResponse["links"] | null;
   market: MobileTokenDetailResponse["market"] | null;
+  info: MobileTokenDetailResponse["info"] | null;
   canSend: boolean;
   canReceive: boolean;
   canSwap: boolean;
@@ -82,6 +83,7 @@ export function buildTokenDetailViewModel({
     chart: marketForMint?.chart ?? [],
     links: marketForMint ? marketForMint.links : null,
     market: marketSummary,
+    info: marketForMint ? marketForMint.info : null,
     canSend: position.publicBalance > 0,
     canReceive: true,
     canSwap: true,
