@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/overview", label: "Overview" },
   { href: "/communities", label: "Communities" },
   { href: "/transfers", label: "Transfers" },
+  { href: "/dapps", label: "dApps" },
   { href: "/admins", label: "Admins" },
 ];
 
