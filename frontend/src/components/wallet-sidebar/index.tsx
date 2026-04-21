@@ -564,6 +564,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         return (
           <VaultAccountPageView
             currentVaultAccountIndex={selectedVault?.entry.accountIndex ?? 0}
+            currentVaultAddress={selectedVault?.entry.address ?? null}
             vaultLabel={selectedVault?.entry.label ?? "Vault"}
             balanceWhole={selectedVault?.entry.balanceWhole ?? "$0"}
             balanceFraction={selectedVault?.entry.balanceFraction ?? ".00"}
@@ -573,6 +574,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             activityRows={selectedVault?.activityRows ?? []}
             transactionDetails={selectedVault?.transactionDetails ?? {}}
             vaultEntries={props.smartAccountData.vaultEntries}
+            settingsPda={props.smartAccountData.overview?.settingsPda ?? null}
+            programId={props.smartAccountData.overview?.programId ?? null}
+            userAddress={props.walletDesktopData.walletAddress}
             onSelectVault={props.smartAccountData.setSelectedVaultIndex}
             onBack={onBack}
             onClose={props.onClose}

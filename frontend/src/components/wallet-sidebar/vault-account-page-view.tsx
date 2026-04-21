@@ -3,11 +3,13 @@
 import {
   ArrowRight,
   ChevronLeft,
+  Copy,
   Eye,
   EyeOff,
   X,
 } from "lucide-react";
 import Image from "next/image";
+import { useCallback, useMemo, useState } from "react";
 
 import type { SmartAccountVaultEntry } from "@/hooks/use-smart-account-sidebar-data";
 import { ActivityRowItem } from "./activity-row-item";
@@ -23,8 +25,101 @@ import type {
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
+function shortAddress(address: string): string {
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+function AddressRow({
+  label,
+  value,
+  copiedKey,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  copiedKey: string | null;
+  onCopy: (key: string, value: string) => void;
+}) {
+  return (
+    <div
+      style={{
+        alignItems: "center",
+        display: "flex",
+        gap: "10px",
+        padding: "9px 12px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          gap: "2px",
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            color: secondary,
+            display: "block",
+            fontFamily: font,
+            fontSize: "13px",
+            fontWeight: 400,
+            lineHeight: "16px",
+          }}
+        >
+          {label}
+        </span>
+        <span
+          style={{
+            color: "#000",
+            display: "block",
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontSize: "12px",
+            fontWeight: 400,
+            lineHeight: "16px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={value}
+        >
+          {value}
+        </span>
+      </div>
+      <button
+        className="vault-copy-btn"
+        onClick={() => onCopy(label, value)}
+        style={{
+          alignItems: "center",
+          background: "rgba(0, 0, 0, 0.04)",
+          border: "none",
+          borderRadius: "9999px",
+          color: "#3C3C43",
+          cursor: "pointer",
+          display: "flex",
+          flexShrink: 0,
+          fontFamily: font,
+          fontSize: "12px",
+          gap: "4px",
+          height: "32px",
+          justifyContent: "center",
+          lineHeight: "16px",
+          padding: "0 10px",
+          transition: "background 0.15s ease",
+        }}
+        type="button"
+      >
+        <Copy size={14} />
+        {copiedKey === label ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
 export function VaultAccountPageView({
   currentVaultAccountIndex,
+  currentVaultAddress,
   vaultLabel,
   balanceWhole,
   balanceFraction,
@@ -34,6 +129,9 @@ export function VaultAccountPageView({
   activityRows,
   transactionDetails,
   vaultEntries,
+  settingsPda,
+  programId,
+  userAddress,
   onSelectVault,
   onBack,
   onClose,
@@ -41,6 +139,7 @@ export function VaultAccountPageView({
   getTokenActions,
 }: {
   currentVaultAccountIndex: number;
+  currentVaultAddress: string | null;
   vaultLabel: string;
   balanceWhole: string;
   balanceFraction: string;
@@ -50,20 +149,46 @@ export function VaultAccountPageView({
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
   vaultEntries: SmartAccountVaultEntry[];
+  settingsPda?: string | null;
+  programId?: string | null;
+  userAddress?: string | null;
   onSelectVault: (accountIndex: number) => void;
   onBack: () => void;
   onClose: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const addressRows = useMemo(
+    () =>
+      [
+        currentVaultAddress
+          ? { label: "Vault address", value: currentVaultAddress }
+          : null,
+        settingsPda ? { label: "Settings PDA", value: settingsPda } : null,
+        userAddress ? { label: "User wallet", value: userAddress } : null,
+        programId ? { label: "Program ID", value: programId } : null,
+      ].filter(
+        (row): row is { label: string; value: string } => row !== null
+      ),
+    [currentVaultAddress, programId, settingsPda, userAddress]
+  );
+  const copyAddress = useCallback((key: string, value: string) => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1500);
+    });
+  }, []);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <style jsx>{`
         .vault-back-btn:hover,
-        .vault-close-btn:hover {
+        .vault-close-btn:hover,
+        .vault-copy-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
-.vault-link-btn:hover {
+        .vault-link-btn:hover {
           opacity: 0.7;
         }
         .vault-entry-row:hover {
@@ -245,6 +370,57 @@ export function VaultAccountPageView({
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+        {addressRows.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              padding: "8px",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                padding: "12px 12px 8px",
+                width: "100%",
+              }}
+            >
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  letterSpacing: "-0.176px",
+                  lineHeight: "20px",
+                }}
+              >
+                Addresses
+              </span>
+            </div>
+            <div
+              style={{
+                background: "rgba(0, 0, 0, 0.04)",
+                borderRadius: "16px",
+                display: "flex",
+                flexDirection: "column",
+                padding: "4px 0",
+                width: "100%",
+              }}
+            >
+              {addressRows.map((row) => (
+                <AddressRow
+                  copiedKey={copiedKey}
+                  key={row.label}
+                  label={row.label}
+                  onCopy={copyAddress}
+                  value={row.value}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* "In this vault" section */}
         <div
           style={{
@@ -268,124 +444,177 @@ export function VaultAccountPageView({
             </div>
           ) : (
             vaultEntries.map((entry) => (
-              <button
+              <div
                 className="vault-entry-row"
                 key={entry.address}
-                onClick={() => onSelectVault(entry.accountIndex)}
                 style={{
-                  display: "flex",
                   alignItems: "center",
-                  padding: "6px 12px",
-                  borderRadius: "16px",
                   background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  width: "100%",
+                  borderRadius: "16px",
+                  display: "flex",
+                  padding: "6px 12px",
                   transition: "background 0.15s ease",
-                  textAlign: "left",
+                  width: "100%",
                 }}
-                type="button"
               >
-                <div
+                <button
+                  className="vault-entry-select-btn"
+                  onClick={() => onSelectVault(entry.accountIndex)}
                   style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "12px",
-                    background: "#F5F5F5",
-                    display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    marginRight: "12px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "15px",
-                      fontWeight: 600,
-                      lineHeight: "15px",
-                      color: secondary,
-                    }}
-                  >
-                    V{entry.accountIndex}
-                  </span>
-                </div>
-                <div
-                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
                     flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                    padding: "9px 0",
+                    minWidth: 0,
+                    padding: 0,
+                    textAlign: "left",
                   }}
+                  type="button"
                 >
-                  <span
+                  <div
                     style={{
-                      fontFamily: font,
-                      fontSize: "16px",
-                      fontWeight: 500,
-                      lineHeight: "20px",
-                      color: "#000",
-                      letterSpacing: "-0.176px",
+                      alignItems: "center",
+                      background: "#F5F5F5",
+                      borderRadius: "12px",
+                      display: "flex",
+                      flexShrink: 0,
+                      height: "48px",
+                      justifyContent: "center",
+                      marginRight: "12px",
+                      width: "48px",
                     }}
                   >
-                    {entry.label}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    {entry.address.slice(0, 4)}...{entry.address.slice(-4)}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-end",
-                    gap: "2px",
-                    padding: "9px 0",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "16px",
-                      fontWeight: 400,
-                      lineHeight: "20px",
-                      color: isBalanceHidden ? "#BBBBC0" : "#000",
-                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                      transition: "filter 0.15s ease, color 0.15s ease",
-                      userSelect: isBalanceHidden ? "none" : "auto",
-                    }}
-                  >
-                    {entry.balanceWhole}
                     <span
                       style={{
-                        color: isBalanceHidden
-                          ? "#BBBBC0"
-                          : "rgba(60, 60, 67, 0.4)",
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "15px",
+                        fontWeight: 600,
+                        lineHeight: "15px",
                       }}
                     >
-                      {entry.balanceFraction}
+                      V{entry.accountIndex}
                     </span>
-                  </span>
-                </div>
-                <ChevronLeft
-                  size={24}
-                  style={{
-                    color: "rgba(60, 60, 67, 0.3)",
-                    flexShrink: 0,
-                    marginLeft: "12px",
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flex: 1,
+                      flexDirection: "column",
+                      gap: "2px",
+                      padding: "9px 0",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "#000",
+                        fontFamily: font,
+                        fontSize: "16px",
+                        fontWeight: 500,
+                        letterSpacing: "-0.176px",
+                        lineHeight: "20px",
+                      }}
+                    >
+                      {entry.label}
+                    </span>
+                    <span
+                      style={{
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                      }}
+                    >
+                      {shortAddress(entry.address)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      alignItems: "flex-end",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      padding: "9px 0",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: isBalanceHidden ? "#BBBBC0" : "#000",
+                        filter: isBalanceHidden
+                          ? "url(#rs-pixelate-sm)"
+                          : "none",
+                        fontFamily: font,
+                        fontSize: "16px",
+                        fontWeight: 400,
+                        lineHeight: "20px",
+                        transition: "filter 0.15s ease, color 0.15s ease",
+                        userSelect: isBalanceHidden ? "none" : "auto",
+                      }}
+                    >
+                      {entry.balanceWhole}
+                      <span
+                        style={{
+                          color: isBalanceHidden
+                            ? "#BBBBC0"
+                            : "rgba(60, 60, 67, 0.4)",
+                        }}
+                      >
+                        {entry.balanceFraction}
+                      </span>
+                    </span>
+                  </div>
+                </button>
+                <button
+                  className="vault-copy-btn"
+                  onClick={() => {
+                    copyAddress(`Vault ${entry.accountIndex}`, entry.address);
                   }}
-                />
-              </button>
+                  style={{
+                    alignItems: "center",
+                    background: "rgba(0, 0, 0, 0.04)",
+                    border: "none",
+                    borderRadius: "9999px",
+                    color: "#3C3C43",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexShrink: 0,
+                    height: "32px",
+                    justifyContent: "center",
+                    marginLeft: "10px",
+                    width: "32px",
+                  }}
+                  title={`Copy ${entry.label} address`}
+                  type="button"
+                >
+                  <Copy size={14} />
+                </button>
+                <button
+                  aria-label={`Open ${entry.label}`}
+                  onClick={() => onSelectVault(entry.accountIndex)}
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexShrink: 0,
+                    justifyContent: "center",
+                    marginLeft: "12px",
+                    padding: 0,
+                  }}
+                  type="button"
+                >
+                  <ChevronLeft
+                    size={24}
+                    style={{
+                      color: "rgba(60, 60, 67, 0.3)",
+                    }}
+                  />
+                </button>
+              </div>
             ))
           )}
         </div>
