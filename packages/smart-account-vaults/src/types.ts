@@ -24,6 +24,7 @@ export type SmartAccountProposalStatus =
 export type SmartAccountProposalSummaryKind =
   | "sol_transfer"
   | "spl_transfer"
+  | "settings_change"
   | "unknown";
 
 export type SmartAccountProposalSummary = {
@@ -40,10 +41,18 @@ export type SmartAccountProposalSummary = {
   instructionCount: number;
 };
 
+export type SmartAccountProposalPayloadType =
+  | "transaction"
+  | "settings_transaction"
+  | "policy_transaction"
+  | "unknown";
+
 export type SmartAccountProposalSnapshot = {
   proposalAddress: string;
   transactionAddress: string | null;
+  consensusAddress: string;
   transactionIndex: string;
+  payloadType: SmartAccountProposalPayloadType;
   status: SmartAccountProposalStatus;
   approvals: string[];
   rejections: string[];
