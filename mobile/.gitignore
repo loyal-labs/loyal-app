@@ -45,3 +45,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# graphify output (graph, cache, report)
+graphify-out/

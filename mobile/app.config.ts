@@ -13,7 +13,7 @@ const config: ExpoConfig = {
   newArchEnabled: true,
   ios: {
     supportsTablet: false,
-    bundleIdentifier: IS_DEV ? "com.loyallabs.app.dev" : "com.loyallabs.app",
+    bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
   },
   android: {
     adaptiveIcon: {
@@ -21,7 +21,7 @@ const config: ExpoConfig = {
       monochromeImage: "./assets/images/android-icon-monochrome.png",
       backgroundColor: "#F9363C",
     },
-    package: IS_DEV ? "com.loyallabs.app.dev" : "com.loyallabs.app",
+    package: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
     edgeToEdgeEnabled: true,
     softwareKeyboardLayoutMode: "resize",
   },

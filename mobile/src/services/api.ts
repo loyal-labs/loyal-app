@@ -119,6 +119,41 @@ export async function fetchTrustedDapps(): Promise<RemoteTrustedDapp[]> {
   return data.dapps;
 }
 
+export type RemoteLibraryArticle = {
+  id: string;
+  sectionId: string;
+  title: string;
+  coverImageUrl: string;
+  contentMarkdown: string;
+  readTime: string;
+  excerpt: string | null;
+  isFeatured: boolean;
+  displayOrder: number;
+  publishedAt: string | null;
+};
+
+export type RemoteLibrarySection = {
+  id: string;
+  title: string;
+  displayOrder: number;
+  articles: RemoteLibraryArticle[];
+};
+
+export type LibraryResponse = {
+  featured: RemoteLibraryArticle[];
+  sections: RemoteLibrarySection[];
+};
+
+export async function fetchLibrary(): Promise<LibraryResponse> {
+  const response = await fetch(`${env.apiBaseUrl}/api/mobile/library`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch library: ${response.status}`);
+  }
+
+  return (await response.json()) as LibraryResponse;
+}
+
 /**
  * Transform flat summaries array into deduplicated group list.
  * Keeps the most recent summary per group (input assumed sorted newest-first from API).
