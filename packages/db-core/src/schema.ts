@@ -1058,6 +1058,76 @@ export const trustedDapps = pgTable(
   ]
 );
 
+/**
+ * Library sections shown on the mobile Library tab.
+ * Managed via the admin dashboard. Each section groups a horizontal row
+ * of image-only article cards on the Library screen.
+ */
+export const librarySections = pgTable(
+  "library_sections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: text("title").notNull(),
+    displayOrder: integer("display_order").default(0).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("library_sections_active_order_idx").on(
+      table.isActive,
+      table.displayOrder
+    ),
+  ]
+);
+
+/**
+ * Library articles shown on the mobile Library tab.
+ * Cards render only the cover image (no title overlay). The detail screen
+ * renders the cover plus `contentMarkdown`. Articles with `isFeatured=true`
+ * also appear in the Featured carousel above the section list.
+ */
+export const libraryArticles = pgTable(
+  "library_articles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sectionId: uuid("section_id")
+      .notNull()
+      .references(() => librarySections.id, { onDelete: "restrict" }),
+    title: text("title").notNull(),
+    coverImageUrl: text("cover_image_url").notNull(),
+    contentMarkdown: text("content_markdown").notNull(),
+    readTime: text("read_time").notNull(),
+    excerpt: text("excerpt"),
+    isFeatured: boolean("is_featured").default(false).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    displayOrder: integer("display_order").default(0).notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("library_articles_section_order_idx").on(
+      table.sectionId,
+      table.isActive,
+      table.displayOrder
+    ),
+    index("library_articles_featured_idx").on(
+      table.isFeatured,
+      table.isActive,
+      table.displayOrder
+    ),
+  ]
+);
+
 // ============================================================================
 // RELATIONS (for type-safe queries with Drizzle)
 // ============================================================================
@@ -1177,6 +1247,17 @@ export const appChatMessagesRelations = relations(appChatMessages, ({ one }) => 
   chat: one(appChats, {
     fields: [appChatMessages.chatId],
     references: [appChats.id],
+  }),
+}));
+
+export const librarySectionsRelations = relations(librarySections, ({ many }) => ({
+  articles: many(libraryArticles),
+}));
+
+export const libraryArticlesRelations = relations(libraryArticles, ({ one }) => ({
+  section: one(librarySections, {
+    fields: [libraryArticles.sectionId],
+    references: [librarySections.id],
   }),
 }));
 
@@ -1322,3 +1403,9 @@ export type InsertGaslessClaimTransaction =
 
 export type TrustedDapp = typeof trustedDapps.$inferSelect;
 export type InsertTrustedDapp = typeof trustedDapps.$inferInsert;
+
+export type LibrarySection = typeof librarySections.$inferSelect;
+export type InsertLibrarySection = typeof librarySections.$inferInsert;
+
+export type LibraryArticle = typeof libraryArticles.$inferSelect;
+export type InsertLibraryArticle = typeof libraryArticles.$inferInsert;

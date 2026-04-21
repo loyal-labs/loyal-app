@@ -130,6 +130,9 @@ export const serverEnv = {
   get telegramSetupSecret(): string {
     return getRequiredEnv("TELEGRAM_SETUP_SECRET");
   },
+  get libraryUploadToken(): string {
+    return getRequiredEnv("LIBRARY_UPLOAD_TOKEN");
+  },
   get mixpanelToken(): string | undefined {
     return getOptionalEnv("NEXT_PUBLIC_MIXPANEL_TOKEN");
   },
