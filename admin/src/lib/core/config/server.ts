@@ -6,4 +6,10 @@ export const serverEnv = {
   get databaseUrl(): string {
     return getRequiredEnv("DATABASE_URL");
   },
+  get libraryUploadToken(): string {
+    return getRequiredEnv("LIBRARY_UPLOAD_TOKEN");
+  },
+  get appApiBaseUrl(): string {
+    return getRequiredEnv("APP_API_BASE_URL");
+  },
 } as const;
