@@ -6,9 +6,10 @@ import {
   type SmartAccountOverview,
   type SmartAccountProposalSnapshot,
 } from "@loyal-labs/smart-account-vaults";
-import type {
-  PortfolioPosition,
-  WalletActivity,
+import {
+  NATIVE_SOL_MINT,
+  type PortfolioPosition,
+  type WalletActivity,
 } from "@loyal-labs/solana-wallet";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import type {
@@ -16,7 +17,7 @@ import type {
   Transaction,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { PublicKey } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
@@ -121,10 +122,56 @@ function formatTokenBalance(balance: number): string {
 }
 
 function formatSolAmount(lamports: number): string {
-  return (lamports / 1_000_000_000).toLocaleString("en-US", {
+  return (lamports / LAMPORTS_PER_SOL).toLocaleString("en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 6,
   });
+}
+
+function lamportsToUsd(
+  lamports: number,
+  solPriceUsd: number
+): number {
+  return (lamports / LAMPORTS_PER_SOL) * solPriceUsd;
+}
+
+function tokenAmountToUsd(
+  amount: string,
+  priceUsd: number | null | undefined
+): number | null {
+  const parsedAmount = Number.parseFloat(amount);
+
+  if (
+    typeof priceUsd !== "number" ||
+    !Number.isFinite(priceUsd) ||
+    !Number.isFinite(parsedAmount)
+  ) {
+    return null;
+  }
+
+  return parsedAmount * priceUsd;
+}
+
+function resolvePositionByMint(
+  positions: PortfolioPosition[],
+  mint: string
+): PortfolioPosition | undefined {
+  return positions.find((position) => position.asset.mint === mint);
+}
+
+function resolveTokenSymbol(
+  position: PortfolioPosition | undefined,
+  mint: string
+): string {
+  if (position?.asset.symbol) {
+    return position.asset.symbol;
+  }
+
+  if (mint === NATIVE_SOL_MINT) {
+    return "SOL";
+  }
+
+  return mint === LOYL_MINT ? "LOYAL" : "TOKEN";
 }
 
 function formatTimestamp(timestamp: number | null) {
@@ -151,7 +198,11 @@ function shortAddress(address: string | null): string {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
-function mapVaultActivity(activity: WalletActivity): {
+function mapVaultActivity(
+  activity: WalletActivity,
+  positions: PortfolioPosition[],
+  solPriceUsd: number,
+): {
   row: ActivityRow;
   detail: TransactionDetail;
 } {
@@ -167,19 +218,61 @@ function mapVaultActivity(activity: WalletActivity): {
           : "sent";
   let baseAmount: string;
   let icon: string;
+  let usdValue = "$0.00";
 
   switch (activity.type) {
     case "token_transfer":
     case "secure":
-    case "unshield":
-      baseAmount = `${activity.token.amount} ${activity.token.mint === LOYL_MINT ? "LOYAL" : "TOKEN"}`;
-      icon = "/hero-new/Wallet-Cover.png";
+    case "unshield": {
+      const position = resolvePositionByMint(positions, activity.token.mint);
+      const symbol = resolveTokenSymbol(position, activity.token.mint);
+      baseAmount = `${activity.token.amount} ${symbol}`;
+      icon = position
+        ? resolveTokenIcon(position)
+        : "/hero-new/Wallet-Cover.png";
+      usdValue = formatUsd(
+        tokenAmountToUsd(activity.token.amount, position?.priceUsd)
+      );
       break;
-    case "swap":
+    }
+    case "swap": {
+      const position = resolvePositionByMint(positions, activity.fromToken.mint);
+      const isFromSol = activity.fromToken.mint === NATIVE_SOL_MINT;
+      const symbol = position?.asset.symbol ?? (isFromSol ? "SOL" : "TOKEN");
+      const priceUsd = position?.priceUsd ?? (isFromSol ? solPriceUsd : null);
+      baseAmount = `${activity.fromToken.amount} ${symbol}`;
+      icon = position ? resolveTokenIcon(position) : getTokenIconUrl(symbol);
+      usdValue = formatUsd(
+        tokenAmountToUsd(activity.fromToken.amount, priceUsd)
+      );
+      break;
+    }
     case "sol_transfer":
-    case "program_action":
       baseAmount = `${formatSolAmount(activity.amountLamports)} SOL`;
       icon = getTokenIconUrl("SOL");
+      usdValue = formatUsd(
+        lamportsToUsd(activity.amountLamports, solPriceUsd)
+      );
+      break;
+    case "program_action":
+      if (activity.token) {
+        const position = resolvePositionByMint(positions, activity.token.mint);
+        const symbol = resolveTokenSymbol(position, activity.token.mint);
+        baseAmount = `${activity.token.amount} ${symbol}`;
+        icon = position
+          ? resolveTokenIcon(position)
+          : "/hero-new/Wallet-Cover.png";
+        usdValue = formatUsd(
+          tokenAmountToUsd(activity.token.amount, position?.priceUsd)
+        );
+        break;
+      }
+
+      baseAmount = `${formatSolAmount(activity.amountLamports)} SOL`;
+      icon = getTokenIconUrl("SOL");
+      usdValue = formatUsd(
+        lamportsToUsd(activity.amountLamports, solPriceUsd)
+      );
       break;
   }
 
@@ -214,10 +307,12 @@ function mapVaultActivity(activity: WalletActivity): {
         icon,
         rawTimestamp: activity.timestamp ?? undefined,
       },
-      usdValue: "$0.00",
+      usdValue,
       status: activity.status === "failed" ? "Failed" : "Completed",
       networkFee: `${formatSolAmount(activity.feeLamports)} SOL`,
-      networkFeeUsd: "$0.00",
+      networkFeeUsd: formatUsd(
+        lamportsToUsd(activity.feeLamports, solPriceUsd)
+      ),
     },
   };
 }
@@ -370,10 +465,20 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         balanceWhole: fallbackBalance.whole,
         balanceFraction: fallbackBalance.fraction,
       };
+    const solPriceUsd =
+      vault.portfolio.totals.effectiveSolPriceUsd ??
+      resolvePositionByMint(vault.portfolio.positions, NATIVE_SOL_MINT)
+        ?.priceUsd ??
+      85;
+
     const tokenRows = mapVaultToTokenRows(vault.portfolio.positions);
     const transactionDetails: Record<string, TransactionDetail> = {};
     const activityRows = vault.activity.activities.map((activity) => {
-      const mapped = mapVaultActivity(activity);
+      const mapped = mapVaultActivity(
+        activity,
+        vault.portfolio.positions,
+        solPriceUsd
+      );
       transactionDetails[mapped.row.id] = mapped.detail;
       return mapped.row;
     });
