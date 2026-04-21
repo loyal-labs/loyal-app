@@ -52,7 +52,7 @@ export function ApprovalReviewContent({
   }
 
   const canVote = approval.status === "active";
-  const canExecute = approval.status === "approved";
+  const canExecute = approval.status === "approved" && approval.canExecute;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>

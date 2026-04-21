@@ -6,10 +6,14 @@ import {
   type PreparedLoyalSmartAccountsOperation,
 } from "@loyal-labs/loyal-smart-accounts";
 import {
+  Policy,
   Proposal,
+  SettingsTransaction,
   Transaction,
   freezePreparedOperation,
+  policyDiscriminator,
   proposalDiscriminator,
+  settingsTransactionDiscriminator,
   toBigInt,
   transactionDiscriminator,
 } from "@loyal-labs/loyal-smart-accounts-core";
@@ -35,6 +39,7 @@ import {
 } from "./messages";
 import type {
   SmartAccountOverview,
+  SmartAccountProposalPayloadType,
   SmartAccountProposalSnapshot,
   SmartAccountProposalStatus,
   SmartAccountProposalSummary,
@@ -200,6 +205,100 @@ function summarizeUnknownInstruction(args: {
   };
 }
 
+function summarizeSolTransferInstruction(args: {
+  instruction: ReturnType<typeof compileVaultInstructions>[number];
+  instructionCount: number;
+}): SmartAccountProposalSummary | null {
+  try {
+    const decoded = SystemInstruction.decodeTransfer({
+      programId: args.instruction.programId,
+      keys: args.instruction.keys,
+      data: args.instruction.data,
+    });
+
+    return {
+      kind: "sol_transfer",
+      title: "Send",
+      subtitle: `to ${decoded.toPubkey.toBase58()}`,
+      symbol: "SOL",
+      amountUi: formatTokenAmount(BigInt(decoded.lamports), 9),
+      amountRaw: BigInt(decoded.lamports).toString(),
+      mint: null,
+      decimals: 9,
+      destination: decoded.toPubkey.toBase58(),
+      programId: args.instruction.programId.toBase58(),
+      instructionCount: args.instructionCount,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function summarizeSplTransferInstruction(args: {
+  instruction: ReturnType<typeof compileVaultInstructions>[number];
+  instructionCount: number;
+  assetIndex: Map<string, PortfolioPosition>;
+}): SmartAccountProposalSummary | null {
+  try {
+    const decoded = decodeTransferCheckedInstruction(
+      {
+        programId: args.instruction.programId,
+        keys: args.instruction.keys,
+        data: args.instruction.data,
+      },
+      args.instruction.programId
+    );
+    const mint = decoded.keys.mint.pubkey.toBase58();
+    const asset = findAssetMetadata(args.assetIndex, mint);
+
+    return {
+      kind: "spl_transfer",
+      title: "Send",
+      subtitle: `to ${decoded.keys.destination.pubkey.toBase58()}`,
+      symbol: asset?.asset.symbol ?? null,
+      amountUi: formatTokenAmount(
+        BigInt(decoded.data.amount.toString()),
+        decoded.data.decimals
+      ),
+      amountRaw: decoded.data.amount.toString(),
+      mint,
+      decimals: decoded.data.decimals,
+      destination: decoded.keys.destination.pubkey.toBase58(),
+      programId: args.instruction.programId.toBase58(),
+      instructionCount: args.instructionCount,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function summarizeSettingsTransaction(
+  settingsTransaction: SettingsTransaction
+): SmartAccountProposalSummary {
+  const actionKinds = settingsTransaction.actions.map((action) => action.__kind);
+  const title =
+    actionKinds.length === 1
+      ? actionKinds[0].replace(/([a-z])([A-Z])/g, "$1 $2")
+      : "Settings changes";
+
+  return {
+    kind: "settings_change",
+    title,
+    subtitle:
+      actionKinds.length === 0
+        ? "No settings actions"
+        : actionKinds.join(", "),
+    symbol: null,
+    amountUi: null,
+    amountRaw: null,
+    mint: null,
+    decimals: null,
+    destination: null,
+    programId: null,
+    instructionCount: actionKinds.length,
+  };
+}
+
 function summarizeTransactionPayload(args: {
   payload: Transaction["payload"];
   assetIndex: Map<string, PortfolioPosition>;
@@ -219,17 +318,41 @@ function summarizeTransactionPayload(args: {
 
   const details = (args.payload as TransactionPayloadLike).fields[0];
   const instructions = compileVaultInstructions(details.message);
-  const transferInstruction =
-    instructions.find(
-      (instruction) => instruction.programId.equals(SystemProgram.programId)
-    ) ??
-    instructions.find((instruction) =>
-      isSupportedTokenProgram(instruction.programId)
-    ) ??
-    instructions[0] ??
-    null;
 
-  if (!transferInstruction) {
+  for (const instruction of instructions) {
+    if (instruction.programId.equals(SystemProgram.programId)) {
+      const summary = summarizeSolTransferInstruction({
+        instruction,
+        instructionCount: instructions.length,
+      });
+
+      if (summary) {
+        return {
+          accountIndex: details.accountIndex,
+          summary,
+        };
+      }
+    }
+
+    if (isSupportedTokenProgram(instruction.programId)) {
+      const summary = summarizeSplTransferInstruction({
+        instruction,
+        instructionCount: instructions.length,
+        assetIndex: args.assetIndex,
+      });
+
+      if (summary) {
+        return {
+          accountIndex: details.accountIndex,
+          summary,
+        };
+      }
+    }
+  }
+
+  const firstInstruction = instructions[0] ?? null;
+
+  if (!firstInstruction) {
     return {
       accountIndex: details.accountIndex,
       summary: summarizeUnknownInstruction({
@@ -239,78 +362,10 @@ function summarizeTransactionPayload(args: {
     };
   }
 
-  if (transferInstruction.programId.equals(SystemProgram.programId)) {
-    const decoded = SystemInstruction.decodeTransfer({
-      programId: transferInstruction.programId,
-      keys: transferInstruction.keys,
-      data: transferInstruction.data,
-    });
-
-    return {
-      accountIndex: details.accountIndex,
-      summary: {
-        kind: "sol_transfer",
-        title: "Send",
-        subtitle: `to ${decoded.toPubkey.toBase58()}`,
-        symbol: "SOL",
-        amountUi: formatTokenAmount(BigInt(decoded.lamports), 9),
-        amountRaw: BigInt(decoded.lamports).toString(),
-        mint: null,
-        decimals: 9,
-        destination: decoded.toPubkey.toBase58(),
-        programId: transferInstruction.programId.toBase58(),
-        instructionCount: instructions.length,
-      },
-    };
-  }
-
-  if (isSupportedTokenProgram(transferInstruction.programId)) {
-    try {
-      const decoded = decodeTransferCheckedInstruction(
-        {
-          programId: transferInstruction.programId,
-          keys: transferInstruction.keys,
-          data: transferInstruction.data,
-        },
-        transferInstruction.programId
-      );
-      const mint = decoded.keys.mint.pubkey.toBase58();
-      const asset = findAssetMetadata(args.assetIndex, mint);
-
-      return {
-        accountIndex: details.accountIndex,
-        summary: {
-          kind: "spl_transfer",
-          title: "Send",
-          subtitle: `to ${decoded.keys.destination.pubkey.toBase58()}`,
-          symbol: asset?.asset.symbol ?? null,
-          amountUi: formatTokenAmount(
-            BigInt(decoded.data.amount.toString()),
-            decoded.data.decimals
-          ),
-          amountRaw: decoded.data.amount.toString(),
-          mint,
-          decimals: decoded.data.decimals,
-          destination: decoded.keys.destination.pubkey.toBase58(),
-          programId: transferInstruction.programId.toBase58(),
-          instructionCount: instructions.length,
-        },
-      };
-    } catch {
-      return {
-        accountIndex: details.accountIndex,
-        summary: summarizeUnknownInstruction({
-          programId: transferInstruction.programId,
-          instructionCount: instructions.length,
-        }),
-      };
-    }
-  }
-
   return {
     accountIndex: details.accountIndex,
     summary: summarizeUnknownInstruction({
-      programId: transferInstruction.programId,
+      programId: firstInstruction.programId,
       instructionCount: instructions.length,
     }),
   };
@@ -352,6 +407,42 @@ function createTransactionFilters(
   ];
 }
 
+function createSettingsTransactionFilters(
+  settingsPda: PublicKey
+): GetProgramAccountsFilter[] {
+  return [
+    {
+      memcmp: {
+        offset: 0,
+        bytes: bs58.encode(Buffer.from(settingsTransactionDiscriminator)),
+      },
+    },
+    {
+      memcmp: {
+        offset: 8,
+        bytes: settingsPda.toBase58(),
+      },
+    },
+  ];
+}
+
+function createPolicyFilters(settingsPda: PublicKey): GetProgramAccountsFilter[] {
+  return [
+    {
+      memcmp: {
+        offset: 0,
+        bytes: bs58.encode(Buffer.from(policyDiscriminator)),
+      },
+    },
+    {
+      memcmp: {
+        offset: 8,
+        bytes: settingsPda.toBase58(),
+      },
+    },
+  ];
+}
+
 function deserializeProposalAccount(args: {
   pubkey: PublicKey;
   account: AccountInfo<Buffer>;
@@ -363,6 +454,17 @@ function deserializeProposalAccount(args: {
   };
 }
 
+function deserializePolicyAccount(args: {
+  pubkey: PublicKey;
+  account: AccountInfo<Buffer>;
+}) {
+  const [policy] = Policy.fromAccountInfo(args.account);
+  return {
+    address: args.pubkey,
+    policy,
+  };
+}
+
 function deserializeTransactionAccount(args: {
   pubkey: PublicKey;
   account: AccountInfo<Buffer>;
@@ -371,6 +473,17 @@ function deserializeTransactionAccount(args: {
   return {
     address: args.pubkey,
     transaction,
+  };
+}
+
+function deserializeSettingsTransactionAccount(args: {
+  pubkey: PublicKey;
+  account: AccountInfo<Buffer>;
+}) {
+  const [settingsTransaction] = SettingsTransaction.fromAccountInfo(args.account);
+  return {
+    address: args.pubkey,
+    settingsTransaction,
   };
 }
 
@@ -396,6 +509,70 @@ function requireWalletDataClient(
   }
 
   return walletDataClient;
+}
+
+function toConsensusTransactionKey(args: {
+  consensusPda: PublicKey;
+  transactionIndex: string;
+}) {
+  return `${args.consensusPda.toBase58()}:${args.transactionIndex}`;
+}
+
+function dedupePublicKeys(keys: readonly PublicKey[]): PublicKey[] {
+  const unique = new Map<string, PublicKey>();
+
+  for (const key of keys) {
+    unique.set(key.toBase58(), key);
+  }
+
+  return [...unique.values()];
+}
+
+function getSettingsTransactionExecutionAccounts(args: {
+  settingsPda: PublicKey;
+  settingsTransaction: SettingsTransaction;
+  programId: PublicKey;
+}): {
+  spendingLimits: PublicKey[];
+  policies: PublicKey[];
+} {
+  const spendingLimits: PublicKey[] = [];
+  const policies: PublicKey[] = [];
+
+  for (const action of args.settingsTransaction.actions) {
+    switch (action.__kind) {
+      case "AddSpendingLimit":
+        spendingLimits.push(
+          pda.getSpendingLimitPda({
+            programId: args.programId,
+            settingsPda: args.settingsPda,
+            seed: action.seed,
+          })[0]
+        );
+        break;
+      case "RemoveSpendingLimit":
+        spendingLimits.push(action.spendingLimit);
+        break;
+      case "PolicyCreate":
+        policies.push(
+          pda.getPolicyPda({
+            programId: args.programId,
+            settingsPda: args.settingsPda,
+            policySeed: toBigInt(action.seed) as unknown as number,
+          })[0]
+        );
+        break;
+      case "PolicyUpdate":
+      case "PolicyRemove":
+        policies.push(action.policy);
+        break;
+    }
+  }
+
+  return {
+    spendingLimits: dedupePublicKeys(spendingLimits),
+    policies: dedupePublicKeys(policies),
+  };
 }
 
 export type SmartAccountVaultsClient = ReturnType<
@@ -476,20 +653,71 @@ export function createSmartAccountVaultsClient(
     settingsPda: PublicKey;
     assetIndex?: Map<string, PortfolioPosition>;
   }): Promise<SmartAccountProposalSnapshot[]> {
-    const [proposalAccounts, transactionAccounts] = await Promise.all([
-      config.connection.getProgramAccounts(smartAccountsClient.programId, {
+    const policyAccounts = await config.connection.getProgramAccounts(
+      smartAccountsClient.programId,
+      {
         commitment: "confirmed",
-        filters: createProposalFilters(args.settingsPda),
-      }),
-      config.connection.getProgramAccounts(smartAccountsClient.programId, {
-        commitment: "confirmed",
-        filters: createTransactionFilters(args.settingsPda),
-      }),
+        filters: createPolicyFilters(args.settingsPda),
+      }
+    );
+    const policyConsensusPdas = policyAccounts.map(
+      (account) => deserializePolicyAccount(account).address
+    );
+    const consensusPdas = dedupePublicKeys([
+      args.settingsPda,
+      ...policyConsensusPdas,
     ]);
-    const transactionsByIndex = new Map(
+    const [proposalAccountGroups, transactionAccountGroups, settingsTransactionAccounts] =
+      await Promise.all([
+        Promise.all(
+          consensusPdas.map((consensusPda) =>
+            config.connection.getProgramAccounts(smartAccountsClient.programId, {
+              commitment: "confirmed",
+              filters: createProposalFilters(consensusPda),
+            })
+          )
+        ),
+        Promise.all(
+          consensusPdas.map((consensusPda) =>
+            config.connection.getProgramAccounts(smartAccountsClient.programId, {
+              commitment: "confirmed",
+              filters: createTransactionFilters(consensusPda),
+            })
+          )
+        ),
+        config.connection.getProgramAccounts(smartAccountsClient.programId, {
+          commitment: "confirmed",
+          filters: createSettingsTransactionFilters(args.settingsPda),
+        }),
+      ]);
+    const proposalAccounts = proposalAccountGroups.flat();
+    const transactionAccounts = transactionAccountGroups.flat();
+    const transactionsByKey = new Map(
       transactionAccounts.map((account) => {
         const deserialized = deserializeTransactionAccount(account);
-        return [toBigInt(deserialized.transaction.index).toString(), deserialized];
+        const transactionIndex = toBigInt(deserialized.transaction.index).toString();
+        return [
+          toConsensusTransactionKey({
+            consensusPda: deserialized.transaction.consensusAccount,
+            transactionIndex,
+          }),
+          deserialized,
+        ];
+      })
+    );
+    const settingsTransactionsByKey = new Map(
+      settingsTransactionAccounts.map((account) => {
+        const deserialized = deserializeSettingsTransactionAccount(account);
+        const transactionIndex = toBigInt(
+          deserialized.settingsTransaction.index
+        ).toString();
+        return [
+          toConsensusTransactionKey({
+            consensusPda: deserialized.settingsTransaction.settings,
+            transactionIndex,
+          }),
+          deserialized,
+        ];
       })
     );
     const assetIndex = args.assetIndex ?? new Map<string, PortfolioPosition>();
@@ -498,31 +726,64 @@ export function createSmartAccountVaultsClient(
       .map((account) => deserializeProposalAccount(account))
       .map((entry) => {
         const transactionIndex = toBigInt(entry.proposal.transactionIndex).toString();
-        const transaction = transactionsByIndex.get(transactionIndex) ?? null;
-        const payloadSummary = transaction
-          ? summarizeTransactionPayload({
-              payload: transaction.transaction.payload,
-              assetIndex,
-            })
-          : {
-              accountIndex: null,
-              summary: summarizeUnknownInstruction({
-                programId: null,
-                instructionCount: 0,
-              }),
-            };
+        const consensusPda = entry.proposal.settings;
+        const transactionKey = toConsensusTransactionKey({
+          consensusPda,
+          transactionIndex,
+        });
+        const transaction = transactionsByKey.get(transactionKey) ?? null;
+        const settingsTransaction =
+          settingsTransactionsByKey.get(transactionKey) ?? null;
+        let payloadType: SmartAccountProposalPayloadType = "unknown";
+        let transactionAddress: string | null = null;
+        let creator: string | null = null;
+        let payloadSummary: {
+          summary: SmartAccountProposalSummary;
+          accountIndex: number | null;
+        } = {
+          accountIndex: null,
+          summary: summarizeUnknownInstruction({
+            programId: null,
+            instructionCount: 0,
+          }),
+        };
+
+        if (transaction) {
+          payloadType =
+            transaction.transaction.payload.__kind === "PolicyPayload"
+              ? "policy_transaction"
+              : "transaction";
+          transactionAddress = transaction.address.toBase58();
+          creator = transaction.transaction.creator.toBase58();
+          payloadSummary = summarizeTransactionPayload({
+            payload: transaction.transaction.payload,
+            assetIndex,
+          });
+        } else if (settingsTransaction) {
+          payloadType = "settings_transaction";
+          transactionAddress = settingsTransaction.address.toBase58();
+          creator = settingsTransaction.settingsTransaction.creator.toBase58();
+          payloadSummary = {
+            accountIndex: null,
+            summary: summarizeSettingsTransaction(
+              settingsTransaction.settingsTransaction
+            ),
+          };
+        }
 
         return {
           proposalAddress: entry.address.toBase58(),
-          transactionAddress: transaction?.address.toBase58() ?? null,
+          transactionAddress,
+          consensusAddress: consensusPda.toBase58(),
           transactionIndex,
+          payloadType,
           status: toProposalStatus(entry.proposal.status.__kind),
           approvals: entry.proposal.approved.map((address) => address.toBase58()),
           rejections: entry.proposal.rejected.map((address) => address.toBase58()),
           cancellations: entry.proposal.cancelled.map((address) =>
             address.toBase58()
           ),
-          creator: transaction?.transaction.creator.toBase58() ?? null,
+          creator,
           accountIndex: payloadSummary.accountIndex,
           summary: payloadSummary.summary,
         } satisfies SmartAccountProposalSnapshot;
@@ -684,7 +945,10 @@ export function createSmartAccountVaultsClient(
     feePayer: PublicKey;
     memo?: string;
   }) {
-    return smartAccountsClient.features.proposals.prepare.approve(args as never);
+    return smartAccountsClient.features.proposals.prepare.approve({
+      ...args,
+      programId: smartAccountsClient.programId,
+    } as never);
   }
 
   function prepareRejectProposal(args: {
@@ -694,7 +958,10 @@ export function createSmartAccountVaultsClient(
     feePayer: PublicKey;
     memo?: string;
   }) {
-    return smartAccountsClient.features.proposals.prepare.reject(args as never);
+    return smartAccountsClient.features.proposals.prepare.reject({
+      ...args,
+      programId: smartAccountsClient.programId,
+    } as never);
   }
 
   function prepareExecuteProposal(args: {
@@ -707,6 +974,43 @@ export function createSmartAccountVaultsClient(
       {
         ...args,
         connection: config.connection,
+        programId: smartAccountsClient.programId,
+      } as never
+    );
+  }
+
+  async function prepareExecuteSettingsProposal(args: {
+    settingsPda: PublicKey;
+    transactionIndex: bigint;
+    signer: PublicKey;
+    feePayer: PublicKey;
+  }) {
+    const transactionPda = pda.getTransactionPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      transactionIndex: args.transactionIndex,
+    })[0];
+    const settingsTransaction =
+      await smartAccountsClient.execution.queries.fetchSettingsTransaction(
+        transactionPda
+      );
+    const executionAccounts = getSettingsTransactionExecutionAccounts({
+      settingsPda: args.settingsPda,
+      settingsTransaction,
+      programId: smartAccountsClient.programId,
+    });
+
+    return smartAccountsClient.features.execution.prepare.executeSettingsTransaction(
+      {
+        ...args,
+        rentPayer: args.feePayer,
+        spendingLimits: executionAccounts.spendingLimits.length
+          ? executionAccounts.spendingLimits
+          : undefined,
+        policies: executionAccounts.policies.length
+          ? executionAccounts.policies
+          : undefined,
+        programId: smartAccountsClient.programId,
       } as never
     );
   }
@@ -724,5 +1028,6 @@ export function createSmartAccountVaultsClient(
     prepareApproveProposal,
     prepareRejectProposal,
     prepareExecuteProposal,
+    prepareExecuteSettingsProposal,
   };
 }

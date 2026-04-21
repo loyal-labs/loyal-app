@@ -41,6 +41,7 @@ export type SmartAccountApprovalItem = {
   sourceAccountIndex: number | null;
   sourceLabel: string;
   status: SmartAccountProposalSnapshot["status"];
+  canExecute: boolean;
   proposal: SmartAccountProposalSnapshot;
 };
 
@@ -334,21 +335,31 @@ function mapProposalToApprovalItem(
   proposal: SmartAccountProposalSnapshot
 ): SmartAccountApprovalItem {
   const amount = proposal.summary.amountUi ?? "Pending";
+  const isSettingsChange = proposal.summary.kind === "settings_change";
   const symbol =
     proposal.summary.symbol ??
-    (proposal.summary.kind === "sol_transfer" ? "SOL" : "TOKEN");
+    (proposal.summary.kind === "sol_transfer"
+      ? "SOL"
+      : isSettingsChange
+        ? ""
+        : "TOKEN");
   const sourceAccountIndex = proposal.accountIndex;
 
   return {
     id: proposal.proposalAddress,
     title: proposal.summary.title,
-    destinationLabel: shortAddress(proposal.summary.destination),
+    destinationLabel: isSettingsChange
+      ? "settings"
+      : shortAddress(proposal.summary.destination),
     amount,
     symbol,
     sourceAccountIndex,
     sourceLabel:
       sourceAccountIndex === null ? "Unknown vault" : `Vault ${sourceAccountIndex}`,
     status: proposal.status,
+    canExecute:
+      proposal.payloadType === "transaction" ||
+      proposal.payloadType === "settings_transaction",
     proposal,
   };
 }
@@ -529,7 +540,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         programId: new PublicKey(overview.programId),
       });
       const sharedArgs = {
-        settingsPda: new PublicKey(overview.settingsPda),
+        settingsPda: new PublicKey(proposal.consensusAddress),
         transactionIndex: BigInt(proposal.transactionIndex),
         signer: wallet.publicKey,
         feePayer: wallet.publicKey,
@@ -539,7 +550,15 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
           ? await client.prepareApproveProposal(sharedArgs)
           : action === "reject"
             ? await client.prepareRejectProposal(sharedArgs)
-            : await client.prepareExecuteProposal(sharedArgs);
+            : proposal.payloadType === "settings_transaction"
+              ? await client.prepareExecuteSettingsProposal(sharedArgs)
+              : proposal.payloadType === "transaction"
+                ? await client.prepareExecuteProposal(sharedArgs)
+                : (() => {
+                    throw new Error(
+                      "This proposal type cannot be executed from the wallet sidebar."
+                    );
+                  })();
 
       setIsActionPending(true);
       setPendingProposalId(proposal.proposalAddress);

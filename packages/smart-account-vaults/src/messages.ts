@@ -66,7 +66,7 @@ export async function createVaultSplTransferMessage(args: {
     );
   const instructions = [];
 
-  if (args.createDestinationAta ?? true) {
+  if (!args.destinationTokenAccount && (args.createDestinationAta ?? true)) {
     instructions.push(
       createAssociatedTokenAccountIdempotentInstruction(
         args.vaultPda,

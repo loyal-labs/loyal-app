@@ -36,21 +36,19 @@ export function executeSettingsTransaction({
     programId,
   });
 
-  let remainingAccounts: AccountMeta[] = [];
-  if (spendingLimits) {
-    remainingAccounts = spendingLimits.map((spendingLimit) => ({
+  const remainingAccounts: AccountMeta[] = [
+    ...(spendingLimits ?? []).map((spendingLimit) => ({
       pubkey: spendingLimit,
       isWritable: true,
       isSigner: false,
-    }));
-  }
-  if (policies) {
-    remainingAccounts = policies.map((policy) => ({
+    })),
+    ...(policies ?? []).map((policy) => ({
       pubkey: policy,
       isWritable: true,
       isSigner: false,
-    }));
-  }
+    })),
+  ];
+
   return createExecuteSettingsTransactionInstruction(
     {
       settings: settingsPda,
