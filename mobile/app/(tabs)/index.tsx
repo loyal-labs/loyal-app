@@ -16,6 +16,7 @@ import { ActivityFeed } from "@/components/wallet/ActivityFeed";
 import { ActivitySheet } from "@/components/wallet/ActivitySheet";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
+import { BannerCarousel } from "@/components/wallet/BannerCarousel";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { ShieldSheet } from "@/components/wallet/ShieldSheet";
@@ -32,6 +33,8 @@ import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
+import { track } from "@/lib/analytics/analytics";
+import { PORTFOLIO_EVENTS } from "@/lib/analytics/portfolio-events";
 import { onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import {
@@ -296,27 +299,46 @@ export default function WalletScreen() {
           <ActionButton
             icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
             label="Send"
-            onPress={() => setIsSendOpen(true)}
+            onPress={() => {
+              track(PORTFOLIO_EVENTS.openSend);
+              setIsSendOpen(true);
+            }}
           />
           <ActionButton
             icon={<ArrowDown size={28} color="#000" strokeWidth={1.5} />}
             label="Receive"
-            onPress={() => setIsReceiveOpen(true)}
+            onPress={() => {
+              track(PORTFOLIO_EVENTS.openReceive);
+              setIsReceiveOpen(true);
+            }}
           />
           <ActionButton
             icon={<ArrowLeftRight size={28} color="#000" strokeWidth={1.5} />}
             label="Swap"
-            onPress={() => setIsSwapOpen(true)}
+            onPress={() => {
+              track(PORTFOLIO_EVENTS.openSwap);
+              setIsSwapOpen(true);
+            }}
           />
           <ActionButton
             icon={<Shield size={28} color="#000" strokeWidth={1.5} />}
             label="Shield"
-            onPress={() => setIsShieldOpen(true)}
+            onPress={() => {
+              track(PORTFOLIO_EVENTS.openShield);
+              setIsShieldOpen(true);
+            }}
           />
         </View>
 
         {/* Banner carousel */}
-        {/* <BannerCarousel /> */}
+        <View style={{ marginTop: 24 }}>
+          <BannerCarousel
+            onShield={() => {
+              track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
+              setIsShieldOpen(true);
+            }}
+          />
+        </View>
 
         {/* Token holdings */}
         <View style={{ marginTop: 16 }}>

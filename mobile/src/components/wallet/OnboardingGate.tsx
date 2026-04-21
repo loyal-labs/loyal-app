@@ -15,7 +15,6 @@ import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
 import { CreateWalletScreen } from "@/components/wallet/CreateWalletScreen";
 import { ImportWalletScreen } from "@/components/wallet/ImportWalletScreen";
 import { OnboardingSlidesScreen } from "@/components/wallet/OnboardingSlidesScreen";
-import { SeedVaultAuthScreen } from "@/components/wallet/SeedVaultAuthScreen";
 import {
   getSetupStartStep,
   type OnboardingStartStep,
@@ -26,7 +25,6 @@ import { Text, View } from "@/tw";
 
 type Step =
   | OnboardingStartStep
-  | "seed-vault"
   | "create"
   | "import"
   | "biometric-setup";
@@ -59,6 +57,8 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [seedVaultAvailable, setSeedVaultAvailable] = useState(false);
+  const [seedVaultPending, setSeedVaultPending] = useState(false);
+  const [seedVaultError, setSeedVaultError] = useState<string | null>(null);
   const [transitionDirection, setTransitionDirection] =
     useState<TransitionDirection>("forward");
   const [screenAnimationsReady, setScreenAnimationsReady] = useState(false);
@@ -116,6 +116,30 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     [finalizeVaultSigner],
   );
 
+  const handleUseSeedVault = useCallback(async () => {
+    if (seedVaultPending) return;
+    setSeedVaultError(null);
+    setSeedVaultPending(true);
+    try {
+      const granted = await SeedVault.requestPermission();
+      if (!granted) {
+        setSeedVaultError(
+          "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
+        );
+        return;
+      }
+      const existing = await SeedVault.listAuthorizedSeeds();
+      const account =
+        existing.length > 0 ? existing[0] : await SeedVault.authorizeExistingSeed();
+      await handleSeedVaultComplete(account);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Seed Vault operation failed";
+      setSeedVaultError(msg);
+    } finally {
+      setSeedVaultPending(false);
+    }
+  }, [seedVaultPending, handleSeedVaultComplete]);
+
   if (finalizing) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
@@ -139,6 +163,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   if (step === "slides") {
     content = (
       <OnboardingSlidesScreen
+        surface={mode === "replay" ? "replay" : "setup"}
         onDone={() => {
           if (mode === "replay") {
             onReplayDone?.();
@@ -152,9 +177,11 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     content = (
       <WalletSetupOnboardingScreen
         seedVaultAvailable={seedVaultAvailable}
+        seedVaultPending={seedVaultPending}
+        seedVaultError={seedVaultError}
         onUseSeedVault={() => {
           setFlow(null);
-          navigateToStep("seed-vault", "forward");
+          void handleUseSeedVault();
         }}
         onCreateWallet={() => {
           setFlow("create");
@@ -164,13 +191,6 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
           setFlow("import");
           navigateToStep("import", "forward");
         }}
-      />
-    );
-  } else if (step === "seed-vault") {
-    content = (
-      <SeedVaultAuthScreen
-        onComplete={handleSeedVaultComplete}
-        onBack={() => navigateToStep("setup-onboarding", "backward")}
       />
     );
   } else if (step === "create") {

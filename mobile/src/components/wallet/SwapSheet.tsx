@@ -22,6 +22,11 @@ import type { PopularToken } from "@/hooks/wallet/usePopularTokens";
 import { usePopularTokens } from "@/hooks/wallet/usePopularTokens";
 import { useShield } from "@/hooks/wallet/useShield";
 import {
+  getAnalyticsErrorProperties,
+  track,
+} from "@/lib/analytics/analytics";
+import { SWAP_EVENTS } from "@/lib/analytics/swap-events";
+import {
   NATIVE_SOL_MINT,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
@@ -361,6 +366,14 @@ export function SwapSheet({
 
       setTxSignature(sig);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      track(SWAP_EVENTS.swapTokens, {
+        from_symbol: fromHolding.symbol,
+        from_mint: fromHolding.mint,
+        to_symbol: toHolding?.symbol,
+        to_mint: toHolding?.mint,
+        amount: amountNum,
+        from_shielded: fromIsSecured,
+      });
       onSwapComplete?.();
     } catch (error) {
       const msg =
@@ -373,6 +386,16 @@ export function SwapSheet({
           : friendly;
       setSwapError(recovery);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      track(SWAP_EVENTS.swapTokensFailed, {
+        from_symbol: fromHolding?.symbol,
+        from_mint: fromHolding?.mint,
+        to_symbol: toHolding?.symbol,
+        to_mint: toHolding?.mint,
+        amount: amountNum,
+        from_shielded: fromIsSecured,
+        stage: swapStage,
+        ...getAnalyticsErrorProperties(error),
+      });
     } finally {
       setIsSwapping(false);
       setSwapStage("idle");
@@ -388,6 +411,8 @@ export function SwapSheet({
     executeUnshield,
     onSwapComplete,
     swapStage,
+    toHolding?.mint,
+    toHolding?.symbol,
   ]);
 
   const handleClose = useCallback(() => {

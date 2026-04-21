@@ -16,14 +16,21 @@ import {
   disableOnboardingSlidePlayback,
 } from "@/components/wallet/onboarding-slide-playback";
 import { ONBOARDING_SLIDES } from "@/components/wallet/onboarding-slides";
+import { track } from "@/lib/analytics/analytics";
+import {
+  ONBOARDING_COMPLETION_METHODS,
+  ONBOARDING_EVENTS,
+} from "@/lib/analytics/onboarding-events";
 import { Pressable, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
 type Props = {
   onDone: () => void;
+  /** Distinguishes fresh setup from a replay-from-settings view in analytics. */
+  surface?: "setup" | "replay";
 };
 
-export function OnboardingSlidesScreen({ onDone }: Props) {
+export function OnboardingSlidesScreen({ onDone, surface = "replay" }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const { width, height } = useWindowDimensions();
   const [playbackState, setPlaybackState] = useState(() =>
@@ -71,6 +78,10 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
   const handleNext = useCallback(() => {
     triggerLightHaptic();
     if (isLast) {
+      track(ONBOARDING_EVENTS.ended, {
+        method: ONBOARDING_COMPLETION_METHODS.completed,
+        surface,
+      });
       onDone();
       return;
     }
@@ -81,12 +92,16 @@ export function OnboardingSlidesScreen({ onDone }: Props) {
       currentIndex: next,
     }));
     scrollToIndex(next);
-  }, [currentIndex, isLast, onDone, scrollToIndex, triggerLightHaptic]);
+  }, [currentIndex, isLast, onDone, scrollToIndex, surface, triggerLightHaptic]);
 
   const handleSkip = useCallback(() => {
     triggerLightHaptic();
+    track(ONBOARDING_EVENTS.ended, {
+      method: ONBOARDING_COMPLETION_METHODS.skipped,
+      surface,
+    });
     onDone();
-  }, [onDone, triggerLightHaptic]);
+  }, [onDone, surface, triggerLightHaptic]);
 
   const handleMomentumEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {

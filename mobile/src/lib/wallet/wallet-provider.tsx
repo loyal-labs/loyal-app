@@ -14,6 +14,16 @@ import type { ReactNode } from "react";
 import { AppState } from "react-native";
 
 import {
+  identifyWallet,
+  resetAnalytics,
+  track,
+} from "@/lib/analytics/analytics";
+import {
+  LOCK_METHODS,
+  type LockMethod,
+  WALLET_SETUP_EVENTS,
+} from "@/lib/analytics/wallet-setup-events";
+import {
   clearWalletSignerCache,
   setWalletSigner,
 } from "@/lib/solana/wallet/wallet-details";
@@ -143,12 +153,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // so there is no in-memory secret to protect.
   const backgroundedAt = useRef<number | null>(null);
   const AUTO_LOCK_GRACE_MS = 30_000;
+  const lockInternal = useCallback(
+    (method: LockMethod) => {
+      if (state === "vault-unlocked") return; // no-op for vault
+      setSigner(null);
+      clearWalletSignerCache();
+      setState("locked");
+      track(WALLET_SETUP_EVENTS.walletLocked, { method });
+    },
+    [state],
+  );
   const lock = useCallback(() => {
-    if (state === "vault-unlocked") return; // no-op for vault
-    setSigner(null);
-    clearWalletSignerCache();
-    setState("locked");
-  }, [state]);
+    lockInternal(LOCK_METHODS.manual);
+  }, [lockInternal]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
@@ -163,12 +180,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const elapsed = Date.now() - backgroundedAt.current;
         backgroundedAt.current = null;
         if (elapsed > AUTO_LOCK_GRACE_MS) {
-          lock();
+          lockInternal(LOCK_METHODS.autoTimeout);
         }
       }
     });
     return () => subscription.remove();
-  }, [state, lock]);
+  }, [state, lockInternal]);
 
   // Generate keypair in memory only — NOT persisted until finalizeSigner
   const createWallet = useCallback((_pin: string) => {
@@ -193,10 +210,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         await storeKeypair(kp, pin);
       }
       const next = new LocalKeypairSigner(kp);
+      const pk = kp.publicKey.toBase58();
       setSigner(next);
-      setPublicKey(kp.publicKey.toBase58());
+      setPublicKey(pk);
       setWalletSigner(next);
       setState("unlocked");
+      const source: "created" | "imported" = opts?.alreadyStored
+        ? "imported"
+        : "created";
+      identifyWallet(pk, source);
+      track(
+        source === "imported"
+          ? WALLET_SETUP_EVENTS.walletImported
+          : WALLET_SETUP_EVENTS.walletCreated,
+      );
     },
     [],
   );
@@ -218,16 +245,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setPublicKey(account.publicKey);
     setWalletSigner(next);
     setState("vault-unlocked");
+    identifyWallet(account.publicKey, "vault");
+    track(WALLET_SETUP_EVENTS.walletCreated, { source: "vault" });
   }, []);
 
   const unlock = useCallback(async (pin: string) => {
     const kp = await loadKeypair(pin);
     if (!kp) throw new Error("Incorrect PIN");
     const next = new LocalKeypairSigner(kp);
+    const pk = kp.publicKey.toBase58();
     setSigner(next);
-    setPublicKey(kp.publicKey.toBase58());
+    setPublicKey(pk);
     setWalletSigner(next);
     setState("unlocked");
+    identifyWallet(pk, "imported");
+    track(WALLET_SETUP_EVENTS.walletUnlocked, { method: "pin" });
   }, []);
 
   const unlockWithBiometrics = useCallback(async () => {
@@ -237,10 +269,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const kp = await loadKeypair(pin);
       if (!kp) return false;
       const next = new LocalKeypairSigner(kp);
+      const pk = kp.publicKey.toBase58();
       setSigner(next);
-      setPublicKey(kp.publicKey.toBase58());
+      setPublicKey(pk);
       setWalletSigner(next);
       setState("unlocked");
+      identifyWallet(pk, "imported");
+      track(WALLET_SETUP_EVENTS.walletUnlocked, { method: "biometrics" });
       return true;
     } catch {
       return false;
@@ -293,6 +328,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     clearWalletSignerCache();
     setBiometricEnabledState(false);
     setState("noWallet");
+    track(WALLET_SETUP_EVENTS.walletReset);
+    resetAnalytics();
   }, [signer]);
 
   const getSecretKeyHex = useCallback(() => {

@@ -4,6 +4,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
+import { initAnalytics } from "@/lib/analytics/analytics";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
   // addNotificationResponseListener, // Summaries — kept for reinstatement
@@ -46,6 +47,12 @@ export default function RootLayout() {
         await registerPushToken(token);
       }
     })();
+  }, []);
+
+  // Initialize Mixpanel as early as possible so identify/track from wallet
+  // boot are not lost.
+  useEffect(() => {
+    void initAnalytics();
   }, []);
 
   // Handle notification tap while app is running

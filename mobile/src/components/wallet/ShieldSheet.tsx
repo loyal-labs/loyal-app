@@ -10,6 +10,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard } from "react-native";
 
 import { useShield } from "@/hooks/wallet/useShield";
+import {
+  getAnalyticsErrorProperties,
+  track,
+} from "@/lib/analytics/analytics";
+import { SHIELD_EVENTS } from "@/lib/analytics/shield-events";
 import { NATIVE_SOL_MINT } from "@/lib/solana/constants";
 import {
   buildShieldAssetKey,
@@ -185,16 +190,49 @@ export function ShieldSheet({
       if (result.success) {
         setResultSuccess(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        track(
+          direction === "shield"
+            ? SHIELD_EVENTS.shieldTokens
+            : SHIELD_EVENTS.unshieldTokens,
+          {
+            token_symbol: selectedAsset.symbol,
+            token_mint: selectedAsset.mint,
+            amount: amountNum,
+          },
+        );
         onShieldComplete?.();
       } else {
         setResultError(getFriendlyError(result.error ?? "Transaction failed"));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        track(
+          direction === "shield"
+            ? SHIELD_EVENTS.shieldTokensFailed
+            : SHIELD_EVENTS.unshieldTokensFailed,
+          {
+            token_symbol: selectedAsset.symbol,
+            token_mint: selectedAsset.mint,
+            amount: amountNum,
+            error_name: "ShieldOperationFailed",
+            error_message: result.error ?? "Transaction failed",
+          },
+        );
       }
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Transaction failed";
       setResultError(getFriendlyError(msg));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      track(
+        direction === "shield"
+          ? SHIELD_EVENTS.shieldTokensFailed
+          : SHIELD_EVENTS.unshieldTokensFailed,
+        {
+          token_symbol: selectedAsset.symbol,
+          token_mint: selectedAsset.mint,
+          amount: amountNum,
+          ...getAnalyticsErrorProperties(error),
+        },
+      );
     } finally {
       setIsProcessing(false);
     }

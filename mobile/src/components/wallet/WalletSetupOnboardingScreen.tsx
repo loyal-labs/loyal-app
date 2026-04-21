@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
   ScrollView,
@@ -19,11 +20,18 @@ import {
   buildWalletSetupActions,
   ONBOARDING_SLIDES,
 } from "@/components/wallet/onboarding-slides";
+import { track } from "@/lib/analytics/analytics";
+import {
+  ONBOARDING_COMPLETION_METHODS,
+  ONBOARDING_EVENTS,
+} from "@/lib/analytics/onboarding-events";
 import { Pressable, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
 type Props = {
   seedVaultAvailable: boolean;
+  seedVaultPending?: boolean;
+  seedVaultError?: string | null;
   onUseSeedVault: () => void;
   onCreateWallet: () => void;
   onImportWallet: () => void;
@@ -31,6 +39,8 @@ type Props = {
 
 export function WalletSetupOnboardingScreen({
   seedVaultAvailable,
+  seedVaultPending = false,
+  seedVaultError = null,
   onUseSeedVault,
   onCreateWallet,
   onImportWallet,
@@ -59,14 +69,31 @@ export function WalletSetupOnboardingScreen({
     [width],
   );
 
+  const wrapWithEnded = useCallback(
+    (flow: "seed-vault" | "create" | "import", handler: () => void) =>
+      () => {
+        track(ONBOARDING_EVENTS.ended, {
+          method: ONBOARDING_COMPLETION_METHODS.completed,
+          surface: "setup",
+          wallet_flow: flow,
+        });
+        handler();
+      },
+    [],
+  );
+
   const actionHandlers = useMemo(
     () => ({
-      "seed-vault": onUseSeedVault,
-      create: onCreateWallet,
-      import: onImportWallet,
+      "seed-vault": wrapWithEnded("seed-vault", onUseSeedVault),
+      create: wrapWithEnded("create", onCreateWallet),
+      import: wrapWithEnded("import", onImportWallet),
     }),
-    [onCreateWallet, onImportWallet, onUseSeedVault],
+    [onCreateWallet, onImportWallet, onUseSeedVault, wrapWithEnded],
   );
+
+  useEffect(() => {
+    track(ONBOARDING_EVENTS.started, { surface: "setup" });
+  }, []);
 
   useEffect(() => {
     if (!playbackState.autoAdvanceEnabled || ONBOARDING_SLIDES.length <= 1) {
@@ -173,15 +200,18 @@ export function WalletSetupOnboardingScreen({
         >
           {actions.map((action, index) => {
             const isPrimary = index === 0;
+            const isSeedVault = action.id === "seed-vault";
+            const showSpinner = isSeedVault && seedVaultPending;
+            const isDisabled = action.disabled || seedVaultPending;
             const pressableStyle = [
               isPrimary ? styles.primaryButton : styles.secondaryButton,
-              action.disabled && styles.disabledButton,
+              isDisabled && styles.disabledButton,
             ];
             const textStyle = [
               isPrimary
                 ? styles.primaryButtonText
                 : styles.secondaryButtonText,
-              action.disabled && styles.disabledButtonText,
+              isDisabled && styles.disabledButtonText,
             ];
 
             return (
@@ -200,12 +230,18 @@ export function WalletSetupOnboardingScreen({
                 <Pressable
                   style={pressableStyle}
                   onPress={actionHandlers[action.id]}
-                  disabled={action.disabled}
+                  disabled={isDisabled}
                 >
-                  <Text style={textStyle}>{action.label}</Text>
+                  {showSpinner ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={textStyle}>{action.label}</Text>
+                  )}
                 </Pressable>
 
-                {action.helperText ? (
+                {isSeedVault && seedVaultError ? (
+                  <Text style={styles.errorText}>{seedVaultError}</Text>
+                ) : action.helperText ? (
                   <Text style={styles.helperText}>{action.helperText}</Text>
                 ) : null}
               </View>
@@ -281,6 +317,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     color: "rgba(60, 60, 67, 0.6)",
+    textAlign: "center",
+  },
+  errorText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 14,
+    lineHeight: 18,
+    color: "#b91c1c",
     textAlign: "center",
   },
 });

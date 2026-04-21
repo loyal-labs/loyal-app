@@ -1,219 +1,69 @@
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { X } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
-  type ImageSourcePropType,
+  Linking,
   PanResponder,
-  Image as RNImage,
+  StyleSheet,
 } from "react-native";
 
 import { Pressable, Text, View } from "@/tw";
+import { Image } from "@/tw/image";
 
-import {
-  getCachedDismissedBannerIds,
-  loadDismissedBannerIds,
-  saveDismissedBannerIds,
-} from "./banner-dismissals";
-
-const banner2 = require("../../../assets/images/banners/banner2.png") as ImageSourcePropType;
-const banner3 = require("../../../assets/images/banners/banner3.png") as ImageSourcePropType;
+const AUTO_ROTATE_MS = 4000;
+const SLIDE_DURATION = 220;
+const SWIPE_THRESHOLD = 36;
+const BRAND_RED = "#f9363c";
 
 type Banner = {
   id: string;
   title: string;
   cta: string;
-  image: ImageSourcePropType;
+  image: ReturnType<typeof require>;
   onPress: () => void;
 };
 
-const SWIPE_THRESHOLD = 30;
-const SLIDE_DURATION = 180;
-const AUTO_ROTATE_INTERVAL = 3000;
-const CARD_HEIGHT = 112;
+type Props = {
+  onShield: () => void;
+};
 
-function getAllBanners(): Banner[] {
-  return [
+export function BannerCarousel({ onShield }: Props) {
+  const banners: Banner[] = [
     {
-      id: "view-community-summary",
-      title: "View your community summaries and stay up to date",
-      cta: "View Summaries",
-      image: banner3,
-      onPress: () => {
-        // Navigation to summaries tab will be wired when tab navigator is ready
-      },
+      id: "earn",
+      title: "Shield Assets and Earn up to 5.21% APY",
+      cta: "Shield Now",
+      image: require("../../../assets/images/banners/banner-earn.png"),
+      onPress: onShield,
     },
     {
-      id: "emoji-status",
-      title: "Set Emoji Status and show your loyalty",
-      cta: "Set",
-      image: banner2,
+      id: "follow",
+      title: "Follow Loyal on X",
+      cta: "Follow",
+      image: require("../../../assets/images/banners/banner-follow.png"),
       onPress: () => {
-        // Emoji status not available in mobile
+        void Linking.openURL("https://x.com/loyal_hq");
       },
     },
   ];
-}
 
-function BannerCard({
-  banner,
-  onDismiss,
-}: {
-  banner: Banner;
-  onDismiss: (id: string) => void;
-}) {
-  const handlePress = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    banner.onPress();
-  }, [banner]);
-
-  const handleDismiss = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onDismiss(banner.id);
-  }, [banner.id, onDismiss]);
-
-  return (
-    <View
-      className="overflow-hidden rounded-[20px]"
-      style={{ height: CARD_HEIGHT }}
-    >
-      {/* Background: gray base + red gradient overlay (matches web CSS) */}
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "#f2f2f7",
-        }}
-      />
-      <LinearGradient
-        colors={["rgba(249, 54, 60, 0)", "rgba(249, 54, 60, 0.14)"]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-        }}
-      />
-
-      {/* Content area - text on left, image space on right */}
-      <View className="flex-1 justify-between p-4" style={{ paddingRight: 172 }}>
-        <Text
-          className="text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.187, lineHeight: 22 }}
-          numberOfLines={2}
-        >
-          {banner.title}
-        </Text>
-
-        <Pressable
-          className="self-start rounded-[20px] px-3 py-2"
-          style={{ backgroundColor: "#F9363C" }}
-          onPress={handlePress}
-        >
-          <Text className="text-[15px] text-white" style={{ lineHeight: 20 }}>
-            {banner.cta}
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* Mascot image on the right */}
-      <View
-        className="absolute bottom-0 right-0"
-        style={{ width: 172, height: CARD_HEIGHT }}
-        pointerEvents="none"
-      >
-        <RNImage
-          source={banner.image}
-          style={{
-            position: "absolute",
-            bottom: 0,
-            right: 0,
-            width: "85%",
-            height: "100%",
-          }}
-          resizeMode="contain"
-        />
-      </View>
-
-      {/* Close button */}
-      <Pressable
-        className="absolute right-[10px] top-[10px] z-10 h-7 w-7 items-center justify-center rounded-full"
-        style={{ backgroundColor: "rgba(0, 0, 0, 0.06)" }}
-        onPress={handleDismiss}
-      >
-        <X size={14} color="rgba(60, 60, 67, 0.6)" strokeWidth={2.5} />
-      </Pressable>
-    </View>
-  );
-}
-
-function DotIndicators({
-  count,
-  activeIndex,
-}: {
-  count: number;
-  activeIndex: number;
-}) {
-  if (count <= 1) return null;
-
-  return (
-    <View className="mt-2 flex-row items-center justify-center gap-2">
-      {Array.from({ length: count }, (_, i) => (
-        <View
-          key={i}
-          className="h-2 w-2 rounded-full"
-          style={{
-            backgroundColor:
-              i === activeIndex ? "#F9363C" : "rgba(60, 60, 67, 0.18)",
-          }}
-        />
-      ))}
-    </View>
-  );
-}
-
-export function BannerCarousel() {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(
-    () => getCachedDismissedBannerIds() ?? new Set(),
-  );
+  const activeIndexRef = useRef(0);
+  activeIndexRef.current = activeIndex;
 
   const translateX = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
-  const autoRotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeIndexRef = useRef(activeIndex);
-  activeIndexRef.current = activeIndex;
-
-  useEffect(() => {
-    const ids = loadDismissedBannerIds();
-    setDismissedIds(ids);
-  }, []);
-
-  const visibleBanners = useMemo(() => {
-    const all = getAllBanners();
-    return all.filter((b) => !dismissedIds.has(b.id));
-  }, [dismissedIds]);
-
-  const visibleBannersRef = useRef(visibleBanners);
-  visibleBannersRef.current = visibleBanners;
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const animatingRef = useRef(false);
 
   const animateSlide = useCallback(
     (direction: "left" | "right", newIndex: number) => {
+      animatingRef.current = true;
       const from = direction === "left" ? 40 : -40;
-
-      // Slide out + fade
       opacity.setValue(0);
       translateX.setValue(from);
       setActiveIndex(newIndex);
-
-      // Slide in
       Animated.parallel([
         Animated.timing(translateX, {
           toValue: 0,
@@ -225,118 +75,230 @@ export function BannerCarousel() {
           duration: SLIDE_DURATION,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(() => {
+        animatingRef.current = false;
+      });
     },
     [translateX, opacity],
   );
 
-  const goTo = useCallback(
-    (index: number, direction: "left" | "right") => {
-      const count = visibleBannersRef.current.length;
-      if (count === 0) return;
-      const wrapped = ((index % count) + count) % count;
-      if (wrapped === activeIndexRef.current) return;
-
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      animateSlide(direction, wrapped);
-    },
-    [animateSlide],
-  );
-
-  // Auto-rotate
   const startAutoRotate = useCallback(() => {
-    if (autoRotateRef.current) clearInterval(autoRotateRef.current);
-    if (visibleBannersRef.current.length <= 1) return;
-
-    autoRotateRef.current = setInterval(() => {
-      const count = visibleBannersRef.current.length;
-      if (count <= 1) return;
-      const next = (activeIndexRef.current + 1) % count;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (banners.length <= 1) return;
+    intervalRef.current = setInterval(() => {
+      const next = (activeIndexRef.current + 1) % banners.length;
       animateSlide("left", next);
-    }, AUTO_ROTATE_INTERVAL);
-  }, [animateSlide]);
+    }, AUTO_ROTATE_MS);
+  }, [banners.length, animateSlide]);
 
   useEffect(() => {
     startAutoRotate();
     return () => {
-      if (autoRotateRef.current) clearInterval(autoRotateRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [startAutoRotate, visibleBanners.length]);
+  }, [startAutoRotate]);
 
-  // Pan responder for swipe gestures
+  const goTo = useCallback(
+    (index: number, direction: "left" | "right") => {
+      const count = banners.length;
+      if (count === 0) return;
+      const wrapped = ((index % count) + count) % count;
+      if (wrapped === activeIndexRef.current) return;
+      if (process.env.EXPO_OS !== "web") {
+        Haptics.selectionAsync();
+      }
+      animateSlide(direction, wrapped);
+      startAutoRotate();
+    },
+    [banners.length, animateSlide, startAutoRotate],
+  );
+
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only capture horizontal swipes
-        return (
-          Math.abs(gestureState.dx) > 10 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2
-        );
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
+      onPanResponderGrant: () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
       },
-      onPanResponderMove: (_, gestureState) => {
-        translateX.setValue(gestureState.dx * 0.5);
+      onPanResponderMove: (_, g) => {
+        if (animatingRef.current) return;
+        translateX.setValue(g.dx * 0.5);
       },
-      onPanResponderRelease: (_, gestureState) => {
-        if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
-          // Stop auto-rotate on manual swipe, then restart
-          if (autoRotateRef.current) clearInterval(autoRotateRef.current);
-
-          if (gestureState.dx < 0) {
-            goTo(activeIndexRef.current + 1, "left");
-          } else {
-            goTo(activeIndexRef.current - 1, "right");
-          }
-
-          // Restart auto-rotate after manual swipe
-          startAutoRotate();
+      onPanResponderRelease: (_, g) => {
+        if (Math.abs(g.dx) > SWIPE_THRESHOLD) {
+          const next =
+            g.dx < 0
+              ? activeIndexRef.current + 1
+              : activeIndexRef.current - 1;
+          goTo(next, g.dx < 0 ? "left" : "right");
         } else {
-          // Snap back
           Animated.timing(translateX, {
             toValue: 0,
             duration: 150,
             useNativeDriver: true,
           }).start();
+          startAutoRotate();
         }
+      },
+      onPanResponderTerminate: () => {
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }).start();
+        startAutoRotate();
       },
     }),
   ).current;
 
-  const handleDismiss = useCallback(
-    (id: string) => {
+  const handleCta = useCallback((banner: Banner) => {
+    if (process.env.EXPO_OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      const next = new Set(dismissedIds);
-      next.add(id);
-      setDismissedIds(next);
-      saveDismissedBannerIds(next);
+    }
+    banner.onPress();
+  }, []);
 
-      // Stop auto-rotate
-      if (autoRotateRef.current) clearInterval(autoRotateRef.current);
-
-      // Adjust active index
-      const remaining = visibleBanners.filter((b) => b.id !== id).length;
-      if (remaining === 0) {
-        setActiveIndex(0);
-      } else if (activeIndex >= remaining) {
-        setActiveIndex(remaining - 1);
-      }
+  const handleDotPress = useCallback(
+    (index: number) => {
+      const direction = index > activeIndexRef.current ? "left" : "right";
+      goTo(index, direction);
     },
-    [dismissedIds, visibleBanners, activeIndex],
+    [goTo],
   );
 
-  if (visibleBanners.length === 0) return null;
+  if (banners.length === 0) return null;
 
-  const banner = visibleBanners[activeIndex] ?? visibleBanners[0];
-  if (!banner) return null;
+  const active = banners[activeIndex];
 
   return (
-    <View className="mt-4 px-4">
+    <View style={styles.wrapper}>
       <Animated.View
-        style={{ transform: [{ translateX }], opacity }}
+        style={[styles.cardClip, { transform: [{ translateX }], opacity }]}
         {...panResponder.panHandlers}
       >
-        <BannerCard banner={banner} onDismiss={handleDismiss} />
+        <View style={styles.solidBg} />
+        <LinearGradient
+          colors={["rgba(249,54,60,0)", "rgba(249,54,60,0.14)"]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.gradientFill}
+        />
+        <View style={styles.row}>
+          <View style={styles.textColumn}>
+            <Text style={styles.title} numberOfLines={2}>
+              {active.title}
+            </Text>
+            <Pressable
+              onPress={() => handleCta(active)}
+              style={styles.ctaButton}
+              hitSlop={6}
+            >
+              <Text style={styles.ctaText}>{active.cta}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.imageWrap} pointerEvents="none">
+            <Image
+              source={active.image}
+              style={styles.image}
+              contentFit="contain"
+              contentPosition="right bottom"
+            />
+          </View>
+        </View>
       </Animated.View>
-      <DotIndicators count={visibleBanners.length} activeIndex={activeIndex} />
+
+      {banners.length > 1 ? (
+        <View style={styles.dotsRow}>
+          {banners.map((b, i) => (
+            <Pressable
+              key={b.id}
+              onPress={() => handleDotPress(i)}
+              hitSlop={10}
+              style={[
+                styles.dot,
+                {
+                  backgroundColor:
+                    i === activeIndex ? BRAND_RED : "rgba(0,0,0,0.12)",
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  wrapper: {
+    paddingHorizontal: 16,
+  },
+  cardClip: {
+    borderRadius: 20,
+    overflow: "hidden",
+    height: 96,
+  },
+  solidBg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#f5f5f5",
+  },
+  gradientFill: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  row: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  textColumn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingLeft: 16,
+    justifyContent: "space-between",
+    minWidth: 0,
+    zIndex: 1,
+  },
+  title: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.187,
+    color: "#000",
+    maxWidth: 180,
+  },
+  ctaButton: {
+    alignSelf: "flex-start",
+    backgroundColor: BRAND_RED,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  ctaText: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#fff",
+  },
+  imageWrap: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: 140,
+    height: "100%",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  dotsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: 8,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+});

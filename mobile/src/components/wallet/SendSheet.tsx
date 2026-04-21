@@ -35,6 +35,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useShield } from "@/hooks/wallet/useShield";
+import {
+  getAnalyticsErrorProperties,
+  track,
+} from "@/lib/analytics/analytics";
+import { getSendMethod, SEND_EVENTS } from "@/lib/analytics/send-events";
 import { NATIVE_SOL_MINT, SOLANA_FEE_SOL } from "@/lib/solana/constants";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
@@ -451,6 +456,14 @@ export function SendSheet({
 
       setTxSignature(sig);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      track(SEND_EVENTS.sendFunds, {
+        token_symbol: selectedAsset.symbol,
+        token_mint: selectedAsset.mint,
+        amount: amountInToken,
+        method: getSendMethod(recipientTrimmed),
+        is_private: effectivePrivate,
+        from_shielded: selectedAsset.isSecured,
+      });
       onSendComplete?.();
     } catch (error) {
       const msg =
@@ -466,6 +479,16 @@ export function SendSheet({
           : friendly;
       setSendError(recovery);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      track(SEND_EVENTS.sendFundsFailed, {
+        token_symbol: selectedAsset?.symbol,
+        token_mint: selectedAsset?.mint,
+        amount: amountInToken,
+        method: getSendMethod(recipientTrimmed),
+        is_private: effectivePrivate,
+        from_shielded: selectedAsset?.isSecured,
+        stage: sendStage,
+        ...getAnalyticsErrorProperties(error),
+      });
     } finally {
       setIsSending(false);
       setSendStage("idle");
