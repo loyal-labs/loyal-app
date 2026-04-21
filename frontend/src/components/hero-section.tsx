@@ -8,6 +8,7 @@ import { HeroNav } from "@/components/hero-nav";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
 import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import {
   trackAuthSignInPressed,
@@ -59,6 +60,7 @@ export function HeroSection(props: HeroSectionProps) {
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
   const walletDesktopData = useWalletDesktopData();
+  const smartAccountData = useSmartAccountSidebarData();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] =
@@ -73,7 +75,6 @@ export function HeroSection(props: HeroSectionProps) {
   const [isScrolledToLinks, setIsScrolledToLinks] = useState(false);
   const [dogCry, setDogCry] = useState(false);
   const [dogNice, setDogNice] = useState(false);
-  const [hasVaultAccount, setHasVaultAccount] = useState(false);
   const pendingConnectRef = useRef(false);
 
   const { registerHandler } = useSignInModal();
@@ -544,6 +545,7 @@ export function HeroSection(props: HeroSectionProps) {
             isBalanceHidden={isBalanceHidden}
             onBalanceHiddenChange={setIsBalanceHidden}
             walletDesktopData={walletDesktopData}
+            smartAccountData={smartAccountData}
             showQuickActions={props.isChatMode || isInputStuckToBottom}
             onDisconnect={async () => {
               setRightSidebarTab("sign-in");
@@ -555,10 +557,8 @@ export function HeroSection(props: HeroSectionProps) {
             connectAgentName={props.connectAgentName}
             onConnectDecline={() => setIsRightSidebarOpen(false)}
             onConnectApprove={() => {
-              setHasVaultAccount(true);
               setRightSidebarTab("portfolio");
             }}
-            hasVaultAccount={hasVaultAccount}
           />
         </div>
       </div>

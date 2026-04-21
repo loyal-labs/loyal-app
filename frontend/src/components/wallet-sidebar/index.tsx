@@ -7,6 +7,10 @@ import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { WalletTab } from "@/components/auth/wallet-tab";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
+import type {
+  SmartAccountApprovalItem,
+  SmartAccountSidebarData,
+} from "@/hooks/use-smart-account-sidebar-data";
 import type { WalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import {
   trackWalletShieldPressed,
@@ -26,7 +30,6 @@ import { TokenSelectView } from "./token-select-view";
 import { AccountPageView } from "./account-page-view";
 import { AgentPageView } from "./agent-page-view";
 import { ApprovalReviewContent } from "./approval-review-content";
-import { StashDetailView } from "./stash-detail-view";
 import { VaultAccountPageView } from "./vault-account-page-view";
 import { ConnectRequestContent } from "./connect-request-content";
 import { TransactionDetailView } from "./transaction-detail-view";
@@ -53,17 +56,19 @@ export interface HeroRightSidebarProps {
   onBalanceHiddenChange: (hidden: boolean) => void;
   showQuickActions?: boolean;
   walletDesktopData: WalletDesktopData;
+  smartAccountData: SmartAccountSidebarData;
   onDisconnect?: () => void;
   connectAgentName?: string;
   onConnectDecline?: () => void;
   onConnectApprove?: () => void;
-  hasVaultAccount?: boolean;
 }
 
 export function HeroRightSidebar(props: HeroRightSidebarProps) {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(props.isOpen);
   const publicEnv = usePublicEnv();
+  const { activeTab, onTabChange } = props;
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
 
   // Turnstile captcha gate for sign-in tab
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
@@ -158,65 +163,21 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     }
   }, [level3View]);
 
-  // Left panel — slides out to the left of the sidebar (agent or stash detail)
-  type LeftPanelView =
-    | { type: "agentPage"; agentId: string; label: string; agentIcon: string; balanceWhole: string; balanceFraction: string }
-    | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string };
-  const [leftPanel, setLeftPanel] = useState<LeftPanelView | null>(null);
-  const [displayLeftPanel, setDisplayLeftPanel] = useState<LeftPanelView | null>(null);
-  useEffect(() => {
-    if (leftPanel) {
-      setDisplayLeftPanel(leftPanel);
-    } else {
-      const t = setTimeout(() => setDisplayLeftPanel(null), 350);
-      return () => clearTimeout(t);
-    }
-  }, [leftPanel]);
-
-  // Left panel sub-view stack (for See All, transaction details inside left panel)
-  const [leftViewStack, setLeftViewStack] = useState<Exclude<SubView, null>[]>([]);
-  const leftPushView = useCallback((view: Exclude<SubView, null>) => {
-    setLeftViewStack((s) => [...s, view]);
-  }, []);
-  const leftPopView = useCallback(() => {
-    setLeftViewStack((s) => s.slice(0, -1));
-  }, []);
-  const leftLevel1View: SubView = leftViewStack[0] ?? null;
-  const leftLevel2View: SubView = leftViewStack[1] ?? null;
-  const [displayLeftLevel1, setDisplayLeftLevel1] = useState<SubView>(null);
-  const [displayLeftLevel2, setDisplayLeftLevel2] = useState<SubView>(null);
-  useEffect(() => {
-    if (leftLevel1View) {
-      setDisplayLeftLevel1(leftLevel1View);
-    } else {
-      const t = setTimeout(() => setDisplayLeftLevel1(null), 350);
-      return () => clearTimeout(t);
-    }
-  }, [leftLevel1View]);
-  useEffect(() => {
-    if (leftLevel2View) {
-      setDisplayLeftLevel2(leftLevel2View);
-    } else {
-      const t = setTimeout(() => setDisplayLeftLevel2(null), 350);
-      return () => clearTimeout(t);
-    }
-  }, [leftLevel2View]);
-  const hasLeftLevel1 = leftViewStack.length >= 1;
-  const hasLeftLevel2 = leftViewStack.length >= 2;
-
-  // Reset left sub-views when left panel closes
-  useEffect(() => {
-    if (!leftPanel) {
-      const t = setTimeout(() => {
-        setLeftViewStack([]);
-        setDisplayLeftLevel1(null);
-        setDisplayLeftLevel2(null);
-      }, 350);
-      return () => clearTimeout(t);
-    }
-  }, [leftPanel]);
-
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const rootVaultEntry = useMemo(
+    () =>
+      props.smartAccountData.vaultEntries.find((entry) => entry.accountIndex === 0) ??
+      null,
+    [props.smartAccountData.vaultEntries]
+  );
+  const selectedVault = props.smartAccountData.selectedVault;
+  const selectedApproval = useMemo(
+    () =>
+      props.smartAccountData.approvals.find(
+        (approval) => approval.id === selectedApprovalId
+      ) ?? null,
+    [props.smartAccountData.approvals, selectedApprovalId]
+  );
 
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
 
@@ -310,16 +271,16 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   const handleQuickActionTabClick = useCallback(
     (tab: "portfolio" | "receive" | "send" | "swap") => {
-      if (props.activeTab !== tab) {
+      if (activeTab !== tab) {
         trackWalletSidebarTabOpen(publicEnv, {
           source: "sidebar_quick_action",
           tab,
         });
       }
 
-      props.onTabChange(tab);
+      onTabChange(tab);
     },
-    [props.activeTab, props.onTabChange, publicEnv]
+    [activeTab, onTabChange, publicEnv]
   );
 
   const handleSwapModeChange = useCallback(
@@ -395,11 +356,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         setDisplayLevel1(null);
         setDisplayLevel2(null);
         setDisplayLevel3(null);
-        setLeftPanel(null);
-        setDisplayLeftPanel(null);
-        setLeftViewStack([]);
-        setDisplayLeftLevel1(null);
-        setDisplayLeftLevel2(null);
+        setSelectedApprovalId(null);
       }, 350);
       return () => clearTimeout(t);
     }
@@ -425,27 +382,76 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [viewStack, swapFromToken, swapToToken],
   );
 
+  const openApprovalReview = useCallback(
+    (approval: SmartAccountApprovalItem) => {
+      setSelectedApprovalId(approval.id);
+      pushView({ type: "approvalReview" });
+    },
+    [pushView]
+  );
+
+  const openVaultAccount = useCallback(
+    (accountIndex: number) => {
+      props.smartAccountData.setSelectedVaultIndex(accountIndex);
+      pushView({ type: "accountPage", account: "vault" });
+    },
+    [props.smartAccountData, pushView]
+  );
+
+  const runProposalAction = useCallback(async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit smart-account action."
+      );
+    }
+  }, []);
+
   // Render any sub-view by type. Used for both Layer 1 and Layer 2.
   const renderSubView = (view: SubView, onBack: () => void, navigateFn: (v: Exclude<SubView, null>) => void = pushView) => {
     if (!view) return null;
     const type = viewType(view);
+    const isVaultSubview =
+      navigateFn === pushView &&
+      viewStack.some(
+        (stackView) =>
+          typeof stackView === "object" &&
+          stackView !== null &&
+          stackView.type === "accountPage" &&
+          stackView.account === "vault"
+      );
 
     if (view === "allTokens") {
       return (
         <AllTokensView
-          getTokenActions={getTokenActions}
+          getTokenActions={isVaultSubview ? undefined : getTokenActions}
           isBalanceHidden={props.isBalanceHidden}
           onBack={onBack}
           onClose={props.onClose}
-          tokens={props.walletDesktopData.allTokenRows}
+          tokens={
+            isVaultSubview && selectedVault
+              ? selectedVault.tokenRows
+              : props.walletDesktopData.allTokenRows
+          }
         />
       );
     }
     if (view === "allActivity") {
       return (
         <AllActivityView
-          activities={props.walletDesktopData.allActivityRows}
-          details={props.walletDesktopData.transactionDetails}
+          activities={
+            isVaultSubview && selectedVault
+              ? selectedVault.activityRows
+              : props.walletDesktopData.allActivityRows
+          }
+          details={
+            isVaultSubview && selectedVault
+              ? selectedVault.transactionDetails
+              : props.walletDesktopData.transactionDetails
+          }
           isBalanceHidden={props.isBalanceHidden}
           onBack={onBack}
           onClose={props.onClose}
@@ -456,10 +462,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (view === "allApprovals") {
       return (
         <AllApprovalsView
+          approvals={props.smartAccountData.approvals}
           isBalanceHidden={props.isBalanceHidden}
           onBack={onBack}
           onClose={props.onClose}
-          onReview={() => navigateFn({ type: "approvalReview" })}
+          onReview={(approval) => {
+            setSelectedApprovalId(approval.id);
+            navigateFn({ type: "approvalReview" });
+          }}
         />
       );
     }
@@ -517,13 +527,34 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (type === "approvalReview") {
       return (
         <ApprovalReviewContent
+          approval={selectedApproval}
+          isSubmitting={
+            props.smartAccountData.isActionPending &&
+            props.smartAccountData.pendingProposalId === selectedApproval?.id
+          }
           onBack={onBack}
           onClose={props.onClose}
-          onDecline={onBack}
-          onApprove={() => {
-            resetViews();
-            props.onConnectApprove?.();
-          }}
+          onDecline={() =>
+            selectedApproval
+              ? void runProposalAction(() =>
+                  props.smartAccountData.rejectProposal(selectedApproval.proposal)
+                )
+              : undefined
+          }
+          onApprove={() =>
+            selectedApproval
+              ? void runProposalAction(() =>
+                  props.smartAccountData.approveProposal(selectedApproval.proposal)
+                )
+              : undefined
+          }
+          onExecute={() =>
+            selectedApproval
+              ? void runProposalAction(() =>
+                  props.smartAccountData.executeProposal(selectedApproval.proposal)
+                )
+              : undefined
+          }
         />
       );
     }
@@ -532,23 +563,20 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       if (account === "vault") {
         return (
           <VaultAccountPageView
-            balanceWhole="$7,000"
-            balanceFraction=".00"
+            currentVaultAccountIndex={selectedVault?.entry.accountIndex ?? 0}
+            vaultLabel={selectedVault?.entry.label ?? "Vault"}
+            balanceWhole={selectedVault?.entry.balanceWhole ?? "$0"}
+            balanceFraction={selectedVault?.entry.balanceFraction ?? ".00"}
             isBalanceHidden={props.isBalanceHidden}
             onBalanceHiddenChange={props.onBalanceHiddenChange}
-            tokenRows={props.walletDesktopData.tokenRows}
-            activityRows={props.walletDesktopData.activityRows}
-            transactionDetails={props.walletDesktopData.transactionDetails}
+            tokenRows={selectedVault?.tokenRows ?? []}
+            activityRows={selectedVault?.activityRows ?? []}
+            transactionDetails={selectedVault?.transactionDetails ?? {}}
+            vaultEntries={props.smartAccountData.vaultEntries}
+            onSelectVault={props.smartAccountData.setSelectedVaultIndex}
             onBack={onBack}
             onClose={props.onClose}
-            getTokenActions={getTokenActions}
-            onNavigate={(v) => {
-              if (typeof v === "object" && v !== null && (v.type === "agentPage" || v.type === "stashPage")) {
-                setLeftPanel(v as LeftPanelView);
-              } else {
-                navigateFn(v);
-              }
-            }}
+            onNavigate={navigateFn}
           />
         );
       }
@@ -801,7 +829,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                     border: "none",
                     borderRadius: "12px",
                     cursor: "pointer",
-                    background: props.activeTab === tab ? "rgba(0, 0, 0, 0.06)" : "rgba(0, 0, 0, 0.02)",
+                    background: activeTab === tab ? "rgba(0, 0, 0, 0.06)" : "rgba(0, 0, 0, 0.02)",
                     transition: "background 0.2s ease",
                   }}
                 >
@@ -905,48 +933,29 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 <PortfolioContent
                   balanceFraction={props.walletDesktopData.balanceFraction}
                   balanceWhole={props.walletDesktopData.balanceWhole}
+                  rootVaultBalanceFraction={rootVaultEntry?.balanceFraction ?? ".00"}
+                  rootVaultBalanceWhole={rootVaultEntry?.balanceWhole ?? "$0"}
                   isBalanceHidden={props.isBalanceHidden}
-                  isLoading={props.walletDesktopData.isLoading}
+                  isLoading={
+                    props.walletDesktopData.isLoading ||
+                    props.smartAccountData.isLoading
+                  }
+                  smartAccountError={props.smartAccountData.error}
                   onBalanceHiddenChange={props.onBalanceHiddenChange}
                   onClose={props.onClose}
                   onDisconnect={() => setShowDisconnectConfirm(true)}
-                  onTabChange={props.onTabChange}
-                  hasVaultAccount={props.hasVaultAccount ?? false}
-                  onReviewApproval={() => pushView({ type: "approvalReview" })}
+                  hasVaultAccount={props.smartAccountData.vaultEntries.length > 0}
+                  approvals={props.smartAccountData.approvals}
+                  vaultEntries={props.smartAccountData.vaultEntries}
+                  onReviewApproval={openApprovalReview}
                   onSeeAllApprovals={() => pushView("allApprovals")}
                   onOpenReceive={() => pushView({ type: "receivePanel" })}
                   onOpenSend={() => pushView({ type: "sendPanel" })}
                   onOpenSwap={() => { handleSwapModeChange("swap"); pushView({ type: "swapPanel", mode: "swap" }); }}
                   onOpenShield={() => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); }}
-                  onOpenStash={() =>
-                    setLeftPanel((prev) =>
-                      prev?.type === "stashPage"
-                        ? null
-                        : {
-                            type: "stashPage",
-                            label: "Stash",
-                            balanceWhole: props.walletDesktopData.balanceWhole,
-                            balanceFraction: props.walletDesktopData.balanceFraction,
-                          }
-                    )
-                  }
-                  onOpenAgent={(agent) =>
-                    setLeftPanel((prev) =>
-                      prev?.type === "agentPage" && prev.agentId === agent.id
-                        ? null
-                        : {
-                            type: "agentPage",
-                            agentId: agent.id,
-                            label: agent.label,
-                            agentIcon: agent.icon,
-                            balanceWhole: agent.balanceWhole,
-                            balanceFraction: agent.balanceFraction,
-                          }
-                    )
-                  }
+                  onOpenVault={openVaultAccount}
                   walletAddress={props.walletDesktopData.walletAddress}
                   walletLabel={props.walletDesktopData.walletLabel}
-                  isAgentConnected={!!props.connectAgentName}
                 />
               )}
               {displayTab === "receive" && (
@@ -1156,110 +1165,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onApprove={props.onConnectApprove ?? props.onClose}
                 />
               )}
-            </div>
-          </div>
-
-          {/* Left panel — slides out from inside the mother panel to the left */}
-          <div
-            style={{
-              position: "absolute",
-              top: "12px",
-              bottom: "12px",
-              right: "100%",
-              width: "100%",
-              background: "#F8F8FA",
-              border: "1px solid rgba(0, 0, 0, 0.08)",
-              borderRight: "none",
-              borderRadius: "20px 0 0 20px",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-              transform: leftPanel
-                ? "translateX(0)"
-                : "translateX(100%)",
-              visibility: leftPanel ? "visible" : "hidden",
-              transition: leftPanel
-                ? "transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0s"
-                : "transform 0.28s cubic-bezier(0.4, 0, 0.6, 1), visibility 0s linear 0.28s",
-              pointerEvents: leftPanel ? "auto" : "none",
-            }}
-          >
-            {displayLeftPanel?.type === "agentPage" && (
-              <AgentPageView
-                label={displayLeftPanel.label}
-                agentIcon={displayLeftPanel.agentIcon}
-                balanceWhole={displayLeftPanel.balanceWhole}
-                balanceFraction={displayLeftPanel.balanceFraction}
-                isBalanceHidden={props.isBalanceHidden}
-                onBalanceHiddenChange={props.onBalanceHiddenChange}
-                tokenRows={props.walletDesktopData.tokenRows}
-                activityRows={props.walletDesktopData.activityRows}
-                transactionDetails={props.walletDesktopData.transactionDetails}
-                onBack={() => setLeftPanel(null)}
-                onNavigate={leftPushView}
-                getTokenActions={getTokenActions}
-              />
-            )}
-            {displayLeftPanel?.type === "stashPage" && (
-              <StashDetailView
-                label={displayLeftPanel.label}
-                balanceWhole={displayLeftPanel.balanceWhole}
-                balanceFraction={displayLeftPanel.balanceFraction}
-                isBalanceHidden={props.isBalanceHidden}
-                onBalanceHiddenChange={props.onBalanceHiddenChange}
-                tokenRows={props.walletDesktopData.tokenRows}
-                activityRows={props.walletDesktopData.activityRows}
-                transactionDetails={props.walletDesktopData.transactionDetails}
-                onBack={() => setLeftPanel(null)}
-                onNavigate={leftPushView}
-                onOpenSend={() => pushView({ type: "sendPanel" })}
-                onOpenReceive={() => pushView({ type: "receivePanel" })}
-                getTokenActions={getTokenActions}
-              />
-            )}
-
-            {/* Left panel sub-view Layer 1 */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                zIndex: 2,
-                background: hasLeftLevel2 ? "#F5F5F5" : "#FFFFFF",
-                borderRadius: "20px 0 0 20px",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-                transform: hasLeftLevel1
-                  ? hasLeftLevel2
-                    ? "translateX(-6px)"
-                    : "translateX(0)"
-                  : "translateX(105%)",
-                opacity: hasLeftLevel1 ? 1 : 0,
-                transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                pointerEvents: hasLeftLevel1 && !hasLeftLevel2 ? "auto" : "none",
-              }}
-            >
-              {renderSubView(displayLeftLevel1, leftPopView, leftPushView)}
-            </div>
-
-            {/* Left panel sub-view Layer 2 */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                zIndex: 3,
-                background: "#FFFFFF",
-                borderRadius: "20px 0 0 20px",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-                transform: hasLeftLevel2 ? "translateX(0)" : "translateX(105%)",
-                opacity: hasLeftLevel2 ? 1 : 0,
-                transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-                pointerEvents: hasLeftLevel2 ? "auto" : "none",
-              }}
-            >
-              {renderSubView(displayLeftLevel2, leftPopView, leftPushView)}
             </div>
           </div>
 

@@ -3,19 +3,16 @@
 import {
   ArrowRight,
   ChevronLeft,
-  ChevronRight,
   Eye,
   EyeOff,
-  Plus,
-  Vault,
   X,
 } from "lucide-react";
 import Image from "next/image";
 
-import { AccessLevelIcon } from "./agent-page-view";
-import type { AccessLevel } from "./agent-page-view";
+import type { SmartAccountVaultEntry } from "@/hooks/use-smart-account-sidebar-data";
 import { ActivityRowItem } from "./activity-row-item";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
+import { getVaultIcon } from "./vault-icon";
 import type {
   ActivityRow,
   SubView,
@@ -26,38 +23,9 @@ import type {
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
-// Mock sub-accounts inside the vault
-const MOCK_VAULT_ENTRIES = [
-  {
-    id: "vault",
-    label: "Stash",
-    balanceWhole: "$6,750",
-    balanceFraction: ".00",
-    icon: "lock" as const,
-  },
-  {
-    id: "agent-1",
-    label: "Agent 1",
-    balanceWhole: "$250",
-    balanceFraction: ".00",
-    icon: "initials" as const,
-    initials: "A1",
-    accessLabel: "Can sign",
-    accessLevel: "sign" as AccessLevel,
-  },
-  {
-    id: "agent-2",
-    label: "Agent 47",
-    balanceWhole: "$0",
-    balanceFraction: ".00",
-    icon: "initials" as const,
-    initials: "A2",
-    accessLabel: "Can execute",
-    accessLevel: "execute" as AccessLevel,
-  },
-];
-
 export function VaultAccountPageView({
+  currentVaultAccountIndex,
+  vaultLabel,
   balanceWhole,
   balanceFraction,
   isBalanceHidden,
@@ -65,11 +33,15 @@ export function VaultAccountPageView({
   tokenRows,
   activityRows,
   transactionDetails,
+  vaultEntries,
+  onSelectVault,
   onBack,
   onClose,
   onNavigate,
   getTokenActions,
 }: {
+  currentVaultAccountIndex: number;
+  vaultLabel: string;
   balanceWhole: string;
   balanceFraction: string;
   isBalanceHidden: boolean;
@@ -77,6 +49,8 @@ export function VaultAccountPageView({
   tokenRows: TokenRow[];
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
+  vaultEntries: SmartAccountVaultEntry[];
+  onSelectVault: (accountIndex: number) => void;
   onBack: () => void;
   onClose: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
@@ -183,9 +157,9 @@ export function VaultAccountPageView({
         style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
       >
         <Image
-          alt="Stash"
+          alt={vaultLabel}
           height={64}
-          src="/redbg.png"
+          src={getVaultIcon(currentVaultAccountIndex)}
           style={{ borderRadius: "16px", flexShrink: 0, marginRight: "12px" }}
           width={64}
         />
@@ -281,61 +255,37 @@ export function VaultAccountPageView({
             width: "100%",
           }}
         >
-          {/* Sub-account rows */}
-          {MOCK_VAULT_ENTRIES.map((entry) => (
-            <button
-              className="vault-entry-row"
-              key={entry.id}
-              onClick={() => {
-                if (entry.icon === "initials") {
-                  onNavigate({
-                    type: "agentPage",
-                    agentId: entry.id,
-                    label: entry.label,
-                    balanceWhole: entry.balanceWhole,
-                    balanceFraction: entry.balanceFraction,
-                  });
-                } else if (entry.icon === "lock") {
-                  onNavigate({
-                    type: "stashPage",
-                    label: entry.label,
-                    balanceWhole: entry.balanceWhole,
-                    balanceFraction: entry.balanceFraction,
-                  });
-                }
-              }}
+          {vaultEntries.length === 0 ? (
+            <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "6px 12px",
-                borderRadius: "16px",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                width: "100%",
-                transition: "background 0.15s ease",
-                textAlign: "left",
+                padding: "20px",
+                fontFamily: font,
+                fontSize: "14px",
+                color: secondary,
               }}
-              type="button"
             >
-              {/* Icon */}
-              {entry.icon === "lock" ? (
-                <div
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "12px",
-                    background: "#F5F5F5",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    marginRight: "12px",
-                  }}
-                >
-                  <Vault size={24} style={{ color: "rgba(60, 60, 67, 0.4)" }} />
-                </div>
-              ) : (
+              No vaults found.
+            </div>
+          ) : (
+            vaultEntries.map((entry) => (
+              <button
+                className="vault-entry-row"
+                key={entry.address}
+                onClick={() => onSelectVault(entry.accountIndex)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "6px 12px",
+                  borderRadius: "16px",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  width: "100%",
+                  transition: "background 0.15s ease",
+                  textAlign: "left",
+                }}
+                type="button"
+              >
                 <div
                   style={{
                     width: "48px",
@@ -358,33 +308,61 @@ export function VaultAccountPageView({
                       color: secondary,
                     }}
                   >
-                    {entry.initials}
+                    V{entry.accountIndex}
                   </span>
                 </div>
-              )}
-              {/* Text */}
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                  padding: "9px 0",
-                }}
-              >
-                <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    padding: "9px 0",
+                  }}
+                >
                   <span
                     style={{
                       fontFamily: font,
-                      fontSize: "20px",
-                      fontWeight: 600,
-                      lineHeight: "24px",
+                      fontSize: "16px",
+                      fontWeight: 500,
+                      lineHeight: "20px",
+                      color: "#000",
+                      letterSpacing: "-0.176px",
+                    }}
+                  >
+                    {entry.label}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                      color: secondary,
+                    }}
+                  >
+                    {entry.address.slice(0, 4)}...{entry.address.slice(-4)}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-end",
+                    gap: "2px",
+                    padding: "9px 0",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 400,
+                      lineHeight: "20px",
                       color: isBalanceHidden ? "#BBBBC0" : "#000",
-                      letterSpacing: "-0.22px",
                       filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                       transition: "filter 0.15s ease, color 0.15s ease",
                       userSelect: isBalanceHidden ? "none" : "auto",
-                      display: "block",
                     }}
                   >
                     {entry.balanceWhole}
@@ -399,102 +377,17 @@ export function VaultAccountPageView({
                     </span>
                   </span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    {entry.label}
-                  </span>
-                  {"accessLabel" in entry && entry.accessLabel && (
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "11px",
-                        fontWeight: 500,
-                        lineHeight: "14px",
-                        color: "#000",
-                        background: "rgba(249, 54, 60, 0.14)",
-                        borderRadius: "9999px",
-                        padding: "2px 10px 2px 4px",
-                        whiteSpace: "nowrap",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "2px",
-                      }}
-                    >
-                      {"accessLevel" in entry && entry.accessLevel && (
-                        <AccessLevelIcon level={entry.accessLevel} size={14} />
-                      )}
-                      {entry.accessLabel}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {/* Chevron */}
-              <ChevronLeft
-                size={24}
-                style={{
-                  color: "rgba(60, 60, 67, 0.3)",
-                  flexShrink: 0,
-                  marginLeft: "12px",
-                }}
-              />
-            </button>
-          ))}
-
-          {/* Add Agent row */}
-          <button
-            className="vault-entry-row"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "6px 12px",
-              borderRadius: "16px",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              width: "100%",
-              transition: "background 0.15s ease",
-              textAlign: "left",
-            }}
-            type="button"
-          >
-            <div
-              style={{
-                width: "48px",
-                height: "48px",
-                borderRadius: "12px",
-                background: "rgba(249, 54, 60, 0.14)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                marginRight: "12px",
-              }}
-            >
-              <Plus size={24} style={{ color: "#000" }} />
-            </div>
-            <div style={{ flex: 1, padding: "9px 0" }}>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  color: "#000",
-                  letterSpacing: "-0.176px",
-                }}
-              >
-                Add
-              </span>
-            </div>
-          </button>
+                <ChevronLeft
+                  size={24}
+                  style={{
+                    color: "rgba(60, 60, 67, 0.3)",
+                    flexShrink: 0,
+                    marginLeft: "12px",
+                  }}
+                />
+              </button>
+            ))
+          )}
         </div>
 
         {/* Tokens section */}
