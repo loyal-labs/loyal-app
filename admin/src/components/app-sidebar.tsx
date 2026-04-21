@@ -30,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/flags", label: "Flags" },
   { href: "/transfers", label: "Transfers" },
   { href: "/dapps", label: "dApps" },
+  { href: "/library", label: "Library" },
   { href: "/admins", label: "Admins" },
 ];
 
