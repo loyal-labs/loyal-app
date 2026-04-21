@@ -8,7 +8,6 @@ import {
   Copy,
   Eye,
   EyeOff,
-  Plus,
   RefreshCw,
   Send,
   X,
@@ -16,11 +15,12 @@ import {
 import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import type {
+  SmartAccountApprovalItem,
+  SmartAccountVaultEntry,
+} from "@/hooks/use-smart-account-sidebar-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
-
-import { AccessLevelIcon } from "./agent-page-view";
-import type { AccessLevel } from "./agent-page-view";
-import type { RightSidebarTab } from "./types";
+import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -42,171 +42,68 @@ const skeletonCircle = (size: string) => ({
   animation: "skeleton-pulse 1.5s ease-in-out infinite",
 });
 
-// Account icon mapping
-const ACCOUNT_ICONS: Record<string, string> = {
-  Main: "/purplebg.png",
-  Shielded: "/redbg.png",
-};
-
-// Agent icon pool — shuffled per mount for random avatars
-const AGENT_ICONS = Array.from(
-  { length: 26 },
-  (_, i) => `/agents/Agent-${String(i + 1).padStart(2, "0")}.svg`
-);
-
-function shuffled<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// Mock stash agents
-const MOCK_STASH_AGENTS = [
-  {
-    id: "agent-1",
-    label: "Agent 1",
-    balanceWhole: "$250",
-    balanceFraction: ".00",
-    accessLabel: "Can sign",
-    accessLevel: "sign" as AccessLevel,
-  },
-  {
-    id: "agent-2",
-    label: "Agent 47",
-    balanceWhole: "$0",
-    balanceFraction: ".00",
-    accessLabel: "Can execute",
-    accessLevel: "execute" as AccessLevel,
-  },
-  {
-    id: "agent-3",
-    label: "Agent 12",
-    balanceWhole: "$1,200",
-    balanceFraction: ".50",
-    accessLabel: "Can sign",
-    accessLevel: "sign" as AccessLevel,
-  },
-  {
-    id: "agent-4",
-    label: "Agent 8",
-    balanceWhole: "$85",
-    balanceFraction: ".00",
-    accessLabel: "Can execute",
-    accessLevel: "execute" as AccessLevel,
-  },
-  {
-    id: "agent-5",
-    label: "Agent 3",
-    balanceWhole: "$0",
-    balanceFraction: ".00",
-    accessLabel: "Can sign",
-    accessLevel: "sign" as AccessLevel,
-  },
-  {
-    id: "agent-6",
-    label: "Agent 21",
-    balanceWhole: "$500",
-    balanceFraction: ".00",
-    accessLabel: "Can execute",
-    accessLevel: "execute" as AccessLevel,
-  },
-  {
-    id: "agent-7",
-    label: "Agent 99",
-    balanceWhole: "$15",
-    balanceFraction: ".75",
-    accessLabel: "Can sign",
-    accessLevel: "sign" as AccessLevel,
-  },
-];
-
-const AGENTS_COLLAPSED_COUNT = 3;
-const AGENTS_EXPAND_THRESHOLD = 5;
-
-// Mock approval data
-const MOCK_APPROVALS = [
-  {
-    id: "1",
-    action: "Send",
-    recipient: "@alex",
-    amount: "200.00",
-    token: "USDC",
-    sourceLabel: "Main",
-  },
-  {
-    id: "2",
-    action: "Send",
-    recipient: "@anastasia",
-    amount: "15.0000",
-    token: "SOL",
-    sourceLabel: "Shielded",
-  },
-  {
-    id: "3",
-    action: "Send",
-    recipient: "@alex",
-    amount: "200.00",
-    token: "USDT",
-    sourceLabel: "Shielded",
-  },
-];
+const COLLAPSED_CHILD_VAULT_COUNT = 3;
+const CHILD_VAULT_EXPAND_THRESHOLD = 5;
 
 export function PortfolioContent({
   balanceFraction,
   balanceWhole,
+  rootVaultBalanceFraction,
+  rootVaultBalanceWhole,
   isBalanceHidden,
   isLoading,
+  smartAccountError,
   onBalanceHiddenChange,
   onClose,
   onDisconnect,
-  onTabChange,
   hasVaultAccount,
+  approvals,
+  vaultEntries,
   onReviewApproval,
   onSeeAllApprovals,
   onOpenReceive,
   onOpenSend,
   onOpenSwap,
   onOpenShield,
-  onOpenStash,
-  onOpenAgent,
+  onOpenVault,
   walletAddress,
   walletLabel,
-  isAgentConnected,
 }: {
   balanceFraction: string;
   balanceWhole: string;
+  rootVaultBalanceFraction: string;
+  rootVaultBalanceWhole: string;
   isBalanceHidden: boolean;
   isLoading: boolean;
+  smartAccountError?: string | null;
   onBalanceHiddenChange: (hidden: boolean) => void;
   onClose: () => void;
   onDisconnect?: () => void;
-  onTabChange: (tab: RightSidebarTab) => void;
   hasVaultAccount: boolean;
-  onReviewApproval: () => void;
+  approvals: SmartAccountApprovalItem[];
+  vaultEntries: SmartAccountVaultEntry[];
+  onReviewApproval: (approval: SmartAccountApprovalItem) => void;
   onSeeAllApprovals: () => void;
   onOpenReceive: () => void;
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
-  onOpenStash: () => void;
-  onOpenAgent: (agent: { id: string; label: string; balanceWhole: string; balanceFraction: string; icon: string }) => void;
+  onOpenVault: (accountIndex: number) => void;
   walletAddress: string | null;
   walletLabel: string;
-  isAgentConnected: boolean;
 }) {
-  // Randomise agent avatars once per mount
-  const agentIcons = useMemo(() => shuffled(AGENT_ICONS), []);
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const [agentsExpanded, setAgentsExpanded] = useState(false);
-  const needsExpand = MOCK_STASH_AGENTS.length > AGENTS_EXPAND_THRESHOLD;
-  const visibleAgents = needsExpand && !agentsExpanded
-    ? MOCK_STASH_AGENTS.slice(0, AGENTS_COLLAPSED_COUNT)
-    : MOCK_STASH_AGENTS;
+  const [childVaultsExpanded, setChildVaultsExpanded] = useState(false);
+  const childVaultEntries = useMemo(
+    () => vaultEntries.filter((entry) => entry.accountIndex !== 0),
+    [vaultEntries]
+  );
+  const needsExpand = childVaultEntries.length > CHILD_VAULT_EXPAND_THRESHOLD;
+  const visibleChildVaultEntries = needsExpand && !childVaultsExpanded
+    ? childVaultEntries.slice(0, COLLAPSED_CHILD_VAULT_COUNT)
+    : childVaultEntries;
   const handleCopyAddress = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -659,122 +556,131 @@ export function PortfolioContent({
           transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         }}
       >
-        {/* Stash & Agents section */}
+        {/* Vault section */}
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
-          {/* Stash row — always visible when wallet is connected */}
-          <button
-            className="portfolio-account-row"
-            onClick={onOpenStash}
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "center",
-              padding: "6px 12px",
-              borderRadius: "16px",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              width: "100%",
-              transition: "background 0.15s ease",
-              textAlign: "left",
-            }}
-            type="button"
-          >
-            {/* Tree trunk — from icon center to bottom (only when agents follow) */}
-            {hasVaultAccount && (
-              <div
-                style={{
-                  position: "absolute",
-                  left: "35px",
-                  top: "50%",
-                  bottom: 0,
-                  width: "1px",
-                  background: "rgba(60, 60, 67, 0.12)",
-                }}
-              />
-            )}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt="Stash"
-              src="/agents/Stash.svg"
-              style={{
-                width: "48px",
-                height: "48px",
-                borderRadius: "12px",
-                flexShrink: 0,
-                marginRight: "12px",
-              }}
-            />
+          {smartAccountError ? (
             <div
               style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                gap: "2px",
-                padding: "9px 0",
+                padding: "12px 20px",
+                textAlign: "center",
+                fontFamily: font,
+                fontSize: "14px",
+                color: secondary,
               }}
             >
-              <div style={{ borderRadius: "6px", overflow: "hidden" }}>
-                <span
+              Failed to load vaults. Pull to refresh or reopen the sidebar.
+            </div>
+          ) : hasVaultAccount ? (
+            <>
+              <button
+                className="portfolio-account-row"
+                onClick={() => onOpenVault(0)}
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "6px 12px",
+                  borderRadius: "16px",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  width: "100%",
+                  transition: "background 0.15s ease",
+                  textAlign: "left",
+                }}
+                type="button"
+              >
+                {childVaultEntries.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: "35px",
+                      top: "50%",
+                      bottom: 0,
+                      width: "1px",
+                      background: "rgba(60, 60, 67, 0.12)",
+                    }}
+                  />
+                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Vault 0"
+                  src={getVaultIcon(0)}
                   style={{
-                    fontFamily: font,
-                    fontSize: "20px",
-                    fontWeight: 600,
-                    lineHeight: "24px",
-                    color: isBalanceHidden ? "#BBBBC0" : "#000",
-                    letterSpacing: "-0.22px",
-                    filter: isBalanceHidden
-                      ? "url(#rs-pixelate-sm)"
-                      : "none",
-                    transition: "filter 0.15s ease, color 0.15s ease",
-                    userSelect: isBalanceHidden ? "none" : "auto",
-                    display: "block",
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "12px",
+                    flexShrink: 0,
+                    marginRight: "12px",
+                  }}
+                />
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    padding: "9px 0",
                   }}
                 >
-                  {balanceWhole}
+                  <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "20px",
+                        fontWeight: 600,
+                        lineHeight: "24px",
+                        color: isBalanceHidden ? "#BBBBC0" : "#000",
+                        letterSpacing: "-0.22px",
+                        filter: isBalanceHidden
+                          ? "url(#rs-pixelate-sm)"
+                          : "none",
+                        transition: "filter 0.15s ease, color 0.15s ease",
+                        userSelect: isBalanceHidden ? "none" : "auto",
+                        display: "block",
+                      }}
+                    >
+                      {rootVaultBalanceWhole}
+                      <span
+                        style={{
+                          color: isBalanceHidden
+                            ? "#BBBBC0"
+                            : "rgba(60, 60, 67, 0.4)",
+                        }}
+                      >
+                        {rootVaultBalanceFraction}
+                      </span>
+                    </span>
+                  </div>
                   <span
                     style={{
-                      color: isBalanceHidden
-                        ? "#BBBBC0"
-                        : "rgba(60, 60, 67, 0.4)",
+                      fontFamily: font,
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                      color: secondary,
                     }}
                   >
-                    {balanceFraction}
+                    Vault 0
                   </span>
-                </span>
-              </div>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                }}
-              >
-                Stash
-              </span>
-            </div>
-            <ChevronLeft
-              size={24}
-              style={{
-                color: "rgba(60, 60, 67, 0.3)",
-                flexShrink: 0,
-                marginLeft: "12px",
-              }}
-            />
-          </button>
+                </div>
+                <ChevronLeft
+                  size={24}
+                  style={{
+                    color: "rgba(60, 60, 67, 0.3)",
+                    flexShrink: 0,
+                    marginLeft: "12px",
+                  }}
+                />
+              </button>
 
-          {hasVaultAccount && (
-            <>
-              {/* Agent rows — indented under Stash with tree lines */}
-              {visibleAgents.map((agent, agentIdx) => (
+              {visibleChildVaultEntries.map((vault) => (
                 <button
                   className="portfolio-account-row"
-                  key={agent.id}
-                  onClick={() => onOpenAgent({ ...agent, icon: agentIcons[agentIdx % agentIcons.length] })}
+                  key={vault.address}
+                  onClick={() => onOpenVault(vault.accountIndex)}
                   style={{
                     position: "relative",
                     display: "flex",
@@ -814,8 +720,8 @@ export function PortfolioContent({
                   />
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    alt={agent.label}
-                    src={agentIcons[agentIdx % agentIcons.length]}
+                    alt={vault.label}
+                    src={getVaultIcon(vault.accountIndex)}
                     style={{
                       width: "48px",
                       height: "48px",
@@ -850,7 +756,7 @@ export function PortfolioContent({
                           display: "block",
                         }}
                       >
-                        {agent.balanceWhole}
+                        {vault.balanceWhole}
                         <span
                           style={{
                             color: isBalanceHidden
@@ -858,52 +764,21 @@ export function PortfolioContent({
                               : "rgba(60, 60, 67, 0.4)",
                           }}
                         >
-                          {agent.balanceFraction}
+                          {vault.balanceFraction}
                         </span>
                       </span>
                     </div>
-                    <div
+                    <span
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                        color: secondary,
                       }}
                     >
-                      <span
-                        style={{
-                          fontFamily: font,
-                          fontSize: "13px",
-                          fontWeight: 400,
-                          lineHeight: "16px",
-                          color: secondary,
-                        }}
-                      >
-                        {agent.label}
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: font,
-                          fontSize: "11px",
-                          fontWeight: 500,
-                          lineHeight: "14px",
-                          color: agent.accessLevel === "execute" ? "rgba(249, 54, 60, 0.65)" : "rgba(200, 160, 0, 0.75)",
-                          border: `1px solid ${agent.accessLevel === "execute" ? "rgba(249, 54, 60, 0.25)" : "rgba(200, 160, 0, 0.3)"}`,
-                          borderRadius: "9999px",
-                          padding: "1px 8px 1px 4px",
-                          whiteSpace: "nowrap" as const,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "2px",
-                        }}
-                      >
-                        <AccessLevelIcon
-                          level={agent.accessLevel}
-                          size={14}
-                          color={agent.accessLevel === "execute" ? "rgba(249, 54, 60, 0.65)" : "rgba(200, 160, 0, 0.75)"}
-                        />
-                        {agent.accessLabel}
-                      </span>
-                    </div>
+                      {vault.label}
+                    </span>
                   </div>
                   <ChevronLeft
                     size={24}
@@ -916,11 +791,11 @@ export function PortfolioContent({
                 </button>
               ))}
 
-              {/* View all row — shown when collapsed and there are more agents */}
-              {needsExpand && !agentsExpanded && (
+              {/* View all row — shown when collapsed and there are more child vaults */}
+              {needsExpand && !childVaultsExpanded && (
                 <button
                   className="portfolio-account-row"
-                  onClick={() => setAgentsExpanded(true)}
+                  onClick={() => setChildVaultsExpanded(true)}
                   style={{
                     position: "relative",
                     display: "flex",
@@ -984,7 +859,7 @@ export function PortfolioContent({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      View all ({MOCK_STASH_AGENTS.length})
+                      View all vaults ({vaultEntries.length})
                     </span>
                     <div
                       style={{
@@ -996,78 +871,19 @@ export function PortfolioContent({
                   </div>
                 </button>
               )}
-
-              {/* Add agent row — last child (└) */}
-              <button
-                className="portfolio-account-row"
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "6px 12px 6px 52px",
-                  borderRadius: "16px",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  width: "100%",
-                  transition: "background 0.15s ease",
-                  textAlign: "left",
-                }}
-                type="button"
-              >
-                {/* Vertical line — top half only (└) */}
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "35px",
-                    top: 0,
-                    bottom: "50%",
-                    width: "1px",
-                    background: "rgba(60, 60, 67, 0.12)",
-                  }}
-                />
-                {/* Horizontal branch */}
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "35px",
-                    top: "50%",
-                    width: "13px",
-                    height: "1px",
-                    background: "rgba(60, 60, 67, 0.12)",
-                  }}
-                />
-                <div
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "12px",
-                    background: "rgba(249, 54, 60, 0.14)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                    marginRight: "12px",
-                  }}
-                >
-                  <Plus size={24} style={{ color: "#000" }} />
-                </div>
-                <div style={{ flex: 1, padding: "9px 0" }}>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "16px",
-                      fontWeight: 500,
-                      lineHeight: "20px",
-                      color: "#000",
-                      letterSpacing: "-0.176px",
-                    }}
-                  >
-                    Add
-                  </span>
-                </div>
-              </button>
             </>
+          ) : (
+            <div
+              style={{
+                padding: "12px 20px",
+                textAlign: "center",
+                fontFamily: font,
+                fontSize: "14px",
+                color: secondary,
+              }}
+            >
+              No vaults found.
+            </div>
           )}
         </div>
 
@@ -1097,7 +913,7 @@ export function PortfolioContent({
             >
               Approvals
             </span>
-            {isAgentConnected && (
+            {approvals.length > 0 && (
               <button
                 className="portfolio-link-btn"
                 onClick={onSeeAllApprovals}
@@ -1121,7 +937,7 @@ export function PortfolioContent({
           </div>
 
           {/* Approval rows */}
-          {!isAgentConnected && (
+          {smartAccountError ? (
             <div
               style={{
                 padding: "32px 20px",
@@ -1131,20 +947,31 @@ export function PortfolioContent({
                 color: "rgba(60, 60, 67, 0.6)",
               }}
             >
-              Approval requests from agent will appear here
+              Failed to load proposals. Refresh to try again.
+            </div>
+          ) : approvals.length === 0 && (
+            <div
+              style={{
+                padding: "32px 20px",
+                textAlign: "center",
+                fontFamily: font,
+                fontSize: "14px",
+                color: "rgba(60, 60, 67, 0.6)",
+              }}
+            >
+              No smart-account proposals yet.
             </div>
           )}
-          {isAgentConnected &&
-            MOCK_APPROVALS.map((approval) => (
-              <div
-                key={approval.id}
-                style={{
-                  display: "flex",
-                  padding: "0 12px",
-                  borderRadius: "16px",
-                  background: "transparent",
-                }}
-              >
+          {approvals.slice(0, 3).map((approval) => (
+            <div
+              key={approval.id}
+              style={{
+                display: "flex",
+                padding: "0 12px",
+                borderRadius: "16px",
+                background: "transparent",
+              }}
+            >
                 {/* Stacked icon: token (40px) + account badge (24px) */}
                 <div
                   style={{
@@ -1159,8 +986,8 @@ export function PortfolioContent({
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    alt={approval.token}
-                    src={getTokenIconUrl(approval.token)}
+                    alt={approval.symbol}
+                    src={getTokenIconUrl(approval.symbol)}
                     style={{
                       width: "40px",
                       height: "40px",
@@ -1224,7 +1051,7 @@ export function PortfolioContent({
                           letterSpacing: "-0.176px",
                         }}
                       >
-                        {approval.action}
+                        {approval.title}
                       </span>
                       <span
                         style={{
@@ -1235,7 +1062,8 @@ export function PortfolioContent({
                           color: secondary,
                         }}
                       >
-                        to {approval.recipient}
+                        {approval.status.charAt(0).toUpperCase() + approval.status.slice(1)} · to{" "}
+                        {approval.destinationLabel}
                       </span>
                     </div>
                     <div
@@ -1261,7 +1089,7 @@ export function PortfolioContent({
                           userSelect: isBalanceHidden ? "none" : "auto",
                         }}
                       >
-                        {approval.amount} {approval.token}
+                        {approval.amount} {approval.symbol}
                       </span>
                       <div
                         style={{
@@ -1284,10 +1112,7 @@ export function PortfolioContent({
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           alt={approval.sourceLabel}
-                          src={
-                            ACCOUNT_ICONS[approval.sourceLabel] ??
-                            "/purplebg.png"
-                          }
+                          src={getVaultIcon(approval.sourceAccountIndex)}
                           style={{
                             width: "16px",
                             height: "16px",
@@ -1319,7 +1144,7 @@ export function PortfolioContent({
                   >
                     <button
                       className="portfolio-review-btn"
-                      onClick={onReviewApproval}
+                      onClick={() => onReviewApproval(approval)}
                       style={{
                         padding: "6px 16px",
                         borderRadius: "9999px",
