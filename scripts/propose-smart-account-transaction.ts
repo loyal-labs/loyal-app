@@ -1,11 +1,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import bs58 from "bs58";
 import {
   PROGRAM_ADDRESS,
   pda,
 } from "../sdk/loyal-smart-accounts/src/index.ts";
-import { toBigInt } from "../sdk/loyal-smart-accounts-core/src/index.ts";
+import {
+  Settings,
+  settingsDiscriminator,
+  toBigInt,
+} from "../sdk/loyal-smart-accounts-core/src/index.ts";
 import { createSmartAccountVaultsClient } from "../packages/smart-account-vaults/src/index.ts";
 import {
   getSolanaEndpoints,
@@ -29,7 +34,8 @@ type SplTransferArgs = {
 };
 
 type ParsedArgs = {
-  settingsPda: PublicKey;
+  settingsPda: PublicKey | null;
+  userAddress: PublicKey | null;
   keypairPath: string;
   destination: PublicKey;
   accountIndex: number;
@@ -41,10 +47,13 @@ type ParsedArgs = {
 
 function printHelpAndExit(): never {
   console.log(`Usage:
-  bun run smart-accounts:propose --settings-pda <PUBKEY> --to <PUBKEY> [options]
+  bun run smart-accounts:propose (--settings-pda <PUBKEY> | --user <PUBKEY>) --to <PUBKEY> [options]
+
+Account selector (one required):
+  --settings-pda <PUBKEY>              Smart-account Settings PDA (fast exact path)
+  --user <PUBKEY>                      User wallet/signer address; resolves Settings PDA on-chain
 
 Required:
-  --settings-pda <PUBKEY>              Smart-account Settings PDA
   --to <PUBKEY>                        Destination wallet address
 
 Signer:
@@ -52,7 +61,8 @@ Signer:
                                        Default: ~/.config/solana/id.json
 
 Routing:
-  --account-index <NUMBER>             Vault account index
+  --vault-index <NUMBER>               Vault account index
+  --account-index <NUMBER>             Alias for --vault-index
                                        Default: 0
   --memo <TEXT>                        Optional memo for the stored transaction
   --rpc-url <URL>                      Override RPC endpoint
@@ -76,7 +86,13 @@ Examples:
     --amount-sol 0.25
 
   bun run smart-accounts:propose \\
-    --settings-pda <SETTINGS> \\
+    --user <USER_WALLET> \\
+    --vault-index 0 \\
+    --to <RECIPIENT> \\
+    --amount-sol 0.25
+
+  bun run smart-accounts:propose \\
+    --user <USER_WALLET> \\
     --to <RECIPIENT> \\
     --mint <MINT> \\
     --amount 10.5 \\
@@ -154,6 +170,7 @@ function resolveDefaultProgramId(): PublicKey {
 
 function parseArgs(argv: string[]): ParsedArgs {
   let settingsPda: PublicKey | null = null;
+  let userAddress: PublicKey | null = null;
   let keypairPath = "~/.config/solana/id.json";
   let destination: PublicKey | null = null;
   let accountIndex = 0;
@@ -178,6 +195,17 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
+    if (
+      (current === "--user" ||
+        current === "--user-address" ||
+        current === "--wallet") &&
+      next
+    ) {
+      userAddress = new PublicKey(next);
+      index += 1;
+      continue;
+    }
+
     if (current === "--keypair" && next) {
       keypairPath = next;
       index += 1;
@@ -190,7 +218,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (current === "--account-index" && next) {
+    if (
+      (current === "--account-index" || current === "--vault-index") &&
+      next
+    ) {
       accountIndex = Number.parseInt(next, 10);
       index += 1;
       continue;
@@ -266,9 +297,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     throw new Error("--account-index must be a non-negative integer");
   }
 
-  const parsedSettingsPda = new PublicKey(
-    requireArg("--settings-pda", settingsPda?.toBase58())
-  );
+  if (!settingsPda && !userAddress) {
+    throw new Error("Missing account selector. Provide --settings-pda or --user.");
+  }
+
   const parsedDestination = new PublicKey(
     requireArg("--to", destination?.toBase58())
   );
@@ -281,7 +313,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
 
     return {
-      settingsPda: parsedSettingsPda,
+      settingsPda,
+      userAddress,
       keypairPath,
       destination: parsedDestination,
       accountIndex,
@@ -306,7 +339,8 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   return {
-    settingsPda: parsedSettingsPda,
+    settingsPda,
+    userAddress,
     keypairPath,
     destination: parsedDestination,
     accountIndex,
@@ -325,6 +359,53 @@ function parseArgs(argv: string[]): ParsedArgs {
   };
 }
 
+async function resolveSettingsPdaFromUser(args: {
+  connection: Connection;
+  programId: PublicKey;
+  userAddress: PublicKey;
+}): Promise<PublicKey> {
+  const accounts = await args.connection.getProgramAccounts(args.programId, {
+    commitment: "confirmed",
+    filters: [
+      {
+        memcmp: {
+          offset: 0,
+          bytes: bs58.encode(Buffer.from(settingsDiscriminator)),
+        },
+      },
+    ],
+  });
+  const matches: Array<{ address: PublicKey; settings: Settings }> = [];
+
+  for (const account of accounts) {
+    const [settings] = Settings.fromAccountInfo(account.account);
+
+    if (settings.signers.some((signer) => signer.key.equals(args.userAddress))) {
+      matches.push({
+        address: account.pubkey,
+        settings,
+      });
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new Error(
+      `No smart-account Settings account found for user ${args.userAddress.toBase58()}. ` +
+        "Use --settings-pda if this wallet is not a Settings signer."
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new Error(
+      `Found multiple Settings accounts for user ${args.userAddress.toBase58()}: ` +
+        matches.map((match) => match.address.toBase58()).join(", ") +
+        ". Re-run with --settings-pda to choose one explicitly."
+    );
+  }
+
+  return matches[0].address;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const signer = loadKeypair(args.keypairPath);
@@ -335,9 +416,16 @@ async function main() {
     connection,
     programId: args.programId,
   });
+  const settingsPda =
+    args.settingsPda ??
+    (await resolveSettingsPdaFromUser({
+      connection,
+      programId: args.programId,
+      userAddress: args.userAddress!,
+    }));
 
   const settings = await client.sdk.smartAccounts.queries.fetchSettings(
-    args.settingsPda
+    settingsPda
   );
   const isSignerOnSettings = settings.signers.some((entry) =>
     entry.key.equals(signer.publicKey)
@@ -345,7 +433,7 @@ async function main() {
 
   if (!isSignerOnSettings) {
     throw new Error(
-      `Signer ${signer.publicKey.toBase58()} is not a member of ${args.settingsPda.toBase58()}.`
+      `Signer ${signer.publicKey.toBase58()} is not a member of ${settingsPda.toBase58()}.`
     );
   }
 
@@ -353,7 +441,7 @@ async function main() {
   const prepared =
     args.transfer.kind === "sol"
       ? await client.prepareSolTransferProposal({
-          settingsPda: args.settingsPda,
+          settingsPda,
           creator: signer.publicKey,
           feePayer: signer.publicKey,
           destination: args.destination,
@@ -362,7 +450,7 @@ async function main() {
           memo: args.memo,
         })
       : await client.prepareSplTransferProposal({
-          settingsPda: args.settingsPda,
+          settingsPda,
           creator: signer.publicKey,
           feePayer: signer.publicKey,
           mint: args.transfer.mint,
@@ -380,13 +468,18 @@ async function main() {
     signers: [signer],
   });
   const [transactionPda] = pda.getTransactionPda({
-    settingsPda: args.settingsPda,
+    settingsPda,
     transactionIndex: nextTransactionIndex,
     programId: args.programId,
   });
   const [proposalPda] = pda.getProposalPda({
-    settingsPda: args.settingsPda,
+    settingsPda,
     transactionIndex: nextTransactionIndex,
+    programId: args.programId,
+  });
+  const [vaultPda] = pda.getSmartAccountPda({
+    settingsPda,
+    accountIndex: args.accountIndex,
     programId: args.programId,
   });
 
@@ -396,9 +489,12 @@ async function main() {
         signature,
         rpcUrl: args.rpcUrl,
         programId: args.programId.toBase58(),
-        settingsPda: args.settingsPda.toBase58(),
+        settingsPda: settingsPda.toBase58(),
+        resolvedBy: args.settingsPda ? "settings-pda" : "user",
+        userAddress: args.userAddress?.toBase58() ?? null,
         signer: signer.publicKey.toBase58(),
         accountIndex: args.accountIndex,
+        vaultPda: vaultPda.toBase58(),
         transactionIndex: nextTransactionIndex.toString(),
         transactionPda: transactionPda.toBase58(),
         proposalPda: proposalPda.toBase58(),
