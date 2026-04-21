@@ -1,6 +1,7 @@
 import bs58 from "bs58";
 import {
   createLoyalSmartAccountsClient,
+  generated,
   pda,
   type LoyalSmartAccountsClient,
   type PreparedLoyalSmartAccountsOperation,
@@ -16,6 +17,7 @@ import {
   settingsTransactionDiscriminator,
   toBigInt,
   transactionDiscriminator,
+  transactionMessageToMultisigTransactionMessageBytes,
 } from "@loyal-labs/loyal-smart-accounts-core";
 import type {
   PortfolioPosition,
@@ -32,6 +34,7 @@ import {
   type GetProgramAccountsFilter,
 } from "@solana/web3.js";
 import {
+  createVaultCustomInstructionMessage,
   createVaultSolTransferMessage,
   createVaultSplTransferMessage,
   isSupportedTokenProgram,
@@ -39,6 +42,8 @@ import {
 } from "./messages";
 import type {
   SmartAccountOverview,
+  SmartAccountCustomInstructionProposalInput,
+  SmartAccountPolicyCustomInstructionProposalInput,
   SmartAccountProposalPayloadType,
   SmartAccountProposalSnapshot,
   SmartAccountProposalStatus,
@@ -96,7 +101,9 @@ function mergePreparedOperations(args: {
     requiresConfirmation: args.operations.some(
       (operation) => operation.requiresConfirmation
     ),
-    instructions: args.operations.flatMap((operation) => operation.instructions),
+    instructions: args.operations.flatMap(
+      (operation) => operation.instructions
+    ),
     lookupTableAccounts: dedupeLookupTableAccounts(
       args.operations.flatMap((operation) => operation.lookupTableAccounts)
     ),
@@ -142,11 +149,13 @@ function getWritableFlags(
 function compileVaultInstructions(message: VaultMessage) {
   return message.instructions.map((instruction) => {
     const programId = message.accountKeys[instruction.programIdIndex];
-    const keys = Array.from(instruction.accountIndexes).map((accountIndex: number) => ({
-      pubkey: message.accountKeys[accountIndex],
-      isSigner: accountIndex < message.numSigners,
-      isWritable: getWritableFlags(message, accountIndex),
-    }));
+    const keys = Array.from(instruction.accountIndexes).map(
+      (accountIndex: number) => ({
+        pubkey: message.accountKeys[accountIndex],
+        isSigner: accountIndex < message.numSigners,
+        isWritable: getWritableFlags(message, accountIndex),
+      })
+    );
 
     return {
       programId,
@@ -275,7 +284,9 @@ function summarizeSplTransferInstruction(args: {
 function summarizeSettingsTransaction(
   settingsTransaction: SettingsTransaction
 ): SmartAccountProposalSummary {
-  const actionKinds = settingsTransaction.actions.map((action) => action.__kind);
+  const actionKinds = settingsTransaction.actions.map(
+    (action) => action.__kind
+  );
   const title =
     actionKinds.length === 1
       ? actionKinds[0].replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -285,9 +296,7 @@ function summarizeSettingsTransaction(
     kind: "settings_change",
     title,
     subtitle:
-      actionKinds.length === 0
-        ? "No settings actions"
-        : actionKinds.join(", "),
+      actionKinds.length === 0 ? "No settings actions" : actionKinds.join(", "),
     symbol: null,
     amountUi: null,
     amountRaw: null,
@@ -371,7 +380,9 @@ function summarizeTransactionPayload(args: {
   };
 }
 
-function createProposalFilters(settingsPda: PublicKey): GetProgramAccountsFilter[] {
+function createProposalFilters(
+  settingsPda: PublicKey
+): GetProgramAccountsFilter[] {
   return [
     {
       memcmp: {
@@ -426,7 +437,9 @@ function createSettingsTransactionFilters(
   ];
 }
 
-function createPolicyFilters(settingsPda: PublicKey): GetProgramAccountsFilter[] {
+function createPolicyFilters(
+  settingsPda: PublicKey
+): GetProgramAccountsFilter[] {
   return [
     {
       memcmp: {
@@ -480,7 +493,9 @@ function deserializeSettingsTransactionAccount(args: {
   pubkey: PublicKey;
   account: AccountInfo<Buffer>;
 }) {
-  const [settingsTransaction] = SettingsTransaction.fromAccountInfo(args.account);
+  const [settingsTransaction] = SettingsTransaction.fromAccountInfo(
+    args.account
+  );
   return {
     address: args.pubkey,
     settingsTransaction,
@@ -582,13 +597,12 @@ export type SmartAccountVaultsClient = ReturnType<
 export function createSmartAccountVaultsClient(
   config: SmartAccountVaultsClientConfig
 ) {
-  const smartAccountsClient: LoyalSmartAccountsClient = createLoyalSmartAccountsClient(
-    {
+  const smartAccountsClient: LoyalSmartAccountsClient =
+    createLoyalSmartAccountsClient({
       connection: config.connection,
       programId: config.programId,
       defaultCommitment: "confirmed",
-    }
-  );
+    });
   const walletDataClient = config.walletDataClient;
 
   async function fetchVault(args: {
@@ -667,35 +681,40 @@ export function createSmartAccountVaultsClient(
       args.settingsPda,
       ...policyConsensusPdas,
     ]);
-    const [proposalAccountGroups, transactionAccountGroups, settingsTransactionAccounts] =
-      await Promise.all([
-        Promise.all(
-          consensusPdas.map((consensusPda) =>
-            config.connection.getProgramAccounts(smartAccountsClient.programId, {
-              commitment: "confirmed",
-              filters: createProposalFilters(consensusPda),
-            })
-          )
-        ),
-        Promise.all(
-          consensusPdas.map((consensusPda) =>
-            config.connection.getProgramAccounts(smartAccountsClient.programId, {
-              commitment: "confirmed",
-              filters: createTransactionFilters(consensusPda),
-            })
-          )
-        ),
-        config.connection.getProgramAccounts(smartAccountsClient.programId, {
-          commitment: "confirmed",
-          filters: createSettingsTransactionFilters(args.settingsPda),
-        }),
-      ]);
+    const [
+      proposalAccountGroups,
+      transactionAccountGroups,
+      settingsTransactionAccounts,
+    ] = await Promise.all([
+      Promise.all(
+        consensusPdas.map((consensusPda) =>
+          config.connection.getProgramAccounts(smartAccountsClient.programId, {
+            commitment: "confirmed",
+            filters: createProposalFilters(consensusPda),
+          })
+        )
+      ),
+      Promise.all(
+        consensusPdas.map((consensusPda) =>
+          config.connection.getProgramAccounts(smartAccountsClient.programId, {
+            commitment: "confirmed",
+            filters: createTransactionFilters(consensusPda),
+          })
+        )
+      ),
+      config.connection.getProgramAccounts(smartAccountsClient.programId, {
+        commitment: "confirmed",
+        filters: createSettingsTransactionFilters(args.settingsPda),
+      }),
+    ]);
     const proposalAccounts = proposalAccountGroups.flat();
     const transactionAccounts = transactionAccountGroups.flat();
     const transactionsByKey = new Map(
       transactionAccounts.map((account) => {
         const deserialized = deserializeTransactionAccount(account);
-        const transactionIndex = toBigInt(deserialized.transaction.index).toString();
+        const transactionIndex = toBigInt(
+          deserialized.transaction.index
+        ).toString();
         return [
           toConsensusTransactionKey({
             consensusPda: deserialized.transaction.consensusAccount,
@@ -725,7 +744,9 @@ export function createSmartAccountVaultsClient(
     return proposalAccounts
       .map((account) => deserializeProposalAccount(account))
       .map((entry) => {
-        const transactionIndex = toBigInt(entry.proposal.transactionIndex).toString();
+        const transactionIndex = toBigInt(
+          entry.proposal.transactionIndex
+        ).toString();
         const consensusPda = entry.proposal.settings;
         const transactionKey = toConsensusTransactionKey({
           consensusPda,
@@ -778,8 +799,12 @@ export function createSmartAccountVaultsClient(
           transactionIndex,
           payloadType,
           status: toProposalStatus(entry.proposal.status.__kind),
-          approvals: entry.proposal.approved.map((address) => address.toBase58()),
-          rejections: entry.proposal.rejected.map((address) => address.toBase58()),
+          approvals: entry.proposal.approved.map((address) =>
+            address.toBase58()
+          ),
+          rejections: entry.proposal.rejected.map((address) =>
+            address.toBase58()
+          ),
           cancellations: entry.proposal.cancelled.map((address) =>
             address.toBase58()
           ),
@@ -797,9 +822,10 @@ export function createSmartAccountVaultsClient(
     settingsPda: PublicKey;
     activityLimit?: number;
   }): Promise<SmartAccountOverview> {
-    const settings = await smartAccountsClient.smartAccounts.queries.fetchSettings(
-      args.settingsPda
-    );
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
     const vaults = await listVaults({
       settingsPda: args.settingsPda,
       accountUtilization: settings.accountUtilization,
@@ -816,13 +842,18 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda.toBase58(),
       threshold: settings.threshold,
       timeLock: settings.timeLock,
-      staleTransactionIndex: toBigInt(settings.staleTransactionIndex).toString(),
-      canonicalVaultAddress: vaults[0]?.address ??
-        pda.getSmartAccountPda({
-          programId: smartAccountsClient.programId,
-          settingsPda: args.settingsPda,
-          accountIndex: 0,
-        })[0].toBase58(),
+      staleTransactionIndex: toBigInt(
+        settings.staleTransactionIndex
+      ).toString(),
+      canonicalVaultAddress:
+        vaults[0]?.address ??
+        pda
+          .getSmartAccountPda({
+            programId: smartAccountsClient.programId,
+            settingsPda: args.settingsPda,
+            accountIndex: 0,
+          })[0]
+          .toBase58(),
       vaults,
       proposals,
       fetchedAt: Date.now(),
@@ -833,9 +864,10 @@ export function createSmartAccountVaultsClient(
     args: SmartAccountTransferProposalInput
   ) {
     const accountIndex = resolveVaultAccountIndex(args.accountIndex);
-    const settings = await smartAccountsClient.smartAccounts.queries.fetchSettings(
-      args.settingsPda
-    );
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
     const transactionIndex = toBigInt(settings.transactionIndex) + BigInt(1);
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
@@ -849,28 +881,24 @@ export function createSmartAccountVaultsClient(
       amountLamports: args.amountLamports,
     });
     const [preparedTransaction, preparedProposal] = await Promise.all([
-      smartAccountsClient.features.transactions.prepare.create(
-        {
-          feePayer: args.feePayer,
-          rentPayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          transactionIndex,
-          creator: args.creator,
-          accountIndex,
-          ephemeralSigners: 0,
-          transactionMessage,
-          memo: args.memo,
-        } as never
-      ),
-      smartAccountsClient.features.proposals.prepare.create(
-        {
-          feePayer: args.feePayer,
-          rentPayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          transactionIndex,
-          creator: args.creator,
-        } as never
-      ),
+      smartAccountsClient.features.transactions.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+        accountIndex,
+        ephemeralSigners: 0,
+        transactionMessage,
+        memo: args.memo,
+      } as never),
+      smartAccountsClient.features.proposals.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+      } as never),
     ]);
 
     return mergePreparedOperations({
@@ -885,9 +913,10 @@ export function createSmartAccountVaultsClient(
     args: SmartAccountTokenTransferProposalInput
   ) {
     const accountIndex = resolveVaultAccountIndex(args.accountIndex);
-    const settings = await smartAccountsClient.smartAccounts.queries.fetchSettings(
-      args.settingsPda
-    );
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
     const transactionIndex = toBigInt(settings.transactionIndex) + BigInt(1);
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
@@ -906,32 +935,174 @@ export function createSmartAccountVaultsClient(
       createDestinationAta: args.createDestinationAta,
     });
     const [preparedTransaction, preparedProposal] = await Promise.all([
-      smartAccountsClient.features.transactions.prepare.create(
-        {
-          feePayer: args.feePayer,
-          rentPayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          transactionIndex,
-          creator: args.creator,
-          accountIndex,
-          ephemeralSigners: 0,
-          transactionMessage,
-          memo: args.memo,
-        } as never
-      ),
-      smartAccountsClient.features.proposals.prepare.create(
-        {
-          feePayer: args.feePayer,
-          rentPayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          transactionIndex,
-          creator: args.creator,
-        } as never
-      ),
+      smartAccountsClient.features.transactions.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+        accountIndex,
+        ephemeralSigners: 0,
+        transactionMessage,
+        memo: args.memo,
+      } as never),
+      smartAccountsClient.features.proposals.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+      } as never),
     ]);
 
     return mergePreparedOperations({
       operation: "proposeSplTransfer",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      operations: [preparedTransaction, preparedProposal],
+    });
+  }
+
+  async function prepareCustomInstructionProposal(
+    args: SmartAccountCustomInstructionProposalInput
+  ) {
+    if (args.instructions.length === 0) {
+      throw new Error(
+        "Custom instruction proposal requires at least one instruction."
+      );
+    }
+
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const transactionIndex = toBigInt(settings.transactionIndex) + BigInt(1);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex,
+    })[0];
+    const transactionMessage = await createVaultCustomInstructionMessage({
+      connection: config.connection,
+      vaultPda,
+      instructions: args.instructions,
+    });
+    const addressLookupTableAccounts = dedupeLookupTableAccounts(
+      args.addressLookupTableAccounts ?? []
+    );
+    const [preparedTransaction, preparedProposal] = await Promise.all([
+      smartAccountsClient.features.transactions.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+        accountIndex,
+        ephemeralSigners: 0,
+        transactionMessage,
+        addressLookupTableAccounts,
+        memo: args.memo,
+      } as never),
+      smartAccountsClient.features.proposals.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+      } as never),
+    ]);
+
+    return mergePreparedOperations({
+      operation: "proposeCustomInstructions",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      operations: [preparedTransaction, preparedProposal],
+    });
+  }
+
+  async function preparePolicyCustomInstructionProposal(
+    args: SmartAccountPolicyCustomInstructionProposalInput
+  ) {
+    if (args.instructions.length === 0) {
+      throw new Error(
+        "Policy custom instruction proposal requires at least one instruction."
+      );
+    }
+
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.policyPda
+    );
+    const settingsPda = policy.settings;
+    const transactionIndex = toBigInt(policy.transactionIndex) + BigInt(1);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda,
+      accountIndex,
+    })[0];
+    const transactionMessage = await createVaultCustomInstructionMessage({
+      connection: config.connection,
+      vaultPda,
+      instructions: args.instructions,
+    });
+    const addressLookupTableAccounts = dedupeLookupTableAccounts(
+      args.addressLookupTableAccounts ?? []
+    );
+    const { transactionMessageBytes } =
+      transactionMessageToMultisigTransactionMessageBytes({
+        message: transactionMessage,
+        addressLookupTableAccounts,
+        smartAccountPda: vaultPda,
+      });
+    const instructionConstraintIndices =
+      args.instructionConstraintIndices ??
+      new Uint8Array(args.instructions.map(() => 0));
+    if (instructionConstraintIndices.length !== args.instructions.length) {
+      throw new Error(
+        "instructionConstraintIndices length must match instructions length."
+      );
+    }
+    const policyPayload: generated.PolicyPayload = {
+      __kind: "ProgramInteraction",
+      fields: [
+        {
+          instructionConstraintIndices,
+          transactionPayload: {
+            __kind: "AsyncTransaction",
+            fields: [
+              {
+                accountIndex,
+                ephemeralSigners: 0,
+                transactionMessage: transactionMessageBytes,
+                memo: args.memo ?? null,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const [preparedTransaction, preparedProposal] = await Promise.all([
+      smartAccountsClient.features.policies.prepare.createTransaction({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        policy: args.policyPda,
+        transactionIndex,
+        creator: args.creator,
+        accountIndex,
+        policyPayload,
+      } as never),
+      smartAccountsClient.features.proposals.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.policyPda,
+        transactionIndex,
+        creator: args.creator,
+      } as never),
+    ]);
+
+    return mergePreparedOperations({
+      operation: "proposePolicyCustomInstructions",
       payer: args.feePayer,
       programId: smartAccountsClient.programId,
       operations: [preparedTransaction, preparedProposal],
@@ -970,13 +1141,11 @@ export function createSmartAccountVaultsClient(
     signer: PublicKey;
     feePayer: PublicKey;
   }) {
-    return smartAccountsClient.features.execution.prepare.executeTransaction(
-      {
-        ...args,
-        connection: config.connection,
-        programId: smartAccountsClient.programId,
-      } as never
-    );
+    return smartAccountsClient.features.execution.prepare.executeTransaction({
+      ...args,
+      connection: config.connection,
+      programId: smartAccountsClient.programId,
+    } as never);
   }
 
   async function prepareExecuteSettingsProposal(args: {
@@ -1025,6 +1194,8 @@ export function createSmartAccountVaultsClient(
     fetchOverview,
     prepareSolTransferProposal,
     prepareSplTransferProposal,
+    prepareCustomInstructionProposal,
+    preparePolicyCustomInstructionProposal,
     prepareApproveProposal,
     prepareRejectProposal,
     prepareExecuteProposal,

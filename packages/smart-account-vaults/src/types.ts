@@ -9,7 +9,9 @@ import type {
   PublicKey,
   SendOptions,
   Transaction,
+  TransactionInstruction,
   VersionedTransaction,
+  AddressLookupTableAccount,
 } from "@solana/web3.js";
 
 export type SmartAccountProposalStatus =
@@ -131,4 +133,25 @@ export type SmartAccountTokenTransferProposalInput = {
   memo?: string;
   tokenProgramId?: PublicKey;
   createDestinationAta?: boolean;
+};
+
+export type SmartAccountCustomInstructionProposalInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  instructions: TransactionInstruction[];
+  accountIndex?: number;
+  addressLookupTableAccounts?: AddressLookupTableAccount[];
+  memo?: string;
+};
+
+export type SmartAccountPolicyCustomInstructionProposalInput = {
+  policyPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  instructions: TransactionInstruction[];
+  accountIndex?: number;
+  addressLookupTableAccounts?: AddressLookupTableAccount[];
+  instructionConstraintIndices?: Uint8Array;
+  memo?: string;
 };

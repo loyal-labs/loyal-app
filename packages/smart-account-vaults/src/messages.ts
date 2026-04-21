@@ -10,6 +10,7 @@ import {
   SystemProgram,
   TransactionMessage,
   type Connection,
+  type TransactionInstruction,
 } from "@solana/web3.js";
 
 function normalizeAccountIndex(accountIndex: number | undefined): number {
@@ -98,12 +99,29 @@ export async function createVaultSplTransferMessage(args: {
   });
 }
 
+export async function createVaultCustomInstructionMessage(args: {
+  connection: Connection;
+  vaultPda: PublicKey;
+  instructions: TransactionInstruction[];
+}) {
+  const { blockhash } = await args.connection.getLatestBlockhash("confirmed");
+
+  return new TransactionMessage({
+    payerKey: args.vaultPda,
+    recentBlockhash: blockhash,
+    instructions: args.instructions,
+  });
+}
+
 export function isSupportedTokenProgram(programId: PublicKey): boolean {
   return (
-    programId.equals(TOKEN_PROGRAM_ID) || programId.equals(TOKEN_2022_PROGRAM_ID)
+    programId.equals(TOKEN_PROGRAM_ID) ||
+    programId.equals(TOKEN_2022_PROGRAM_ID)
   );
 }
 
-export function resolveVaultAccountIndex(accountIndex: number | undefined): number {
+export function resolveVaultAccountIndex(
+  accountIndex: number | undefined
+): number {
   return normalizeAccountIndex(accountIndex);
 }
