@@ -15,7 +15,7 @@ import { BiometricSetupScreen } from "@/components/wallet/BiometricSetupScreen";
 import { CreateWalletScreen } from "@/components/wallet/CreateWalletScreen";
 import { ImportWalletScreen } from "@/components/wallet/ImportWalletScreen";
 import { OnboardingSlidesScreen } from "@/components/wallet/OnboardingSlidesScreen";
-import { SeedVaultChooserScreen } from "@/components/wallet/SeedVaultChooserScreen";
+import { SeedVaultAuthScreen } from "@/components/wallet/SeedVaultAuthScreen";
 import {
   getSetupStartStep,
   type OnboardingStartStep,
@@ -168,7 +168,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     );
   } else if (step === "seed-vault") {
     content = (
-      <SeedVaultChooserScreen
+      <SeedVaultAuthScreen
         onComplete={handleSeedVaultComplete}
         onBack={() => navigateToStep("setup-onboarding", "backward")}
       />

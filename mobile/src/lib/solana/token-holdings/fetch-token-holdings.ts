@@ -131,7 +131,17 @@ function resolveImageUrl(asset: HeliusAsset): string | null {
   return imageUrl.length > 0 ? imageUrl : null;
 }
 
-function mapAssetToHolding(asset: HeliusAsset): TokenHolding | null {
+// Helius getAssetsByOwner returns NFTs/cNFTs/SBTs (e.g. Seeker Genesis Token)
+// alongside fungibles when showFungible is true. Only the fungible interfaces
+// belong in the wallet's token list.
+const FUNGIBLE_ASSET_INTERFACES: ReadonlySet<string> = new Set([
+  "FungibleToken",
+  "FungibleAsset",
+]);
+
+export function mapAssetToHolding(asset: HeliusAsset): TokenHolding | null {
+  if (!FUNGIBLE_ASSET_INTERFACES.has(asset.interface)) return null;
+
   const tokenInfo = asset.token_info;
   if (!tokenInfo) return null;
 

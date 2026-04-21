@@ -1,4 +1,5 @@
 import {
+  BottomSheetBackdrop,
   BottomSheetFlatList,
   BottomSheetModal,
 } from "@gorhom/bottom-sheet";
@@ -12,6 +13,7 @@ import {
 } from "lucide-react-native";
 import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
@@ -207,7 +209,20 @@ function TransactionRow({
 
 export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
   function ActivitySheet({ transactions, tokenHoldings, onTransactionPress }, ref) {
-    const snapPoints = useMemo(() => ["70%", "90%"], []);
+    const insets = useSafeAreaInsets();
+    const snapPoints = useMemo(() => ["70%", "100%"], []);
+
+    const renderBackdrop = useCallback(
+      (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
+        <BottomSheetBackdrop
+          {...props}
+          disappearsOnIndex={-1}
+          appearsOnIndex={0}
+          opacity={0.3}
+        />
+      ),
+      [],
+    );
 
     const renderItem = useCallback(
       ({ item }: { item: Transaction }) => (
@@ -250,7 +265,9 @@ export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
       <BottomSheetModal
         ref={ref}
         snapPoints={snapPoints}
+        topInset={insets.top}
         enableDynamicSizing={false}
+        backdropComponent={renderBackdrop}
       >
         <BottomSheetFlatList
           data={transactions}

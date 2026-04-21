@@ -1,5 +1,5 @@
-import { DappBrowserScreen } from "@/features/dapp-browser/ui/DappBrowserScreen";
+import { BrowserHomeScreen } from "@/features/dapp-browser/ui/BrowserHomeScreen";
 
 export default function BrowserTab() {
-  return <DappBrowserScreen />;
+  return <BrowserHomeScreen />;
 }

@@ -1,6 +1,10 @@
-import { BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
 import { ExternalLink } from "lucide-react-native";
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useCallback, useMemo } from "react";
 import { Linking } from "react-native";
 
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
@@ -19,14 +23,20 @@ type TransactionDetailsSheetProps = {
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-row items-center justify-between py-2.5">
+    <View className="flex-row items-center justify-between py-3">
       <Text
         className="text-[15px]"
         style={{ color: "rgba(60, 60, 67, 0.6)" }}
       >
         {label}
       </Text>
-      <Text className="text-[15px] font-medium text-black">{value}</Text>
+      <Text
+        className="text-[15px] font-medium text-black"
+        numberOfLines={1}
+        style={{ maxWidth: "60%", textAlign: "right" }}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -41,6 +51,18 @@ export const TransactionDetailsSheet = forwardRef<
     const cluster = env === "mainnet" ? "" : `?cluster=${env}`;
     return `https://solscan.io/tx/${transaction.signature}${cluster}`;
   }, [transaction?.signature]);
+
+  const renderBackdrop = useCallback(
+    (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.3}
+      />
+    ),
+    [],
+  );
 
   if (!transaction) return null;
 
@@ -73,97 +95,114 @@ export const TransactionDetailsSheet = forwardRef<
     transaction.status ?? "completed",
     isIncoming,
   );
+
   return (
-    <BottomSheetModal ref={ref} enableDynamicSizing>
-      <BottomSheetView className="px-4 pb-10">
-        {/* Header */}
-        <View className="items-center pb-4">
-          <Text
-            className="text-[17px] font-semibold text-black"
-            style={{ lineHeight: 22 }}
-          >
-            {title}
-          </Text>
-          <Text
-            className="mt-1 text-[28px] font-bold"
-            style={{ color: isIncoming ? "#32e55e" : "#000" }}
-          >
-            {isIncoming ? "+" : transaction.type === "outgoing" ? "\u2212" : ""}
-            {amountDisplay}
-          </Text>
-        </View>
+    <BottomSheetModal
+      ref={ref}
+      enableDynamicSizing
+      backdropComponent={renderBackdrop}
+      handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.15)", width: 36 }}
+      backgroundStyle={{ borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+    >
+      <BottomSheetView>
+        <View className="px-6 pb-10 pt-2">
+          {/* Header */}
+          <View className="items-center pb-5">
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
+              {title}
+            </Text>
+            <Text
+              className="mt-2 text-[32px] font-bold"
+              style={{
+                color: isIncoming ? "#32e55e" : "#000",
+                letterSpacing: -0.5,
+              }}
+            >
+              {isIncoming ? "+" : transaction.type === "outgoing" ? "\u2212" : ""}
+              {amountDisplay}
+            </Text>
+          </View>
 
-        {/* Divider */}
-        <View className="h-px" style={{ backgroundColor: "#f2f2f7" }} />
-
-        {/* Details */}
-        <View className="py-2">
-          <DetailRow label="Status" value={statusText} />
-          <DetailRow
-            label="Date"
-            value={formatTransactionDate(transaction.timestamp)}
-          />
-          {transaction.sender && (
+          {/* Details card */}
+          <View
+            className="rounded-2xl px-4"
+            style={{ backgroundColor: "rgba(0, 0, 0, 0.03)" }}
+          >
+            <DetailRow label="Status" value={statusText} />
             <DetailRow
-              label="From"
-              value={
-                transaction.sender.startsWith("@")
-                  ? transaction.sender
-                  : formatAddress(transaction.sender)
-              }
+              label="Date"
+              value={formatTransactionDate(transaction.timestamp)}
             />
-          )}
-          {transaction.recipient && (
-            <DetailRow
-              label="To"
-              value={
-                transaction.recipient.startsWith("@")
-                  ? transaction.recipient
-                  : formatAddress(transaction.recipient)
-              }
-            />
-          )}
-          {transaction.networkFeeLamports != null &&
-            transaction.networkFeeLamports > 0 && (
+            {transaction.sender ? (
+              <DetailRow
+                label="From"
+                value={
+                  transaction.sender.startsWith("@")
+                    ? transaction.sender
+                    : formatAddress(transaction.sender)
+                }
+              />
+            ) : null}
+            {transaction.recipient ? (
+              <DetailRow
+                label="To"
+                value={
+                  transaction.recipient.startsWith("@")
+                    ? transaction.recipient
+                    : formatAddress(transaction.recipient)
+                }
+              />
+            ) : null}
+            {transaction.networkFeeLamports != null &&
+            transaction.networkFeeLamports > 0 ? (
               <DetailRow
                 label="Network Fee"
                 value={`${formatTransactionAmount(transaction.networkFeeLamports)} SOL`}
               />
-            )}
-          {isSwap && transaction.swapFromMint && (
-            <>
-              {transaction.swapFromSymbol && (
-                <DetailRow label="From Token" value={transaction.swapFromSymbol} />
-              )}
-              {transaction.swapToSymbol && (
-                <DetailRow label="To Token" value={transaction.swapToSymbol} />
-              )}
-              {transaction.swapToAmount != null && (
-                <DetailRow
-                  label="Received"
-                  value={`${transaction.swapToAmount.toLocaleString("en-US", { maximumFractionDigits: 6 })}`}
-                />
-              )}
-            </>
-          )}
-        </View>
+            ) : null}
+            {isSwap && transaction.swapFromMint ? (
+              <>
+                {transaction.swapFromSymbol ? (
+                  <DetailRow
+                    label="From Token"
+                    value={transaction.swapFromSymbol}
+                  />
+                ) : null}
+                {transaction.swapToSymbol ? (
+                  <DetailRow
+                    label="To Token"
+                    value={transaction.swapToSymbol}
+                  />
+                ) : null}
+                {transaction.swapToAmount != null ? (
+                  <DetailRow
+                    label="Received"
+                    value={`${transaction.swapToAmount.toLocaleString("en-US", {
+                      maximumFractionDigits: 6,
+                    })}`}
+                  />
+                ) : null}
+              </>
+            ) : null}
+          </View>
 
-        {/* Explorer link */}
-        {explorerUrl && (
-          <>
-            <View className="h-px" style={{ backgroundColor: "#f2f2f7" }} />
+          {/* Explorer link */}
+          {explorerUrl ? (
             <Pressable
               onPress={() => Linking.openURL(explorerUrl)}
-              className="mt-3 flex-row items-center justify-center gap-2 rounded-xl py-3"
-              style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
+              className="mt-5 flex-row items-center justify-center gap-2 rounded-2xl py-4"
+              style={{ backgroundColor: "#f9363c" }}
             >
-              <ExternalLink size={16} color="#f9363c" />
-              <Text className="text-[14px] font-medium" style={{ color: "#f9363c" }}>
+              <ExternalLink size={18} color="#fff" strokeWidth={2} />
+              <Text className="text-[16px] font-semibold text-white">
                 View on Solscan
               </Text>
             </Pressable>
-          </>
-        )}
+          ) : null}
+        </View>
       </BottomSheetView>
     </BottomSheetModal>
   );

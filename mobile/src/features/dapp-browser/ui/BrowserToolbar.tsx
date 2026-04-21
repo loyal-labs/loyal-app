@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, House, RotateCw } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Pressable, View } from "@/tw";
 
@@ -21,10 +22,14 @@ export function BrowserToolbar({
   onHome,
   onRefresh,
 }: BrowserToolbarProps) {
+  const insets = useSafeAreaInsets();
   return (
     <View
-      className="flex-row items-center justify-between border-t border-black/5 px-5 py-3"
-      style={{ backgroundColor: "#ffffff" }}
+      className="flex-row items-center justify-between border-t border-black/5 px-5 pt-3"
+      style={{
+        backgroundColor: "#ffffff",
+        paddingBottom: Math.max(insets.bottom, 12),
+      }}
     >
       <ToolbarButton icon={<ArrowLeft size={20} color="#000" />} onPress={onBack} disabled={!canGoBack} />
       <ToolbarButton

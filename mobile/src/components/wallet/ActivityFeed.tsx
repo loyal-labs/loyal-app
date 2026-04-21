@@ -6,7 +6,7 @@ import {
   Shield,
   ShieldOff,
 } from "lucide-react-native";
-import { Image as RNImage } from "react-native";
+import { Image as RNImage, StyleSheet } from "react-native";
 
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
@@ -35,24 +35,24 @@ function TransactionIcon({ transaction }: { transaction: Transaction }) {
 
   if (isSwap) {
     return (
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-purple-100">
-        <ArrowLeftRight size={28} color="#9333ea" strokeWidth={1.5} />
+      <View style={[styles.iconCircle, { backgroundColor: "#f3e8ff" }]}>
+        <ArrowLeftRight size={26} color="#9333ea" strokeWidth={2} />
       </View>
     );
   }
 
   if (isSecure) {
     return (
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-100">
-        <Shield size={28} color="#2563eb" strokeWidth={1.5} />
+      <View style={[styles.iconCircle, { backgroundColor: "#dbeafe" }]}>
+        <Shield size={26} color="#2563eb" strokeWidth={2} />
       </View>
     );
   }
 
   if (isUnshield) {
     return (
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-orange-100">
-        <ShieldOff size={28} color="#ea580c" strokeWidth={1.5} />
+      <View style={[styles.iconCircle, { backgroundColor: "#ffedd5" }]}>
+        <ShieldOff size={26} color="#ea580c" strokeWidth={2} />
       </View>
     );
   }
@@ -60,10 +60,9 @@ function TransactionIcon({ transaction }: { transaction: Transaction }) {
   if (isIncoming) {
     return (
       <View
-        className="h-12 w-12 items-center justify-center rounded-full"
-        style={{ backgroundColor: "rgba(50, 229, 94, 0.15)" }}
+        style={[styles.iconCircle, { backgroundColor: "rgba(50, 229, 94, 0.15)" }]}
       >
-        <ArrowDown size={28} color="#34c759" strokeWidth={1.5} />
+        <ArrowDown size={26} color="#34c759" strokeWidth={2} />
       </View>
     );
   }
@@ -71,13 +70,22 @@ function TransactionIcon({ transaction }: { transaction: Transaction }) {
   // Outgoing
   return (
     <View
-      className="h-12 w-12 items-center justify-center rounded-full"
-      style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
+      style={[styles.iconCircle, { backgroundColor: "rgba(249, 54, 60, 0.14)" }]}
     >
-      <ArrowUp size={28} color="#000" strokeWidth={1.5} />
+      <ArrowUp size={26} color="#000" strokeWidth={2} />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  iconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 
 function TransactionRow({
   transaction,
@@ -361,14 +369,40 @@ export function ActivityFeed({
     );
   }
 
+  const showSeeAll = transactions.length > maxItems;
+
   return (
     <View className="px-4">
-      <Text
-        className="pb-2 pt-3 text-[17px] font-medium text-black"
-        style={{ letterSpacing: -0.176 }}
-      >
-        Activity
-      </Text>
+      <View style={{ position: "relative" }}>
+        <Text
+          className="pb-2 pt-3 text-[17px] font-medium text-black"
+          style={{ letterSpacing: -0.176 }}
+        >
+          Activity
+        </Text>
+        {showSeeAll ? (
+          <Pressable
+            onPress={onShowAll}
+            hitSlop={8}
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              bottom: 0,
+              justifyContent: "center",
+            }}
+          >
+            {({ pressed }) => (
+              <Text
+                className="text-[17px]"
+                style={{ color: "#F9363C", opacity: pressed ? 0.7 : 1 }}
+              >
+                See All
+              </Text>
+            )}
+          </Pressable>
+        ) : null}
+      </View>
       {displayTransactions.map((tx) => (
         <TransactionRow
           key={tx.id}
@@ -377,19 +411,6 @@ export function ActivityFeed({
           onPress={() => onTransactionPress(tx)}
         />
       ))}
-      {transactions.length > maxItems && (
-        <View className="mt-2 items-center">
-          <Pressable
-            onPress={onShowAll}
-            className="flex-row items-center gap-1.5 rounded-full px-4 py-1.5"
-            style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
-          >
-            <Text className="text-[15px] text-black">
-              Show All
-            </Text>
-          </Pressable>
-        </View>
-      )}
     </View>
   );
 }

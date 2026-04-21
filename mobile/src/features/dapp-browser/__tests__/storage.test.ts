@@ -5,7 +5,6 @@ import {
   listConnectedOrigins,
   rememberConnectedOrigin,
 } from "../storage/connected-origins";
-import { listRecentHistory, recordRecentHistory } from "../storage/recent-history";
 
 jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn(),
@@ -50,47 +49,4 @@ describe("dapp browser storage", () => {
     );
   });
 
-  it("caps recent history at twenty entries and moves the latest origin to the front", async () => {
-    secureStore.getItemAsync.mockResolvedValueOnce(
-      JSON.stringify(
-        Array.from({ length: 20 }, (_, index) => ({
-          origin: `https://site-${index}.example`,
-          url: `https://site-${index}.example/page`,
-          title: `Site ${index}`,
-          lastVisitedAt: index,
-        })),
-      ),
-    );
-
-    await recordRecentHistory({
-      origin: "https://site-5.example",
-      url: "https://site-5.example/updated",
-      title: "Updated site 5",
-      lastVisitedAt: 999,
-    });
-
-    expect(secureStore.setItemAsync).toHaveBeenCalledWith(
-      "loyal.dappBrowser.recentHistory",
-      JSON.stringify([
-        {
-          origin: "https://site-5.example",
-          url: "https://site-5.example/updated",
-          title: "Updated site 5",
-          lastVisitedAt: 999,
-        },
-        ...Array.from({ length: 19 }, (_, index) => ({
-          origin: `https://site-${index < 5 ? index : index + 1}.example`,
-          url: `https://site-${index < 5 ? index : index + 1}.example/page`,
-          title: `Site ${index < 5 ? index : index + 1}`,
-          lastVisitedAt: index < 5 ? index : index + 1,
-        })),
-      ]),
-    );
-  });
-
-  it("returns an empty recent history list when nothing is stored", async () => {
-    secureStore.getItemAsync.mockResolvedValueOnce(null);
-
-    await expect(listRecentHistory()).resolves.toEqual([]);
-  });
 });

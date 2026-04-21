@@ -3,6 +3,10 @@ import * as Haptics from "expo-haptics";
 import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
+import {
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
@@ -35,7 +39,8 @@ import {
   resetWalletBalanceSubscription,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
-import { ScrollView, Text, View } from "@/tw";
+import { findBalanceBackground } from "@/lib/wallet/balance-backgrounds";
+import { AnimatedScrollView, ScrollView, Text, View } from "@/tw";
 import type { Transaction } from "@/types/wallet";
 
 export default function WalletScreen() {
@@ -198,6 +203,27 @@ export default function WalletScreen() {
     setCachedBalanceBg(bg);
   }, []);
 
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+
+  const morphColors = useMemo(() => {
+    const opt = findBalanceBackground(balanceBg ?? null);
+    return {
+      bg: opt?.dominantColor ?? "#1c1c1e",
+      text: opt?.dominantTextColor ?? "#ffffff",
+    };
+  }, [balanceBg]);
+
+  const morphText = useMemo(() => {
+    if (typeof totalPortfolioUsd !== "number") return null;
+    return `$${totalPortfolioUsd.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }, [totalPortfolioUsd]);
+
   const showTopUpAction = useMemo(
     () =>
       shouldShowWalletTopUp({
@@ -232,10 +258,17 @@ export default function WalletScreen() {
 
   return (
     <View className="flex-1 bg-white">
-      <LogoHeader />
-      <ScrollView
+      <LogoHeader
+        scrollY={scrollY}
+        morphText={morphText}
+        morphColor={morphColors.bg}
+        morphTextColor={morphColors.text}
+      />
+      <AnimatedScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 132) }}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
         }
@@ -254,6 +287,8 @@ export default function WalletScreen() {
           earnings={kaminoEarnings}
           showTopUpAction={showTopUpAction}
           onTopUpPress={() => setIsReceiveOpen(true)}
+          balanceBg={balanceBg}
+          onOpenBgPicker={() => setIsBgPickerOpen(true)}
         />
 
         {/* Action buttons */}
@@ -284,7 +319,7 @@ export default function WalletScreen() {
         {/* <BannerCarousel /> */}
 
         {/* Token holdings */}
-        <View>
+        <View style={{ marginTop: 16 }}>
           <TokensList
             holdings={networkLoading ? [] : tokenHoldings}
             isLoading={isHoldingsLoading || networkLoading}
@@ -295,7 +330,7 @@ export default function WalletScreen() {
         </View>
 
         {/* Activity feed */}
-        <View>
+        <View style={{ marginTop: 16 }}>
           <ActivityFeed
             transactions={networkLoading ? [] : walletTransactions}
             tokenHoldings={networkLoading ? [] : tokenHoldings}
@@ -304,7 +339,7 @@ export default function WalletScreen() {
             onShowAll={handleShowAllActivity}
           />
         </View>
-      </ScrollView>
+      </AnimatedScrollView>
 
       <SendSheet
         open={isSendOpen}

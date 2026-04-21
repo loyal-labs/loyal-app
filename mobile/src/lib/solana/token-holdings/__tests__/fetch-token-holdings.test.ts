@@ -1,5 +1,59 @@
-import type { TokenHolding } from "../types";
-import { enrichHoldingsWithJupiterPrices } from "../fetch-token-holdings";
+import type { HeliusAsset, TokenHolding } from "../types";
+import {
+  enrichHoldingsWithJupiterPrices,
+  mapAssetToHolding,
+} from "../fetch-token-holdings";
+
+describe("mapAssetToHolding", () => {
+  const baseAsset: HeliusAsset = {
+    id: "MintXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    interface: "FungibleToken",
+    token_info: {
+      symbol: "FOO",
+      balance: 1_000_000,
+      decimals: 6,
+    },
+    content: {
+      metadata: { name: "Foo Token", symbol: "FOO" },
+    },
+  };
+
+  it("returns a holding for FungibleToken assets", () => {
+    expect(mapAssetToHolding(baseAsset)).toMatchObject({
+      mint: baseAsset.id,
+      symbol: "FOO",
+      balance: 1,
+      decimals: 6,
+    });
+  });
+
+  it("returns a holding for FungibleAsset (token-2022 with extensions)", () => {
+    expect(
+      mapAssetToHolding({ ...baseAsset, interface: "FungibleAsset" }),
+    ).not.toBeNull();
+  });
+
+  it("drops Seeker Genesis Token and other NFT-like assets", () => {
+    const sbtAsset: HeliusAsset = {
+      ...baseAsset,
+      id: "SeekerGenesisToken1111111111111111111111111",
+      interface: "V1_NFT",
+      token_info: { symbol: "SeekerGT", balance: 1, decimals: 0 },
+      content: { metadata: { name: "Seeker Genesis Token", symbol: "SeekerGT" } },
+    };
+    expect(mapAssetToHolding(sbtAsset)).toBeNull();
+
+    for (const iface of ["V2_NFT", "ProgrammableNFT", "MplCoreAsset", "Custom"]) {
+      expect(mapAssetToHolding({ ...baseAsset, interface: iface })).toBeNull();
+    }
+  });
+
+  it("returns null when token_info is missing", () => {
+    expect(
+      mapAssetToHolding({ ...baseAsset, token_info: undefined }),
+    ).toBeNull();
+  });
+});
 
 describe("enrichHoldingsWithJupiterPrices", () => {
   it("fills missing token price and value from Jupiter search", async () => {

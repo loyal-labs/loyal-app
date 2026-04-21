@@ -1,4 +1,4 @@
-import { Globe, History } from "lucide-react-native";
+import { Globe } from "lucide-react-native";
 import { useEffect, useState } from "react";
 
 import { buildOriginFaviconUrl } from "../model/origin";
@@ -9,19 +9,14 @@ import { View } from "@/tw";
 type SiteAvatarProps = {
   origin: string;
   size?: number;
-  fallback: "globe" | "history";
   rounded?: number;
+  fallback?: "globe";
 };
 
 const SURFACE = "rgba(60, 60, 67, 0.08)";
 const CORAL = "#f97362";
 
-export function SiteAvatar({
-  origin,
-  size = 44,
-  fallback,
-  rounded = 14,
-}: SiteAvatarProps) {
+export function SiteAvatar({ origin, size = 44, rounded = 14 }: SiteAvatarProps) {
   const [didError, setDidError] = useState(false);
 
   useEffect(() => {
@@ -29,7 +24,6 @@ export function SiteAvatar({
   }, [origin]);
 
   const faviconUrl = buildOriginFaviconUrl(origin);
-  const Icon = fallback === "history" ? History : Globe;
 
   return (
     <View
@@ -42,11 +36,7 @@ export function SiteAvatar({
       }}
     >
       {didError ? (
-        <Icon
-          size={Math.max(18, Math.round(size * 0.42))}
-          color={fallback === "history" ? "#000" : CORAL}
-          strokeWidth={2}
-        />
+        <Globe size={Math.max(18, Math.round(size * 0.42))} color={CORAL} strokeWidth={2} />
       ) : (
         <Image
           source={faviconUrl}

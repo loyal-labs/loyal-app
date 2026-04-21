@@ -20,9 +20,19 @@ import {
   ClipboardPaste,
   ScanLine,
   ShieldCheck,
+  X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Keyboard } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  Keyboard,
+  Modal,
+  StatusBar,
+  StyleSheet,
+  useWindowDimensions,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useShield } from "@/hooks/wallet/useShield";
 import { NATIVE_SOL_MINT, SOLANA_FEE_SOL } from "@/lib/solana/constants";
@@ -611,6 +621,7 @@ export function SendSheet({
     : `${sendFeeReserveSol} SOL`;
 
   return (
+    <>
     <BottomSheetModal
       ref={bottomSheetRef}
       snapPoints={["92%"]}
@@ -627,15 +638,10 @@ export function SendSheet({
         <View className="px-6 pb-12 pt-2">
           {/* Header */}
           <View className="mb-4 flex-row items-center justify-center">
-            {(step === "confirm" || showTokenPicker || showQrScanner) && (
+            {(step === "confirm" || showTokenPicker) && (
               <Pressable
                 className="absolute left-0"
                 onPress={() => {
-                  if (showQrScanner) {
-                    setShowQrScanner(false);
-                    setScanError(null);
-                    return;
-                  }
                   if (showTokenPicker) {
                     setShowTokenPicker(false);
                     return;
@@ -650,9 +656,7 @@ export function SendSheet({
               className="text-[17px] font-semibold text-black"
               style={{ lineHeight: 22 }}
             >
-              {showQrScanner
-                ? "Scan QR"
-                : showTokenPicker
+              {showTokenPicker
                 ? "Select Token"
                 : step === "form"
                 ? "Send"
@@ -664,15 +668,7 @@ export function SendSheet({
 
           {step === "form" && (
             <>
-              {showQrScanner ? (
-                <AddressScannerStep
-                  scanError={scanError}
-                  onScan={handleBarcodeScanned}
-                  onRequestPermission={requestCameraPermission}
-                  permissionGranted={cameraPermission?.granted === true}
-                  canAskPermissionAgain={cameraPermission?.canAskAgain !== false}
-                />
-              ) : showTokenPicker ? (
+              {showTokenPicker ? (
                 <TokenPicker
                   assets={sendAssets}
                   onSelect={handleSelectAsset}
@@ -738,6 +734,19 @@ export function SendSheet({
         </View>
       </BottomSheetScrollView>
     </BottomSheetModal>
+    <QrScannerModal
+      visible={showQrScanner}
+      onClose={() => {
+        setShowQrScanner(false);
+        setScanError(null);
+      }}
+      onScan={handleBarcodeScanned}
+      scanError={scanError}
+      permissionGranted={cameraPermission?.granted === true}
+      canAskPermissionAgain={cameraPermission?.canAskAgain !== false}
+      onRequestPermission={requestCameraPermission}
+    />
+    </>
   );
 }
 
@@ -865,6 +874,15 @@ function FormStep({
     imageUrl: selectedAsset?.imageUrl,
   });
 
+  const [isRecipientFocused, setIsRecipientFocused] = useState(false);
+  const shouldTruncateRecipient =
+    !isRecipientFocused &&
+    recipient.length > 16 &&
+    !recipient.startsWith("@");
+  const displayedRecipient = shouldTruncateRecipient
+    ? `${recipient.slice(0, 6)}…${recipient.slice(-6)}`
+    : recipient;
+
   return (
     <>
       {/* Recipient */}
@@ -883,8 +901,17 @@ function FormStep({
           }}
           placeholder="Wallet address or @username"
           placeholderTextColor="#999"
-          value={recipient}
-          onChangeText={onRecipientChange}
+          value={displayedRecipient}
+          onChangeText={(value) => {
+            // While blurred we render a synthetic truncated string. Ignore
+            // change events for it so the real address isn't clobbered. Once
+            // focused, the displayed value becomes the real value and edits
+            // flow through normally.
+            if (!isRecipientFocused) return;
+            onRecipientChange(value);
+          }}
+          onFocus={() => setIsRecipientFocused(true)}
+          onBlur={() => setIsRecipientFocused(false)}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -1041,68 +1068,216 @@ function FormStep({
   );
 }
 
-function AddressScannerStep({
+function QrScannerModal({
+  visible,
+  onClose,
+  onScan,
+  scanError,
   permissionGranted,
   canAskPermissionAgain,
   onRequestPermission,
-  onScan,
-  scanError,
 }: {
+  visible: boolean;
+  onClose: () => void;
+  onScan: (event: BarcodeScanningResult) => void;
+  scanError: string | null;
   permissionGranted: boolean;
   canAskPermissionAgain: boolean;
   onRequestPermission: () => Promise<{ granted: boolean }>;
-  onScan: (event: BarcodeScanningResult) => void;
-  scanError: string | null;
 }) {
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const frameSize = Math.min(280, Math.round(screenWidth * 0.72));
+  // Center the frame slightly above geometric middle so the instruction text
+  // and permission UI have breathing room below.
+  const sideStripHeight = Math.max(0, (screenHeight - frameSize) / 2 - 40);
+
   const handleGrantPermission = useCallback(async () => {
     await onRequestPermission();
   }, [onRequestPermission]);
 
-  if (!permissionGranted) {
-    return (
-      <View className="items-center rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
-        <Text className="text-center text-[14px] text-neutral-600">
-          Camera access is required to scan wallet address QR codes.
-        </Text>
-        {canAskPermissionAgain ? (
-          <Pressable
-            className="mt-4 rounded-xl bg-black px-4 py-2.5"
-            onPress={handleGrantPermission}
-          >
-            <Text className="text-[13px] font-semibold text-white">
-              Grant Camera Access
-            </Text>
-          </Pressable>
-        ) : (
-          <Text className="mt-3 text-center text-[12px] text-neutral-500">
-            Enable camera permission in device settings.
-          </Text>
-        )}
-      </View>
-    );
-  }
-
   return (
-    <>
-      <View className="overflow-hidden rounded-2xl border border-neutral-200 bg-black">
-        <CameraView
-          style={{ height: 360, width: "100%" }}
-          facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-          onBarcodeScanned={onScan}
-        />
+    <Modal
+      visible={visible}
+      animationType="fade"
+      presentationStyle="overFullScreen"
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <StatusBar barStyle="light-content" />
+      <View style={qrScannerStyles.root}>
+        {permissionGranted ? (
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+            onBarcodeScanned={onScan}
+          />
+        ) : null}
+
+        {/* Dim overlay with centered transparent frame */}
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+          <View style={[qrScannerStyles.dim, { height: sideStripHeight }]} />
+          <View style={[qrScannerStyles.middleRow, { height: frameSize }]}>
+            <View style={[qrScannerStyles.dim, qrScannerStyles.flex1]} />
+            <View style={{ width: frameSize, height: frameSize }}>
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketTopLeftH]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketTopLeftV]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketTopRightH]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketTopRightV]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketBottomLeftH]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketBottomLeftV]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketBottomRightH]} />
+              <View style={[qrScannerStyles.bracket, qrScannerStyles.bracketBottomRightV]} />
+            </View>
+            <View style={[qrScannerStyles.dim, qrScannerStyles.flex1]} />
+          </View>
+          <View style={[qrScannerStyles.dim, qrScannerStyles.flex1]} />
+        </View>
+
+        {/* Header: title + close */}
+        <View
+          style={{
+            position: "absolute",
+            top: insets.top + 12,
+            left: 0,
+            right: 0,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: 16,
+          }}
+        >
+          <Text className="text-[17px] font-semibold text-white" style={{ lineHeight: 22 }}>
+            Scan QR
+          </Text>
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close scanner"
+            hitSlop={12}
+            style={{
+              position: "absolute",
+              right: 16,
+              top: -6,
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(0,0,0,0.45)",
+            }}
+          >
+            <X size={20} color="#fff" strokeWidth={2} />
+          </Pressable>
+        </View>
+
+        {/* Footer: instruction + permission CTA + error */}
+        <View
+          style={{
+            position: "absolute",
+            bottom: insets.bottom + 28,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 32,
+            alignItems: "center",
+          }}
+        >
+          {permissionGranted ? (
+            <Text className="text-center text-[14px] text-white" style={{ opacity: 0.85 }}>
+              Align a wallet QR code inside the frame
+            </Text>
+          ) : canAskPermissionAgain ? (
+            <>
+              <Text className="mb-3 text-center text-[14px] text-white" style={{ opacity: 0.85 }}>
+                Camera access is required to scan QR codes
+              </Text>
+              <Pressable
+                onPress={handleGrantPermission}
+                className="rounded-full bg-white px-5 py-2.5"
+              >
+                <Text className="text-[14px] font-semibold text-black">
+                  Grant Camera Access
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <Text className="text-center text-[14px] text-white" style={{ opacity: 0.85 }}>
+              Enable camera permission in device settings
+            </Text>
+          )}
+          {scanError ? (
+            <Text className="mt-3 text-center text-[13px] text-red-400">
+              {scanError}
+            </Text>
+          ) : null}
+        </View>
       </View>
-      <Text className="mt-3 text-center text-[13px] text-neutral-500">
-        Align a wallet QR code inside the frame.
-      </Text>
-      {scanError && (
-        <Text className="mt-2 text-center text-[12px] text-red-500">
-          {scanError}
-        </Text>
-      )}
-    </>
+    </Modal>
   );
 }
+
+const SCANNER_DIM = "rgba(0, 0, 0, 0.65)";
+const BRACKET_THICKNESS = 3;
+const BRACKET_LENGTH = 26;
+const BRACKET_OFFSET = -BRACKET_THICKNESS;
+
+const qrScannerStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#000" },
+  flex1: { flex: 1 },
+  dim: { backgroundColor: SCANNER_DIM },
+  middleRow: { flexDirection: "row" },
+  bracket: { position: "absolute", backgroundColor: "#fff", borderRadius: 1.5 },
+  bracketTopLeftH: {
+    top: BRACKET_OFFSET,
+    left: BRACKET_OFFSET,
+    width: BRACKET_LENGTH,
+    height: BRACKET_THICKNESS,
+  },
+  bracketTopLeftV: {
+    top: BRACKET_OFFSET,
+    left: BRACKET_OFFSET,
+    width: BRACKET_THICKNESS,
+    height: BRACKET_LENGTH,
+  },
+  bracketTopRightH: {
+    top: BRACKET_OFFSET,
+    right: BRACKET_OFFSET,
+    width: BRACKET_LENGTH,
+    height: BRACKET_THICKNESS,
+  },
+  bracketTopRightV: {
+    top: BRACKET_OFFSET,
+    right: BRACKET_OFFSET,
+    width: BRACKET_THICKNESS,
+    height: BRACKET_LENGTH,
+  },
+  bracketBottomLeftH: {
+    bottom: BRACKET_OFFSET,
+    left: BRACKET_OFFSET,
+    width: BRACKET_LENGTH,
+    height: BRACKET_THICKNESS,
+  },
+  bracketBottomLeftV: {
+    bottom: BRACKET_OFFSET,
+    left: BRACKET_OFFSET,
+    width: BRACKET_THICKNESS,
+    height: BRACKET_LENGTH,
+  },
+  bracketBottomRightH: {
+    bottom: BRACKET_OFFSET,
+    right: BRACKET_OFFSET,
+    width: BRACKET_LENGTH,
+    height: BRACKET_THICKNESS,
+  },
+  bracketBottomRightV: {
+    bottom: BRACKET_OFFSET,
+    right: BRACKET_OFFSET,
+    width: BRACKET_THICKNESS,
+    height: BRACKET_LENGTH,
+  },
+});
 
 function TokenPicker({
   assets,

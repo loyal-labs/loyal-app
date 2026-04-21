@@ -1,10 +1,12 @@
 import {
+  BottomSheetBackdrop,
   BottomSheetFlatList,
   BottomSheetModal,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
@@ -75,7 +77,20 @@ function TokenRow({
 
 export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
   function TokensSheet({ holdings, onTokenPress }, ref) {
-    const snapPoints = useMemo(() => ["70%", "90%"], []);
+    const insets = useSafeAreaInsets();
+    const snapPoints = useMemo(() => ["70%", "100%"], []);
+
+    const renderBackdrop = useCallback(
+      (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
+        <BottomSheetBackdrop
+          {...props}
+          disappearsOnIndex={-1}
+          appearsOnIndex={0}
+          opacity={0.3}
+        />
+      ),
+      [],
+    );
 
     const displayHoldings = useMemo(
       () => getDisplayTokenHoldings(holdings),
@@ -102,7 +117,9 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
       <BottomSheetModal
         ref={ref}
         snapPoints={snapPoints}
+        topInset={insets.top}
         enableDynamicSizing={false}
+        backdropComponent={renderBackdrop}
       >
         <BottomSheetView className="px-4 pb-2">
           <Text

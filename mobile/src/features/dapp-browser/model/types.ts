@@ -6,13 +6,6 @@ export type TrustedDapp = {
   startUrl: string;
 };
 
-export type DappHistoryEntry = {
-  origin: string;
-  url: string;
-  title: string | null;
-  lastVisitedAt: number;
-};
-
 export type PendingApproval = {
   requestId: string;
   origin: string;

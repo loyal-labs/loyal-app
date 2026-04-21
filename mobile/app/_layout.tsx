@@ -92,6 +92,10 @@ export default function RootLayout() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="browser/site"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
               name="login"
               options={{ headerShown: false, presentation: "modal" }}
             />

@@ -16,7 +16,7 @@ import {
   ShieldOff,
   Twitter,
 } from "lucide-react-native";
-import { type ReactNode, useCallback, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Linking } from "react-native";
 import Svg, {
   Circle,
@@ -42,7 +42,8 @@ import { Pressable, ScrollView, Text, View } from "@/tw";
 
 import {
   buildTokenChartCoordinates,
-  buildTokenChartPath,
+  buildTokenChartSplinePath,
+  downsampleTokenChartPoints,
   formatTokenChartTimeLabel,
   getTokenChartPointIndex,
 } from "../chart";
@@ -149,13 +150,6 @@ function buildMarketRows(market: TokenDetailViewModel["market"]) {
       label: "FDV",
       value: market?.fdvUsd != null ? formatCompactUsd(market.fdvUsd) : null,
     },
-    {
-      label: "Holders",
-      value:
-        market?.holderCount != null
-          ? new Intl.NumberFormat("en-US").format(market.holderCount)
-          : null,
-    },
   ].filter((row): row is { label: string; value: string } => row.value !== null);
 }
 
@@ -183,6 +177,13 @@ function TokenLineChart({
     },
     [chartWidth, onActivePointIndexChange, points],
   );
+  // Downsample raw points (often 1/min over 24h = 1440) into ~120 buckets so
+  // sub-bucket noise stops dominating the line shape, then render with a
+  // monotone cubic spline so the result reads as a smooth trend curve.
+  const smoothedPoints = useMemo(
+    () => downsampleTokenChartPoints(points, 120),
+    [points],
+  );
 
   if (loading && points.length === 0) {
     return (
@@ -206,14 +207,29 @@ function TokenLineChart({
   }
 
   const lineColor = points[points.length - 1].priceUsd >= points[0].priceUsd ? GREEN : CORAL;
-  const coordinates = buildTokenChartCoordinates(points, chartWidth, chartHeight, {
-    topInset: chartTopInset,
-    bottomInset: chartBottomInset,
-  });
-  const path = buildTokenChartPath(coordinates);
+  const coordinates = buildTokenChartCoordinates(
+    smoothedPoints,
+    chartWidth,
+    chartHeight,
+    { topInset: chartTopInset, bottomInset: chartBottomInset },
+  );
+  const path = buildTokenChartSplinePath(coordinates);
+  // The tooltip indexes into the RAW point array (parent passes raw index in).
+  // Map that back to the nearest smoothed coord so the active circle still
+  // sits on the rendered curve.
+  const activeSmoothedIdx =
+    activePointIndex != null && points.length > 1 && smoothedPoints.length > 1
+      ? Math.min(
+          smoothedPoints.length - 1,
+          Math.round(
+            (activePointIndex / (points.length - 1)) *
+              (smoothedPoints.length - 1),
+          ),
+        )
+      : null;
   const activePoint =
-    activePointIndex != null && coordinates[activePointIndex]
-      ? coordinates[activePointIndex]
+    activeSmoothedIdx != null && coordinates[activeSmoothedIdx]
+      ? coordinates[activeSmoothedIdx]
       : null;
 
   return (
@@ -367,13 +383,45 @@ function ActionRailButton({
   );
 }
 
-function StatRow({ label, value }: { label: string; value: string }) {
+/**
+ * Stat tile — small muted label stacked over a semibold value. Designed to be
+ * placed in a 2-column grid so groups of stats read as a clean dashboard.
+ * Optional leadingIcon renders inline with the label (e.g. shield badge).
+ */
+function StatTile({
+  label,
+  value,
+  leadingIcon,
+}: {
+  label: string;
+  value: string;
+  leadingIcon?: ReactNode;
+}) {
   return (
-    <View className="flex-row items-center justify-between py-2.5">
-      <Text className="text-[14px]" style={{ color: MUTED_TEXT }}>
-        {label}
+    <View
+      className="rounded-2xl px-3 py-3"
+      style={{
+        backgroundColor: "rgba(0, 0, 0, 0.03)",
+        flexBasis: "48%",
+        flexGrow: 1,
+      }}
+    >
+      <View className="flex-row items-center gap-1">
+        {leadingIcon}
+        <Text
+          className="text-[12px]"
+          style={{ color: MUTED_TEXT }}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      </View>
+      <Text
+        className="mt-1 text-[15px] font-semibold text-black"
+        numberOfLines={1}
+      >
+        {value}
       </Text>
-      <Text className="text-[14px] font-medium text-black">{value}</Text>
     </View>
   );
 }
@@ -525,20 +573,26 @@ function TrustCard({ info }: { info: TokenDetailViewModel["info"] }) {
 
 function DistributionCard({
   distribution,
+  holderCount,
 }: {
   distribution: NonNullable<
     NonNullable<TokenDetailViewModel["info"]>["holderDistribution"]
   >;
+  holderCount: number | null;
 }) {
   const top10 = Number.parseFloat(distribution.top10);
   const rest = Number.parseFloat(distribution.rest);
   if (!Number.isFinite(top10) || !Number.isFinite(rest)) {
     return null;
   }
+  const formattedHolders =
+    holderCount != null
+      ? new Intl.NumberFormat("en-US").format(holderCount)
+      : null;
   return (
-    <SectionCard title="Distribution">
+    <SectionCard title="Holders">
       <View
-        className="h-[10px] flex-row overflow-hidden rounded-full"
+        className="h-[6px] flex-row overflow-hidden rounded-full"
         style={{ backgroundColor: "rgba(0,0,0,0.06)" }}
       >
         <View
@@ -548,7 +602,7 @@ function DistributionCard({
           }}
         />
       </View>
-      <View className="mt-3 flex-row justify-between">
+      <View className="mt-3 flex-row items-center justify-between">
         <Text className="text-[13px]" style={{ color: MUTED_TEXT }}>
           Top 10: {top10.toFixed(1)}%
         </Text>
@@ -556,6 +610,14 @@ function DistributionCard({
           Rest: {rest.toFixed(1)}%
         </Text>
       </View>
+      {formattedHolders ? (
+        <Text
+          className="mt-3 text-[13px]"
+          style={{ color: MUTED_TEXT }}
+        >
+          {formattedHolders} total holders
+        </Text>
+      ) : null}
     </SectionCard>
   );
 }
@@ -765,54 +827,73 @@ function TokenDetailBody({
             </View>
           ) : (
             <>
+              {/* Headline total: balance + USD value side-by-side */}
               <View
-                className="mb-4 rounded-[22px] px-4 py-4"
+                className="rounded-[22px] px-4 py-4"
                 style={{
-                  backgroundColor: "#ffffff",
-                  borderColor: "#f2f2f7",
-                  borderWidth: 2,
+                  backgroundColor: PRICE_CARD_BACKGROUND,
                 }}
               >
-                <Text className="text-[12px]" style={{ color: MUTED_TEXT }}>
-                  Total
-                </Text>
-                <Text className="mt-1 text-[28px] font-semibold text-black">
-                  {formatBalance(viewModel.position.totalBalance)} {viewModel.token.symbol}
-                </Text>
-                <Text className="mt-4 text-[12px]" style={{ color: MUTED_TEXT }}>
-                  Value
-                </Text>
-                <Text className="mt-1 text-[24px] font-semibold" style={{ color: CORAL }}>
-                  {formatCurrency(viewModel.position.totalValueUsd)}
-                </Text>
+                <View className="flex-row items-end justify-between gap-3">
+                  <View className="flex-1">
+                    <Text className="text-[12px]" style={{ color: MUTED_TEXT }}>
+                      Total
+                    </Text>
+                    <Text
+                      className="mt-1 text-[24px] font-semibold text-black"
+                      numberOfLines={1}
+                    >
+                      {formatBalance(viewModel.position.totalBalance)}{" "}
+                      {viewModel.token.symbol}
+                    </Text>
+                  </View>
+                  <View className="items-end">
+                    <Text className="text-[12px]" style={{ color: MUTED_TEXT }}>
+                      Value
+                    </Text>
+                    <Text
+                      className="mt-1 text-[20px] font-semibold"
+                      style={{ color: CORAL }}
+                      numberOfLines={1}
+                    >
+                      {formatCurrency(viewModel.position.totalValueUsd)}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <StatRow
-                label="Public"
-                value={`${formatBalance(viewModel.position.publicBalance)} ${viewModel.token.symbol}`}
-              />
-              <StatRow
-                label="Shielded"
-                value={`${formatBalance(viewModel.position.shieldedBalance)} ${viewModel.token.symbol}`}
-              />
+
+              {/* Public / Shielded breakdown as paired tiles */}
+              <View className="mt-3 flex-row gap-3">
+                <StatTile
+                  label="Public"
+                  value={`${formatBalance(viewModel.position.publicBalance)} ${viewModel.token.symbol}`}
+                />
+                <StatTile
+                  label="Shielded"
+                  leadingIcon={
+                    <ShieldCheck size={12} color={CORAL} strokeWidth={2} />
+                  }
+                  value={`${formatBalance(viewModel.position.shieldedBalance)} ${viewModel.token.symbol}`}
+                />
+              </View>
             </>
           )}
         </SectionCard>
 
-        <SectionCard
-          title="Market Stats"
-          subtitle={loading ? "Fetching market data." : "Free-tier market snapshot."}
-        >
+        <SectionCard title="Market">
           {marketRows.length > 0 ? (
-            marketRows.map((row) => (
-              <StatRow key={row.label} label={row.label} value={row.value} />
-            ))
+            <View className="flex-row flex-wrap gap-3">
+              {marketRows.map((row) => (
+                <StatTile key={row.label} label={row.label} value={row.value} />
+              ))}
+            </View>
           ) : (
             <Text className="text-[14px]" style={{ color: MUTED_TEXT }}>
               Market stats unavailable right now.
             </Text>
           )}
           {!loading && !viewModel.market && error ? (
-            <Text className="pt-2 text-[13px]" style={{ color: MUTED_TEXT }}>
+            <Text className="pt-3 text-[13px]" style={{ color: MUTED_TEXT }}>
               {error}
             </Text>
           ) : null}
@@ -825,7 +906,10 @@ function TokenDetailBody({
         <TrustCard info={viewModel.info} />
 
         {viewModel.info?.holderDistribution ? (
-          <DistributionCard distribution={viewModel.info.holderDistribution} />
+          <DistributionCard
+            distribution={viewModel.info.holderDistribution}
+            holderCount={viewModel.market?.holderCount ?? null}
+          />
         ) : null}
 
         <LinksCard links={viewModel.links} />

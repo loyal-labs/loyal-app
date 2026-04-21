@@ -65,12 +65,18 @@ function formatPriceChange(
     return { text: null, tone: null };
   }
 
-  const sign = value > 0 ? "+" : "";
-  const tone =
-    value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+  // Round before deciding sign so values like -0.001 render as "0.00%" with
+  // neutral tone instead of "-0.00%" in red.
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded === 0) {
+    return { text: "0.00%", tone: "neutral" };
+  }
+
+  const sign = rounded > 0 ? "+" : "";
+  const tone = rounded > 0 ? "positive" : "negative";
 
   return {
-    text: `${sign}${value.toFixed(2)}%`,
+    text: `${sign}${rounded.toFixed(2)}%`,
     tone,
   };
 }

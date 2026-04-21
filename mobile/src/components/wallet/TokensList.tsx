@@ -71,7 +71,7 @@ function TokenRow({
           {holding.isSecured && (
             <RNImage
               source={shieldBadge}
-              style={{ position: "absolute", bottom: 4, right: 10, width: 24, height: 24 }}
+              style={{ position: "absolute", bottom: -2, right: 4, width: 24, height: 24 }}
             />
           )}
         </View>
@@ -233,14 +233,40 @@ export function TokensList({
 
   const totalCount = allDisplayHoldings.length;
 
+  const showSeeAll = totalCount > maxItems;
+
   return (
     <View className="px-4">
-      <Text
-        className="pb-2 pt-3 text-[16px] font-medium text-black"
-        style={{ letterSpacing: -0.176 }}
-      >
-        Tokens
-      </Text>
+      <View style={{ position: "relative" }}>
+        <Text
+          className="pb-2 pt-3 text-[16px] font-medium text-black"
+          style={{ letterSpacing: -0.176 }}
+        >
+          Tokens
+        </Text>
+        {showSeeAll ? (
+          <Pressable
+            onPress={onSeeAll}
+            hitSlop={8}
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              bottom: 0,
+              justifyContent: "center",
+            }}
+          >
+            {({ pressed }) => (
+              <Text
+                className="text-[16px]"
+                style={{ color: "#F9363C", opacity: pressed ? 0.7 : 1 }}
+              >
+                See All
+              </Text>
+            )}
+          </Pressable>
+        ) : null}
+      </View>
       <View className="gap-2">
         {displayHoldings.map((holding) => (
           <TokenRow
@@ -251,19 +277,6 @@ export function TokensList({
           />
         ))}
       </View>
-      {totalCount > maxItems && (
-        <View className="mt-2 items-center">
-          <Pressable
-            className="flex-row items-center gap-1.5 rounded-full px-4 py-1.5"
-            style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
-            onPress={onSeeAll}
-          >
-            <Text className="text-[15px] text-black">
-              Show All
-            </Text>
-          </Pressable>
-        </View>
-      )}
     </View>
   );
 }

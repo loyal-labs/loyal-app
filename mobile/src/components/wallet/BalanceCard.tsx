@@ -1,17 +1,19 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { Copy, RefreshCcw } from "lucide-react-native";
-import { useState } from "react";
+import { Brush, Copy, RefreshCcw } from "lucide-react-native";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 
+import {
+  type BalanceBackgroundOption,
+  findBalanceBackground,
+} from "@/lib/wallet/balance-backgrounds";
 import type { KaminoUsdcEarnings } from "@/lib/solana/deposits/kamino-earnings";
 import { formatAddress } from "@/lib/solana/wallet/formatters";
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
 import { Pressable, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
-
-const DEFAULT_BALANCE_BG = require("../../../assets/images/balance-bg-default.png");
 
 type BalanceCardProps = {
   walletAddress: string | null;
@@ -27,6 +29,11 @@ type BalanceCardProps = {
   earnings?: KaminoUsdcEarnings | null;
   showTopUpAction?: boolean;
   onTopUpPress?: () => void;
+  /** id of the active balance background (null = no image). */
+  balanceBg?: string | null;
+  /** Hide brush button until preference has been hydrated. */
+  bgLoaded?: boolean;
+  onOpenBgPicker?: () => void;
 };
 
 function formatEarnedPct(pct: number): string {
@@ -53,7 +60,28 @@ export function BalanceCard({
   earnings,
   showTopUpAction = false,
   onTopUpPress,
+  balanceBg,
+  bgLoaded = true,
+  onOpenBgPicker,
 }: BalanceCardProps) {
+  const activeBg: BalanceBackgroundOption | undefined = useMemo(
+    () => findBalanceBackground(balanceBg ?? null),
+    [balanceBg],
+  );
+  const bgSource = activeBg?.source ?? null;
+  const hasBg = bgSource !== null;
+  const primaryTextColor = hasBg ? "#ffffff" : "#1c1c1e";
+  const mutedTextColor = hasBg
+    ? "rgba(255, 255, 255, 0.7)"
+    : "rgba(60, 60, 67, 0.6)";
+
+  const handleOpenBgPicker = () => {
+    if (!onOpenBgPicker) return;
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onOpenBgPicker();
+  };
   const showEarningsPill =
     !!earnings && earnings.earnedUsd > 0 && earnings.earnedPct > 0;
   const [addressCopied, setAddressCopied] = useState(false);
@@ -129,12 +157,14 @@ export function BalanceCard({
           className="absolute inset-0"
           style={{ backgroundColor: "#f2f2f7" }}
         />
-        <Image
-          source={DEFAULT_BALANCE_BG}
-          style={styles.bgImage}
-          contentFit="cover"
-          transition={120}
-        />
+        {bgSource ? (
+          <Image
+            source={bgSource}
+            style={styles.bgImage}
+            contentFit="cover"
+            transition={120}
+          />
+        ) : null}
         <View
           className="absolute inset-0"
           style={{ backgroundColor: "rgba(255,255,255,0.08)" }}
@@ -170,17 +200,17 @@ export function BalanceCard({
                     onPress={handleCopyAddress}
                     className="flex-row items-center gap-1 self-start"
                   >
-                    <Copy size={16} strokeWidth={1.5} color="rgba(255,255,255,0.7)" />
+                    <Copy size={16} strokeWidth={1.5} color={mutedTextColor} />
                     <Text
-                      className="text-[17px] text-white/80"
-                      style={{ lineHeight: 22 }}
+                      className="text-[17px]"
+                      style={{ lineHeight: 22, color: primaryTextColor }}
                     >
                       {addressCopied ? "Copied!" : formatAddress(walletAddress)}
                     </Text>
                   </Pressable>
                   <Text
-                    className="ml-0.5 text-[13px] capitalize text-white/70"
-                    style={{ lineHeight: 18 }}
+                    className="ml-0.5 text-[13px] capitalize"
+                    style={{ lineHeight: 18, color: mutedTextColor }}
                   >
                     Solana {solanaEnv}
                   </Text>
@@ -199,7 +229,10 @@ export function BalanceCard({
                 <View className="self-start">
                   <View className="flex-row items-center gap-3">
                     <Pressable onPress={handleToggle}>
-                      <Text className="text-[40px] font-semibold leading-[48px] text-white">
+                      <Text
+                        className="text-[40px] font-semibold leading-[48px]"
+                        style={{ color: primaryTextColor }}
+                      >
                         {formatPrimary()}
                       </Text>
                     </Pressable>
@@ -225,11 +258,14 @@ export function BalanceCard({
                     </View>
                   )}
                   <Text
-                    className="mt-1 text-[17px] text-white/60"
-                    style={{ lineHeight: 22 }}
+                    className="mt-1 text-[17px]"
+                    style={{ lineHeight: 22, color: mutedTextColor }}
                   >
                     {solPriceUsd !== null ? formatSecondary() : (
-                      <ActivityIndicator size="small" color="rgba(255,255,255,0.4)" />
+                      <ActivityIndicator
+                        size="small"
+                        color={hasBg ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
+                      />
                     )}
                   </Text>
                 </View>
@@ -237,6 +273,33 @@ export function BalanceCard({
             </View>
           </View>
         )}
+
+        {bgLoaded && onOpenBgPicker ? (
+          <Pressable
+            onPress={handleOpenBgPicker}
+            style={[
+              styles.bgPickerBtn,
+              {
+                backgroundColor: hasBg
+                  ? "rgba(255, 255, 255, 0.18)"
+                  : "rgba(0, 0, 0, 0.06)",
+              },
+            ]}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel="Change balance background"
+          >
+            <Brush
+              size={18}
+              strokeWidth={1.5}
+              color={
+                hasBg
+                  ? "rgba(255, 255, 255, 0.85)"
+                  : "rgba(60, 60, 67, 0.7)"
+              }
+            />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -246,6 +309,16 @@ const styles = StyleSheet.create({
   bgImage: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 26,
+  },
+  bgPickerBtn: {
+    position: "absolute",
+    bottom: 12,
+    right: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
   },
   earningsRow: {
     flexDirection: "row",

@@ -1,7 +1,9 @@
-// Persistent key-value storage with graceful fallback.
-// react-native-mmkv v4 (Nitro Modules) can hang during import on some
-// Expo/RN configurations, so we use dynamic require() to avoid blocking
-// the entire module graph.
+// Persistent key-value storage backed by react-native-mmkv (sync, fast).
+// Falls back to an in-memory Map when the native module isn't available
+// (e.g. during Jest tests or web bundle evaluation), so callers never
+// have to branch on environment.
+
+import { MMKV } from "react-native-mmkv";
 
 interface StorageAdapter {
   getString(key: string): string | undefined;
@@ -39,16 +41,29 @@ function createInMemoryStorage(): StorageAdapter {
   };
 }
 
+function createMmkvStorage(): StorageAdapter | null {
+  try {
+    const instance = new MMKV({ id: "loyal-app-storage" });
+    return {
+      getString: (key) => instance.getString(key),
+      getNumber: (key) => instance.getNumber(key),
+      getBoolean: (key) => instance.getBoolean(key),
+      set: (key, value) => instance.set(key, value),
+      delete: (key) => instance.delete(key),
+      contains: (key) => instance.contains(key),
+    };
+  } catch (error) {
+    console.warn(
+      "[storage] MMKV unavailable, falling back to in-memory storage.",
+      error,
+    );
+    return null;
+  }
+}
+
 function getStorage(): StorageAdapter {
   if (_storage) return _storage;
-
-  // In-memory only for now. MMKV v4 (Nitro Modules) has compatibility
-  // issues with this Expo/RN setup. Replace with AsyncStorage or
-  // downgrade MMKV to v2 if persistence is needed before a fix lands.
-  console.warn(
-    "[storage] Using in-memory storage. Data won't persist across restarts.",
-  );
-  _storage = createInMemoryStorage();
+  _storage = createMmkvStorage() ?? createInMemoryStorage();
   return _storage;
 }
 

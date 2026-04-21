@@ -1,6 +1,7 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import {
   Bell,
   ChevronRight,
@@ -124,7 +125,9 @@ export default function ProfileScreen() {
   const [bioPinError, setBioPinError] = useState<string | null>(null);
 
   const wallet = useWallet();
+  const router = useRouter();
   const isUnlocked = isWalletUnlocked(wallet.state);
+  const isVaultBacked = wallet.state === "vault-unlocked";
 
   useEffect(() => {
     isBiometricAvailable().then(setBiometricsAvailable);
@@ -250,11 +253,16 @@ export default function ProfileScreen() {
         {
           text: "Reset",
           style: "destructive",
-          onPress: () => wallet.resetWallet(),
+          onPress: async () => {
+            await wallet.resetWallet();
+            // Land on the wallet tab so re-onboarding completion reveals the
+            // wallet UI rather than the Settings page the user just left.
+            router.replace("/");
+          },
         },
       ],
     );
-  }, [wallet]);
+  }, [router, wallet]);
 
   return (
     <View className="flex-1 bg-white">
@@ -309,10 +317,12 @@ export default function ProfileScreen() {
           />
         </SettingsSection>
 
-        {/* Wallet Management — only when unlocked */}
+        {/* Wallet Management — only when unlocked. Vault-backed wallets hide
+            biometrics (vault prompts on every signature) and export (the
+            secret never leaves the vault). */}
         {isUnlocked && (
           <SettingsSection>
-            {biometricsAvailable && (
+            {biometricsAvailable && !isVaultBacked && (
               <>
                 <ProfileCell
                   icon={
@@ -361,12 +371,14 @@ export default function ProfileScreen() {
               </>
             )}
 
-            <ProfileCell
-              icon={<Key size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
-              title="Export Secret Key"
-              showChevron
-              onPress={handleExportSecretKey}
-            />
+            {!isVaultBacked && (
+              <ProfileCell
+                icon={<Key size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+                title="Export Secret Key"
+                showChevron
+                onPress={handleExportSecretKey}
+              />
+            )}
 
             <ProfileCell
               icon={<Trash2 size={28} strokeWidth={1.5} color="#f9363c" />}

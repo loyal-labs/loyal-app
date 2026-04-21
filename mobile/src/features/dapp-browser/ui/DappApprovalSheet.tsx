@@ -5,6 +5,7 @@ import {
 } from "@gorhom/bottom-sheet";
 import { AlertCircle } from "lucide-react-native";
 import { useEffect, useMemo, useRef, type ComponentProps } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { PendingApproval } from "../model/types";
 import { SiteAvatar } from "./SiteAvatar";
@@ -88,6 +89,7 @@ export function DappApprovalSheet({
   onReject,
   onApprove,
 }: DappApprovalSheetProps) {
+  const insets = useSafeAreaInsets();
   const modalRef = useRef<BottomSheetModal>(null);
   const snapPoints = useMemo(() => ["52%"], []);
   const backdrop = useMemo(() => ApprovalBackdrop, []);
@@ -117,7 +119,14 @@ export function DappApprovalSheet({
       handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.12)", width: 40 }}
       backgroundStyle={{ borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
     >
-      <BottomSheetView className="flex-1 px-5 pb-6 pt-1">
+      <BottomSheetView
+        style={{
+          flex: 1,
+          paddingTop: 4,
+          paddingHorizontal: 24,
+          paddingBottom: Math.max(insets.bottom + 12, 24),
+        }}
+      >
         <View className="items-center pt-4">
           <SiteAvatar
             origin={approval.origin}
