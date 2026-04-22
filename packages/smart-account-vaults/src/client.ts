@@ -8,6 +8,8 @@ import {
 } from "@loyal-labs/loyal-smart-accounts";
 import {
   Policy,
+  Permission,
+  Permissions,
   Proposal,
   SettingsTransaction,
   Transaction,
@@ -18,6 +20,7 @@ import {
   toBigInt,
   transactionDiscriminator,
   transactionMessageToMultisigTransactionMessageBytes,
+  type SmartAccountSigner,
 } from "@loyal-labs/loyal-smart-accounts-core";
 import type {
   PortfolioPosition,
@@ -43,10 +46,13 @@ import {
 import type {
   SmartAccountOverview,
   SmartAccountCustomInstructionProposalInput,
+  SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
   SmartAccountProposalPayloadType,
   SmartAccountProposalSnapshot,
   SmartAccountProposalStatus,
+  SmartAccountSignerPermission,
+  SmartAccountSignerSnapshot,
   SmartAccountProposalSummary,
   SmartAccountTokenTransferProposalInput,
   SmartAccountTransferProposalInput,
@@ -480,6 +486,53 @@ function deserializePolicyAccount(args: {
   };
 }
 
+function toSignerPermissions(
+  permissions: SmartAccountSigner["permissions"]
+): SmartAccountSignerPermission[] {
+  const nextPermissions: SmartAccountSignerPermission[] = [];
+
+  if (Permissions.has(permissions, Permission.Initiate)) {
+    nextPermissions.push("initiate");
+  }
+
+  if (Permissions.has(permissions, Permission.Vote)) {
+    nextPermissions.push("vote");
+  }
+
+  if (Permissions.has(permissions, Permission.Execute)) {
+    nextPermissions.push("execute");
+  }
+
+  return nextPermissions;
+}
+
+function toSignerSnapshot(args: {
+  signer: SmartAccountSigner;
+  scope: SmartAccountSignerSnapshot["scope"];
+  consensusPda: PublicKey;
+  threshold: number;
+  timeLock: number;
+  policyPda?: PublicKey | null;
+  policySeed?: string | null;
+}): SmartAccountSignerSnapshot {
+  const permissions = toSignerPermissions(args.signer.permissions);
+
+  return {
+    address: args.signer.key.toBase58(),
+    scope: args.scope,
+    consensusAddress: args.consensusPda.toBase58(),
+    permissions,
+    permissionMask: args.signer.permissions.mask,
+    canInitiate: permissions.includes("initiate"),
+    canVote: permissions.includes("vote"),
+    canExecute: permissions.includes("execute"),
+    threshold: args.threshold,
+    timeLock: args.timeLock,
+    policyAddress: args.policyPda?.toBase58() ?? null,
+    policySeed: args.policySeed ?? null,
+  };
+}
+
 function deserializeTransactionAccount(args: {
   pubkey: PublicKey;
   account: AccountInfo<Buffer>;
@@ -633,6 +686,7 @@ export function createSmartAccountVaultsClient(
       lamports,
       portfolio,
       activity,
+      signers: [],
     };
   }
 
@@ -665,10 +719,9 @@ export function createSmartAccountVaultsClient(
     );
   }
 
-  async function listProposals(args: {
+  async function listPolicies(args: {
     settingsPda: PublicKey;
-    assetIndex?: Map<string, PortfolioPosition>;
-  }): Promise<SmartAccountProposalSnapshot[]> {
+  }): Promise<SmartAccountPolicySnapshot[]> {
     const policyAccounts = await config.connection.getProgramAccounts(
       smartAccountsClient.programId,
       {
@@ -676,8 +729,52 @@ export function createSmartAccountVaultsClient(
         filters: createPolicyFilters(args.settingsPda),
       }
     );
-    const policyConsensusPdas = policyAccounts.map(
-      (account) => deserializePolicyAccount(account).address
+
+    return policyAccounts
+      .map((account) => deserializePolicyAccount(account))
+      .map((entry) => {
+        const seed = toBigInt(entry.policy.seed).toString();
+        const signers = entry.policy.signers.map((signer) =>
+          toSignerSnapshot({
+            signer,
+            scope: "policy",
+            consensusPda: entry.address,
+            threshold: entry.policy.threshold,
+            timeLock: entry.policy.timeLock,
+            policyPda: entry.address,
+            policySeed: seed,
+          })
+        );
+        const policyState =
+          (entry.policy.policyState as { __kind?: string }).__kind ?? "unknown";
+
+        return {
+          address: entry.address.toBase58(),
+          settingsPda: entry.policy.settings.toBase58(),
+          seed,
+          threshold: entry.policy.threshold,
+          timeLock: entry.policy.timeLock,
+          transactionIndex: toBigInt(entry.policy.transactionIndex).toString(),
+          staleTransactionIndex: toBigInt(
+            entry.policy.staleTransactionIndex
+          ).toString(),
+          state: policyState,
+          signers,
+        } satisfies SmartAccountPolicySnapshot;
+      })
+      .sort((left, right) =>
+        BigInt(left.seed) > BigInt(right.seed) ? 1 : -1
+      );
+  }
+
+  async function listProposals(args: {
+    settingsPda: PublicKey;
+    assetIndex?: Map<string, PortfolioPosition>;
+    policies?: SmartAccountPolicySnapshot[];
+  }): Promise<SmartAccountProposalSnapshot[]> {
+    const policies = args.policies ?? (await listPolicies(args));
+    const policyConsensusPdas = policies.map(
+      (policy) => new PublicKey(policy.address)
     );
     const consensusPdas = dedupePublicKeys([
       args.settingsPda,
@@ -833,10 +930,31 @@ export function createSmartAccountVaultsClient(
       accountUtilization: settings.accountUtilization,
       activityLimit: args.activityLimit,
     });
+    const policies = await listPolicies({
+      settingsPda: args.settingsPda,
+    });
+    const signers = settings.signers.map((signer) =>
+      toSignerSnapshot({
+        signer,
+        scope: "settings",
+        consensusPda: args.settingsPda,
+        threshold: settings.threshold,
+        timeLock: settings.timeLock,
+      })
+    );
+    const vaultSigners = [
+      ...signers,
+      ...policies.flatMap((policy) => policy.signers),
+    ];
+    const vaultsWithSigners = vaults.map((vault) => ({
+      ...vault,
+      signers: vaultSigners,
+    }));
     const assetIndex = toAssetIndex(vaults);
     const proposals = await listProposals({
       settingsPda: args.settingsPda,
       assetIndex,
+      policies,
     });
 
     return {
@@ -856,7 +974,9 @@ export function createSmartAccountVaultsClient(
             accountIndex: 0,
           })[0]
           .toBase58(),
-      vaults,
+      signers,
+      policies,
+      vaults: vaultsWithSigners,
       proposals,
       fetchedAt: Date.now(),
     };

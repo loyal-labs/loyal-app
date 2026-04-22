@@ -64,12 +64,44 @@ export type SmartAccountProposalSnapshot = {
   summary: SmartAccountProposalSummary;
 };
 
+export type SmartAccountSignerPermission = "initiate" | "vote" | "execute";
+
+export type SmartAccountSignerScope = "settings" | "policy";
+
+export type SmartAccountSignerSnapshot = {
+  address: string;
+  scope: SmartAccountSignerScope;
+  consensusAddress: string;
+  permissions: SmartAccountSignerPermission[];
+  permissionMask: number;
+  canInitiate: boolean;
+  canVote: boolean;
+  canExecute: boolean;
+  threshold: number;
+  timeLock: number;
+  policyAddress: string | null;
+  policySeed: string | null;
+};
+
+export type SmartAccountPolicySnapshot = {
+  address: string;
+  settingsPda: string;
+  seed: string;
+  threshold: number;
+  timeLock: number;
+  transactionIndex: string;
+  staleTransactionIndex: string;
+  state: string;
+  signers: SmartAccountSignerSnapshot[];
+};
+
 export type SmartAccountVaultSnapshot = {
   accountIndex: number;
   address: string;
   lamports: number;
   portfolio: PortfolioSnapshot;
   activity: ActivityPage;
+  signers: SmartAccountSignerSnapshot[];
 };
 
 export type SmartAccountOverview = {
@@ -79,6 +111,8 @@ export type SmartAccountOverview = {
   timeLock: number;
   staleTransactionIndex: string;
   canonicalVaultAddress: string;
+  signers: SmartAccountSignerSnapshot[];
+  policies: SmartAccountPolicySnapshot[];
   vaults: SmartAccountVaultSnapshot[];
   proposals: SmartAccountProposalSnapshot[];
   fetchedAt: number;

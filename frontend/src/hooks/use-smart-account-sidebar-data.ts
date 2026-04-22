@@ -5,6 +5,7 @@ import {
   sendPreparedWithWallet,
   type SmartAccountOverview,
   type SmartAccountProposalSnapshot,
+  type SmartAccountSignerSnapshot,
 } from "@loyal-labs/smart-account-vaults";
 import {
   NATIVE_SOL_MINT,
@@ -51,6 +52,26 @@ export type SmartAccountVaultEntry = {
   address: string;
   balanceWhole: string;
   balanceFraction: string;
+  signers: SmartAccountSignerEntry[];
+};
+
+export type SmartAccountSignerEntry = {
+  id: string;
+  label: string;
+  address: string;
+  shortAddress: string;
+  icon: string;
+  balanceWhole: string;
+  balanceFraction: string;
+  accessLevel: "suggest" | "sign" | "execute";
+  accessLabel: string;
+  scope: SmartAccountSignerSnapshot["scope"];
+  scopeLabel: string;
+  permissions: SmartAccountSignerSnapshot["permissions"];
+  canInitiate: boolean;
+  canVote: boolean;
+  canExecute: boolean;
+  policyAddress: string | null;
 };
 
 export type SmartAccountVaultView = {
@@ -197,6 +218,100 @@ function shortAddress(address: string | null): string {
   }
 
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
+
+const AGENT_ICON_COUNT = 26;
+
+function hashAddress(address: string): number {
+  let hash = 0;
+
+  for (let index = 0; index < address.length; index += 1) {
+    hash = (hash * 31 + address.charCodeAt(index)) >>> 0;
+  }
+
+  return hash;
+}
+
+function getSignerIcon(args: {
+  address: string;
+  isAuthenticatedUser: boolean;
+}): string {
+  if (args.isAuthenticatedUser) {
+    return "/purplebg.png";
+  }
+
+  const iconIndex = (hashAddress(args.address) % AGENT_ICON_COUNT) + 1;
+  return `/agents/Agent-${String(iconIndex).padStart(2, "0")}.svg`;
+}
+
+function getSignerAccessLevel(
+  signer: SmartAccountSignerSnapshot
+): SmartAccountSignerEntry["accessLevel"] {
+  if (signer.canExecute) {
+    return "execute";
+  }
+
+  if (signer.canVote) {
+    return "sign";
+  }
+
+  return "suggest";
+}
+
+function getSignerAccessLabel(
+  signer: SmartAccountSignerSnapshot
+): SmartAccountSignerEntry["accessLabel"] {
+  if (signer.canExecute) {
+    return "Can execute";
+  }
+
+  if (signer.canVote) {
+    return "Can vote";
+  }
+
+  return "Can propose";
+}
+
+function mapSignersToEntries(args: {
+  signers: SmartAccountSignerSnapshot[];
+  authenticatedWalletAddress: string | null | undefined;
+}): SmartAccountSignerEntry[] {
+  let agentCount = 0;
+  let signerCount = 0;
+
+  return args.signers.map((signer) => {
+    const isAuthenticatedUser =
+      !!args.authenticatedWalletAddress &&
+      signer.address === args.authenticatedWalletAddress;
+    const label = isAuthenticatedUser
+      ? "User"
+      : signer.scope === "policy"
+        ? `Agent ${++agentCount}`
+        : `Signer ${++signerCount}`;
+
+    return {
+      id: `${signer.scope}:${signer.consensusAddress}:${signer.address}:${signer.policyAddress ?? "root"}`,
+      label,
+      address: signer.address,
+      shortAddress: shortAddress(signer.address),
+      icon: getSignerIcon({
+        address: signer.address,
+        isAuthenticatedUser,
+      }),
+      balanceWhole: "$0",
+      balanceFraction: ".00",
+      accessLevel: getSignerAccessLevel(signer),
+      accessLabel: getSignerAccessLabel(signer),
+      scope: signer.scope,
+      scopeLabel:
+        signer.scope === "policy" ? "Constrained policy" : "Root signer",
+      permissions: signer.permissions,
+      canInitiate: signer.canInitiate,
+      canVote: signer.canVote,
+      canExecute: signer.canExecute,
+      policyAddress: signer.policyAddress,
+    };
+  });
 }
 
 function mapVaultActivity(
@@ -445,6 +560,10 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
     return (overview?.vaults ?? []).map((vault) => {
       const balance = splitUsd(vault.portfolio.totals.totalUsd);
+      const signers = mapSignersToEntries({
+        signers: vault.signers ?? [],
+        authenticatedWalletAddress: user?.walletAddress,
+      });
 
       return {
         accountIndex: vault.accountIndex,
@@ -452,9 +571,10 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         address: vault.address,
         balanceWhole: balance.whole,
         balanceFraction: balance.fraction,
+        signers,
       };
     });
-  }, [overview?.vaults]);
+  }, [overview?.vaults, user?.walletAddress]);
 
   const selectedVault = useMemo<SmartAccountVaultView | null>(() => {
     const vault =
@@ -475,6 +595,10 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         address: vault.address,
         balanceWhole: fallbackBalance.whole,
         balanceFraction: fallbackBalance.fraction,
+        signers: mapSignersToEntries({
+          signers: vault.signers ?? [],
+          authenticatedWalletAddress: user?.walletAddress,
+        }),
       };
     const solPriceUsd =
       vault.portfolio.totals.effectiveSolPriceUsd ??
@@ -501,12 +625,13 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         address: entry.address,
         balanceWhole: entry.balanceWhole,
         balanceFraction: entry.balanceFraction,
+        signers: entry.signers,
       },
       tokenRows,
       activityRows,
       transactionDetails,
     };
-  }, [overview?.vaults, selectedVaultIndex, vaultEntries]);
+  }, [overview?.vaults, selectedVaultIndex, user?.walletAddress, vaultEntries]);
 
   const approvals = useMemo(
     () => (overview?.proposals ?? []).map(mapProposalToApprovalItem),

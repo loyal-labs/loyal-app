@@ -17,9 +17,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import type {
   SmartAccountApprovalItem,
+  SmartAccountSignerEntry,
   SmartAccountVaultEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -42,14 +44,181 @@ const skeletonCircle = (size: string) => ({
   animation: "skeleton-pulse 1.5s ease-in-out infinite",
 });
 
-const COLLAPSED_CHILD_VAULT_COUNT = 3;
-const CHILD_VAULT_EXPAND_THRESHOLD = 5;
+const COLLAPSED_SIGNER_COUNT = 3;
+const SIGNER_EXPAND_THRESHOLD = 5;
+
+const accessColors: Record<AccessLevel, string> = {
+  execute: "rgba(249, 54, 60, 0.65)",
+  sign: "rgba(200, 160, 0, 0.75)",
+  suggest: "rgba(60, 60, 67, 0.6)",
+};
+
+const accessBorderColors: Record<AccessLevel, string> = {
+  execute: "rgba(249, 54, 60, 0.25)",
+  sign: "rgba(200, 160, 0, 0.3)",
+  suggest: "rgba(60, 60, 67, 0.2)",
+};
+
+function SignerTreeRow({
+  isLast,
+  isBalanceHidden,
+  onOpen,
+  signer,
+}: {
+  isLast: boolean;
+  isBalanceHidden: boolean;
+  onOpen: (signer: SmartAccountSignerEntry) => void;
+  signer: SmartAccountSignerEntry;
+}) {
+  const accessColor = accessColors[signer.accessLevel];
+  const accessBorderColor = accessBorderColors[signer.accessLevel];
+
+  return (
+    <button
+      className="portfolio-account-row"
+      onClick={() => onOpen(signer)}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        padding: "6px 12px 6px 52px",
+        borderRadius: "16px",
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        width: "100%",
+        transition: "background 0.15s ease",
+        textAlign: "left",
+      }}
+      title={signer.address}
+      type="button"
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: "35px",
+          top: 0,
+          bottom: isLast ? "50%" : 0,
+          width: "1px",
+          background: "rgba(60, 60, 67, 0.12)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          left: "35px",
+          top: "50%",
+          width: "13px",
+          height: "1px",
+          background: "rgba(60, 60, 67, 0.12)",
+        }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={signer.label}
+        src={signer.icon}
+        style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "12px",
+          flexShrink: 0,
+          marginRight: "12px",
+        }}
+      />
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: "2px",
+          padding: "9px 0",
+        }}
+      >
+        <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              letterSpacing: "-0.22px",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
+              display: "block",
+            }}
+          >
+            {signer.balanceWhole}
+            <span
+              style={{
+                color: isBalanceHidden
+                  ? "#BBBBC0"
+                  : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
+              {signer.balanceFraction}
+            </span>
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: secondary,
+            }}
+          >
+            {signer.label}
+          </span>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "11px",
+              fontWeight: 500,
+              lineHeight: "14px",
+              color: accessColor,
+              border: `1px solid ${accessBorderColor}`,
+              borderRadius: "9999px",
+              padding: "1px 8px 1px 4px",
+              whiteSpace: "nowrap",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "2px",
+            }}
+          >
+            <AccessLevelIcon
+              color={accessColor}
+              level={signer.accessLevel}
+              size={14}
+            />
+            {signer.accessLabel}
+          </span>
+        </div>
+      </div>
+      <ChevronLeft
+        size={24}
+        style={{
+          color: "rgba(60, 60, 67, 0.3)",
+          flexShrink: 0,
+          marginLeft: "12px",
+        }}
+      />
+    </button>
+  );
+}
 
 export function PortfolioContent({
   balanceFraction,
   balanceWhole,
-  rootVaultBalanceFraction,
-  rootVaultBalanceWhole,
   isBalanceHidden,
   isLoading,
   smartAccountError,
@@ -66,13 +235,12 @@ export function PortfolioContent({
   onOpenSwap,
   onOpenShield,
   onOpenVault,
+  onOpenAgent,
   walletAddress,
   walletLabel,
 }: {
   balanceFraction: string;
   balanceWhole: string;
-  rootVaultBalanceFraction: string;
-  rootVaultBalanceWhole: string;
   isBalanceHidden: boolean;
   isLoading: boolean;
   smartAccountError?: string | null;
@@ -89,21 +257,30 @@ export function PortfolioContent({
   onOpenSwap: () => void;
   onOpenShield: () => void;
   onOpenVault: (accountIndex: number) => void;
+  onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   walletAddress: string | null;
   walletLabel: string;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const [childVaultsExpanded, setChildVaultsExpanded] = useState(false);
-  const childVaultEntries = useMemo(
-    () => vaultEntries.filter((entry) => entry.accountIndex !== 0),
+  const [expandedSignerVaults, setExpandedSignerVaults] = useState<Set<number>>(
+    () => new Set()
+  );
+  const sortedVaultEntries = useMemo(
+    () =>
+      [...vaultEntries].sort(
+        (left, right) => left.accountIndex - right.accountIndex
+      ),
     [vaultEntries]
   );
-  const needsExpand = childVaultEntries.length > CHILD_VAULT_EXPAND_THRESHOLD;
-  const visibleChildVaultEntries = needsExpand && !childVaultsExpanded
-    ? childVaultEntries.slice(0, COLLAPSED_CHILD_VAULT_COUNT)
-    : childVaultEntries;
+  const expandVaultSigners = useCallback((accountIndex: number) => {
+    setExpandedSignerVaults((current) => {
+      const next = new Set(current);
+      next.add(accountIndex);
+      return next;
+    });
+  }, []);
   const handleCopyAddress = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -574,303 +751,225 @@ export function PortfolioContent({
             </div>
           ) : hasVaultAccount ? (
             <>
-              <button
-                className="portfolio-account-row"
-                onClick={() => onOpenVault(0)}
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "6px 12px",
-                  borderRadius: "16px",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  width: "100%",
-                  transition: "background 0.15s ease",
-                  textAlign: "left",
-                }}
-                type="button"
-              >
-                {childVaultEntries.length > 0 && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: "35px",
-                      top: "50%",
-                      bottom: 0,
-                      width: "1px",
-                      background: "rgba(60, 60, 67, 0.12)",
-                    }}
-                  />
-                )}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt="Vault 0"
-                  src={getVaultIcon(0)}
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "12px",
-                    flexShrink: 0,
-                    marginRight: "12px",
-                  }}
-                />
-                <div
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                    padding: "9px 0",
-                  }}
-                >
-                  <div style={{ borderRadius: "6px", overflow: "hidden" }}>
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "20px",
-                        fontWeight: 600,
-                        lineHeight: "24px",
-                        color: isBalanceHidden ? "#BBBBC0" : "#000",
-                        letterSpacing: "-0.22px",
-                        filter: isBalanceHidden
-                          ? "url(#rs-pixelate-sm)"
-                          : "none",
-                        transition: "filter 0.15s ease, color 0.15s ease",
-                        userSelect: isBalanceHidden ? "none" : "auto",
-                        display: "block",
-                      }}
-                    >
-                      {rootVaultBalanceWhole}
-                      <span
-                        style={{
-                          color: isBalanceHidden
-                            ? "#BBBBC0"
-                            : "rgba(60, 60, 67, 0.4)",
-                        }}
-                      >
-                        {rootVaultBalanceFraction}
-                      </span>
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    Vault 0
-                  </span>
-                </div>
-                <ChevronLeft
-                  size={24}
-                  style={{
-                    color: "rgba(60, 60, 67, 0.3)",
-                    flexShrink: 0,
-                    marginLeft: "12px",
-                  }}
-                />
-              </button>
+              {sortedVaultEntries.map((vault) => {
+                const signersExpanded = expandedSignerVaults.has(
+                  vault.accountIndex
+                );
+                const needsSignerExpand =
+                  vault.signers.length > SIGNER_EXPAND_THRESHOLD;
+                const visibleSigners =
+                  needsSignerExpand && !signersExpanded
+                    ? vault.signers.slice(0, COLLAPSED_SIGNER_COUNT)
+                    : vault.signers;
+                const hasChildRows =
+                  visibleSigners.length > 0 &&
+                  (!needsSignerExpand || signersExpanded);
+                const hasVisibleTreeRows =
+                  visibleSigners.length > 0 ||
+                  (needsSignerExpand && !signersExpanded);
 
-              {visibleChildVaultEntries.map((vault) => (
-                <button
-                  className="portfolio-account-row"
-                  key={vault.address}
-                  onClick={() => onOpenVault(vault.accountIndex)}
-                  style={{
-                    position: "relative",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "6px 12px 6px 52px",
-                    borderRadius: "16px",
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    width: "100%",
-                    transition: "background 0.15s ease",
-                    textAlign: "left",
-                  }}
-                  type="button"
-                >
-                  {/* Vertical line — full height (├) */}
+                return (
                   <div
-                    style={{
-                      position: "absolute",
-                      left: "35px",
-                      top: 0,
-                      bottom: 0,
-                      width: "1px",
-                      background: "rgba(60, 60, 67, 0.12)",
-                    }}
-                  />
-                  {/* Horizontal branch */}
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: "35px",
-                      top: "50%",
-                      width: "13px",
-                      height: "1px",
-                      background: "rgba(60, 60, 67, 0.12)",
-                    }}
-                  />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt={vault.label}
-                    src={getVaultIcon(vault.accountIndex)}
-                    style={{
-                      width: "48px",
-                      height: "48px",
-                      borderRadius: "12px",
-                      flexShrink: 0,
-                      marginRight: "12px",
-                    }}
-                  />
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "2px",
-                      padding: "9px 0",
-                    }}
+                    key={vault.address}
+                    style={{ display: "flex", flexDirection: "column" }}
                   >
-                    <div style={{ borderRadius: "6px", overflow: "hidden" }}>
-                      <span
+                    <button
+                      className="portfolio-account-row"
+                      onClick={() => onOpenVault(vault.accountIndex)}
+                      style={{
+                        position: "relative",
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "6px 12px",
+                        borderRadius: "16px",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        width: "100%",
+                        transition: "background 0.15s ease",
+                        textAlign: "left",
+                      }}
+                      type="button"
+                    >
+                      {hasVisibleTreeRows && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: "35px",
+                            top: "50%",
+                            bottom: 0,
+                            width: "1px",
+                            background: "rgba(60, 60, 67, 0.12)",
+                          }}
+                        />
+                      )}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt={vault.label}
+                        src={getVaultIcon(vault.accountIndex)}
                         style={{
-                          fontFamily: font,
-                          fontSize: "20px",
-                          fontWeight: 600,
-                          lineHeight: "24px",
-                          color: isBalanceHidden ? "#BBBBC0" : "#000",
-                          letterSpacing: "-0.22px",
-                          filter: isBalanceHidden
-                            ? "url(#rs-pixelate-sm)"
-                            : "none",
-                          transition: "filter 0.15s ease, color 0.15s ease",
-                          userSelect: isBalanceHidden ? "none" : "auto",
-                          display: "block",
+                          width: "48px",
+                          height: "48px",
+                          borderRadius: "12px",
+                          flexShrink: 0,
+                          marginRight: "12px",
+                        }}
+                      />
+                      <div
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "2px",
+                          padding: "9px 0",
                         }}
                       >
-                        {vault.balanceWhole}
+                        <div
+                          style={{ borderRadius: "6px", overflow: "hidden" }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: font,
+                              fontSize: "20px",
+                              fontWeight: 600,
+                              lineHeight: "24px",
+                              color: isBalanceHidden ? "#BBBBC0" : "#000",
+                              letterSpacing: "-0.22px",
+                              filter: isBalanceHidden
+                                ? "url(#rs-pixelate-sm)"
+                                : "none",
+                              transition: "filter 0.15s ease, color 0.15s ease",
+                              userSelect: isBalanceHidden ? "none" : "auto",
+                              display: "block",
+                            }}
+                          >
+                            {vault.balanceWhole}
+                            <span
+                              style={{
+                                color: isBalanceHidden
+                                  ? "#BBBBC0"
+                                  : "rgba(60, 60, 67, 0.4)",
+                              }}
+                            >
+                              {vault.balanceFraction}
+                            </span>
+                          </span>
+                        </div>
                         <span
                           style={{
-                            color: isBalanceHidden
-                              ? "#BBBBC0"
-                              : "rgba(60, 60, 67, 0.4)",
+                            fontFamily: font,
+                            fontSize: "13px",
+                            fontWeight: 400,
+                            lineHeight: "16px",
+                            color: secondary,
                           }}
                         >
-                          {vault.balanceFraction}
+                          {vault.label}
                         </span>
-                      </span>
-                    </div>
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "13px",
-                        fontWeight: 400,
-                        lineHeight: "16px",
-                        color: secondary,
-                      }}
-                    >
-                      {vault.label}
-                    </span>
-                  </div>
-                  <ChevronLeft
-                    size={24}
-                    style={{
-                      color: "rgba(60, 60, 67, 0.3)",
-                      flexShrink: 0,
-                      marginLeft: "12px",
-                    }}
-                  />
-                </button>
-              ))}
+                      </div>
+                      <ChevronLeft
+                        size={24}
+                        style={{
+                          color: "rgba(60, 60, 67, 0.3)",
+                          flexShrink: 0,
+                          marginLeft: "12px",
+                        }}
+                      />
+                    </button>
 
-              {/* View all row — shown when collapsed and there are more child vaults */}
-              {needsExpand && !childVaultsExpanded && (
-                <button
-                  className="portfolio-account-row"
-                  onClick={() => setChildVaultsExpanded(true)}
-                  style={{
-                    position: "relative",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "4px 12px 4px 52px",
-                    borderRadius: "16px",
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    width: "100%",
-                    transition: "background 0.15s ease",
-                  }}
-                  type="button"
-                >
-                  {/* Vertical line — full height (├) */}
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: "35px",
-                      top: 0,
-                      bottom: 0,
-                      width: "1px",
-                      background: "rgba(60, 60, 67, 0.12)",
-                    }}
-                  />
-                  {/* Horizontal branch */}
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: "35px",
-                      top: "50%",
-                      width: "13px",
-                      height: "1px",
-                      background: "rgba(60, 60, 67, 0.12)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      padding: "8px 0",
-                    }}
-                  >
-                    <div
-                      style={{
-                        flex: 1,
-                        height: "1px",
-                        background: "rgba(60, 60, 67, 0.12)",
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "13px",
-                        fontWeight: 500,
-                        lineHeight: "16px",
-                        color: secondary,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      View all vaults ({vaultEntries.length})
-                    </span>
-                    <div
-                      style={{
-                        flex: 1,
-                        height: "1px",
-                        background: "rgba(60, 60, 67, 0.12)",
-                      }}
-                    />
+                    {visibleSigners.map((signer, signerIndex) => (
+                      <SignerTreeRow
+                        isLast={
+                          hasChildRows &&
+                          signerIndex === visibleSigners.length - 1
+                        }
+                        isBalanceHidden={isBalanceHidden}
+                        key={signer.id}
+                        onOpen={onOpenAgent}
+                        signer={signer}
+                      />
+                    ))}
+
+                    {needsSignerExpand && !signersExpanded && (
+                      <button
+                        className="portfolio-account-row"
+                        onClick={() => expandVaultSigners(vault.accountIndex)}
+                        style={{
+                          position: "relative",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "4px 12px 4px 52px",
+                          borderRadius: "16px",
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          width: "100%",
+                          transition: "background 0.15s ease",
+                        }}
+                        type="button"
+                      >
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: "35px",
+                            top: 0,
+                            bottom: "50%",
+                            width: "1px",
+                            background: "rgba(60, 60, 67, 0.12)",
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: "35px",
+                            top: "50%",
+                            width: "13px",
+                            height: "1px",
+                            background: "rgba(60, 60, 67, 0.12)",
+                          }}
+                        />
+                        <div
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "8px 0",
+                          }}
+                        >
+                          <div
+                            style={{
+                              flex: 1,
+                              height: "1px",
+                              background: "rgba(60, 60, 67, 0.12)",
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontFamily: font,
+                              fontSize: "13px",
+                              fontWeight: 500,
+                              lineHeight: "16px",
+                              color: secondary,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            View all signers ({vault.signers.length})
+                          </span>
+                          <div
+                            style={{
+                              flex: 1,
+                              height: "1px",
+                              background: "rgba(60, 60, 67, 0.12)",
+                            }}
+                          />
+                        </div>
+                      </button>
+                    )}
                   </div>
-                </button>
-              )}
+                );
+              })}
             </>
           ) : (
             <div

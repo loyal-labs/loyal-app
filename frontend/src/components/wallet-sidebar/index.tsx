@@ -10,6 +10,7 @@ import { usePopularTokens } from "@/hooks/use-popular-tokens";
 import type {
   SmartAccountApprovalItem,
   SmartAccountSidebarData,
+  SmartAccountSignerEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
 import type { WalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import {
@@ -164,12 +165,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   }, [level3View]);
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
-  const rootVaultEntry = useMemo(
-    () =>
-      props.smartAccountData.vaultEntries.find((entry) => entry.accountIndex === 0) ??
-      null,
-    [props.smartAccountData.vaultEntries]
-  );
   const selectedVault = props.smartAccountData.selectedVault;
   const selectedApproval = useMemo(
     () =>
@@ -396,6 +391,19 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       pushView({ type: "accountPage", account: "vault" });
     },
     [props.smartAccountData, pushView]
+  );
+  const openAgentPage = useCallback(
+    (agent: SmartAccountSignerEntry) => {
+      pushView({
+        type: "agentPage",
+        agentId: agent.address,
+        label: agent.label,
+        agentIcon: agent.icon,
+        balanceWhole: agent.balanceWhole,
+        balanceFraction: agent.balanceFraction,
+      });
+    },
+    [pushView]
   );
 
   const runProposalAction = useCallback(async (action: () => Promise<void>) => {
@@ -937,8 +945,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 <PortfolioContent
                   balanceFraction={props.walletDesktopData.balanceFraction}
                   balanceWhole={props.walletDesktopData.balanceWhole}
-                  rootVaultBalanceFraction={rootVaultEntry?.balanceFraction ?? ".00"}
-                  rootVaultBalanceWhole={rootVaultEntry?.balanceWhole ?? "$0"}
                   isBalanceHidden={props.isBalanceHidden}
                   isLoading={
                     props.walletDesktopData.isLoading ||
@@ -958,6 +964,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onOpenSwap={() => { handleSwapModeChange("swap"); pushView({ type: "swapPanel", mode: "swap" }); }}
                   onOpenShield={() => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); }}
                   onOpenVault={openVaultAccount}
+                  onOpenAgent={openAgentPage}
                   walletAddress={props.walletDesktopData.walletAddress}
                   walletLabel={props.walletDesktopData.walletLabel}
                 />
