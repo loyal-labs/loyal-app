@@ -1,9 +1,15 @@
 import * as Haptics from "expo-haptics";
 import { Link, type Href } from "expo-router";
-import { ActivityIndicator, ScrollView as HorizontalScrollView, StyleSheet } from "react-native";
+import {
+  ActivityIndicator,
+  ScrollView as HorizontalScrollView,
+  RefreshControl,
+  StyleSheet,
+} from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import {
+  LIBRARY_IMAGE_ASPECT,
   useLibraryContent,
   type LibraryArticle,
 } from "@/features/library/content";
@@ -12,9 +18,9 @@ import { Image } from "@/tw/image";
 
 const TAB_BAR_HEIGHT = 90;
 const FEATURED_CARD_WIDTH = 296;
-const FEATURED_CARD_HEIGHT = 232;
+const FEATURED_CARD_HEIGHT = Math.round(FEATURED_CARD_WIDTH / LIBRARY_IMAGE_ASPECT);
 const ARTICLE_CARD_WIDTH = 184;
-const ARTICLE_CARD_HEIGHT = 184;
+const ARTICLE_CARD_HEIGHT = Math.round(ARTICLE_CARD_WIDTH / LIBRARY_IMAGE_ASPECT);
 const CARD_PLACEHOLDER = "#F2F2F7";
 
 function triggerHaptic() {
@@ -63,7 +69,8 @@ function ArticleCard({ article }: { article: LibraryArticle }) {
 }
 
 export default function LibraryScreen() {
-  const { content, isLoading, error } = useLibraryContent();
+  const { content, isLoading, isRefreshing, error, refresh } =
+    useLibraryContent();
 
   const visibleSections = content.sections.filter(
     (section) => section.articles.length > 0
@@ -78,6 +85,9 @@ export default function LibraryScreen() {
         className="flex-1 bg-white"
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={refresh} />
+        }
       >
         <View style={styles.container}>
           <Text style={styles.pageTitle}>Library</Text>

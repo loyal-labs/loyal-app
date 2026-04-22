@@ -4,12 +4,11 @@ import Markdown from "react-native-markdown-display";
 
 import {
   findLibraryArticleById,
+  LIBRARY_IMAGE_ASPECT,
   useLibraryContent,
 } from "@/features/library/content";
 import { ScrollView, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
-
-const COVER_ASPECT_RATIO = 16 / 10;
 
 export default function LibraryArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,7 +16,7 @@ export default function LibraryArticleScreen() {
   const { width } = useWindowDimensions();
 
   const article = id ? findLibraryArticleById(content, id) : undefined;
-  const coverHeight = Math.round(width / COVER_ASPECT_RATIO);
+  const coverHeight = Math.round(width / LIBRARY_IMAGE_ASPECT);
 
   if (isLoading && !article) {
     return (

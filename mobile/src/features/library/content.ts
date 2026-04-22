@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import {
   fetchLibrary,
@@ -17,49 +17,108 @@ export type LibraryContent = {
 
 const EMPTY_CONTENT: LibraryContent = { featured: [], sections: [] };
 
+export const LIBRARY_IMAGE_ASPECT = 740 / 480;
+
+type StoreState = {
+  content: LibraryContent;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  error: Error | null;
+  isLoaded: boolean;
+};
+
 export type LibraryContentState = {
   content: LibraryContent;
   isLoading: boolean;
+  isRefreshing: boolean;
   error: Error | null;
+  refresh: () => Promise<void>;
 };
 
-export function useLibraryContent(): LibraryContentState {
-  const [state, setState] = useState<LibraryContentState>({
-    content: EMPTY_CONTENT,
-    isLoading: true,
+let storeState: StoreState = {
+  content: EMPTY_CONTENT,
+  isLoading: false,
+  isRefreshing: false,
+  error: null,
+  isLoaded: false,
+};
+let inflight: Promise<void> | null = null;
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): StoreState {
+  return storeState;
+}
+
+function setStoreState(next: Partial<StoreState>) {
+  storeState = { ...storeState, ...next };
+  emit();
+}
+
+async function loadLibrary({ isRefresh }: { isRefresh: boolean }): Promise<void> {
+  if (inflight) return inflight;
+
+  setStoreState({
+    isLoading: !storeState.isLoaded && !isRefresh,
+    isRefreshing: isRefresh,
     error: null,
   });
 
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchLibrary()
-      .then((response: LibraryResponse) => {
-        if (cancelled) return;
-        setState({
-          content: {
-            featured: response.featured,
-            sections: response.sections,
-          },
-          isLoading: false,
-          error: null,
-        });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setState({
-          content: EMPTY_CONTENT,
-          isLoading: false,
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
+  inflight = (async () => {
+    try {
+      const response: LibraryResponse = await fetchLibrary();
+      setStoreState({
+        content: {
+          featured: response.featured,
+          sections: response.sections,
+        },
+        isLoading: false,
+        isRefreshing: false,
+        error: null,
+        isLoaded: true,
       });
+    } catch (error) {
+      setStoreState({
+        isLoading: false,
+        isRefreshing: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      });
+    } finally {
+      inflight = null;
+    }
+  })();
 
-    return () => {
-      cancelled = true;
-    };
+  return inflight;
+}
+
+export function useLibraryContent(): LibraryContentState {
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+
+  useEffect(() => {
+    if (!storeState.isLoaded && !inflight) {
+      void loadLibrary({ isRefresh: false });
+    }
   }, []);
 
-  return state;
+  const refresh = useCallback(() => loadLibrary({ isRefresh: true }), []);
+
+  return {
+    content: snapshot.content,
+    isLoading: snapshot.isLoading,
+    isRefreshing: snapshot.isRefreshing,
+    error: snapshot.error,
+    refresh,
+  };
 }
 
 export function findLibraryArticleById(
