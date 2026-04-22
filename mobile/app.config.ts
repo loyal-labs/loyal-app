@@ -1,6 +1,7 @@
 import type { ExpoConfig } from "expo/config";
 
 const IS_DEV = process.env.APP_VARIANT === "development";
+const IS_DAPP_STORE = process.env.DAPP_STORE_BUILD === "true";
 
 const config: ExpoConfig = {
   name: IS_DEV ? "Loyal (Dev)" : "Loyal",
@@ -58,6 +59,18 @@ const config: ExpoConfig = {
         color: "#ffffff",
       },
     ],
+    ...(IS_DAPP_STORE
+      ? [
+          [
+            "expo-build-properties",
+            {
+              android: {
+                buildArchs: ["arm64-v8a"],
+              },
+            },
+          ] satisfies [string, Record<string, unknown>],
+        ]
+      : []),
   ],
   experiments: {
     typedRoutes: true,
