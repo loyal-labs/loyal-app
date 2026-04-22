@@ -29,6 +29,7 @@ import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
+import { useTokenApy } from "@/hooks/wallet/useTokenApy";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
@@ -60,6 +61,7 @@ export default function WalletScreen() {
   const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
   const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
     useTokenHoldings(walletAddress);
+  const apyByMint = useTokenApy(tokenHoldings);
   const {
     walletTransactions,
     isFetchingTransactions,
@@ -348,6 +350,7 @@ export default function WalletScreen() {
         <View style={{ marginTop: 16 }}>
           <TokensList
             holdings={networkLoading ? [] : tokenHoldings}
+            apyByMint={apyByMint}
             isLoading={isHoldingsLoading || networkLoading}
             marketRefreshKey={tokenMarketRefreshKey}
             onSeeAll={handleShowAllTokens}
@@ -408,6 +411,7 @@ export default function WalletScreen() {
       <TokensSheet
         ref={tokensSheetRef}
         holdings={tokenHoldings}
+        apyByMint={apyByMint}
         onTokenPress={handleTokenPress}
       />
 

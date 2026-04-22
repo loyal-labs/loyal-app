@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   ShieldOff,
   Twitter,
+  Zap,
 } from "lucide-react-native";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Linking } from "react-native";
@@ -33,6 +34,7 @@ import { SendSheet } from "@/components/wallet/SendSheet";
 import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
+import { useTokenApy } from "@/hooks/wallet/useTokenApy";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
@@ -427,6 +429,49 @@ function StatTile({
 }
 
 const ORANGE = "#ff9500";
+const APY_TEXT = "#2EA043";
+const APY_SURFACE = "rgba(52, 199, 89, 0.10)";
+
+/**
+ * Inline earnings callout shown under the Public / Shielded tiles when the
+ * user holds a shielded balance of a Kamino-backed mint (USDC today). The
+ * green surface and matching Zap icon tie it to the APY pill in the list row
+ * so the two surfaces read as the same concept.
+ */
+function ShieldedApyCallout({
+  apyBps,
+  tokenSymbol,
+}: {
+  apyBps: number;
+  tokenSymbol: string;
+}) {
+  const apyText = (apyBps / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return (
+    <View
+      className="mt-3 flex-row items-center gap-2 rounded-2xl px-3 py-2.5"
+      style={{ backgroundColor: APY_SURFACE }}
+    >
+      <Zap size={14} color={APY_TEXT} fill={APY_TEXT} strokeWidth={2.5} />
+      <Text
+        className="flex-1 text-[13px]"
+        style={{ color: APY_TEXT, letterSpacing: -0.1 }}
+      >
+        <Text
+          className="font-semibold"
+          style={{ fontVariant: ["tabular-nums"], color: APY_TEXT }}
+        >
+          {apyText}% APY
+        </Text>
+        <Text style={{ color: APY_TEXT }}>
+          {` earning on shielded ${tokenSymbol}`}
+        </Text>
+      </Text>
+    </View>
+  );
+}
 
 function trustScoreColor(score: number) {
   if (score >= 70) return GREEN;
@@ -690,6 +735,7 @@ function TokenDetailBody({
   showEmptyPosition,
   marketRows,
   shieldActionLabel,
+  shieldedApyBps,
   onReceive,
   onReload,
   onSend,
@@ -709,6 +755,7 @@ function TokenDetailBody({
   showEmptyPosition: boolean;
   marketRows: { label: string; value: string }[];
   shieldActionLabel: string;
+  shieldedApyBps: number | null;
   onReceive: () => void;
   onReload: () => void;
   onSend: () => void;
@@ -876,6 +923,15 @@ function TokenDetailBody({
                   value={`${formatBalance(viewModel.position.shieldedBalance)} ${viewModel.token.symbol}`}
                 />
               </View>
+
+              {viewModel.position.shieldedBalance > 0 &&
+              shieldedApyBps !== null &&
+              shieldedApyBps > 0 ? (
+                <ShieldedApyCallout
+                  apyBps={shieldedApyBps}
+                  tokenSymbol={viewModel.token.symbol}
+                />
+              ) : null}
             </>
           )}
         </SectionCard>
@@ -935,6 +991,8 @@ export default function TokenDetailScreen() {
   const { solBalanceLamports, refreshBalance } = useWalletBalance(walletAddress);
   const { solPriceUsd } = useSolPrice();
   const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(walletAddress);
+  const apyByMint = useTokenApy(tokenHoldings);
+  const shieldedApyBps = tokenMint ? apyByMint[tokenMint] ?? null : null;
 
   const {
     viewModel,
@@ -1044,6 +1102,7 @@ export default function TokenDetailScreen() {
             showEmptyPosition={showEmptyPosition}
             marketRows={marketRows}
             shieldActionLabel={shieldActionLabel}
+            shieldedApyBps={shieldedApyBps}
             onReceive={() => setIsReceiveOpen(true)}
             onReload={() => void reload()}
             onSend={() => setIsSendOpen(true)}

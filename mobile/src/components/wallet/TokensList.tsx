@@ -1,3 +1,4 @@
+import { Zap } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Image as RNImage } from "react-native";
 
@@ -22,9 +23,38 @@ const MUTED_TEXT = "rgba(60, 60, 67, 0.6)";
 const NEGATIVE_CHANGE = "#f97362";
 const NEUTRAL_CHANGE = "#8e8e93";
 const POSITIVE_CHANGE = "#24a148";
+const APY_PILL_TEXT = "#2EA043";
+const APY_PILL_BG = "rgba(52, 199, 89, 0.12)";
+
+export function ApyPill({ apyBps }: { apyBps: number }) {
+  const apyText = (apyBps / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return (
+    <View
+      className="flex-row items-center rounded-full"
+      style={{
+        backgroundColor: APY_PILL_BG,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        gap: 3,
+      }}
+    >
+      <Zap size={10} color={APY_PILL_TEXT} fill={APY_PILL_TEXT} strokeWidth={2.5} />
+      <Text
+        className="text-[11px] font-semibold"
+        style={{ color: APY_PILL_TEXT, letterSpacing: -0.1, lineHeight: 14 }}
+      >
+        {apyText}% APY
+      </Text>
+    </View>
+  );
+}
 
 type TokensListProps = {
   holdings: TokenHolding[];
+  apyByMint?: Record<string, number>;
   isLoading: boolean;
   maxItems?: number;
   marketRefreshKey?: number;
@@ -66,11 +96,13 @@ function TokenRow({
   marketState,
   onPress,
   groupPosition = "single",
+  apyBps,
 }: {
   holding: TokenHolding;
   marketState: TokenRowMarketState;
   onPress?: () => void;
   groupPosition?: PairPosition;
+  apyBps?: number;
 }) {
   const icon = resolveTokenIcon({ mint: holding.mint, imageUrl: holding.imageUrl });
   const rowContent = buildTokenRowContent(holding, marketState);
@@ -116,13 +148,16 @@ function TokenRow({
           )}
         </View>
         <View className="flex-1 py-2.5">
-          <Text
-            className="text-[17px] font-medium text-black"
-            style={{ letterSpacing: -0.187 }}
-            numberOfLines={1}
-          >
-            {rowContent.title}
-          </Text>
+          <View className="flex-row items-center gap-1.5">
+            <Text
+              className="text-[17px] font-medium text-black"
+              style={{ letterSpacing: -0.187, flexShrink: 1 }}
+              numberOfLines={1}
+            >
+              {rowContent.title}
+            </Text>
+            {apyBps && apyBps > 0 ? <ApyPill apyBps={apyBps} /> : null}
+          </View>
           {rowContent.showMarketSkeleton ? (
             <View className="mt-1 flex-row items-center gap-2">
               <View
@@ -180,12 +215,15 @@ function TokenRow({
 
 export function TokensList({
   holdings,
+  apyByMint,
   isLoading,
   maxItems = 5,
   marketRefreshKey = 0,
   onSeeAll,
   onTokenPress,
 }: TokensListProps) {
+  const resolveApy = (holding: TokenHolding): number | undefined =>
+    holding.isSecured ? apyByMint?.[holding.mint] : undefined;
   const allDisplayHoldings = useMemo(
     () => getDisplayTokenHoldings(holdings),
     [holdings],
@@ -338,6 +376,7 @@ export function TokensList({
                 marketState={marketStates[h.mint] ?? { status: "loading" }}
                 onPress={onTokenPress ? () => onTokenPress(h.mint) : undefined}
                 groupPosition="single"
+                apyBps={resolveApy(h)}
               />
             );
           }
@@ -353,6 +392,7 @@ export function TokensList({
                   onTokenPress ? () => onTokenPress(group.top.mint) : undefined
                 }
                 groupPosition="top"
+                apyBps={resolveApy(group.top)}
               />
               <TokenRow
                 key={bottomKey}
@@ -364,6 +404,7 @@ export function TokensList({
                     : undefined
                 }
                 groupPosition="bottom"
+                apyBps={resolveApy(group.bottom)}
               />
             </View>
           );

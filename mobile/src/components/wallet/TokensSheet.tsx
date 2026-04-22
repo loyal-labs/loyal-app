@@ -17,14 +17,18 @@ import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Pressable, Text, View } from "@/tw";
 
+import { ApyPill } from "./TokensList";
+
 type TokensSheetProps = {
   holdings: TokenHolding[];
+  apyByMint?: Record<string, number>;
   onTokenPress?: (mint: string) => void;
 };
 
 type TokenListItem = {
   holding: TokenHolding;
   position: PairPosition;
+  apyBps?: number;
 };
 
 const PAIR_SURFACE = "#f6f6f8";
@@ -35,10 +39,12 @@ function TokenRow({
   holding,
   onPress,
   groupPosition = "single",
+  apyBps,
 }: {
   holding: TokenHolding;
   onPress?: () => void;
   groupPosition?: PairPosition;
+  apyBps?: number;
 }) {
   const icon = resolveTokenIcon({
     mint: holding.mint,
@@ -84,12 +90,16 @@ function TokenRow({
             style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
           />
           <View className="ml-3 flex-1">
-            <Text
-              className="text-[17px] font-medium text-black"
-              style={{ letterSpacing: -0.187 }}
-            >
-              {holding.symbol}
-            </Text>
+            <View className="flex-row items-center gap-1.5">
+              <Text
+                className="text-[17px] font-medium text-black"
+                style={{ letterSpacing: -0.187, flexShrink: 1 }}
+                numberOfLines={1}
+              >
+                {holding.symbol}
+              </Text>
+              {apyBps && apyBps > 0 ? <ApyPill apyBps={apyBps} /> : null}
+            </View>
             <Text
               className="text-[15px]"
               style={{ color: "rgba(60, 60, 67, 0.6)" }}
@@ -115,7 +125,7 @@ function TokenRow({
 }
 
 export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
-  function TokensSheet({ holdings, onTokenPress }, ref) {
+  function TokensSheet({ holdings, apyByMint, onTokenPress }, ref) {
     const insets = useSafeAreaInsets();
     const snapPoints = useMemo(() => ["70%", "100%"], []);
 
@@ -141,14 +151,16 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
       return displayHoldings.map((holding, index) => ({
         holding,
         position: positions[index],
+        apyBps: holding.isSecured ? apyByMint?.[holding.mint] : undefined,
       }));
-    }, [displayHoldings]);
+    }, [displayHoldings, apyByMint]);
 
     const renderItem = useCallback(
       ({ item }: { item: TokenListItem }) => (
         <TokenRow
           holding={item.holding}
           groupPosition={item.position}
+          apyBps={item.apyBps}
           onPress={
             onTokenPress ? () => onTokenPress(item.holding.mint) : undefined
           }
