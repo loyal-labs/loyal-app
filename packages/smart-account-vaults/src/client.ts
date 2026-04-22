@@ -105,7 +105,9 @@ function mergePreparedOperations(args: {
       (operation) => operation.instructions
     ),
     lookupTableAccounts: dedupeLookupTableAccounts(
-      args.operations.flatMap((operation) => operation.lookupTableAccounts)
+      args.operations.flatMap(
+        (operation) => operation.lookupTableAccounts ?? []
+      )
     ),
   });
 }

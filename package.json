@@ -30,6 +30,7 @@
     "loyal-smart-accounts:test": "bun run guard:sdk-dist-untracked && bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts build && bun run --cwd sdk/loyal-smart-accounts-core test && bun run --cwd sdk/loyal-smart-accounts test",
     "smart-accounts:propose": "bun run scripts/propose-smart-account-transaction.ts",
     "smart-accounts:create-kamino-policy": "bun run scripts/create-kamino-lending-policy.ts",
+    "smart-accounts:execute-settings": "bun run scripts/execute-smart-account-settings-transaction.ts",
     "passkey:dev": "bun run --cwd passkey dev",
     "passkey:build": "bun run --cwd passkey build",
     "passkey:lint": "bun run --cwd passkey lint",

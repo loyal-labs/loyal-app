@@ -73,6 +73,7 @@ type ParsedArgs = {
   usdcMint: PublicKey;
   klendProgramId: PublicKey;
   thresholdAtomic: bigint;
+  thresholdOperator: generated.DataOperator;
   approve: boolean;
   execute: boolean;
   memo?: string;
@@ -100,6 +101,8 @@ Policy:
   --source-token-account-index <N>     Instruction account index for the vault USDC ATA.
                                        Defaults to auto-detecting the vault USDC ATA in the template instruction.
   --threshold-usdc <DECIMAL>           Source ATA must be > this amount. Default: 500.
+  --threshold-operator <OP>            gt, gte, greater-than, or greater-than-or-equal. Default: gt.
+  --threshold-inclusive                Alias for --threshold-operator gte.
   --usdc-mint <PUBKEY>                 Default: mainnet USDC unless SOLANA_ENV/NEXT_PUBLIC_SOLANA_ENV is devnet.
   --klend-program-id <PUBKEY>          Default: ${KLEND_PROGRAM_ID.toBase58()}
   --template-instruction-index <N>     Instruction from the template file to constrain.
@@ -302,6 +305,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let usdcMintProvided = false;
   let klendProgramId = KLEND_PROGRAM_ID;
   let thresholdAtomic = parseUiAmountToAtomic("500", USDC_DECIMALS);
+  let thresholdOperator = generated.DataOperator.GreaterThan;
   let approve = false;
   let execute = false;
   let memo: string | undefined;
@@ -393,6 +397,17 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (current === "--threshold-usdc" && next) {
       thresholdAtomic = parseUiAmountToAtomic(next, USDC_DECIMALS);
       index += 1;
+      continue;
+    }
+
+    if (current === "--threshold-operator" && next) {
+      thresholdOperator = parseThresholdOperator(next);
+      index += 1;
+      continue;
+    }
+
+    if (current === "--threshold-inclusive") {
+      thresholdOperator = generated.DataOperator.GreaterThanOrEqualTo;
       continue;
     }
 
@@ -489,10 +504,39 @@ function parseArgs(argv: string[]): ParsedArgs {
     usdcMint,
     klendProgramId,
     thresholdAtomic,
+    thresholdOperator,
     approve,
     execute,
     memo,
   };
+}
+
+function parseThresholdOperator(value: string): generated.DataOperator {
+  const normalized = value.trim().toLowerCase();
+  if (["gt", "greater-than", "greaterthan", ">"].includes(normalized)) {
+    return generated.DataOperator.GreaterThan;
+  }
+
+  if (
+    [
+      "gte",
+      "ge",
+      "greater-than-or-equal",
+      "greater-than-or-equal-to",
+      "greaterthanorequalto",
+      ">=",
+    ].includes(normalized)
+  ) {
+    return generated.DataOperator.GreaterThanOrEqualTo;
+  }
+
+  throw new Error(
+    "--threshold-operator must be gt, gte, greater-than, or greater-than-or-equal."
+  );
+}
+
+function dataOperatorName(operator: generated.DataOperator): string {
+  return generated.DataOperator[operator] ?? String(operator);
 }
 
 async function resolveSettingsPdaFromUser(args: {
@@ -679,6 +723,7 @@ function buildKaminoPolicyCreationPayload(args: {
   usdcMint: PublicKey;
   klendProgramId: PublicKey;
   thresholdAtomic: bigint;
+  thresholdOperator: generated.DataOperator;
 }): generated.PolicyCreationPayload {
   if (!args.instruction.programId.equals(args.klendProgramId)) {
     throw new Error(
@@ -740,7 +785,7 @@ function buildKaminoPolicyCreationPayload(args: {
               __kind: "U64Le",
               fields: [args.thresholdAtomic],
             },
-            operator: generated.DataOperator.GreaterThan,
+            operator: args.thresholdOperator,
           },
         ],
       ],
@@ -858,6 +903,7 @@ async function main() {
     usdcMint: args.usdcMint,
     klendProgramId: args.klendProgramId,
     thresholdAtomic: args.thresholdAtomic,
+    thresholdOperator: args.thresholdOperator,
   });
   const createSettingsTransaction =
     await client.features.smartAccounts.prepare.createSettingsTransaction({
@@ -972,7 +1018,7 @@ async function main() {
         usdcMint: args.usdcMint.toBase58(),
         sourceTokenAccountIndex,
         thresholdAtomic: args.thresholdAtomic.toString(),
-        dataOperator: "GreaterThan",
+        dataOperator: dataOperatorName(args.thresholdOperator),
         templateInstructionsFile: args.templateInstructionsFile,
         templateInstructionIndex: selectedTemplateInstruction.instructionIndex,
         depositInstructionName: selectedTemplateInstruction.definition.name,
