@@ -15,6 +15,7 @@ import type { Signer } from "@/lib/wallet/signer";
 
 import {
   loadKaminoUsdcTrackedPosition,
+  recordKaminoUsdcShield,
   resolveKaminoPrincipalLiquidityAmountRaw,
   resolveTrackedKaminoUsdcMint,
 } from "./kamino-usdc-position";
@@ -104,12 +105,6 @@ export async function computeKaminoUsdcEarnings(args: {
   const trackedMint = resolveTrackedKaminoUsdcMint(solanaEnv);
   if (!trackedMint) return null;
 
-  const trackedPosition = await loadKaminoUsdcTrackedPosition({
-    publicKey: args.publicKey,
-    solanaEnv,
-  });
-  if (!trackedPosition) return null;
-
   const ownerPk = new PublicKey(args.publicKey);
   const tokenMintPk = new PublicKey(trackedMint);
   const [depositPda] = findDepositPda(ownerPk, tokenMintPk);
@@ -120,6 +115,11 @@ export async function computeKaminoUsdcEarnings(args: {
   const actualShares = readDepositAmount(accountInfo.data);
   if (actualShares <= BigInt(0)) return null;
 
+  let trackedPosition = await loadKaminoUsdcTrackedPosition({
+    publicKey: args.publicKey,
+    solanaEnv,
+  });
+
   const client = await getEarningsClient(args.signer);
   const quote = await client.getKaminoShieldedBalanceQuote({
     tokenMint: tokenMintPk,
@@ -128,6 +128,25 @@ export async function computeKaminoUsdcEarnings(args: {
   if (!quote) return null;
 
   const currentLiquidity = quote.redeemableLiquidityAmountRaw;
+
+  // Orphan shares (shielded USDC received from another user, or shielded
+  // before tracking existed): baseline at the current rate so future yield
+  // surfaces in the pill. Yield that accrued before first sighting is not
+  // recoverable — we don't know when the transfer arrived or at what rate.
+  if (!trackedPosition) {
+    await recordKaminoUsdcShield({
+      publicKey: args.publicKey,
+      solanaEnv,
+      addedPrincipalLiquidityAmountRaw: currentLiquidity,
+      addedCollateralSharesAmountRaw: actualShares,
+    });
+    trackedPosition = await loadKaminoUsdcTrackedPosition({
+      publicKey: args.publicKey,
+      solanaEnv,
+    });
+    if (!trackedPosition) return null;
+  }
+
   const principalLiquidity = resolveKaminoPrincipalLiquidityAmountRaw({
     trackedPosition,
     actualCollateralSharesAmountRaw: actualShares,
