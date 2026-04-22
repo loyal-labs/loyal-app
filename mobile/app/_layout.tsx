@@ -2,14 +2,13 @@ import "@/global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
+import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
 import { initAnalytics } from "@/lib/analytics/analytics";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
   // addNotificationResponseListener, // Summaries — kept for reinstatement
-  registerForPushNotifications,
-  registerPushToken,
   setupNotificationHandler,
 } from "@/services/notifications";
 import { useFonts } from "expo-font";
@@ -38,15 +37,10 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
-  // Register for push notifications on boot
+  // One-time display config (Android channel, handler). Per-wallet token
+  // registration happens inside <PushTokenRegistrar /> below.
   useEffect(() => {
-    (async () => {
-      await setupNotificationHandler();
-      const token = await registerForPushNotifications();
-      if (token) {
-        await registerPushToken(token);
-      }
-    })();
+    void setupNotificationHandler();
   }, []);
 
   // Initialize Mixpanel as early as possible so identify/track from wallet
@@ -83,6 +77,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <WalletProvider>
+          <PushTokenRegistrar />
           <StatusBar style="auto" />
           <WalletAuthGate />
           <Stack

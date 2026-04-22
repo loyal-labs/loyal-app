@@ -18,6 +18,10 @@ async function getNotificationsModule() {
 
 /**
  * Configure notification display behavior. Call once on app boot.
+ *
+ * Also installs a default Android channel — Android 8+ drops notifications
+ * silently if the sender doesn't target a registered channel, so we always
+ * need at least one even for low-volume delivery.
  */
 export async function setupNotificationHandler(): Promise<void> {
   const Notifications = await getNotificationsModule();
@@ -32,6 +36,16 @@ export async function setupNotificationHandler(): Promise<void> {
       shouldSetBadge: true,
     }),
   });
+
+  if (process.env.EXPO_OS === "android") {
+    await Notifications.setNotificationChannelAsync("default", {
+      name: "Default",
+      importance: Notifications.AndroidImportance.HIGH,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      sound: "default",
+      vibrationPattern: [0, 250, 250, 250],
+    });
+  }
 }
 
 /**
@@ -93,16 +107,21 @@ export async function addNotificationResponseListener(
 }
 
 /**
- * Send the push token to our backend for storage.
+ * Send the push token to our backend for storage, keyed by the caller's
+ * wallet public key. The backend upserts on `token`, so re-registering
+ * with the same token after a wallet change flips the identity.
  */
-export async function registerPushToken(token: string): Promise<void> {
+export async function registerPushToken(
+  token: string,
+  walletPublicKey: string,
+): Promise<void> {
   try {
     await fetch(`${env.apiBaseUrl}/api/push-tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token,
-        telegramUserId: env.telegramUserId,
+        walletPublicKey,
         platform: process.env.EXPO_OS ?? "unknown",
       }),
     });
