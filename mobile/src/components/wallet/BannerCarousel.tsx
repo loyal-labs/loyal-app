@@ -32,7 +32,7 @@ export function BannerCarousel({ onShield }: Props) {
   const banners: Banner[] = [
     {
       id: "earn",
-      title: "Shield Assets and Earn up to 5.21% APY",
+      title: "Earn up to 8% APY on shielded dollars",
       cta: "Shield Now",
       image: require("../../../assets/images/banners/banner-earn.png"),
       onPress: onShield,
