@@ -71,6 +71,14 @@ nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
     };
   }
 
+  // The SDK's webcrypto.ts guards a `await import("node:crypto")` behind a
+  // Node-only runtime check, but Metro still walks the import graph eagerly.
+  // Shim it to an empty module so the bundler stops complaining; the guard
+  // prevents the branch from ever executing on React Native.
+  if (moduleName === "node:crypto") {
+    return { type: "empty" };
+  }
+
   if (typeof nativewindResolveRequest === "function") {
     return nativewindResolveRequest(context, moduleName, platform);
   }
