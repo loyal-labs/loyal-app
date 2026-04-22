@@ -1,10 +1,81 @@
 import { PublicKey } from "@solana/web3.js";
 
+import {
+  LOYAL_TOKEN_MINT,
+  NATIVE_SOL_DECIMALS,
+  NATIVE_SOL_MINT,
+  SOLANA_USDC_MINT_DEVNET,
+  SOLANA_USDC_MINT_MAINNET,
+} from "../constants";
 import { getConnection } from "../rpc/connection";
+import { resolveTokenIcon } from "./resolve-token-info";
 import type { TokenHolding } from "./types";
 
 const PROGRAM_ID = new PublicKey("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
 const DEPOSIT_SEED = new TextEncoder().encode("deposit_v2");
+const DEFAULT_TOKEN_DECIMALS = 6;
+
+type ShieldableToken = {
+  mint: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+};
+
+function getEnvUsdcMint(): string {
+  const env = process.env.EXPO_PUBLIC_SOLANA_ENV ?? "devnet";
+  return env === "mainnet" ? SOLANA_USDC_MINT_MAINNET : SOLANA_USDC_MINT_DEVNET;
+}
+
+function getKnownShieldableTokens(): ShieldableToken[] {
+  return [
+    {
+      mint: NATIVE_SOL_MINT,
+      symbol: "SOL",
+      name: "Solana",
+      decimals: NATIVE_SOL_DECIMALS,
+    },
+    {
+      mint: getEnvUsdcMint(),
+      symbol: "USDC",
+      name: "USD Coin",
+      decimals: DEFAULT_TOKEN_DECIMALS,
+    },
+    {
+      mint: LOYAL_TOKEN_MINT,
+      symbol: "LOYAL",
+      name: "Loyal",
+      decimals: DEFAULT_TOKEN_DECIMALS,
+    },
+  ];
+}
+
+function synthesizeShieldableHolding(token: ShieldableToken): TokenHolding {
+  return {
+    mint: token.mint,
+    symbol: token.symbol,
+    name: token.name,
+    balance: 0,
+    decimals: token.decimals,
+    priceUsd: null,
+    valueUsd: null,
+    imageUrl: resolveTokenIcon({ mint: token.mint, imageUrl: null }),
+    isSecured: false,
+  };
+}
+
+function buildScanList(holdings: TokenHolding[]): TokenHolding[] {
+  const byMint = new Map<string, TokenHolding>();
+  for (const holding of holdings) {
+    if (!byMint.has(holding.mint)) byMint.set(holding.mint, holding);
+  }
+  for (const token of getKnownShieldableTokens()) {
+    if (!byMint.has(token.mint)) {
+      byMint.set(token.mint, synthesizeShieldableHolding(token));
+    }
+  }
+  return Array.from(byMint.values());
+}
 
 function findDepositPda(user: PublicKey, tokenMint: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
@@ -36,22 +107,23 @@ export async function fetchSecuredBalances(
   const connection = getConnection();
   const ownerPk = new PublicKey(owner);
 
-  if (holdings.length === 0) return [];
+  const scanList = buildScanList(holdings);
+  if (scanList.length === 0) return [];
 
-  const pdas = holdings.map(
+  const pdas = scanList.map(
     ({ mint }) => findDepositPda(ownerPk, new PublicKey(mint))[0],
   );
 
   const accountInfos = await connection.getMultipleAccountsInfo(pdas);
 
   const secured: TokenHolding[] = [];
-  for (let i = 0; i < holdings.length; i++) {
+  for (let i = 0; i < scanList.length; i++) {
     const info = accountInfos[i];
     if (!info?.data) continue;
     const rawAmount = readDepositAmount(info.data as Buffer);
     if (rawAmount <= BigInt(0)) continue;
 
-    const holding = holdings[i];
+    const holding = scanList[i];
     const balance = Number(rawAmount) / Math.pow(10, holding.decimals);
 
     secured.push({
