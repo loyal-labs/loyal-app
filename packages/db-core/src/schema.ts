@@ -549,15 +549,18 @@ export const botMessages = pgTable(
 );
 
 /**
- * Push notification tokens for mobile app users.
- * Stores Expo push tokens linked to Telegram user IDs.
+ * Push notification tokens for mobile app users. Stores Expo push tokens
+ * alongside whichever identities the app can claim — Telegram mini-app
+ * installs set telegramUserId, Seeker wallet installs set walletPublicKey.
+ * At least one identity must be present (enforced at the API layer).
  */
 export const pushTokens = pgTable(
   "push_tokens",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     token: text("token").notNull(),
-    telegramUserId: bigint("telegram_user_id", { mode: "bigint" }).notNull(),
+    telegramUserId: bigint("telegram_user_id", { mode: "bigint" }),
+    walletPublicKey: text("wallet_public_key"),
     platform: text("platform").notNull(), // "ios" | "android"
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -569,6 +572,7 @@ export const pushTokens = pgTable(
   (table) => [
     uniqueIndex("push_tokens_token_unique").on(table.token),
     index("push_tokens_telegram_user_id_idx").on(table.telegramUserId),
+    index("push_tokens_wallet_public_key_idx").on(table.walletPublicKey),
   ]
 );
 
