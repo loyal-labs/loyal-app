@@ -85,10 +85,15 @@ export function createOnboardingMomentumEndUpdater(
 ): (state: OnboardingSlidePlaybackState) => OnboardingSlidePlaybackState {
   const offsetX = event.nativeEvent.contentOffset.x;
 
-  return (state) =>
-    syncOnboardingSlidePlaybackIndex(state, {
+  return (state) => {
+    const synced = syncOnboardingSlidePlaybackIndex(state, {
       offsetX,
       width,
       slideCount,
     });
+    if (synced.autoAdvanceEnabled) {
+      return synced;
+    }
+    return { ...synced, autoAdvanceEnabled: true };
+  };
 }

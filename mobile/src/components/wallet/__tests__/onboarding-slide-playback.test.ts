@@ -80,4 +80,22 @@ describe("createOnboardingMomentumEndUpdater", () => {
     const nextState = updater(createOnboardingSlidePlaybackState());
     expect(nextState.currentIndex).toBe(2);
   });
+
+  it("resumes auto-advance after a manual swipe paused it", () => {
+    const paused = disableOnboardingSlidePlayback(
+      createOnboardingSlidePlaybackState(),
+    );
+    expect(paused.autoAdvanceEnabled).toBe(false);
+
+    const updater = createOnboardingMomentumEndUpdater(
+      { nativeEvent: { contentOffset: { x: 1125 } } },
+      375,
+      4,
+    );
+
+    expect(updater(paused)).toEqual({
+      currentIndex: 3,
+      autoAdvanceEnabled: true,
+    });
+  });
 });
