@@ -240,9 +240,20 @@ export function BalanceCard({
                       <Pressable
                         onPress={handleTopUp}
                         className="rounded-full px-4 py-2"
-                        style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                        style={{
+                          backgroundColor: hasBg
+                            ? "rgba(255,255,255,0.2)"
+                            : "rgba(60, 60, 67, 0.12)",
+                        }}
                       >
-                        <Text style={styles.topUpText}>Top up</Text>
+                        <Text
+                          style={[
+                            styles.topUpText,
+                            { color: hasBg ? "#fff" : "#1c1c1e" },
+                          ]}
+                        >
+                          Top up
+                        </Text>
                       </Pressable>
                     ) : null}
                   </View>

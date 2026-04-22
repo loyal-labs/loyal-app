@@ -42,7 +42,10 @@ import {
   resetWalletBalanceSubscription,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
-import { findBalanceBackground } from "@/lib/wallet/balance-backgrounds";
+import {
+  DEFAULT_BALANCE_BACKGROUND_ID,
+  findBalanceBackground,
+} from "@/lib/wallet/balance-backgrounds";
 import { AnimatedScrollView, ScrollView, Text, View } from "@/tw";
 import type { Transaction } from "@/types/wallet";
 
@@ -124,9 +127,10 @@ export default function WalletScreen() {
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
-  const [balanceBg, setBalanceBg] = useState<string | null>(
-    () => getCachedBalanceBg() ?? null,
-  );
+  const [balanceBg, setBalanceBg] = useState<string | null>(() => {
+    const cached = getCachedBalanceBg();
+    return cached !== undefined ? cached : DEFAULT_BALANCE_BACKGROUND_ID;
+  });
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
 
