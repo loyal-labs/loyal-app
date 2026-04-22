@@ -11,6 +11,10 @@ const config: ExpoConfig = {
   icon: "./assets/images/icon.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
+  runtimeVersion: { policy: "appVersion" },
+  updates: {
+    url: "https://u.expo.dev/7ecfef22-fa74-4fc9-b2f1-bf80acb81401",
+  },
   ios: {
     supportsTablet: false,
     bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",

@@ -6,6 +6,7 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
         "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
@@ -17,6 +18,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "env": {
         "APP_VARIANT": "development",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
@@ -25,6 +27,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
         "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
@@ -35,6 +38,7 @@
     },
     "dapp-store": {
       "autoIncrement": true,
+      "channel": "dapp-store",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
         "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
@@ -47,6 +51,7 @@
     "development-simulator": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "env": {
         "APP_VARIANT": "development",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
