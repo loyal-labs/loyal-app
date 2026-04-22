@@ -265,7 +265,14 @@ export function BalanceCard({
                           {formatEarnedUsd(earnings.earnedUsd)})
                         </Text>
                       </View>
-                      <Text style={styles.earningsAllTime}>All time</Text>
+                      <Text
+                        style={[
+                          styles.earningsAllTime,
+                          { color: mutedTextColor },
+                        ]}
+                      >
+                        All time
+                      </Text>
                     </View>
                   )}
                   <Text
@@ -350,7 +357,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   earningsAllTime: {
-    color: "rgba(255, 255, 255, 0.7)",
     fontFamily: "Geist_500Medium",
     fontSize: 13,
     lineHeight: 18,
