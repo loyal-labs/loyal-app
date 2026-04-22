@@ -5,9 +5,9 @@ import {
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  shieldTokens,
 } from "@loyal-labs/private-transactions";
 import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
-import type { Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
@@ -82,18 +82,6 @@ type ShieldParams = {
   tokenMint?: string;
   tokenDecimals?: number;
 };
-
-async function waitForAccount(
-  connection: Connection,
-  pda: PublicKey,
-  maxAttempts = 30,
-): Promise<void> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const info = await connection.getAccountInfo(pda);
-    if (info) return;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
 
 export function useShield(): {
   executeShield: (params: ShieldParams) => Promise<ShieldResult>;
@@ -233,9 +221,6 @@ export function useShield(): {
 
       try {
         const client = await getClient();
-        const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
-          await getSplToken();
-        const { wrapSolToWSol, closeWsolAta } = await getWsolAdapter();
 
         const resolvedMint =
           params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
@@ -244,79 +229,39 @@ export function useShield(): {
         }
         const tokenMint = new PublicKey(resolvedMint);
         const decimals = getShieldTokenDecimals(params);
-        const rawAmount = Math.floor(params.amount * 10 ** decimals);
+        const rawAmount = BigInt(Math.floor(params.amount * 10 ** decimals));
         const user = signer.publicKey;
-        const validator = getErValidatorForSolanaEnv(solanaEnv);
-        const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
-        // Init deposit if needed
-        const baseDeposit = await client.getBaseDeposit(user, tokenMint);
-        if (!baseDeposit) {
-          await client.initializeDeposit({
-            tokenMint,
-            user,
-            payer: user,
-          });
-          const [depositPda] = findDepositPda(user, tokenMint);
-          await waitForAccount(connection, depositPda);
-        }
+        // Snapshot the ephemeral deposit before shield so we can compute
+        // how many Kamino collateral shares this shield minted (USDC only).
+        // After shieldTokens the deposit is delegated to PER, so we read
+        // from the ephemeral layer on both sides.
+        const depositBefore =
+          (await client.getEphemeralDeposit(user, tokenMint))?.amount ??
+          BigInt(0);
 
-        // Wrap SOL -> wSOL if native
-        let createdAta = false;
-        if (isNativeSol) {
-          const result = await wrapSolToWSol({
-            connection,
-            signer,
-            lamports: rawAmount,
-          });
-          createdAta = result.createdAta;
-        }
-
-        const userTokenAccount = getAssociatedTokenAddressSync(
-          tokenMint,
-          user,
-          false,
-          TOKEN_PROGRAM_ID,
-        );
-
-        // Undelegate if currently delegated
-        const [depositPda] = findDepositPda(user, tokenMint);
-        const depositInfo = await connection.getAccountInfo(depositPda);
-        if (depositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-          await client.undelegateDeposit({
-            tokenMint,
-            user,
-            payer: user,
-            magicProgram: MAGIC_PROGRAM_ID,
-            magicContext: MAGIC_CONTEXT_ID,
-          });
-        }
-
-        // Snapshot the deposit before modify so we can compute how many
-        // Kamino collateral shares this shield minted (USDC only).
-        const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
-
-        // Move tokens into deposit vault (increase balance)
-        const { deposit: depositAfterModify } = await client.modifyBalance({
-          tokenMint,
-          amount: rawAmount,
-          increase: true,
+        const signature = await shieldTokens({
           user,
           payer: user,
+          tokenMint,
+          amount: rawAmount,
+          baseProgram: client.baseProgram,
+          perProgram: client.ephemeralProgram,
         });
 
-        // Record Kamino USDC position basis if this token is the tracked one.
+        const depositAfter =
+          (await client.getEphemeralDeposit(user, tokenMint))?.amount ??
+          BigInt(0);
+
         const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
         if (trackedKaminoMint === tokenMint.toBase58()) {
-          const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
-          const addedCollateralSharesAmountRaw =
-            depositAfterModify.amount - beforeShares;
+          const addedCollateralSharesAmountRaw = depositAfter - depositBefore;
           if (addedCollateralSharesAmountRaw > BigInt(0)) {
             try {
               await recordKaminoUsdcShield({
                 publicKey: signer.publicKey.toBase58(),
                 solanaEnv,
-                addedPrincipalLiquidityAmountRaw: BigInt(rawAmount),
+                addedPrincipalLiquidityAmountRaw: rawAmount,
                 addedCollateralSharesAmountRaw,
               });
             } catch (err) {
@@ -328,40 +273,8 @@ export function useShield(): {
           }
         }
 
-        // Close wSOL ATA if we created it
-        if (isNativeSol && createdAta) {
-          await closeWsolAta({
-            connection,
-            signer,
-            wsolAta: userTokenAccount,
-          });
-        }
-
-        // Create permission (may already exist)
-        try {
-          await client.createPermission({
-            tokenMint,
-            user,
-            payer: user,
-          });
-        } catch {
-          // Permission may already exist
-        }
-
-        // Delegate deposit
-        try {
-          await client.delegateDeposit({
-            tokenMint,
-            user,
-            payer: user,
-            validator,
-          });
-        } catch {
-          // May already be delegated
-        }
-
         setLoading(false);
-        return { success: true };
+        return { success: true, signature };
       } catch (err) {
         console.error("[useShield] executeShield failed", err);
         let errorMessage = "Shield failed";
@@ -375,7 +288,7 @@ export function useShield(): {
         return { success: false, error: errorMessage };
       }
     },
-    [signer, connection, getClient, solanaEnv],
+    [signer, getClient, solanaEnv],
   );
 
   const executeUnshield = useCallback(
