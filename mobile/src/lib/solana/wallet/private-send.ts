@@ -275,7 +275,6 @@ export async function sendPrivateTransferToTelegramUsername(params: {
       increase: true,
       user,
       payer: user,
-      userTokenAccount,
     });
 
     if (isNativeSol && createdAta) {
@@ -443,7 +442,6 @@ export async function sendPrivateTransferToWallet(params: {
       increase: true,
       user,
       payer: user,
-      userTokenAccount,
     });
 
     if (isNativeSol && createdAta) {

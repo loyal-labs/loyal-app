@@ -303,7 +303,6 @@ export function useShield(): {
           increase: true,
           user,
           payer: user,
-          userTokenAccount,
         });
 
         // Record Kamino USDC position basis if this token is the tracked one.
@@ -460,7 +459,6 @@ export function useShield(): {
           increase: false,
           user,
           payer: user,
-          userTokenAccount,
         });
 
         if (isTrackedKaminoToken) {

@@ -2,14 +2,11 @@ import {
   Connection,
   PublicKey,
   SystemProgram,
+  Transaction,
   type Commitment,
 } from "@solana/web3.js";
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
-import {
-  getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   verifyTeeRpcIntegrity,
   getAuthToken,
@@ -33,7 +30,6 @@ import {
 import {
   findDepositPda,
   findUsernameDepositPda,
-  findVaultPda,
   findPermissionPda,
   findDelegationRecordPda,
   findDelegationMetadataPda,
@@ -66,8 +62,15 @@ import type {
   ClaimUsernameDepositToDepositParams,
   DelegationStatusResponse,
 } from "./types";
-import { sha256hash } from "./utils";
+import { sha256hash, validateUsername } from "./utils";
 import { createKeypairMessageSigner } from "./webcrypto";
+import { initializeDepositIx } from "./instructions/initializeDeposit";
+import { processEnsureChecks } from "./checks/enshureChecks";
+import { initializeUsernameDepositIx } from "./instructions/initializeUsernameDeposit";
+import { modifyBalanceIx } from "./instructions/modifyBalance";
+import { createPermissionIx } from "./instructions/createPermission";
+import { delegateDepositIx } from "./instructions/delegateDeposit";
+import { undelegateDeposit } from "./actions/undelegateDeposit";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -126,7 +129,9 @@ function normalizeBigInt(value: number | bigint): bigint {
   }
 
   if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`Expected a non-negative integer amount, received ${value}`);
+    throw new Error(
+      `Expected a non-negative integer amount, received ${value}`
+    );
   }
 
   return BigInt(value);
@@ -443,57 +448,42 @@ export class LoyalPrivateTransactionsClient {
    * Initialize a deposit account for a user and token mint
    */
   async initializeDeposit(params: InitializeDepositParams): Promise<string> {
-    const { user, tokenMint, payer, rpcOptions } = params;
+    const { ix, ensure } = await initializeDepositIx(this.baseProgram, params);
 
-    const [depositPda] = findDepositPda(user, tokenMint);
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
 
-    await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda", true);
-
-    const signature = await this.baseProgram.methods
-      .initializeDeposit()
-      .accountsPartial({
-        payer,
-        user,
-        tokenMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc(rpcOptions);
-
-    return signature;
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [],
+      params.rpcOptions
+    );
   }
 
   async initializeUsernameDeposit(
     params: InitializeUsernameDepositParams
   ): Promise<string> {
-    const { username, tokenMint, payer, rpcOptions } = params;
-
-    this.validateUsername(username);
-
-    const [usernameDepositPda] = await findUsernameDepositPda(
-      username,
-      tokenMint
+    const { ix, ensure } = await initializeUsernameDepositIx(
+      this.baseProgram,
+      params
     );
 
-    await this.ensureNotDelegated(
-      usernameDepositPda,
-      "modifyBalance-depositPda",
-      true
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
     );
 
-    const usernameHash = await sha256hash(username);
-
-    const signature = await this.baseProgram.methods
-      .initializeUsernameDeposit(usernameHash)
-      .accountsPartial({
-        payer,
-        tokenMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc(rpcOptions);
-
-    return signature;
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [],
+      params.rpcOptions
+    );
   }
 
   /**
@@ -502,125 +492,23 @@ export class LoyalPrivateTransactionsClient {
   async modifyBalance(
     params: ModifyBalanceParams
   ): Promise<ModifyBalanceResult> {
-    const {
-      user,
-      tokenMint,
-      amount,
-      increase,
-      payer,
-      userTokenAccount,
-      rpcOptions,
-    } = params;
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await modifyBalanceIx(this.baseProgram, params);
 
-    const [depositPda] = findDepositPda(user, tokenMint);
-
-    await this.ensureNotDelegated(depositPda, "modifyBalance-depositPda");
-
-    const [vaultPda] = findVaultPda(tokenMint);
-    const vaultTokenAccount = getAssociatedTokenAddressSync(
-      tokenMint,
-      vaultPda,
-      true,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
     );
-    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
-    const vaultCollateralTokenAccount = kaminoAccounts
-      ? getAssociatedTokenAddressSync(
-          kaminoAccounts.reserveCollateralMint,
-          vaultPda,
-          true,
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      : null;
 
-    console.log("modifyBalance", {
-      payer: payer.toString(),
-      user: user.toString(),
-      vault: vaultPda.toString(),
-      deposit: depositPda.toString(),
-      userTokenAccount: userTokenAccount.toString(),
-      vaultTokenAccount: vaultTokenAccount.toString(),
-      tokenMint: tokenMint.toString(),
-      kaminoAccounts: kaminoAccounts
-        ? {
-            lendingMarket: kaminoAccounts.lendingMarket.toString(),
-            lendingMarketAuthority:
-              kaminoAccounts.lendingMarketAuthority.toString(),
-            reserve: kaminoAccounts.reserve.toString(),
-            reserveLiquiditySupply:
-              kaminoAccounts.reserveLiquiditySupply.toString(),
-            reserveCollateralMint:
-              kaminoAccounts.reserveCollateralMint.toString(),
-            vaultCollateralTokenAccount:
-              vaultCollateralTokenAccount?.toString() ?? null,
-          }
-        : null,
-    });
+    const tx = new Transaction().add(ix);
+    const signature = await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [],
+      params.rpcOptions
+    );
 
-    let methodBuilder = this.baseProgram.methods
-      .modifyBalance({ amount: new BN(amount.toString()), increase })
-      .accountsPartial({
-        payer,
-        user,
-        vault: vaultPda,
-        deposit: depositPda,
-        userTokenAccount,
-        vaultTokenAccount,
-        tokenMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      });
-
-    if (kaminoAccounts && vaultCollateralTokenAccount) {
-      methodBuilder = methodBuilder.remainingAccounts([
-        {
-          pubkey: kaminoAccounts.lendingMarket,
-          isSigner: false,
-          isWritable: false,
-        },
-        {
-          pubkey: kaminoAccounts.lendingMarketAuthority,
-          isSigner: false,
-          isWritable: false,
-        },
-        {
-          pubkey: kaminoAccounts.reserve,
-          isSigner: false,
-          isWritable: true,
-        },
-        {
-          pubkey: kaminoAccounts.reserveLiquiditySupply,
-          isSigner: false,
-          isWritable: true,
-        },
-        {
-          pubkey: kaminoAccounts.reserveCollateralMint,
-          isSigner: false,
-          isWritable: true,
-        },
-        {
-          pubkey: vaultCollateralTokenAccount,
-          isSigner: false,
-          isWritable: true,
-        },
-        {
-          pubkey: kaminoAccounts.instructionSysvarAccount,
-          isSigner: false,
-          isWritable: false,
-        },
-        {
-          pubkey: kaminoAccounts.klendProgram,
-          isSigner: false,
-          isWritable: false,
-        },
-      ]);
-    }
-
-    const signature = await methodBuilder.rpc(rpcOptions);
-
+    // TODO: add wait
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {
       throw new Error("Failed to fetch deposit after modification");
@@ -635,7 +523,7 @@ export class LoyalPrivateTransactionsClient {
     const { username, tokenMint, amount, recipient, session, rpcOptions } =
       params;
 
-    this.validateUsername(username);
+    validateUsername(username);
 
     const [sourceUsernameDeposit] = await findUsernameDepositPda(
       username,
@@ -750,40 +638,21 @@ export class LoyalPrivateTransactionsClient {
   /**
    * Create a permission for a deposit account (required for PER)
    */
-  async createPermission(
-    params: CreatePermissionParams
-  ): Promise<string | null> {
-    const { user, tokenMint, payer, rpcOptions } = params;
+  async createPermission(params: CreatePermissionParams): Promise<string> {
+    const { ix, ensure } = await createPermissionIx(this.baseProgram, params);
 
-    const [depositPda] = findDepositPda(user, tokenMint);
-    const [permissionPda] = findPermissionPda(depositPda);
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
 
-    await this.ensureNotDelegated(depositPda, "createPermission-depositPda");
-
-    if (await this.permissionAccountExists(permissionPda)) {
-      return null;
-    }
-
-    try {
-      const signature = await this.baseProgram.methods
-        .createPermission()
-        .accountsPartial({
-          payer,
-          user,
-          deposit: depositPda,
-          permission: permissionPda,
-          permissionProgram: PERMISSION_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc(rpcOptions);
-
-      return signature;
-    } catch (err) {
-      if (this.isAccountAlreadyInUse(err)) {
-        return "permission-exists";
-      }
-      throw err;
-    }
+    const tx = new Transaction().add(ix);
+    return await this.baseProgram.provider.sendAndConfirm!(
+      tx,
+      [],
+      params.rpcOptions
+    );
   }
 
   /**
@@ -795,7 +664,7 @@ export class LoyalPrivateTransactionsClient {
     const { username, tokenMint, session, authority, payer, rpcOptions } =
       params;
 
-    this.validateUsername(username);
+    validateUsername(username);
 
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [permissionPda] = findPermissionPda(depositPda);
@@ -840,26 +709,16 @@ export class LoyalPrivateTransactionsClient {
    * Delegate a deposit account to the ephemeral rollup
    */
   async delegateDeposit(params: DelegateDepositParams): Promise<string> {
-    const { user, tokenMint, payer, validator, rpcOptions } = params;
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await delegateDepositIx(this.baseProgram, params);
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
 
     const [depositPda] = findDepositPda(user, tokenMint);
-    const [bufferPda] = findBufferPda(depositPda);
-    const [delegationRecordPda] = findDelegationRecordPda(depositPda);
-    const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
-
-    await this.ensureNotDelegated(depositPda, "delegateDeposit-depositPda");
-
-    const accounts: Record<string, PublicKey | null> = {
-      payer,
-      bufferDeposit: bufferPda,
-      delegationRecordDeposit: delegationRecordPda,
-      delegationMetadataDeposit: delegationMetadataPda,
-      deposit: depositPda,
-      validator,
-      ownerProgram: PROGRAM_ID,
-      delegationProgram: DELEGATION_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    };
 
     const delegationWatcher = waitForAccountOwnerChange(
       this.baseProgram.provider.connection,
@@ -869,13 +728,11 @@ export class LoyalPrivateTransactionsClient {
 
     let signature;
     try {
-      console.log("delegateDeposit Accounts:", prettyStringify(accounts));
-      signature = await this.baseProgram.methods
-        .delegate(user, tokenMint)
-        .accountsPartial(accounts)
-        .rpc(rpcOptions);
-      console.log(
-        "delegateDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection..."
+      const tx = new Transaction().add(ix);
+      signature = await this.baseProgram.provider.sendAndConfirm!(
+        tx,
+        [],
+        params.rpcOptions
       );
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3_000));
@@ -902,7 +759,7 @@ export class LoyalPrivateTransactionsClient {
       rpcOptions,
     } = params;
 
-    this.validateUsername(username);
+    validateUsername(username);
 
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [bufferPda] = findBufferPda(depositPda);
@@ -965,56 +822,11 @@ export class LoyalPrivateTransactionsClient {
    * is owned by PROGRAM_ID before returning.
    */
   async undelegateDeposit(params: UndelegateDepositParams): Promise<string> {
-    const {
-      user,
-      tokenMint,
-      payer,
-      sessionToken,
-      magicProgram,
-      magicContext,
-      rpcOptions,
-    } = params;
-
-    const [depositPda] = findDepositPda(user, tokenMint);
-
-    await this.ensureDelegated(
-      depositPda,
-      "undelegateDeposit-depositPda",
-      true
+    return await undelegateDeposit(
+      this.baseProgram,
+      this.ephemeralProgram,
+      params
     );
-
-    const accounts: Record<string, PublicKey | null> = {
-      user,
-      payer,
-      deposit: depositPda,
-      magicProgram,
-      magicContext,
-    };
-    accounts.sessionToken = sessionToken ?? null;
-
-    const delegationWatcher = waitForAccountOwnerChange(
-      this.baseProgram.provider.connection,
-      depositPda,
-      PROGRAM_ID
-    );
-
-    let signature;
-    try {
-      console.log("undelegateDeposit Accounts:", prettyStringify(accounts));
-      signature = await this.ephemeralProgram.methods
-        .undelegate()
-        .accountsPartial(accounts)
-        .rpc(rpcOptions);
-      console.log(
-        "undelegateDeposit: waiting for depositPda owner to be PROGRAM_ID on base connection..."
-      );
-      await delegationWatcher.wait();
-    } catch (e) {
-      await delegationWatcher.cancel();
-      throw e;
-    }
-
-    return signature;
   }
 
   /**
@@ -1033,7 +845,7 @@ export class LoyalPrivateTransactionsClient {
       rpcOptions,
     } = params;
 
-    this.validateUsername(username);
+    validateUsername(username);
 
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
 
@@ -1128,7 +940,7 @@ export class LoyalPrivateTransactionsClient {
       rpcOptions,
     } = params;
 
-    this.validateUsername(username);
+    validateUsername(username);
 
     const [sourceDepositPda] = findDepositPda(user, tokenMint);
     const [destinationDepositPda] = await findUsernameDepositPda(
@@ -1336,7 +1148,8 @@ export class LoyalPrivateTransactionsClient {
    * Devnet reserves intentionally return 0 because the UI APY source is mainnet-only.
    */
   async getKaminoLendingApyBps(tokenMint: PublicKey): Promise<number | null> {
-    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    const kaminoAccounts =
+      getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
     if (!kaminoAccounts) {
       return null;
     }
@@ -1355,7 +1168,8 @@ export class LoyalPrivateTransactionsClient {
   async getKaminoReserveSnapshot(
     tokenMint: PublicKey
   ): Promise<KaminoReserveSnapshot | null> {
-    const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+    const kaminoAccounts =
+      getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
     if (!kaminoAccounts) {
       return null;
     }
@@ -1461,17 +1275,6 @@ export class LoyalPrivateTransactionsClient {
   // ============================================================
   // Private Helpers
   // ============================================================
-
-  private validateUsername(username: string): void {
-    if (!username || username.length < 5 || username.length > 32) {
-      throw new Error("Username must be between 5 and 32 characters");
-    }
-    if (!/^[a-z0-9_]+$/.test(username)) {
-      throw new Error(
-        "Username can only contain lowercase alphanumeric characters and underscores"
-      );
-    }
-  }
 
   private async permissionAccountExists(
     permission: PublicKey
