@@ -15,14 +15,28 @@ const KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
 const KAMINO_FRACTION_BITS = 60n;
 const KAMINO_FRACTION_SCALE = 1n << KAMINO_FRACTION_BITS;
 
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// Absolute offsets into the Kamino reserve account (including the 8-byte
+// Anchor discriminator prefix). Reading at absolute offsets avoids creating
+// a subarray, whose behavior diverges between Node's Buffer and the React
+// Native `buffer` polyfill (the polyfill's subarray returns a plain
+// Uint8Array without Buffer methods).
+const KAMINO_DISCRIMINATOR_OFFSET = 8;
 const KAMINO_RESERVE_LAYOUT_OFFSETS = {
-  liquidityAvailableAmount: 216,
-  liquidityBorrowedAmountSf: 224,
-  liquidityMintDecimals: 264,
-  liquidityAccumulatedProtocolFeesSf: 336,
-  liquidityAccumulatedReferrerFeesSf: 352,
-  liquidityPendingReferrerFeesSf: 368,
-  collateralMintTotalSupply: 2584,
+  liquidityAvailableAmount: KAMINO_DISCRIMINATOR_OFFSET + 216,
+  liquidityBorrowedAmountSf: KAMINO_DISCRIMINATOR_OFFSET + 224,
+  liquidityMintDecimals: KAMINO_DISCRIMINATOR_OFFSET + 264,
+  liquidityAccumulatedProtocolFeesSf: KAMINO_DISCRIMINATOR_OFFSET + 336,
+  liquidityAccumulatedReferrerFeesSf: KAMINO_DISCRIMINATOR_OFFSET + 352,
+  liquidityPendingReferrerFeesSf: KAMINO_DISCRIMINATOR_OFFSET + 368,
+  collateralMintTotalSupply: KAMINO_DISCRIMINATOR_OFFSET + 2584,
 } as const;
 
 function readUint64LE(data: Buffer, offset: number): bigint {
@@ -53,51 +67,58 @@ export function parseKaminoReserveSnapshotFromAccountData(args: {
   tokenMint: PublicKey;
 }): KaminoReserveSnapshot {
   const { reserve, tokenMint } = args;
-  // getAccountInfo returns a Buffer in Node but a plain Uint8Array on
-  // React Native, whose .subarray() result lacks Buffer.equals. Normalize
-  // so the discriminator check and downstream offset reads both work.
+  // Normalize input to Buffer. getAccountInfo returns Buffer in Node but a
+  // plain Uint8Array on React Native; Buffer.from(uint8array) gives us a
+  // Buffer with all Node-style read methods regardless of runtime.
   const data = Buffer.isBuffer(args.data) ? args.data : Buffer.from(args.data);
 
-  if (data.length < 8 || !data.subarray(0, 8).equals(KAMINO_RESERVE_DISCRIMINATOR)) {
-    throw new Error(`Kamino reserve ${reserve.toBase58()} has an invalid discriminator`);
+  if (
+    data.length < 8 ||
+    !bytesEqual(data.subarray(0, 8), KAMINO_RESERVE_DISCRIMINATOR)
+  ) {
+    throw new Error(
+      `Kamino reserve ${reserve.toBase58()} has an invalid discriminator`,
+    );
   }
 
-  const accountData = data.subarray(8);
   const requiredLength =
     KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply + 8;
 
-  if (accountData.length < requiredLength) {
+  if (data.length < requiredLength) {
     throw new Error(
-      `Kamino reserve ${reserve.toBase58()} is too small: expected at least ${requiredLength} bytes`
+      `Kamino reserve ${reserve.toBase58()} is too small: expected at least ${requiredLength} bytes`,
     );
   }
 
   const liquidityAvailableAmount = readUint64LE(
-    accountData,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAvailableAmount
+    data,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAvailableAmount,
   );
   const liquidityBorrowedAmountSf = readUint128LE(
-    accountData,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityBorrowedAmountSf
+    data,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityBorrowedAmountSf,
   );
   const liquidityAccumulatedProtocolFeesSf = readUint128LE(
-    accountData,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedProtocolFeesSf
+    data,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedProtocolFeesSf,
   );
   const liquidityAccumulatedReferrerFeesSf = readUint128LE(
-    accountData,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedReferrerFeesSf
+    data,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedReferrerFeesSf,
   );
   const liquidityPendingReferrerFeesSf = readUint128LE(
-    accountData,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityPendingReferrerFeesSf
+    data,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityPendingReferrerFeesSf,
   );
   const collateralSupplyRaw = readUint64LE(
-    accountData,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply
+    data,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply,
   );
   const liquidityDecimals = Number(
-    readUint64LE(accountData, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityMintDecimals)
+    readUint64LE(
+      data,
+      KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityMintDecimals,
+    ),
   );
 
   const grossLiquiditySupplyScaled =
