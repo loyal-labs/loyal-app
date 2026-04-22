@@ -2,7 +2,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { type KaminoModifyBalanceAccounts } from "./constants";
 import type { KaminoPositionYieldInfo, KaminoReserveSnapshot } from "./types";
 export declare function parseKaminoReserveSnapshotFromAccountData(args: {
-    data: Buffer;
+    data: Buffer | Uint8Array;
     reserve: PublicKey;
     tokenMint: PublicKey;
 }): KaminoReserveSnapshot;

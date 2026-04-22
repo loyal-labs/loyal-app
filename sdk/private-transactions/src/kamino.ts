@@ -48,11 +48,15 @@ function divCeil(numerator: bigint, denominator: bigint): bigint {
 }
 
 export function parseKaminoReserveSnapshotFromAccountData(args: {
-  data: Buffer;
+  data: Buffer | Uint8Array;
   reserve: PublicKey;
   tokenMint: PublicKey;
 }): KaminoReserveSnapshot {
-  const { data, reserve, tokenMint } = args;
+  const { reserve, tokenMint } = args;
+  // getAccountInfo returns a Buffer in Node but a plain Uint8Array on
+  // React Native, whose .subarray() result lacks Buffer.equals. Normalize
+  // so the discriminator check and downstream offset reads both work.
+  const data = Buffer.isBuffer(args.data) ? args.data : Buffer.from(args.data);
 
   if (data.length < 8 || !data.subarray(0, 8).equals(KAMINO_RESERVE_DISCRIMINATOR)) {
     throw new Error(`Kamino reserve ${reserve.toBase58()} has an invalid discriminator`);

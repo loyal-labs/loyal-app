@@ -1926,7 +1926,8 @@ function divCeil(numerator, denominator) {
   return (numerator + denominator - 1n) / denominator;
 }
 function parseKaminoReserveSnapshotFromAccountData(args) {
-  const { data, reserve, tokenMint } = args;
+  const { reserve, tokenMint } = args;
+  const data = Buffer.isBuffer(args.data) ? args.data : Buffer.from(args.data);
   if (data.length < 8 || !data.subarray(0, 8).equals(KAMINO_RESERVE_DISCRIMINATOR)) {
     throw new Error(`Kamino reserve ${reserve.toBase58()} has an invalid discriminator`);
   }
