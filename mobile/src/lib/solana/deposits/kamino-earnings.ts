@@ -72,6 +72,11 @@ async function getEarningsClient(
     baseWsEndpoint: websocketEndpoint,
     ephemeralRpcEndpoint: perRpcEndpoint,
     ephemeralWsEndpoint: perWsEndpoint,
+    // Read-only client: getKaminoShieldedBalanceQuote reads the Kamino
+    // reserve from base chain, never PER. Pass a sentinel token so
+    // fromConfig skips PER auth and we don't trigger a Seed Vault
+    // approval prompt at boot just to fetch earnings.
+    authToken: { token: "read-only", expiresAt: Number.MAX_SAFE_INTEGER },
   });
 
   cachedClient = client;

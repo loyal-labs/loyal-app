@@ -44,6 +44,11 @@ function getReadOnlyClient(
       baseWsEndpoint: websocketEndpoint,
       ephemeralRpcEndpoint: perRpcEndpoint,
       ephemeralWsEndpoint: perWsEndpoint,
+      // Read-only client: getKaminoLendingApyBps hits Kamino's public API,
+      // never PER. Pass a sentinel token so fromConfig skips its internal
+      // Ed25519-JWK auth dance, which RN's partial crypto.subtle can't
+      // perform (no importKey).
+      authToken: { token: "read-only", expiresAt: Number.MAX_SAFE_INTEGER },
     });
     clients.set(solanaEnv, client);
     clientPromises.delete(solanaEnv);
