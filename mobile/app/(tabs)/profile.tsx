@@ -10,6 +10,7 @@ import {
   Globe,
   Heart,
   Key,
+  MessageSquare,
   Network,
   RotateCcw,
   Trash2,
@@ -31,6 +32,7 @@ import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
 
 const SUPPORT_URL = "https://t.me/spacesymmetry";
+const FEEDBACK_URL = "https://tally.so/r/ZjRpev";
 const ANALYTICS_OPT_IN_KEY = "settings_analytics_opt_in";
 
 const TAB_BAR_HEIGHT = 90;
@@ -138,6 +140,13 @@ export default function ProfileScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     Linking.openURL(SUPPORT_URL);
+  }, []);
+
+  const handleSendFeedback = useCallback(() => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    Linking.openURL(FEEDBACK_URL);
   }, []);
 
   const handleReplayOnboarding = useCallback(() => {
@@ -307,6 +316,13 @@ export default function ProfileScreen() {
             subtitle="Report a bug or ask any question"
             showChevron
             onPress={handleSupport}
+          />
+          <ProfileCell
+            icon={<MessageSquare size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+            title="Send feedback"
+            subtitle="Share what you think about Loyal"
+            showChevron
+            onPress={handleSendFeedback}
           />
           <ProfileCell
             icon={<RotateCcw size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
