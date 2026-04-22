@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Image as RNImage } from "react-native";
 
 import { Pressable, Text, View } from "@/tw";
-import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
+import {
+  getDisplayTokenHoldings,
+  getPairPositions,
+  type PairPosition,
+} from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { fetchTokenDetailMarket } from "@/services/api";
@@ -28,14 +32,45 @@ type TokensListProps = {
   onTokenPress?: (mint: string) => void;
 };
 
+const OUTER_RADIUS = 20;
+const INNER_RADIUS = 0;
+
+const radiiForPosition = (position: PairPosition) => {
+  switch (position) {
+    case "top":
+      return {
+        borderTopLeftRadius: OUTER_RADIUS,
+        borderTopRightRadius: OUTER_RADIUS,
+        borderBottomLeftRadius: INNER_RADIUS,
+        borderBottomRightRadius: INNER_RADIUS,
+      };
+    case "bottom":
+      return {
+        borderTopLeftRadius: INNER_RADIUS,
+        borderTopRightRadius: INNER_RADIUS,
+        borderBottomLeftRadius: OUTER_RADIUS,
+        borderBottomRightRadius: OUTER_RADIUS,
+      };
+    default:
+      return {
+        borderTopLeftRadius: OUTER_RADIUS,
+        borderTopRightRadius: OUTER_RADIUS,
+        borderBottomLeftRadius: OUTER_RADIUS,
+        borderBottomRightRadius: OUTER_RADIUS,
+      };
+  }
+};
+
 function TokenRow({
   holding,
   marketState,
   onPress,
+  groupPosition = "single",
 }: {
   holding: TokenHolding;
   marketState: TokenRowMarketState;
   onPress?: () => void;
+  groupPosition?: PairPosition;
 }) {
   const icon = resolveTokenIcon({ mint: holding.mint, imageUrl: holding.imageUrl });
   const rowContent = buildTokenRowContent(holding, marketState);
@@ -46,19 +81,24 @@ function TokenRow({
       : rowContent.priceChangeTone === "negative"
         ? NEGATIVE_CHANGE
         : NEUTRAL_CHANGE;
+  const radii = radiiForPosition(groupPosition);
 
   return (
     <Pressable
-      className="rounded-[20px]"
       onPress={onPress}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       disabled={!onPress}
+      style={radii}
     >
       <View
-        className="flex-row items-center rounded-[20px] px-4 py-2"
+        className="flex-row items-center px-4 py-2"
         style={{
-          borderWidth: 2,
+          ...radii,
+          borderLeftWidth: 2,
+          borderRightWidth: 2,
+          borderTopWidth: groupPosition === "bottom" ? 0 : 2,
+          borderBottomWidth: 2,
           borderColor: "#f2f2f7",
           backgroundColor: pressed ? "#f2f2f7" : "#ffffff",
         }}
@@ -151,6 +191,26 @@ export function TokensList({
     [holdings],
   );
   const displayHoldings = allDisplayHoldings.slice(0, maxItems);
+  const pairPositions = useMemo(
+    () => getPairPositions(displayHoldings),
+    [displayHoldings],
+  );
+  const groups = useMemo(() => {
+    const out: Array<
+      | { kind: "single"; holding: TokenHolding }
+      | { kind: "pair"; top: TokenHolding; bottom: TokenHolding }
+    > = [];
+    for (let i = 0; i < displayHoldings.length; i++) {
+      const pos = pairPositions[i];
+      if (pos === "top" && pairPositions[i + 1] === "bottom") {
+        out.push({ kind: "pair", top: displayHoldings[i], bottom: displayHoldings[i + 1] });
+        i += 1;
+        continue;
+      }
+      out.push({ kind: "single", holding: displayHoldings[i] });
+    }
+    return out;
+  }, [displayHoldings, pairPositions]);
   const [marketStates, setMarketStates] = useState<Record<string, TokenRowMarketState>>({});
   const displayMints = useMemo(
     () => Array.from(new Set(displayHoldings.map((holding) => holding.mint))),
@@ -268,14 +328,46 @@ export function TokensList({
         ) : null}
       </View>
       <View className="gap-2">
-        {displayHoldings.map((holding) => (
-          <TokenRow
-            key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`}
-            holding={holding}
-            marketState={marketStates[holding.mint] ?? { status: "loading" }}
-            onPress={onTokenPress ? () => onTokenPress(holding.mint) : undefined}
-          />
-        ))}
+        {groups.map((group) => {
+          if (group.kind === "single") {
+            const h = group.holding;
+            return (
+              <TokenRow
+                key={`${h.mint}-${h.isSecured ? "s" : "r"}`}
+                holding={h}
+                marketState={marketStates[h.mint] ?? { status: "loading" }}
+                onPress={onTokenPress ? () => onTokenPress(h.mint) : undefined}
+                groupPosition="single"
+              />
+            );
+          }
+
+          const topKey = `${group.top.mint}-${group.top.isSecured ? "s" : "r"}`;
+          const bottomKey = `${group.bottom.mint}-${group.bottom.isSecured ? "s" : "r"}`;
+          return (
+            <View key={`pair-${topKey}`}>
+              <TokenRow
+                holding={group.top}
+                marketState={marketStates[group.top.mint] ?? { status: "loading" }}
+                onPress={
+                  onTokenPress ? () => onTokenPress(group.top.mint) : undefined
+                }
+                groupPosition="top"
+              />
+              <TokenRow
+                key={bottomKey}
+                holding={group.bottom}
+                marketState={marketStates[group.bottom.mint] ?? { status: "loading" }}
+                onPress={
+                  onTokenPress
+                    ? () => onTokenPress(group.bottom.mint)
+                    : undefined
+                }
+                groupPosition="bottom"
+              />
+            </View>
+          );
+        })}
       </View>
     </View>
   );

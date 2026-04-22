@@ -48,6 +48,39 @@ const getPrefillTokens = (): PrefillToken[] => [
 const sortByUsdValueDesc = (a: TokenHolding, b: TokenHolding): number =>
   (b.valueUsd ?? 0) - (a.valueUsd ?? 0);
 
+const groupPairsByMint = (holdings: TokenHolding[]): TokenHolding[] => {
+  const placed = new Set<number>();
+  const result: TokenHolding[] = [];
+
+  for (let i = 0; i < holdings.length; i++) {
+    if (placed.has(i)) continue;
+    placed.add(i);
+
+    const leader = holdings[i];
+    const partners: TokenHolding[] = [];
+
+    for (let j = i + 1; j < holdings.length; j++) {
+      if (placed.has(j)) continue;
+      if (holdings[j].mint === leader.mint) {
+        partners.push(holdings[j]);
+        placed.add(j);
+      }
+    }
+
+    if (partners.length === 0) {
+      result.push(leader);
+      continue;
+    }
+
+    const group = [leader, ...partners];
+    const regulars = group.filter((h) => !h.isSecured);
+    const shielded = group.filter((h) => h.isSecured);
+    result.push(...regulars, ...shielded);
+  }
+
+  return result;
+};
+
 const toZeroHolding = (
   existingHolding: TokenHolding | undefined,
   fallback: PrefillToken,
@@ -65,13 +98,28 @@ const toZeroHolding = (
   isSecured: false,
 });
 
+export type PairPosition = "single" | "top" | "bottom";
+
+export function getPairPositions(holdings: TokenHolding[]): PairPosition[] {
+  return holdings.map((holding, index) => {
+    const prev = index > 0 ? holdings[index - 1] : null;
+    const next = index < holdings.length - 1 ? holdings[index + 1] : null;
+    const prevMatches = prev?.mint === holding.mint;
+    const nextMatches = next?.mint === holding.mint;
+
+    if (nextMatches && !prevMatches) return "top";
+    if (prevMatches && !nextMatches) return "bottom";
+    return "single";
+  });
+}
+
 export function getDisplayTokenHoldings(holdings: TokenHolding[]): TokenHolding[] {
   const positiveHoldings = holdings
     .filter((holding) => holding.balance > 0)
     .sort(sortByUsdValueDesc);
 
   if (positiveHoldings.length > 0) {
-    return positiveHoldings;
+    return groupPairsByMint(positiveHoldings);
   }
 
   return getPrefillTokens().map((token) => {

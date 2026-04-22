@@ -8,7 +8,11 @@ import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { getDisplayTokenHoldings } from "@/lib/solana/token-holdings/display-holdings";
+import {
+  getDisplayTokenHoldings,
+  getPairPositions,
+  type PairPosition,
+} from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Pressable, Text, View } from "@/tw";
@@ -18,12 +22,23 @@ type TokensSheetProps = {
   onTokenPress?: (mint: string) => void;
 };
 
+type TokenListItem = {
+  holding: TokenHolding;
+  position: PairPosition;
+};
+
+const PAIR_SURFACE = "#f6f6f8";
+const PAIR_DIVIDER_COLOR = "#ededf0";
+const PAIR_OUTER_RADIUS = 16;
+
 function TokenRow({
   holding,
   onPress,
+  groupPosition = "single",
 }: {
   holding: TokenHolding;
   onPress?: () => void;
+  groupPosition?: PairPosition;
 }) {
   const icon = resolveTokenIcon({
     mint: holding.mint,
@@ -37,41 +52,65 @@ function TokenRow({
       ? "<0.0001"
       : holding.balance.toFixed(4)
     : "0";
+  const isPaired = groupPosition !== "single";
+  const isPairTop = groupPosition === "top";
+  const isPairBottom = groupPosition === "bottom";
 
   return (
-    <Pressable onPress={onPress} disabled={!onPress}>
-      <View className="flex-row items-center px-4 py-2.5">
-        <RNImage
-          source={{ uri: icon }}
-          style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
-        />
-        <View className="ml-3 flex-1">
-          <Text
-            className="text-[17px] font-medium text-black"
-            style={{ letterSpacing: -0.187 }}
-          >
-            {holding.symbol}
-          </Text>
-          <Text
-            className="text-[15px]"
-            style={{ color: "rgba(60, 60, 67, 0.6)" }}
-          >
-            {holding.name}
-          </Text>
-        </View>
-        <View className="items-end">
-          <Text className="text-[17px] text-black">{balanceStr}</Text>
-          {valueStr ? (
+    <View style={{ paddingHorizontal: isPaired ? 12 : 0 }}>
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        style={{
+          backgroundColor: isPaired ? PAIR_SURFACE : "transparent",
+          borderTopLeftRadius: isPairTop ? PAIR_OUTER_RADIUS : 0,
+          borderTopRightRadius: isPairTop ? PAIR_OUTER_RADIUS : 0,
+          borderBottomLeftRadius: isPairBottom ? PAIR_OUTER_RADIUS : 0,
+          borderBottomRightRadius: isPairBottom ? PAIR_OUTER_RADIUS : 0,
+          borderTopWidth: isPairBottom ? 1 : 0,
+          borderTopColor: PAIR_DIVIDER_COLOR,
+        }}
+      >
+        <View
+          className="flex-row items-center"
+          style={{
+            paddingHorizontal: isPaired ? 12 : 16,
+            paddingTop: isPairBottom ? 8 : 10,
+            paddingBottom: isPairTop ? 8 : 10,
+          }}
+        >
+          <RNImage
+            source={{ uri: icon }}
+            style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
+          />
+          <View className="ml-3 flex-1">
+            <Text
+              className="text-[17px] font-medium text-black"
+              style={{ letterSpacing: -0.187 }}
+            >
+              {holding.symbol}
+            </Text>
             <Text
               className="text-[15px]"
               style={{ color: "rgba(60, 60, 67, 0.6)" }}
             >
-              {valueStr}
+              {holding.name}
             </Text>
-          ) : null}
+          </View>
+          <View className="items-end">
+            <Text className="text-[17px] text-black">{balanceStr}</Text>
+            {valueStr ? (
+              <Text
+                className="text-[15px]"
+                style={{ color: "rgba(60, 60, 67, 0.6)" }}
+              >
+                {valueStr}
+              </Text>
+            ) : null}
+          </View>
         </View>
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
@@ -97,19 +136,30 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
       [holdings],
     );
 
+    const listData = useMemo<TokenListItem[]>(() => {
+      const positions = getPairPositions(displayHoldings);
+      return displayHoldings.map((holding, index) => ({
+        holding,
+        position: positions[index],
+      }));
+    }, [displayHoldings]);
+
     const renderItem = useCallback(
-      ({ item }: { item: TokenHolding }) => (
+      ({ item }: { item: TokenListItem }) => (
         <TokenRow
-          holding={item}
-          onPress={onTokenPress ? () => onTokenPress(item.mint) : undefined}
+          holding={item.holding}
+          groupPosition={item.position}
+          onPress={
+            onTokenPress ? () => onTokenPress(item.holding.mint) : undefined
+          }
         />
       ),
       [onTokenPress],
     );
 
     const keyExtractor = useCallback(
-      (item: TokenHolding) =>
-        `${item.mint}-${item.isSecured ? "s" : "r"}`,
+      (item: TokenListItem) =>
+        `${item.holding.mint}-${item.holding.isSecured ? "s" : "r"}`,
       [],
     );
 
@@ -137,7 +187,7 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
           </Text>
         </BottomSheetView>
         <BottomSheetFlatList
-          data={displayHoldings}
+          data={listData}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
           contentContainerStyle={{ paddingBottom: 40 }}
