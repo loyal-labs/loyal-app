@@ -363,8 +363,8 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
 		id: position.asset.mint,
 		symbol: position.asset.symbol,
 		price: formatUsd(position.priceUsd),
-		amount: formatTokenBalance(position.totalBalance),
-		value: formatUsd(position.totalValueUsd),
+		amount: formatTokenBalance(position.publicBalance),
+		value: formatUsd(position.publicValueUsd),
 		icon: resolveTokenIcon(position),
 	};
 }
@@ -585,7 +585,7 @@ export function useWalletData(params: {
 	const allTokenRows = useMemo(() => {
 		const rows: TokenRow[] = [];
 		for (const position of positions) {
-			if (position.totalBalance > 0) {
+			if (position.publicBalance > 0) {
 				rows.push(mapPositionToTokenRow(position));
 			}
 			if (position.securedBalance > 0) {
@@ -605,17 +605,25 @@ export function useWalletData(params: {
 			const loylPosition = positions.find(
 				(p) => p.asset.mint === LOYL_MINT,
 			);
-			const loylRow: TokenRow = loylPosition
-				? mapPositionToTokenRow(loylPosition)
-				: {
-						id: LOYL_MINT,
-						symbol: "LOYAL",
-						price: formatUsd(loylPriceUsd),
-						amount: "0",
-						value: "$0.00",
-						icon: LOYL_ICON_URL,
-					};
-			rows.splice(Math.min(2, rows.length), 0, loylRow);
+			// If LOYAL is held only as shielded, the secured row already
+			// represents it — don't add an empty public placeholder row.
+			const loylHasOnlyShielded =
+				loylPosition !== undefined &&
+				loylPosition.publicBalance === 0 &&
+				loylPosition.securedBalance > 0;
+			if (!loylHasOnlyShielded) {
+				const loylRow: TokenRow = loylPosition
+					? mapPositionToTokenRow(loylPosition)
+					: {
+							id: LOYL_MINT,
+							symbol: "LOYAL",
+							price: formatUsd(loylPriceUsd),
+							amount: "0",
+							value: "$0.00",
+							icon: LOYL_ICON_URL,
+						};
+				rows.splice(Math.min(2, rows.length), 0, loylRow);
+			}
 		}
 
 		return rows;
