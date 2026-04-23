@@ -17,8 +17,19 @@ import { isSkillsEnabled } from "@/flags";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { useUserChats } from "@/providers/user-chats";
 
+function generateChatId(): string {
+  const webCrypto =
+    typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (webCrypto && typeof webCrypto.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+  // SSR/older-runtime fallback: not cryptographically strong, but the chat id
+  // only needs to be unique per session.
+  return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export default function LandingPage() {
-  const [currentChatId, setCurrentChatId] = useState(() => crypto.randomUUID());
+  const [currentChatId, setCurrentChatId] = useState(() => generateChatId());
   const { refreshUserChats, clearUserChats, loadChatMessages } = useUserChats();
   const prevStatusRef = useRef<string>("ready");
   const pendingMessagesRef = useRef<TimestampedMessage[] | null>(null);

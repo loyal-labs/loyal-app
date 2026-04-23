@@ -130,6 +130,9 @@ export const serverEnv = {
   get telegramSetupSecret(): string {
     return getRequiredEnv("TELEGRAM_SETUP_SECRET");
   },
+  get pushDebugSecret(): string {
+    return getRequiredEnv("PUSH_DEBUG_SECRET");
+  },
   get libraryUploadToken(): string {
     return getRequiredEnv("LIBRARY_UPLOAD_TOKEN");
   },

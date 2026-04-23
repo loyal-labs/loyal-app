@@ -8,7 +8,7 @@ import {
 import { AnchorProvider, BN, Program } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
-  verifyTeeRpcIntegrity,
+  verifyTeeIntegrity,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import type { TelegramPrivateTransfer } from "./idl/telegram_private_transfer.ts";
@@ -396,12 +396,7 @@ export class LoyalPrivateTransactionsClient {
       let expiresAt: number;
       if (!authToken) {
         try {
-          const isVerified = await verifyTeeRpcIntegrity(ephemeralRpcEndpoint);
-          if (!isVerified) {
-            console.error(
-              "[LoyalClient] TEE RPC integrity verification returned false"
-            );
-          }
+          await verifyTeeIntegrity(ephemeralRpcEndpoint);
         } catch (e) {
           console.error(
             "[LoyalClient] TEE RPC integrity verification error:",

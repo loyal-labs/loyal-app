@@ -173,7 +173,6 @@ export function usePrivateSend() {
             increase: true,
             user,
             payer: user,
-            userTokenAccount,
           });
 
           // Close wSOL ATA if we created it

@@ -36,7 +36,7 @@ import {
   transfer,
 } from "@solana/spl-token";
 import {
-  verifyTeeRpcIntegrity,
+  verifyTeeIntegrity,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import path from "node:path";
@@ -77,7 +77,7 @@ async function getOrCacheAuthToken(
     return cached;
   }
 
-  await verifyTeeRpcIntegrity(ephemeralRpcEndpoint);
+  await verifyTeeIntegrity(ephemeralRpcEndpoint);
 
   const signMessage = createKeypairMessageSigner(keypair);
 

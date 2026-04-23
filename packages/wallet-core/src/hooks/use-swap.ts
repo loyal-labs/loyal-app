@@ -38,8 +38,16 @@ export type SwapConfig =
 	| { mode: "enabled"; apiKey: string }
 	| { mode: "disabled"; reason: string };
 
-const JUPITER_QUOTE_API_URL = "https://api.jup.ag/swap/v1/quote";
-const JUPITER_SWAP_API_URL = "https://api.jup.ag/swap/v1/swap";
+const JUPITER_QUOTE_API_URL = "https://lite-api.jup.ag/swap/v1/quote";
+const JUPITER_SWAP_API_URL = "https://lite-api.jup.ag/swap/v1/swap";
+
+const buildJupiterHeaders = (
+	apiKey: string,
+	extra?: Record<string, string>,
+): Record<string, string> => ({
+	...(extra ?? {}),
+	...(apiKey ? { "x-api-key": apiKey } : {}),
+});
 
 type JupiterQuoteResponse = {
 	inputMint: string;
@@ -177,7 +185,7 @@ export function useSwap(
 				logger.debug("Fetching quote from Jupiter API:", url);
 
 				const response = await fetch(url, {
-					headers: { "x-api-key": swapConfig.apiKey },
+					headers: buildJupiterHeaders(swapConfig.apiKey),
 				});
 
 				if (!response.ok) {
@@ -256,10 +264,10 @@ export function useSwap(
 
 			const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-api-key": (swapConfig as { apiKey: string }).apiKey,
-				},
+				headers: buildJupiterHeaders(
+					(swapConfig as { apiKey: string }).apiKey,
+					{ "Content-Type": "application/json" },
+				),
 				body: JSON.stringify({
 					userPublicKey: signer.publicKey.toBase58(),
 					quoteResponse,

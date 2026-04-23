@@ -34,7 +34,7 @@
     "build:packages": "turbo run build --filter='./packages/*'",
     "build:grid-packages": "bun run --cwd packages/grid-core build && bun run --cwd packages/auth-core build",
     "typecheck:grid-packages": "bun run --cwd packages/grid-core typecheck && bun run --cwd packages/auth-core typecheck",
-    "build:solana-packages": "bun run --cwd packages/solana-rpc build && bun run --cwd packages/solana-wallet build",
+    "build:solana-packages": "bun run --cwd packages/shared build && bun run --cwd packages/solana-rpc build && bun run --cwd packages/solana-wallet build",
     "typecheck:solana-packages": "bun run --cwd packages/solana-rpc typecheck && bun run --cwd packages/solana-wallet typecheck",
     "build:shared-packages": "bun run --cwd packages/shared build",
     "typecheck:shared-packages": "bun run --cwd packages/shared typecheck",
@@ -64,7 +64,7 @@
   "devDependencies": {
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
-    "@magicblock-labs/ephemeral-rollups-sdk": "0.8.0",
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.0",
     "@types/bn.js": "^5.1.0",

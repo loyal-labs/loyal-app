@@ -9,7 +9,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   loadKaminoUsdcTrackedPosition,
+  resolveKaminoCumulativeEarnedLiquidityAmountRaw,
   resolveKaminoPrincipalLiquidityAmountRaw,
+  resolveKaminoTotalEarnedLiquidityAmountRaw,
   resolveTrackedKaminoUsdcMint,
 } from "@/lib/solana/deposits/kamino-usdc-position";
 import { fetchLoyalDeposits } from "@/lib/solana/deposits/loyal-deposits";
@@ -26,6 +28,14 @@ const KAMINO_USDC_NAME = "USDC";
 const KAMINO_USDC_SYMBOL = "USDC";
 const KAMINO_USDC_DECIMALS = 6;
 const KAMINO_USDC_PRICE_USD = 1;
+
+function flattenSnapshotTokenHoldings(
+  snapshot: PortfolioSnapshot
+): TokenHolding[] {
+  return flattenPortfolioPositions(snapshot.positions, {
+    splitSecuredBalances: true,
+  });
+}
 
 async function enrichHoldingsWithKaminoUsdcEarnings(
   snapshot: PortfolioSnapshot,
@@ -64,10 +74,41 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
   const actualCollateralSharesAmountRaw = BigInt(
     Math.round(secureDeposits.get(trackedKaminoMintPublicKey) ?? 0)
   );
+  const cumulativeEarnedLiquidityAmountRaw =
+    resolveKaminoCumulativeEarnedLiquidityAmountRaw(trackedPosition);
   if (actualCollateralSharesAmountRaw <= BigInt(0)) {
+    if (cumulativeEarnedLiquidityAmountRaw <= BigInt(0)) {
+      return {
+        snapshot,
+        holdings,
+      };
+    }
+
+    const publicHoldingIndex = holdings.findIndex(
+      (holding) => !holding.isSecured && holding.mint === trackedKaminoMint
+    );
+    if (publicHoldingIndex < 0) {
+      return {
+        snapshot,
+        holdings,
+      };
+    }
+
+    const publicHolding = holdings[publicHoldingIndex];
+    const scale = Math.pow(10, publicHolding.decimals ?? KAMINO_USDC_DECIMALS);
+    const totalEarnedBalance =
+      Number(cumulativeEarnedLiquidityAmountRaw) / scale;
+    const nextHoldings = [...holdings];
+    nextHoldings[publicHoldingIndex] = {
+      ...publicHolding,
+      earnedBalance: totalEarnedBalance,
+      earnedValueUsd:
+        totalEarnedBalance * (publicHolding.priceUsd ?? KAMINO_USDC_PRICE_USD),
+    };
+
     return {
       snapshot,
-      holdings,
+      holdings: nextHoldings,
     };
   }
 
@@ -94,19 +135,27 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
       : currentLiquidityAmountRaw > principalLiquidityAmountRaw
         ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
         : BigInt(0);
+  const totalEarnedLiquidityAmountRaw = resolveKaminoTotalEarnedLiquidityAmountRaw({
+    trackedPosition,
+    unrealizedEarnedLiquidityAmountRaw: earnedLiquidityAmountRaw,
+  });
 
-  const scale = Math.pow(
-    10,
-    securedHolding?.decimals ?? KAMINO_USDC_DECIMALS
+  const existingPosition = snapshot.positions.find(
+    (position) => position.asset.mint === trackedKaminoMint
   );
+  const holdingDecimals =
+    securedHolding?.decimals ??
+    existingPosition?.asset.decimals ??
+    KAMINO_USDC_DECIMALS;
+  const scale = Math.pow(10, holdingDecimals);
   const principalBalance =
     principalLiquidityAmountRaw === null
       ? null
       : Number(principalLiquidityAmountRaw) / scale;
   const earnedBalance =
-    earnedLiquidityAmountRaw === null
+    totalEarnedLiquidityAmountRaw === null
       ? null
-      : Number(earnedLiquidityAmountRaw) / scale;
+      : Number(totalEarnedLiquidityAmountRaw) / scale;
   const earnedValueUsd =
     earnedBalance === null
       ? null
@@ -117,7 +166,7 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
     symbol: KAMINO_USDC_SYMBOL,
     name: KAMINO_USDC_NAME,
     balance: Number(currentLiquidityAmountRaw) / scale,
-    decimals: KAMINO_USDC_DECIMALS,
+    decimals: holdingDecimals,
     priceUsd: KAMINO_USDC_PRICE_USD,
     valueUsd: Number(currentLiquidityAmountRaw) / scale,
     imageUrl: KAMINO_USDC_IMAGE_URL,
@@ -126,12 +175,12 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
     earnedBalance,
     earnedValueUsd,
   };
-  const existingPosition = snapshot.positions.find(
-    (position) => position.asset.mint === trackedKaminoMint
-  );
   const publicBalance = existingPosition?.publicBalance ?? 0;
   const publicValueUsd = existingPosition?.publicValueUsd ?? 0;
-  const priceUsd = securedHolding?.priceUsd ?? KAMINO_USDC_PRICE_USD;
+  const priceUsd =
+    securedHolding?.priceUsd ??
+    existingPosition?.priceUsd ??
+    KAMINO_USDC_PRICE_USD;
   const securedValueUsd =
     securedHolding?.priceUsd === null
       ? nextHolding.valueUsd
@@ -140,11 +189,18 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
   const nextPosition: PortfolioPosition = {
     asset: {
       mint: trackedKaminoMint,
-      symbol: securedHolding?.symbol || KAMINO_USDC_SYMBOL,
-      name: securedHolding?.name || KAMINO_USDC_NAME,
-      decimals: KAMINO_USDC_DECIMALS,
-      imageUrl: securedHolding?.imageUrl ?? KAMINO_USDC_IMAGE_URL,
-      isNative: false,
+      symbol:
+        securedHolding?.symbol ??
+        existingPosition?.asset.symbol ??
+        KAMINO_USDC_SYMBOL,
+      name:
+        securedHolding?.name ?? existingPosition?.asset.name ?? KAMINO_USDC_NAME,
+      decimals: holdingDecimals,
+      imageUrl:
+        securedHolding?.imageUrl ??
+        existingPosition?.asset.imageUrl ??
+        KAMINO_USDC_IMAGE_URL,
+      isNative: existingPosition?.asset.isNative ?? false,
     },
     publicBalance,
     securedBalance: nextHolding.balance,
@@ -155,31 +211,6 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
     totalValueUsd: publicValueUsd + (securedValueUsd ?? 0),
   };
 
-  const nextHoldings = [...holdings];
-  if (securedHoldingIndex >= 0 && securedHolding) {
-    const existingSecuredHolding = securedHolding;
-
-    nextHoldings[securedHoldingIndex] = {
-      ...existingSecuredHolding,
-      ...nextHolding,
-      priceUsd: existingSecuredHolding.priceUsd ?? KAMINO_USDC_PRICE_USD,
-      valueUsd:
-        existingSecuredHolding.priceUsd === null
-          ? nextHolding.valueUsd
-          : nextHolding.balance * existingSecuredHolding.priceUsd,
-      imageUrl: existingSecuredHolding.imageUrl ?? KAMINO_USDC_IMAGE_URL,
-      name: existingSecuredHolding.name || KAMINO_USDC_NAME,
-      symbol: existingSecuredHolding.symbol || KAMINO_USDC_SYMBOL,
-      earnedValueUsd:
-        earnedBalance === null
-          ? null
-          : (existingSecuredHolding.priceUsd ?? KAMINO_USDC_PRICE_USD) *
-            earnedBalance,
-    };
-  } else {
-    nextHoldings.push(nextHolding);
-  }
-
   const existingPositionIndex = snapshot.positions.findIndex(
     (position) => position.asset.mint === trackedKaminoMint
   );
@@ -188,7 +219,7 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
       ? snapshot.positions.map((position, index) =>
           index === existingPositionIndex ? nextPosition : position
         )
-      : [...snapshot.positions, nextPosition];
+        : [...snapshot.positions, nextPosition];
 
   nextPositions.sort((left, right) => {
     const valueDelta = (right.totalValueUsd ?? -1) - (left.totalValueUsd ?? -1);
@@ -204,17 +235,67 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
     return left.asset.mint.localeCompare(right.asset.mint);
   });
 
+  const nextSnapshot: PortfolioSnapshot = {
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  };
+  const nextHoldings = flattenSnapshotTokenHoldings(nextSnapshot).map(
+    (holding) => {
+      if (!holding.isSecured || holding.mint !== trackedKaminoMint) {
+        return holding;
+      }
+
+      const holdingPriceUsd = holding.priceUsd ?? KAMINO_USDC_PRICE_USD;
+
+      return {
+        ...holding,
+        imageUrl: holding.imageUrl ?? KAMINO_USDC_IMAGE_URL,
+        name: holding.name || KAMINO_USDC_NAME,
+        symbol: holding.symbol || KAMINO_USDC_SYMBOL,
+        principalBalance,
+        earnedBalance,
+        earnedValueUsd:
+          earnedBalance === null ? null : holdingPriceUsd * earnedBalance,
+      };
+    }
+  );
+
   return {
-    snapshot: {
-      ...snapshot,
-      positions: nextPositions,
-      totals: computePortfolioTotals(
-        nextPositions,
-        snapshot.totals.effectiveSolPriceUsd
-      ),
-    },
+    snapshot: nextSnapshot,
     holdings: nextHoldings,
   };
+}
+
+async function resolveTokenHoldingsSnapshot(
+  snapshot: PortfolioSnapshot,
+  walletAddress: string
+): Promise<{
+  snapshot: PortfolioSnapshot;
+  holdings: TokenHolding[];
+}> {
+  const rawHoldings = flattenSnapshotTokenHoldings(snapshot);
+
+  try {
+    return await enrichHoldingsWithKaminoUsdcEarnings(
+      snapshot,
+      walletAddress,
+      rawHoldings
+    );
+  } catch (error) {
+    console.error(
+      "Failed to enrich token holdings with Kamino earnings; falling back to raw portfolio",
+      error
+    );
+
+    return {
+      snapshot,
+      holdings: rawHoldings,
+    };
+  }
 }
 
 export function useTokenHoldings(walletAddress: string | null): {
@@ -257,13 +338,7 @@ export function useTokenHoldings(walletAddress: string | null): {
       if (walletAddressRef.current !== addr) return;
       if (holdingsFetchIdRef.current !== fetchId) return;
 
-      const enriched = await enrichHoldingsWithKaminoUsdcEarnings(
-        snapshot,
-        addr,
-        flattenPortfolioPositions(snapshot.positions, {
-          splitSecuredBalances: true,
-        })
-      );
+      const enriched = await resolveTokenHoldingsSnapshot(snapshot, addr);
       if (walletAddressRef.current !== addr) return;
       if (holdingsFetchIdRef.current !== fetchId) return;
 
@@ -314,13 +389,7 @@ export function useTokenHoldings(walletAddress: string | null): {
               if (isCancelled) return;
               holdingsFetchIdRef.current += 1;
               const nextFetchId = holdingsFetchIdRef.current;
-              void enrichHoldingsWithKaminoUsdcEarnings(
-                snapshot,
-                walletAddress,
-                flattenPortfolioPositions(snapshot.positions, {
-                  splitSecuredBalances: true,
-                })
-              )
+              void resolveTokenHoldingsSnapshot(snapshot, walletAddress)
                 .then((enriched) => {
                   if (isCancelled) return;
                   if (holdingsFetchIdRef.current !== nextFetchId) return;

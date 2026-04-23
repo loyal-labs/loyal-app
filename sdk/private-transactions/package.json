@@ -1,6 +1,6 @@
 {
   "name": "@loyal-labs/private-transactions",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "SDK for Telegram-based private Solana deposits",
   "type": "module",
   "main": "./dist/index.js",
