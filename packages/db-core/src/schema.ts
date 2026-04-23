@@ -577,6 +577,30 @@ export const pushTokens = pgTable(
 );
 
 /**
+ * Per-wallet cursor for the incoming-transfer push cron. We store the
+ * newest transaction signature we've already notified on so the next
+ * run can ask `getSignaturesForAddress(..., { until: lastSignature })`
+ * for only the new tail instead of re-scanning every run.
+ */
+export const walletPushSyncState = pgTable(
+  "wallet_push_sync_state",
+  {
+    walletPublicKey: text("wallet_public_key").primaryKey(),
+    lastSignature: text("last_signature"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+);
+
+/**
  * Wallet-first users for the Loyal web frontend.
  */
 export const appUsers = pgTable(
@@ -1350,6 +1374,10 @@ export type InsertBotMessage = typeof botMessages.$inferInsert;
 
 export type PushToken = typeof pushTokens.$inferSelect;
 export type InsertPushToken = typeof pushTokens.$inferInsert;
+
+export type WalletPushSyncState = typeof walletPushSyncState.$inferSelect;
+export type InsertWalletPushSyncState =
+  typeof walletPushSyncState.$inferInsert;
 
 export type AppUser = typeof appUsers.$inferSelect;
 export type InsertAppUser = typeof appUsers.$inferInsert;
