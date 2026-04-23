@@ -1068,6 +1068,11 @@ export const trustedDapps = pgTable(
     origin: text("origin").notNull(),
     name: text("name").notNull(),
     startUrl: text("start_url").notNull(),
+    // Free-form category label shown as a section header in the mobile
+    // browser. Kept as text (not an enum) so admins can add new categories
+    // without a migration; the canonical list lives in
+    // `@loyal-labs/shared/dapp-categories`.
+    category: text("category"),
     displayOrder: integer("display_order").default(0).notNull(),
     isActive: boolean("is_active").default(true).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1081,6 +1086,11 @@ export const trustedDapps = pgTable(
     uniqueIndex("trusted_dapps_origin_uidx").on(table.origin),
     index("trusted_dapps_active_order_idx").on(
       table.isActive,
+      table.displayOrder
+    ),
+    index("trusted_dapps_active_category_order_idx").on(
+      table.isActive,
+      table.category,
       table.displayOrder
     ),
   ]

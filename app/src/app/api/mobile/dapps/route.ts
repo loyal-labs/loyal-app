@@ -16,6 +16,7 @@ export type MobileTrustedDapp = {
   origin: string;
   name: string;
   startUrl: string;
+  category: string | null;
   displayOrder: number;
 };
 
@@ -36,6 +37,7 @@ export async function GET(): Promise<NextResponse> {
         origin: trustedDapps.origin,
         name: trustedDapps.name,
         startUrl: trustedDapps.startUrl,
+        category: trustedDapps.category,
         displayOrder: trustedDapps.displayOrder,
       })
       .from(trustedDapps)

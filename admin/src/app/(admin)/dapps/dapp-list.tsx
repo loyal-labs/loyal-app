@@ -1,10 +1,18 @@
 "use client";
 
+import { TRUSTED_DAPP_CATEGORIES } from "@loyal-labs/shared";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -18,6 +26,7 @@ import {
 import {
   addTrustedDapp,
   deleteTrustedDapp,
+  seedAllowlist,
   toggleTrustedDappActive,
   updateTrustedDapp,
 } from "./actions";
@@ -27,11 +36,14 @@ type DappRow = {
   origin: string;
   name: string;
   startUrl: string;
+  category: string | null;
   displayOrder: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
 };
+
+const UNCATEGORIZED_VALUE = "__uncategorized__";
 
 function DappForm({
   initial,
@@ -44,10 +56,18 @@ function DappForm({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [category, setCategory] = useState<string>(
+    initial?.category ?? UNCATEGORIZED_VALUE,
+  );
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    if (category === UNCATEGORIZED_VALUE) {
+      fd.delete("category");
+    } else {
+      fd.set("category", category);
+    }
     startTransition(async () => {
       const result = await onSubmit(fd);
       if (result.error) {
@@ -80,15 +100,20 @@ function DappForm({
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium">
-            Display Order
-          </span>
-          <Input
-            name="displayOrder"
-            type="number"
-            inputMode="numeric"
-            defaultValue={String(initial?.displayOrder ?? 0)}
-          />
+          <span className="mb-1 block text-xs font-medium">Category</span>
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger>
+              <SelectValue placeholder="Uncategorized" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNCATEGORIZED_VALUE}>Uncategorized</SelectItem>
+              {TRUSTED_DAPP_CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label className="block">
           <span className="mb-1 block text-xs font-medium">
@@ -114,11 +139,17 @@ function DappForm({
             defaultValue={initial?.startUrl ?? ""}
           />
         </label>
-        <label className="col-span-2 flex items-center gap-2">
-          <Switch
-            name="isActive"
-            defaultChecked={initial?.isActive ?? true}
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium">Display Order</span>
+          <Input
+            name="displayOrder"
+            type="number"
+            inputMode="numeric"
+            defaultValue={String(initial?.displayOrder ?? 0)}
           />
+        </label>
+        <label className="col-span-2 flex items-center gap-2">
+          <Switch name="isActive" defaultChecked={initial?.isActive ?? true} />
           <span className="text-xs font-medium">Active</span>
         </label>
       </div>
@@ -145,7 +176,9 @@ export function DappList({ dapps }: { dapps: DappRow[] }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [seedStatus, setSeedStatus] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const [seedPending, startSeedTransition] = useTransition();
 
   function handleAdd(fd: FormData) {
     return addTrustedDapp(fd).then((result) => {
@@ -183,6 +216,21 @@ export function DappList({ dapps }: { dapps: DappRow[] }) {
     });
   }
 
+  function handleSeed() {
+    setSeedStatus(null);
+    startSeedTransition(async () => {
+      const result = await seedAllowlist();
+      if (result.error) {
+        setSeedStatus(`Error: ${result.error}`);
+        return;
+      }
+      setSeedStatus(
+        `Inserted ${result.inserted} · backfilled ${result.backfilled} · skipped ${result.skipped}`,
+      );
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-4">
       {isAdding && (
@@ -204,6 +252,7 @@ export function DappList({ dapps }: { dapps: DappRow[] }) {
               <TableRow>
                 <TableHead className="w-[60px]">Order</TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead>Origin</TableHead>
                 <TableHead>Start URL</TableHead>
                 <TableHead className="w-[80px]">Active</TableHead>
@@ -217,6 +266,11 @@ export function DappList({ dapps }: { dapps: DappRow[] }) {
                     {dapp.displayOrder}
                   </TableCell>
                   <TableCell className="font-medium">{dapp.name}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {dapp.category ?? (
+                      <span className="italic">Uncategorized</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {dapp.origin}
                   </TableCell>
@@ -281,17 +335,30 @@ export function DappList({ dapps }: { dapps: DappRow[] }) {
         </div>
       ) : null}
 
-      {!isAdding && (
+      <div className="flex flex-wrap items-center gap-2">
+        {!isAdding && (
+          <Button
+            size="sm"
+            onClick={() => {
+              setIsAdding(true);
+              setEditingId(null);
+            }}
+          >
+            Add dApp
+          </Button>
+        )}
         <Button
+          variant="outline"
           size="sm"
-          onClick={() => {
-            setIsAdding(true);
-            setEditingId(null);
-          }}
+          onClick={handleSeed}
+          disabled={seedPending}
         >
-          Add dApp
+          {seedPending ? "Seeding..." : "Seed from allowlist v0.1"}
         </Button>
-      )}
+        {seedStatus && (
+          <span className="text-xs text-muted-foreground">{seedStatus}</span>
+        )}
+      </div>
     </div>
   );
 }
