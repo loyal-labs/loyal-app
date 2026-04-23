@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/push-incoming-transfers",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/push-shielded-transfers",
+      "schedule": "* * * * *"
     }
   ]
 }
