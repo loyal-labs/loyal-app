@@ -1,4 +1,9 @@
 export {
+  isTrustedDappCategory,
+  TRUSTED_DAPP_CATEGORIES,
+} from "./dapp-categories";
+export type { TrustedDappCategory } from "./dapp-categories";
+export {
   isDustSolTransfer,
   isDustTokenTransfer,
   SOL_DUST_THRESHOLD_LAMPORTS,
