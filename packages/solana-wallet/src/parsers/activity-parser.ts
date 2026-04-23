@@ -13,6 +13,10 @@ import {
   NATIVE_SOL_DECIMALS,
   NATIVE_SOL_MINT,
 } from "../constants";
+import {
+  isDustSolTransfer,
+  isDustTokenTransfer,
+} from "../domain/dust-filter";
 import { decodeWalletInstruction } from "./instruction-manifest";
 import type {
   WalletActivity,
@@ -517,9 +521,23 @@ export function normalizeParsedTransaction(args: {
   const netChangeLamports = postLamports - preLamports;
 
   if (
-    !isSigner &&
-    !tokenChange &&
-    Math.abs(netChangeLamports) < DUST_LAMPORTS_THRESHOLD
+    isDustSolTransfer({
+      isUserSigned: isSigner,
+      hasTokenChange: tokenChange !== null,
+      lamports: netChangeLamports,
+    })
+  ) {
+    return null;
+  }
+
+  if (
+    tokenChange &&
+    isDustTokenTransfer({
+      isUserSigned: isSigner,
+      direction: tokenChange.direction,
+      rawAmount: tokenChange.absRaw,
+      decimals: tokenChange.decimals,
+    })
   ) {
     return null;
   }
