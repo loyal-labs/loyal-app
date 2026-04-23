@@ -8,7 +8,11 @@ import {
 } from "lucide-react-native";
 import { Image as RNImage, StyleSheet } from "react-native";
 
-import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
+import {
+  resolveTokenIcon,
+  resolveTokenSymbol,
+} from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import {
   formatSenderAddress,
@@ -21,6 +25,7 @@ import type { Transaction } from "@/types/wallet";
 type ActivityFeedProps = {
   transactions: Transaction[];
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint: TokenDetailsByMint;
   isLoading: boolean;
   onTransactionPress: (transaction: Transaction) => void;
   onShowAll: () => void;
@@ -90,10 +95,12 @@ const styles = StyleSheet.create({
 function TransactionRow({
   transaction,
   tokenHoldings,
+  tokenDetailsByMint,
   onPress,
 }: {
   transaction: Transaction;
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint: TokenDetailsByMint;
   onPress: () => void;
 }) {
   const isIncoming = transaction.type === "incoming";
@@ -145,9 +152,23 @@ function TransactionRow({
       ? tokenHoldings.find((h) => h.mint === transaction.swapToMint)
       : undefined;
     const swapFromSymbol =
-      transaction.swapFromSymbol || swapFromHolding?.symbol || "?";
+      transaction.swapFromSymbol ||
+      (transaction.swapFromMint
+        ? resolveTokenSymbol({
+            mint: transaction.swapFromMint,
+            detailSymbol: tokenDetailsByMint[transaction.swapFromMint]?.token.symbol,
+            holdingSymbol: swapFromHolding?.symbol,
+          })
+        : "?");
     const swapToSymbol =
-      transaction.swapToSymbol || swapToHolding?.symbol || "?";
+      transaction.swapToSymbol ||
+      (transaction.swapToMint
+        ? resolveTokenSymbol({
+            mint: transaction.swapToMint,
+            detailSymbol: tokenDetailsByMint[transaction.swapToMint]?.token.symbol,
+            holdingSymbol: swapToHolding?.symbol,
+          })
+        : "?");
     const swapToAmount = transaction.swapToAmount;
 
     return (
@@ -187,7 +208,14 @@ function TransactionRow({
       ? tokenHoldings.find((h) => h.mint === transaction.tokenMint)
       : undefined;
     const secureSymbol =
-      transaction.secureTokenSymbol || secureHolding?.symbol || "Token";
+      transaction.secureTokenSymbol ||
+      (transaction.tokenMint
+        ? resolveTokenSymbol({
+            mint: transaction.tokenMint,
+            detailSymbol: tokenDetailsByMint[transaction.tokenMint]?.token.symbol,
+            holdingSymbol: secureHolding?.symbol,
+          })
+        : "Token");
     const secureAmount =
       transaction.secureAmount ??
       (transaction.tokenAmount ? parseFloat(transaction.tokenAmount) : null);
@@ -227,18 +255,24 @@ function TransactionRow({
   }
 
   // Standard send/receive
-  const amountPrefix = isEffectivelyZero ? "" : isIncoming ? "+" : "\u2212";
   const amountColor = isIncoming ? "#34c759" : "#000";
+  const directionSign = isIncoming ? "+" : "\u2212";
 
   // Token transfer display
   if (transaction.tokenMint && transaction.tokenAmount) {
     const holding = tokenHoldings.find(
       (h) => h.mint === transaction.tokenMint,
     );
-    const symbol = holding?.symbol || "Token";
+    const detail = tokenDetailsByMint[transaction.tokenMint];
+    const symbol = resolveTokenSymbol({
+      mint: transaction.tokenMint,
+      detailSymbol: detail?.token.symbol,
+      holdingSymbol: holding?.symbol,
+    });
     const icon = resolveTokenIcon({
       mint: transaction.tokenMint,
       imageUrl: holding?.imageUrl,
+      detailLogoUrl: detail?.token.logoUrl,
     });
 
     return (
@@ -263,7 +297,7 @@ function TransactionRow({
         </View>
         <View className="items-end">
           <Text className="text-[17px]" style={{ color: amountColor }}>
-            {amountPrefix}
+            {directionSign}
             {transaction.tokenAmount} {symbol}
           </Text>
           <Text
@@ -277,6 +311,9 @@ function TransactionRow({
     );
   }
 
+  // Native SOL transfer: keep the existing zero-guard since amountLamports is
+  // the actual transferred amount here.
+  const solPrefix = isEffectivelyZero ? "" : directionSign;
   return (
     <Pressable onPress={onPress} className="flex-row items-center px-4 py-2.5">
       <TransactionIcon transaction={transaction} />
@@ -295,7 +332,7 @@ function TransactionRow({
       </View>
       <View className="items-end">
         <Text className="text-[17px]" style={{ color: amountColor }}>
-          {amountPrefix}
+          {solPrefix}
           {isEffectivelyZero
             ? "0"
             : formatTransactionAmount(transaction.amountLamports)}{" "}
@@ -315,6 +352,7 @@ function TransactionRow({
 export function ActivityFeed({
   transactions,
   tokenHoldings,
+  tokenDetailsByMint,
   isLoading,
   onTransactionPress,
   onShowAll,
@@ -408,6 +446,7 @@ export function ActivityFeed({
           key={tx.id}
           transaction={tx}
           tokenHoldings={tokenHoldings}
+          tokenDetailsByMint={tokenDetailsByMint}
           onPress={() => onTransactionPress(tx)}
         />
       ))}

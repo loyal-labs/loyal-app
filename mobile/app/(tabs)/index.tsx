@@ -30,6 +30,7 @@ import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenApy } from "@/hooks/wallet/useTokenApy";
+import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
@@ -75,6 +76,24 @@ export default function WalletScreen() {
   const [networkKey, setNetworkKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tokenMarketRefreshKey, setTokenMarketRefreshKey] = useState(0);
+
+  // Shared cache of /api/mobile/tokens/:mint for every mint shown in the
+  // tokens list or activity feed — used for logos and symbols so we never
+  // render raw token-list SVGs or the "Token" symbol fallback.
+  const tokenDetailMints = useMemo(() => {
+    const mints = new Set<string>();
+    for (const holding of tokenHoldings) mints.add(holding.mint);
+    for (const tx of walletTransactions) {
+      if (tx.tokenMint) mints.add(tx.tokenMint);
+      if (tx.swapFromMint) mints.add(tx.swapFromMint);
+      if (tx.swapToMint) mints.add(tx.swapToMint);
+    }
+    return Array.from(mints);
+  }, [tokenHoldings, walletTransactions]);
+  const tokenDetailsByMint = useTokenDetails(
+    tokenDetailMints,
+    tokenMarketRefreshKey,
+  );
 
   useEffect(() => {
     return onSolanaEnvChange(() => {
@@ -351,8 +370,8 @@ export default function WalletScreen() {
           <TokensList
             holdings={networkLoading ? [] : tokenHoldings}
             apyByMint={apyByMint}
+            tokenDetailsByMint={tokenDetailsByMint}
             isLoading={isHoldingsLoading || networkLoading}
-            marketRefreshKey={tokenMarketRefreshKey}
             onSeeAll={handleShowAllTokens}
             onTokenPress={handleTokenPress}
           />
@@ -363,6 +382,7 @@ export default function WalletScreen() {
           <ActivityFeed
             transactions={networkLoading ? [] : walletTransactions}
             tokenHoldings={networkLoading ? [] : tokenHoldings}
+            tokenDetailsByMint={tokenDetailsByMint}
             isLoading={isFetchingTransactions || networkLoading}
             onTransactionPress={handleTransactionPress}
             onShowAll={handleShowAllActivity}
@@ -412,6 +432,7 @@ export default function WalletScreen() {
         ref={tokensSheetRef}
         holdings={tokenHoldings}
         apyByMint={apyByMint}
+        tokenDetailsByMint={tokenDetailsByMint}
         onTokenPress={handleTokenPress}
       />
 
@@ -419,6 +440,7 @@ export default function WalletScreen() {
         ref={activitySheetRef}
         transactions={walletTransactions}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onTransactionPress={handleTransactionPress}
       />
 

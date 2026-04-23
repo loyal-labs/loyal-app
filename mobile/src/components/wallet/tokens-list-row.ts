@@ -84,7 +84,10 @@ function formatPriceChange(
 export function buildTokenRowContent(
   holding: TokenHolding,
   marketState: TokenRowMarketState,
+  overrides?: { name?: string | null; symbol?: string | null },
 ): TokenRowContent {
+  const name = overrides?.name?.trim() || holding.name;
+  const symbol = overrides?.symbol?.trim() || holding.symbol;
   const resolvedUsdValue = isFiniteNumber(holding.valueUsd)
     ? holding.valueUsd
     : isFiniteNumber(holding.priceUsd)
@@ -95,9 +98,9 @@ export function buildTokenRowContent(
 
   if (marketState.status === "loading") {
     return {
-      title: holding.name,
+      title: name,
       usdValue: formatUsdPosition(resolvedUsdValue),
-      balanceWithSymbol: `${formatBalance(holding.balance)} ${holding.symbol}`.trim(),
+      balanceWithSymbol: `${formatBalance(holding.balance)} ${symbol}`.trim(),
       priceText: "",
       priceChangeText: null,
       priceChangeTone: null,
@@ -118,9 +121,9 @@ export function buildTokenRowContent(
       : { text: null, tone: null };
 
   return {
-    title: holding.name,
+    title: name,
     usdValue: formatUsdPosition(resolvedUsdValue),
-    balanceWithSymbol: `${formatBalance(holding.balance)} ${holding.symbol}`.trim(),
+    balanceWithSymbol: `${formatBalance(holding.balance)} ${symbol}`.trim(),
     priceText: formatUsdSpotPrice(resolvedPriceUsd),
     priceChangeText: priceChange.text,
     priceChangeTone: priceChange.tone,

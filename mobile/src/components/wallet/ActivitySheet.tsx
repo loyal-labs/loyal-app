@@ -15,7 +15,11 @@ import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
+import {
+  resolveTokenIcon,
+  resolveTokenSymbol,
+} from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import {
   formatSenderAddress,
@@ -28,16 +32,19 @@ import type { Transaction } from "@/types/wallet";
 type ActivitySheetProps = {
   transactions: Transaction[];
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint: TokenDetailsByMint;
   onTransactionPress: (transaction: Transaction) => void;
 };
 
 function TransactionRow({
   transaction,
   tokenHoldings,
+  tokenDetailsByMint,
   onPress,
 }: {
   transaction: Transaction;
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint: TokenDetailsByMint;
   onPress: () => void;
 }) {
   const isIncoming = transaction.type === "incoming";
@@ -94,9 +101,23 @@ function TransactionRow({
       ? tokenHoldings.find((h) => h.mint === transaction.swapFromMint)
       : undefined;
     const fromSymbol =
-      transaction.swapFromSymbol || swapFromHolding?.symbol || "?";
+      transaction.swapFromSymbol ||
+      (transaction.swapFromMint
+        ? resolveTokenSymbol({
+            mint: transaction.swapFromMint,
+            detailSymbol: tokenDetailsByMint[transaction.swapFromMint]?.token.symbol,
+            holdingSymbol: swapFromHolding?.symbol,
+          })
+        : "?");
     const toSymbol =
-      transaction.swapToSymbol || swapToHolding?.symbol || "?";
+      transaction.swapToSymbol ||
+      (transaction.swapToMint
+        ? resolveTokenSymbol({
+            mint: transaction.swapToMint,
+            detailSymbol: tokenDetailsByMint[transaction.swapToMint]?.token.symbol,
+            holdingSymbol: swapToHolding?.symbol,
+          })
+        : "?");
     iconElement = (
       <View className="h-12 w-12 items-center justify-center rounded-full bg-purple-100">
         <ArrowLeftRight size={28} color="#9333ea" strokeWidth={1.5} />
@@ -114,7 +135,14 @@ function TransactionRow({
       ? tokenHoldings.find((h) => h.mint === transaction.tokenMint)
       : undefined;
     const symbol =
-      transaction.secureTokenSymbol || secureHolding?.symbol || "Token";
+      transaction.secureTokenSymbol ||
+      (transaction.tokenMint
+        ? resolveTokenSymbol({
+            mint: transaction.tokenMint,
+            detailSymbol: tokenDetailsByMint[transaction.tokenMint]?.token.symbol,
+            holdingSymbol: secureHolding?.symbol,
+          })
+        : "Token");
     const secureAmount =
       transaction.secureAmount ??
       (transaction.tokenAmount ? parseFloat(transaction.tokenAmount) : null);
@@ -137,10 +165,16 @@ function TransactionRow({
     const holding = tokenHoldings.find(
       (h) => h.mint === transaction.tokenMint,
     );
-    const symbol = holding?.symbol || "Token";
+    const detail = tokenDetailsByMint[transaction.tokenMint];
+    const symbol = resolveTokenSymbol({
+      mint: transaction.tokenMint,
+      detailSymbol: detail?.token.symbol,
+      holdingSymbol: holding?.symbol,
+    });
     const icon = resolveTokenIcon({
       mint: transaction.tokenMint,
       imageUrl: holding?.imageUrl,
+      detailLogoUrl: detail?.token.logoUrl,
     });
     iconElement = (
       <RNImage
@@ -208,7 +242,10 @@ function TransactionRow({
 }
 
 export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
-  function ActivitySheet({ transactions, tokenHoldings, onTransactionPress }, ref) {
+  function ActivitySheet(
+    { transactions, tokenHoldings, tokenDetailsByMint, onTransactionPress },
+    ref,
+  ) {
     const insets = useSafeAreaInsets();
     const snapPoints = useMemo(() => ["70%", "100%"], []);
 
@@ -229,10 +266,11 @@ export const ActivitySheet = forwardRef<BottomSheetModal, ActivitySheetProps>(
         <TransactionRow
           transaction={item}
           tokenHoldings={tokenHoldings}
+          tokenDetailsByMint={tokenDetailsByMint}
           onPress={() => onTransactionPress(item)}
         />
       ),
-      [tokenHoldings, onTransactionPress],
+      [tokenHoldings, tokenDetailsByMint, onTransactionPress],
     );
 
     const keyExtractor = useCallback(

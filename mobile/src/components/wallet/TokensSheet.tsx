@@ -8,13 +8,18 @@ import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
 import {
   getDisplayTokenHoldings,
   getPairPositions,
   type PairPosition,
 } from "@/lib/solana/token-holdings/display-holdings";
-import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
+import {
+  resolveTokenIcon,
+  resolveTokenSymbol,
+} from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
+import type { MobileTokenDetailResponse } from "@/services/api";
 import { Pressable, Text, View } from "@/tw";
 
 import { ApyPill } from "./TokensList";
@@ -22,11 +27,13 @@ import { ApyPill } from "./TokensList";
 type TokensSheetProps = {
   holdings: TokenHolding[];
   apyByMint?: Record<string, number>;
+  tokenDetailsByMint: TokenDetailsByMint;
   onTokenPress?: (mint: string) => void;
 };
 
 type TokenListItem = {
   holding: TokenHolding;
+  detail: MobileTokenDetailResponse | undefined;
   position: PairPosition;
   apyBps?: number;
 };
@@ -37,11 +44,13 @@ const PAIR_OUTER_RADIUS = 16;
 
 function TokenRow({
   holding,
+  detail,
   onPress,
   groupPosition = "single",
   apyBps,
 }: {
   holding: TokenHolding;
+  detail: MobileTokenDetailResponse | undefined;
   onPress?: () => void;
   groupPosition?: PairPosition;
   apyBps?: number;
@@ -49,7 +58,14 @@ function TokenRow({
   const icon = resolveTokenIcon({
     mint: holding.mint,
     imageUrl: holding.imageUrl,
+    detailLogoUrl: detail?.token.logoUrl,
   });
+  const symbol = resolveTokenSymbol({
+    mint: holding.mint,
+    detailSymbol: detail?.token.symbol,
+    holdingSymbol: holding.symbol,
+  });
+  const name = detail?.token.name?.trim() || holding.name;
   const valueStr =
     holding.valueUsd !== null ? `$${holding.valueUsd.toFixed(2)}` : "";
   const balanceStr =
@@ -96,7 +112,7 @@ function TokenRow({
                 style={{ letterSpacing: -0.187, flexShrink: 1 }}
                 numberOfLines={1}
               >
-                {holding.symbol}
+                {symbol}
               </Text>
               {apyBps && apyBps > 0 ? <ApyPill apyBps={apyBps} /> : null}
             </View>
@@ -104,7 +120,7 @@ function TokenRow({
               className="text-[15px]"
               style={{ color: "rgba(60, 60, 67, 0.6)" }}
             >
-              {holding.name}
+              {name}
             </Text>
           </View>
           <View className="items-end">
@@ -125,7 +141,10 @@ function TokenRow({
 }
 
 export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
-  function TokensSheet({ holdings, apyByMint, onTokenPress }, ref) {
+  function TokensSheet(
+    { holdings, apyByMint, tokenDetailsByMint, onTokenPress },
+    ref,
+  ) {
     const insets = useSafeAreaInsets();
     const snapPoints = useMemo(() => ["70%", "100%"], []);
 
@@ -150,15 +169,17 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
       const positions = getPairPositions(displayHoldings);
       return displayHoldings.map((holding, index) => ({
         holding,
+        detail: tokenDetailsByMint[holding.mint],
         position: positions[index],
         apyBps: holding.isSecured ? apyByMint?.[holding.mint] : undefined,
       }));
-    }, [displayHoldings, apyByMint]);
+    }, [displayHoldings, apyByMint, tokenDetailsByMint]);
 
     const renderItem = useCallback(
       ({ item }: { item: TokenListItem }) => (
         <TokenRow
           holding={item.holding}
+          detail={item.detail}
           groupPosition={item.position}
           apyBps={item.apyBps}
           onPress={

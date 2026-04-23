@@ -1,8 +1,9 @@
 import { Zap } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Image as RNImage } from "react-native";
 
-import { Pressable, Text, View } from "@/tw";
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
+import { derivePriceChange24hPercent } from "@/lib/solana/token-holdings/price-change";
 import {
   getDisplayTokenHoldings,
   getPairPositions,
@@ -10,13 +11,13 @@ import {
 } from "@/lib/solana/token-holdings/display-holdings";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
-import { fetchTokenDetailMarket } from "@/services/api";
+import type { MobileTokenDetailResponse } from "@/services/api";
+import { Pressable, Text, View } from "@/tw";
 
 import {
   buildTokenRowContent,
   type TokenRowMarketState,
 } from "./tokens-list-row";
-import { fetchTokenRowMarketState } from "./token-row-market";
 
 const shieldBadge = require("../../../assets/images/shield-badge.png");
 const MUTED_TEXT = "rgba(60, 60, 67, 0.6)";
@@ -55,12 +56,26 @@ export function ApyPill({ apyBps }: { apyBps: number }) {
 type TokensListProps = {
   holdings: TokenHolding[];
   apyByMint?: Record<string, number>;
+  tokenDetailsByMint: TokenDetailsByMint;
   isLoading: boolean;
   maxItems?: number;
-  marketRefreshKey?: number;
   onSeeAll?: () => void;
   onTokenPress?: (mint: string) => void;
 };
+
+function deriveMarketState(
+  detail: MobileTokenDetailResponse | undefined,
+): TokenRowMarketState {
+  if (!detail) return { status: "loading" };
+  return {
+    status: "loaded",
+    priceUsd: detail.market.priceUsd,
+    priceChange24hPercent: derivePriceChange24hPercent({
+      explicitPriceChange24hPercent: detail.market.priceChange24hPercent,
+      chart: detail.chart,
+    }),
+  };
+}
 
 const OUTER_RADIUS = 20;
 const INNER_RADIUS = 0;
@@ -93,19 +108,27 @@ const radiiForPosition = (position: PairPosition) => {
 
 function TokenRow({
   holding,
-  marketState,
+  detail,
   onPress,
   groupPosition = "single",
   apyBps,
 }: {
   holding: TokenHolding;
-  marketState: TokenRowMarketState;
+  detail: MobileTokenDetailResponse | undefined;
   onPress?: () => void;
   groupPosition?: PairPosition;
   apyBps?: number;
 }) {
-  const icon = resolveTokenIcon({ mint: holding.mint, imageUrl: holding.imageUrl });
-  const rowContent = buildTokenRowContent(holding, marketState);
+  const icon = resolveTokenIcon({
+    mint: holding.mint,
+    imageUrl: holding.imageUrl,
+    detailLogoUrl: detail?.token.logoUrl,
+  });
+  const marketState = deriveMarketState(detail);
+  const rowContent = buildTokenRowContent(holding, marketState, {
+    name: detail?.token.name,
+    symbol: detail?.token.symbol,
+  });
   const [pressed, setPressed] = useState(false);
   const priceChangeColor =
     rowContent.priceChangeTone === "positive"
@@ -216,9 +239,9 @@ function TokenRow({
 export function TokensList({
   holdings,
   apyByMint,
+  tokenDetailsByMint,
   isLoading,
   maxItems = 5,
-  marketRefreshKey = 0,
   onSeeAll,
   onTokenPress,
 }: TokensListProps) {
@@ -249,59 +272,6 @@ export function TokensList({
     }
     return out;
   }, [displayHoldings, pairPositions]);
-  const [marketStates, setMarketStates] = useState<Record<string, TokenRowMarketState>>({});
-  const displayMints = useMemo(
-    () => Array.from(new Set(displayHoldings.map((holding) => holding.mint))),
-    [displayHoldings],
-  );
-
-  useEffect(() => {
-    setMarketStates({});
-  }, [marketRefreshKey]);
-
-  useEffect(() => {
-    const missingMints = displayMints.filter((mint) => marketStates[mint] == null);
-
-    if (missingMints.length === 0) {
-      return;
-    }
-
-    setMarketStates((current) => {
-      const next = { ...current };
-
-      for (const mint of missingMints) {
-        if (next[mint] == null) {
-          next[mint] = { status: "loading" };
-        }
-      }
-
-      return next;
-    });
-
-    void Promise.allSettled(
-      missingMints.map(async (mint) => ({
-        mint,
-        marketState: await fetchTokenRowMarketState(mint, fetchTokenDetailMarket),
-      })),
-    ).then((results) => {
-      setMarketStates((current) => {
-        const next = { ...current };
-
-        for (const [index, result] of results.entries()) {
-          const mint = missingMints[index];
-
-          if (result.status === "fulfilled") {
-            next[result.value.mint] = result.value.marketState;
-            continue;
-          }
-
-          next[mint] = { status: "error" };
-        }
-
-        return next;
-      });
-    });
-  }, [displayMints, marketStates]);
 
   if (isLoading && holdings.length === 0) {
     return (
@@ -373,7 +343,7 @@ export function TokensList({
               <TokenRow
                 key={`${h.mint}-${h.isSecured ? "s" : "r"}`}
                 holding={h}
-                marketState={marketStates[h.mint] ?? { status: "loading" }}
+                detail={tokenDetailsByMint[h.mint]}
                 onPress={onTokenPress ? () => onTokenPress(h.mint) : undefined}
                 groupPosition="single"
                 apyBps={resolveApy(h)}
@@ -387,7 +357,7 @@ export function TokensList({
             <View key={`pair-${topKey}`}>
               <TokenRow
                 holding={group.top}
-                marketState={marketStates[group.top.mint] ?? { status: "loading" }}
+                detail={tokenDetailsByMint[group.top.mint]}
                 onPress={
                   onTokenPress ? () => onTokenPress(group.top.mint) : undefined
                 }
@@ -397,7 +367,7 @@ export function TokensList({
               <TokenRow
                 key={bottomKey}
                 holding={group.bottom}
-                marketState={marketStates[group.bottom.mint] ?? { status: "loading" }}
+                detail={tokenDetailsByMint[group.bottom.mint]}
                 onPress={
                   onTokenPress
                     ? () => onTokenPress(group.bottom.mint)
