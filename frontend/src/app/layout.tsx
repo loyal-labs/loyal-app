@@ -6,6 +6,7 @@ import { GeistSans } from "geist/font/sans";
 import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
 import { SignInModal } from "@/components/auth/sign-in-modal";
 import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
+import { BuildInfoLogger } from "@/components/build-info-logger";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { Header } from "@/components/ui/header";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
@@ -79,6 +80,7 @@ export default function RootLayout({
                 <WalletAutoReauth />
                 <UserChatsProvider>
                   <ChatModeProvider>
+                    <BuildInfoLogger />
                     <AnalyticsBootstrap />
                     <Header />
                     {children}
