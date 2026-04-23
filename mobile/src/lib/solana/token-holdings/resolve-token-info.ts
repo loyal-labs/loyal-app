@@ -2,6 +2,8 @@ import {
   DEFAULT_TOKEN_ICON,
   KNOWN_TOKEN_ICONS,
   KNOWN_TOKEN_SYMBOLS,
+  PINNED_TOKEN_NAMES,
+  PINNED_TOKEN_SYMBOLS,
 } from "./constants";
 import type { TokenHolding } from "./types";
 
@@ -38,6 +40,8 @@ function shortenMint(mint: string): string {
 }
 
 export function resolveTokenSymbol(source: TokenSymbolSource): string {
+  const pinned = PINNED_TOKEN_SYMBOLS[source.mint];
+  if (pinned) return pinned;
   const detail = source.detailSymbol?.trim();
   if (detail) return detail;
   const holding = source.holdingSymbol?.trim();
@@ -46,6 +50,22 @@ export function resolveTokenSymbol(source: TokenSymbolSource): string {
   const known = KNOWN_TOKEN_SYMBOLS[source.mint];
   if (known) return known;
   return shortenMint(source.mint);
+}
+
+type TokenNameSource = {
+  mint: string;
+  detailName?: string | null;
+  holdingName?: string | null;
+};
+
+export function resolveTokenName(source: TokenNameSource): string {
+  const pinned = PINNED_TOKEN_NAMES[source.mint];
+  if (pinned) return pinned;
+  const detail = source.detailName?.trim();
+  if (detail) return detail;
+  const holding = source.holdingName?.trim();
+  if (holding) return holding;
+  return resolveTokenSymbol({ mint: source.mint });
 }
 
 export function resolveTokenInfo(

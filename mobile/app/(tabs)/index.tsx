@@ -447,6 +447,8 @@ export default function WalletScreen() {
       <TransactionDetailsSheet
         ref={txDetailsSheetRef}
         transaction={selectedTransaction}
+        tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
       />
     </View>
   );

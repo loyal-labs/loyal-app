@@ -17,5 +17,15 @@ export const KNOWN_TOKEN_SYMBOLS: Record<string, string> = {
   [NATIVE_SOL_MINT]: "SOL",
 };
 
+// Mints where we override the token-detail endpoint's label. Native SOL
+// balances are rendered under the wrapped-SOL mint address, but CoinGecko
+// labels that mint "Wrapped SOL / WSOL" — users should see "Solana / SOL".
+export const PINNED_TOKEN_NAMES: Record<string, string> = {
+  [NATIVE_SOL_MINT]: "Solana",
+};
+export const PINNED_TOKEN_SYMBOLS: Record<string, string> = {
+  [NATIVE_SOL_MINT]: "SOL",
+};
+
 export const DEFAULT_TOKEN_ICON =
   "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png";

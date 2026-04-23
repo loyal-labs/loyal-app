@@ -16,6 +16,7 @@ import {
 } from "@/lib/solana/token-holdings/display-holdings";
 import {
   resolveTokenIcon,
+  resolveTokenName,
   resolveTokenSymbol,
 } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
@@ -65,7 +66,11 @@ function TokenRow({
     detailSymbol: detail?.token.symbol,
     holdingSymbol: holding.symbol,
   });
-  const name = detail?.token.name?.trim() || holding.name;
+  const name = resolveTokenName({
+    mint: holding.mint,
+    detailName: detail?.token.name,
+    holdingName: holding.name,
+  });
   const valueStr =
     holding.valueUsd !== null ? `$${holding.valueUsd.toFixed(2)}` : "";
   const balanceStr =

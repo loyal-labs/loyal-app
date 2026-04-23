@@ -1,6 +1,10 @@
 import type { MobileTokenDetailResponse } from "@/services/api";
-import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { formatUsdSpotPrice } from "@/lib/solana/token-holdings/format-usd-price";
+import {
+  resolveTokenName,
+  resolveTokenSymbol,
+} from "@/lib/solana/token-holdings/resolve-token-info";
+import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 
 export type TokenRowMarketState =
   | {
@@ -86,8 +90,16 @@ export function buildTokenRowContent(
   marketState: TokenRowMarketState,
   overrides?: { name?: string | null; symbol?: string | null },
 ): TokenRowContent {
-  const name = overrides?.name?.trim() || holding.name;
-  const symbol = overrides?.symbol?.trim() || holding.symbol;
+  const name = resolveTokenName({
+    mint: holding.mint,
+    detailName: overrides?.name,
+    holdingName: holding.name,
+  });
+  const symbol = resolveTokenSymbol({
+    mint: holding.mint,
+    detailSymbol: overrides?.symbol,
+    holdingSymbol: holding.symbol,
+  });
   const resolvedUsdValue = isFiniteNumber(holding.valueUsd)
     ? holding.valueUsd
     : isFiniteNumber(holding.priceUsd)

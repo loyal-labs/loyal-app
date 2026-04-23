@@ -7,7 +7,10 @@ import { ExternalLink } from "lucide-react-native";
 import { forwardRef, useCallback, useMemo } from "react";
 import { Linking } from "react-native";
 
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
+import { resolveTokenSymbol } from "@/lib/solana/token-holdings/resolve-token-info";
+import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import {
   formatAddress,
   formatTransactionAmount,
@@ -19,6 +22,8 @@ import type { Transaction } from "@/types/wallet";
 
 type TransactionDetailsSheetProps = {
   transaction: Transaction | null;
+  tokenHoldings: TokenHolding[];
+  tokenDetailsByMint: TokenDetailsByMint;
 };
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -44,7 +49,10 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 export const TransactionDetailsSheet = forwardRef<
   BottomSheetModal,
   TransactionDetailsSheetProps
->(function TransactionDetailsSheet({ transaction }, ref) {
+>(function TransactionDetailsSheet(
+  { transaction, tokenHoldings, tokenDetailsByMint },
+  ref,
+) {
   const explorerUrl = useMemo(() => {
     if (!transaction?.signature) return null;
     const env = getSolanaEnv();
@@ -86,10 +94,21 @@ export const TransactionDetailsSheet = forwardRef<
     title = isIncoming ? "Received" : "Sent";
   }
 
-  const amountDisplay =
-    transaction.tokenAmount && transaction.tokenMint
-      ? `${transaction.tokenAmount} Token`
-      : `${formatTransactionAmount(transaction.amountLamports)} SOL`;
+  const amountDisplay = (() => {
+    if (transaction.tokenAmount && transaction.tokenMint) {
+      const holding = tokenHoldings.find(
+        (h) => h.mint === transaction.tokenMint,
+      );
+      const detail = tokenDetailsByMint[transaction.tokenMint];
+      const symbol = resolveTokenSymbol({
+        mint: transaction.tokenMint,
+        detailSymbol: detail?.token.symbol,
+        holdingSymbol: holding?.symbol,
+      });
+      return `${transaction.tokenAmount} ${symbol}`;
+    }
+    return `${formatTransactionAmount(transaction.amountLamports)} SOL`;
+  })();
 
   const statusText = getStatusText(
     transaction.status ?? "completed",
