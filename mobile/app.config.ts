@@ -59,8 +59,12 @@ const config: ExpoConfig = {
     [
       "expo-notifications",
       {
-        icon: "./assets/images/notification-icon.png",
-        color: "#ffffff",
+        // Android requires a transparent PNG with a white silhouette for the
+        // small icon — any non-alpha pixels are stripped. The monochrome
+        // adaptive icon fits that shape already; notification-icon.png was
+        // flat RGB and got ignored by the platform.
+        icon: "./assets/images/android-icon-monochrome.png",
+        color: "#F9363C",
       },
     ],
     ...(IS_DAPP_STORE
