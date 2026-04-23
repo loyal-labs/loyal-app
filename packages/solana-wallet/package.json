@@ -23,6 +23,7 @@
     "test": "bun test src"
   },
   "dependencies": {
+    "@loyal-labs/shared": "workspace:*",
     "@loyal-labs/solana-rpc": "workspace:*",
     "@solana/web3.js": "^1.98.0",
     "bs58": "^6.0.0"
