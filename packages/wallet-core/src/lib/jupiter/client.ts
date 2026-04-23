@@ -1,7 +1,15 @@
 import type { JupiterQuoteResponse, JupiterSwapResponse } from "./types";
 
-const JUPITER_QUOTE_API_URL = "https://api.jup.ag/swap/v1/quote";
-const JUPITER_SWAP_API_URL = "https://api.jup.ag/swap/v1/swap";
+const JUPITER_QUOTE_API_URL = "https://lite-api.jup.ag/swap/v1/quote";
+const JUPITER_SWAP_API_URL = "https://lite-api.jup.ag/swap/v1/swap";
+
+const buildJupiterHeaders = (
+	apiKey: string,
+	extra?: Record<string, string>,
+): Record<string, string> => ({
+	...(extra ?? {}),
+	...(apiKey ? { "x-api-key": apiKey } : {}),
+});
 
 export interface JupiterQuoteParams {
 	inputMint: string;
@@ -19,7 +27,7 @@ export async function getJupiterQuote(
 	const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
 
 	const response = await fetch(url, {
-		headers: { "x-api-key": apiKey },
+		headers: buildJupiterHeaders(apiKey),
 	});
 
 	if (!response.ok) {
@@ -57,10 +65,9 @@ export async function executeJupiterSwap(
 
 	const response = await fetch(JUPITER_SWAP_API_URL, {
 		method: "POST",
-		headers: {
+		headers: buildJupiterHeaders(apiKey, {
 			"Content-Type": "application/json",
-			"x-api-key": apiKey,
-		},
+		}),
 		body: JSON.stringify({
 			userPublicKey,
 			quoteResponse,
