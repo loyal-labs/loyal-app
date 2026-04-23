@@ -762,9 +762,7 @@ export function createSmartAccountVaultsClient(
           signers,
         } satisfies SmartAccountPolicySnapshot;
       })
-      .sort((left, right) =>
-        BigInt(left.seed) > BigInt(right.seed) ? 1 : -1
-      );
+      .sort((left, right) => (BigInt(left.seed) > BigInt(right.seed) ? 1 : -1));
   }
 
   async function listProposals(args: {
