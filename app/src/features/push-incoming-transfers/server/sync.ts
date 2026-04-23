@@ -8,6 +8,19 @@ import {
 import { PublicKey } from "@solana/web3.js";
 import { eq, inArray, isNotNull } from "drizzle-orm";
 
+// SPL Token and Token-2022 program IDs. Incoming SPL transfers reference
+// the ATA, not the wallet pubkey itself, so we enumerate ATAs owned by
+// the wallet under both programs and scan signatures on each. Without
+// this, `getSignaturesForAddress(wallet)` misses every incoming SPL
+// transfer — only SOL transfers and outgoing SPLs (where wallet is a
+// signer) are visible.
+const TOKEN_PROGRAM_ID = new PublicKey(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+);
+const TOKEN_2022_PROGRAM_ID = new PublicKey(
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+);
+
 import {
   buildTokenCatalogUpserts,
   upsertTokenCatalog,
@@ -78,6 +91,30 @@ async function updateSyncState(
     .where(eq(walletPushSyncState.walletPublicKey, walletPublicKey));
 }
 
+async function listOwnedAtaAddresses(
+  walletPk: PublicKey,
+): Promise<string[]> {
+  const connection = getIncomingTransferConnection();
+  const [classic, token2022] = await Promise.all([
+    connection.getTokenAccountsByOwner(walletPk, {
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    connection.getTokenAccountsByOwner(walletPk, {
+      programId: TOKEN_2022_PROGRAM_ID,
+    }),
+  ]);
+  const addresses = new Set<string>();
+  for (const entry of classic.value) addresses.add(entry.pubkey.toBase58());
+  for (const entry of token2022.value) addresses.add(entry.pubkey.toBase58());
+  return Array.from(addresses);
+}
+
+type SignatureEntry = {
+  signature: string;
+  blockTime: number | null | undefined;
+  slot: number;
+};
+
 async function fetchNewEventsForWallet(
   walletPublicKey: string,
   lastSignature: string | null,
@@ -85,16 +122,44 @@ async function fetchNewEventsForWallet(
   const connection = getIncomingTransferConnection();
   const pk = new PublicKey(walletPublicKey);
 
-  const signatures = await connection.getSignaturesForAddress(pk, {
-    limit: SIGNATURES_PAGE_LIMIT,
-    until: lastSignature ?? undefined,
-  });
+  // Scan wallet (catches SOL transfers + outgoing SPL where wallet is
+  // signer) + every ATA the wallet owns (catches incoming SPL, where
+  // only the ATA is in accountKeys). Union is deduped by signature.
+  const ataAddresses = await listOwnedAtaAddresses(pk);
+  const scanTargets = [pk, ...ataAddresses.map((a) => new PublicKey(a))];
 
-  if (signatures.length === 0) {
+  const signaturePages = await Promise.all(
+    scanTargets.map((target) =>
+      connection.getSignaturesForAddress(target, {
+        limit: SIGNATURES_PAGE_LIMIT,
+        until: lastSignature ?? undefined,
+      }),
+    ),
+  );
+
+  const bySignature = new Map<string, SignatureEntry>();
+  for (const page of signaturePages) {
+    for (const entry of page) {
+      if (!bySignature.has(entry.signature)) {
+        bySignature.set(entry.signature, {
+          blockTime: entry.blockTime,
+          signature: entry.signature,
+          slot: entry.slot,
+        });
+      }
+    }
+  }
+
+  if (bySignature.size === 0) {
     return { events: [], latestSignature: lastSignature };
   }
 
-  const latestSignature = signatures[0]?.signature ?? lastSignature;
+  // Sort newest-first by slot (blockTime is sometimes null for just-
+  // finalized blocks; slot is monotonic and always present).
+  const uniqueSignatures = Array.from(bySignature.values()).sort(
+    (a, b) => b.slot - a.slot,
+  );
+  const latestSignature = uniqueSignatures[0]?.signature ?? lastSignature;
 
   // First-time wallets (no cursor): don't backfill — just record the
   // current head and wait for the next run. Avoids blasting the user
@@ -103,7 +168,7 @@ async function fetchNewEventsForWallet(
     return { events: [], latestSignature };
   }
 
-  const signatureList = signatures
+  const signatureList = uniqueSignatures
     .slice(0, MAX_TRANSACTIONS_PER_WALLET_PER_RUN)
     .map((entry) => entry.signature);
   const parsed = await connection.getParsedTransactions(signatureList, {
