@@ -27,6 +27,10 @@ const config: ExpoConfig = {
       backgroundColor: "#F9363C",
     },
     package: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
+    // google-services.json is only registered for `com.loyal.app` (prod).
+    // Dev/simulator builds don't need FCM, so skip the file there —
+    // supplying it with a non-matching package name would fail prebuild.
+    ...(IS_DEV ? {} : { googleServicesFile: "./google-services.json" }),
     edgeToEdgeEnabled: true,
     softwareKeyboardLayoutMode: "resize",
   },
