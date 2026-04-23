@@ -13,8 +13,15 @@
 // which is outside the bun workspace — can consume it without pulling in
 // solana-wallet's workspace-only transitive deps.
 
-/** SOL transfers below this many lamports are treated as dust (~0.00001 SOL). */
-export const SOL_DUST_THRESHOLD_LAMPORTS = 10_000;
+/**
+ * SOL transfers below this many lamports are treated as dust (~0.0001 SOL).
+ *
+ * Raised from 10_000 → 100_000 after observing address-poisoning spam
+ * sending amounts like 10,044 lamports (a deliberately above-10k value
+ * to evade a 10k-lamport filter). 100k leaves room for legitimate
+ * micro-transfers while catching the bulk of SOL-dust spam patterns.
+ */
+export const SOL_DUST_THRESHOLD_LAMPORTS = 100_000;
 
 /**
  * SPL token transfers whose *normalized* amount (raw / 10^decimals) is below

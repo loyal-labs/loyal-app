@@ -12,7 +12,17 @@ describe("isDustSolTransfer", () => {
       isDustSolTransfer({
         isUserSigned: false,
         hasTokenChange: false,
-        lamports: 9_999,
+        lamports: 99_999,
+      }),
+    ).toBe(true);
+  });
+
+  test("suppresses real-world evasion amounts (e.g. 10,044 lamports)", () => {
+    expect(
+      isDustSolTransfer({
+        isUserSigned: false,
+        hasTokenChange: false,
+        lamports: 10_044,
       }),
     ).toBe(true);
   });
