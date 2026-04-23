@@ -1,4 +1,9 @@
 import {
+  isDustSolTransfer,
+  isDustTokenTransfer,
+  SOL_DUST_THRESHOLD_LAMPORTS,
+} from "@loyal-labs/shared";
+import {
   type ParsedInnerInstruction,
   type ParsedInstruction,
   type ParsedMessage,
@@ -346,7 +351,6 @@ const findSystemTransfer = (
   });
 };
 
-const DUST_LAMPORTS_THRESHOLD = 10_000;
 const JUPITER_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
 
 const mapTransactionToTransfer = (
@@ -399,9 +403,23 @@ const mapTransactionToTransfer = (
   const netChangeLamports = postLamports - preLamports;
 
   if (
-    !isSigner &&
-    !tokenChange &&
-    Math.abs(netChangeLamports) < DUST_LAMPORTS_THRESHOLD
+    isDustSolTransfer({
+      isUserSigned: isSigner,
+      hasTokenChange: tokenChange !== null,
+      lamports: netChangeLamports,
+    })
+  ) {
+    return null;
+  }
+
+  if (
+    tokenChange &&
+    isDustTokenTransfer({
+      isUserSigned: isSigner,
+      direction: tokenChange.direction,
+      rawAmount: tokenChange.absRaw,
+      decimals: tokenChange.decimals,
+    })
   ) {
     return null;
   }
@@ -536,8 +554,8 @@ const mapTransactionToTransfer = (
   ) {
     const tokenIn = allTokenChanges.find((c) => c.direction === "in");
     const tokenOut = allTokenChanges.find((c) => c.direction === "out");
-    const solOut = netChangeLamports < -DUST_LAMPORTS_THRESHOLD;
-    const solIn = netChangeLamports > DUST_LAMPORTS_THRESHOLD;
+    const solOut = netChangeLamports < -SOL_DUST_THRESHOLD_LAMPORTS;
+    const solIn = netChangeLamports > SOL_DUST_THRESHOLD_LAMPORTS;
 
     if (tokenIn && tokenOut) {
       type = "swap";
