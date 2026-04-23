@@ -2,6 +2,7 @@ import "@/global.css";
 
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
+import { DatadogInit } from "@/components/DatadogInit";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
@@ -77,6 +78,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <WalletProvider>
+          <DatadogInit />
           <PushTokenRegistrar />
           <StatusBar style="auto" />
           <WalletAuthGate />

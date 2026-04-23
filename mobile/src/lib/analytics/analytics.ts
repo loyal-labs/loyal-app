@@ -8,6 +8,7 @@
 import { Mixpanel } from "mixpanel-react-native";
 
 import { env } from "@/config/env";
+import { clearDatadogUser, identifyDatadogUser } from "@/lib/datadog/datadog";
 
 type AnalyticsPrimitive = boolean | null | number | string;
 type AnalyticsProperties = Record<string, unknown>;
@@ -73,8 +74,16 @@ export function identifyWallet(
   publicKey: string,
   source: "created" | "imported" | "vault",
 ): void {
-  if (!canTrack()) return;
   const distinctId = `mob:${publicKey}`;
+  identifyDatadogUser({
+    id: distinctId,
+    extraInfo: {
+      wallet_address: publicKey,
+      wallet_source: source,
+      workspace: WORKSPACE,
+    },
+  });
+  if (!canTrack()) return;
   void (async () => {
     const c = await getClient();
     if (!c) return;
@@ -140,6 +149,7 @@ export function unionUserProfile(
 
 export function resetAnalytics(): void {
   lastIdentifiedDistinctId = null;
+  clearDatadogUser();
   if (!canTrack()) return;
   void (async () => {
     const c = await getClient();

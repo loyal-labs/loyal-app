@@ -6,6 +6,7 @@
       "name": "mobile",
       "dependencies": {
         "@coral-xyz/anchor": "^0.32.1",
+        "@datadog/mobile-react-native": "^3.3.0",
         "@expo-google-fonts/geist": "^0.4.1",
         "@expo/vector-icons": "^15.0.3",
         "@gorhom/bottom-sheet": "^5.2.8",
@@ -291,6 +292,8 @@
     "@coral-xyz/anchor-errors": ["@coral-xyz/anchor-errors@0.31.1", "", {}, "sha512-NhNEku4F3zzUSBtrYz84FzYWm48+9OvmT1Hhnwr6GnPQry2dsEqH/ti/7ASjjpoFTWRnPXrjAIT1qM6Isop+LQ=="],
 
     "@coral-xyz/borsh": ["@coral-xyz/borsh@0.31.1", "", { "dependencies": { "bn.js": "^5.1.2", "buffer-layout": "^1.2.0" }, "peerDependencies": { "@solana/web3.js": "^1.69.0" } }, "sha512-9N8AU9F0ubriKfNE3g1WF0/4dtlGXoBN/hd1PvbNBamBNwRgHxH4P+o3Zt7rSEloW1HUs6LfZEchlx9fW7POYw=="],
+
+    "@datadog/mobile-react-native": ["@datadog/mobile-react-native@3.3.0", "", { "dependencies": { "big-integer": "^1.6.52" }, "peerDependencies": { "react": ">=16.13.1", "react-native": ">=0.63.4 <1.0" } }, "sha512-mlOp0ai4aKi1MtmGDx2SSu0BEMU+pstxrnmmMlOILiG7F8x7jIvDj1+eeEgiPO0s2QNqM4qrGIAOUI9HacjOgg=="],
 
     "@egjs/hammerjs": ["@egjs/hammerjs@2.0.17", "", { "dependencies": { "@types/hammerjs": "^2.0.36" } }, "sha512-XQsZgjm2EcVUiZQf11UBJQfmZeEmOW8DpI1gsFeln6w0ae0ii4dMQEQ0kjl6DspdWX1aGY1/loyXnP0JS06e/A=="],
 
