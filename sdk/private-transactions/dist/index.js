@@ -2,8 +2,8 @@
 import {
   Connection as Connection3,
   PublicKey as PublicKey6,
-  SystemProgram as SystemProgram4,
-  Transaction as Transaction4
+  SystemProgram as SystemProgram5,
+  Transaction as Transaction7
 } from "@solana/web3.js";
 import { AnchorProvider, BN as BN2, Program } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4 } from "@solana/spl-token";
@@ -2246,30 +2246,110 @@ function createKeypairMessageSigner(keypair) {
   };
 }
 
-// src/instructions/initializeDeposit.ts
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { SystemProgram } from "@solana/web3.js";
-async function initializeDepositIx(program, params) {
-  const { user, tokenMint, payer } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const ix = await program.methods.initializeDeposit().accountsPartial({
-    payer,
-    user,
-    tokenMint,
-    tokenProgram: TOKEN_PROGRAM_ID,
-    systemProgram: SystemProgram.programId
-  }).instruction();
-  return {
-    ix,
-    ensure: [
+// src/actions/shieldTokens.ts
+import { NATIVE_MINT as NATIVE_MINT2 } from "@solana/spl-token";
+import {
+  Transaction as Transaction4
+} from "@solana/web3.js";
+
+// src/rent-estimate.ts
+import { ACCOUNT_SIZE, getAssociatedTokenAddressSync } from "@solana/spl-token";
+var DISCRIMINATOR_SIZE = 8;
+var PUBLIC_KEY_SIZE = 32;
+var U64_SIZE = 8;
+var U8_SIZE = 1;
+var BOOL_SIZE = 1;
+var VEC_PREFIX_SIZE = 4;
+var DEPOSIT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
+var VAULT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + U8_SIZE;
+var PERMISSION_ACCOUNT_SIZE = 567;
+var DELEGATION_RECORD_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE * 3;
+function getDelegationMetadataAccountSize(seeds) {
+  return DISCRIMINATOR_SIZE + U64_SIZE + BOOL_SIZE + PUBLIC_KEY_SIZE + VEC_PREFIX_SIZE + seeds.reduce((total, seed) => total + VEC_PREFIX_SIZE + seed.byteLength, 0);
+}
+async function estimateNewAccountRentLamports(params) {
+  if (params.accounts.length === 0) {
+    return 0;
+  }
+  const spaces = Array.from(new Set(params.accounts.map((account) => account.space)));
+  const [accountInfos, rentEntries] = await Promise.all([
+    params.connection.getMultipleAccountsInfo(params.accounts.map((account) => account.address)),
+    Promise.all(spaces.map(async (space) => [
+      space,
+      await params.connection.getMinimumBalanceForRentExemption(space)
+    ]))
+  ]);
+  const rentBySpace = new Map(rentEntries);
+  return params.accounts.reduce((total, account, index) => {
+    if (!account.forceCreate && accountInfos[index]) {
+      return total;
+    }
+    return total + (rentBySpace.get(account.space) ?? 0);
+  }, 0);
+}
+async function estimateDepositRentLamports(params) {
+  return estimateNewAccountRentLamports({
+    connection: params.connection,
+    accounts: [
       {
-        address: depositPda,
-        delegated: false,
-        passNotExist: true,
-        label: "initializeDeposit-depositPda"
+        address: params.depositPda,
+        space: DEPOSIT_ACCOUNT_SIZE,
+        forceCreate: params.forceCreate
       }
     ]
-  };
+  });
+}
+async function estimateModifyBalanceRentLamports(params) {
+  const [vaultPda] = findVaultPda(params.tokenMint);
+  const userTokenAccount = getAssociatedTokenAddressSync(params.tokenMint, params.user);
+  const vaultTokenAccount = getAssociatedTokenAddressSync(params.tokenMint, vaultPda, true);
+  const accounts = [
+    { address: vaultPda, space: VAULT_ACCOUNT_SIZE },
+    { address: vaultTokenAccount, space: ACCOUNT_SIZE }
+  ];
+  if (!params.isNativeSol) {
+    accounts.push({ address: userTokenAccount, space: ACCOUNT_SIZE });
+  }
+  return estimateNewAccountRentLamports({
+    connection: params.connection,
+    accounts
+  });
+}
+async function estimatePermissionRentLamports(params) {
+  return estimateNewAccountRentLamports({
+    connection: params.connection,
+    accounts: [
+      {
+        address: params.permissionPda,
+        space: PERMISSION_ACCOUNT_SIZE,
+        forceCreate: params.forceCreate
+      }
+    ]
+  });
+}
+async function estimateDepositDelegationRentLamports(params) {
+  const [delegationRecordPda] = findDelegationRecordPda(params.depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(params.depositPda);
+  const metadataSize = getDelegationMetadataAccountSize([
+    DEPOSIT_SEED_BYTES,
+    params.user.toBuffer(),
+    params.tokenMint.toBuffer()
+  ]);
+  return estimateNewAccountRentLamports({
+    connection: params.connection,
+    accounts: [
+      {
+        address: delegationRecordPda,
+        space: DELEGATION_RECORD_ACCOUNT_SIZE,
+        forceCreate: params.forceCreate
+      },
+      {
+        address: delegationMetadataPda,
+        space: metadataSize,
+        forceCreate: params.forceCreate
+      }
+    ]
+  });
 }
 
 // src/checks/enshureChecks.ts
@@ -2500,207 +2580,40 @@ function formatEnsureDisplayName(name) {
   return name ? `${name} - ` : "";
 }
 
-// src/instructions/initializeUsernameDeposit.ts
-import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID2 } from "@solana/spl-token";
-import { SystemProgram as SystemProgram2 } from "@solana/web3.js";
-async function initializeUsernameDepositIx(program, params) {
-  const { username, tokenMint, payer } = params;
-  validateUsername(username);
-  const [usernameDepositPda] = await findUsernameDepositPda(username, tokenMint);
-  const usernameHash = await sha256hash(username);
-  const ix = await program.methods.initializeUsernameDeposit(usernameHash).accountsPartial({
-    payer,
-    tokenMint,
-    tokenProgram: TOKEN_PROGRAM_ID2,
-    systemProgram: SystemProgram2.programId
-  }).instruction();
-  return {
-    ix,
-    ensure: [
-      {
-        address: usernameDepositPda,
-        delegated: false,
-        passNotExist: true,
-        label: "initializeUsernameDeposit-usernameDepositPda"
-      }
-    ]
-  };
-}
-
-// src/instructions/modifyBalance.ts
-import { BN } from "@coral-xyz/anchor";
+// src/wsol.ts
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID3
+  createAssociatedTokenAccountIdempotentInstruction,
+  createCloseAccountInstruction,
+  createSyncNativeInstruction,
+  getAssociatedTokenAddressSync as getAssociatedTokenAddressSync2,
+  NATIVE_MINT
 } from "@solana/spl-token";
-import { SystemProgram as SystemProgram3 } from "@solana/web3.js";
-async function modifyBalanceIx(program, params) {
-  const { user, tokenMint, amount, increase, payer, passNotExist } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const [vaultPda] = findVaultPda(tokenMint);
-  const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user);
-  const vaultTokenAccount = getAssociatedTokenAddressSync(tokenMint, vaultPda, true);
-  const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
-  const vaultCollateralTokenAccount = kaminoAccounts ? getAssociatedTokenAddressSync(kaminoAccounts.reserveCollateralMint, vaultPda, true) : null;
-  const accounts = {
-    payer,
-    user,
-    vault: vaultPda,
-    deposit: depositPda,
-    userTokenAccount,
-    vaultTokenAccount,
-    tokenMint,
-    tokenProgram: TOKEN_PROGRAM_ID3,
-    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-    systemProgram: SystemProgram3.programId
-  };
-  const remainingAccounts = kaminoAccounts && vaultCollateralTokenAccount ? [
-    {
-      pubkey: kaminoAccounts.lendingMarket,
-      isSigner: false,
-      isWritable: false
-    },
-    {
-      pubkey: kaminoAccounts.lendingMarketAuthority,
-      isSigner: false,
-      isWritable: false
-    },
-    {
-      pubkey: kaminoAccounts.reserve,
-      isSigner: false,
-      isWritable: true
-    },
-    {
-      pubkey: kaminoAccounts.reserveLiquiditySupply,
-      isSigner: false,
-      isWritable: true
-    },
-    {
-      pubkey: kaminoAccounts.reserveCollateralMint,
-      isSigner: false,
-      isWritable: true
-    },
-    {
-      pubkey: vaultCollateralTokenAccount,
-      isSigner: false,
-      isWritable: true
-    },
-    {
-      pubkey: kaminoAccounts.instructionSysvarAccount,
-      isSigner: false,
-      isWritable: false
-    },
-    {
-      pubkey: kaminoAccounts.klendProgram,
-      isSigner: false,
-      isWritable: false
-    }
-  ] : [];
-  const ix = await program.methods.modifyBalance({ amount: new BN(amount.toString()), increase }).accountsPartial(accounts).remainingAccounts(remainingAccounts).instruction();
-  return {
-    ix,
-    ensure: [
-      {
-        address: depositPda,
-        delegated: false,
-        passNotExist: passNotExist === undefined ? false : passNotExist,
-        label: "modifyBalance-depositPda"
-      }
-    ]
-  };
+import {
+  SystemProgram
+} from "@solana/web3.js";
+function wrapSolToWsolIx({
+  user,
+  payer,
+  lamports
+}) {
+  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(payer, wsolAta, user, NATIVE_MINT),
+    SystemProgram.transfer({
+      fromPubkey: user,
+      toPubkey: wsolAta,
+      lamports
+    }),
+    createSyncNativeInstruction(wsolAta)
+  ];
 }
-
-// src/instructions/createPermission.ts
-import { PERMISSION_PROGRAM_ID as PERMISSION_PROGRAM_ID2 } from "@magicblock-labs/ephemeral-rollups-sdk";
-async function createPermissionIx(program, params) {
-  const { user, tokenMint, payer, passNotExist } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const [permissionPda] = findPermissionPda(depositPda);
-  const ix = await program.methods.createPermission().accountsPartial({
-    payer,
-    user,
-    deposit: depositPda,
-    permission: permissionPda,
-    permissionProgram: PERMISSION_PROGRAM_ID2
-  }).instruction();
-  return {
-    ix,
-    ensure: [
-      {
-        address: depositPda,
-        delegated: false,
-        passNotExist: passNotExist === undefined ? true : passNotExist,
-        label: "createPermission-depositPda"
-      },
-      {
-        address: permissionPda,
-        delegated: false,
-        passNotExist: true,
-        label: "createPermission-permissionPda"
-      }
-    ]
-  };
+function closeWsolAta({
+  user,
+  destination
+}) {
+  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
+  return createCloseAccountInstruction(wsolAta, destination, user);
 }
-
-// src/instructions/delegateDeposit.ts
-async function delegateDepositIx(program, params) {
-  const { user, tokenMint, payer, validator, passNotExist } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const [bufferPda] = findBufferPda(depositPda);
-  const [delegationRecordPda] = findDelegationRecordPda(depositPda);
-  const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
-  const ix = await program.methods.delegate(user, tokenMint).accountsPartial({
-    payer,
-    bufferDeposit: bufferPda,
-    delegationRecordDeposit: delegationRecordPda,
-    delegationMetadataDeposit: delegationMetadataPda,
-    deposit: depositPda,
-    validator,
-    ownerProgram: PROGRAM_ID,
-    delegationProgram: DELEGATION_PROGRAM_ID
-  }).instruction();
-  return {
-    ix,
-    ensure: [
-      {
-        address: depositPda,
-        delegated: false,
-        passNotExist: passNotExist === undefined ? false : passNotExist,
-        label: "delegateDeposit-depositPda"
-      }
-    ]
-  };
-}
-
-// src/instructions/undelegateDeposit.ts
-async function undelegateDepositIx(perProgram, params) {
-  const { user, tokenMint, payer, sessionToken, magicProgram, magicContext } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const accounts = {
-    user,
-    payer,
-    deposit: depositPda,
-    magicProgram,
-    magicContext
-  };
-  accounts.sessionToken = sessionToken ?? null;
-  const ix = await perProgram.methods.undelegate().accountsPartial(accounts).instruction();
-  return {
-    ix,
-    ensure: [
-      {
-        address: depositPda,
-        delegated: true,
-        passNotExist: false,
-        label: "undelegateDeposit-depositPda"
-      }
-    ]
-  };
-}
-
-// src/actions/undelegateDeposit.ts
-import { Transaction as Transaction3 } from "@solana/web3.js";
 
 // src/transaction-debug.ts
 import {
@@ -2954,23 +2867,221 @@ async function sendAndConfirmWithDiagnostics(params) {
   }
 }
 
-// src/actions/undelegateDeposit.ts
-async function undelegateDeposit(baseProgram, perProgram, params) {
-  const { user, tokenMint } = params;
-  const { ix, ensure } = await undelegateDepositIx(perProgram, params);
-  const baseConnection = baseProgram.provider.connection;
-  const perConnection = perProgram.provider.connection;
-  await processEnsureChecks(baseConnection, perConnection, ensure);
+// src/instructions/modifyBalance.ts
+import { BN } from "@coral-xyz/anchor";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync as getAssociatedTokenAddressSync3,
+  TOKEN_PROGRAM_ID
+} from "@solana/spl-token";
+import { SystemProgram as SystemProgram2 } from "@solana/web3.js";
+async function modifyBalanceIx(program, params) {
+  const { user, tokenMint, amount, increase, payer, passNotExist } = params;
   const [depositPda] = findDepositPda(user, tokenMint);
-  const delegationWatcher = waitForAccountOwnerChange(baseConnection, depositPda, PROGRAM_ID);
-  const tx = new Transaction3().add(ix);
+  const [vaultPda] = findVaultPda(tokenMint);
+  const userTokenAccount = getAssociatedTokenAddressSync3(tokenMint, user);
+  const vaultTokenAccount = getAssociatedTokenAddressSync3(tokenMint, vaultPda, true);
+  const kaminoAccounts = getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+  const vaultCollateralTokenAccount = kaminoAccounts ? getAssociatedTokenAddressSync3(kaminoAccounts.reserveCollateralMint, vaultPda, true) : null;
+  const accounts = {
+    payer,
+    user,
+    vault: vaultPda,
+    deposit: depositPda,
+    userTokenAccount,
+    vaultTokenAccount,
+    tokenMint,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram2.programId
+  };
+  const remainingAccounts = kaminoAccounts && vaultCollateralTokenAccount ? [
+    {
+      pubkey: kaminoAccounts.lendingMarket,
+      isSigner: false,
+      isWritable: false
+    },
+    {
+      pubkey: kaminoAccounts.lendingMarketAuthority,
+      isSigner: false,
+      isWritable: false
+    },
+    {
+      pubkey: kaminoAccounts.reserve,
+      isSigner: false,
+      isWritable: true
+    },
+    {
+      pubkey: kaminoAccounts.reserveLiquiditySupply,
+      isSigner: false,
+      isWritable: true
+    },
+    {
+      pubkey: kaminoAccounts.reserveCollateralMint,
+      isSigner: false,
+      isWritable: true
+    },
+    {
+      pubkey: vaultCollateralTokenAccount,
+      isSigner: false,
+      isWritable: true
+    },
+    {
+      pubkey: kaminoAccounts.instructionSysvarAccount,
+      isSigner: false,
+      isWritable: false
+    },
+    {
+      pubkey: kaminoAccounts.klendProgram,
+      isSigner: false,
+      isWritable: false
+    }
+  ] : [];
+  const ix = await program.methods.modifyBalance({ amount: new BN(amount.toString()), increase }).accountsPartial(accounts).remainingAccounts(remainingAccounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: passNotExist === undefined ? false : passNotExist,
+        label: "modifyBalance-depositPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/initializeDeposit.ts
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID2 } from "@solana/spl-token";
+import { SystemProgram as SystemProgram3 } from "@solana/web3.js";
+async function initializeDepositIx(program, params) {
+  const { user, tokenMint, payer } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const ix = await program.methods.initializeDeposit().accountsPartial({
+    payer,
+    user,
+    tokenMint,
+    tokenProgram: TOKEN_PROGRAM_ID2,
+    systemProgram: SystemProgram3.programId
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: true,
+        label: "initializeDeposit-depositPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/createPermission.ts
+import { PERMISSION_PROGRAM_ID as PERMISSION_PROGRAM_ID2 } from "@magicblock-labs/ephemeral-rollups-sdk";
+async function createPermissionIx(program, params) {
+  const { user, tokenMint, payer, passNotExist } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
+  const ix = await program.methods.createPermission().accountsPartial({
+    payer,
+    user,
+    deposit: depositPda,
+    permission: permissionPda,
+    permissionProgram: PERMISSION_PROGRAM_ID2
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: passNotExist === undefined ? true : passNotExist,
+        label: "createPermission-depositPda"
+      },
+      {
+        address: permissionPda,
+        delegated: false,
+        passNotExist: true,
+        label: "createPermission-permissionPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/delegateDeposit.ts
+async function delegateDepositIx(program, params) {
+  const { user, tokenMint, payer, validator, passNotExist } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const [bufferPda] = findBufferPda(depositPda);
+  const [delegationRecordPda] = findDelegationRecordPda(depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+  const ix = await program.methods.delegate(user, tokenMint).accountsPartial({
+    payer,
+    bufferDeposit: bufferPda,
+    delegationRecordDeposit: delegationRecordPda,
+    delegationMetadataDeposit: delegationMetadataPda,
+    deposit: depositPda,
+    validator,
+    ownerProgram: PROGRAM_ID,
+    delegationProgram: DELEGATION_PROGRAM_ID
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: passNotExist === undefined ? false : passNotExist,
+        label: "delegateDeposit-depositPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/undelegateDeposit.ts
+async function undelegateDepositIx(perProgram, params) {
+  const { user, tokenMint, payer, sessionToken, magicProgram, magicContext } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const accounts = {
+    user,
+    payer,
+    deposit: depositPda,
+    magicProgram,
+    magicContext
+  };
+  accounts.sessionToken = sessionToken ?? null;
+  const ix = await perProgram.methods.undelegate().accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "undelegateDeposit-depositPda"
+      }
+    ]
+  };
+}
+
+// src/actions/undelegateDeposit.ts
+import {
+  Transaction as Transaction3
+} from "@solana/web3.js";
+async function sendPlannedUndelegateDepositTransaction(params) {
+  const { baseProgram, perProgram, transaction, user, tokenMint, rpcOptions } = params;
+  await processEnsureChecks(baseProgram.provider.connection, perProgram.provider.connection, transaction.checks);
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const delegationWatcher = waitForAccountOwnerChange(baseProgram.provider.connection, depositPda, PROGRAM_ID);
+  const tx = new Transaction3().add(...transaction.instructions.map(({ ix }) => ix));
   let signature;
   try {
     signature = await sendAndConfirmWithDiagnostics({
-      label: "undelegateDeposit",
+      label: transaction.label,
       provider: perProgram.provider,
       tx,
-      rpcOptions: params.rpcOptions,
+      rpcOptions,
       extraContext: {
         user,
         tokenMint,
@@ -2985,9 +3096,552 @@ async function undelegateDeposit(baseProgram, perProgram, params) {
     await delegationWatcher.wait();
     await new Promise((resolve) => setTimeout(resolve, 3000));
   } catch (err) {
-    console.warn(`[undelegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
+    console.warn(`[${transaction.label}] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
   }
   return signature;
+}
+async function undelegateDeposit(baseProgram, perProgram, params) {
+  const { user, tokenMint } = params;
+  const { ix, ensure } = await undelegateDepositIx(perProgram, params);
+  return sendPlannedUndelegateDepositTransaction({
+    baseProgram,
+    perProgram,
+    transaction: {
+      label: "undelegateDeposit",
+      instructions: [{ ix }],
+      checks: ensure
+    },
+    user,
+    tokenMint,
+    rpcOptions: params.rpcOptions
+  });
+}
+
+// src/actions/shieldTokens.ts
+function labelTransactionInstructions(prefix, instructions) {
+  const labels = [
+    `${prefix}:createAssociatedTokenAccount`,
+    `${prefix}:transfer`,
+    `${prefix}:syncNative`
+  ];
+  return instructions.map((ix, index) => ({
+    label: labels[index] ?? `${prefix}:${index}`,
+    ix
+  }));
+}
+async function buildShieldTokensInstructionPlan(params) {
+  const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
+  const baseConnection = baseProgram.provider.connection;
+  const perRpcEndpoint = perProgram.provider.connection.rpcEndpoint;
+  const isNativeSol = tokenMint.equals(NATIVE_MINT2);
+  const validator = params.validator ?? getErValidatorForRpcEndpoint(perRpcEndpoint);
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
+  const accountInfos = await getMultipleAccountsInfoWithRetry(baseConnection, [depositPda, permissionPda], "base-getMultipleAccountsInfo");
+  const depositAccountInfo = accountInfos[0] ?? null;
+  const permissionAccountInfo = accountInfos[1] ?? null;
+  const needsUndelegate = depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
+  const [
+    depositRentLamports,
+    modifyBalanceRentLamports,
+    permissionRentLamports,
+    delegationRentLamports
+  ] = await Promise.all([
+    !depositAccountInfo ? estimateDepositRentLamports({ connection: baseConnection, depositPda }) : Promise.resolve(0),
+    estimateModifyBalanceRentLamports({
+      connection: baseConnection,
+      user,
+      tokenMint,
+      isNativeSol
+    }),
+    !permissionAccountInfo ? estimatePermissionRentLamports({
+      connection: baseConnection,
+      permissionPda
+    }) : Promise.resolve(0),
+    estimateDepositDelegationRentLamports({
+      connection: baseConnection,
+      user,
+      tokenMint,
+      depositPda,
+      forceCreate: needsUndelegate
+    })
+  ]);
+  const instructions = [];
+  const checks = [];
+  if (isNativeSol) {
+    instructions.push(...labelTransactionInstructions("wrapSol", wrapSolToWsolIx({
+      user,
+      payer,
+      lamports: amount
+    })));
+  }
+  if (!depositAccountInfo) {
+    const initializeDepositIxs = await initializeDepositIx(baseProgram, {
+      tokenMint,
+      user,
+      payer
+    });
+    instructions.push({
+      label: "initializeDeposit",
+      ix: initializeDepositIxs.ix,
+      rentLamports: depositRentLamports
+    });
+    checks.push(...initializeDepositIxs.ensure);
+  }
+  const modifyBalanceIxs = await modifyBalanceIx(baseProgram, {
+    tokenMint,
+    user,
+    payer,
+    amount,
+    increase: true,
+    passNotExist: true
+  });
+  instructions.push({
+    label: "modifyBalanceIncrease",
+    ix: modifyBalanceIxs.ix,
+    rentLamports: modifyBalanceRentLamports
+  });
+  checks.push(...modifyBalanceIxs.ensure);
+  if (!permissionAccountInfo) {
+    const createPermissionIxs = await createPermissionIx(baseProgram, {
+      tokenMint,
+      user,
+      payer,
+      passNotExist: true
+    });
+    instructions.push({
+      label: "createPermission",
+      ix: createPermissionIxs.ix,
+      rentLamports: permissionRentLamports
+    });
+    checks.push(...createPermissionIxs.ensure);
+  }
+  const delegateDepositIxs = await delegateDepositIx(baseProgram, {
+    tokenMint,
+    user,
+    payer,
+    validator,
+    passNotExist: true
+  });
+  instructions.push({
+    label: "delegateDeposit",
+    ix: delegateDepositIxs.ix,
+    rentLamports: delegationRentLamports
+  });
+  checks.push(...delegateDepositIxs.ensure);
+  if (isNativeSol) {
+    instructions.push({
+      label: "closeWsolAta",
+      ix: closeWsolAta({
+        user,
+        destination: user
+      })
+    });
+  }
+  return {
+    instructions,
+    checks,
+    needsUndelegate,
+    context: {
+      isNativeSol,
+      validator,
+      depositPda,
+      permissionPda,
+      depositAccountInfo,
+      permissionAccountInfo
+    }
+  };
+}
+async function buildShieldTokensTransactionPlan(params) {
+  const instructionPlan = await buildShieldTokensInstructionPlan(params);
+  let preUndelegateTransaction = null;
+  if (instructionPlan.needsUndelegate) {
+    const undelegateIxs = await undelegateDepositIx(params.perProgram, {
+      user: params.user,
+      payer: params.payer,
+      tokenMint: params.tokenMint,
+      sessionToken: params.sessionToken,
+      magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
+      magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
+    });
+    preUndelegateTransaction = {
+      label: "shield:preUndelegate",
+      cluster: "ephemeral",
+      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
+      checks: undelegateIxs.ensure
+    };
+  }
+  return {
+    preUndelegateTransaction,
+    baseTransaction: {
+      label: "shield",
+      cluster: "base",
+      instructions: instructionPlan.instructions,
+      checks: instructionPlan.checks
+    },
+    context: instructionPlan.context
+  };
+}
+async function shieldTokens(params) {
+  const {
+    user,
+    payer,
+    tokenMint,
+    amount,
+    baseProgram,
+    perProgram,
+    rpcOptions
+  } = params;
+  const baseConnection = baseProgram.provider.connection;
+  const perConnection = perProgram.provider.connection;
+  const plan = await buildShieldTokensTransactionPlan({
+    user,
+    payer,
+    tokenMint,
+    amount,
+    baseProgram,
+    perProgram,
+    validator: params.validator,
+    sessionToken: params.sessionToken,
+    magicProgram: params.magicProgram,
+    magicContext: params.magicContext
+  });
+  const {
+    context: {
+      validator,
+      depositPda,
+      permissionPda,
+      depositAccountInfo,
+      permissionAccountInfo,
+      isNativeSol
+    }
+  } = plan;
+  if (plan.preUndelegateTransaction) {
+    await sendPlannedUndelegateDepositTransaction({
+      baseProgram,
+      perProgram,
+      transaction: plan.preUndelegateTransaction,
+      user,
+      tokenMint,
+      rpcOptions
+    });
+  }
+  await processEnsureChecks(baseConnection, perConnection, plan.baseTransaction.checks);
+  const delegationWatcher = waitForAccountOwnerChange(baseConnection, depositPda, DELEGATION_PROGRAM_ID);
+  const tx = new Transaction4().add(...plan.baseTransaction.instructions.map(({ ix }) => ix));
+  let signature;
+  try {
+    signature = await sendAndConfirmWithDiagnostics({
+      label: "shieldTokens",
+      provider: baseProgram.provider,
+      tx,
+      rpcOptions,
+      extraContext: {
+        user,
+        payer,
+        tokenMint,
+        amount,
+        isNativeSol,
+        validator,
+        depositPda,
+        permissionPda,
+        depositAccountInfo,
+        permissionAccountInfo
+      }
+    });
+  } catch (e) {
+    await delegationWatcher.cancel();
+    throw e;
+  }
+  try {
+    await delegationWatcher.wait();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  } catch (err) {
+    console.warn(`[shieldTokens] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
+  }
+  return signature;
+}
+
+// src/actions/unshieldTokens.ts
+import { NATIVE_MINT as NATIVE_MINT3 } from "@solana/spl-token";
+import { Transaction as Transaction5 } from "@solana/web3.js";
+async function buildUnshieldTokensInstructionPlan(params) {
+  const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
+  const baseConnection = baseProgram.provider.connection;
+  const perRpcEndpoint = perProgram.provider.connection.rpcEndpoint;
+  const isNativeSol = tokenMint.equals(NATIVE_MINT3);
+  const validator = params.validator ?? getErValidatorForRpcEndpoint(perRpcEndpoint);
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const depositAccountInfoPromise = baseConnection.getAccountInfo(depositPda);
+  const modifyBalanceRentLamportsPromise = estimateModifyBalanceRentLamports({
+    connection: baseConnection,
+    user,
+    tokenMint,
+    isNativeSol
+  });
+  const depositAccountInfo = await depositAccountInfoPromise;
+  const needsUndelegate = depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
+  const currentDepositAccount = needsUndelegate ? await perProgram.account.deposit.fetchNullable(depositPda) : depositAccountInfo?.owner.equals(PROGRAM_ID) ? await baseProgram.account.deposit.fetchNullable(depositPda) : null;
+  const currentDepositAmount = currentDepositAccount ? BigInt(currentDepositAccount.amount.toString()) : null;
+  const shouldRedelegate = currentDepositAmount !== null && currentDepositAmount - amount > 0n;
+  const [modifyBalanceRentLamports, delegationRentLamports] = await Promise.all([
+    modifyBalanceRentLamportsPromise,
+    shouldRedelegate ? estimateDepositDelegationRentLamports({
+      connection: baseConnection,
+      user,
+      tokenMint,
+      depositPda,
+      forceCreate: needsUndelegate
+    }) : Promise.resolve(0)
+  ]);
+  const instructions = [];
+  const checks = [];
+  if (isNativeSol) {
+    instructions.push(...labelTransactionInstructions("ensureWsolAta", wrapSolToWsolIx({
+      user,
+      payer,
+      lamports: 0n
+    })));
+  }
+  const modifyBalanceIxs = await modifyBalanceIx(baseProgram, {
+    tokenMint,
+    user,
+    payer,
+    amount,
+    increase: false
+  });
+  instructions.push({
+    label: "modifyBalanceDecrease",
+    ix: modifyBalanceIxs.ix,
+    rentLamports: modifyBalanceRentLamports
+  });
+  checks.push(...modifyBalanceIxs.ensure);
+  if (isNativeSol) {
+    instructions.push({
+      label: "closeWsolAta",
+      ix: closeWsolAta({
+        user,
+        destination: user
+      })
+    });
+  }
+  if (shouldRedelegate) {
+    const delegateDepositIxs = await delegateDepositIx(baseProgram, {
+      tokenMint,
+      user,
+      payer,
+      validator
+    });
+    instructions.push({
+      label: "redelegateDeposit",
+      ix: delegateDepositIxs.ix,
+      rentLamports: delegationRentLamports
+    });
+    checks.push(...delegateDepositIxs.ensure);
+  }
+  return {
+    instructions,
+    checks,
+    needsUndelegate,
+    shouldRedelegate,
+    context: {
+      isNativeSol,
+      validator,
+      depositPda,
+      currentDepositAmount
+    }
+  };
+}
+async function buildUnshieldTokensTransactionPlan(params) {
+  const instructionPlan = await buildUnshieldTokensInstructionPlan(params);
+  let preUndelegateTransaction = null;
+  if (instructionPlan.needsUndelegate) {
+    const undelegateIxs = await undelegateDepositIx(params.perProgram, {
+      user: params.user,
+      payer: params.payer,
+      tokenMint: params.tokenMint,
+      sessionToken: params.sessionToken,
+      magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
+      magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
+    });
+    preUndelegateTransaction = {
+      label: "unshield:undelegate",
+      cluster: "ephemeral",
+      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
+      checks: undelegateIxs.ensure
+    };
+  }
+  return {
+    preUndelegateTransaction,
+    baseTransaction: {
+      label: "unshield",
+      cluster: "base",
+      instructions: instructionPlan.instructions,
+      checks: instructionPlan.checks
+    },
+    shouldRedelegate: instructionPlan.shouldRedelegate,
+    context: instructionPlan.context
+  };
+}
+async function unshieldTokens(params) {
+  const {
+    user,
+    payer,
+    tokenMint,
+    amount,
+    baseProgram,
+    perProgram,
+    rpcOptions
+  } = params;
+  const baseConnection = baseProgram.provider.connection;
+  const perConnection = perProgram.provider.connection;
+  const plan = await buildUnshieldTokensTransactionPlan({
+    user,
+    payer,
+    tokenMint,
+    amount,
+    baseProgram,
+    perProgram,
+    validator: params.validator,
+    sessionToken: params.sessionToken,
+    magicProgram: params.magicProgram,
+    magicContext: params.magicContext
+  });
+  const {
+    shouldRedelegate,
+    context: { validator, depositPda, isNativeSol, currentDepositAmount }
+  } = plan;
+  if (plan.preUndelegateTransaction) {
+    await sendPlannedUndelegateDepositTransaction({
+      baseProgram,
+      perProgram,
+      transaction: plan.preUndelegateTransaction,
+      user,
+      tokenMint,
+      rpcOptions
+    });
+  }
+  await processEnsureChecks(baseConnection, perConnection, plan.baseTransaction.checks);
+  const delegationWatcher = shouldRedelegate ? waitForAccountOwnerChange(baseConnection, depositPda, DELEGATION_PROGRAM_ID) : null;
+  const tx = new Transaction5().add(...plan.baseTransaction.instructions.map(({ ix }) => ix));
+  let signature;
+  try {
+    signature = await sendAndConfirmWithDiagnostics({
+      label: "unshieldTokens",
+      provider: baseProgram.provider,
+      tx,
+      rpcOptions,
+      extraContext: {
+        user,
+        payer,
+        tokenMint,
+        amount,
+        isNativeSol,
+        validator,
+        depositPda,
+        currentDepositAmount,
+        shouldRedelegate
+      }
+    });
+    if (delegationWatcher) {
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  } catch (e) {
+    await delegationWatcher?.cancel();
+    throw e;
+  }
+  return signature;
+}
+
+// src/instructions/initializeUsernameDeposit.ts
+import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID3 } from "@solana/spl-token";
+import { SystemProgram as SystemProgram4 } from "@solana/web3.js";
+async function initializeUsernameDepositIx(program, params) {
+  const { username, tokenMint, payer } = params;
+  validateUsername(username);
+  const [usernameDepositPda] = await findUsernameDepositPda(username, tokenMint);
+  const usernameHash = await sha256hash(username);
+  const ix = await program.methods.initializeUsernameDeposit(usernameHash).accountsPartial({
+    payer,
+    tokenMint,
+    tokenProgram: TOKEN_PROGRAM_ID3,
+    systemProgram: SystemProgram4.programId
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: usernameDepositPda,
+        delegated: false,
+        passNotExist: true,
+        label: "initializeUsernameDeposit-usernameDepositPda"
+      }
+    ]
+  };
+}
+
+// src/fee-estimate.ts
+import {
+  Transaction as Transaction6
+} from "@solana/web3.js";
+function createUnsignedTransaction(params) {
+  return new Transaction6({
+    feePayer: params.feePayer,
+    recentBlockhash: params.blockhash
+  }).add(...params.instructions);
+}
+async function getMessageFeeLamports(params) {
+  const fee = await params.connection.getFeeForMessage(params.transaction.compileMessage(), params.commitment);
+  if (fee.value === null) {
+    throw new Error("RPC returned null fee for transaction message");
+  }
+  return fee.value;
+}
+async function estimatePlannedTransactionFees(params) {
+  const transactionEstimates = await Promise.all(params.transactions.map(async (transactionPlan, index) => {
+    if (transactionPlan.instructions.length === 0) {
+      throw new Error(`Cannot estimate empty transaction: ${transactionPlan.label}`);
+    }
+    const blockhash = await transactionPlan.connection.getLatestBlockhash(params.commitment);
+    const transaction = createUnsignedTransaction({
+      feePayer: transactionPlan.feePayer,
+      blockhash: blockhash.blockhash,
+      instructions: transactionPlan.instructions.map(({ ix }) => ix)
+    });
+    const feeLamports = await getMessageFeeLamports({
+      connection: transactionPlan.connection,
+      transaction,
+      commitment: params.commitment
+    });
+    const instructions = transactionPlan.instructions.map((instructionPlan, instructionIndex) => ({
+      transactionIndex: index,
+      instructionIndex,
+      label: instructionPlan.label,
+      programId: instructionPlan.ix.programId,
+      rentLamports: instructionPlan.rentLamports ?? 0
+    }));
+    const rentLamports = instructions.reduce((total, instruction) => total + instruction.rentLamports, 0);
+    return {
+      index,
+      label: transactionPlan.label,
+      cluster: transactionPlan.cluster,
+      feePayer: transactionPlan.feePayer,
+      blockhash: blockhash.blockhash,
+      lastValidBlockHeight: blockhash.lastValidBlockHeight,
+      instructionCount: transactionPlan.instructions.length,
+      feeLamports,
+      rentLamports,
+      instructions
+    };
+  }));
+  const instructionEstimates = transactionEstimates.flatMap((transaction) => transaction.instructions);
+  return {
+    transactions: transactionEstimates,
+    instructions: instructionEstimates,
+    totalFeeLamports: transactionEstimates.reduce((total, transaction) => total + transaction.feeLamports, 0),
+    totalRentLamports: instructionEstimates.reduce((total, instruction) => total + instruction.rentLamports, 0)
+  };
 }
 
 // src/LoyalPrivateTransactionsClient.ts
@@ -3029,6 +3683,13 @@ function normalizeBigInt(value) {
     throw new Error(`Expected a non-negative integer amount, received ${value}`);
   }
   return BigInt(value);
+}
+function toShieldFlowTransactionPlan(plan) {
+  return {
+    label: plan.label,
+    cluster: plan.cluster,
+    instructions: plan.instructions
+  };
 }
 async function fetchKaminoReserveMetrics(args) {
   const url = new URL(`/kamino-market/${args.lendingMarket.toBase58()}/reserves/metrics`, KAMINO_API_BASE_URL);
@@ -3172,23 +3833,159 @@ class LoyalPrivateTransactionsClient {
     const ephemeralProgram = programFromRpc(signer, commitment, finalEphemeralRpcEndpoint, finalEphemeralWsEndpoint);
     return new LoyalPrivateTransactionsClient(baseProgram, ephemeralProgram, adapter);
   }
+  async shieldTokens(params) {
+    const payer = params.payer ?? params.user;
+    return shieldTokens({
+      user: params.user,
+      payer,
+      tokenMint: params.tokenMint,
+      amount: normalizeBigInt(params.amount),
+      baseProgram: this.baseProgram,
+      perProgram: this.ephemeralProgram,
+      validator: params.validator,
+      sessionToken: params.sessionToken,
+      magicProgram: params.magicProgram,
+      magicContext: params.magicContext,
+      rpcOptions: params.rpcOptions
+    });
+  }
+  async unshieldTokens(params) {
+    const payer = params.payer ?? params.user;
+    return unshieldTokens({
+      user: params.user,
+      payer,
+      tokenMint: params.tokenMint,
+      amount: normalizeBigInt(params.amount),
+      baseProgram: this.baseProgram,
+      perProgram: this.ephemeralProgram,
+      validator: params.validator,
+      sessionToken: params.sessionToken,
+      magicProgram: params.magicProgram,
+      magicContext: params.magicContext,
+      rpcOptions: params.rpcOptions
+    });
+  }
+  async buildShieldFlowTransactionPlan(params) {
+    const amount = normalizeBigInt(params.amount);
+    const payer = params.payer ?? params.user;
+    const validator = params.validator ?? this.getExpectedErValidator();
+    const magicProgram = params.magicProgram ?? MAGIC_PROGRAM_ID;
+    const magicContext = params.magicContext ?? MAGIC_CONTEXT_ID;
+    const transactions = [];
+    if (params.kind === "shield") {
+      const shieldPlan = await buildShieldTokensTransactionPlan({
+        user: params.user,
+        payer,
+        tokenMint: params.tokenMint,
+        amount,
+        baseProgram: this.baseProgram,
+        perProgram: this.ephemeralProgram,
+        validator,
+        sessionToken: params.sessionToken,
+        magicProgram,
+        magicContext
+      });
+      if (shieldPlan.preUndelegateTransaction) {
+        transactions.push(toShieldFlowTransactionPlan(shieldPlan.preUndelegateTransaction));
+      }
+      transactions.push(toShieldFlowTransactionPlan(shieldPlan.baseTransaction));
+    } else {
+      const unshieldPlan = await buildUnshieldTokensTransactionPlan({
+        user: params.user,
+        payer,
+        tokenMint: params.tokenMint,
+        amount,
+        baseProgram: this.baseProgram,
+        perProgram: this.ephemeralProgram,
+        validator,
+        sessionToken: params.sessionToken,
+        magicProgram,
+        magicContext
+      });
+      if (unshieldPlan.preUndelegateTransaction) {
+        transactions.push(toShieldFlowTransactionPlan(unshieldPlan.preUndelegateTransaction));
+      }
+      transactions.push(toShieldFlowTransactionPlan(unshieldPlan.baseTransaction));
+    }
+    return {
+      kind: params.kind,
+      user: params.user,
+      payer,
+      tokenMint: params.tokenMint,
+      amount,
+      transactions
+    };
+  }
+  async buildShieldTokensTransactionPlan(params) {
+    return this.buildShieldFlowTransactionPlan({
+      ...params,
+      kind: "shield"
+    });
+  }
+  async buildUnshieldTokensTransactionPlan(params) {
+    return this.buildShieldFlowTransactionPlan({
+      ...params,
+      kind: "unshield"
+    });
+  }
+  async estimateShieldFlowFee(params) {
+    const transactions = params.plan.transactions.map((transaction) => ({
+      label: transaction.label,
+      cluster: transaction.cluster,
+      connection: transaction.cluster === "base" ? this.baseProgram.provider.connection : this.ephemeralProgram.provider.connection,
+      feePayer: params.plan.payer,
+      instructions: transaction.instructions
+    }));
+    if (transactions.length === 0) {
+      throw new Error("Cannot estimate an empty shield flow plan");
+    }
+    const estimate = await estimatePlannedTransactionFees({
+      transactions,
+      commitment: params.commitment
+    });
+    return {
+      kind: params.plan.kind,
+      user: params.plan.user,
+      payer: params.plan.payer,
+      tokenMint: params.plan.tokenMint,
+      amount: params.plan.amount,
+      totalFeeLamports: estimate.totalFeeLamports,
+      totalRentLamports: estimate.totalRentLamports,
+      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      transactions: estimate.transactions,
+      instructions: estimate.instructions,
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow."
+    };
+  }
+  async estimateShieldTokensFee(params) {
+    if (params.plan.kind !== "shield") {
+      throw new Error("estimateShieldTokensFee expected a shield plan");
+    }
+    return this.estimateShieldFlowFee(params);
+  }
+  async estimateUnshieldTokensFee(params) {
+    if (params.plan.kind !== "unshield") {
+      throw new Error("estimateUnshieldTokensFee expected an unshield plan");
+    }
+    return this.estimateShieldFlowFee(params);
+  }
   async initializeDeposit(params) {
     const { ix, ensure } = await initializeDepositIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
-    const tx = new Transaction4().add(ix);
+    const tx = new Transaction7().add(ix);
     return await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
   }
   async initializeUsernameDeposit(params) {
     const { ix, ensure } = await initializeUsernameDepositIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
-    const tx = new Transaction4().add(ix);
+    const tx = new Transaction7().add(ix);
     return await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
   }
   async modifyBalance(params) {
     const { user, tokenMint } = params;
     const { ix, ensure } = await modifyBalanceIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
-    const tx = new Transaction4().add(ix);
+    const tx = new Transaction7().add(ix);
     const signature = await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {
@@ -3262,7 +4059,7 @@ class LoyalPrivateTransactionsClient {
   async createPermission(params) {
     const { ix, ensure } = await createPermissionIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
-    const tx = new Transaction4().add(ix);
+    const tx = new Transaction7().add(ix);
     return await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
   }
   async createUsernamePermission(params) {
@@ -3282,7 +4079,7 @@ class LoyalPrivateTransactionsClient {
         session,
         permission: permissionPda,
         permissionProgram: PERMISSION_PROGRAM_ID,
-        systemProgram: SystemProgram4.programId
+        systemProgram: SystemProgram5.programId
       }).rpc(rpcOptions);
       return signature;
     } catch (err) {
@@ -3300,7 +4097,7 @@ class LoyalPrivateTransactionsClient {
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
     let signature;
     try {
-      const tx = new Transaction4().add(ix);
+      const tx = new Transaction7().add(ix);
       signature = await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
     } catch (e) {
       await delegationWatcher.cancel();
@@ -3337,7 +4134,7 @@ class LoyalPrivateTransactionsClient {
       deposit: depositPda,
       ownerProgram: PROGRAM_ID,
       delegationProgram: DELEGATION_PROGRAM_ID,
-      systemProgram: SystemProgram4.programId
+      systemProgram: SystemProgram5.programId
     };
     accounts.validator = validator ?? null;
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
@@ -3404,7 +4201,7 @@ class LoyalPrivateTransactionsClient {
       sourceDeposit: sourceDepositPda,
       destinationDeposit: destinationDepositPda,
       tokenMint,
-      systemProgram: SystemProgram4.programId
+      systemProgram: SystemProgram5.programId
     };
     accounts.sessionToken = sessionToken ?? null;
     console.log("transferDeposit Accounts:");
@@ -3436,7 +4233,7 @@ class LoyalPrivateTransactionsClient {
       sourceDeposit: sourceDepositPda,
       destinationDeposit: destinationDepositPda,
       tokenMint,
-      systemProgram: SystemProgram4.programId
+      systemProgram: SystemProgram5.programId
     };
     accounts.sessionToken = sessionToken ?? null;
     const signature = await this.ephemeralProgram.methods.transferToUsernameDeposit(new BN2(amount.toString())).accountsPartial(accounts).rpc(rpcOptions);
@@ -3727,168 +4524,11 @@ class LoyalPrivateTransactionsClient {
     return routerData;
   }
 }
-// src/actions/shieldTokens.ts
-import { NATIVE_MINT as NATIVE_MINT2 } from "@solana/spl-token";
-import {
-  Transaction as Transaction5
-} from "@solana/web3.js";
-
-// src/wsol.ts
-import {
-  createAssociatedTokenAccountIdempotentInstruction,
-  createCloseAccountInstruction,
-  createSyncNativeInstruction,
-  getAssociatedTokenAddressSync as getAssociatedTokenAddressSync2,
-  NATIVE_MINT
-} from "@solana/spl-token";
-import {
-  SystemProgram as SystemProgram5
-} from "@solana/web3.js";
-function wrapSolToWsolIx({
-  user,
-  payer,
-  lamports
-}) {
-  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
-  return [
-    createAssociatedTokenAccountIdempotentInstruction(payer, wsolAta, user, NATIVE_MINT),
-    SystemProgram5.transfer({
-      fromPubkey: user,
-      toPubkey: wsolAta,
-      lamports
-    }),
-    createSyncNativeInstruction(wsolAta)
-  ];
-}
-function closeWsolAta({
-  user,
-  destination
-}) {
-  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
-  return createCloseAccountInstruction(wsolAta, destination, user);
-}
-
-// src/actions/shieldTokens.ts
-async function shieldTokens(params) {
-  const {
-    user,
-    payer,
-    tokenMint,
-    amount,
-    baseProgram,
-    perProgram,
-    rpcOptions
-  } = params;
-  const baseConnection = baseProgram.provider.connection;
-  const perConnection = perProgram.provider.connection;
-  const perRpcEndpoint = perProgram.provider.connection.rpcEndpoint;
-  const isNativeSol = tokenMint.equals(NATIVE_MINT2);
-  const validator = getErValidatorForRpcEndpoint(perRpcEndpoint);
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const [permissionPda] = findPermissionPda(depositPda);
-  let [depositAccountInfo, permissionAccountInfo] = await getMultipleAccountsInfoWithRetry(baseConnection, [depositPda, permissionPda], "base-getMultipleAccountsInfo");
-  if (depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-    await undelegateDeposit(baseProgram, perProgram, {
-      user,
-      payer,
-      tokenMint,
-      magicProgram: MAGIC_PROGRAM_ID,
-      magicContext: MAGIC_CONTEXT_ID,
-      rpcOptions
-    });
-  }
-  const instructions = [];
-  const checks = [];
-  if (isNativeSol) {
-    instructions.push(...wrapSolToWsolIx({
-      user,
-      payer,
-      lamports: amount
-    }));
-  }
-  if (!depositAccountInfo) {
-    const initializeDepositIxs = await initializeDepositIx(baseProgram, {
-      tokenMint,
-      user,
-      payer
-    });
-    instructions.push(initializeDepositIxs.ix);
-    checks.push(...initializeDepositIxs.ensure);
-  }
-  const modifyBalanceIxs = await modifyBalanceIx(baseProgram, {
-    tokenMint,
-    user,
-    payer,
-    amount,
-    increase: true,
-    passNotExist: true
-  });
-  instructions.push(modifyBalanceIxs.ix);
-  checks.push(...modifyBalanceIxs.ensure);
-  if (!permissionAccountInfo) {
-    const createPermissionIxs = await createPermissionIx(baseProgram, {
-      tokenMint,
-      user,
-      payer,
-      passNotExist: true
-    });
-    instructions.push(createPermissionIxs.ix);
-    checks.push(...createPermissionIxs.ensure);
-  }
-  const delegateDepositIxs = await delegateDepositIx(baseProgram, {
-    tokenMint,
-    user,
-    payer,
-    validator,
-    passNotExist: true
-  });
-  instructions.push(delegateDepositIxs.ix);
-  checks.push(...delegateDepositIxs.ensure);
-  if (isNativeSol) {
-    instructions.push(closeWsolAta({
-      user,
-      destination: user
-    }));
-  }
-  await processEnsureChecks(baseConnection, perConnection, checks);
-  const delegationWatcher = waitForAccountOwnerChange(baseConnection, depositPda, DELEGATION_PROGRAM_ID);
-  const tx = new Transaction5().add(...instructions);
-  let signature;
-  try {
-    signature = await sendAndConfirmWithDiagnostics({
-      label: "shieldTokens",
-      provider: baseProgram.provider,
-      tx,
-      rpcOptions,
-      extraContext: {
-        user,
-        payer,
-        tokenMint,
-        amount,
-        isNativeSol,
-        validator,
-        depositPda,
-        permissionPda,
-        depositAccountInfo,
-        permissionAccountInfo
-      }
-    });
-  } catch (e) {
-    await delegationWatcher.cancel();
-    throw e;
-  }
-  try {
-    await delegationWatcher.wait();
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-  } catch (err) {
-    console.warn(`[shieldTokens] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
-  }
-  return signature;
-}
 // index.ts
 var IDL = telegram_private_transfer_default;
 export {
   waitForAccountOwnerChange2 as waitForAccountOwnerChange,
+  unshieldTokens,
   solToLamports,
   shieldTokens,
   lamportsToSol,
