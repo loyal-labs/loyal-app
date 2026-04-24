@@ -1,38 +1,27 @@
-import { type AccountInfo, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import type { FeeEstimateCluster, InstructionCheck, RpcOptions } from "../types";
-import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
+import { type PublicKey } from "@solana/web3.js";
 import type { Program } from "@coral-xyz/anchor";
-export type LabeledTransactionInstruction = {
-    label: string;
-    ix: TransactionInstruction;
-    rentLamports?: number;
-};
-export type LabeledTransactionPlan = {
-    label: string;
-    cluster: FeeEstimateCluster;
-    instructions: LabeledTransactionInstruction[];
-    checks: InstructionCheck[];
-};
-export type ShieldTokensInstructionPlan = {
+import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
+import type { InstructionCheck, RpcOptions } from "../types";
+import { type LabeledTransactionInstruction, type LabeledTransactionPlan } from "./shieldTokens";
+export type UnshieldTokensInstructionPlan = {
     instructions: LabeledTransactionInstruction[];
     checks: InstructionCheck[];
     needsUndelegate: boolean;
+    shouldRedelegate: boolean;
     context: {
         isNativeSol: boolean;
         validator: PublicKey;
         depositPda: PublicKey;
-        permissionPda: PublicKey;
-        depositAccountInfo: AccountInfo<Buffer> | null;
-        permissionAccountInfo: AccountInfo<Buffer> | null;
+        currentDepositAmount: bigint | null;
     };
 };
-export type ShieldTokensTransactionPlan = {
+export type UnshieldTokensTransactionPlan = {
     preUndelegateTransaction: LabeledTransactionPlan | null;
     baseTransaction: LabeledTransactionPlan;
-    context: ShieldTokensInstructionPlan["context"];
+    shouldRedelegate: boolean;
+    context: UnshieldTokensInstructionPlan["context"];
 };
-export declare function labelTransactionInstructions(prefix: string, instructions: TransactionInstruction[]): LabeledTransactionInstruction[];
-export declare function buildShieldTokensInstructionPlan(params: {
+export declare function buildUnshieldTokensInstructionPlan(params: {
     user: PublicKey;
     payer: PublicKey;
     tokenMint: PublicKey;
@@ -40,8 +29,8 @@ export declare function buildShieldTokensInstructionPlan(params: {
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
-}): Promise<ShieldTokensInstructionPlan>;
-export declare function buildShieldTokensTransactionPlan(params: {
+}): Promise<UnshieldTokensInstructionPlan>;
+export declare function buildUnshieldTokensTransactionPlan(params: {
     user: PublicKey;
     payer: PublicKey;
     tokenMint: PublicKey;
@@ -52,8 +41,13 @@ export declare function buildShieldTokensTransactionPlan(params: {
     sessionToken?: PublicKey | null;
     magicProgram?: PublicKey;
     magicContext?: PublicKey;
-}): Promise<ShieldTokensTransactionPlan>;
-export declare function shieldTokens(params: {
+}): Promise<UnshieldTokensTransactionPlan>;
+/**
+ * Unshield tokens: move from a Loyal private deposit back to a regular wallet.
+ * If the deposit is delegated, this first commits it back to base, then sends
+ * one base transaction for withdraw/native-SOL close/redelegate.
+ */
+export declare function unshieldTokens(params: {
     user: PublicKey;
     payer: PublicKey;
     tokenMint: PublicKey;

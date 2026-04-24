@@ -42,6 +42,123 @@ export type CheckedTransactionInstruction = {
   ensure: InstructionCheck[];
 };
 
+export type ShieldFlowKind = "shield" | "unshield";
+
+export type FeeEstimateCluster = "base" | "ephemeral";
+
+export interface BuildShieldFlowTransactionPlanParams {
+  kind: ShieldFlowKind;
+  user: PublicKey;
+  tokenMint: PublicKey;
+  amount: number | bigint;
+  payer?: PublicKey;
+  validator?: PublicKey;
+  sessionToken?: PublicKey | null;
+  magicProgram?: PublicKey;
+  magicContext?: PublicKey;
+}
+
+export type BuildShieldTokensTransactionPlanParams = Omit<
+  BuildShieldFlowTransactionPlanParams,
+  "kind"
+>;
+
+export type BuildUnshieldTokensTransactionPlanParams = Omit<
+  BuildShieldFlowTransactionPlanParams,
+  "kind"
+>;
+
+export interface EstimateShieldFlowFeeParams {
+  plan: ShieldFlowPlan;
+  commitment?: Commitment;
+}
+
+export interface EstimateShieldTokensFeeParams
+  extends EstimateShieldFlowFeeParams {}
+
+export interface EstimateUnshieldTokensFeeParams
+  extends EstimateShieldFlowFeeParams {}
+
+export interface ShieldTokensClientParams {
+  user: PublicKey;
+  tokenMint: PublicKey;
+  amount: number | bigint;
+  payer?: PublicKey;
+  validator?: PublicKey;
+  sessionToken?: PublicKey | null;
+  magicProgram?: PublicKey;
+  magicContext?: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+export interface UnshieldTokensClientParams {
+  user: PublicKey;
+  tokenMint: PublicKey;
+  amount: number | bigint;
+  payer?: PublicKey;
+  validator?: PublicKey;
+  sessionToken?: PublicKey | null;
+  magicProgram?: PublicKey;
+  magicContext?: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+export interface InstructionCostEstimate {
+  transactionIndex: number;
+  instructionIndex: number;
+  label: string;
+  programId: PublicKey;
+  rentLamports: number;
+}
+
+export interface ShieldFlowInstructionPlan {
+  label: string;
+  ix: TransactionInstruction;
+  rentLamports?: number;
+}
+
+export interface ShieldFlowTransactionPlan {
+  label: string;
+  cluster: FeeEstimateCluster;
+  instructions: ShieldFlowInstructionPlan[];
+}
+
+export interface ShieldFlowPlan {
+  kind: ShieldFlowKind;
+  user: PublicKey;
+  payer: PublicKey;
+  tokenMint: PublicKey;
+  amount: bigint;
+  transactions: ShieldFlowTransactionPlan[];
+}
+
+export interface ShieldFlowTransactionFeeEstimate {
+  index: number;
+  label: string;
+  cluster: FeeEstimateCluster;
+  feePayer: PublicKey;
+  blockhash: string;
+  lastValidBlockHeight: number;
+  instructionCount: number;
+  feeLamports: number;
+  rentLamports: number;
+  instructions: InstructionCostEstimate[];
+}
+
+export interface ShieldFlowFeeEstimate {
+  kind: ShieldFlowKind;
+  user: PublicKey;
+  payer: PublicKey;
+  tokenMint: PublicKey;
+  amount: bigint;
+  totalFeeLamports: number;
+  totalRentLamports: number;
+  totalLamports: number;
+  transactions: ShieldFlowTransactionFeeEstimate[];
+  instructions: InstructionCostEstimate[];
+  note: string;
+}
+
 /**
  * RPC options for transactions
  */
