@@ -721,7 +721,7 @@ export class LoyalPrivateTransactionsClient {
       DELEGATION_PROGRAM_ID
     );
 
-    let signature;
+    let signature: string;
     try {
       const tx = new Transaction().add(ix);
       signature = await this.baseProgram.provider.sendAndConfirm!(
@@ -729,11 +729,22 @@ export class LoyalPrivateTransactionsClient {
         [],
         params.rpcOptions
       );
-      await delegationWatcher.wait();
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
     } catch (e) {
       await delegationWatcher.cancel();
       throw e;
+    }
+
+    // Delegation already landed; observing the owner change on the base
+    // connection is best-effort from here. Don't surface a watcher
+    // timeout as a delegate failure (ASK-1134).
+    try {
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    } catch (err) {
+      console.warn(
+        `[delegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
+        err,
+      );
     }
 
     return signature;
@@ -788,7 +799,7 @@ export class LoyalPrivateTransactionsClient {
       DELEGATION_PROGRAM_ID
     );
 
-    let signature;
+    let signature: string;
     try {
       console.log(
         "delegateUsernameDeposit Accounts:",
@@ -798,14 +809,24 @@ export class LoyalPrivateTransactionsClient {
         .delegateUsernameDeposit(usernameHash, tokenMint)
         .accountsPartial(accounts)
         .rpc(rpcOptions);
+    } catch (e) {
+      await delegationWatcher.cancel();
+      throw e;
+    }
+
+    // Best-effort watcher: delegation already landed, a wait timeout
+    // must not surface as a delegate failure (ASK-1134).
+    try {
       console.log(
         "delegateUsernameDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection..."
       );
       await delegationWatcher.wait();
       await new Promise((resolve) => setTimeout(resolve, 3_000));
-    } catch (e) {
-      await delegationWatcher.cancel();
-      throw e;
+    } catch (err) {
+      console.warn(
+        `[delegateUsernameDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
+        err,
+      );
     }
 
     return signature;
