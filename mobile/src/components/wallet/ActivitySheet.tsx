@@ -4,18 +4,13 @@ import {
   BottomSheetModal,
 } from "@gorhom/bottom-sheet";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import {
-  ArrowDown,
-  ArrowLeftRight,
-  ArrowUp,
-  Shield,
-  ShieldOff,
-} from "lucide-react-native";
+import { Shield, ShieldOff } from "lucide-react-native";
 import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
+import { NATIVE_SOL_MINT } from "@/lib/solana/constants";
 import {
   resolveTokenIcon,
   resolveTokenSymbol,
@@ -118,10 +113,21 @@ function TransactionRow({
             holdingSymbol: swapToHolding?.symbol,
           })
         : "?");
-    iconElement = (
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-purple-100">
-        <ArrowLeftRight size={28} color="#9333ea" strokeWidth={1.5} />
-      </View>
+    const swapToIcon = transaction.swapToMint
+      ? resolveTokenIcon({
+          mint: transaction.swapToMint,
+          imageUrl: swapToHolding?.imageUrl,
+          detailLogoUrl:
+            tokenDetailsByMint[transaction.swapToMint]?.token.logoUrl,
+        })
+      : null;
+    iconElement = swapToIcon ? (
+      <RNImage
+        source={{ uri: swapToIcon }}
+        style={{ width: 48, height: 48, borderRadius: 24 }}
+      />
+    ) : (
+      <View className="h-12 w-12 rounded-full" />
     );
     title = "Swap";
     subtitle = `${fromSymbol} to ${toSymbol}`;
@@ -188,20 +194,17 @@ function TransactionRow({
     const prefix = isIncoming ? "+" : "\u2212";
     amount = `${prefix}${transaction.tokenAmount} ${symbol}`;
   } else {
-    iconElement = isIncoming ? (
-      <View
-        className="h-12 w-12 items-center justify-center rounded-full"
-        style={{ backgroundColor: "rgba(50, 229, 94, 0.15)" }}
-      >
-        <ArrowDown size={28} color="#32e55e" strokeWidth={1.5} />
-      </View>
-    ) : (
-      <View
-        className="h-12 w-12 items-center justify-center rounded-full"
-        style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
-      >
-        <ArrowUp size={28} color="#000" strokeWidth={1.5} />
-      </View>
+    const solHolding = tokenHoldings.find((h) => h.mint === NATIVE_SOL_MINT);
+    const solIcon = resolveTokenIcon({
+      mint: NATIVE_SOL_MINT,
+      imageUrl: solHolding?.imageUrl,
+      detailLogoUrl: tokenDetailsByMint[NATIVE_SOL_MINT]?.token.logoUrl,
+    });
+    iconElement = (
+      <RNImage
+        source={{ uri: solIcon }}
+        style={{ width: 48, height: 48, borderRadius: 24 }}
+      />
     );
     title = isIncoming ? "Received" : "Sent";
     if (!counterparty.toLowerCase().startsWith("unknown recipient")) {

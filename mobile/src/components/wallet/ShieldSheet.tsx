@@ -9,7 +9,7 @@ import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown } from "lucide-react-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard } from "react-native";
 
-import { useShield } from "@/hooks/wallet/useShield";
+import { useShield, type ShieldFeeEstimate } from "@/hooks/wallet/useShield";
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
 import {
   getAnalyticsErrorProperties,
@@ -66,6 +66,17 @@ function formatBalance(balance: number, decimals: number): string {
   return balance.toFixed(precision);
 }
 
+const LAMPORTS_PER_SOL_NUM = 1_000_000_000;
+
+function formatFeeLamports(lamports: number): string {
+  if (lamports <= 0) return "0 SOL";
+  const sol = lamports / LAMPORTS_PER_SOL_NUM;
+  if (sol < 0.00001) return "<0.00001 SOL";
+  // Six significant-ish digits keep both rent-inflated and plain network
+  // fees readable (rent can be 0.00204 SOL per account).
+  return `${sol.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} SOL`;
+}
+
 function getBalanceSourceLabel(asset: Pick<ShieldAsset, "isSecured">): string {
   return asset.isSecured ? "Shielded balance" : "Public balance";
 }
@@ -116,8 +127,13 @@ export function ShieldSheet({
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultError, setResultError] = useState<string | null>(null);
   const [resultSuccess, setResultSuccess] = useState(false);
+  const [feeEstimate, setFeeEstimate] = useState<ShieldFeeEstimate | null>(
+    null,
+  );
+  const [isEstimatingFee, setIsEstimatingFee] = useState(false);
+  const feeRequestId = useRef(0);
 
-  const { executeShield, executeUnshield } = useShield();
+  const { executeShield, executeUnshield, estimateFee } = useShield();
 
   const shieldAssets = useMemo(
     () => buildShieldAssets(tokenHoldings),
@@ -159,11 +175,50 @@ export function ShieldSheet({
       setResultError(null);
       setResultSuccess(false);
       setIsProcessing(false);
+      setFeeEstimate(null);
+      setIsEstimatingFee(false);
     } else {
       bottomSheetRef.current?.dismiss();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Re-estimate the network fee whenever the user enters the confirm step
+  // or changes the amount/asset while on it. Fee preview is informational;
+  // failures here never block confirm.
+  useEffect(() => {
+    if (step !== "confirm" || !selectedAsset || amountNum <= 0) {
+      setFeeEstimate(null);
+      setIsEstimatingFee(false);
+      return;
+    }
+    const requestId = ++feeRequestId.current;
+    setIsEstimatingFee(true);
+    setFeeEstimate(null);
+    estimateFee({
+      direction,
+      tokenSymbol: selectedAsset.symbol,
+      amount: amountNum,
+      tokenMint: selectedAsset.mint,
+      tokenDecimals: selectedAsset.decimals,
+    })
+      .then((estimate) => {
+        if (feeRequestId.current !== requestId) return;
+        setFeeEstimate(estimate);
+        setIsEstimatingFee(false);
+      })
+      .catch(() => {
+        if (feeRequestId.current !== requestId) return;
+        setFeeEstimate(null);
+        setIsEstimatingFee(false);
+      });
+  }, [
+    step,
+    selectedAsset,
+    amountNum,
+    direction,
+    estimateFee,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -391,6 +446,8 @@ export function ShieldSheet({
               amountNum={amountNum}
               selectedAsset={selectedAsset}
               isProcessing={isProcessing}
+              feeEstimate={feeEstimate}
+              isEstimatingFee={isEstimatingFee}
               onConfirm={handleConfirm}
             />
           ) : null}
@@ -624,14 +681,24 @@ function ConfirmStep({
   amountNum,
   selectedAsset,
   isProcessing,
+  feeEstimate,
+  isEstimatingFee,
   onConfirm,
 }: {
   direction: ShieldDirection;
   amountNum: number;
   selectedAsset: ShieldAsset | null;
   isProcessing: boolean;
+  feeEstimate: ShieldFeeEstimate | null;
+  isEstimatingFee: boolean;
   onConfirm: () => void;
 }) {
+  const feeValue = isEstimatingFee
+    ? "Estimating…"
+    : feeEstimate
+      ? formatFeeLamports(feeEstimate.totalLamports)
+      : "—";
+
   return (
     <>
       <View className="mb-6 rounded-2xl bg-neutral-50 p-4">
@@ -644,6 +711,11 @@ function ConfirmStep({
         <Row
           label="Using"
           value={selectedAsset ? getBalanceSourceLabel(selectedAsset) : "Balance"}
+        />
+        <Row
+          label="Network fee"
+          value={feeValue}
+          isSubtle={isEstimatingFee || !feeEstimate}
         />
       </View>
 

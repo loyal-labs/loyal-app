@@ -95,9 +95,28 @@ type ShieldParams = {
   isMax?: boolean;
 };
 
+export type ShieldDirectionKind = "shield" | "unshield";
+
+export type ShieldFeeEstimate = {
+  totalLamports: number;
+  feeLamports: number;
+  rentLamports: number;
+};
+
+export type EstimateShieldFeeParams = {
+  direction: ShieldDirectionKind;
+  tokenSymbol: string;
+  amount: number;
+  tokenMint?: string;
+  tokenDecimals?: number;
+};
+
 export function useShield(): {
   executeShield: (params: ShieldParams) => Promise<ShieldResult>;
   executeUnshield: (params: ShieldParams) => Promise<ShieldResult>;
+  estimateFee: (
+    params: EstimateShieldFeeParams,
+  ) => Promise<ShieldFeeEstimate | null>;
   loading: boolean;
   error: string | null;
 } {
@@ -514,5 +533,57 @@ export function useShield(): {
     [signer, confirmingSigner, connection, getClient, solanaEnv],
   );
 
-  return { executeShield, executeUnshield, loading, error };
+  const estimateFee = useCallback(
+    async (
+      params: EstimateShieldFeeParams,
+    ): Promise<ShieldFeeEstimate | null> => {
+      if (!signer || !confirmingSigner) return null;
+
+      const resolvedMint =
+        params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
+      if (!resolvedMint) return null;
+
+      const decimals = getShieldTokenDecimals(params);
+      const rawAmount = BigInt(Math.floor(params.amount * 10 ** decimals));
+      if (rawAmount <= BigInt(0)) return null;
+
+      try {
+        const client = await getClient();
+        const user = signer.publicKey;
+        const tokenMint = new PublicKey(resolvedMint);
+
+        const plan =
+          params.direction === "shield"
+            ? await client.buildShieldTokensTransactionPlan({
+                user,
+                tokenMint,
+                amount: rawAmount,
+              })
+            : await client.buildUnshieldTokensTransactionPlan({
+                user,
+                tokenMint,
+                amount: rawAmount,
+              });
+
+        const estimate =
+          params.direction === "shield"
+            ? await client.estimateShieldTokensFee({ plan })
+            : await client.estimateUnshieldTokensFee({ plan });
+
+        return {
+          totalLamports: estimate.totalLamports,
+          feeLamports: estimate.totalFeeLamports,
+          rentLamports: estimate.totalRentLamports,
+        };
+      } catch (err) {
+        // Fee preview is informational; don't surface as a blocker for the
+        // shield/unshield flow.
+        console.warn("[useShield] estimateFee failed", err);
+        return null;
+      }
+    },
+    [signer, confirmingSigner, getClient],
+  );
+
+  return { executeShield, executeUnshield, estimateFee, loading, error };
 }

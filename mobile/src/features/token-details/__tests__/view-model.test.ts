@@ -87,7 +87,9 @@ describe("buildTokenDetailViewModel", () => {
     expect(viewModel.token).toEqual({
       name: "Solana",
       symbol: "SOL",
-      icon: "https://example.com/sol.png",
+      // Prefer the market logo over the holding imageUrl so the detail
+      // screen and the token list render the same asset.
+      icon: "https://market.example/sol.png",
       decimals: 9,
     });
     expect(viewModel.activity.map((transaction) => transaction.id)).toEqual([

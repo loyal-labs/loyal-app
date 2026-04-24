@@ -1,4 +1,5 @@
 import { derivePriceChange24hPercent } from "@/lib/solana/token-holdings/price-change";
+import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import type { MobileTokenDetailResponse } from "@/services/api";
 import type { Transaction } from "@/types/wallet";
@@ -38,12 +39,24 @@ type BuildTokenDetailViewModelInput = {
 function resolveTokenIdentity(
   position: TokenPosition,
   market: MobileTokenDetailResponse | null,
+  holdings: TokenHolding[],
 ): TokenDetailViewModel["token"] {
+  // Keep icon resolution aligned with the token list (TokensList uses
+  // resolveTokenIcon with detailLogoUrl). Without passing the market logo
+  // here, SOL and other tokens pulled a different image on the detail
+  // screen than on the list row.
+  const holding = holdings.find((h) => h.mint === position.mint);
+  const icon = resolveTokenIcon({
+    mint: position.mint,
+    imageUrl: holding?.imageUrl,
+    detailLogoUrl: market?.token.logoUrl,
+  });
+
   if (position.totalBalance > 0) {
     return {
       name: position.name,
       symbol: position.symbol,
-      icon: position.icon,
+      icon,
       decimals: market?.token.decimals ?? null,
     };
   }
@@ -51,7 +64,7 @@ function resolveTokenIdentity(
   return {
     name: market?.token.name ?? position.name,
     symbol: market?.token.symbol ?? position.symbol,
-    icon: market?.token.logoUrl ?? position.icon,
+    icon,
     decimals: market?.token.decimals ?? null,
   };
 }
@@ -77,7 +90,7 @@ export function buildTokenDetailViewModel({
 
   return {
     mint,
-    token: resolveTokenIdentity(position, marketForMint),
+    token: resolveTokenIdentity(position, marketForMint, holdings),
     position,
     activity,
     chart: marketForMint?.chart ?? [],
