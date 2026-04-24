@@ -17,6 +17,8 @@ import {
   PROGRAM_ID,
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
+  MAGIC_CONTEXT_ID,
+  MAGIC_PROGRAM_ID,
   getErValidatorForRpcEndpoint,
   getKaminoModifyBalanceAccountsForTokenMint,
   isKaminoMainnetModifyBalanceAccounts,
@@ -50,6 +52,17 @@ import type {
   GetKaminoCollateralSharesForLiquidityAmountParams,
   KaminoReserveSnapshot,
   KaminoShieldedBalanceQuote,
+  BuildShieldFlowTransactionPlanParams,
+  BuildShieldTokensTransactionPlanParams,
+  BuildUnshieldTokensTransactionPlanParams,
+  EstimateShieldFlowFeeParams,
+  EstimateShieldTokensFeeParams,
+  EstimateUnshieldTokensFeeParams,
+  ShieldFlowFeeEstimate,
+  ShieldFlowPlan,
+  ShieldFlowTransactionPlan,
+  ShieldTokensClientParams,
+  UnshieldTokensClientParams,
   CreatePermissionParams,
   CreateUsernamePermissionParams,
   DelegateDepositParams,
@@ -64,6 +77,14 @@ import type {
 } from "./types";
 import { sha256hash, validateUsername } from "./utils";
 import { createKeypairMessageSigner } from "./webcrypto";
+import {
+  buildShieldTokensTransactionPlan,
+  shieldTokens as shieldTokensAction,
+} from "./actions/shieldTokens";
+import {
+  buildUnshieldTokensTransactionPlan,
+  unshieldTokens as unshieldTokensAction,
+} from "./actions/unshieldTokens";
 import { initializeDepositIx } from "./instructions/initializeDeposit";
 import { processEnsureChecks } from "./checks/enshureChecks";
 import { initializeUsernameDepositIx } from "./instructions/initializeUsernameDeposit";
@@ -71,6 +92,10 @@ import { modifyBalanceIx } from "./instructions/modifyBalance";
 import { createPermissionIx } from "./instructions/createPermission";
 import { delegateDepositIx } from "./instructions/delegateDeposit";
 import { undelegateDeposit } from "./actions/undelegateDeposit";
+import {
+  estimatePlannedTransactionFees,
+  type FeeEstimateTransactionPlan,
+} from "./fee-estimate";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -135,6 +160,18 @@ function normalizeBigInt(value: number | bigint): bigint {
   }
 
   return BigInt(value);
+}
+
+function toShieldFlowTransactionPlan(plan: {
+  label: ShieldFlowTransactionPlan["label"];
+  cluster: ShieldFlowTransactionPlan["cluster"];
+  instructions: ShieldFlowTransactionPlan["instructions"];
+}): ShieldFlowTransactionPlan {
+  return {
+    label: plan.label,
+    cluster: plan.cluster,
+    instructions: plan.instructions,
+  };
 }
 
 async function fetchKaminoReserveMetrics(args: {
@@ -433,6 +470,189 @@ export class LoyalPrivateTransactionsClient {
       ephemeralProgram,
       adapter
     );
+  }
+
+  // ============================================================
+  // Shield / Unshield Operations
+  // ============================================================
+
+  async shieldTokens(params: ShieldTokensClientParams): Promise<string> {
+    const payer = params.payer ?? params.user;
+
+    return shieldTokensAction({
+      user: params.user,
+      payer,
+      tokenMint: params.tokenMint,
+      amount: normalizeBigInt(params.amount),
+      baseProgram: this.baseProgram,
+      perProgram: this.ephemeralProgram,
+      validator: params.validator,
+      sessionToken: params.sessionToken,
+      magicProgram: params.magicProgram,
+      magicContext: params.magicContext,
+      rpcOptions: params.rpcOptions,
+    });
+  }
+
+  async unshieldTokens(params: UnshieldTokensClientParams): Promise<string> {
+    const payer = params.payer ?? params.user;
+
+    return unshieldTokensAction({
+      user: params.user,
+      payer,
+      tokenMint: params.tokenMint,
+      amount: normalizeBigInt(params.amount),
+      baseProgram: this.baseProgram,
+      perProgram: this.ephemeralProgram,
+      validator: params.validator,
+      sessionToken: params.sessionToken,
+      magicProgram: params.magicProgram,
+      magicContext: params.magicContext,
+      rpcOptions: params.rpcOptions,
+    });
+  }
+
+  async buildShieldFlowTransactionPlan(
+    params: BuildShieldFlowTransactionPlanParams
+  ): Promise<ShieldFlowPlan> {
+    const amount = normalizeBigInt(params.amount);
+    const payer = params.payer ?? params.user;
+    const validator = params.validator ?? this.getExpectedErValidator();
+    const magicProgram = params.magicProgram ?? MAGIC_PROGRAM_ID;
+    const magicContext = params.magicContext ?? MAGIC_CONTEXT_ID;
+    const transactions: ShieldFlowTransactionPlan[] = [];
+
+    if (params.kind === "shield") {
+      const shieldPlan = await buildShieldTokensTransactionPlan({
+        user: params.user,
+        payer,
+        tokenMint: params.tokenMint,
+        amount,
+        baseProgram: this.baseProgram,
+        perProgram: this.ephemeralProgram,
+        validator,
+        sessionToken: params.sessionToken,
+        magicProgram,
+        magicContext,
+      });
+
+      if (shieldPlan.preUndelegateTransaction) {
+        transactions.push(
+          toShieldFlowTransactionPlan(shieldPlan.preUndelegateTransaction)
+        );
+      }
+      transactions.push(
+        toShieldFlowTransactionPlan(shieldPlan.baseTransaction)
+      );
+    } else {
+      const unshieldPlan = await buildUnshieldTokensTransactionPlan({
+        user: params.user,
+        payer,
+        tokenMint: params.tokenMint,
+        amount,
+        baseProgram: this.baseProgram,
+        perProgram: this.ephemeralProgram,
+        validator,
+        sessionToken: params.sessionToken,
+        magicProgram,
+        magicContext,
+      });
+
+      if (unshieldPlan.preUndelegateTransaction) {
+        transactions.push(
+          toShieldFlowTransactionPlan(unshieldPlan.preUndelegateTransaction)
+        );
+      }
+      transactions.push(
+        toShieldFlowTransactionPlan(unshieldPlan.baseTransaction)
+      );
+    }
+
+    return {
+      kind: params.kind,
+      user: params.user,
+      payer,
+      tokenMint: params.tokenMint,
+      amount,
+      transactions,
+    };
+  }
+
+  async buildShieldTokensTransactionPlan(
+    params: BuildShieldTokensTransactionPlanParams
+  ): Promise<ShieldFlowPlan> {
+    return this.buildShieldFlowTransactionPlan({
+      ...params,
+      kind: "shield",
+    });
+  }
+
+  async buildUnshieldTokensTransactionPlan(
+    params: BuildUnshieldTokensTransactionPlanParams
+  ): Promise<ShieldFlowPlan> {
+    return this.buildShieldFlowTransactionPlan({
+      ...params,
+      kind: "unshield",
+    });
+  }
+
+  async estimateShieldFlowFee(
+    params: EstimateShieldFlowFeeParams
+  ): Promise<ShieldFlowFeeEstimate> {
+    const transactions: FeeEstimateTransactionPlan[] =
+      params.plan.transactions.map((transaction) => ({
+        label: transaction.label,
+        cluster: transaction.cluster,
+        connection:
+          transaction.cluster === "base"
+            ? this.baseProgram.provider.connection
+            : this.ephemeralProgram.provider.connection,
+        feePayer: params.plan.payer,
+        instructions: transaction.instructions,
+      }));
+
+    if (transactions.length === 0) {
+      throw new Error("Cannot estimate an empty shield flow plan");
+    }
+
+    const estimate = await estimatePlannedTransactionFees({
+      transactions,
+      commitment: params.commitment,
+    });
+
+    return {
+      kind: params.plan.kind,
+      user: params.plan.user,
+      payer: params.plan.payer,
+      tokenMint: params.plan.tokenMint,
+      amount: params.plan.amount,
+      totalFeeLamports: estimate.totalFeeLamports,
+      totalRentLamports: estimate.totalRentLamports,
+      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      transactions: estimate.transactions,
+      instructions: estimate.instructions,
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow.",
+    };
+  }
+
+  async estimateShieldTokensFee(
+    params: EstimateShieldTokensFeeParams
+  ): Promise<ShieldFlowFeeEstimate> {
+    if (params.plan.kind !== "shield") {
+      throw new Error("estimateShieldTokensFee expected a shield plan");
+    }
+
+    return this.estimateShieldFlowFee(params);
+  }
+
+  async estimateUnshieldTokensFee(
+    params: EstimateUnshieldTokensFeeParams
+  ): Promise<ShieldFlowFeeEstimate> {
+    if (params.plan.kind !== "unshield") {
+      throw new Error("estimateUnshieldTokensFee expected an unshield plan");
+    }
+
+    return this.estimateShieldFlowFee(params);
   }
 
   // ============================================================

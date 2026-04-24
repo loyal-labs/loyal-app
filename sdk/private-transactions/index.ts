@@ -38,6 +38,7 @@ export {
 } from "./src/LoyalPrivateTransactionsClient";
 
 export { shieldTokens } from "./src/actions/shieldTokens";
+export { unshieldTokens } from "./src/actions/unshieldTokens";
 
 // Types
 export type {
@@ -50,6 +51,22 @@ export type {
   InitializeDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
+  BuildShieldFlowTransactionPlanParams,
+  BuildShieldTokensTransactionPlanParams,
+  BuildUnshieldTokensTransactionPlanParams,
+  ShieldFlowKind,
+  FeeEstimateCluster,
+  EstimateShieldFlowFeeParams,
+  EstimateShieldTokensFeeParams,
+  EstimateUnshieldTokensFeeParams,
+  ShieldFlowInstructionPlan,
+  ShieldFlowTransactionPlan,
+  ShieldFlowPlan,
+  InstructionCostEstimate,
+  ShieldFlowTransactionFeeEstimate,
+  ShieldFlowFeeEstimate,
+  ShieldTokensClientParams,
+  UnshieldTokensClientParams,
   GetKaminoShieldedBalanceQuoteParams,
   GetKaminoCollateralSharesForLiquidityAmountParams,
   KaminoReserveSnapshot,

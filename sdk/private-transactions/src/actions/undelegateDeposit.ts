@@ -1,48 +1,62 @@
 import type { Program } from "@coral-xyz/anchor";
+import {
+  Transaction,
+  type PublicKey,
+  type TransactionInstruction,
+} from "@solana/web3.js";
+import { PROGRAM_ID } from "../constants";
 import { undelegateDepositIx } from "../instructions/undelegateDeposit";
-import type { UndelegateDepositParams } from "../types";
+import type {
+  InstructionCheck,
+  RpcOptions,
+  UndelegateDepositParams,
+} from "../types";
 import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
 import { processEnsureChecks } from "../checks/enshureChecks";
 import { findDepositPda } from "../pda";
 import { waitForAccountOwnerChange } from "../utils";
-import { PROGRAM_ID } from "../constants";
-import { Transaction } from "@solana/web3.js";
 import { sendAndConfirmWithDiagnostics } from "../transaction-debug";
 
-/**
- * Undelegate a deposit account from the ephemeral rollup.
- * Waits for both base and ephemeral connections to confirm the deposit
- * is owned by PROGRAM_ID before returning.
- */
-export async function undelegateDeposit(
-  baseProgram: Program<TelegramPrivateTransfer>,
-  perProgram: Program<TelegramPrivateTransfer>,
-  params: UndelegateDepositParams
-): Promise<string> {
-  const { user, tokenMint } = params;
-  const { ix, ensure } = await undelegateDepositIx(perProgram, params);
+export type PlannedUndelegateDepositTransaction = {
+  label: string;
+  instructions: { ix: TransactionInstruction }[];
+  checks: InstructionCheck[];
+};
 
-  const baseConnection = baseProgram.provider.connection;
-  const perConnection = perProgram.provider.connection;
+export async function sendPlannedUndelegateDepositTransaction(params: {
+  baseProgram: Program<TelegramPrivateTransfer>;
+  perProgram: Program<TelegramPrivateTransfer>;
+  transaction: PlannedUndelegateDepositTransaction;
+  user: PublicKey;
+  tokenMint: PublicKey;
+  rpcOptions?: RpcOptions;
+}): Promise<string> {
+  const { baseProgram, perProgram, transaction, user, tokenMint, rpcOptions } =
+    params;
 
-  await processEnsureChecks(baseConnection, perConnection, ensure);
+  await processEnsureChecks(
+    baseProgram.provider.connection,
+    perProgram.provider.connection,
+    transaction.checks
+  );
 
   const [depositPda] = findDepositPda(user, tokenMint);
-
   const delegationWatcher = waitForAccountOwnerChange(
-    baseConnection,
+    baseProgram.provider.connection,
     depositPda,
     PROGRAM_ID
   );
 
-  const tx = new Transaction().add(ix);
+  const tx = new Transaction().add(
+    ...transaction.instructions.map(({ ix }) => ix)
+  );
   let signature;
   try {
     signature = await sendAndConfirmWithDiagnostics({
-      label: "undelegateDeposit",
+      label: transaction.label,
       provider: perProgram.provider,
       tx,
-      rpcOptions: params.rpcOptions,
+      rpcOptions,
       extraContext: {
         user,
         tokenMint,
@@ -57,4 +71,31 @@ export async function undelegateDeposit(
   }
 
   return signature;
+}
+
+/**
+ * Undelegate a deposit account from the ephemeral rollup.
+ * Waits for both base and ephemeral connections to confirm the deposit
+ * is owned by PROGRAM_ID before returning.
+ */
+export async function undelegateDeposit(
+  baseProgram: Program<TelegramPrivateTransfer>,
+  perProgram: Program<TelegramPrivateTransfer>,
+  params: UndelegateDepositParams
+): Promise<string> {
+  const { user, tokenMint } = params;
+  const { ix, ensure } = await undelegateDepositIx(perProgram, params);
+
+  return sendPlannedUndelegateDepositTransaction({
+    baseProgram,
+    perProgram,
+    transaction: {
+      label: "undelegateDeposit",
+      instructions: [{ ix }],
+      checks: ensure,
+    },
+    user,
+    tokenMint,
+    rpcOptions: params.rpcOptions,
+  });
 }
