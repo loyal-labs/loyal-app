@@ -705,11 +705,17 @@ function ConfirmStep({
   isEstimatingFee: boolean;
   onConfirm: () => void;
 }) {
+  // Only surface the fee row when we have a value (or are actively
+  // estimating). If estimation was skipped because the PER auth token
+  // isn't cached yet, feeEstimate stays null and we omit the row
+  // entirely — the user would otherwise see a permanent "—" which
+  // reads as a broken field.
+  const showFeeRow = isEstimatingFee || feeEstimate !== null;
   const feeValue = isEstimatingFee
     ? "Estimating…"
     : feeEstimate
       ? formatFeeLamports(feeEstimate.totalLamports)
-      : "—";
+      : "";
 
   return (
     <>
@@ -724,11 +730,13 @@ function ConfirmStep({
           label="Using"
           value={selectedAsset ? getBalanceSourceLabel(selectedAsset) : "Balance"}
         />
-        <Row
-          label="Network fee"
-          value={feeValue}
-          isSubtle={isEstimatingFee || !feeEstimate}
-        />
+        {showFeeRow ? (
+          <Row
+            label="Network fee"
+            value={feeValue}
+            isSubtle={isEstimatingFee}
+          />
+        ) : null}
       </View>
 
       <Pressable

@@ -16,6 +16,7 @@ import {
   recordKaminoUsdcUnshield,
   resolveTrackedKaminoUsdcMint,
 } from "@/lib/solana/deposits/kamino-usdc-position";
+import { mmkv } from "@/lib/storage";
 import {
   getConnection,
   getEndpoints,
@@ -41,6 +42,47 @@ type PerAuthToken = {
   token: string;
   expiresAt: number;
 };
+
+// PER auth is a 30-day token from a signed challenge. Persist it so the
+// "Sign in to the ephemeral rollup" prompt only happens once per month
+// per wallet, not on every cold app launch (or — critically — every
+// time the shield sheet wants to preview a network fee).
+const PER_AUTH_TOKEN_STORAGE_PREFIX = "per_auth_token_";
+const PER_AUTH_REFRESH_WINDOW_MS = 60_000;
+
+function perAuthStorageKey(walletAddress: string): string {
+  return `${PER_AUTH_TOKEN_STORAGE_PREFIX}${walletAddress}`;
+}
+
+function loadCachedPerAuthToken(
+  walletAddress: string,
+): PerAuthToken | null {
+  const raw = mmkv.getString(perAuthStorageKey(walletAddress));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PerAuthToken>;
+    if (
+      typeof parsed.token !== "string" ||
+      !parsed.token ||
+      typeof parsed.expiresAt !== "number"
+    ) {
+      return null;
+    }
+    if (parsed.expiresAt <= Date.now() + PER_AUTH_REFRESH_WINDOW_MS) {
+      return null;
+    }
+    return { token: parsed.token, expiresAt: parsed.expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+function persistPerAuthToken(
+  walletAddress: string,
+  token: PerAuthToken,
+): void {
+  mmkv.setString(perAuthStorageKey(walletAddress), JSON.stringify(token));
+}
 
 function encodeBase58(bytes: Uint8Array): string {
   if (bytes.length === 0) return "";
@@ -142,10 +184,25 @@ export function useShield(): {
     [signer, signApproval],
   );
 
+  // Rehydrate the in-memory ref from MMKV on mount / signer change so
+  // getClient() can skip the signMessage challenge when a valid token
+  // is already persisted. Running this inside render (guarded by a
+  // pubkey mismatch below) keeps it synchronous — the auth-token cache
+  // has to be ready before the first estimate or shield attempt.
+  const prevPubkey = useRef<string | undefined>(undefined);
+  const currentPubkey = signer?.publicKey.toBase58();
+  if (currentPubkey !== prevPubkey.current) {
+    clientRef.current = null;
+    perAuthTokenRef.current = currentPubkey
+      ? loadCachedPerAuthToken(currentPubkey)
+      : null;
+    prevPubkey.current = currentPubkey;
+  }
+
   const getPerAuthToken = useCallback(
     async (perRpcEndpoint: string): Promise<PerAuthToken> => {
       const cached = perAuthTokenRef.current;
-      if (cached && cached.expiresAt > Date.now() + 60_000) {
+      if (cached && cached.expiresAt > Date.now() + PER_AUTH_REFRESH_WINDOW_MS) {
         return cached;
       }
 
@@ -218,6 +275,7 @@ export function useShield(): {
           : Date.now() + 30 * 24 * 60 * 60 * 1000;
       const token = { token: loginData.token, expiresAt };
       perAuthTokenRef.current = token;
+      persistPerAuthToken(walletAddress, token);
       return token;
     },
     [confirmingSigner],
@@ -252,14 +310,6 @@ export function useShield(): {
     },
     [getPerAuthToken, confirmingSigner, solanaEnv],
   );
-
-  // Reset client when wallet changes
-  const prevPubkey = useRef(signer?.publicKey.toBase58());
-  if (signer?.publicKey.toBase58() !== prevPubkey.current) {
-    clientRef.current = null;
-    perAuthTokenRef.current = null;
-    prevPubkey.current = signer?.publicKey.toBase58();
-  }
 
   const executeShield = useCallback(
     async (params: ShieldParams): Promise<ShieldResult> => {
@@ -539,6 +589,24 @@ export function useShield(): {
     ): Promise<ShieldFeeEstimate | null> => {
       if (!signer || !confirmingSigner) return null;
 
+      // Guard against triggering the PER auth challenge just to show a
+      // fee preview. Creating the client requires a signed challenge
+      // when no auth token is cached, which would pop a separate
+      // "Sign in to the ephemeral rollup" sheet before the user has
+      // committed to the operation. Skip the preview in that case —
+      // the actual shield/unshield flow will auth on confirm, and
+      // future sessions pick up the persisted token and preview
+      // normally.
+      const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
+      const needsPerAuth = perRpcEndpoint.includes("tee");
+      const authCached =
+        perAuthTokenRef.current &&
+        perAuthTokenRef.current.expiresAt >
+          Date.now() + PER_AUTH_REFRESH_WINDOW_MS;
+      if (needsPerAuth && !authCached && !clientRef.current) {
+        return null;
+      }
+
       const resolvedMint =
         params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
       if (!resolvedMint) return null;
@@ -582,7 +650,7 @@ export function useShield(): {
         return null;
       }
     },
-    [signer, confirmingSigner, getClient],
+    [signer, confirmingSigner, getClient, solanaEnv],
   );
 
   return { executeShield, executeUnshield, estimateFee, loading, error };
