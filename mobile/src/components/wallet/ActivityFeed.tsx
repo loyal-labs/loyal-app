@@ -1,14 +1,9 @@
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import {
-  ArrowDown,
-  ArrowLeftRight,
-  ArrowUp,
-  Shield,
-  ShieldOff,
-} from "lucide-react-native";
+import { Shield, ShieldOff } from "lucide-react-native";
 import { Image as RNImage, StyleSheet } from "react-native";
 
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
+import { NATIVE_SOL_MINT } from "@/lib/solana/constants";
 import {
   resolveTokenIcon,
   resolveTokenSymbol,
@@ -32,52 +27,27 @@ type ActivityFeedProps = {
   maxItems?: number;
 };
 
-function TransactionIcon({ transaction }: { transaction: Transaction }) {
-  const isIncoming = transaction.type === "incoming";
-  const isSwap = transaction.transferType === "swap";
-  const isSecure = transaction.transferType === "secure";
-  const isUnshield = transaction.transferType === "unshield";
-
-  if (isSwap) {
-    return (
-      <View style={[styles.iconCircle, { backgroundColor: "#f3e8ff" }]}>
-        <ArrowLeftRight size={26} color="#9333ea" strokeWidth={2} />
-      </View>
-    );
-  }
-
-  if (isSecure) {
-    return (
-      <View style={[styles.iconCircle, { backgroundColor: "#dbeafe" }]}>
-        <Shield size={26} color="#2563eb" strokeWidth={2} />
-      </View>
-    );
-  }
-
-  if (isUnshield) {
-    return (
-      <View style={[styles.iconCircle, { backgroundColor: "#ffedd5" }]}>
-        <ShieldOff size={26} color="#ea580c" strokeWidth={2} />
-      </View>
-    );
-  }
-
-  if (isIncoming) {
-    return (
-      <View
-        style={[styles.iconCircle, { backgroundColor: "rgba(50, 229, 94, 0.15)" }]}
-      >
-        <ArrowDown size={26} color="#34c759" strokeWidth={2} />
-      </View>
-    );
-  }
-
-  // Outgoing
+function TokenAvatar({ uri }: { uri: string }) {
   return (
-    <View
-      style={[styles.iconCircle, { backgroundColor: "rgba(249, 54, 60, 0.14)" }]}
-    >
-      <ArrowUp size={26} color="#000" strokeWidth={2} />
+    <RNImage
+      source={{ uri }}
+      style={{ width: 48, height: 48, borderRadius: 24 }}
+    />
+  );
+}
+
+function ShieldedBadge() {
+  return (
+    <View style={[styles.iconCircle, { backgroundColor: "#dbeafe" }]}>
+      <Shield size={26} color="#2563eb" strokeWidth={2} />
+    </View>
+  );
+}
+
+function UnshieldedBadge() {
+  return (
+    <View style={[styles.iconCircle, { backgroundColor: "#ffedd5" }]}>
+      <ShieldOff size={26} color="#ea580c" strokeWidth={2} />
     </View>
   );
 }
@@ -170,13 +140,20 @@ function TransactionRow({
           })
         : "?");
     const swapToAmount = transaction.swapToAmount;
+    const swapToIcon = transaction.swapToMint
+      ? resolveTokenIcon({
+          mint: transaction.swapToMint,
+          imageUrl: swapToHolding?.imageUrl,
+          detailLogoUrl: tokenDetailsByMint[transaction.swapToMint]?.token.logoUrl,
+        })
+      : null;
 
     return (
       <Pressable
         onPress={onPress}
         className="flex-row items-center px-4 py-2.5"
       >
-        <TransactionIcon transaction={transaction} />
+        {swapToIcon ? <TokenAvatar uri={swapToIcon} /> : <View style={styles.iconCircle} />}
         <View className="ml-3 flex-1">
           <Text className="text-[17px] font-medium text-black">Swap</Text>
           <Text
@@ -225,7 +202,7 @@ function TransactionRow({
         onPress={onPress}
         className="flex-row items-center px-4 py-2.5"
       >
-        <TransactionIcon transaction={transaction} />
+        {isSecure ? <ShieldedBadge /> : <UnshieldedBadge />}
         <View className="ml-3 flex-1">
           <Text className="text-[17px] font-medium text-black">
             {isSecure ? "Shielded" : "Unshielded"}
@@ -280,10 +257,7 @@ function TransactionRow({
         onPress={onPress}
         className="flex-row items-center px-4 py-2.5"
       >
-        <RNImage
-          source={{ uri: icon }}
-          style={{ width: 48, height: 48, borderRadius: 24 }}
-        />
+        <TokenAvatar uri={icon} />
         <View className="ml-3 flex-1">
           <Text className="text-[17px] font-medium text-black">
             {isIncoming ? "Received" : "Sent"}
@@ -314,9 +288,15 @@ function TransactionRow({
   // Native SOL transfer: keep the existing zero-guard since amountLamports is
   // the actual transferred amount here.
   const solPrefix = isEffectivelyZero ? "" : directionSign;
+  const solHolding = tokenHoldings.find((h) => h.mint === NATIVE_SOL_MINT);
+  const solIcon = resolveTokenIcon({
+    mint: NATIVE_SOL_MINT,
+    imageUrl: solHolding?.imageUrl,
+    detailLogoUrl: tokenDetailsByMint[NATIVE_SOL_MINT]?.token.logoUrl,
+  });
   return (
     <Pressable onPress={onPress} className="flex-row items-center px-4 py-2.5">
-      <TransactionIcon transaction={transaction} />
+      <TokenAvatar uri={solIcon} />
       <View className="ml-3 flex-1">
         <Text className="text-[17px] font-medium text-black">
           {isIncoming ? "Received" : "Sent"}

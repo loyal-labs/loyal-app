@@ -32,12 +32,22 @@ import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenApy } from "@/hooks/wallet/useTokenApy";
 import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
+import {
+  useWalletAutoRefresh,
+  type WalletRefreshReason,
+} from "@/hooks/wallet/useWalletAutoRefresh";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
 import { track } from "@/lib/analytics/analytics";
 import { PORTFOLIO_EVENTS } from "@/lib/analytics/portfolio-events";
-import { onSolanaEnvChange } from "@/lib/solana/rpc/connection";
+import {
+  LOYAL_TOKEN_MINT,
+  NATIVE_SOL_MINT,
+  SOLANA_USDC_MINT_DEVNET,
+  SOLANA_USDC_MINT_MAINNET,
+} from "@/lib/solana/constants";
+import { getSolanaEnv, onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import {
   getCachedBalanceBg,
@@ -60,16 +70,51 @@ export default function WalletScreen() {
     useWalletBalance(walletAddress);
   const { solPriceUsd } = useSolPrice();
   const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
+
+  // Stable forwarder: auto-refresh hooks need `requestRefresh` to kick a
+  // full refresh, but `requestRefresh` itself isn't defined until
+  // `useWalletAutoRefresh` runs after the data hooks. A ref breaks the
+  // cycle — the callbacks passed to the data hooks are stable, and at
+  // call time they read the current `requestRefresh` from the ref.
+  const requestRefreshRef = useRef<
+    (reason: WalletRefreshReason) => Promise<void> | void
+  >(() => undefined);
+
   const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
-    useTokenHoldings(walletAddress);
+    useTokenHoldings(walletAddress, {
+      onAtaBalanceChange: () => {
+        void requestRefreshRef.current("ws-ata");
+      },
+    });
   const apyByMint = useTokenApy(tokenHoldings);
   const {
     walletTransactions,
     isFetchingTransactions,
     loadWalletTransactions,
-  } = useWalletTransactions(walletAddress);
+  } = useWalletTransactions(walletAddress, {
+    onWsTransaction: () => {
+      void requestRefreshRef.current("ws-transaction");
+    },
+  });
   const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
     useKaminoEarnings();
+
+  const doFullRefresh = useCallback(
+    async (_reason: WalletRefreshReason) => {
+      await Promise.allSettled([
+        refreshBalance(true),
+        refreshTokenHoldings(true),
+        loadWalletTransactions({ force: true }),
+      ]);
+    },
+    [refreshBalance, refreshTokenHoldings, loadWalletTransactions],
+  );
+
+  const { requestRefresh } = useWalletAutoRefresh({
+    walletAddress,
+    refresh: doFullRefresh,
+  });
+  requestRefreshRef.current = requestRefresh;
 
   // Re-fetch everything when the Solana network is switched in Settings
   const [networkLoading, setNetworkLoading] = useState(false);
@@ -80,8 +125,21 @@ export default function WalletScreen() {
   // Shared cache of /api/mobile/tokens/:mint for every mint shown in the
   // tokens list or activity feed — used for logos and symbols so we never
   // render raw token-list SVGs or the "Token" symbol fallback.
+  //
+  // Always include the prefill mints (SOL/LOYAL/USDC) that TokensList shows
+  // at zero balance on fresh wallets. Helius's `getAssetsByOwner` only
+  // returns SOL + any SPL mints with an existing ATA, so zero-balance LOYAL
+  // and USDC otherwise slip past the detail fetch and render without price,
+  // change %, or (for USDC) the right logo.
   const tokenDetailMints = useMemo(() => {
     const mints = new Set<string>();
+    mints.add(NATIVE_SOL_MINT);
+    mints.add(LOYAL_TOKEN_MINT);
+    mints.add(
+      getSolanaEnv() === "mainnet"
+        ? SOLANA_USDC_MINT_MAINNET
+        : SOLANA_USDC_MINT_DEVNET,
+    );
     for (const holding of tokenHoldings) mints.add(holding.mint);
     for (const tx of walletTransactions) {
       if (tx.tokenMint) mints.add(tx.tokenMint);
@@ -103,14 +161,12 @@ export default function WalletScreen() {
       setTokenMarketRefreshKey((k) => k + 1);
 
       void resetWalletBalanceSubscription().then(() =>
-        Promise.all([
-          refreshBalance(true),
-          refreshTokenHoldings(true),
-          loadWalletTransactions({ force: true }),
-        ]).finally(() => setNetworkLoading(false)),
+        Promise.resolve(requestRefresh("network-switch")).finally(() =>
+          setNetworkLoading(false),
+        ),
       );
     });
-  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
+  }, [requestRefresh]);
 
   // Include shielded SOL in displayed balance
   const securedSolHolding = tokenHoldings.find(
@@ -166,39 +222,44 @@ export default function WalletScreen() {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     setTokenMarketRefreshKey((k) => k + 1);
+
+    // Wall-clock deadline so even a socket-level hang (fetch without
+    // AbortController, stuck websocket) can't trap the spinner. Work
+    // itself runs through the coordinator which de-dupes against any
+    // ambient refresh already in flight.
+    const REFRESH_DEADLINE_MS = 15_000;
+    const work = requestRefresh("manual");
+    const deadline = new Promise<"deadline">((resolve) =>
+      setTimeout(() => resolve("deadline"), REFRESH_DEADLINE_MS),
+    );
+
     try {
-      await Promise.all([
-        refreshBalance(true),
-        refreshTokenHoldings(true),
-        loadWalletTransactions({ force: true }),
+      const outcome = await Promise.race([
+        Promise.resolve(work).then(() => "done" as const),
+        deadline,
       ]);
+      if (outcome === "deadline") {
+        console.warn(
+          "[wallet-refresh] deadline hit; some requests still pending",
+        );
+      }
     } finally {
       setIsRefreshing(false);
     }
-  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
+  }, [requestRefresh]);
 
   const handleSendComplete = useCallback(() => {
-    refreshBalance(true);
-    loadWalletTransactions({ force: true });
-  }, [refreshBalance, loadWalletTransactions]);
+    void requestRefresh("mutation");
+  }, [requestRefresh]);
 
   const handleSwapComplete = useCallback(() => {
-    refreshBalance(true);
-    refreshTokenHoldings(true);
-    loadWalletTransactions({ force: true });
-  }, [refreshBalance, refreshTokenHoldings, loadWalletTransactions]);
+    void requestRefresh("mutation");
+  }, [requestRefresh]);
 
   const handleShieldComplete = useCallback(() => {
-    refreshBalance(true);
-    refreshTokenHoldings(true);
-    loadWalletTransactions({ force: true });
+    void requestRefresh("mutation");
     void refreshKaminoEarnings();
-  }, [
-    refreshBalance,
-    refreshTokenHoldings,
-    loadWalletTransactions,
-    refreshKaminoEarnings,
-  ]);
+  }, [requestRefresh, refreshKaminoEarnings]);
 
   const handleTransactionPress = useCallback(
     (transaction: Transaction) => {
@@ -396,6 +457,7 @@ export default function WalletScreen() {
         solBalanceLamports={solBalanceLamports}
         solPriceUsd={solPriceUsd}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onSendComplete={handleSendComplete}
       />
 
@@ -410,6 +472,7 @@ export default function WalletScreen() {
         onClose={() => setIsSwapOpen(false)}
         walletAddress={walletAddress}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onSwapComplete={handleSwapComplete}
       />
 
@@ -418,6 +481,7 @@ export default function WalletScreen() {
         onClose={() => setIsShieldOpen(false)}
         walletAddress={walletAddress}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onShieldComplete={handleShieldComplete}
       />
 

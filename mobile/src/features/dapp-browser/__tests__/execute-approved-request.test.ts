@@ -30,17 +30,34 @@ function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64");
 }
 
-function buildApproval(
-  type: PendingApproval["type"],
-  payload: Record<string, unknown> = {},
-): PendingApproval {
-  return {
+type ApprovalVariant =
+  | { type: "connect" }
+  | { type: "signMessage"; messageBase64: string }
+  | { type: "signTransaction" | "signAndSendTransaction"; transactionBase64: string };
+
+function buildApproval(variant: ApprovalVariant): PendingApproval {
+  const base = {
     requestId: "req-1",
     origin: "https://jup.ag",
-    trustState: "trusted",
-    type,
-    payload,
+    trustState: "trusted" as const,
   };
+  switch (variant.type) {
+    case "connect":
+      return { ...base, type: "connect" };
+    case "signMessage":
+      return {
+        ...base,
+        type: "signMessage",
+        messageBase64: variant.messageBase64,
+      };
+    case "signTransaction":
+    case "signAndSendTransaction":
+      return {
+        ...base,
+        type: variant.type,
+        transactionBase64: variant.transactionBase64,
+      };
+  }
 }
 
 describe("executeApprovedRequest", () => {
@@ -54,7 +71,7 @@ describe("executeApprovedRequest", () => {
     mockGetWalletSigner.mockResolvedValue(signer);
 
     await expect(
-      executeApprovedRequest(buildApproval("connect")),
+      executeApprovedRequest(buildApproval({ type: "connect" })),
     ).resolves.toEqual({
       publicKey: signer.publicKey.toBase58(),
     });
@@ -66,8 +83,9 @@ describe("executeApprovedRequest", () => {
     const message = new TextEncoder().encode("hello from loyal");
 
     const result = await executeApprovedRequest(
-      buildApproval("signMessage", {
-        message: toBase64(message),
+      buildApproval({
+        type: "signMessage",
+        messageBase64: toBase64(message),
       }),
     );
 
@@ -99,8 +117,9 @@ describe("executeApprovedRequest", () => {
     ).toBase58();
 
     const result = await executeApprovedRequest(
-      buildApproval("signTransaction", {
-        transaction: transaction
+      buildApproval({
+        type: "signTransaction",
+        transactionBase64: transaction
           .serialize({
             requireAllSignatures: false,
             verifySignatures: false,
@@ -145,8 +164,9 @@ describe("executeApprovedRequest", () => {
 
     await expect(
       executeApprovedRequest(
-        buildApproval("signAndSendTransaction", {
-          transaction: toBase64(versionedTransaction.serialize()),
+        buildApproval({
+          type: "signAndSendTransaction",
+          transactionBase64: toBase64(versionedTransaction.serialize()),
         }),
       ),
     ).resolves.toEqual({

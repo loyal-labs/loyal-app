@@ -4,16 +4,25 @@ export type TrustedDapp = {
   origin: string;
   name: string;
   startUrl: string;
+  category: string | null;
 };
 
-export type PendingApproval = {
+type PendingApprovalBase = {
   requestId: string;
   origin: string;
   trustState: DappTrustState;
-  type:
-    | "connect"
-    | "signMessage"
-    | "signTransaction"
-    | "signAndSendTransaction";
-  payload: Record<string, unknown>;
 };
+
+export type PendingApproval =
+  | (PendingApprovalBase & { type: "connect" })
+  | (PendingApprovalBase & { type: "signMessage"; messageBase64: string })
+  | (PendingApprovalBase & {
+      type: "signTransaction";
+      transactionBase64: string;
+    })
+  | (PendingApprovalBase & {
+      type: "signAndSendTransaction";
+      transactionBase64: string;
+    });
+
+export type PendingApprovalType = PendingApproval["type"];

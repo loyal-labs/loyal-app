@@ -6,6 +6,7 @@ import {
   NATIVE_SOL_MINT,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
+  SOLANA_USDT_MINT_MAINNET,
 } from "../constants";
 import { getConnection } from "../rpc/connection";
 import { resolveTokenIcon } from "./resolve-token-info";
@@ -22,13 +23,16 @@ type ShieldableToken = {
   decimals: number;
 };
 
+function isMainnet(): boolean {
+  return (process.env.EXPO_PUBLIC_SOLANA_ENV ?? "devnet") === "mainnet";
+}
+
 function getEnvUsdcMint(): string {
-  const env = process.env.EXPO_PUBLIC_SOLANA_ENV ?? "devnet";
-  return env === "mainnet" ? SOLANA_USDC_MINT_MAINNET : SOLANA_USDC_MINT_DEVNET;
+  return isMainnet() ? SOLANA_USDC_MINT_MAINNET : SOLANA_USDC_MINT_DEVNET;
 }
 
 function getKnownShieldableTokens(): ShieldableToken[] {
-  return [
+  const tokens: ShieldableToken[] = [
     {
       mint: NATIVE_SOL_MINT,
       symbol: "SOL",
@@ -48,6 +52,19 @@ function getKnownShieldableTokens(): ShieldableToken[] {
       decimals: DEFAULT_TOKEN_DECIMALS,
     },
   ];
+
+  // USDT has no canonical devnet mint; only scan it on mainnet so we don't
+  // waste an RPC slot reading a PDA that can never exist on devnet.
+  if (isMainnet()) {
+    tokens.push({
+      mint: SOLANA_USDT_MINT_MAINNET,
+      symbol: "USDT",
+      name: "Tether USD",
+      decimals: DEFAULT_TOKEN_DECIMALS,
+    });
+  }
+
+  return tokens;
 }
 
 function synthesizeShieldableHolding(token: ShieldableToken): TokenHolding {
@@ -64,7 +81,7 @@ function synthesizeShieldableHolding(token: ShieldableToken): TokenHolding {
   };
 }
 
-function buildScanList(holdings: TokenHolding[]): TokenHolding[] {
+export function buildScanList(holdings: TokenHolding[]): TokenHolding[] {
   const byMint = new Map<string, TokenHolding>();
   for (const holding of holdings) {
     if (!byMint.has(holding.mint)) byMint.set(holding.mint, holding);

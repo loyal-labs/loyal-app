@@ -35,6 +35,7 @@ import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenApy } from "@/hooks/wallet/useTokenApy";
+import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
@@ -992,6 +993,15 @@ export default function TokenDetailScreen() {
   const { solPriceUsd } = useSolPrice();
   const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(walletAddress);
   const apyByMint = useTokenApy(tokenHoldings);
+  // Feed the same CoinGecko-backed token-detail cache the home screen uses,
+  // so sheets launched from here (send/swap/shield) can resolve icons via
+  // `detailLogoUrl` rather than falling back to Helius metadata or the
+  // SOL-logo placeholder.
+  const sheetTokenDetailMints = useMemo(
+    () => Array.from(new Set(tokenHoldings.map((h) => h.mint))),
+    [tokenHoldings],
+  );
+  const tokenDetailsByMint = useTokenDetails(sheetTokenDetailMints);
   const shieldedApyBps = tokenMint ? apyByMint[tokenMint] ?? null : null;
 
   const {
@@ -1118,6 +1128,7 @@ export default function TokenDetailScreen() {
         solBalanceLamports={solBalanceLamports}
         solPriceUsd={solPriceUsd}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onSendComplete={handleSendComplete}
         initialMint={viewModel.mint}
       />
@@ -1133,6 +1144,7 @@ export default function TokenDetailScreen() {
         onClose={() => setIsSwapOpen(false)}
         walletAddress={walletAddress}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onSwapComplete={handleSwapComplete}
         initialFromMint={initialSwapFromMint}
         initialToMint={initialSwapToMint}
@@ -1143,6 +1155,7 @@ export default function TokenDetailScreen() {
         onClose={() => setIsShieldOpen(false)}
         walletAddress={walletAddress}
         tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
         onShieldComplete={handleShieldComplete}
         initialMint={viewModel.mint}
       />

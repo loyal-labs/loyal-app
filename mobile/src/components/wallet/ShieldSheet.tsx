@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Keyboard } from "react-native";
 
 import { useShield } from "@/hooks/wallet/useShield";
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
 import {
   getAnalyticsErrorProperties,
   track,
@@ -37,6 +38,7 @@ type ShieldSheetProps = {
   onClose: () => void;
   walletAddress: string | null;
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint?: TokenDetailsByMint;
   onShieldComplete?: () => void;
   initialMint?: string;
 };
@@ -101,6 +103,7 @@ export function ShieldSheet({
   onClose,
   walletAddress,
   tokenHoldings,
+  tokenDetailsByMint,
   onShieldComplete,
   initialMint,
 }: ShieldSheetProps) {
@@ -109,6 +112,7 @@ export function ShieldSheet({
   const [showTokenPicker, setShowTokenPicker] = useState(false);
   const [selectedAssetKey, setSelectedAssetKey] = useState<string | null>(null);
   const [amountStr, setAmountStr] = useState("");
+  const [isMaxSelected, setIsMaxSelected] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultError, setResultError] = useState<string | null>(null);
   const [resultSuccess, setResultSuccess] = useState(false);
@@ -129,9 +133,11 @@ export function ShieldSheet({
   );
 
   const direction = getShieldDirection(selectedAsset);
+  const selectedAssetMint = selectedAsset?.mint ?? NATIVE_SOL_MINT;
   const selectedAssetIcon = resolveTokenIcon({
-    mint: selectedAsset?.mint ?? NATIVE_SOL_MINT,
+    mint: selectedAssetMint,
     imageUrl: selectedAsset?.imageUrl ?? null,
+    detailLogoUrl: tokenDetailsByMint?.[selectedAssetMint]?.token.logoUrl,
   });
   const sourceBalance = selectedAsset?.balance ?? 0;
   const amountNum = parseFloat(amountStr) || 0;
@@ -149,6 +155,7 @@ export function ShieldSheet({
       setShowTokenPicker(false);
       setSelectedAssetKey(resolveInitialShieldAssetKey(shieldAssets, initialMint));
       setAmountStr("");
+      setIsMaxSelected(false);
       setResultError(null);
       setResultSuccess(false);
       setIsProcessing(false);
@@ -180,6 +187,7 @@ export function ShieldSheet({
         amount: amountNum,
         tokenMint: selectedAsset.mint,
         tokenDecimals: selectedAsset.decimals,
+        isMax: isMaxSelected,
       };
 
       const result =
@@ -242,6 +250,7 @@ export function ShieldSheet({
     executeShield,
     executeUnshield,
     isFormValid,
+    isMaxSelected,
     isProcessing,
     onShieldComplete,
     selectedAsset,
@@ -256,7 +265,12 @@ export function ShieldSheet({
     (pct: number) => {
       if (!selectedAsset) return;
 
-      let val = pct === 100 ? sourceBalance : sourceBalance * (pct / 100);
+      const isMax = pct === 100;
+      let val = isMax ? sourceBalance : sourceBalance * (pct / 100);
+      // For SOL we still nudge the MAX display down by the fee reserve so
+      // the user never signs a shield that leaves no lamports for fees.
+      // The raw on-chain deposit amount is only used when unshielding, so
+      // the reserve subtraction here doesn't affect the MAX unshield path.
       if (selectedAsset.mint === NATIVE_SOL_MINT && sourceBalance - val < 0.00005) {
         val = Math.max(0, sourceBalance - 0.00005);
       }
@@ -266,14 +280,21 @@ export function ShieldSheet({
       const displayScale = 1e6;
       const truncated = Math.floor(val * displayScale) / displayScale;
       setAmountStr(truncated > 0 ? String(truncated) : "");
+      setIsMaxSelected(isMax && truncated > 0);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
     [selectedAsset, sourceBalance],
   );
 
+  const handleAmountInputChange = useCallback((newValue: string) => {
+    setAmountStr(newValue);
+    setIsMaxSelected(false);
+  }, []);
+
   const handleSelectAsset = useCallback((assetKey: string) => {
     setSelectedAssetKey(assetKey);
     setAmountStr("");
+    setIsMaxSelected(false);
     setShowTokenPicker(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
@@ -337,6 +358,7 @@ export function ShieldSheet({
           {showTokenPicker ? (
             <TokenPicker
               assets={shieldAssets}
+              tokenDetailsByMint={tokenDetailsByMint}
               onSelect={handleSelectAsset}
             />
           ) : null}
@@ -347,7 +369,7 @@ export function ShieldSheet({
               selectedAsset={selectedAsset}
               selectedAssetIcon={selectedAssetIcon}
               amountStr={amountStr}
-              onAmountChange={setAmountStr}
+              onAmountChange={handleAmountInputChange}
               onOpenTokenPicker={() => {
                 Keyboard.dismiss();
                 setShowTokenPicker(true);
@@ -530,9 +552,11 @@ function FormStep({
 
 function TokenPicker({
   assets,
+  tokenDetailsByMint,
   onSelect,
 }: {
   assets: ShieldAsset[];
+  tokenDetailsByMint?: TokenDetailsByMint;
   onSelect: (assetKey: string) => void;
 }) {
   if (assets.length === 0) {
@@ -549,6 +573,7 @@ function TokenPicker({
         const icon = resolveTokenIcon({
           mint: asset.mint,
           imageUrl: asset.imageUrl,
+          detailLogoUrl: tokenDetailsByMint?.[asset.mint]?.token.logoUrl,
         });
 
         return (

@@ -7,6 +7,7 @@ import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
 import { initAnalytics } from "@/lib/analytics/analytics";
+import { SignApprovalProvider } from "@/lib/wallet/sign-approval";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
   // addNotificationResponseListener, // Summaries — kept for reinstatement
@@ -78,34 +79,36 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <WalletProvider>
-          <DatadogInit />
-          <PushTokenRegistrar />
-          <StatusBar style="auto" />
-          <WalletAuthGate />
-          <Stack
-            screenOptions={{
-              headerBackButtonDisplayMode: "minimal",
-            }}
-          >
-            <Stack.Screen
-              name="(tabs)"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="token/[mint]"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="browser/site"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="login"
-              options={{ headerShown: false, presentation: "modal" }}
-            />
-            {/* Summaries detail screen commented out — kept for potential reinstatement */}
-            {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
-          </Stack>
+          <SignApprovalProvider>
+            <DatadogInit />
+            <PushTokenRegistrar />
+            <StatusBar style="auto" />
+            <WalletAuthGate />
+            <Stack
+              screenOptions={{
+                headerBackButtonDisplayMode: "minimal",
+              }}
+            >
+              <Stack.Screen
+                name="(tabs)"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="token/[mint]"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="browser/site"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="login"
+                options={{ headerShown: false, presentation: "modal" }}
+              />
+              {/* Summaries detail screen commented out — kept for potential reinstatement */}
+              {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
+            </Stack>
+          </SignApprovalProvider>
         </WalletProvider>
         {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
       </BottomSheetModalProvider>

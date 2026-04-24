@@ -178,6 +178,7 @@ export async function sendPrivateTransferToTelegramUsername(params: {
   tokenMint: string;
   amount: number;
   decimals: number;
+  signer?: Signer;
 }): Promise<string> {
   // Force fresh PER auth/client for each username transfer to avoid stale token/session issues.
   cachedClient = null;
@@ -199,7 +200,7 @@ export async function sendPrivateTransferToTelegramUsername(params: {
     throw new Error("Enter a valid amount.");
   }
 
-  const signer = await getWalletSigner();
+  const signer = params.signer ?? (await getWalletSigner());
   const user = signer.publicKey;
   const connection = getConnection();
   const client = await getPrivateTransactionsClient(signer);
@@ -361,6 +362,7 @@ export async function sendPrivateTransferToWallet(params: {
   tokenMint: string;
   amount: number;
   decimals: number;
+  signer?: Signer;
 }): Promise<string> {
   cachedClient = null;
   cachedClientOwner = null;
@@ -383,7 +385,7 @@ export async function sendPrivateTransferToWallet(params: {
     throw new Error("Enter a valid amount.");
   }
 
-  const signer = await getWalletSigner();
+  const signer = params.signer ?? (await getWalletSigner());
   const user = signer.publicKey;
   const connection = getConnection();
   const client = await getPrivateTransactionsClient(signer);

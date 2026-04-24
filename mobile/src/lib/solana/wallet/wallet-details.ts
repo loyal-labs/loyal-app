@@ -1,5 +1,6 @@
 import { AnchorProvider } from "@coral-xyz/anchor";
 import {
+  type Connection,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -159,8 +160,18 @@ const invalidateBalanceCache = () => {
 export const subscribeToWalletBalance = async (
   onChange: (lamports: number) => void
 ): Promise<() => Promise<void>> => {
-  const connection = getWebsocketConnection();
-  const signer = await getWalletSigner();
+  let connection: Connection;
+  let signer: Signer;
+  try {
+    connection = getWebsocketConnection();
+    signer = await getWalletSigner();
+  } catch (error) {
+    // Loud so Datadog's trackErrors picks it up — a silent throw here
+    // meant the balance card stopped updating without any observable
+    // signal in logs.
+    console.error("[ws/balance] Subscription setup failed", error);
+    throw error;
+  }
 
   let lastLamports = balanceCache?.lamports;
 
@@ -183,21 +194,22 @@ export const subscribeToWalletBalance = async (
     try {
       await connection.removeAccountChangeListener(subscriptionId);
     } catch (error) {
-      console.error("Failed to remove balance subscription", error);
+      console.error("[ws/balance] Failed to remove subscription", error);
     }
   };
 };
 
 export const sendSolTransaction = async (
   destination: string | PublicKey,
-  lamports: number
+  lamports: number,
+  signerOverride?: Signer,
 ): Promise<string> => {
   if (lamports <= 0) {
     throw new Error("Lamports must be greater than zero");
   }
 
   const connection = getConnection();
-  const signer = await getWalletSigner();
+  const signer = signerOverride ?? (await getWalletSigner());
   const toPubkey =
     typeof destination === "string" ? new PublicKey(destination) : destination;
 
@@ -243,7 +255,8 @@ export const sendSplTokenTransaction = async (
   destination: string | PublicKey,
   tokenMint: string | PublicKey,
   rawAmount: bigint,
-  decimals: number
+  decimals: number,
+  signerOverride?: Signer,
 ): Promise<string> => {
   if (rawAmount <= 0n) {
     throw new Error("Token amount must be greater than zero");
@@ -253,7 +266,7 @@ export const sendSplTokenTransaction = async (
   }
 
   const connection = getConnection();
-  const signer = await getWalletSigner();
+  const signer = signerOverride ?? (await getWalletSigner());
   const toPubkey =
     typeof destination === "string" ? new PublicKey(destination) : destination;
   const mintPubkey =

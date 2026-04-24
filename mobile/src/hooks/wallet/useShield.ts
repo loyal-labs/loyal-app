@@ -9,7 +9,7 @@ import {
 } from "@loyal-labs/private-transactions";
 import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
 import { PublicKey } from "@solana/web3.js";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   recordKaminoUsdcShield,
@@ -22,7 +22,15 @@ import {
   getPerEndpoints,
   getSolanaEnv,
 } from "@/lib/solana/rpc/connection";
-import { getShieldTokenDecimals } from "@/lib/solana/shielding";
+import {
+  computeUnshieldModifyAmount,
+  getShieldTokenDecimals,
+} from "@/lib/solana/shielding";
+import {
+  useSignApproval,
+  withConfirmation,
+  type ConfirmLabels,
+} from "@/lib/wallet/sign-approval";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 // Lazy-loaded alongside the SDK to avoid top-level Buffer usage
 async function getWsolAdapter() {
@@ -81,6 +89,10 @@ type ShieldParams = {
   amount: number;
   tokenMint?: string;
   tokenDecimals?: number;
+  // Set when the user tapped the MAX button. On unshield this drains
+  // the on-chain deposit directly, bypassing float→raw→share rounding
+  // that otherwise leaves dust behind (ASK-1135).
+  isMax?: boolean;
 };
 
 export function useShield(): {
@@ -90,13 +102,26 @@ export function useShield(): {
   error: string | null;
 } {
   const { signer } = useWallet();
+  const signApproval = useSignApproval();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<LoyalPrivateTransactionsClientType | null>(null);
   const perAuthTokenRef = useRef<PerAuthToken | null>(null);
+  const labelsRef = useRef<ConfirmLabels | undefined>(undefined);
 
   const solanaEnv = getSolanaEnv();
   const connection = getConnection();
+
+  // Stable wrapped signer: labels resolve per-op via `labelsRef`, so the
+  // SDK client (built against this signer) can be cached across shield /
+  // unshield calls without baking in stale titles.
+  const confirmingSigner = useMemo(
+    () =>
+      signer
+        ? withConfirmation(signer, signApproval, () => labelsRef.current)
+        : null,
+    [signer, signApproval],
+  );
 
   const getPerAuthToken = useCallback(
     async (perRpcEndpoint: string): Promise<PerAuthToken> => {
@@ -105,11 +130,11 @@ export function useShield(): {
         return cached;
       }
 
-      if (!signer) {
+      if (!confirmingSigner) {
         throw new Error("Wallet signer is not available");
       }
 
-      const walletAddress = signer.publicKey.toBase58();
+      const walletAddress = confirmingSigner.publicKey.toBase58();
       const challengeUrl = `${perRpcEndpoint}/auth/challenge?pubkey=${walletAddress}`;
       const challengeResponse = await fetch(challengeUrl);
       const challengeData = (await challengeResponse.json()) as {
@@ -130,7 +155,17 @@ export function useShield(): {
       }
 
       const challengeBytes = new TextEncoder().encode(challengeData.challenge);
-      const signature = await signer.signMessage(challengeBytes);
+      const previousLabels = labelsRef.current;
+      labelsRef.current = {
+        title: "Verify private transactions",
+        subtitle: "Sign in to the ephemeral rollup",
+      };
+      let signature: Uint8Array;
+      try {
+        signature = await confirmingSigner.signMessage(challengeBytes);
+      } finally {
+        labelsRef.current = previousLabels;
+      }
       const signatureBase58 = encodeBase58(signature);
 
       const loginResponse = await fetch(`${perRpcEndpoint}/auth/login`, {
@@ -166,14 +201,14 @@ export function useShield(): {
       perAuthTokenRef.current = token;
       return token;
     },
-    [signer],
+    [confirmingSigner],
   );
 
   const getClient = useCallback(
     async (): Promise<LoyalPrivateTransactionsClientType> => {
       if (clientRef.current) return clientRef.current;
 
-      if (!signer) {
+      if (!confirmingSigner) {
         throw new Error("Wallet signer is not available");
       }
 
@@ -185,7 +220,7 @@ export function useShield(): {
           : undefined;
 
       const client = await LoyalPrivateTransactionsClient.fromConfig({
-        signer,
+        signer: confirmingSigner,
         baseRpcEndpoint: rpcEndpoint,
         baseWsEndpoint: websocketEndpoint,
         ephemeralRpcEndpoint: perRpcEndpoint,
@@ -196,7 +231,7 @@ export function useShield(): {
       clientRef.current = client;
       return client;
     },
-    [getPerAuthToken, signer, solanaEnv],
+    [getPerAuthToken, confirmingSigner, solanaEnv],
   );
 
   // Reset client when wallet changes
@@ -209,7 +244,7 @@ export function useShield(): {
 
   const executeShield = useCallback(
     async (params: ShieldParams): Promise<ShieldResult> => {
-      if (!signer) {
+      if (!signer || !confirmingSigner) {
         return {
           success: false,
           error: "Wallet not connected",
@@ -218,6 +253,11 @@ export function useShield(): {
 
       setLoading(true);
       setError(null);
+
+      labelsRef.current = {
+        title: `Shield ${params.amount} ${params.tokenSymbol.toUpperCase()}`,
+        subtitle: "Move to your private balance",
+      };
 
       try {
         const client = await getClient();
@@ -249,31 +289,43 @@ export function useShield(): {
           perProgram: client.ephemeralProgram,
         });
 
-        const depositAfter =
-          (await client.getEphemeralDeposit(user, tokenMint))?.amount ??
-          BigInt(0);
+        // Everything past this point is post-commit bookkeeping. The
+        // shield already succeeded on-chain, so any failure must be
+        // logged but not surfaced as "Shield Failed" to the user
+        // (ASK-1134).
+        try {
+          const depositAfter =
+            (await client.getEphemeralDeposit(user, tokenMint))?.amount ??
+            BigInt(0);
 
-        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
-        if (trackedKaminoMint === tokenMint.toBase58()) {
-          const addedCollateralSharesAmountRaw = depositAfter - depositBefore;
-          if (addedCollateralSharesAmountRaw > BigInt(0)) {
-            try {
-              await recordKaminoUsdcShield({
-                publicKey: signer.publicKey.toBase58(),
-                solanaEnv,
-                addedPrincipalLiquidityAmountRaw: rawAmount,
-                addedCollateralSharesAmountRaw,
-              });
-            } catch (err) {
-              console.warn(
-                "[useShield] failed to persist Kamino USDC shield basis",
-                err,
-              );
+          const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+          if (trackedKaminoMint === tokenMint.toBase58()) {
+            const addedCollateralSharesAmountRaw = depositAfter - depositBefore;
+            if (addedCollateralSharesAmountRaw > BigInt(0)) {
+              try {
+                await recordKaminoUsdcShield({
+                  publicKey: signer.publicKey.toBase58(),
+                  solanaEnv,
+                  addedPrincipalLiquidityAmountRaw: rawAmount,
+                  addedCollateralSharesAmountRaw,
+                });
+              } catch (err) {
+                console.warn(
+                  "[useShield] failed to persist Kamino USDC shield basis",
+                  err,
+                );
+              }
             }
           }
+        } catch (err) {
+          console.warn(
+            `[useShield] post-shield bookkeeping failed (signature=${signature})`,
+            err,
+          );
         }
 
         setLoading(false);
+        labelsRef.current = undefined;
         return { success: true, signature };
       } catch (err) {
         console.error("[useShield] executeShield failed", err);
@@ -285,15 +337,16 @@ export function useShield(): {
         }
         setError(errorMessage);
         setLoading(false);
+        labelsRef.current = undefined;
         return { success: false, error: errorMessage };
       }
     },
-    [signer, getClient, solanaEnv],
+    [signer, confirmingSigner, getClient, solanaEnv],
   );
 
   const executeUnshield = useCallback(
     async (params: ShieldParams): Promise<ShieldResult> => {
-      if (!signer) {
+      if (!signer || !confirmingSigner) {
         return {
           success: false,
           error: "Wallet not connected",
@@ -302,6 +355,11 @@ export function useShield(): {
 
       setLoading(true);
       setError(null);
+
+      labelsRef.current = {
+        title: `Unshield ${params.amount} ${params.tokenSymbol.toUpperCase()}`,
+        subtitle: "Move back to your public balance",
+      };
 
       try {
         const client = await getClient();
@@ -340,30 +398,34 @@ export function useShield(): {
           });
         }
 
-        // For tracked Kamino USDC the deposit stores collateral shares.
-        // Convert the user's intended liquidity amount to a share burn,
-        // then pass that to modifyBalance. Clamp to the current deposit
-        // so we never try to burn more shares than we hold.
+        // For tracked Kamino USDC the deposit stores collateral shares,
+        // so a user-specified USDC liquidity amount must be quoted into
+        // shares. Skip the Kamino quote when the user chose MAX — we'll
+        // burn the deposit directly from its on-chain amount instead.
         const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
         const isTrackedKaminoToken =
           trackedKaminoMint === tokenMint.toBase58();
+        const wantsMax = params.isMax === true;
 
         const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
-        let modifyAmount = BigInt(rawAmount);
-        if (isTrackedKaminoToken) {
-          const quotedShares =
+        const currentDepositRaw = depositBeforeModify?.amount ?? BigInt(0);
+
+        let kaminoQuotedShares: bigint | null = null;
+        if (!wantsMax && isTrackedKaminoToken) {
+          kaminoQuotedShares =
             await client.getKaminoCollateralSharesForLiquidityAmount({
               tokenMint,
               liquidityAmountRaw: BigInt(rawAmount),
             });
-          if (quotedShares !== null) {
-            modifyAmount = quotedShares;
-          }
-          const currentShares = depositBeforeModify?.amount ?? BigInt(0);
-          if (currentShares > BigInt(0) && modifyAmount > currentShares) {
-            modifyAmount = currentShares;
-          }
         }
+
+        const modifyAmount = computeUnshieldModifyAmount({
+          isMax: wantsMax,
+          requestedRawAmount: BigInt(rawAmount),
+          currentDepositRaw,
+          isTrackedKaminoToken,
+          kaminoQuotedShares,
+        });
 
         // Move tokens out of deposit vault (decrease balance)
         const { deposit: depositAfterModify } = await client.modifyBalance({
@@ -375,9 +437,8 @@ export function useShield(): {
         });
 
         if (isTrackedKaminoToken) {
-          const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
           const burnedCollateralSharesAmountRaw =
-            beforeShares - depositAfterModify.amount;
+            currentDepositRaw - depositAfterModify.amount;
           if (burnedCollateralSharesAmountRaw > BigInt(0)) {
             try {
               await recordKaminoUsdcUnshield({
@@ -394,16 +455,30 @@ export function useShield(): {
           }
         }
 
-        // Unwrap wSOL if native SOL
+        // Unwrap wSOL if native SOL. Best-effort: the deposit already
+        // drained via modifyBalance above, so a failure here must not be
+        // surfaced as "Unshield Failed" (ASK-1134). If it fails, the user
+        // may have residual WSOL in their ATA that they can unwrap later.
         if (isNativeSol) {
-          await closeWsolAta({
-            connection,
-            signer,
-            wsolAta: userTokenAccount,
-          });
+          // Cleanup: skip the preview sheet. Users already approved the
+          // unshield intent; closing the wrapped-SOL account is a
+          // housekeeping step that should feel like part of the same op.
+          try {
+            await closeWsolAta({
+              connection,
+              signer,
+              wsolAta: userTokenAccount,
+            });
+          } catch (err) {
+            console.warn(
+              "[useShield] closeWsolAta failed after unshield — WSOL may remain in the user's ATA",
+              err,
+            );
+          }
         }
 
-        // Re-delegate deposit
+        // Re-delegate deposit. Best-effort: may already be delegated or
+        // the deposit may be empty after a full unshield.
         try {
           const validator = getErValidatorForSolanaEnv(solanaEnv);
           await client.delegateDeposit({
@@ -412,11 +487,15 @@ export function useShield(): {
             payer: user,
             validator,
           });
-        } catch {
-          // May already be delegated or deposit empty
+        } catch (err) {
+          console.warn(
+            "[useShield] re-delegateDeposit failed (often benign: already delegated or empty deposit)",
+            err,
+          );
         }
 
         setLoading(false);
+        labelsRef.current = undefined;
         return { success: true };
       } catch (err) {
         console.error("[useShield] executeUnshield failed", err);
@@ -428,10 +507,11 @@ export function useShield(): {
         }
         setError(errorMessage);
         setLoading(false);
+        labelsRef.current = undefined;
         return { success: false, error: errorMessage };
       }
     },
-    [signer, connection, getClient, solanaEnv],
+    [signer, confirmingSigner, connection, getClient, solanaEnv],
   );
 
   return { executeShield, executeUnshield, loading, error };

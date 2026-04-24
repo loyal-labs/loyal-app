@@ -1,7 +1,9 @@
 import * as Clipboard from "expo-clipboard";
+import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
+import * as Updates from "expo-updates";
 import {
   Bell,
   ChevronRight,
@@ -115,6 +117,43 @@ function ProfileCell({
   return content;
 }
 
+type BuildInfo = {
+  short: string;
+  full: string;
+};
+
+function getBuildInfo(): BuildInfo {
+  const version =
+    Constants.expoConfig?.version ??
+    Constants.nativeApplicationVersion ??
+    "?";
+  const nativeBuild = Constants.nativeBuildVersion;
+  const runtime = Updates.runtimeVersion ?? "embedded";
+  const channel = Updates.channel || "dev";
+  const updateId = Updates.updateId ?? "embedded";
+
+  // When the native build number isn't stamped into the binary (local
+  // `expo run`, or EAS profiles without `autoIncrement`), fall back to
+  // the first 7 chars of the OTA update id — still unique enough to
+  // tell two installs apart — or the channel name if no OTA has been
+  // applied yet. This keeps the settings footer actionable instead of
+  // showing "?" for every dev/preview install.
+  const buildLabel =
+    nativeBuild ??
+    (updateId !== "embedded" ? updateId.slice(0, 7) : channel);
+
+  return {
+    short: `Loyal Mobile v${version} · build ${buildLabel}`,
+    full: [
+      `Loyal Mobile v${version}`,
+      `build ${buildLabel}`,
+      `runtime ${runtime}`,
+      `channel ${channel}`,
+      `update ${updateId}`,
+    ].join(" · "),
+  };
+}
+
 export default function ProfileScreen() {
   const [pushNotifications, setPushNotifications] = useState(true);
   const [analyticsOptIn, setAnalyticsOptIn] = useState(
@@ -125,6 +164,8 @@ export default function ProfileScreen() {
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
   const [bioPinError, setBioPinError] = useState<string | null>(null);
+  const [versionCopied, setVersionCopied] = useState(false);
+  const buildInfo = getBuildInfo();
 
   const wallet = useWallet();
   const router = useRouter();
@@ -249,6 +290,15 @@ export default function ProfileScreen() {
       Alert.alert("Error", "Unable to export secret key");
     }
   }, [wallet]);
+
+  const handleCopyBuildInfo = useCallback(async () => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    await Clipboard.setStringAsync(buildInfo.full);
+    setVersionCopied(true);
+    setTimeout(() => setVersionCopied(false), 1500);
+  }, [buildInfo.full]);
 
   const handleResetWallet = useCallback(() => {
     if (process.env.EXPO_OS !== "web") {
@@ -414,6 +464,14 @@ export default function ProfileScreen() {
             }}
           />
         </SettingsSection>
+
+        {/* Tap-to-copy build string so users can report exactly which
+            native binary + OTA bundle they're running. */}
+        <Pressable onPress={handleCopyBuildInfo} style={styles.versionRow}>
+          <Text style={styles.versionText}>
+            {versionCopied ? "Copied" : buildInfo.short}
+          </Text>
+        </Pressable>
         </View>
       </ScrollView>
     </View>
@@ -539,5 +597,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: "rgba(60,60,67,0.6)",
+  },
+  versionRow: {
+    alignItems: "center",
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  versionText: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 12,
+    lineHeight: 16,
+    color: "rgba(60,60,67,0.35)",
   },
 });

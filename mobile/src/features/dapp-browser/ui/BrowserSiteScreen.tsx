@@ -193,7 +193,6 @@ export function BrowserSiteScreen({ initialUrl }: BrowserSiteScreenProps) {
                 origin,
                 trustState: "connected",
                 type: "connect",
-                payload: request.payload ?? {},
               },
               { rememberOrigin: false },
             );

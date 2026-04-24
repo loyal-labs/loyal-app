@@ -87,7 +87,6 @@ describe("resolveDappRequest", () => {
         origin: "https://example.com",
         trustState: "untrusted",
         type: "connect",
-        payload: {},
       },
     });
   });
@@ -111,7 +110,54 @@ describe("resolveDappRequest", () => {
         origin: "https://jup.ag",
         trustState: "trusted",
         type: "connect",
-        payload: {},
+      },
+    });
+  });
+
+  it("surfaces typed approval payload fields for sign requests", () => {
+    expect(
+      resolveDappRequest({
+        origin: "https://jup.ag",
+        connectedOrigins: ["https://jup.ag"],
+        trustedOrigins: ["https://jup.ag"],
+        request: {
+          source: "loyal-mobile-wallet",
+          id: "req-6",
+          type: "signMessage",
+          payload: { message: "aGVsbG8=" },
+        },
+      }),
+    ).toEqual({
+      kind: "approval",
+      approval: {
+        requestId: "req-6",
+        origin: "https://jup.ag",
+        trustState: "trusted",
+        type: "signMessage",
+        messageBase64: "aGVsbG8=",
+      },
+    });
+  });
+
+  it("returns an error response when sign payload is missing", () => {
+    expect(
+      resolveDappRequest({
+        origin: "https://jup.ag",
+        connectedOrigins: ["https://jup.ag"],
+        trustedOrigins: ["https://jup.ag"],
+        request: {
+          source: "loyal-mobile-wallet",
+          id: "req-7",
+          type: "signTransaction",
+        },
+      }),
+    ).toEqual({
+      kind: "response",
+      response: {
+        source: "loyal-mobile-wallet",
+        id: "req-7",
+        ok: false,
+        error: "signTransaction requires a base64 'transaction' payload.",
       },
     });
   });

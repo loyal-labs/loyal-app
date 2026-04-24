@@ -10,17 +10,6 @@ type ApprovedRequestResult =
   | { signature: string }
   | { signedTransaction: string };
 
-function getPayloadString(
-  payload: PendingApproval["payload"],
-  key: "message" | "transaction",
-): string {
-  const value = payload[key];
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Missing ${key} payload.`);
-  }
-  return value;
-}
-
 function decodeBase64(value: string): Uint8Array {
   return Buffer.from(value, "base64");
 }
@@ -61,14 +50,12 @@ export async function executeApprovedRequest(
     case "connect":
       return { publicKey: signer.publicKey.toBase58() };
     case "signMessage": {
-      const message = decodeBase64(getPayloadString(approval.payload, "message"));
+      const message = decodeBase64(approval.messageBase64);
       const signature = await signer.signMessage(message);
       return { signature: encodeBase64(signature) };
     }
     case "signTransaction": {
-      const transaction = deserializeTransaction(
-        getPayloadString(approval.payload, "transaction"),
-      );
+      const transaction = deserializeTransaction(approval.transactionBase64);
       const signedTransaction = await signer.signTransaction(transaction);
       return {
         signedTransaction: encodeBase64(
@@ -77,11 +64,10 @@ export async function executeApprovedRequest(
       };
     }
     case "signAndSendTransaction": {
-      const transaction = deserializeTransaction(
-        getPayloadString(approval.payload, "transaction"),
-      );
+      const transaction = deserializeTransaction(approval.transactionBase64);
       const signedTransaction = await signer.signTransaction(transaction);
-      const serializedTransaction = serializeSignedTransaction(signedTransaction);
+      const serializedTransaction =
+        serializeSignedTransaction(signedTransaction);
       const signature = await getConnection().sendRawTransaction(
         serializedTransaction,
       );

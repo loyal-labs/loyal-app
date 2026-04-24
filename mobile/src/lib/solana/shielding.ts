@@ -70,3 +70,48 @@ export function getShieldTokenDecimals(params: {
     DEFAULT_TOKEN_DECIMALS
   );
 }
+
+export type ComputeUnshieldModifyAmountParams = {
+  isMax: boolean;
+  requestedRawAmount: bigint;
+  currentDepositRaw: bigint;
+  isTrackedKaminoToken: boolean;
+  kaminoQuotedShares: bigint | null;
+};
+
+/**
+ * Decide how many raw units to burn from the shielded deposit when
+ * unshielding. Units are lamports (SOL), raw SPL token amounts, or
+ * Kamino collateral shares for tracked USDC.
+ *
+ * MAX intent bypasses the float → raw and Kamino liquidity → share
+ * conversions: it returns the on-chain deposit amount directly so the
+ * deposit always drains to zero. Without this, (a) float imprecision on
+ * `Math.floor(displayBalance * 10^decimals)` leaves sub-unit residue for
+ * SOL/USDC/USDT/LOYAL, and (b) for Kamino-tracked USDC the displayed
+ * balance is the share count treated as USDC, so the quoted-share
+ * conversion consistently stays below the actual deposited shares,
+ * leaving an accrued-interest residue. See ASK-1135.
+ */
+export function computeUnshieldModifyAmount(
+  params: ComputeUnshieldModifyAmountParams,
+): bigint {
+  if (params.isMax) {
+    return params.currentDepositRaw > BigInt(0)
+      ? params.currentDepositRaw
+      : params.requestedRawAmount;
+  }
+
+  if (params.isTrackedKaminoToken) {
+    let amount = params.kaminoQuotedShares ?? params.requestedRawAmount;
+    if (
+      params.currentDepositRaw > BigInt(0) &&
+      amount > params.currentDepositRaw
+    ) {
+      amount = params.currentDepositRaw;
+    }
+    return amount;
+  }
+
+  return params.requestedRawAmount;
+}

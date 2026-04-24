@@ -1,5 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 
+import { fetchWithTimeout } from "@/lib/network/fetch-with-timeout";
+
 import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "../constants";
 import { getSolanaEnv } from "../rpc/connection";
 import {
@@ -188,9 +190,14 @@ function mapNativeBalance(
   };
 }
 
+type FetchLike = (input: RequestInfo, init?: RequestInit) => Promise<Response>;
+
+const jupiterFetch: FetchLike = (input, init) =>
+  fetchWithTimeout(input, init ?? {});
+
 export async function enrichHoldingsWithJupiterPrices(
   holdings: TokenHolding[],
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: FetchLike = jupiterFetch,
 ): Promise<TokenHolding[]> {
   if (holdings.length === 0) return holdings;
 
@@ -259,7 +266,7 @@ async function fetchHoldingsFromHelius(
   rpcUrl: string,
   publicKey: string,
 ): Promise<TokenHolding[]> {
-  const response = await fetch(rpcUrl, {
+  const response = await fetchWithTimeout(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

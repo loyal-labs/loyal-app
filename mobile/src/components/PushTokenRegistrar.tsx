@@ -22,9 +22,21 @@ export function PushTokenRegistrar(): null {
     lastRegisteredPublicKey.current = publicKey;
     void (async () => {
       const token = await registerForPushNotifications();
-      if (token) {
-        await registerPushToken(token, publicKey);
+      if (!token) {
+        // registerForPushNotifications already logged the specific
+        // failure (permission, projectId, FCM). This message just
+        // confirms the registrar saw the publicKey and gave up.
+        console.warn(
+          "[push] Registrar skipped: no token produced for wallet",
+          publicKey.slice(0, 8),
+        );
+        return;
       }
+      await registerPushToken(token, publicKey);
+      console.log(
+        "[push] Registrar completed for wallet",
+        publicKey.slice(0, 8),
+      );
     })();
   }, [publicKey]);
 

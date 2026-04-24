@@ -101,6 +101,7 @@ export type RemoteTrustedDapp = {
   origin: string;
   name: string;
   startUrl: string;
+  category: string | null;
   displayOrder: number;
 };
 

@@ -76,14 +76,33 @@ export async function registerForPushNotifications(): Promise<string | null> {
       return null;
     }
 
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    // In standalone / dapp-store builds expoConfig.extra may be stripped
+    // once the app goes through a real publish. Constants.easConfig is the
+    // documented fallback — falling through to a hard-coded projectId is a
+    // last-resort so we never quietly generate tokens under the wrong
+    // Expo project (which silently fail to deliver).
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      (Constants as unknown as { easConfig?: { projectId?: string } })
+        .easConfig?.projectId;
+
+    if (!projectId) {
+      console.error(
+        "[push] Cannot generate Expo push token: no projectId in Constants",
+      );
+      return null;
+    }
+
     const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId,
     });
 
     return tokenData.data;
   } catch (error) {
-    console.log("Push notifications not available:", error);
+    // Loud error so Datadog RUM's trackErrors picks it up — the
+    // underlying cause (FCM misconfig, Google Play services unavailable,
+    // network during token fetch) is invisible otherwise on prod builds.
+    console.error("[push] getExpoPushTokenAsync failed:", error);
     return null;
   }
 }
@@ -115,8 +134,9 @@ export async function registerPushToken(
   token: string,
   walletPublicKey: string,
 ): Promise<void> {
+  const url = `${env.apiBaseUrl}/api/push-tokens`;
   try {
-    await fetch(`${env.apiBaseUrl}/api/push-tokens`, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -125,7 +145,14 @@ export async function registerPushToken(
         platform: process.env.EXPO_OS ?? "unknown",
       }),
     });
+    if (!response.ok) {
+      const bodyText = await response.text().catch(() => "");
+      console.error(
+        `[push] Backend rejected push token (${response.status}):`,
+        bodyText.slice(0, 200),
+      );
+    }
   } catch (error) {
-    console.error("Failed to register push token:", error);
+    console.error("[push] Failed to POST push token:", error);
   }
 }

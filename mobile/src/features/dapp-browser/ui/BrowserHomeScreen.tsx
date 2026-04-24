@@ -24,6 +24,7 @@ export function BrowserHomeScreen() {
             origin: dapp.origin,
             name: dapp.name,
             startUrl: dapp.startUrl,
+            category: dapp.category,
           })),
         );
       })

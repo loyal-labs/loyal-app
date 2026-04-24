@@ -12,6 +12,7 @@ import {
   PublicKey,
 } from "@solana/web3.js";
 
+import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "../constants";
 import {
   decodeTelegramPrivateTransferInstruction,
   decodeTelegramTransferInstruction,
@@ -35,7 +36,7 @@ type TokenBalanceEntry = {
   };
 };
 
-type TokenChange = {
+export type TokenChange = {
   mint: string;
   decimals: number;
   rawDelta: bigint;
@@ -353,6 +354,119 @@ const findSystemTransfer = (
 
 const JUPITER_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
 
+export type SwapClassification = {
+  type: WalletTransfer["type"];
+  swapFields: Partial<WalletTransfer>;
+};
+
+/**
+ * Classify the swap sides of a transaction given its token changes and
+ * lamports delta. Exported for unit tests.
+ *
+ * WSOL shares the native SOL mint, and Jupiter's `wrapAndUnwrapSol` can
+ * leave pre-existing WSOL dust in the user's ATA flowing as a token
+ * "out"/"in" change — the wrap/unwrap is already reflected in the
+ * lamports delta, so including it here would flip a USDC → SOL swap
+ * into "Swap SOL → SOL" (ASK-1136). Strip WSOL before picking sides.
+ */
+export function classifySwap(params: {
+  currentType: WalletTransfer["type"];
+  allTokenChanges: TokenChange[];
+  netChangeLamports: number;
+  isSigner: boolean;
+  isJupiterSwap: boolean;
+}): SwapClassification {
+  let type = params.currentType;
+  if (params.isJupiterSwap && type === "transfer") {
+    type = "swap";
+  }
+
+  const tokenChanges = params.allTokenChanges.filter(
+    (change) => change.mint !== NATIVE_SOL_MINT,
+  );
+
+  const canClassify =
+    tokenChanges.length > 0 &&
+    (type === "swap" || (params.isSigner && type === "transfer"));
+  if (!canClassify) {
+    return { type, swapFields: {} };
+  }
+
+  const tokenIn = tokenChanges.find((change) => change.direction === "in");
+  const tokenOut = tokenChanges.find((change) => change.direction === "out");
+  const solOut =
+    params.netChangeLamports < -SOL_DUST_THRESHOLD_LAMPORTS;
+  const solIn = params.netChangeLamports > SOL_DUST_THRESHOLD_LAMPORTS;
+
+  if (tokenIn && tokenOut) {
+    return {
+      type: "swap",
+      swapFields: {
+        swapFromMint: tokenOut.mint,
+        swapFromAmount: formatTokenAmountFromRaw({
+          absRaw: tokenOut.absRaw,
+          decimals: tokenOut.decimals,
+          maxFractionDigits: 6,
+        }),
+        swapFromDecimals: tokenOut.decimals,
+        swapToMint: tokenIn.mint,
+        swapToAmount: formatTokenAmountFromRaw({
+          absRaw: tokenIn.absRaw,
+          decimals: tokenIn.decimals,
+          maxFractionDigits: 6,
+        }),
+        swapToDecimals: tokenIn.decimals,
+      },
+    };
+  }
+
+  if (solOut && tokenIn) {
+    return {
+      type: "swap",
+      swapFields: {
+        swapFromMint: NATIVE_SOL_MINT,
+        swapFromAmount: formatTokenAmountFromRaw({
+          absRaw: BigInt(Math.abs(params.netChangeLamports)),
+          decimals: NATIVE_SOL_DECIMALS,
+          maxFractionDigits: 6,
+        }),
+        swapFromDecimals: NATIVE_SOL_DECIMALS,
+        swapToMint: tokenIn.mint,
+        swapToAmount: formatTokenAmountFromRaw({
+          absRaw: tokenIn.absRaw,
+          decimals: tokenIn.decimals,
+          maxFractionDigits: 6,
+        }),
+        swapToDecimals: tokenIn.decimals,
+      },
+    };
+  }
+
+  if (tokenOut && solIn) {
+    return {
+      type: "swap",
+      swapFields: {
+        swapFromMint: tokenOut.mint,
+        swapFromAmount: formatTokenAmountFromRaw({
+          absRaw: tokenOut.absRaw,
+          decimals: tokenOut.decimals,
+          maxFractionDigits: 6,
+        }),
+        swapFromDecimals: tokenOut.decimals,
+        swapToMint: NATIVE_SOL_MINT,
+        swapToAmount: formatTokenAmountFromRaw({
+          absRaw: BigInt(params.netChangeLamports),
+          decimals: NATIVE_SOL_DECIMALS,
+          maxFractionDigits: 6,
+        }),
+        swapToDecimals: NATIVE_SOL_DECIMALS,
+      },
+    };
+  }
+
+  return { type, swapFields: {} };
+}
+
 const mapTransactionToTransfer = (
   tx: ParsedTransactionWithMeta,
   signature: string,
@@ -543,76 +657,15 @@ const mapTransactionToTransfer = (
         "programId" in ix && ix.programId?.toBase58?.() === JUPITER_PROGRAM_ID,
     );
 
-  if (isJupiterSwap) {
-    type = "swap";
-  }
-
-  let swapFields: Partial<WalletTransfer> = {};
-  if (
-    allTokenChanges.length > 0 &&
-    (type === "swap" || (isSigner && type === "transfer"))
-  ) {
-    const tokenIn = allTokenChanges.find((c) => c.direction === "in");
-    const tokenOut = allTokenChanges.find((c) => c.direction === "out");
-    const solOut = netChangeLamports < -SOL_DUST_THRESHOLD_LAMPORTS;
-    const solIn = netChangeLamports > SOL_DUST_THRESHOLD_LAMPORTS;
-
-    if (tokenIn && tokenOut) {
-      type = "swap";
-      swapFields = {
-        swapFromMint: tokenOut.mint,
-        swapFromAmount: formatTokenAmountFromRaw({
-          absRaw: tokenOut.absRaw,
-          decimals: tokenOut.decimals,
-          maxFractionDigits: 6,
-        }),
-        swapFromDecimals: tokenOut.decimals,
-        swapToMint: tokenIn.mint,
-        swapToAmount: formatTokenAmountFromRaw({
-          absRaw: tokenIn.absRaw,
-          decimals: tokenIn.decimals,
-          maxFractionDigits: 6,
-        }),
-        swapToDecimals: tokenIn.decimals,
-      };
-    } else if (solOut && tokenIn) {
-      type = "swap";
-      swapFields = {
-        swapFromMint: "So11111111111111111111111111111111111111112",
-        swapFromAmount: formatTokenAmountFromRaw({
-          absRaw: BigInt(Math.abs(netChangeLamports)),
-          decimals: 9,
-          maxFractionDigits: 6,
-        }),
-        swapFromDecimals: 9,
-        swapToMint: tokenIn.mint,
-        swapToAmount: formatTokenAmountFromRaw({
-          absRaw: tokenIn.absRaw,
-          decimals: tokenIn.decimals,
-          maxFractionDigits: 6,
-        }),
-        swapToDecimals: tokenIn.decimals,
-      };
-    } else if (tokenOut && solIn) {
-      type = "swap";
-      swapFields = {
-        swapFromMint: tokenOut.mint,
-        swapFromAmount: formatTokenAmountFromRaw({
-          absRaw: tokenOut.absRaw,
-          decimals: tokenOut.decimals,
-          maxFractionDigits: 6,
-        }),
-        swapFromDecimals: tokenOut.decimals,
-        swapToMint: "So11111111111111111111111111111111111111112",
-        swapToAmount: formatTokenAmountFromRaw({
-          absRaw: BigInt(netChangeLamports),
-          decimals: 9,
-          maxFractionDigits: 6,
-        }),
-        swapToDecimals: 9,
-      };
-    }
-  }
+  const classification = classifySwap({
+    currentType: type,
+    allTokenChanges,
+    netChangeLamports,
+    isSigner,
+    isJupiterSwap,
+  });
+  type = classification.type;
+  const swapFields = classification.swapFields;
 
   const direction: "in" | "out" =
     type === "swap"
@@ -732,37 +785,47 @@ export const listenForAccountTransactions = async (
     }
   };
 
-  const subscriptionId = await connection.onLogs(
-    publicKey,
-    async (logInfo) => {
-      try {
-        const signature = logInfo.signature;
-        if (!signature) return;
-        if (processedSignatures.has(signature)) return;
-        rememberSignature(signature);
+  let subscriptionId: number;
+  try {
+    subscriptionId = await connection.onLogs(
+      publicKey,
+      async (logInfo) => {
+        try {
+          const signature = logInfo.signature;
+          if (!signature) return;
+          if (processedSignatures.has(signature)) return;
+          rememberSignature(signature);
 
-        const parsedTx = await connection.getParsedTransaction(signature, {
-          maxSupportedTransactionVersion: 0,
-        });
-        if (!parsedTx) return;
+          const parsedTx = await connection.getParsedTransaction(signature, {
+            maxSupportedTransactionVersion: 0,
+          });
+          if (!parsedTx) return;
 
-        const transfer = mapTransactionToTransfer(
-          parsedTx,
-          signature,
-          walletAddress,
-          options.onlySystemTransfers ?? false,
-        );
-        if (transfer) {
-          onTransfer(transfer);
+          const transfer = mapTransactionToTransfer(
+            parsedTx,
+            signature,
+            walletAddress,
+            options.onlySystemTransfers ?? false,
+          );
+          if (transfer) {
+            onTransfer(transfer);
+          }
+        } catch (err) {
+          console.error("[ws/txs] Error handling websocket transaction", err);
         }
-      } catch (err) {
-        console.error("Error handling websocket transaction", err);
-      }
-    },
-    "confirmed",
-  );
+      },
+      "confirmed",
+    );
+  } catch (error) {
+    console.error("[ws/txs] onLogs subscription setup failed", error);
+    throw error;
+  }
 
   return async () => {
-    await connection.removeOnLogsListener(subscriptionId);
+    try {
+      await connection.removeOnLogsListener(subscriptionId);
+    } catch (error) {
+      console.error("[ws/txs] Failed to remove onLogs listener", error);
+    }
   };
 };

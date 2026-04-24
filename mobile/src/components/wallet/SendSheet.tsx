@@ -41,6 +41,7 @@ import {
 } from "@/lib/analytics/analytics";
 import { getSendMethod, SEND_EVENTS } from "@/lib/analytics/send-events";
 import { NATIVE_SOL_MINT, SOLANA_FEE_SOL } from "@/lib/solana/constants";
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import {
@@ -48,6 +49,8 @@ import {
   sendPrivateTransferToWallet,
 } from "@/lib/solana/wallet/private-send";
 import { sendSolTransaction, sendSplTokenTransaction } from "@/lib/solana/wallet/wallet-details";
+import { useSignApproval, withConfirmation } from "@/lib/wallet/sign-approval";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
 const shieldBadge = require("../../../assets/images/shield-badge.png");
@@ -96,6 +99,7 @@ type SendSheetProps = {
   solBalanceLamports: number | null;
   solPriceUsd: number | null;
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint?: TokenDetailsByMint;
   onSendComplete?: () => void;
   initialMint?: string;
 };
@@ -260,9 +264,12 @@ export function SendSheet({
   solBalanceLamports,
   solPriceUsd,
   tokenHoldings,
+  tokenDetailsByMint,
   onSendComplete,
   initialMint,
 }: SendSheetProps) {
+  const { signer } = useWallet();
+  const signApproval = useSignApproval();
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const scanLockRef = useRef(false);
@@ -425,6 +432,19 @@ export function SendSheet({
 
       setSendStage("sending");
 
+      if (!signer) {
+        throw new Error("Wallet signer is not available");
+      }
+      const recipientLabel = isTelegramRecipient
+        ? recipientTrimmed
+        : `${recipientTrimmed.slice(0, 4)}…${recipientTrimmed.slice(-4)}`;
+      const confirmingSigner = withConfirmation(signer, signApproval, {
+        title: `Send ${amountInToken} ${selectedAsset.symbol}`,
+        subtitle: effectivePrivate
+          ? `Private transfer to ${recipientLabel}`
+          : `To ${recipientLabel}`,
+      });
+
       let sig: string;
       if (effectivePrivate) {
         sig = isTelegramRecipient
@@ -433,17 +453,20 @@ export function SendSheet({
               tokenMint: selectedAsset.mint,
               amount: amountInToken,
               decimals: selectedAsset.decimals,
+              signer: confirmingSigner,
             })
           : await sendPrivateTransferToWallet({
               destination: recipientTrimmed,
               tokenMint: selectedAsset.mint,
               amount: amountInToken,
               decimals: selectedAsset.decimals,
+              signer: confirmingSigner,
             });
       } else if (selectedAsset.mint === NATIVE_SOL_MINT) {
         sig = await sendSolTransaction(
           recipientTrimmed,
           Math.floor(amountInToken * LAMPORTS_PER_SOL),
+          confirmingSigner,
         );
       } else {
         sig = await sendSplTokenTransaction(
@@ -451,6 +474,7 @@ export function SendSheet({
           selectedAsset.mint,
           toRawAmount(amountInToken, selectedAsset.decimals),
           selectedAsset.decimals,
+          confirmingSigner,
         );
       }
 
@@ -504,6 +528,8 @@ export function SendSheet({
     amountInToken,
     onSendComplete,
     sendStage,
+    signer,
+    signApproval,
   ]);
 
   const handleClose = useCallback(() => {
@@ -694,12 +720,14 @@ export function SendSheet({
               {showTokenPicker ? (
                 <TokenPicker
                   assets={sendAssets}
+                  tokenDetailsByMint={tokenDetailsByMint}
                   onSelect={handleSelectAsset}
                   onCancel={() => setShowTokenPicker(false)}
                 />
               ) : (
                 <FormStep
                   selectedAsset={selectedAsset}
+                  tokenDetailsByMint={tokenDetailsByMint}
                   onAssetPress={() => setShowTokenPicker(true)}
                   recipient={recipient}
                   onRecipientChange={setRecipient}
@@ -851,6 +879,7 @@ function PrivateSendCard({
 // --- Form Step ---
 function FormStep({
   selectedAsset,
+  tokenDetailsByMint,
   onAssetPress,
   recipient,
   onRecipientChange,
@@ -872,6 +901,7 @@ function FormStep({
   onNext,
 }: {
   selectedAsset: SendAsset | null;
+  tokenDetailsByMint?: TokenDetailsByMint;
   onAssetPress: () => void;
   recipient: string;
   onRecipientChange: (v: string) => void;
@@ -892,9 +922,11 @@ function FormStep({
   isTelegramRecipient: boolean;
   onNext: () => void;
 }) {
+  const selectedAssetMint = selectedAsset?.mint ?? NATIVE_SOL_MINT;
   const assetIcon = resolveTokenIcon({
-    mint: selectedAsset?.mint ?? NATIVE_SOL_MINT,
+    mint: selectedAssetMint,
     imageUrl: selectedAsset?.imageUrl,
+    detailLogoUrl: tokenDetailsByMint?.[selectedAssetMint]?.token.logoUrl,
   });
 
   const [isRecipientFocused, setIsRecipientFocused] = useState(false);
@@ -1304,10 +1336,12 @@ const qrScannerStyles = StyleSheet.create({
 
 function TokenPicker({
   assets,
+  tokenDetailsByMint,
   onSelect,
   onCancel,
 }: {
   assets: SendAsset[];
+  tokenDetailsByMint?: TokenDetailsByMint;
   onSelect: (key: string) => void;
   onCancel: () => void;
 }) {
@@ -1343,7 +1377,11 @@ function TokenPicker({
       </View>
 
       {filteredAssets.map((asset) => {
-        const icon = resolveTokenIcon({ mint: asset.mint, imageUrl: asset.imageUrl });
+        const icon = resolveTokenIcon({
+          mint: asset.mint,
+          imageUrl: asset.imageUrl,
+          detailLogoUrl: tokenDetailsByMint?.[asset.mint]?.token.logoUrl,
+        });
         return (
           <Pressable
             key={asset.key}

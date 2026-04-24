@@ -37,12 +37,12 @@ import {
   type JupiterQuoteResponse,
 } from "@/lib/solana/jupiter";
 import { getConnection, getSolanaEnv } from "@/lib/solana/rpc/connection";
-import {
-  DEFAULT_TOKEN_ICON,
-  KNOWN_TOKEN_ICONS,
-} from "@/lib/solana/token-holdings/constants";
+import { DEFAULT_TOKEN_ICON } from "@/lib/solana/token-holdings/constants";
+import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
-import { getWalletSigner } from "@/lib/solana/wallet/wallet-details";
+import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
+import { useSignApproval, withConfirmation } from "@/lib/wallet/sign-approval";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
 const shieldBadge = require("../../../assets/images/shield-badge.png");
@@ -54,6 +54,7 @@ type SwapSheetProps = {
   onClose: () => void;
   walletAddress: string | null;
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint?: TokenDetailsByMint;
   onSwapComplete?: () => void;
   initialFromMint?: string;
   initialToMint?: string;
@@ -64,8 +65,15 @@ const getDefaultUsdcMint = (): string => {
   return env === "mainnet" ? SOLANA_USDC_MINT_MAINNET : SOLANA_USDC_MINT_DEVNET;
 };
 
-const getTokenIcon = (holding: TokenHolding): string =>
-  KNOWN_TOKEN_ICONS[holding.mint] ?? holding.imageUrl ?? DEFAULT_TOKEN_ICON;
+const getTokenIcon = (
+  holding: TokenHolding,
+  detailLogoUrl?: string | null,
+): string =>
+  resolveTokenIcon({
+    mint: holding.mint,
+    imageUrl: holding.imageUrl,
+    detailLogoUrl,
+  });
 
 function getFriendlyError(raw: string): string {
   const lower = raw.toLowerCase();
@@ -133,10 +141,13 @@ export function SwapSheet({
   onClose,
   walletAddress,
   tokenHoldings,
+  tokenDetailsByMint,
   onSwapComplete,
   initialFromMint,
   initialToMint,
 }: SwapSheetProps) {
+  const { signer } = useWallet();
+  const signApproval = useSignApproval();
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [step, setStep] = useState<SwapStep>("form");
   const [fromMint, setFromMint] = useState(NATIVE_SOL_MINT);
@@ -354,8 +365,12 @@ export function SwapSheet({
 
       const txBuf = Buffer.from(swapTxResponse.swapTransaction, "base64");
       const transaction = VersionedTransaction.deserialize(txBuf);
-      const signer = await getWalletSigner();
-      await signer.signTransaction(transaction);
+      if (!signer) throw new Error("Wallet signer is not available");
+      const confirmingSigner = withConfirmation(signer, signApproval, {
+        title: `Swap ${fromHolding.symbol} → ${toHolding?.symbol ?? "token"}`,
+        subtitle: `${amountNum} ${fromHolding.symbol}`,
+      });
+      await confirmingSigner.signTransaction(transaction);
 
       const connection = getConnection();
       const sig = await connection.sendRawTransaction(transaction.serialize(), {
@@ -413,6 +428,8 @@ export function SwapSheet({
     swapStage,
     toHolding?.mint,
     toHolding?.symbol,
+    signer,
+    signApproval,
   ]);
 
   const handleClose = useCallback(() => {
@@ -515,6 +532,7 @@ export function SwapSheet({
                 <TokenPicker
                   mode="from"
                   tokenHoldings={fromHoldings}
+                  tokenDetailsByMint={tokenDetailsByMint}
                   onSelect={(mint, isSecured) =>
                     selectFromToken(mint, Boolean(isSecured))
                   }
@@ -524,6 +542,7 @@ export function SwapSheet({
                 <TokenPicker
                   mode="to"
                   tokenHoldings={toPickerTokens}
+                  tokenDetailsByMint={tokenDetailsByMint}
                   searchTokens={searchTokens}
                   onSelect={(mint) => selectToToken(mint)}
                   onCancel={() => setShowToPicker(false)}
@@ -532,6 +551,7 @@ export function SwapSheet({
                 <FormStep
                   fromHolding={fromHolding}
                   toHolding={toHolding}
+                  tokenDetailsByMint={tokenDetailsByMint}
                   amountStr={amountStr}
                   onAmountChange={setAmountStr}
                   onPercentage={handlePercentage}
@@ -591,13 +611,15 @@ export function SwapSheet({
 function TokenSelectorButton({
   holding,
   label,
+  detailLogoUrl,
   onPress,
 }: {
   holding: TokenHolding | null;
   label: string;
+  detailLogoUrl?: string | null;
   onPress: () => void;
 }) {
-  const icon = holding ? getTokenIcon(holding) : DEFAULT_TOKEN_ICON;
+  const icon = holding ? getTokenIcon(holding, detailLogoUrl) : DEFAULT_TOKEN_ICON;
   const symbol = holding?.symbol ?? label;
   const isSecured = Boolean(holding?.isSecured);
 
@@ -672,12 +694,14 @@ function popularToHolding(p: PopularToken): TokenHolding {
 function TokenPicker({
   mode,
   tokenHoldings,
+  tokenDetailsByMint,
   searchTokens,
   onSelect,
   onCancel,
 }: {
   mode: "from" | "to";
   tokenHoldings: TokenHolding[];
+  tokenDetailsByMint?: TokenDetailsByMint;
   searchTokens?: (query: string) => Promise<PopularToken[]>;
   onSelect: (mint: string, isSecured?: boolean) => void;
   onCancel: () => void;
@@ -763,7 +787,10 @@ function TokenPicker({
 
       {/* Token list */}
       {displayTokens.map((token) => {
-        const icon = getTokenIcon(token);
+        const icon = getTokenIcon(
+          token,
+          tokenDetailsByMint?.[token.mint]?.token.logoUrl,
+        );
         const isSecured = Boolean(token.isSecured);
         return (
           <Pressable
@@ -840,6 +867,7 @@ function TokenPicker({
 function FormStep({
   fromHolding,
   toHolding,
+  tokenDetailsByMint,
   amountStr,
   onAmountChange,
   onPercentage,
@@ -857,6 +885,7 @@ function FormStep({
 }: {
   fromHolding: TokenHolding | null;
   toHolding: TokenHolding | null;
+  tokenDetailsByMint?: TokenDetailsByMint;
   amountStr: string;
   onAmountChange: (v: string) => void;
   onPercentage: (pct: number) => void;
@@ -897,6 +926,11 @@ function FormStep({
         <TokenSelectorButton
           holding={fromHolding}
           label="Select"
+          detailLogoUrl={
+            fromHolding
+              ? tokenDetailsByMint?.[fromHolding.mint]?.token.logoUrl
+              : undefined
+          }
           onPress={onFromPress}
         />
       </View>
@@ -957,6 +991,11 @@ function FormStep({
         <TokenSelectorButton
           holding={toHolding}
           label="Select"
+          detailLogoUrl={
+            toHolding
+              ? tokenDetailsByMint?.[toHolding.mint]?.token.logoUrl
+              : undefined
+          }
           onPress={onToPress}
         />
       </View>

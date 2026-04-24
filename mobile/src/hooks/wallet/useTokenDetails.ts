@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   fetchTokenDetailMarket,
@@ -57,32 +57,66 @@ export function useTokenDetails(
 
   const [detailsByMint, setDetailsByMint] = useState<TokenDetailsByMint>({});
 
-  useEffect(() => {
-    setDetailsByMint({});
-  }, [resetKey]);
+  // Track mints we've already tried (success or failure) so a persistent
+  // fetch failure doesn't re-fire on every render. Without this, each
+  // setState below produced a new detailsByMint reference, which — if
+  // detailsByMint were in the deps — would re-run the effect forever. We
+  // key the record by `resetKey|mint` so explicit refresh bumps clear it.
+  const attemptedRef = useRef<Set<string>>(new Set());
+
+  // Keep reset synchronous with the fetch effect below so that bumping
+  // `resetKey` (manual pull-to-refresh, network switch) always triggers a
+  // re-fetch. If we split reset into its own effect, the fetch effect's
+  // `mintsKey` dep wouldn't have changed, and the UI would get stuck
+  // showing skeletons against an empty state until `mintsKey` next shifts.
+  const lastResetKeyRef = useRef(resetKey);
 
   useEffect(() => {
+    if (lastResetKeyRef.current !== resetKey) {
+      lastResetKeyRef.current = resetKey;
+      attemptedRef.current = new Set();
+      // Do NOT clear detailsByMint here. Wiping the cache on pull-to-
+      // refresh made every icon fall through to KNOWN_TOKEN_ICONS
+      // (which points at a different CoinGecko size variant), producing
+      // a visible SOL-icon flicker while the refetch was in flight.
+      // Stale data is fine to show until fresh results merge in below.
+    }
+
     if (mintsKey.length === 0) return;
 
     const uniqueMints = mintsKey.split("|");
-    const missing = uniqueMints.filter((mint) => detailsByMint[mint] == null);
+    const missing = uniqueMints.filter(
+      (mint) => !attemptedRef.current.has(mint),
+    );
     if (missing.length === 0) return;
+
+    for (const mint of missing) attemptedRef.current.add(mint);
 
     let cancelled = false;
     void Promise.allSettled(
-      missing.map(async (mint) => ({
-        mint,
-        detail: await fetchTokenDetailWithRetry(mint),
-      })),
+      missing.map(async (mint) => {
+        try {
+          const detail = await fetchTokenDetailWithRetry(mint);
+          return { mint, detail, ok: true as const };
+        } catch (error) {
+          console.error("[token-detail] fetch failed", {
+            mint,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return { mint, ok: false as const };
+        }
+      }),
     ).then((results) => {
       if (cancelled) return;
+      const successes = results.flatMap((r) =>
+        r.status === "fulfilled" && r.value.ok
+          ? [[r.value.mint, r.value.detail] as const]
+          : [],
+      );
+      if (successes.length === 0) return;
       setDetailsByMint((current) => {
         const next = { ...current };
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            next[result.value.mint] = result.value.detail;
-          }
-        }
+        for (const [mint, detail] of successes) next[mint] = detail;
         return next;
       });
     });
@@ -90,7 +124,7 @@ export function useTokenDetails(
     return () => {
       cancelled = true;
     };
-  }, [mintsKey, detailsByMint]);
+  }, [mintsKey, resetKey]);
 
   return detailsByMint;
 }

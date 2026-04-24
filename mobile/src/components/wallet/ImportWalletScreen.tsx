@@ -1,4 +1,5 @@
 import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 import { ArrowLeft } from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
@@ -21,33 +22,83 @@ type Props = {
 };
 
 const HEX_REGEX = /^[0-9a-fA-F]+$/;
-const SECRET_KEY_HEX_LENGTH = 128; // 64 bytes = 128 hex chars
+const SECRET_KEY_BYTES = 64; // Solana ed25519 keypair: 32-byte seed + 32-byte pubkey
+const SECRET_KEY_HEX_LENGTH = SECRET_KEY_BYTES * 2;
 
-function parseHexKey(raw: string): { bytes: Uint8Array | null; error: string | null } {
-  let hex = raw.trim();
-  if (hex.startsWith("0x") || hex.startsWith("0X")) {
-    hex = hex.slice(2);
-  }
-
-  if (hex.length === 0) {
+/**
+ * Accept Solana secret keys in any of the three formats users paste:
+ *   - Base58 (miniapp `bs58.encode(keypair.secretKey)`, Phantom, Solflare).
+ *     The standard 64-byte secret encodes to 87–88 base58 chars.
+ *   - Hex (extension, with optional 0x prefix). Exactly 128 chars.
+ *   - JSON byte array `[n, n, …]` (solana-keygen default). Exactly 64 numbers.
+ *
+ * We detect shape first, then validate length. Returns Uint8Array of length
+ * 64 on success. The error strings are user-facing so they hint at the
+ * accepted formats when input is ambiguous.
+ */
+function parseSecretKey(
+  raw: string,
+): { bytes: Uint8Array | null; error: string | null } {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
     return { bytes: null, error: "Please paste your secret key" };
   }
 
-  if (!HEX_REGEX.test(hex)) {
-    return { bytes: null, error: "Key must contain only hex characters (0-9, a-f)" };
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (!Array.isArray(parsed) || parsed.length !== SECRET_KEY_BYTES) {
+        return {
+          bytes: null,
+          error: `JSON array must contain ${SECRET_KEY_BYTES} bytes (got ${Array.isArray(parsed) ? parsed.length : "non-array"})`,
+        };
+      }
+      const bytes = new Uint8Array(SECRET_KEY_BYTES);
+      for (let i = 0; i < SECRET_KEY_BYTES; i += 1) {
+        const value = parsed[i];
+        if (typeof value !== "number" || value < 0 || value > 255 || !Number.isInteger(value)) {
+          return {
+            bytes: null,
+            error: `Invalid byte at position ${i} (must be integer 0–255)`,
+          };
+        }
+        bytes[i] = value;
+      }
+      return { bytes, error: null };
+    } catch {
+      return { bytes: null, error: "Invalid JSON array" };
+    }
   }
 
-  if (hex.length !== SECRET_KEY_HEX_LENGTH) {
-    return {
-      bytes: null,
-      error: `Key must be ${SECRET_KEY_HEX_LENGTH} hex characters (got ${hex.length})`,
-    };
+  const hex = trimmed.startsWith("0x") || trimmed.startsWith("0X")
+    ? trimmed.slice(2)
+    : trimmed;
+  if (HEX_REGEX.test(hex) && hex.length === SECRET_KEY_HEX_LENGTH) {
+    const bytes = new Uint8Array(SECRET_KEY_BYTES);
+    for (let i = 0; i < SECRET_KEY_BYTES; i += 1) {
+      bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    }
+    return { bytes, error: null };
   }
 
-  const bytes = new Uint8Array(
-    hex.match(/.{1,2}/g)!.map((b) => parseInt(b, 16)),
-  );
-  return { bytes, error: null };
+  try {
+    const decoded = bs58.decode(trimmed);
+    if (decoded.length !== SECRET_KEY_BYTES) {
+      return {
+        bytes: null,
+        error: `Base58 key must decode to ${SECRET_KEY_BYTES} bytes (got ${decoded.length})`,
+      };
+    }
+    return { bytes: new Uint8Array(decoded), error: null };
+  } catch {
+    // fall through to the format-hint error below
+  }
+
+  return {
+    bytes: null,
+    error:
+      "Unrecognized key format. Expected base58, 128-char hex, or JSON byte array.",
+  };
 }
 
 export function ImportWalletScreen({ onComplete }: Props) {
@@ -98,7 +149,7 @@ export function ImportWalletScreen({ onComplete }: Props) {
   }, [step]);
 
   const handleImport = useCallback(async () => {
-    const { bytes, error } = parseHexKey(hexKey);
+    const { bytes, error } = parseSecretKey(hexKey);
     if (error || !bytes) {
       setImportError(error);
       return;
@@ -188,7 +239,7 @@ export function ImportWalletScreen({ onComplete }: Props) {
             <View className="flex-1">
               <Text style={styles.title}>Import Secret Key</Text>
               <Text style={styles.subtitle}>
-                Paste your 128-character hex secret key
+                Paste your secret key — base58, hex, or JSON byte array
               </Text>
               <View className="mt-6">
                 <TextInput
@@ -198,8 +249,8 @@ export function ImportWalletScreen({ onComplete }: Props) {
                     setHexKey(text);
                     setImportError(null);
                   }}
-                  placeholder="Paste hex secret key..."
-                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  placeholder="Paste secret key..."
+                  placeholderTextColor="rgba(0,0,0,0.3)"
                   multiline
                   autoFocus
                   autoCapitalize="none"
@@ -277,8 +328,8 @@ const styles = StyleSheet.create({
   hexInput: {
     fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
     fontSize: 14,
-    color: "#fff",
-    backgroundColor: "rgba(0,0,0,0.9)",
+    color: "#000",
+    backgroundColor: "rgba(0,0,0,0.04)",
     borderRadius: 16,
     padding: 16,
     minHeight: 120,
