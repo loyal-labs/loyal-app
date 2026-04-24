@@ -92,6 +92,7 @@ import { modifyBalanceIx } from "./instructions/modifyBalance";
 import { createPermissionIx } from "./instructions/createPermission";
 import { delegateDepositIx } from "./instructions/delegateDeposit";
 import { undelegateDeposit } from "./actions/undelegateDeposit";
+import { sendAndConfirmWithDiagnostics } from "./transaction-debug";
 import {
   estimatePlannedTransactionFees,
   type FeeEstimateTransactionPlan,
@@ -672,11 +673,16 @@ export class LoyalPrivateTransactionsClient {
     );
 
     const tx = new Transaction().add(ix);
-    return await this.baseProgram.provider.sendAndConfirm!(
+    return await sendAndConfirmWithDiagnostics({
+      label: "initializeDeposit",
+      provider: this.baseProgram.provider,
       tx,
-      [],
-      params.rpcOptions
-    );
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user: params.user,
+        tokenMint: params.tokenMint,
+      },
+    });
   }
 
   async initializeUsernameDeposit(
@@ -694,11 +700,16 @@ export class LoyalPrivateTransactionsClient {
     );
 
     const tx = new Transaction().add(ix);
-    return await this.baseProgram.provider.sendAndConfirm!(
+    return await sendAndConfirmWithDiagnostics({
+      label: "initializeUsernameDeposit",
+      provider: this.baseProgram.provider,
       tx,
-      [],
-      params.rpcOptions
-    );
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username: params.username,
+        tokenMint: params.tokenMint,
+      },
+    });
   }
 
   /**
@@ -717,11 +728,18 @@ export class LoyalPrivateTransactionsClient {
     );
 
     const tx = new Transaction().add(ix);
-    const signature = await this.baseProgram.provider.sendAndConfirm!(
+    const signature = await sendAndConfirmWithDiagnostics({
+      label: "modifyBalance",
+      provider: this.baseProgram.provider,
       tx,
-      [],
-      params.rpcOptions
-    );
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint,
+        amount: params.amount,
+        increase: params.increase,
+      },
+    });
 
     // TODO: add wait
     const deposit = await this.getBaseDeposit(user, tokenMint);
@@ -863,11 +881,16 @@ export class LoyalPrivateTransactionsClient {
     );
 
     const tx = new Transaction().add(ix);
-    return await this.baseProgram.provider.sendAndConfirm!(
+    return await sendAndConfirmWithDiagnostics({
+      label: "createPermission",
+      provider: this.baseProgram.provider,
       tx,
-      [],
-      params.rpcOptions
-    );
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user: params.user,
+        tokenMint: params.tokenMint,
+      },
+    });
   }
 
   /**
@@ -944,11 +967,17 @@ export class LoyalPrivateTransactionsClient {
     let signature: string;
     try {
       const tx = new Transaction().add(ix);
-      signature = await this.baseProgram.provider.sendAndConfirm!(
+      signature = await sendAndConfirmWithDiagnostics({
+        label: "delegateDeposit",
+        provider: this.baseProgram.provider,
         tx,
-        [],
-        params.rpcOptions
-      );
+        rpcOptions: params.rpcOptions,
+        extraContext: {
+          user,
+          tokenMint,
+          depositPda,
+        },
+      });
     } catch (e) {
       await delegationWatcher.cancel();
       throw e;
