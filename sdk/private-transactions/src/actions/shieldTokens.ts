@@ -149,7 +149,7 @@ export async function shieldTokens(params: {
   );
 
   const tx = new Transaction().add(...instructions);
-  let signature;
+  let signature: string;
   try {
     signature = await sendAndConfirmWithDiagnostics({
       label: "shieldTokens",
@@ -169,11 +169,24 @@ export async function shieldTokens(params: {
         permissionAccountInfo,
       },
     });
-    await delegationWatcher.wait();
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
   } catch (e) {
     await delegationWatcher.cancel();
     throw e;
+  }
+
+  // Shield already landed on-chain. Waiting for the deposit PDA to get
+  // re-owned by the delegation program is best-effort from here on —
+  // if it times out or errors, we still return the signature. A hard
+  // throw here surfaced as "Shield failed" in the UI even though the
+  // tx succeeded (ASK-1134).
+  try {
+    await delegationWatcher.wait();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  } catch (err) {
+    console.warn(
+      `[shieldTokens] delegation watcher did not observe owner change (signature=${signature}); continuing`,
+      err,
+    );
   }
 
   return signature;

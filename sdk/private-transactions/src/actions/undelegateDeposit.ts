@@ -36,7 +36,7 @@ export async function undelegateDeposit(
   );
 
   const tx = new Transaction().add(ix);
-  let signature;
+  let signature: string;
   try {
     signature = await sendAndConfirmWithDiagnostics({
       label: "undelegateDeposit",
@@ -49,11 +49,22 @@ export async function undelegateDeposit(
         depositPda,
       },
     });
-    await delegationWatcher.wait();
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
   } catch (e) {
     await delegationWatcher.cancel();
     throw e;
+  }
+
+  // Undelegate already landed on-chain. Ownership-change observation is
+  // best-effort from here: a wait timeout must not surface as an
+  // unshield failure to the caller (ASK-1134).
+  try {
+    await delegationWatcher.wait();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  } catch (err) {
+    console.warn(
+      `[undelegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
+      err,
+    );
   }
 
   return signature;

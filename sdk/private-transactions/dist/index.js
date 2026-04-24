@@ -2897,11 +2897,15 @@ async function undelegateDeposit(baseProgram, perProgram, params) {
         depositPda
       }
     });
-    await delegationWatcher.wait();
-    await new Promise((resolve) => setTimeout(resolve, 3000));
   } catch (e) {
     await delegationWatcher.cancel();
     throw e;
+  }
+  try {
+    await delegationWatcher.wait();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  } catch (err) {
+    console.warn(`[undelegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
   }
   return signature;
 }
@@ -3218,11 +3222,15 @@ class LoyalPrivateTransactionsClient {
     try {
       const tx = new Transaction4().add(ix);
       signature = await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
-      await delegationWatcher.wait();
-      await new Promise((resolve) => setTimeout(resolve, 3000));
     } catch (e) {
       await delegationWatcher.cancel();
       throw e;
+    }
+    try {
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    } catch (err) {
+      console.warn(`[delegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
     }
     return signature;
   }
@@ -3257,12 +3265,16 @@ class LoyalPrivateTransactionsClient {
     try {
       console.log("delegateUsernameDeposit Accounts:", prettyStringify2(accounts));
       signature = await this.baseProgram.methods.delegateUsernameDeposit(usernameHash, tokenMint).accountsPartial(accounts).rpc(rpcOptions);
-      console.log("delegateUsernameDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection...");
-      await delegationWatcher.wait();
-      await new Promise((resolve) => setTimeout(resolve, 3000));
     } catch (e) {
       await delegationWatcher.cancel();
       throw e;
+    }
+    try {
+      console.log("delegateUsernameDeposit: waiting for depositPda owner to be DELEGATION_PROGRAM_ID on base connection...");
+      await delegationWatcher.wait();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    } catch (err) {
+      console.warn(`[delegateUsernameDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
     }
     return signature;
   }
@@ -3781,11 +3793,15 @@ async function shieldTokens(params) {
         permissionAccountInfo
       }
     });
-    await delegationWatcher.wait();
-    await new Promise((resolve) => setTimeout(resolve, 3000));
   } catch (e) {
     await delegationWatcher.cancel();
     throw e;
+  }
+  try {
+    await delegationWatcher.wait();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  } catch (err) {
+    console.warn(`[shieldTokens] delegation watcher did not observe owner change (signature=${signature}); continuing`, err);
   }
   return signature;
 }
