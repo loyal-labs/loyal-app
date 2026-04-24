@@ -167,6 +167,14 @@ export function useShield(): {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<LoyalPrivateTransactionsClientType | null>(null);
+  // Separate client used only for fee previews. Built with a sentinel
+  // auth token so fromConfig skips the "Sign in to the ephemeral
+  // rollup" challenge. Never used to send transactions (writes require
+  // real auth) — only for buildShield/UnshieldTokensTransactionPlan +
+  // estimateShield/UnshieldTokensFee, which are pure reads.
+  const estimateClientRef = useRef<LoyalPrivateTransactionsClientType | null>(
+    null,
+  );
   const perAuthTokenRef = useRef<PerAuthToken | null>(null);
   const labelsRef = useRef<ConfirmLabels | undefined>(undefined);
 
@@ -193,6 +201,7 @@ export function useShield(): {
   const currentPubkey = signer?.publicKey.toBase58();
   if (currentPubkey !== prevPubkey.current) {
     clientRef.current = null;
+    estimateClientRef.current = null;
     perAuthTokenRef.current = currentPubkey
       ? loadCachedPerAuthToken(currentPubkey)
       : null;
@@ -309,6 +318,53 @@ export function useShield(): {
       return client;
     },
     [getPerAuthToken, confirmingSigner, solanaEnv],
+  );
+
+  const getEstimateClient = useCallback(
+    async (): Promise<LoyalPrivateTransactionsClientType> => {
+      // Prefer the fully-authed real client if we already have it (it
+      // can estimate too, and reuses the cached auth token).
+      if (clientRef.current) return clientRef.current;
+      if (estimateClientRef.current) return estimateClientRef.current;
+
+      if (!confirmingSigner) {
+        throw new Error("Wallet signer is not available");
+      }
+
+      const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
+      const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
+
+      // Pass a sentinel token when we don't already have a real one so
+      // fromConfig skips the signMessage challenge. buildShield/Unshield
+      // plans only read from the base connection, and fee estimates are
+      // getLatestBlockhash + getFeeForMessage — both pure reads. If the
+      // TEE endpoint rejects the sentinel on an ephemeral read the
+      // estimate surfaces as null (hidden row), never as a popup.
+      const needsPerAuth = perRpcEndpoint.includes("tee");
+      const realAuth = needsPerAuth ? perAuthTokenRef.current : null;
+      const validRealAuth =
+        realAuth && realAuth.expiresAt > Date.now() + PER_AUTH_REFRESH_WINDOW_MS
+          ? realAuth
+          : null;
+      const authToken =
+        validRealAuth ??
+        (needsPerAuth
+          ? { token: "estimate-only", expiresAt: Date.now() + 60_000 }
+          : undefined);
+
+      const client = await LoyalPrivateTransactionsClient.fromConfig({
+        signer: confirmingSigner,
+        baseRpcEndpoint: rpcEndpoint,
+        baseWsEndpoint: websocketEndpoint,
+        ephemeralRpcEndpoint: perRpcEndpoint,
+        ephemeralWsEndpoint: perWsEndpoint,
+        authToken,
+      });
+
+      estimateClientRef.current = client;
+      return client;
+    },
+    [confirmingSigner, solanaEnv],
   );
 
   const executeShield = useCallback(
@@ -589,24 +645,6 @@ export function useShield(): {
     ): Promise<ShieldFeeEstimate | null> => {
       if (!signer || !confirmingSigner) return null;
 
-      // Guard against triggering the PER auth challenge just to show a
-      // fee preview. Creating the client requires a signed challenge
-      // when no auth token is cached, which would pop a separate
-      // "Sign in to the ephemeral rollup" sheet before the user has
-      // committed to the operation. Skip the preview in that case —
-      // the actual shield/unshield flow will auth on confirm, and
-      // future sessions pick up the persisted token and preview
-      // normally.
-      const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
-      const needsPerAuth = perRpcEndpoint.includes("tee");
-      const authCached =
-        perAuthTokenRef.current &&
-        perAuthTokenRef.current.expiresAt >
-          Date.now() + PER_AUTH_REFRESH_WINDOW_MS;
-      if (needsPerAuth && !authCached && !clientRef.current) {
-        return null;
-      }
-
       const resolvedMint =
         params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
       if (!resolvedMint) return null;
@@ -616,7 +654,11 @@ export function useShield(): {
       if (rawAmount <= BigInt(0)) return null;
 
       try {
-        const client = await getClient();
+        // Use the estimate-only client to avoid triggering PER auth.
+        // If the user has already authed (token persisted in MMKV or
+        // from a prior op this session), getEstimateClient returns the
+        // real client and benefits from the real endpoint.
+        const client = await getEstimateClient();
         const user = signer.publicKey;
         const tokenMint = new PublicKey(resolvedMint);
 
@@ -650,7 +692,7 @@ export function useShield(): {
         return null;
       }
     },
-    [signer, confirmingSigner, getClient, solanaEnv],
+    [signer, confirmingSigner, getEstimateClient],
   );
 
   return { executeShield, executeUnshield, estimateFee, loading, error };
