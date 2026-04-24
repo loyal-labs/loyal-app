@@ -1,5 +1,6 @@
 import {
   type AccountInfo,
+  type Commitment,
   Connection,
   SendTransactionError,
   Transaction,
@@ -261,6 +262,105 @@ export async function logFailedTransactionDiagnostics(params: {
   }
 }
 
+const COMMITMENT_ORDER: Record<string, number> = {
+  processed: 0,
+  confirmed: 1,
+  finalized: 2,
+};
+
+function meetsCommitment(
+  observed: string | null | undefined,
+  required: Commitment,
+): boolean {
+  if (!observed) return false;
+  const o = COMMITMENT_ORDER[observed];
+  const r = COMMITMENT_ORDER[required];
+  return o !== undefined && r !== undefined && o >= r;
+}
+
+/**
+ * Poll `getSignatureStatuses` until the tx lands (success or failure)
+ * or we can prove it was dropped. Never throws on "I haven't observed
+ * a status yet" — that's the bug we're getting away from. Only throws
+ * when the chain tells us the tx failed, or when the blockhash is
+ * past its lastValidBlockHeight AND no status is on record.
+ */
+async function pollForLanding(
+  connection: Connection,
+  signature: string,
+  lastValidBlockHeight: number,
+  commitment: Commitment,
+): Promise<string> {
+  const pollIntervalMs = 1_500;
+  const maxWallClockMs = 90_000;
+  const start = Date.now();
+
+  while (Date.now() - start < maxWallClockMs) {
+    let status: Awaited<
+      ReturnType<Connection["getSignatureStatuses"]>
+    >["value"][number] = null;
+    try {
+      const res = await connection.getSignatureStatuses([signature], {
+        searchTransactionHistory: true,
+      });
+      status = res.value[0];
+    } catch {
+      // transient RPC error — keep polling
+    }
+
+    if (status?.err) {
+      throw new Error(
+        `Transaction failed on-chain: ${JSON.stringify(status.err)}`,
+      );
+    }
+    if (meetsCommitment(status?.confirmationStatus, commitment)) {
+      return signature;
+    }
+
+    // If the blockhash is past its validity window AND no status has
+    // ever been recorded for the signature, the tx is definitively
+    // dropped. Bail early so callers can surface a real error.
+    try {
+      const currentHeight = await connection.getBlockHeight(commitment);
+      if (currentHeight > lastValidBlockHeight && !status) {
+        throw new Error(
+          `Transaction dropped: ${signature} (blockhash expired without landing)`,
+        );
+      }
+    } catch {
+      // ignore height-check errors; fall through to next poll
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(
+    `Transaction confirmation timed out after 90s: ${signature}`,
+  );
+}
+
+/**
+ * Sign, broadcast, and verify a transaction while keeping the
+ * signature in hand across confirmation hiccups.
+ *
+ * The previous implementation delegated to `provider.sendAndConfirm`,
+ * which in turn called `connection.confirmTransaction({signature,
+ * blockhash, lastValidBlockHeight})`. With Seeker / Seed Vault the
+ * user may spend 5–30s between tapping our preview sheet and
+ * biometric-confirming on device; by the time Anchor starts its
+ * confirmation poll, the RPC node's poll window has often lapsed and
+ * `confirmTransaction` throws `TransactionExpiredBlockheightExceeded`
+ * — even though the tx is on chain and has moved funds. Anchor
+ * re-throws and the signature is lost, so callers surface "Shield
+ * failed" on what was actually a success.
+ *
+ * We handle the send + confirm ourselves:
+ *   1. Stamp blockhash + fee payer, sign via the provider's wallet.
+ *   2. Broadcast via `sendRawTransaction` — we now own the signature.
+ *   3. Poll `getSignatureStatuses` until landed / failed / dropped.
+ * This keeps real failures loud while immunizing callers from the
+ * "on-chain but our poll timed out" race.
+ */
 export async function sendAndConfirmWithDiagnostics(params: {
   label: string;
   provider: Provider;
@@ -270,20 +370,79 @@ export async function sendAndConfirmWithDiagnostics(params: {
   extraContext?: Record<string, unknown>;
 }): Promise<string> {
   const { label, provider, tx, signers, rpcOptions, extraContext } = params;
-
-  if (!provider.sendAndConfirm) {
-    throw new Error("Provider does not support sendAndConfirm");
+  const connection = provider.connection;
+  const wallet = provider.wallet;
+  if (!wallet) {
+    throw new Error(`[${label}] Provider has no wallet`);
   }
 
+  // `RpcOptions` only exposes `preflightCommitment`; reuse it as the
+  // confirm commitment. Anchor's default was "processed" for
+  // preflight and "confirmed" for confirm — here we keep them in
+  // lockstep at whatever the caller specified, defaulting to
+  // "confirmed".
+  const preflightCommitment: Commitment =
+    (rpcOptions?.preflightCommitment as Commitment) ?? "confirmed";
+  const confirmCommitment: Commitment = preflightCommitment;
+
+  // Stamp blockhash + feePayer ourselves so we control what gets
+  // signed and what `lastValidBlockHeight` the poller uses.
+  const blockhashInfo = await connection.getLatestBlockhash(preflightCommitment);
+  if (!tx.feePayer) tx.feePayer = wallet.publicKey;
+  tx.recentBlockhash = blockhashInfo.blockhash;
+  tx.lastValidBlockHeight = blockhashInfo.lastValidBlockHeight;
+
+  let signedTx: Transaction;
   try {
-    return await provider.sendAndConfirm(tx, signers, rpcOptions);
+    signedTx = await wallet.signTransaction(tx);
+  } catch (error) {
+    // Signing failure is a real failure (user rejected, signer
+    // hardware error). Don't log full tx diagnostics — they'd be
+    // noise for a user-rejection flow.
+    throw error;
+  }
+  for (const extraSigner of signers ?? []) {
+    signedTx.partialSign(extraSigner);
+  }
+
+  let signature: string;
+  try {
+    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: rpcOptions?.skipPreflight ?? false,
+      preflightCommitment,
+      maxRetries: rpcOptions?.maxRetries ?? 3,
+    });
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
-      connection: provider.connection,
-      tx,
+      connection,
+      tx: signedTx,
       error,
       extraContext,
+    }).catch((debugError) => {
+      console.error(`[${label}] failed to log transaction diagnostics`, {
+        errorName: (debugError as { name?: string })?.name ?? "UnknownError",
+        errorMessage:
+          (debugError as { message?: string })?.message ?? String(debugError),
+      });
+    });
+    throw error;
+  }
+
+  try {
+    return await pollForLanding(
+      connection,
+      signature,
+      blockhashInfo.lastValidBlockHeight,
+      confirmCommitment,
+    );
+  } catch (error) {
+    await logFailedTransactionDiagnostics({
+      label,
+      connection,
+      tx: signedTx,
+      error,
+      extraContext: { ...extraContext, signature },
     }).catch((debugError) => {
       console.error(`[${label}] failed to log transaction diagnostics`, {
         errorName: (debugError as { name?: string })?.name ?? "UnknownError",
