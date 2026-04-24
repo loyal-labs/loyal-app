@@ -79,6 +79,17 @@ export interface EstimateShieldTokensFeeParams
 export interface EstimateUnshieldTokensFeeParams
   extends EstimateShieldFlowFeeParams {}
 
+export interface ExecuteShieldFlowTransactionPlanParams {
+  plan: ShieldFlowPlan;
+  rpcOptions?: RpcOptions;
+}
+
+export interface ExecuteShieldTokensTransactionPlanParams
+  extends ExecuteShieldFlowTransactionPlanParams {}
+
+export interface ExecuteUnshieldTokensTransactionPlanParams
+  extends ExecuteShieldFlowTransactionPlanParams {}
+
 export interface ShieldTokensClientParams {
   user: PublicKey;
   tokenMint: PublicKey;
@@ -117,10 +128,18 @@ export interface ShieldFlowInstructionPlan {
   rentLamports?: number;
 }
 
+export interface ShieldFlowOwnerChangeWait {
+  address: PublicKey;
+  owner: PublicKey;
+  bestEffort?: boolean;
+}
+
 export interface ShieldFlowTransactionPlan {
   label: string;
   cluster: FeeEstimateCluster;
   instructions: ShieldFlowInstructionPlan[];
+  checks?: InstructionCheck[];
+  postSendOwnerChange?: ShieldFlowOwnerChangeWait;
 }
 
 export interface ShieldFlowPlan {
@@ -157,6 +176,22 @@ export interface ShieldFlowFeeEstimate {
   transactions: ShieldFlowTransactionFeeEstimate[];
   instructions: InstructionCostEstimate[];
   note: string;
+}
+
+export interface ShieldFlowTransactionExecutionResult {
+  index: number;
+  label: string;
+  cluster: FeeEstimateCluster;
+  signature: string;
+}
+
+export interface ShieldFlowExecutionResult {
+  kind: ShieldFlowKind;
+  user: PublicKey;
+  payer: PublicKey;
+  tokenMint: PublicKey;
+  amount: bigint;
+  signatures: ShieldFlowTransactionExecutionResult[];
 }
 
 /**

@@ -107,6 +107,8 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
 - `buildShieldTokensTransactionPlan` / `buildUnshieldTokensTransactionPlan` — explicit shield/unshield plan builders
 - `estimateShieldFlowFee` — estimate transaction-level network fees plus instruction-attributed rent from an existing plan
 - `estimateShieldTokensFee` / `estimateUnshieldTokensFee` — explicit shield/unshield estimators for an existing plan
+- `executeShieldFlowTransactionPlan` — send the exact transactions from an existing plan in order
+- `executeShieldTokensTransactionPlan` / `executeUnshieldTokensTransactionPlan` — explicit shield/unshield executors for an existing plan
 - `initializeDeposit` — create deposit account (no-op if exists)
 - `modifyBalance` — deposit (`increase: true`) or withdraw (`increase: false`) real tokens
 - `createPermission` — set up PER access control (idempotent)
@@ -117,7 +119,10 @@ messages. Instruction rows report `rentLamports` for new accounts that the SDK
 expects to create; network fees are not attributed per instruction because
 Solana charges them at the transaction/message level. Build the plan once and
 pass the same plan into the estimator so the estimate is tied to the exact
-instructions your app is about to inspect or send.
+instructions your app is about to inspect or send. To execute that exact plan,
+pass it to the matching `execute*TransactionPlan` method; it will send any
+pre-undelegate transaction first, wait for the required owner transition when
+the plan includes one, then send the base transaction.
 
 ```ts
 const shieldPlan = await client.buildShieldTokensTransactionPlan({
@@ -140,6 +145,17 @@ const unshieldEstimate = await client.estimateUnshieldTokensFee({
 
 console.log(shieldEstimate.totalLamports);
 console.log(unshieldEstimate.totalLamports);
+
+const shieldResult = await client.executeShieldTokensTransactionPlan({
+  plan: shieldPlan,
+});
+
+const unshieldResult = await client.executeUnshieldTokensTransactionPlan({
+  plan: unshieldPlan,
+});
+
+console.log(shieldResult.signatures);
+console.log(unshieldResult.signatures);
 ```
 
 ### Private Transfers (on PER)
