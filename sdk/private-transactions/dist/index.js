@@ -3688,7 +3688,9 @@ function toShieldFlowTransactionPlan(plan) {
   return {
     label: plan.label,
     cluster: plan.cluster,
-    instructions: plan.instructions
+    instructions: plan.instructions,
+    checks: plan.checks,
+    postSendOwnerChange: plan.postSendOwnerChange
   };
 }
 async function fetchKaminoReserveMetrics(args) {
@@ -3886,9 +3888,23 @@ class LoyalPrivateTransactionsClient {
         magicContext
       });
       if (shieldPlan.preUndelegateTransaction) {
-        transactions.push(toShieldFlowTransactionPlan(shieldPlan.preUndelegateTransaction));
+        transactions.push(toShieldFlowTransactionPlan({
+          ...shieldPlan.preUndelegateTransaction,
+          postSendOwnerChange: {
+            address: shieldPlan.context.depositPda,
+            owner: PROGRAM_ID,
+            bestEffort: true
+          }
+        }));
       }
-      transactions.push(toShieldFlowTransactionPlan(shieldPlan.baseTransaction));
+      transactions.push(toShieldFlowTransactionPlan({
+        ...shieldPlan.baseTransaction,
+        postSendOwnerChange: {
+          address: shieldPlan.context.depositPda,
+          owner: DELEGATION_PROGRAM_ID,
+          bestEffort: true
+        }
+      }));
     } else {
       const unshieldPlan = await buildUnshieldTokensTransactionPlan({
         user: params.user,
@@ -3903,9 +3919,23 @@ class LoyalPrivateTransactionsClient {
         magicContext
       });
       if (unshieldPlan.preUndelegateTransaction) {
-        transactions.push(toShieldFlowTransactionPlan(unshieldPlan.preUndelegateTransaction));
+        transactions.push(toShieldFlowTransactionPlan({
+          ...unshieldPlan.preUndelegateTransaction,
+          postSendOwnerChange: {
+            address: unshieldPlan.context.depositPda,
+            owner: PROGRAM_ID,
+            bestEffort: true
+          }
+        }));
       }
-      transactions.push(toShieldFlowTransactionPlan(unshieldPlan.baseTransaction));
+      transactions.push(toShieldFlowTransactionPlan({
+        ...unshieldPlan.baseTransaction,
+        postSendOwnerChange: unshieldPlan.shouldRedelegate ? {
+          address: unshieldPlan.context.depositPda,
+          owner: DELEGATION_PROGRAM_ID,
+          bestEffort: true
+        } : undefined
+      }));
     }
     return {
       kind: params.kind,
@@ -3968,6 +3998,81 @@ class LoyalPrivateTransactionsClient {
       throw new Error("estimateUnshieldTokensFee expected an unshield plan");
     }
     return this.estimateShieldFlowFee(params);
+  }
+  async executeShieldFlowTransactionPlan(params) {
+    if (params.plan.transactions.length === 0) {
+      throw new Error("Cannot execute an empty shield flow plan");
+    }
+    const signatures = [];
+    for (let transactionIndex = 0;transactionIndex < params.plan.transactions.length; transactionIndex += 1) {
+      const transactionPlan = params.plan.transactions[transactionIndex];
+      if (transactionPlan.instructions.length === 0) {
+        throw new Error(`Cannot execute empty transaction plan: ${transactionPlan.label}`);
+      }
+      await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, transactionPlan.checks ?? []);
+      const ownerChangeWatcher = transactionPlan.postSendOwnerChange ? waitForAccountOwnerChange2(this.baseProgram.provider.connection, transactionPlan.postSendOwnerChange.address, transactionPlan.postSendOwnerChange.owner) : null;
+      const provider = transactionPlan.cluster === "base" ? this.baseProgram.provider : this.ephemeralProgram.provider;
+      const tx = new Transaction7().add(...transactionPlan.instructions.map(({ ix }) => ix));
+      let signature;
+      try {
+        signature = await sendAndConfirmWithDiagnostics({
+          label: transactionPlan.label,
+          provider,
+          tx,
+          rpcOptions: params.rpcOptions,
+          extraContext: {
+            kind: params.plan.kind,
+            user: params.plan.user,
+            payer: params.plan.payer,
+            tokenMint: params.plan.tokenMint,
+            amount: params.plan.amount,
+            transactionIndex,
+            cluster: transactionPlan.cluster,
+            postSendOwnerChange: transactionPlan.postSendOwnerChange
+          }
+        });
+      } catch (e) {
+        await ownerChangeWatcher?.cancel();
+        throw e;
+      }
+      if (ownerChangeWatcher) {
+        try {
+          await ownerChangeWatcher.wait();
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        } catch (err) {
+          if (!transactionPlan.postSendOwnerChange?.bestEffort) {
+            throw err;
+          }
+          console.warn(`[${transactionPlan.label}] owner-change watcher did not observe expected owner (signature=${signature}); continuing`, err);
+        }
+      }
+      signatures.push({
+        index: transactionIndex,
+        label: transactionPlan.label,
+        cluster: transactionPlan.cluster,
+        signature
+      });
+    }
+    return {
+      kind: params.plan.kind,
+      user: params.plan.user,
+      payer: params.plan.payer,
+      tokenMint: params.plan.tokenMint,
+      amount: params.plan.amount,
+      signatures
+    };
+  }
+  async executeShieldTokensTransactionPlan(params) {
+    if (params.plan.kind !== "shield") {
+      throw new Error("executeShieldTokensTransactionPlan expected a shield plan");
+    }
+    return this.executeShieldFlowTransactionPlan(params);
+  }
+  async executeUnshieldTokensTransactionPlan(params) {
+    if (params.plan.kind !== "unshield") {
+      throw new Error("executeUnshieldTokensTransactionPlan expected an unshield plan");
+    }
+    return this.executeShieldFlowTransactionPlan(params);
   }
   async initializeDeposit(params) {
     const { ix, ensure } = await initializeDepositIx(this.baseProgram, params);
