@@ -3186,20 +3186,49 @@ class LoyalPrivateTransactionsClient {
     const { ix, ensure } = await initializeDepositIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const tx = new Transaction4().add(ix);
-    return await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
+    return await sendAndConfirmWithDiagnostics({
+      label: "initializeDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user: params.user,
+        tokenMint: params.tokenMint
+      }
+    });
   }
   async initializeUsernameDeposit(params) {
     const { ix, ensure } = await initializeUsernameDepositIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const tx = new Transaction4().add(ix);
-    return await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
+    return await sendAndConfirmWithDiagnostics({
+      label: "initializeUsernameDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username: params.username,
+        tokenMint: params.tokenMint
+      }
+    });
   }
   async modifyBalance(params) {
     const { user, tokenMint } = params;
     const { ix, ensure } = await modifyBalanceIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const tx = new Transaction4().add(ix);
-    const signature = await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
+    const signature = await sendAndConfirmWithDiagnostics({
+      label: "modifyBalance",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint,
+        amount: params.amount,
+        increase: params.increase
+      }
+    });
     const deposit = await this.getBaseDeposit(user, tokenMint);
     if (!deposit) {
       throw new Error("Failed to fetch deposit after modification");
@@ -3273,7 +3302,16 @@ class LoyalPrivateTransactionsClient {
     const { ix, ensure } = await createPermissionIx(this.baseProgram, params);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const tx = new Transaction4().add(ix);
-    return await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
+    return await sendAndConfirmWithDiagnostics({
+      label: "createPermission",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user: params.user,
+        tokenMint: params.tokenMint
+      }
+    });
   }
   async createUsernamePermission(params) {
     const { username, tokenMint, session, authority, payer, rpcOptions } = params;
@@ -3311,7 +3349,17 @@ class LoyalPrivateTransactionsClient {
     let signature;
     try {
       const tx = new Transaction4().add(ix);
-      signature = await this.baseProgram.provider.sendAndConfirm(tx, [], params.rpcOptions);
+      signature = await sendAndConfirmWithDiagnostics({
+        label: "delegateDeposit",
+        provider: this.baseProgram.provider,
+        tx,
+        rpcOptions: params.rpcOptions,
+        extraContext: {
+          user,
+          tokenMint,
+          depositPda
+        }
+      });
     } catch (e) {
       await delegationWatcher.cancel();
       throw e;
