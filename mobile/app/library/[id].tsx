@@ -1,21 +1,28 @@
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { ActivityIndicator, StyleSheet, useWindowDimensions } from "react-native";
 import Markdown from "react-native-markdown-display";
 
 import {
   findLibraryArticleById,
+  findLibrarySiblings,
   LIBRARY_IMAGE_ASPECT,
+  type LibraryArticle,
   useLibraryContent,
 } from "@/features/library/content";
-import { ScrollView, Text, View } from "@/tw";
+import { Pressable, ScrollView, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
 export default function LibraryArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { content, isLoading, error } = useLibraryContent();
   const { width } = useWindowDimensions();
+  const router = useRouter();
 
   const article = id ? findLibraryArticleById(content, id) : undefined;
+  const siblings = id
+    ? findLibrarySiblings(content, id)
+    : { section: null, previous: null, next: null };
   const coverHeight = Math.round(width / LIBRARY_IMAGE_ASPECT);
 
   if (isLoading && !article) {
@@ -61,13 +68,130 @@ export default function LibraryArticleScreen() {
           accessibilityLabel={article.title}
         />
         <View style={styles.body}>
-          <Text style={styles.readTime}>{article.readTime}</Text>
           <Markdown style={markdownStyles}>{article.contentMarkdown}</Markdown>
         </View>
+        {siblings.section && (siblings.previous || siblings.next) ? (
+          <SiblingNav
+            sectionTitle={siblings.section.title}
+            previous={siblings.previous}
+            next={siblings.next}
+            onNavigate={(nextId) => router.replace(`/library/${nextId}`)}
+          />
+        ) : null}
       </ScrollView>
     </>
   );
 }
+
+function SiblingNav({
+  sectionTitle,
+  previous,
+  next,
+  onNavigate,
+}: {
+  sectionTitle: string;
+  previous: LibraryArticle | null;
+  next: LibraryArticle | null;
+  onNavigate: (id: string) => void;
+}) {
+  return (
+    <View style={siblingStyles.container}>
+      <Text style={siblingStyles.sectionLabel}>More in {sectionTitle}</Text>
+      {previous ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Previous article: ${previous.title}`}
+          onPress={() => onNavigate(previous.id)}
+          style={({ pressed }) => [
+            siblingStyles.card,
+            pressed && siblingStyles.cardPressed,
+          ]}
+        >
+          <ChevronLeft size={20} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+          <View style={siblingStyles.cardText}>
+            <Text style={siblingStyles.direction}>Previous</Text>
+            <Text style={siblingStyles.title} numberOfLines={2}>
+              {previous.title}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+      {next ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Next article: ${next.title}`}
+          onPress={() => onNavigate(next.id)}
+          style={({ pressed }) => [
+            siblingStyles.card,
+            pressed && siblingStyles.cardPressed,
+          ]}
+        >
+          <View style={siblingStyles.cardText}>
+            <Text style={[siblingStyles.direction, siblingStyles.alignRight]}>
+              Next
+            </Text>
+            <Text
+              style={[siblingStyles.title, siblingStyles.alignRight]}
+              numberOfLines={2}
+            >
+              {next.title}
+            </Text>
+          </View>
+          <ChevronRight size={20} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+const siblingStyles = StyleSheet.create({
+  container: {
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 28,
+  },
+  sectionLabel: {
+    color: "rgba(60,60,67,0.6)",
+    fontFamily: "Geist_500Medium",
+    fontSize: 13,
+    letterSpacing: -0.08,
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  card: {
+    alignItems: "center",
+    backgroundColor: "#F5F5F7",
+    borderRadius: 16,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  cardPressed: {
+    backgroundColor: "#ECECEF",
+  },
+  cardText: {
+    flex: 1,
+    gap: 2,
+  },
+  direction: {
+    color: "rgba(60,60,67,0.6)",
+    fontFamily: "Geist_500Medium",
+    fontSize: 12,
+    letterSpacing: -0.05,
+    textTransform: "uppercase",
+  },
+  title: {
+    color: "#000",
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 15,
+    letterSpacing: -0.15,
+    lineHeight: 20,
+  },
+  alignRight: {
+    textAlign: "right",
+  },
+});
 
 const styles = StyleSheet.create({
   contentContainer: {
@@ -81,13 +205,6 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 20,
     paddingTop: 20,
-  },
-  readTime: {
-    color: "rgba(60,60,67,0.6)",
-    fontFamily: "Geist_500Medium",
-    fontSize: 13,
-    letterSpacing: -0.1,
-    textTransform: "uppercase",
   },
   missingTitle: {
     color: "#000",

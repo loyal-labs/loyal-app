@@ -768,10 +768,29 @@ function TokenDetailBody({
       <View className="overflow-hidden rounded-[32px]" style={PRICE_CARD_STYLE}>
         <View className="px-5 pb-2 pt-6">
           <View className="flex-row items-center">
-            <Image
-              source={viewModel.token.icon}
-              style={{ width: 56, height: 56, borderRadius: 28 }}
-            />
+            {/*
+              Hold off rendering the hero icon until the token detail
+              endpoint has resolved. Otherwise we paint the Helius
+              imageUrl first and swap to the market logoUrl once the
+              request finishes — a visible flash on SOL where the two
+              URLs diverge. Match the "other tokens" behavior: show a
+              neutral placeholder while the icon source is unknown.
+            */}
+            {loading && !viewModel.market ? (
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: "rgba(0,0,0,0.04)",
+                }}
+              />
+            ) : (
+              <Image
+                source={viewModel.token.icon}
+                style={{ width: 56, height: 56, borderRadius: 28 }}
+              />
+            )}
             <View className="ml-4 flex-1">
               <Text className="text-[26px] font-semibold text-black">
                 {viewModel.token.name}

@@ -183,11 +183,15 @@ export function ShieldSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Re-estimate the network fee whenever the user enters the confirm step
-  // or changes the amount/asset while on it. Fee preview is informational;
-  // failures here never block confirm.
+  // Kick off the fee estimate as soon as the user has a valid amount, not
+  // after they transition to the confirm step. This way the fee is
+  // usually already resolved by the time they reach confirm, and the
+  // estimate survives across form ↔ confirm ↔ result transitions (so a
+  // denied approval doesn't leave confirm showing "—" on return). The
+  // estimate is only invalidated when the sheet closes or when the
+  // asset/amount/direction changes.
   useEffect(() => {
-    if (step !== "confirm" || !selectedAsset || amountNum <= 0) {
+    if (!open || !selectedAsset || !isValidAmount) {
       setFeeEstimate(null);
       setIsEstimatingFee(false);
       return;
@@ -195,25 +199,33 @@ export function ShieldSheet({
     const requestId = ++feeRequestId.current;
     setIsEstimatingFee(true);
     setFeeEstimate(null);
-    estimateFee({
-      direction,
-      tokenSymbol: selectedAsset.symbol,
-      amount: amountNum,
-      tokenMint: selectedAsset.mint,
-      tokenDecimals: selectedAsset.decimals,
-    })
-      .then((estimate) => {
-        if (feeRequestId.current !== requestId) return;
-        setFeeEstimate(estimate);
-        setIsEstimatingFee(false);
+    // Debounce rapid amount typing so we don't thrash the RPC while the
+    // user is still entering digits.
+    const timer = setTimeout(() => {
+      estimateFee({
+        direction,
+        tokenSymbol: selectedAsset.symbol,
+        amount: amountNum,
+        tokenMint: selectedAsset.mint,
+        tokenDecimals: selectedAsset.decimals,
       })
-      .catch(() => {
-        if (feeRequestId.current !== requestId) return;
-        setFeeEstimate(null);
-        setIsEstimatingFee(false);
-      });
+        .then((estimate) => {
+          if (feeRequestId.current !== requestId) return;
+          setFeeEstimate(estimate);
+          setIsEstimatingFee(false);
+        })
+        .catch(() => {
+          if (feeRequestId.current !== requestId) return;
+          setFeeEstimate(null);
+          setIsEstimatingFee(false);
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [
-    step,
+    open,
+    isValidAmount,
     selectedAsset,
     amountNum,
     direction,

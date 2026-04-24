@@ -133,3 +133,43 @@ export function findLibraryArticleById(
   }
   return undefined;
 }
+
+export type LibrarySiblingArticles = {
+  section: LibrarySection | null;
+  previous: LibraryArticle | null;
+  next: LibraryArticle | null;
+};
+
+/**
+ * For a given article, resolve its section and the neighboring articles
+ * (in `displayOrder` as served by the API). Returns nulls when there is
+ * no matching section or when the article is at a boundary. Featured-only
+ * articles (not attached to any section) return `section: null`.
+ */
+export function findLibrarySiblings(
+  content: LibraryContent,
+  id: string,
+): LibrarySiblingArticles {
+  const section =
+    content.sections.find((candidate) =>
+      candidate.articles.some((article) => article.id === id),
+    ) ?? null;
+
+  if (!section) {
+    return { section: null, previous: null, next: null };
+  }
+
+  const index = section.articles.findIndex((article) => article.id === id);
+  if (index < 0) {
+    return { section, previous: null, next: null };
+  }
+
+  return {
+    section,
+    previous: index > 0 ? section.articles[index - 1] ?? null : null,
+    next:
+      index < section.articles.length - 1
+        ? section.articles[index + 1] ?? null
+        : null,
+  };
+}
