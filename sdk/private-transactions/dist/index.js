@@ -2850,20 +2850,100 @@ async function logFailedTransactionDiagnostics(params) {
     }));
   }
 }
+var COMMITMENT_ORDER = {
+  processed: 0,
+  confirmed: 1,
+  finalized: 2
+};
+function meetsCommitment(observed, required) {
+  if (!observed)
+    return false;
+  const o = COMMITMENT_ORDER[observed];
+  const r = COMMITMENT_ORDER[required];
+  return o !== undefined && r !== undefined && o >= r;
+}
+async function pollForLanding(connection, signature, lastValidBlockHeight, commitment) {
+  const pollIntervalMs = 1500;
+  const maxWallClockMs = 90000;
+  const start = Date.now();
+  while (Date.now() - start < maxWallClockMs) {
+    let status = null;
+    try {
+      const res = await connection.getSignatureStatuses([signature], {
+        searchTransactionHistory: true
+      });
+      status = res.value[0];
+    } catch {}
+    if (status?.err) {
+      throw new Error(`Transaction failed on-chain: ${JSON.stringify(status.err)}`);
+    }
+    if (meetsCommitment(status?.confirmationStatus, commitment)) {
+      return signature;
+    }
+    try {
+      const currentHeight = await connection.getBlockHeight(commitment);
+      if (currentHeight > lastValidBlockHeight && !status) {
+        throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
+      }
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+  throw new Error(`Transaction confirmation timed out after 90s: ${signature}`);
+}
 async function sendAndConfirmWithDiagnostics(params) {
   const { label, provider, tx, signers, rpcOptions, extraContext } = params;
-  if (!provider.sendAndConfirm) {
-    throw new Error("Provider does not support sendAndConfirm");
+  const connection = provider.connection;
+  const wallet = provider.wallet;
+  if (!wallet) {
+    throw new Error(`[${label}] Provider has no wallet`);
   }
+  const preflightCommitment = rpcOptions?.preflightCommitment ?? "confirmed";
+  const confirmCommitment = preflightCommitment;
+  const blockhashInfo = await connection.getLatestBlockhash(preflightCommitment);
+  if (!tx.feePayer)
+    tx.feePayer = wallet.publicKey;
+  tx.recentBlockhash = blockhashInfo.blockhash;
+  tx.lastValidBlockHeight = blockhashInfo.lastValidBlockHeight;
+  let signedTx;
   try {
-    return await provider.sendAndConfirm(tx, signers, rpcOptions);
+    signedTx = await wallet.signTransaction(tx);
+  } catch (error) {
+    throw error;
+  }
+  for (const extraSigner of signers ?? []) {
+    signedTx.partialSign(extraSigner);
+  }
+  let signature;
+  try {
+    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: rpcOptions?.skipPreflight ?? false,
+      preflightCommitment,
+      maxRetries: rpcOptions?.maxRetries ?? 3
+    });
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
-      connection: provider.connection,
-      tx,
+      connection,
+      tx: signedTx,
       error,
       extraContext
+    }).catch((debugError) => {
+      console.error(`[${label}] failed to log transaction diagnostics`, {
+        errorName: debugError?.name ?? "UnknownError",
+        errorMessage: debugError?.message ?? String(debugError)
+      });
+    });
+    throw error;
+  }
+  try {
+    return await pollForLanding(connection, signature, blockhashInfo.lastValidBlockHeight, confirmCommitment);
+  } catch (error) {
+    await logFailedTransactionDiagnostics({
+      label,
+      connection,
+      tx: signedTx,
+      error,
+      extraContext: { ...extraContext, signature }
     }).catch((debugError) => {
       console.error(`[${label}] failed to log transaction diagnostics`, {
         errorName: debugError?.name ?? "UnknownError",
