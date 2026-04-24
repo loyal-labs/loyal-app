@@ -612,9 +612,21 @@ const mapTransactionToTransfer = (
     return null;
   };
 
-  const decodedInstruction = allInstructionsWithData
+  const decodedInstructions = allInstructionsWithData
     .map((ix) => decodeInstructionData(ix.data))
-    .find((decoded) => decoded !== null);
+    .filter(
+      (decoded): decoded is NonNullable<typeof decoded> => decoded !== null,
+    );
+
+  // First shield for a given mint bundles initialize_deposit +
+  // modify_balance + create_permission + delegate_deposit into one tx.
+  // A plain .find() returned `initialize_deposit`, which is not a
+  // shield/unshield type — the UI then rendered the tx as a generic
+  // "SOL Sent" row. `modify_balance` is the canonical shield/unshield
+  // marker; when present it must win regardless of instruction order.
+  const decodedInstruction =
+    decodedInstructions.find((decoded) => decoded.name === "modify_balance") ??
+    decodedInstructions[0];
 
   const decodedType = decodedInstruction?.name;
 
