@@ -147,7 +147,7 @@ export function LandingHero() {
           >
             <div className="flex flex-col items-center justify-center gap-6">
               <HeroButton
-                href="#get-started"
+                href="#get-started-extension"
                 iconSrc="/landing/figma/extension-icon.svg"
                 tone="muted"
               >
@@ -157,7 +157,7 @@ export function LandingHero() {
                 Open web app
               </HeroButton>
               <HeroButton
-                href="#get-started"
+                href="#get-started-mobile"
                 iconSrc="/landing/figma/mobile-icon.svg"
                 tone="muted"
               >
