@@ -58,17 +58,17 @@ export function LandingBlog() {
 
   return (
     <section
-      className="flex w-full justify-center bg-white px-6 py-24"
+      className="flex w-full justify-center bg-white px-4 py-12 lg:px-6 lg:py-24"
       id="blog"
     >
-      <div className="w-full max-w-[1560px]">
+      <div className="w-full max-w-[560px] lg:max-w-[1560px]">
         <div className="pb-12" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">
             Latest from our team
           </h2>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-3">
           {isLoading
             ? SKELETON_KEYS.map((key, index) => (
                 <article

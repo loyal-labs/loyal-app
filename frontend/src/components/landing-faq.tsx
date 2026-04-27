@@ -51,11 +51,11 @@ export function LandingFaq() {
 
   return (
     <section
-      className="flex w-full justify-center bg-white px-6 py-24"
+      className="flex w-full justify-center bg-white px-4 py-12 lg:px-6 lg:py-24"
       id="faq"
     >
-      <div className="grid w-full max-w-[1560px] gap-10 md:grid-cols-2 md:gap-6">
-        <div className="pb-12 md:pb-0" data-reveal="left">
+      <div className="grid w-full max-w-[560px] gap-10 lg:max-w-[1560px] lg:grid-cols-2 lg:gap-6">
+        <div className="pb-12 lg:pb-0" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">
             Questions?
             <br />

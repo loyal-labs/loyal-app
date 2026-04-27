@@ -72,7 +72,7 @@ export function LandingRoadmap() {
   return (
     <section className="w-full bg-white py-24" id="roadmap">
       <div>
-        <div className="mx-auto flex max-w-[1560px] items-center justify-between gap-6 px-6 pb-12">
+        <div className="mx-auto flex max-w-[560px] items-center justify-between gap-6 px-4 pb-12 lg:max-w-[1560px] lg:px-6">
           <h2
             className="text-[48px] font-semibold leading-[48px] text-black"
             data-reveal="left"
@@ -118,10 +118,10 @@ export function LandingRoadmap() {
           data-reveal="lift"
           data-reveal-delay="1"
         >
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 hidden w-20 bg-gradient-to-r from-[#f5f5f5] to-transparent md:block" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-20 bg-gradient-to-l from-[#f5f5f5] to-transparent md:block" />
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 hidden w-20 bg-gradient-to-r from-[#f5f5f5] to-transparent lg:block" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-20 bg-gradient-to-l from-[#f5f5f5] to-transparent lg:block" />
 
-          <article className="m-4 flex h-[calc(100%-32px)] w-[calc(100%-32px)] flex-col rounded-[24px] bg-white p-5 md:hidden">
+          <article className="mx-auto my-4 flex h-[calc(100%-32px)] w-[calc(100%-32px)] max-w-[528px] flex-col rounded-[24px] bg-white p-5 lg:hidden">
             <div>
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -164,7 +164,7 @@ export function LandingRoadmap() {
           </article>
 
           <div
-            className="absolute left-1/2 hidden h-full items-center gap-6 transition-transform duration-500 ease-out md:flex"
+            className="absolute left-1/2 hidden h-full items-center gap-6 transition-transform duration-500 ease-out lg:flex"
             style={{
               transform: `translateX(-${
                 currentIndex * (CARD_WIDTH + CARD_GAP) + CARD_WIDTH / 2

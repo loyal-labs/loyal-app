@@ -163,6 +163,11 @@
 }
 
 @layer utilities {
+  main > section[id],
+  main > footer[id] {
+    scroll-margin-top: 68px;
+  }
+
   [data-reveal] {
     --reveal-x: 0px;
     --reveal-y: 28px;

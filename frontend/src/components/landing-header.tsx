@@ -14,10 +14,12 @@ const navLinks = [
 
 const neutralPupilOffset = 49 - 61.3298;
 const randomBlinkDelay = () => 2600 + Math.random() * 5200;
+const stickyRevealOffset = 68;
 
 export function LandingHeader() {
   const [eyeOffset, setEyeOffset] = useState(0);
   const [isBlinking, setIsBlinking] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isStickyVisible, setIsStickyVisible] = useState(false);
 
   useEffect(() => {
@@ -92,34 +94,49 @@ export function LandingHeader() {
     }
 
     const updateStickyVisibility = () => {
-      setIsStickyVisible(heroSection.getBoundingClientRect().bottom <= 0);
+      setIsStickyVisible(
+        heroSection.getBoundingClientRect().bottom <= stickyRevealOffset
+      );
     };
 
-    const observer = new IntersectionObserver(([entry]) => {
-      setIsStickyVisible(
-        !entry.isIntersecting && entry.boundingClientRect.bottom <= 0
-      );
-    });
-
     updateStickyVisibility();
-    observer.observe(heroSection);
     window.addEventListener("scroll", updateStickyVisibility, {
       passive: true,
     });
+    window.addEventListener("resize", updateStickyVisibility);
 
     return () => {
-      observer.disconnect();
       window.removeEventListener("scroll", updateStickyVisibility);
+      window.removeEventListener("resize", updateStickyVisibility);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isMenuOpen]);
 
   return (
     <>
       <header className="flex w-full justify-center bg-[#f9363c]">
         <HeaderContent
           eyeOffset={eyeOffset}
+          isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
           maskId="landing-header-eye-mask-static"
+          menuId="landing-mobile-menu-static"
+          onMenuOpenChange={setIsMenuOpen}
         />
       </header>
 
@@ -134,8 +151,11 @@ export function LandingHeader() {
         <HeaderContent
           eyeOffset={eyeOffset}
           interactive={isStickyVisible}
+          isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
           maskId="landing-header-eye-mask-sticky"
+          menuId="landing-mobile-menu-sticky"
+          onMenuOpenChange={setIsMenuOpen}
         />
       </header>
     </>
@@ -145,18 +165,25 @@ export function LandingHeader() {
 function HeaderContent({
   eyeOffset,
   interactive = true,
+  isMenuOpen,
   isBlinking,
   maskId,
+  menuId,
+  onMenuOpenChange,
 }: {
   eyeOffset: number;
   interactive?: boolean;
+  isMenuOpen: boolean;
   isBlinking: boolean;
   maskId: string;
+  menuId: string;
+  onMenuOpenChange: (isOpen: boolean) => void;
 }) {
   const linkTabIndex = interactive ? undefined : -1;
+  const closeMenu = () => onMenuOpenChange(false);
 
   return (
-    <div className="relative flex w-full max-w-[1560px] items-end justify-between px-6 py-3">
+    <div className="relative flex w-full max-w-[1560px] items-end justify-between px-4 py-3 lg:px-6">
       <div className="flex items-center gap-6">
         <Link
           aria-label="Loyal home"
@@ -176,7 +203,7 @@ function HeaderContent({
 
         <nav
           aria-label="Main navigation"
-          className="hidden max-w-[800px] items-end p-1 md:flex"
+          className="hidden max-w-[800px] items-end p-1 lg:flex"
         >
           <div className="flex items-center">
             {navLinks.map((link) => (
@@ -195,7 +222,7 @@ function HeaderContent({
 
       <svg
         aria-hidden="true"
-        className="absolute left-1/2 top-1/2 hidden h-11 w-[98px] -translate-x-1/2 -translate-y-1/2 overflow-visible md:block"
+        className="absolute left-1/2 top-1/2 hidden h-11 w-[98px] -translate-x-1/2 -translate-y-1/2 overflow-visible lg:block"
         fill="none"
         height="44"
         viewBox="0 0 98 44"
@@ -243,13 +270,70 @@ function HeaderContent({
         </g>
       </svg>
 
-      <Link
-        className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-        href="#get-started"
-        tabIndex={linkTabIndex}
+      <div className="hidden lg:block">
+        <Link
+          className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+          href="#get-started"
+          tabIndex={linkTabIndex}
+        >
+          Get started
+        </Link>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2 lg:hidden">
+        <Link
+          className="flex h-11 shrink-0 items-center justify-center rounded-full bg-black px-4 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+          href="#get-started"
+          onClick={closeMenu}
+          tabIndex={linkTabIndex}
+        >
+          Download now
+        </Link>
+
+        <button
+          aria-controls={menuId}
+          aria-expanded={isMenuOpen}
+          aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+          onClick={() => onMenuOpenChange(!isMenuOpen)}
+          tabIndex={linkTabIndex}
+          type="button"
+        >
+          <span
+            className={`absolute h-[2px] w-[21px] rounded-full bg-current transition duration-200 ease-out ${
+              isMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-1"
+            }`}
+          />
+          <span
+            className={`absolute h-[2px] w-[21px] rounded-full bg-current transition duration-200 ease-out ${
+              isMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-1"
+            }`}
+          />
+        </button>
+      </div>
+
+      <div
+        className={`absolute left-4 right-4 top-[calc(100%+8px)] z-50 overflow-hidden rounded-[24px] bg-black text-white shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition duration-200 ease-out lg:hidden ${
+          isMenuOpen && interactive
+            ? "translate-y-0 opacity-100"
+            : "pointer-events-none -translate-y-2 opacity-0"
+        }`}
+        id={menuId}
       >
-        Get started
-      </Link>
+        <nav aria-label="Mobile navigation" className="grid p-2">
+          {navLinks.map((link) => (
+            <Link
+              className="flex items-center justify-between rounded-[18px] px-4 py-3 text-[20px] font-normal leading-6 transition duration-150 ease-out hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              href={link.href}
+              key={link.label}
+              onClick={closeMenu}
+              tabIndex={isMenuOpen && interactive ? undefined : -1}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }

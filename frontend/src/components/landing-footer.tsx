@@ -122,9 +122,9 @@ export function LandingFooter() {
       className="flex w-full justify-center bg-white px-6 pt-12"
       id="footer"
     >
-      <div className="flex w-full max-w-[1560px] flex-col gap-12">
-        <div className="grid w-full grid-cols-1 gap-12 pb-20 md:grid-cols-12 md:gap-6 md:pb-32">
-          <div className="md:col-span-2" data-reveal="scale">
+      <div className="flex w-full max-w-[560px] flex-col gap-12 lg:max-w-[1560px]">
+        <div className="grid w-full grid-cols-1 gap-12 pb-20 lg:grid-cols-12 lg:gap-6 lg:pb-32">
+          <div className="lg:col-span-2" data-reveal="scale">
             <Link
               aria-label="Loyal home"
               className="block h-16 w-20 transition duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
@@ -141,7 +141,7 @@ export function LandingFooter() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-3 md:col-span-6 md:col-start-7 md:gap-6">
+          <div className="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-3 lg:col-span-6 lg:col-start-7 lg:gap-6">
             {footerColumns.map((column, index) => (
               <div
                 className="flex flex-col items-start"
@@ -168,7 +168,7 @@ export function LandingFooter() {
         </div>
 
         <div
-          className="flex min-h-24 flex-col gap-8 pt-12 md:flex-row md:items-start md:justify-between"
+          className="flex min-h-24 flex-col gap-8 pt-12 lg:flex-row lg:items-start lg:justify-between"
           data-reveal="fade"
         >
           <div className="flex flex-col gap-4 text-[16px] leading-5 tracking-[-0.02em] text-[#3c3c43]/40 sm:flex-row sm:items-center sm:gap-8">

@@ -33,12 +33,12 @@ const segments = ["Extension", "Mobile", "Web"];
 export function LandingGetStarted() {
   return (
     <section
-      className="flex w-full justify-center bg-white px-6 py-24"
+      className="flex w-full justify-center bg-white px-4 pb-6 pt-12 lg:px-6 lg:py-24"
       id="get-started"
     >
-      <div className="flex w-full max-w-[1560px] flex-col items-start">
+      <div className="flex w-full max-w-[560px] flex-col items-start lg:max-w-[1560px]">
         <div
-          className="flex w-full flex-col items-start justify-center pb-12"
+          className="mx-auto flex w-full max-w-[530px] flex-col items-start justify-center pb-8 lg:max-w-none lg:pb-12"
           data-reveal="left"
         >
           <div className="flex w-full flex-col items-start justify-center gap-6">
@@ -48,7 +48,7 @@ export function LandingGetStarted() {
 
             <div
               aria-label="Get started platform"
-              className="flex h-11 items-center justify-center rounded-[60px] bg-[#f5f5f5] p-1"
+              className="flex h-11 w-full items-center justify-center rounded-[60px] bg-[#f5f5f5] p-1 lg:w-auto"
               role="tablist"
             >
               {segments.map((segment, index) => {
@@ -57,7 +57,7 @@ export function LandingGetStarted() {
                 return (
                   <button
                     aria-selected={isActive}
-                    className={`flex h-9 items-center justify-center rounded-full px-4 py-2 text-center text-[16px] font-normal leading-5 transition duration-150 ease-out ${
+                    className={`flex h-9 flex-1 items-center justify-center rounded-full px-4 py-2 text-center text-[16px] font-normal leading-5 transition duration-150 ease-out lg:flex-none ${
                       isActive
                         ? "bg-black text-white"
                         : "text-[#3c3c43]/60 hover:bg-white hover:text-black"
@@ -74,11 +74,11 @@ export function LandingGetStarted() {
           </div>
         </div>
 
-        <div className="grid w-full gap-8 lg:grid-cols-2 lg:gap-12">
-          <div className="grid min-h-[600px] min-w-0 grid-cols-2 gap-6 overflow-hidden">
+        <div className="mx-auto grid w-full max-w-[530px] gap-4 lg:max-w-none lg:grid-cols-2 lg:gap-12">
+          <div className="grid min-w-0 grid-cols-2 gap-2 overflow-hidden lg:h-[600px] lg:grid-rows-2 lg:gap-6">
             {browserCards.map((browser, index) => (
               <Link
-                className="group relative flex min-h-[210px] items-center justify-center overflow-hidden bg-transparent transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 md:min-h-[288px]"
+                className="group relative flex aspect-square min-h-[0] items-center justify-center overflow-hidden bg-transparent transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 lg:aspect-auto lg:h-full"
                 data-reveal="scale"
                 data-reveal-delay={index + 1}
                 href={browser.href}
@@ -92,6 +92,7 @@ export function LandingGetStarted() {
                   <Image
                     alt=""
                     aria-hidden="true"
+                    className="h-16 w-16 lg:h-24 lg:w-24"
                     height={96}
                     src={browser.icon}
                     width={96}
@@ -105,7 +106,7 @@ export function LandingGetStarted() {
           </div>
 
           <div
-            className="relative min-h-[420px] min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:h-[600px]"
+            className="relative aspect-square min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:aspect-auto lg:h-[600px]"
             data-reveal="right"
             data-reveal-delay="2"
           >
