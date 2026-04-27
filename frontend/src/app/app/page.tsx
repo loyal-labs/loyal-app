@@ -5,11 +5,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { DefaultChatTransport } from "ai";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { BentoGridSection } from "@/components/bento-grid-section";
-import { BlogSection } from "@/components/blog-section";
 import { Footer } from "@/components/footer";
 import { HeroSection, type TimestampedMessage } from "@/components/hero-section";
-import { RoadmapSection } from "@/components/roadmap-section";
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useChatMode } from "@/contexts/chat-mode-context";
@@ -389,14 +386,6 @@ export default function LandingPage() {
         />
         {/* End of first section */}
 
-        {/* BentoGrid Section - Only show when not in chat mode */}
-        {!isChatMode && <BentoGridSection />}
-
-        {/* Roadmap Section - Only show when not in chat mode */}
-        {!isChatMode && <RoadmapSection />}
-
-        {/* Blog Section - Only show when not in chat mode */}
-        {!isChatMode && <BlogSection />}
         {!isChatMode && <Footer />}
       </div>
 
