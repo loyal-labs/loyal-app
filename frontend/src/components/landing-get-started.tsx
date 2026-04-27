@@ -37,7 +37,10 @@ export function LandingGetStarted() {
       id="get-started"
     >
       <div className="flex w-full max-w-[1560px] flex-col items-start">
-        <div className="flex w-full flex-col items-start justify-center pb-12">
+        <div
+          className="flex w-full flex-col items-start justify-center pb-12"
+          data-reveal="left"
+        >
           <div className="flex w-full flex-col items-start justify-center gap-6">
             <h2 className="whitespace-nowrap text-[48px] font-semibold leading-none tracking-[-0.02em] text-black">
               Get started{" "}
@@ -73,13 +76,19 @@ export function LandingGetStarted() {
 
         <div className="grid w-full gap-8 lg:grid-cols-2 lg:gap-12">
           <div className="grid min-h-[600px] min-w-0 grid-cols-2 gap-6 overflow-hidden">
-            {browserCards.map((browser) => (
+            {browserCards.map((browser, index) => (
               <Link
-                className={`group flex min-h-[210px] items-center justify-center overflow-hidden bg-[#f5f5f5] transition duration-200 ease-out hover:-translate-y-1 hover:bg-[#eeeeee] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 md:min-h-[288px] ${browser.shape}`}
+                className="group relative flex min-h-[210px] items-center justify-center overflow-hidden bg-transparent transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 md:min-h-[288px]"
+                data-reveal="scale"
+                data-reveal-delay={index + 1}
                 href={browser.href}
                 key={browser.label}
               >
-                <span className="flex w-24 flex-col items-center gap-4 pt-4">
+                <span
+                  aria-hidden="true"
+                  className={`absolute inset-0 bg-[#f5f5f5] transition-all duration-300 ease-out group-hover:scale-90 group-hover:rounded-none group-hover:bg-[#eeeeee] group-hover:[clip-path:polygon(50%_0%,61%_35%,98%_35%,68%_57%,79%_91%,50%_70%,21%_91%,32%_57%,2%_35%,39%_35%)] ${browser.shape}`}
+                />
+                <span className="relative z-10 flex w-24 flex-col items-center gap-4 pt-4">
                   <Image
                     alt=""
                     aria-hidden="true"
@@ -95,7 +104,11 @@ export function LandingGetStarted() {
             ))}
           </div>
 
-          <div className="relative min-h-[420px] min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:h-[600px]">
+          <div
+            className="relative min-h-[420px] min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:h-[600px]"
+            data-reveal="right"
+            data-reveal-delay="2"
+          >
             <Image
               alt="Loyal browser extension wallet preview"
               className="object-cover"

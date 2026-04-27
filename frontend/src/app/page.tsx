@@ -8,6 +8,7 @@ import { LandingGetStarted } from "@/components/landing-get-started";
 import { LandingHeader } from "@/components/landing-header";
 import { LandingHero } from "@/components/landing-hero";
 import { LandingRoadmap } from "@/components/landing-roadmap";
+import { LandingScrollAnimations } from "@/components/landing-scroll-animations";
 
 const featureCards = [
   {
@@ -33,6 +34,7 @@ const featureCards = [
 export default function LandingPage() {
   return (
     <main className="min-h-screen bg-white text-black">
+      <LandingScrollAnimations />
       <LandingHeader />
       <LandingHero />
 
@@ -41,8 +43,13 @@ export default function LandingPage() {
         id="features"
       >
         <div className="grid w-full max-w-[1560px] gap-6 md:grid-cols-3">
-          {featureCards.map((feature) => (
-            <article className="flex min-w-0 flex-col gap-8" key={feature.text}>
+          {featureCards.map((feature, index) => (
+            <article
+              className="flex min-w-0 flex-col gap-8"
+              data-reveal="scale"
+              data-reveal-delay={index + 1}
+              key={feature.text}
+            >
               <div
                 className={`relative aspect-square w-full overflow-hidden rounded-[24px] ${
                   feature.tone === "black"
@@ -74,13 +81,20 @@ export default function LandingPage() {
 
       <section className="flex w-full justify-center bg-white px-6 py-32">
         <div className="grid w-full max-w-[1560px] gap-10 md:grid-cols-12 md:gap-6">
-          <div className="flex items-center md:col-span-4 md:pr-1">
+          <div
+            className="flex items-center md:col-span-4 md:pr-1"
+            data-reveal="left"
+          >
             <h2 className="max-w-[420px] text-[44px] font-semibold leading-none text-black md:text-[56px]">
               Multiple wallets, one smart account
             </h2>
           </div>
 
-          <div className="flex items-start justify-center md:col-span-4 md:col-start-5">
+          <div
+            className="flex items-start justify-center md:col-span-4 md:col-start-5"
+            data-reveal="scale"
+            data-reveal-delay="1"
+          >
             <div className="relative aspect-[400/600] w-full overflow-hidden rounded-[24px] border border-black/10">
               <Image
                 alt=""
@@ -93,14 +107,18 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="flex flex-col items-start justify-center gap-8 md:col-span-3 md:col-start-10">
+          <div
+            className="flex flex-col items-start justify-center gap-8 md:col-span-3 md:col-start-10"
+            data-reveal="right"
+            data-reveal-delay="2"
+          >
             <p className="max-w-[300px] text-[24px] font-normal leading-[1.1] text-black">
               Schedule payments, run strategies, and let never sleeping AI work
               for you
             </p>
             <Link
               className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
-              href="/app"
+              href="#get-started"
             >
               Get started
             </Link>
@@ -113,7 +131,10 @@ export default function LandingPage() {
         id="developers"
       >
         <div className="grid w-full max-w-[1560px] gap-6 md:grid-cols-2">
-          <article className="relative flex h-[600px] min-w-0 flex-col overflow-hidden rounded-[24px] bg-[#f5f5f5]">
+          <article
+            className="relative flex h-[600px] min-w-0 flex-col overflow-hidden rounded-[24px] bg-[#f5f5f5]"
+            data-reveal="left"
+          >
             <div className="flex w-full flex-col items-start gap-8 px-8 py-8 pr-16">
               <h2 className="max-w-[600px] text-[32px] font-medium leading-[1.1] text-black">
                 Access trusted agentic workflows built into the wallet app and
@@ -122,9 +143,9 @@ export default function LandingPage() {
               </h2>
               <Link
                 className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
-                href="/app"
+                href="https://docs.askloyal.com/sdk/private-transactions/how-it-works"
               >
-                Action
+                How it works
               </Link>
             </div>
             <div className="relative flex min-h-0 flex-1 items-end justify-end overflow-hidden pl-8 pt-8">
@@ -132,7 +153,11 @@ export default function LandingPage() {
             </div>
           </article>
 
-          <article className="relative flex h-[600px] min-w-0 flex-col overflow-hidden rounded-[24px] bg-black">
+          <article
+            className="relative flex h-[600px] min-w-0 flex-col overflow-hidden rounded-[24px] bg-black"
+            data-reveal="right"
+            data-reveal-delay="1"
+          >
             <div className="flex w-full flex-col items-start gap-8 px-8 py-8 pr-16">
               <h2 className="max-w-[600px] text-[32px] font-medium leading-[1.1] text-white">
                 Access agentic workflows available for the mobile app and
@@ -141,7 +166,7 @@ export default function LandingPage() {
               </h2>
               <Link
                 className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[16px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-                href="/app"
+                href="https://docs.askloyal.com/"
               >
                 Explore SDK
               </Link>

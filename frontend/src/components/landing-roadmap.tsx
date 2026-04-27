@@ -73,11 +73,14 @@ export function LandingRoadmap() {
     <section className="w-full bg-white py-24" id="roadmap">
       <div>
         <div className="mx-auto flex max-w-[1560px] items-center justify-between gap-6 px-6 pb-12">
-          <h2 className="text-[48px] font-semibold leading-[48px] text-black">
+          <h2
+            className="text-[48px] font-semibold leading-[48px] text-black"
+            data-reveal="left"
+          >
             Roadmap
           </h2>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-reveal="right">
             <button
               aria-label="Previous roadmap item"
               className="grid h-12 w-12 place-items-center rounded-full bg-black/[0.04] transition duration-150 ease-out hover:-translate-x-0.5 hover:bg-black/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-x-0"
@@ -110,29 +113,30 @@ export function LandingRoadmap() {
           </div>
         </div>
 
-        <div className="relative h-[478px] overflow-hidden bg-[#f5f5f5]">
+        <div
+          className="relative h-[478px] overflow-hidden bg-[#f5f5f5]"
+          data-reveal="lift"
+          data-reveal-delay="1"
+        >
           <div className="pointer-events-none absolute inset-y-0 left-0 z-10 hidden w-20 bg-gradient-to-r from-[#f5f5f5] to-transparent md:block" />
           <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-20 bg-gradient-to-l from-[#f5f5f5] to-transparent md:block" />
 
-          <article className="m-4 flex h-[calc(100%-32px)] w-[calc(100%-32px)] flex-col bg-white p-5 md:hidden">
+          <article className="m-4 flex h-[calc(100%-32px)] w-[calc(100%-32px)] flex-col rounded-[24px] bg-white p-5 md:hidden">
             <div>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[15px] font-medium leading-5 text-black/45">
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-[13px] leading-4 ${currentStatus.badgeClass} ${currentStatus.textClass}`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${currentStatus.dotClass}`}
+                    />
                     {currentStatus.label}
-                  </p>
+                  </span>
                   <h3 className="mt-2 text-[44px] font-semibold leading-[44px] text-black">
                     {formatPeriod(currentItem)}
                   </h3>
                 </div>
-                <span
-                  className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-[13px] leading-4 ${currentStatus.badgeClass} ${currentStatus.textClass}`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${currentStatus.dotClass}`}
-                  />
-                  {currentStatus.label}
-                </span>
               </div>
 
               <ul className="mt-7 grid gap-3">
@@ -172,32 +176,32 @@ export function LandingRoadmap() {
               const isCurrent = index === currentIndex;
 
               return (
-                <article
-                  className={`flex h-[342px] w-[360px] shrink-0 flex-col justify-between bg-white p-6 transition duration-500 ease-out ${
+                <button
+                  aria-label={`Show ${formatPeriod(item)} roadmap item`}
+                  className={`flex h-[342px] w-[360px] shrink-0 cursor-pointer flex-col justify-between rounded-[24px] bg-white p-6 text-left transition duration-500 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black ${
                     isCurrent
                       ? "scale-100 opacity-100"
-                      : "scale-[0.92] opacity-45"
+                      : "scale-[0.92] opacity-45 hover:scale-[0.95] hover:opacity-65"
                   }`}
                   key={`${item.year}-${item.periodType}-${item.periodNumber}`}
+                  onClick={() => setCurrentIndex(index)}
+                  type="button"
                 >
                   <div>
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-[16px] font-medium leading-5 text-black/45">
+                        <span
+                          className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-[14px] leading-4 ${status.badgeClass} ${status.textClass}`}
+                        >
+                          <span
+                            className={`h-2 w-2 rounded-full ${status.dotClass}`}
+                          />
                           {status.label}
-                        </p>
+                        </span>
                         <h3 className="mt-2 text-[48px] font-semibold leading-[48px] text-black">
                           {formatPeriod(item)}
                         </h3>
                       </div>
-                      <span
-                        className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-[14px] leading-4 ${status.badgeClass} ${status.textClass}`}
-                      >
-                        <span
-                          className={`h-2 w-2 rounded-full ${status.dotClass}`}
-                        />
-                        {status.label}
-                      </span>
                     </div>
 
                     <ul className="mt-8 grid gap-3">
@@ -222,7 +226,7 @@ export function LandingRoadmap() {
                       ))}
                     </ul>
                   </div>
-                </article>
+                </button>
               );
             })}
           </div>

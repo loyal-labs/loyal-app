@@ -57,11 +57,14 @@ export function LandingHero() {
   const secondProgress = activeProgressBar === 1 ? loopProgress : 0;
 
   return (
-    <section className="flex w-full justify-center bg-[#f9363c] text-white">
+    <section
+      className="flex w-full justify-center bg-[#f9363c] text-white"
+      id="hero"
+    >
       <div className="flex w-full max-w-[1560px] items-center justify-between overflow-hidden px-6 py-20 md:py-[120px]">
         <div className="grid w-full min-w-0 grid-cols-1 gap-12 md:grid-cols-12 md:grid-rows-[minmax(600px,max-content)] md:gap-6">
           <div className="flex flex-col items-start justify-between md:col-span-4 md:row-start-1 md:self-stretch">
-            <div>
+            <div data-reveal="left">
               <h1 className="max-w-[420px] text-[44px] font-semibold leading-none md:text-[64px]">
                 Put your money on autopilot
               </h1>
@@ -70,7 +73,11 @@ export function LandingHero() {
               </p>
             </div>
 
-            <div className="mt-16 w-full pr-0 md:mt-0 md:pr-16">
+            <div
+              className="mt-16 w-full pr-0 md:mt-0 md:pr-16"
+              data-reveal="left"
+              data-reveal-delay="2"
+            >
               <h2 className="text-[26px] font-semibold leading-[0.92] md:text-[32px]">
                 Yield on shielded assets
               </h2>
@@ -117,7 +124,11 @@ export function LandingHero() {
             </div>
           </div>
 
-          <div className="flex items-start justify-center md:col-span-4 md:col-start-5 md:row-start-1 md:self-start">
+          <div
+            className="flex items-start justify-center md:col-span-4 md:col-start-5 md:row-start-1 md:self-start"
+            data-reveal="scale"
+            data-reveal-delay="1"
+          >
             <HeroLottie
               isPaused={isPaused}
               onFrameProgress={handleFrameProgress}
@@ -126,10 +137,14 @@ export function LandingHero() {
             />
           </div>
 
-          <div className="flex items-center justify-center md:col-span-4 md:col-start-9 md:row-start-1 md:self-stretch">
+          <div
+            className="flex items-center justify-center md:col-span-4 md:col-start-9 md:row-start-1 md:self-stretch"
+            data-reveal="right"
+            data-reveal-delay="2"
+          >
             <div className="flex flex-col items-center justify-center gap-6">
               <HeroButton
-                href="/app"
+                href="#get-started"
                 iconSrc="/landing/figma/extension-icon.svg"
                 tone="muted"
               >
@@ -139,7 +154,7 @@ export function LandingHero() {
                 Open web app
               </HeroButton>
               <HeroButton
-                href="/app"
+                href="#get-started"
                 iconSrc="/landing/figma/mobile-icon.svg"
                 tone="muted"
               >

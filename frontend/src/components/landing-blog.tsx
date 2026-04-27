@@ -62,7 +62,7 @@ export function LandingBlog() {
       id="blog"
     >
       <div className="w-full max-w-[1560px]">
-        <div className="pb-12">
+        <div className="pb-12" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">
             Latest from our team
           </h2>
@@ -70,8 +70,13 @@ export function LandingBlog() {
 
         <div className="grid gap-6 md:grid-cols-3">
           {isLoading
-            ? SKELETON_KEYS.map((key) => (
-                <article className="min-w-0" key={key}>
+            ? SKELETON_KEYS.map((key, index) => (
+                <article
+                  className="min-w-0"
+                  data-reveal="scale"
+                  data-reveal-delay={index + 1}
+                  key={key}
+                >
                   <div className="aspect-[488/326.35] animate-pulse rounded-[24px] bg-[#f5f5f5]" />
                   <div className="flex flex-col gap-2 pb-4 pr-8 pt-5">
                     <div className="h-6 w-4/5 animate-pulse rounded-full bg-[#f5f5f5]" />
@@ -79,9 +84,11 @@ export function LandingBlog() {
                   </div>
                 </article>
               ))
-            : posts.map((post) => (
+            : posts.map((post, index) => (
                 <TrackedExternalLink
                   className="group block min-w-0 text-black no-underline transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/10 focus-visible:ring-offset-2"
+                  data-reveal="scale"
+                  data-reveal-delay={index + 1}
                   href={post.link}
                   key={post.link}
                   linkText={post.title}

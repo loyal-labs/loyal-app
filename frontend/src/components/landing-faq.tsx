@@ -55,7 +55,7 @@ export function LandingFaq() {
       id="faq"
     >
       <div className="grid w-full max-w-[1560px] gap-10 md:grid-cols-2 md:gap-6">
-        <div className="pb-12 md:pb-0">
+        <div className="pb-12 md:pb-0" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">
             Questions?
             <br />
@@ -63,7 +63,7 @@ export function LandingFaq() {
           </h2>
         </div>
 
-        <div className="bg-white">
+        <div className="bg-white" data-reveal="right" data-reveal-delay="1">
           {faqs.map((faq, index) => {
             const isOpen = openIndex === index;
             const answerId = `faq-answer-${index}`;
