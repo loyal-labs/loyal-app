@@ -1,735 +1,199 @@
-"use client";
-// light theme v1
-import { useChat } from "@ai-sdk/react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { DefaultChatTransport } from "ai";
-import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 
-import { BentoGridSection } from "@/components/bento-grid-section";
-import { BlogSection } from "@/components/blog-section";
-import { Footer } from "@/components/footer";
-import { HeroSection, type TimestampedMessage } from "@/components/hero-section";
-import { RoadmapSection } from "@/components/roadmap-section";
-import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
-import { useAuthSession } from "@/contexts/auth-session-context";
-import { useChatMode } from "@/contexts/chat-mode-context";
-import { isSkillsEnabled } from "@/flags";
-import { useAuthCapability } from "@/lib/auth/capability";
-import { useUserChats } from "@/providers/user-chats";
+import { LandingBlog } from "@/components/landing-blog";
+import { LandingFaq } from "@/components/landing-faq";
+import { LandingFooter } from "@/components/landing-footer";
+import { LandingGetStarted } from "@/components/landing-get-started";
+import { LandingHeader } from "@/components/landing-header";
+import { LandingHero } from "@/components/landing-hero";
+import { LandingRoadmap } from "@/components/landing-roadmap";
 
-function generateChatId(): string {
-  const webCrypto =
-    typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
-  if (webCrypto && typeof webCrypto.randomUUID === "function") {
-    return webCrypto.randomUUID();
-  }
-  // SSR/older-runtime fallback: not cryptographically strong, but the chat id
-  // only needs to be unique per session.
-  return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
+const featureCards = [
+  {
+    images: ["/landing/figma/feature-yield-card.png"],
+    text: "Earn in the background without locking up your funds or giving up control",
+    tone: "black",
+  },
+  {
+    images: [
+      "/landing/figma/feature-phone-bg.png",
+      "/landing/figma/feature-phone-overlay.png",
+    ],
+    text: "Keep your finds private, execute secure transactions and make money on shielded assets",
+    tone: "light",
+  },
+  {
+    images: ["/landing/figma/feature-agent-card.png"],
+    text: "Define guardrails and rulesets for your financial workflows: assign granular permissions to every agent",
+    tone: "red",
+  },
+];
 
 export default function LandingPage() {
-  const [currentChatId, setCurrentChatId] = useState(() => generateChatId());
-  const { refreshUserChats, clearUserChats, loadChatMessages } = useUserChats();
-  const prevStatusRef = useRef<string>("ready");
-  const pendingMessagesRef = useRef<TimestampedMessage[] | null>(null);
-
-  const { messages, sendMessage, status, setMessages } =
-    useChat<TimestampedMessage>({
-      id: currentChatId,
-      transport: new DefaultChatTransport({
-        api: "/api/chat",
-      }),
-    });
-  const [messageTimestamps, setMessageTimestamps] = useState<
-    Record<string, number>
-  >({});
-  const [pendingText, setPendingText] = useState("");
-  const [isChatModeLocal, setIsChatModeLocal] = useState(false);
-  const { setIsChatMode } = useChatMode();
-
-  // Check Skills feature flag
-  const skillsEnabled = isSkillsEnabled();
-
-  // Sync local state with context
-  useEffect(() => {
-    setIsChatMode(isChatModeLocal);
-  }, [isChatModeLocal, setIsChatMode]);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-      inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
-    }
-  }, [pendingText]);
-
-  // Use local state for component logic
-  const isChatMode = isChatModeLocal;
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // Wallet hooks
-  const { connected: isConnected, connecting: isWalletLoading, publicKey } = useWallet();
-  const { isHydrated: isAuthHydrated, isAuthenticated } = useAuthSession();
-  const { isSignedIn } = useAuthCapability();
-
-  // Toggle body class for mobile header visibility
-  useEffect(() => {
-    if (isChatModeLocal && isSignedIn) {
-      document.body.classList.add("chat-mode-active");
-    } else {
-      document.body.classList.remove("chat-mode-active");
-    }
-    return () => {
-      document.body.classList.remove("chat-mode-active");
-    };
-  }, [isChatModeLocal, isSignedIn]);
-
-  const openSignInRef = useRef<(() => void) | null>(null);
-  const openSignIn = useCallback(() => openSignInRef.current?.(), []);
-  const solanaAddress = publicKey?.toBase58();
-
-  // Apply pending messages after useChat switches to the new ID.
-  // setMessages from useChat targets the CURRENT id, so we must wait for
-  // the re-render after setCurrentChatId before calling setMessages.
-  useEffect(() => {
-    if (pendingMessagesRef.current) {
-      const msgs = pendingMessagesRef.current;
-      pendingMessagesRef.current = null;
-      setMessages(msgs);
-    }
-  }, [currentChatId, setMessages]);
-
-  // Sync chat history with auth state — use isAuthenticated (session cookie exists)
-  // rather than isSignedIn (wallet-only connection won't have a session yet)
-  useEffect(() => {
-    if (isAuthenticated) {
-      void refreshUserChats();
-    } else {
-      clearUserChats();
-    }
-  }, [isAuthenticated, refreshUserChats, clearUserChats]);
-
-  // Truncate wallet address for display (e.g., "233Q..7ABE")
-  const truncatedAddress = solanaAddress
-    ? `${solanaAddress.slice(0, 4)}..${solanaAddress.slice(-4)}`
-    : "";
-  // Track if we've already prompted auth on first input
-  const [hasPromptedAuth, setHasPromptedAuth] = useState(false);
-
-  // Prompt auth on first character typed
-  // Wait until wallet loading is complete to avoid false triggers during initialization
-  useEffect(() => {
-    if (
-      !(isWalletLoading || !isAuthHydrated || hasPromptedAuth || isSignedIn) &&
-      pendingText.length > 0
-    ) {
-      setHasPromptedAuth(true);
-      openSignIn();
-    }
-  }, [
-    hasPromptedAuth,
-    isAuthHydrated,
-    isSignedIn,
-    isWalletLoading,
-    openSignIn,
-    pendingText,
-  ]);
-
-  const [isOnline, setIsOnline] = useState(true);
-
-  // Enable send when there's text input
-  const hasUsableInput = pendingText.trim().length > 0;
-
-  // Track timestamps for messages that arrive without metadata
-  useEffect(() => {
-    setMessageTimestamps((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const message of messages) {
-        if (message.createdAt && next[message.id] !== message.createdAt) {
-          next[message.id] = message.createdAt;
-          changed = true;
-          continue;
-        }
-        if (!message.createdAt && next[message.id] === undefined) {
-          next[message.id] = Date.now();
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [messages]);
-
-  // Check if a chat operation is in progress
-  const isLoading = status === "streaming" || status === "submitted";
-
-  // Network status monitoring and recovery
-  useEffect(() => {
-    const handleOnline = () => {
-      console.log("Network connection restored");
-      setIsOnline(true);
-
-      // Re-enable and refocus the input after network recovery
-      setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.disabled = false;
-          inputRef.current.focus();
-          console.log("Input re-enabled after network recovery");
-        }
-      }, 100);
-    };
-
-    const handleOffline = () => {
-      console.log("Network connection lost");
-      setIsOnline(false);
-    };
-
-    // Set initial state
-    setIsOnline(navigator.onLine);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  // Open Phantom modal when wallet disconnects in chat mode
-  // Wait until wallet loading is complete to avoid false triggers during initialization
-  useEffect(() => {
-    if (!isWalletLoading && isAuthHydrated && isChatMode && !isSignedIn) {
-      openSignIn();
-    }
-  }, [isAuthHydrated, isChatMode, isSignedIn, isWalletLoading, openSignIn]);
-
-  // Pre-fill input from URL query parameter (e.g., ?req=hello)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const reqParam = params.get("req");
-    if (reqParam) {
-      setPendingText(reqParam);
-    }
-  }, []);
-
-  // Auto-focus on initial load (but not if there's a hash in URL or req param)
-  useEffect(() => {
-    // Don't auto-focus if there's a hash - let the hash scroll complete first
-    const hasHash = window.location.hash;
-    const params = new URLSearchParams(window.location.search);
-    const hasReqParam = params.get("req");
-    // Skip if req param exists - the effect above handles focus
-    if (!(hasHash || hasReqParam)) {
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, []); // Run once on mount
-
-  // Handle initial page load with hash in URL
-  useEffect(() => {
-    const hash = window.location.hash.replace("#", "");
-    if (hash) {
-      // Wait for DOM to be ready
-      const timer = setTimeout(() => {
-        const navHeight = 80;
-        let sectionId = "";
-
-        switch (hash) {
-          case "about":
-            sectionId = "about-section";
-            break;
-          case "roadmap":
-            sectionId = "roadmap-section";
-            break;
-          case "links":
-            sectionId = "footer-section";
-            break;
-        }
-
-        if (sectionId) {
-          const section = document.getElementById(sectionId);
-          if (section) {
-            const elementPosition = section.getBoundingClientRect().top;
-            const offsetPosition = elementPosition + window.scrollY - navHeight;
-
-            window.scrollTo({
-              top: offsetPosition,
-              behavior: "smooth",
-            });
-          }
-        }
-      }, 100);
-
-      return () => clearTimeout(timer);
-    }
-  }, []);
-
-  // Refresh sidebar when streaming completes
-  useEffect(() => {
-    if (prevStatusRef.current === "streaming" && status === "ready") {
-      void refreshUserChats();
-    }
-    prevStatusRef.current = status;
-  }, [status, refreshUserChats]);
-
-  const onNewChat = useCallback(() => {
-    setCurrentChatId(crypto.randomUUID());
-    setIsChatModeLocal(false);
-    setPendingText("");
-    setMessages([]);
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 100);
-  }, [setMessages]);
-
-  const onSelectChat = useCallback(
-    async (chatId: string, clientChatId: string | null) => {
-      const dbMessages = await loadChatMessages(chatId);
-      const uiMessages: TimestampedMessage[] = dbMessages.map((msg) => ({
-        id: msg.clientMessageId ?? msg.id,
-        role: msg.role as "user" | "assistant",
-        parts: [{ type: "text" as const, text: msg.content }],
-        createdAt: new Date(msg.createdAt).getTime(),
-      }));
-
-      // Queue messages in a ref — they'll be applied by the useEffect
-      // after useChat re-initializes with the new ID.
-      pendingMessagesRef.current = uiMessages;
-      setCurrentChatId(clientChatId ?? chatId);
-      setIsChatModeLocal(true);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
-    },
-    [loadChatMessages]
-  );
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Prevent submission if a chat operation is in progress
-    if (isLoading) {
-      return;
-    }
-
-    // Check if wallet is connected before sending
-    if (!isSignedIn) {
-      openSignIn();
-      return;
-    }
-
-    if (!hasUsableInput) {
-      return;
-    }
-
-    setIsChatModeLocal(true);
-
-    // Send message to LLM
-    const messageText = pendingText.trim();
-    if (messageText) {
-      sendMessage({ text: messageText });
-      setPendingText("");
-    }
-
-    // Ensure focus
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 50);
-  };
-
   return (
-    <main
-      className=""
-      style={{
-        margin: 0,
-        minHeight: "100vh",
-        width: "100%",
-        backgroundColor: "#fff",
-        overflow: isChatMode ? "hidden" : "auto",
-      }}
-    >
-      {/* Main content wrapper */}
-      <div
-        style={{
-          position: "relative",
-          width: "100%",
-          minHeight: "100vh",
-          display: isChatMode ? "flex" : "block",
-          flexDirection: "column",
-        }}
+    <main className="min-h-screen bg-white text-black">
+      <LandingHeader />
+      <LandingHero />
+
+      <section
+        className="flex w-full justify-center bg-white px-6 pb-24 pt-32"
+        id="features"
       >
-        <HeroSection
-          isChatMode={isChatMode}
-          onChatModeChange={setIsChatModeLocal}
-          messages={messages as TimestampedMessage[]}
-          setMessages={setMessages}
-          status={status}
-          messageTimestamps={messageTimestamps}
-          pendingText={pendingText}
-          onPendingTextChange={setPendingText}
-          inputRef={inputRef}
-          onSubmit={handleSubmit}
-          hasUsableInput={hasUsableInput}
-          isLoading={isLoading}
-          isSignedIn={isSignedIn}
-          isConnected={isConnected}
-          truncatedAddress={truncatedAddress}
-          openSignInRef={openSignInRef}
-          isOnline={isOnline}
-          onNewChat={onNewChat}
-          onSelectChat={onSelectChat}
-          currentChatId={currentChatId}
-        />
-        {/* End of first section */}
-
-        {/* BentoGrid Section - Only show when not in chat mode */}
-        {!isChatMode && <BentoGridSection />}
-
-        {/* Roadmap Section - Only show when not in chat mode */}
-        {!isChatMode && <RoadmapSection />}
-
-        {/* Blog Section - Only show when not in chat mode */}
-        {!isChatMode && <BlogSection />}
-        {!isChatMode && <Footer />}
-      </div>
-
-      {/* Network offline overlay */}
-      {!isOnline && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0, 0, 0, 0.8)",
-            backdropFilter: "blur(10px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-            animation: "fadeIn 0.3s ease-out",
-          }}
-        >
-          <div
-            style={{
-              maxWidth: "400px",
-              background: "rgba(255, 140, 0, 0.1)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(255, 140, 0, 0.3)",
-              borderRadius: "20px",
-              padding: "2rem",
-              boxShadow:
-                "0 20px 60px 0 rgba(255, 140, 0, 0.2), " +
-                "inset 0 2px 4px rgba(255, 255, 255, 0.1)",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "3rem",
-                marginBottom: "1rem",
-                animation: "pulse 2s ease-in-out infinite",
-              }}
-            >
-              📡
-            </div>
-            <h3
-              style={{
-                fontSize: "1.5rem",
-                fontWeight: 600,
-                color: "#fff",
-                marginBottom: "1rem",
-              }}
-            >
-              No Internet Connection
-            </h3>
-            <p
-              style={{
-                color: "rgba(255, 255, 255, 0.9)",
-                fontSize: "1rem",
-                lineHeight: 1.6,
-                marginBottom: "1.5rem",
-              }}
-            >
-              Your internet connection has been lost. The input will be
-              automatically restored when you&apos;re back online.
-            </p>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                color: "rgba(255, 255, 255, 0.7)",
-                fontSize: "0.875rem",
-              }}
-            >
+        <div className="grid w-full max-w-[1560px] gap-6 md:grid-cols-3">
+          {featureCards.map((feature) => (
+            <article className="flex min-w-0 flex-col gap-8" key={feature.text}>
               <div
-                style={{
-                  width: "8px",
-                  height: "8px",
-                  background: "rgba(255, 140, 0, 0.8)",
-                  borderRadius: "50%",
-                  animation: "pulse 1.5s ease-in-out infinite",
-                }}
-              />
-              Waiting for connection...
-            </div>
-          </div>
+                className={`relative aspect-square w-full overflow-hidden rounded-[24px] ${
+                  feature.tone === "black"
+                    ? "bg-black"
+                    : feature.tone === "red"
+                    ? "bg-[#f9363c]"
+                    : "bg-[#f2f2f2]"
+                }`}
+              >
+                {feature.images.map((src) => (
+                  <Image
+                    alt=""
+                    aria-hidden="true"
+                    className="object-cover"
+                    fill
+                    key={src}
+                    sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
+                    src={src}
+                  />
+                ))}
+              </div>
+              <p className="max-w-[400px] pr-8 text-[24px] font-normal leading-[1.2] text-black">
+                {feature.text}
+              </p>
+            </article>
+          ))}
         </div>
-      )}
+      </section>
 
-      {/* Modal for testers message */}
-      {isModalOpen && (
-        <div
-          onClick={() => setIsModalOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-            animation: "fadeIn 0.3s ease-out",
-          }}
-        >
-          {/* Backdrop */}
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              backgroundColor: "rgba(0, 0, 0, 0.8)",
-              backdropFilter: "blur(10px)",
-            }}
-          />
-
-          {/* Modal content */}
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "relative",
-              maxWidth: "600px",
-              width: "100%",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              background: "rgba(255, 255, 255, 0.08)",
-              backdropFilter: "blur(30px)",
-              border: "1px solid rgba(255, 255, 255, 0.15)",
-              borderRadius: "24px",
-              padding: "2.5rem",
-              boxShadow:
-                "0 20px 60px 0 rgba(0, 0, 0, 0.5), " +
-                "inset 0 2px 4px rgba(255, 255, 255, 0.1), " +
-                "inset 0 -1px 2px rgba(0, 0, 0, 0.3)",
-              animation: "slideInUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)",
-            }}
-          >
-            {/* Modal header */}
-            <h2
-              style={{
-                fontSize: "1.75rem",
-                fontWeight: 600,
-                color: "#fff",
-                marginBottom: "1.5rem",
-                lineHeight: 1.3,
-              }}
-            >
-              Thank you for joining Loyal open test!
+      <section className="flex w-full justify-center bg-white px-6 py-32">
+        <div className="grid w-full max-w-[1560px] gap-10 md:grid-cols-12 md:gap-6">
+          <div className="flex items-center md:col-span-4 md:pr-1">
+            <h2 className="max-w-[420px] text-[44px] font-semibold leading-none text-black md:text-[56px]">
+              Multiple wallets, one smart account
             </h2>
+          </div>
 
-            {/* Modal body */}
-            <div
-              style={{
-                color: "rgba(255, 255, 255, 0.9)",
-                fontSize: "1rem",
-                lineHeight: 1.7,
-                display: "flex",
-                flexDirection: "column",
-                gap: "1rem",
-              }}
-            >
-              <p style={{ margin: 0 }}>
-                <strong style={{ color: "#fff", fontWeight: 600 }}>
-                  What is it:
-                </strong>{" "}
-                you&apos;re looking at fully private on-chain AI. Every message
-                is encrypted and facilitated on-chain with AI itself running in
-                confidential VM. Neither Loyal devs nor compute node owners can
-                access your data.
-              </p>
-
-              <p style={{ margin: 0 }}>
-                For this open test, there&apos;s no per-query fee but the wallet
-                verification is required.
-              </p>
-
-              <p style={{ margin: 0 }}>
-                <strong style={{ color: "#ef4444", fontWeight: 600 }}>
-                  WARNING:
-                </strong>{" "}
-                this is an early stage product and some features may be
-                incomplete or contain errors.
-              </p>
-
-              <p style={{ margin: 0 }}>
-                You will help our cause if you report any bugs/drop your
-                feedback or ideas in our discord community:{" "}
-                <TrackedExternalLink
-                  href="https://discord.askloyal.com"
-                  linkText="Discord community"
-                  source="tester_modal"
-                  style={{
-                    color: "#60a5fa",
-                    textDecoration: "underline",
-                  }}
-                  target="_blank"
-                >
-                  https://discord.askloyal.com
-                </TrackedExternalLink>
-              </p>
+          <div className="flex items-start justify-center md:col-span-4 md:col-start-5">
+            <div className="relative aspect-[400/600] w-full overflow-hidden rounded-[24px] border border-black/10">
+              <Image
+                alt=""
+                aria-hidden="true"
+                className="object-cover"
+                fill
+                sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
+                src="/landing/figma/multiple-wallets-content.png"
+              />
             </div>
+          </div>
 
-            {/* Close button */}
-            <button
-              onClick={() => setIsModalOpen(false)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-                e.currentTarget.style.border =
-                  "1px solid rgba(255, 255, 255, 0.3)";
-                e.currentTarget.style.transform = "translateY(-1px)";
-                e.currentTarget.style.boxShadow =
-                  "0 6px 24px 0 rgba(0, 0, 0, 0.4), " +
-                  "inset 0 1px 2px rgba(255, 255, 255, 0.15)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.15)";
-                e.currentTarget.style.border =
-                  "1px solid rgba(255, 255, 255, 0.2)";
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow =
-                  "0 4px 20px 0 rgba(0, 0, 0, 0.3), " +
-                  "inset 0 1px 2px rgba(255, 255, 255, 0.1)";
-              }}
-              style={{
-                marginTop: "2rem",
-                width: "100%",
-                padding: "1rem 1.5rem",
-                fontSize: "1rem",
-                fontWeight: 600,
-                color: "#fff",
-                background: "rgba(255, 255, 255, 0.15)",
-                backdropFilter: "blur(10px)",
-                border: "1px solid rgba(255, 255, 255, 0.2)",
-                borderRadius: "12px",
-                cursor: "pointer",
-                transition: "all 0.3s ease",
-                boxShadow:
-                  "0 4px 20px 0 rgba(0, 0, 0, 0.3), " +
-                  "inset 0 1px 2px rgba(255, 255, 255, 0.1)",
-              }}
+          <div className="flex flex-col items-start justify-center gap-8 md:col-span-3 md:col-start-10">
+            <p className="max-w-[300px] text-[24px] font-normal leading-[1.1] text-black">
+              Schedule payments, run strategies, and let never sleeping AI work
+              for you
+            </p>
+            <Link
+              className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
+              href="/app"
             >
-              I understand
-            </button>
+              Get started
+            </Link>
           </div>
         </div>
-      )}
+      </section>
 
-      <style jsx>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+      <section
+        className="flex w-full justify-center bg-white px-6 py-24"
+        id="developers"
+      >
+        <div className="grid w-full max-w-[1560px] gap-6 md:grid-cols-2">
+          <article className="relative flex h-[600px] min-w-0 flex-col overflow-hidden rounded-[24px] bg-[#f5f5f5]">
+            <div className="flex w-full flex-col items-start gap-8 px-8 py-8 pr-16">
+              <h2 className="max-w-[600px] text-[32px] font-medium leading-[1.1] text-black">
+                Access trusted agentic workflows built into the wallet app and
+                browser extension, or build on&nbsp;top with permissionless
+                access
+              </h2>
+              <Link
+                className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
+                href="/app"
+              >
+                Action
+              </Link>
+            </div>
+            <div className="relative flex min-h-0 flex-1 items-end justify-end overflow-hidden pl-8 pt-8">
+              <WorkflowMascot />
+            </div>
+          </article>
 
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+          <article className="relative flex h-[600px] min-w-0 flex-col overflow-hidden rounded-[24px] bg-black">
+            <div className="flex w-full flex-col items-start gap-8 px-8 py-8 pr-16">
+              <h2 className="max-w-[600px] text-[32px] font-medium leading-[1.1] text-white">
+                Access agentic workflows available for the mobile app and
+                browser extension, or build on top with permissionless access
+                using our SDK — all code is open source
+              </h2>
+              <Link
+                className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[16px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+                href="/app"
+              >
+                Explore SDK
+              </Link>
+            </div>
+            <div className="relative flex min-h-0 flex-1 items-end justify-end overflow-hidden p-8">
+              <WorkflowDocsIllustration />
+            </div>
+          </article>
+        </div>
+      </section>
 
-        @keyframes fadeInDown {
-          from {
-            opacity: 0;
-            transform: translateX(-50%) translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-          }
-        }
+      <LandingRoadmap />
 
-        @keyframes slideInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+      <LandingFaq />
 
-        @keyframes fadeInDownSimple {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
+      <LandingBlog />
 
-        @keyframes pulse {
-          0%,
-          100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.5;
-          }
-        }
+      <LandingGetStarted />
 
-        @keyframes subtlePulse {
-          0%,
-          100% {
-            transform: translateX(-50%) scale(1);
-            box-shadow: 0 2px 10px rgba(255, 68, 68, 0.2);
-          }
-          50% {
-            transform: translateX(-50%) scale(1.03);
-            box-shadow: 0 4px 15px rgba(255, 68, 68, 0.35);
-          }
-        }
-
-        @keyframes tooltipFadeInDown {
-          from {
-            opacity: 0;
-            transform: translateX(-50%) translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-          }
-        }
-      `}</style>
+      <LandingFooter />
     </main>
+  );
+}
+
+function WorkflowMascot() {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative aspect-square h-full max-h-[320px] max-w-[320px] shrink-0"
+    >
+      <Image
+        alt=""
+        className="object-contain"
+        fill
+        src="/landing/figma/workflows-mascot.svg"
+      />
+    </div>
+  );
+}
+
+function WorkflowDocsIllustration() {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative aspect-[320/240] h-full max-h-[240px] max-w-[320px] shrink-0"
+    >
+      <Image
+        alt=""
+        className="object-contain"
+        fill
+        src="/landing/figma/workflows-docs.svg"
+      />
+    </div>
   );
 }

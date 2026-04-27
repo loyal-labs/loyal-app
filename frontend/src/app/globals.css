@@ -155,6 +155,7 @@
   }
   html {
     background-color: white;
+    scroll-behavior: smooth;
   }
   body {
     @apply bg-background text-foreground font-sans;
