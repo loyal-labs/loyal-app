@@ -230,6 +230,7 @@ pub(crate) fn wait_for_policy_connection(
 
     let program_id = parse_pubkey("program id", &config.program_id)?;
     let settings_filter = parse_optional_pubkey("settings PDA", config.settings_pda.as_deref())?;
+    let rpc_client = RpcClient::new_with_commitment(config.rpc_url.clone(), config.commitment);
     let ws_url = config
         .ws_url
         .clone()
@@ -257,6 +258,21 @@ pub(crate) fn wait_for_policy_connection(
         args.from_index,
         args.to_index,
     )?;
+
+    let existing_connections = existing_policy_connections(
+        config,
+        &rpc_client,
+        &program_id,
+        Some(ws_url.clone()),
+        signer,
+        args.from_index,
+        args.to_index,
+        settings_filter.as_ref(),
+    )?;
+    if let Some(connection) = resolve_existing_connection(existing_connections, show_progress)? {
+        abandon_subscriptions(&mut subscriptions);
+        return Ok(connection);
+    }
 
     loop {
         if started.elapsed() >= timeout {
@@ -367,6 +383,125 @@ fn start_policy_subscriptions(
 
     drop(updates_tx);
     Ok((subscriptions, updates_rx))
+}
+
+fn existing_policy_connections(
+    config: &ResolvedConfig,
+    client: &RpcClient,
+    program_id: &Pubkey,
+    ws_url: Option<String>,
+    signer: &Pubkey,
+    from_index: usize,
+    to_index: usize,
+    settings_filter: Option<&Pubkey>,
+) -> Result<Vec<AgentConnection>> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(policy_pda) = config
+        .policy_pda
+        .as_deref()
+        .map(|value| parse_pubkey("policy PDA", value))
+        .transpose()?
+    {
+        match client.get_account(&policy_pda) {
+            Ok(account) => {
+                let policy = parse_policy_account(policy_pda, &account)?;
+                if let Some(connection) = connection_from_policy_in_range(
+                    &policy,
+                    program_id,
+                    &config.rpc_url,
+                    ws_url.clone(),
+                    signer,
+                    from_index,
+                    to_index,
+                    settings_filter,
+                )? {
+                    seen.insert(policy_pda);
+                    out.push(connection);
+                }
+            }
+            Err(error) => {
+                log::warn!("failed to fetch saved policy {policy_pda}: {error:#}");
+            }
+        }
+    }
+
+    if out.is_empty() {
+        match list_policy_connections(
+            client,
+            program_id,
+            &config.rpc_url,
+            ws_url,
+            signer,
+            from_index,
+            to_index,
+            settings_filter,
+        ) {
+            Ok(connections) => {
+                for connection in connections {
+                    let policy_pda = parse_pubkey("policy PDA", &connection.policy_pda)?;
+                    if seen.insert(policy_pda) {
+                        out.push(connection);
+                    }
+                }
+            }
+            Err(error) => {
+                log::warn!("failed to scan existing signer policies: {error:#}");
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+fn resolve_existing_connection(
+    connections: Vec<AgentConnection>,
+    prompt: bool,
+) -> Result<Option<AgentConnection>> {
+    if connections.is_empty() {
+        return Ok(None);
+    }
+
+    if !prompt {
+        return Ok(connections.into_iter().next());
+    }
+
+    finish_wait_progress(true)?;
+
+    let count = connections.len();
+    let policy_list = connections
+        .iter()
+        .map(|connection| connection.policy_pda.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prompt_text = if count == 1 {
+        format!(
+            "Agent is already an Initiate signer for 1 policy: {policy_list}. Use this policy? [Y/n] "
+        )
+    } else {
+        format!(
+            "Agent is already an Initiate signer for {count} policies: {policy_list}. Use the first policy? [Y/n] "
+        )
+    };
+
+    print!("{prompt_text}");
+    io::stdout()
+        .flush()
+        .context("failed to flush existing signer prompt")?;
+
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("failed to read existing signer prompt response")?;
+
+    let answer = answer.trim().to_ascii_lowercase();
+    if answer.is_empty() || answer == "y" || answer == "yes" {
+        return Ok(connections.into_iter().next());
+    }
+
+    println!("Waiting for a new policy approval.");
+    Ok(None)
 }
 
 fn render_wait_progress(
@@ -824,6 +959,33 @@ fn connection_from_keyed_account(
         signer_index,
         settings_filter,
     )
+}
+
+fn connection_from_policy_in_range(
+    policy: &PolicyAccount,
+    program_id: &Pubkey,
+    rpc_url: &str,
+    ws_url: Option<String>,
+    signer: &Pubkey,
+    from_index: usize,
+    to_index: usize,
+    settings_filter: Option<&Pubkey>,
+) -> Result<Option<AgentConnection>> {
+    for signer_index in from_index..=to_index {
+        if let Some(connection) = connection_from_policy(
+            policy,
+            program_id,
+            rpc_url,
+            ws_url.clone(),
+            signer,
+            signer_index,
+            settings_filter,
+        )? {
+            return Ok(Some(connection));
+        }
+    }
+
+    Ok(None)
 }
 
 fn connection_from_policy(
