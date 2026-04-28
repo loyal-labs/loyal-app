@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "dependencies": {
@@ -364,9 +365,11 @@
         "@loyal-labs/solana-wallet": "workspace:*",
         "@solana/spl-token": "^0.4.13",
         "@solana/web3.js": "^1.98.0",
+        "bn.js": "^5.2.2",
         "bs58": "^6.0.0",
       },
       "devDependencies": {
+        "@types/bn.js": "^5.1.6",
         "@types/bun": "latest",
         "@types/node": "^24.0.15",
         "typescript": "^5.7.3",

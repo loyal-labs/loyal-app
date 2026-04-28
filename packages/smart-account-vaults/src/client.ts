@@ -1,4 +1,5 @@
 import bs58 from "bs58";
+import BN from "bn.js";
 import {
   createLoyalSmartAccountsClient,
   generated,
@@ -20,17 +21,20 @@ import {
   toBigInt,
   transactionDiscriminator,
   transactionMessageToMultisigTransactionMessageBytes,
+  type SettingsAction,
   type SmartAccountSigner,
 } from "@loyal-labs/loyal-smart-accounts-core";
-import type {
-  PortfolioPosition,
-  SolanaWalletDataClient,
+import {
+  NATIVE_SOL_MINT,
+  type PortfolioPosition,
+  type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
 import { decodeTransferCheckedInstruction } from "@solana/spl-token";
 import {
   PublicKey,
-  SystemInstruction,
   SystemProgram,
+  SystemInstruction,
+  type AccountMeta,
   type AccountInfo,
   type AddressLookupTableAccount,
   type Connection,
@@ -48,17 +52,31 @@ import type {
   SmartAccountCustomInstructionProposalInput,
   SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
+  SmartAccountPreparedSettingsChange,
   SmartAccountProposalPayloadType,
   SmartAccountProposalSnapshot,
   SmartAccountProposalStatus,
+  SmartAccountRemoveSpendingLimitProposalInput,
+  SmartAccountSetSpendingLimitProposalInput,
   SmartAccountSignerPermission,
   SmartAccountSignerSnapshot,
+  SmartAccountSpendingLimitSnapshot,
   SmartAccountProposalSummary,
   SmartAccountTokenTransferProposalInput,
   SmartAccountTransferProposalInput,
+  SmartAccountUseSpendingLimitInput,
   SmartAccountVaultSnapshot,
   SmartAccountVaultsClientConfig,
 } from "./types";
+import {
+  SOL_SPENDING_LIMIT_MINT,
+  formatTokenAmount,
+  getEffectiveSpendingLimitRemainingAmount,
+  getSpendingLimitNextReset,
+  toSpendingLimitPeriodLabel,
+  tokenAmountToNumber,
+  type SmartAccountSpendingLimitPeriod,
+} from "./spending-limits";
 
 type VaultMessage = {
   numSigners: number;
@@ -173,7 +191,7 @@ function compileVaultInstructions(message: VaultMessage) {
   });
 }
 
-function formatTokenAmount(amountRaw: bigint, decimals: number): string {
+function formatProposalTokenAmount(amountRaw: bigint, decimals: number): string {
   if (decimals === 0) {
     return amountRaw.toString();
   }
@@ -238,7 +256,7 @@ function summarizeSolTransferInstruction(args: {
       title: "Send",
       subtitle: `to ${decoded.toPubkey.toBase58()}`,
       symbol: "SOL",
-      amountUi: formatTokenAmount(BigInt(decoded.lamports), 9),
+      amountUi: formatProposalTokenAmount(BigInt(decoded.lamports), 9),
       amountRaw: BigInt(decoded.lamports).toString(),
       mint: null,
       decimals: 9,
@@ -273,7 +291,7 @@ function summarizeSplTransferInstruction(args: {
       title: "Send",
       subtitle: `to ${decoded.keys.destination.pubkey.toBase58()}`,
       symbol: asset?.asset.symbol ?? null,
-      amountUi: formatTokenAmount(
+      amountUi: formatProposalTokenAmount(
         BigInt(decoded.data.amount.toString()),
         decoded.data.decimals
       ),
@@ -598,6 +616,381 @@ function dedupePublicKeys(keys: readonly PublicKey[]): PublicKey[] {
   return [...unique.values()];
 }
 
+function toWritableAccountMetas(keys: readonly PublicKey[]): AccountMeta[] {
+  return keys.map((pubkey) => ({
+    pubkey,
+    isSigner: false,
+    isWritable: true,
+  }));
+}
+
+function toGeneratedPolicyPeriod(
+  period: SmartAccountSpendingLimitPeriod
+): generated.PeriodV2 {
+  switch (period) {
+    case "one_time":
+      return { __kind: "OneTime" };
+    case "day":
+      return { __kind: "Daily" };
+    case "week":
+      return { __kind: "Weekly" };
+    case "month":
+      return { __kind: "Monthly" };
+    case "custom":
+      throw new Error("Custom spending-limit periods require a duration.");
+  }
+}
+
+function toSpendingLimitPolicyPeriod(
+  period: generated.PeriodV2
+): {
+  period: SmartAccountSpendingLimitPeriod;
+  periodSeconds: number | null;
+} {
+  const daySeconds = 24 * 60 * 60;
+
+  switch (period.__kind) {
+    case "OneTime":
+      return { period: "one_time", periodSeconds: null };
+    case "Daily":
+      return { period: "day", periodSeconds: daySeconds };
+    case "Weekly":
+      return { period: "week", periodSeconds: 7 * daySeconds };
+    case "Monthly":
+      return { period: "month", periodSeconds: 30 * daySeconds };
+    case "Custom": {
+      const seconds = Number(toBigInt(period.fields[0]));
+
+      if (seconds === daySeconds) {
+        return { period: "day", periodSeconds: seconds };
+      }
+
+      if (seconds === 7 * daySeconds) {
+        return { period: "week", periodSeconds: seconds };
+      }
+
+      if (seconds === 30 * daySeconds) {
+        return { period: "month", periodSeconds: seconds };
+      }
+
+      return {
+        period: "custom",
+        periodSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null,
+      };
+    }
+  }
+}
+
+function toBn(value: bigint): BN {
+  return new BN(value.toString());
+}
+
+function toNullableExpiration(expiration: bigint): number | null {
+  const maxI64 = BigInt("9223372036854775807");
+
+  if (expiration >= maxI64) {
+    return null;
+  }
+
+  const value = Number(expiration);
+  return Number.isFinite(value) ? value : null;
+}
+
+function resolveSpendingLimitAsset(args: {
+  mint: string;
+  assetIndex: Map<string, PortfolioPosition>;
+}) {
+  if (args.mint === SOL_SPENDING_LIMIT_MINT) {
+    const nativeSolPosition =
+      args.assetIndex.get(SOL_SPENDING_LIMIT_MINT) ??
+      args.assetIndex.get(NATIVE_SOL_MINT);
+
+    return {
+      decimals: 9,
+      priceUsd: nativeSolPosition?.priceUsd ?? null,
+      symbol: "SOL",
+    };
+  }
+
+  const position = args.assetIndex.get(args.mint);
+
+  return {
+    decimals: position?.asset.decimals ?? 0,
+    priceUsd: position?.priceUsd ?? null,
+    symbol: position?.asset.symbol ?? "TOKEN",
+  };
+}
+
+function toUsdValue(args: {
+  amountRaw: bigint;
+  decimals: number;
+  priceUsd: number | null;
+}): number | null {
+  const amount = tokenAmountToNumber(args.amountRaw, args.decimals);
+
+  if (
+    amount === null ||
+    typeof args.priceUsd !== "number" ||
+    !Number.isFinite(args.priceUsd)
+  ) {
+    return null;
+  }
+
+  return amount * args.priceUsd;
+}
+
+function toNullableTimestamp(
+  timestamp: Parameters<typeof toBigInt>[0] | null
+): number | null {
+  if (timestamp == null) {
+    return null;
+  }
+
+  const value = Number(toBigInt(timestamp));
+  return Number.isFinite(value) ? value : null;
+}
+
+function resolveNextPolicySeed(settings: {
+  policySeed: Parameters<typeof toBigInt>[0] | null;
+}) {
+  const currentPolicySeed =
+    settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
+  const nextPolicySeed = currentPolicySeed + BigInt(1);
+
+  if (nextPolicySeed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("Policy seed is too large for this client.");
+  }
+
+  return {
+    bigint: nextPolicySeed,
+    number: Number(nextPolicySeed),
+  };
+}
+
+function createPolicySigner(signer: PublicKey): SmartAccountSigner {
+  return {
+    key: signer,
+    permissions: {
+      mask: Permission.Initiate | Permission.Vote | Permission.Execute,
+    },
+  };
+}
+
+type SpendingLimitPolicyCreationPayload = Extract<
+  generated.PolicyCreationPayload,
+  { __kind: "SpendingLimit" }
+>["fields"][0];
+
+function toPolicyExpiration(
+  expiration: number | null | undefined,
+  fallback: SpendingLimitPolicyCreationPayload["timeConstraints"]["expiration"]
+): SpendingLimitPolicyCreationPayload["timeConstraints"]["expiration"] {
+  if (expiration === undefined) {
+    return fallback;
+  }
+
+  return expiration === null ? null : new BN(expiration.toString());
+}
+
+function resolveUpdatedMaxPerUse(args: {
+  amount: bigint;
+  base?: SpendingLimitPolicyCreationPayload;
+}): SpendingLimitPolicyCreationPayload["quantityConstraints"]["maxPerUse"] {
+  if (!args.base) {
+    return toBn(args.amount);
+  }
+
+  const existingMaxPerPeriod = toBigInt(
+    args.base.quantityConstraints.maxPerPeriod
+  );
+  const existingMaxPerUse = toBigInt(args.base.quantityConstraints.maxPerUse);
+
+  if (
+    existingMaxPerUse === existingMaxPerPeriod ||
+    existingMaxPerUse > args.amount
+  ) {
+    return toBn(args.amount);
+  }
+
+  return args.base.quantityConstraints.maxPerUse;
+}
+
+function resolveUpdatedUsageState(args: {
+  amount: bigint;
+  base?: SpendingLimitPolicyCreationPayload;
+}): SpendingLimitPolicyCreationPayload["usageState"] {
+  if (!args.base?.usageState) {
+    return null;
+  }
+
+  const existingRemaining = toBigInt(args.base.usageState.remainingInPeriod);
+
+  return {
+    lastReset: args.base.usageState.lastReset,
+    remainingInPeriod:
+      existingRemaining > args.amount
+        ? toBn(args.amount)
+        : args.base.usageState.remainingInPeriod,
+  };
+}
+
+function createSpendingLimitPolicyCreationPayload(args: {
+  accountIndex?: number;
+  amount: bigint;
+  base?: SpendingLimitPolicyCreationPayload;
+  destinations?: PublicKey[];
+  expiration?: number | null;
+  mint?: PublicKey;
+  period?: SmartAccountSpendingLimitPeriod;
+}): generated.PolicyCreationPayload {
+  const period =
+    args.period === undefined
+      ? args.base?.timeConstraints.period ?? toGeneratedPolicyPeriod("month")
+      : toGeneratedPolicyPeriod(args.period);
+
+  return {
+    __kind: "SpendingLimit",
+    fields: [
+      {
+        mint: args.mint ?? args.base?.mint ?? PublicKey.default,
+        sourceAccountIndex:
+          args.accountIndex ?? args.base?.sourceAccountIndex ?? 0,
+        destinations: args.destinations ?? args.base?.destinations ?? [],
+        timeConstraints: {
+          start: args.base?.timeConstraints.start ?? 0,
+          expiration: toPolicyExpiration(
+            args.expiration,
+            args.base?.timeConstraints.expiration ?? null
+          ),
+          period,
+          accumulateUnused: args.base?.timeConstraints.accumulateUnused ?? false,
+        },
+        quantityConstraints: {
+          maxPerPeriod: toBn(args.amount),
+          maxPerUse: resolveUpdatedMaxPerUse({
+            amount: args.amount,
+            base: args.base,
+          }),
+          enforceExactQuantity:
+            args.base?.quantityConstraints.enforceExactQuantity ?? false,
+        },
+        usageState: resolveUpdatedUsageState({
+          amount: args.amount,
+          base: args.base,
+        }),
+      },
+    ],
+  };
+}
+
+function toSpendingLimitPolicyCreationBase(
+  policy: Policy
+): SpendingLimitPolicyCreationPayload {
+  if (policy.policyState.__kind !== "SpendingLimit") {
+    throw new Error("Existing policy is not a spending-limit policy.");
+  }
+
+  const spendingLimitPolicy = policy.policyState.fields[0];
+  const spendingLimit = spendingLimitPolicy.spendingLimit;
+
+  return {
+    mint: spendingLimit.mint,
+    sourceAccountIndex: spendingLimitPolicy.sourceAccountIndex,
+    destinations: spendingLimitPolicy.destinations,
+    timeConstraints: spendingLimit.timeConstraints,
+    quantityConstraints: spendingLimit.quantityConstraints,
+    usageState: spendingLimit.usage,
+  };
+}
+
+function toSpendingLimitPolicySnapshot(args: {
+  address: PublicKey;
+  assetIndex: Map<string, PortfolioPosition>;
+  now: number;
+  policy: Policy;
+}): SmartAccountSpendingLimitSnapshot | null {
+  if (args.policy.policyState.__kind !== "SpendingLimit") {
+    return null;
+  }
+
+  const spendingLimitPolicy = args.policy.policyState.fields[0];
+  const spendingLimit = spendingLimitPolicy.spendingLimit;
+  const amount = toBigInt(spendingLimit.quantityConstraints.maxPerPeriod);
+  const maxPerUse = toBigInt(spendingLimit.quantityConstraints.maxPerUse);
+  const remainingAmount = toBigInt(spendingLimit.usage.remainingInPeriod);
+  const lastReset = Number(toBigInt(spendingLimit.usage.lastReset));
+  const expiration = toNullableTimestamp(
+    spendingLimit.timeConstraints.expiration
+  );
+  const periodDetails = toSpendingLimitPolicyPeriod(
+    spendingLimit.timeConstraints.period
+  );
+  const effectiveRemainingAmount =
+    getEffectiveSpendingLimitRemainingAmount({
+      accumulateUnused: spendingLimit.timeConstraints.accumulateUnused,
+      amount,
+      lastReset,
+      now: args.now,
+      period: periodDetails.period,
+      periodSeconds: periodDetails.periodSeconds,
+      remainingAmount,
+    });
+  const mint = spendingLimit.mint.toBase58();
+  const asset = resolveSpendingLimitAsset({
+    mint,
+    assetIndex: args.assetIndex,
+  });
+
+  return {
+    address: args.address.toBase58(),
+    settingsPda: args.policy.settings.toBase58(),
+    seed: toBigInt(args.policy.seed).toString(),
+    accountIndex: spendingLimitPolicy.sourceAccountIndex,
+    mint,
+    symbol: asset.symbol,
+    decimals: asset.decimals,
+    amountRaw: amount.toString(),
+    remainingAmountRaw: remainingAmount.toString(),
+    effectiveRemainingAmountRaw: effectiveRemainingAmount.toString(),
+    maxPerUseRaw: maxPerUse.toString(),
+    amountUi: formatTokenAmount(amount, asset.decimals),
+    remainingAmountUi: formatTokenAmount(
+      effectiveRemainingAmount,
+      asset.decimals
+    ),
+    amountUsd: toUsdValue({
+      amountRaw: amount,
+      decimals: asset.decimals,
+      priceUsd: asset.priceUsd,
+    }),
+    remainingAmountUsd: toUsdValue({
+      amountRaw: effectiveRemainingAmount,
+      decimals: asset.decimals,
+      priceUsd: asset.priceUsd,
+    }),
+    period: periodDetails.period,
+    periodSeconds: periodDetails.periodSeconds,
+    periodLabel: toSpendingLimitPeriodLabel(
+      periodDetails.period,
+      periodDetails.periodSeconds
+    ),
+    accumulateUnused: spendingLimit.timeConstraints.accumulateUnused,
+    lastReset,
+    nextReset: getSpendingLimitNextReset({
+      lastReset,
+      now: args.now,
+      period: periodDetails.period,
+      periodSeconds: periodDetails.periodSeconds,
+    }),
+    expiration,
+    isExpired: expiration !== null && expiration <= args.now,
+    signers: args.policy.signers.map((signer) => signer.key.toBase58()),
+    destinations: spendingLimitPolicy.destinations.map((destination) =>
+      destination.toBase58()
+    ),
+  };
+}
+
 function getSettingsTransactionExecutionAccounts(args: {
   settingsPda: PublicKey;
   settingsTransaction: SettingsTransaction;
@@ -687,6 +1080,7 @@ export function createSmartAccountVaultsClient(
       portfolio,
       activity,
       signers: [],
+      spendingLimits: [],
     };
   }
 
@@ -763,6 +1157,35 @@ export function createSmartAccountVaultsClient(
         } satisfies SmartAccountPolicySnapshot;
       })
       .sort((left, right) => (BigInt(left.seed) > BigInt(right.seed) ? 1 : -1));
+  }
+
+  async function listSpendingLimitPolicies(args: {
+    settingsPda: PublicKey;
+    assetIndex?: Map<string, PortfolioPosition>;
+    now?: number;
+  }): Promise<SmartAccountSpendingLimitSnapshot[]> {
+    const policyAccounts = await config.connection.getProgramAccounts(
+      smartAccountsClient.programId,
+      {
+        commitment: "confirmed",
+        filters: createPolicyFilters(args.settingsPda),
+      }
+    );
+    const assetIndex = args.assetIndex ?? new Map<string, PortfolioPosition>();
+    const now = args.now ?? Math.floor(Date.now() / 1000);
+
+    return policyAccounts
+      .map((account) => deserializePolicyAccount(account))
+      .map((entry) =>
+        toSpendingLimitPolicySnapshot({
+          address: entry.address,
+          assetIndex,
+          now,
+          policy: entry.policy,
+        })
+      )
+      .filter((entry): entry is SmartAccountSpendingLimitSnapshot => entry !== null)
+      .sort((left, right) => left.address.localeCompare(right.address));
   }
 
   async function listProposals(args: {
@@ -931,6 +1354,11 @@ export function createSmartAccountVaultsClient(
     const policies = await listPolicies({
       settingsPda: args.settingsPda,
     });
+    const assetIndex = toAssetIndex(vaults);
+    const spendingLimits = await listSpendingLimitPolicies({
+      settingsPda: args.settingsPda,
+      assetIndex,
+    });
     const signers = settings.signers.map((signer) =>
       toSignerSnapshot({
         signer,
@@ -947,8 +1375,10 @@ export function createSmartAccountVaultsClient(
     const vaultsWithSigners = vaults.map((vault) => ({
       ...vault,
       signers: vaultSigners,
+      spendingLimits: spendingLimits.filter(
+        (spendingLimit) => spendingLimit.accountIndex === vault.accountIndex
+      ),
     }));
-    const assetIndex = toAssetIndex(vaults);
     const proposals = await listProposals({
       settingsPda: args.settingsPda,
       assetIndex,
@@ -974,6 +1404,7 @@ export function createSmartAccountVaultsClient(
           .toBase58(),
       signers,
       policies,
+      spendingLimits,
       vaults: vaultsWithSigners,
       proposals,
       fetchedAt: Date.now(),
@@ -1229,6 +1660,279 @@ export function createSmartAccountVaultsClient(
     });
   }
 
+  async function prepareSpendingLimitSettingsChange(args: {
+    actions: SettingsAction[];
+    creator: PublicKey;
+    feePayer: PublicKey;
+    memo?: string;
+    operation: string;
+    policies: PublicKey[];
+    settingsPda: PublicKey;
+    spendingLimits: PublicKey[];
+  }): Promise<SmartAccountPreparedSettingsChange> {
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const transactionIndex = toBigInt(settings.transactionIndex) + BigInt(1);
+
+    if (settings.threshold <= 1) {
+      return {
+        transactionIndex,
+        prepared:
+          await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+            {
+              feePayer: args.feePayer,
+              settingsPda: args.settingsPda,
+              signers: [args.creator],
+              actions: args.actions,
+              memo: args.memo,
+              remainingAccounts: toWritableAccountMetas([
+                ...args.spendingLimits,
+                ...args.policies,
+              ]),
+            } as never
+          ),
+      };
+    }
+
+    const preparedOperations = await Promise.all([
+      smartAccountsClient.features.smartAccounts.prepare.createSettingsTransaction(
+        {
+          feePayer: args.feePayer,
+          rentPayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          transactionIndex,
+          creator: args.creator,
+          actions: args.actions,
+          memo: args.memo,
+        } as never
+      ),
+      smartAccountsClient.features.proposals.prepare.create({
+        feePayer: args.feePayer,
+        rentPayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        creator: args.creator,
+      } as never),
+      smartAccountsClient.features.proposals.prepare.approve({
+        feePayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        transactionIndex,
+        signer: args.creator,
+      } as never),
+    ]);
+
+    return {
+      transactionIndex,
+      prepared: mergePreparedOperations({
+        operation: args.operation,
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        operations: preparedOperations,
+      }),
+    };
+  }
+
+  async function prepareSetSpendingLimitPolicy(
+    args: SmartAccountSetSpendingLimitProposalInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const existingPolicy = args.existingSpendingLimitPolicy
+      ? await smartAccountsClient.policies.queries.fetchPolicy(
+          args.existingSpendingLimitPolicy
+        )
+      : null;
+    const actions: SettingsAction[] = [];
+    const policies: PublicKey[] = [];
+
+    if (existingPolicy && args.existingSpendingLimitPolicy) {
+      if (existingPolicy.policyState.__kind !== "SpendingLimit") {
+        throw new Error("Existing policy is not a spending-limit policy.");
+      }
+
+      if (!existingPolicy.settings.equals(args.settingsPda)) {
+        throw new Error("Existing spending-limit policy belongs to another vault.");
+      }
+
+      const policyUpdatePayload = createSpendingLimitPolicyCreationPayload({
+        accountIndex: args.accountIndex,
+        amount: args.amount,
+        base: toSpendingLimitPolicyCreationBase(existingPolicy),
+        destinations: args.destinations,
+        expiration: args.expiration,
+        mint: args.mint,
+        period: args.period,
+      });
+
+      actions.push({
+        __kind: "PolicyUpdate",
+        policy: args.existingSpendingLimitPolicy,
+        signers: existingPolicy.signers.length
+          ? existingPolicy.signers
+          : [createPolicySigner(args.signer)],
+        threshold: existingPolicy.threshold || 1,
+        timeLock: existingPolicy.timeLock,
+        policyUpdatePayload,
+        expirationArgs: null,
+      });
+      policies.push(args.existingSpendingLimitPolicy);
+    } else {
+      const policyCreationPayload = createSpendingLimitPolicyCreationPayload({
+        accountIndex: args.accountIndex,
+        amount: args.amount,
+        destinations: args.destinations,
+        expiration: args.expiration,
+        mint: args.mint,
+        period: args.period,
+      });
+      const settings =
+        await smartAccountsClient.smartAccounts.queries.fetchSettings(
+          args.settingsPda
+        );
+      const nextPolicySeed = resolveNextPolicySeed(settings);
+      const newPolicyPda = pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: nextPolicySeed.number,
+      })[0];
+
+      actions.push({
+        __kind: "PolicyCreate",
+        seed: toBn(nextPolicySeed.bigint),
+        policyCreationPayload,
+        signers: [createPolicySigner(args.signer)],
+        threshold: 1,
+        timeLock: 0,
+        startTimestamp: null,
+        expirationArgs: null,
+      });
+      policies.push(newPolicyPda);
+    }
+
+    return prepareSpendingLimitSettingsChange({
+      actions,
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: existingPolicy
+        ? "updateSpendingLimitPolicy"
+        : "createSpendingLimitPolicy",
+      policies,
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareRemoveSpendingLimitPolicy(
+    args: SmartAccountRemoveSpendingLimitProposalInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    return prepareSpendingLimitSettingsChange({
+      actions: [
+        {
+          __kind: "PolicyRemove",
+          policy: args.spendingLimitPolicy,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "removeSpendingLimitPolicy",
+      policies: [args.spendingLimitPolicy],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareUseSolSpendingLimitPolicy(
+    args: SmartAccountUseSpendingLimitInput
+  ): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+    if (args.amountLamports <= BigInt(0)) {
+      throw new Error("Spending-limit transfer amount must be greater than 0.");
+    }
+
+    if (args.amountLamports > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(
+        "Spending-limit transfer amount is too large for this client."
+      );
+    }
+
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.spendingLimitPolicy
+    );
+    const policyState = policy.policyState;
+
+    if (!policy.settings.equals(args.settingsPda)) {
+      throw new Error("Spending-limit policy does not belong to this vault.");
+    }
+
+    if (
+      policyState.__kind !== "SpendingLimit" ||
+      !policyState.fields[0].spendingLimit.mint.equals(PublicKey.default)
+    ) {
+      throw new Error("A SOL spending-limit policy is required for top-up.");
+    }
+
+    const accountIndex = policyState.fields[0].sourceAccountIndex;
+    const sourceSmartAccountPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex,
+    })[0];
+    const policyPayload: generated.PolicyPayload = {
+      __kind: "SpendingLimit",
+      fields: [
+        {
+          amount: toBn(args.amountLamports),
+          destination: args.destination,
+          decimals: 9,
+        },
+      ],
+    };
+    const instructionAccounts: AccountMeta[] = [
+      {
+        pubkey: args.signer,
+        isSigner: true,
+        isWritable: false,
+      },
+    ];
+
+    if (policy.expiration?.__kind === "SettingsState") {
+      instructionAccounts.push({
+        pubkey: args.settingsPda,
+        isSigner: false,
+        isWritable: false,
+      });
+    }
+
+    instructionAccounts.push(
+      {
+        pubkey: sourceSmartAccountPda,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: args.destination,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: SystemProgram.programId,
+        isSigner: false,
+        isWritable: false,
+      }
+    );
+
+    return smartAccountsClient.features.execution.prepare.executePolicyPayloadSync({
+      feePayer: args.feePayer,
+      policy: args.spendingLimitPolicy,
+      accountIndex,
+      numSigners: 1,
+      policyPayload,
+      instruction_accounts: instructionAccounts,
+      memo: args.memo,
+    } as never);
+  }
+
   function prepareApproveProposal(args: {
     settingsPda: PublicKey;
     transactionIndex: bigint;
@@ -1310,12 +2014,20 @@ export function createSmartAccountVaultsClient(
     sdk: smartAccountsClient,
     fetchVault,
     listVaults,
+    listSpendingLimitPolicies,
+    listSpendingLimits: listSpendingLimitPolicies,
     listProposals,
     fetchOverview,
     prepareSolTransferProposal,
     prepareSplTransferProposal,
     prepareCustomInstructionProposal,
     preparePolicyCustomInstructionProposal,
+    prepareSetSpendingLimitPolicy,
+    prepareSetSpendingLimitProposal: prepareSetSpendingLimitPolicy,
+    prepareRemoveSpendingLimitPolicy,
+    prepareRemoveSpendingLimitProposal: prepareRemoveSpendingLimitPolicy,
+    prepareUseSolSpendingLimitPolicy,
+    prepareUseSolSpendingLimit: prepareUseSolSpendingLimitPolicy,
     prepareApproveProposal,
     prepareRejectProposal,
     prepareExecuteProposal,

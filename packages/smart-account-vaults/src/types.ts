@@ -13,6 +13,7 @@ import type {
   VersionedTransaction,
   AddressLookupTableAccount,
 } from "@solana/web3.js";
+import type { SmartAccountSpendingLimitPeriod } from "./spending-limits";
 
 export type SmartAccountProposalStatus =
   | "draft"
@@ -95,6 +96,34 @@ export type SmartAccountPolicySnapshot = {
   signers: SmartAccountSignerSnapshot[];
 };
 
+export type SmartAccountSpendingLimitSnapshot = {
+  address: string;
+  settingsPda: string;
+  seed: string;
+  accountIndex: number;
+  mint: string;
+  symbol: string;
+  decimals: number;
+  amountRaw: string;
+  remainingAmountRaw: string;
+  effectiveRemainingAmountRaw: string;
+  maxPerUseRaw: string;
+  amountUi: string;
+  remainingAmountUi: string;
+  amountUsd: number | null;
+  remainingAmountUsd: number | null;
+  period: SmartAccountSpendingLimitPeriod;
+  periodSeconds: number | null;
+  periodLabel: string;
+  accumulateUnused: boolean;
+  lastReset: number;
+  nextReset: number | null;
+  expiration: number | null;
+  isExpired: boolean;
+  signers: string[];
+  destinations: string[];
+};
+
 export type SmartAccountVaultSnapshot = {
   accountIndex: number;
   address: string;
@@ -102,6 +131,7 @@ export type SmartAccountVaultSnapshot = {
   portfolio: PortfolioSnapshot;
   activity: ActivityPage;
   signers: SmartAccountSignerSnapshot[];
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
 };
 
 export type SmartAccountOverview = {
@@ -113,6 +143,7 @@ export type SmartAccountOverview = {
   canonicalVaultAddress: string;
   signers: SmartAccountSignerSnapshot[];
   policies: SmartAccountPolicySnapshot[];
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
   vaults: SmartAccountVaultSnapshot[];
   proposals: SmartAccountProposalSnapshot[];
   fetchedAt: number;
@@ -188,4 +219,43 @@ export type SmartAccountPolicyCustomInstructionProposalInput = {
   addressLookupTableAccounts?: AddressLookupTableAccount[];
   instructionConstraintIndices?: Uint8Array;
   memo?: string;
+};
+
+export type SmartAccountSetSpendingLimitProposalInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  amount: bigint;
+  accountIndex?: number;
+  mint?: PublicKey;
+  period?: SmartAccountSpendingLimitPeriod;
+  destinations?: PublicKey[];
+  expiration?: number | null;
+  existingSpendingLimitPolicy?: PublicKey | null;
+  memo?: string;
+};
+
+export type SmartAccountRemoveSpendingLimitProposalInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  spendingLimitPolicy: PublicKey;
+  memo?: string;
+};
+
+export type SmartAccountUseSpendingLimitInput = {
+  settingsPda: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  spendingLimitPolicy: PublicKey;
+  destination: PublicKey;
+  amountLamports: bigint;
+  accountIndex?: number;
+  memo?: string;
+};
+
+export type SmartAccountPreparedSettingsChange = {
+  transactionIndex: bigint;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
 };
