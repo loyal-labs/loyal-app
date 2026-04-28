@@ -33,6 +33,7 @@ use crate::{
     cli::{AuthArgs, ProposeCommonArgs, RawProposeArgs, SolTransferArgs, TokenTransferArgs},
     config::{websocket_url_from_rpc, ResolvedConfig},
     identity::LoadedIdentity,
+    transaction_diagnostics::send_transaction_with_diagnostics,
     transfers::{
         build_sol_spending_limit_payload, build_sol_transfer, build_token_spending_limit_payload,
         build_token_transfer, SpendingLimitTransferPayload,
@@ -862,9 +863,11 @@ fn propose_with_payload(
         &[&identity.keypair],
         blockhash,
     );
-    let signature = rpc_client
-        .send_transaction(&transaction)
-        .context("failed to submit proposal transaction")?;
+    let signature = send_transaction_with_diagnostics(
+        &rpc_client,
+        &transaction,
+        "failed to submit proposal transaction",
+    )?;
 
     if !common.no_confirm {
         confirm_signature(&rpc_client, &signature)?;

@@ -2572,6 +2572,7 @@ dependencies = [
  "solana-client",
  "solana-commitment-config",
  "solana-compute-budget-interface",
+ "solana-rpc-client-api",
  "solana-sdk",
  "solana-system-interface 1.0.0",
  "spl-associated-token-account-client",

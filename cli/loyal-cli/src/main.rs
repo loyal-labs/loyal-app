@@ -6,6 +6,7 @@ mod commands;
 mod config;
 mod identity;
 mod squads;
+mod transaction_diagnostics;
 mod transfers;
 
 use cli::{Cli, Command};
