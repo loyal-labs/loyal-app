@@ -167,7 +167,8 @@ export function HeroSection(props: HeroSectionProps) {
   // Dog shows "nice" face whenever wallet finishes loading
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   useEffect(() => {
-    const justFinished = wasWalletLoadingRef.current && !walletDesktopData.isLoading;
+    const justFinished =
+      wasWalletLoadingRef.current && !walletDesktopData.isLoading;
     wasWalletLoadingRef.current = walletDesktopData.isLoading;
 
     if (justFinished && walletDesktopData.isConnected) {
@@ -180,7 +181,10 @@ export function HeroSection(props: HeroSectionProps) {
   useEffect(() => {
     if (props.isChatMode && props.inputRef.current) {
       const focusInput = () => {
-        if (props.inputRef.current && document.activeElement !== props.inputRef.current) {
+        if (
+          props.inputRef.current &&
+          document.activeElement !== props.inputRef.current
+        ) {
           props.inputRef.current.focus();
           props.inputRef.current.select(); // Also select any existing text
         }
@@ -222,7 +226,11 @@ export function HeroSection(props: HeroSectionProps) {
 
   // Keep focus on textarea when messages change (e.g., after receiving response)
   useEffect(() => {
-    if (props.isChatMode && props.messages.length > 0 && props.inputRef.current) {
+    if (
+      props.isChatMode &&
+      props.messages.length > 0 &&
+      props.inputRef.current
+    ) {
       // Small delay to ensure UI has updated
       const timeout = setTimeout(() => {
         if (document.activeElement !== props.inputRef.current) {
@@ -321,7 +329,8 @@ export function HeroSection(props: HeroSectionProps) {
       setParallaxOffset(offset);
 
       // Calculate when the input form has completely scrolled above the viewport
-      const inputNaturalCenterFromTop = viewportHeight / 2 - 17 - scrollY * 0.85;
+      const inputNaturalCenterFromTop =
+        viewportHeight / 2 - 17 - scrollY * 0.85;
       const formHalfHeight = 40; // ~half the rendered form height
       const formBottomFromTop = inputNaturalCenterFromTop + formHalfHeight;
 
@@ -530,7 +539,9 @@ export function HeroSection(props: HeroSectionProps) {
             balanceWhole={walletDesktopData.balanceWhole}
             balanceFraction={walletDesktopData.balanceFraction}
             balanceSolLabel={walletDesktopData.balanceSolLabel}
-            balanceHistory={walletDesktopData.balanceHistory.map((p) => p.valueUsd)}
+            balanceHistory={walletDesktopData.balanceHistory.map(
+              (p) => p.valueUsd
+            )}
             onOpenRightSidebar={openRightSidebarFromHero}
             onOpenSignIn={openTrackedSignIn}
             dogCry={dogCry}
@@ -556,7 +567,15 @@ export function HeroSection(props: HeroSectionProps) {
             }}
             connectAgentName={props.connectAgentName}
             onConnectDecline={() => setIsRightSidebarOpen(false)}
-            onConnectApprove={() => {
+            onConnectApprove={async () => {
+              if (!props.connectAgentName) {
+                throw new Error("Missing agent public key.");
+              }
+              await smartAccountData.addInitiateSigner({
+                signerAddress: props.connectAgentName,
+              });
+            }}
+            onConnectDone={() => {
               setRightSidebarTab("portfolio");
             }}
           />

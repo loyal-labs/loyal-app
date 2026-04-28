@@ -99,6 +99,7 @@ export type SmartAccountSidebarData = {
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
+  addInitiateSigner: (args: { signerAddress: string }) => Promise<void>;
   setSignerSpendingLimitUsd: (args: {
     accountIndex: number;
     amountUsd: number;
@@ -122,7 +123,8 @@ export type SmartAccountSidebarData = {
 };
 
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
-const LOYL_ICON_URL = "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
+const LOYL_ICON_URL =
+  "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
 
 function resolveTokenIcon(position: PortfolioPosition): string {
   if (position.asset.imageUrl) {
@@ -173,10 +175,7 @@ function formatSolAmount(lamports: number): string {
   });
 }
 
-function lamportsToUsd(
-  lamports: number,
-  solPriceUsd: number
-): number {
+function lamportsToUsd(lamports: number, solPriceUsd: number): number {
   return (lamports / LAMPORTS_PER_SOL) * solPriceUsd;
 }
 
@@ -330,11 +329,13 @@ function mapSignersToEntries(args: {
     const label = isAuthenticatedUser
       ? "User"
       : signer.scope === "policy"
-        ? `Agent ${++agentCount}`
-        : `Signer ${++signerCount}`;
+      ? `Agent ${++agentCount}`
+      : `Signer ${++signerCount}`;
 
     return {
-      id: `${signer.scope}:${signer.consensusAddress}:${signer.address}:${signer.policyAddress ?? "root"}`,
+      id: `${signer.scope}:${signer.consensusAddress}:${signer.address}:${
+        signer.policyAddress ?? "root"
+      }`,
       label,
       address: signer.address,
       shortAddress: shortAddress(signer.address),
@@ -368,7 +369,7 @@ function mapSignersToEntries(args: {
 function mapVaultActivity(
   activity: WalletActivity,
   positions: PortfolioPosition[],
-  solPriceUsd: number,
+  solPriceUsd: number
 ): {
   row: ActivityRow;
   detail: TransactionDetail;
@@ -379,10 +380,10 @@ function mapVaultActivity(
     activity.type === "secure"
       ? "shielded"
       : activity.type === "unshield"
-        ? "unshielded"
-        : isIncoming
-          ? "received"
-          : "sent";
+      ? "unshielded"
+      : isIncoming
+      ? "received"
+      : "sent";
   let baseAmount: string;
   let icon: string;
   let usdValue = "$0.00";
@@ -403,7 +404,10 @@ function mapVaultActivity(
       break;
     }
     case "swap": {
-      const position = resolvePositionByMint(positions, activity.fromToken.mint);
+      const position = resolvePositionByMint(
+        positions,
+        activity.fromToken.mint
+      );
       const isFromSol = activity.fromToken.mint === NATIVE_SOL_MINT;
       const symbol = position?.asset.symbol ?? (isFromSol ? "SOL" : "TOKEN");
       const priceUsd = position?.priceUsd ?? (isFromSol ? solPriceUsd : null);
@@ -417,9 +421,7 @@ function mapVaultActivity(
     case "sol_transfer":
       baseAmount = `${formatSolAmount(activity.amountLamports)} SOL`;
       icon = getTokenIconUrl("SOL");
-      usdValue = formatUsd(
-        lamportsToUsd(activity.amountLamports, solPriceUsd)
-      );
+      usdValue = formatUsd(lamportsToUsd(activity.amountLamports, solPriceUsd));
       break;
     case "program_action":
       if (activity.token) {
@@ -437,9 +439,7 @@ function mapVaultActivity(
 
       baseAmount = `${formatSolAmount(activity.amountLamports)} SOL`;
       icon = getTokenIconUrl("SOL");
-      usdValue = formatUsd(
-        lamportsToUsd(activity.amountLamports, solPriceUsd)
-      );
+      usdValue = formatUsd(lamportsToUsd(activity.amountLamports, solPriceUsd));
       break;
   }
 
@@ -507,8 +507,8 @@ function mapProposalToApprovalItem(
     (proposal.summary.kind === "sol_transfer"
       ? "SOL"
       : isSettingsChange
-        ? ""
-        : "TOKEN");
+      ? ""
+      : "TOKEN");
   const sourceAccountIndex = proposal.accountIndex;
 
   return {
@@ -521,7 +521,9 @@ function mapProposalToApprovalItem(
     symbol,
     sourceAccountIndex,
     sourceLabel:
-      sourceAccountIndex === null ? "Unknown vault" : `Vault ${sourceAccountIndex}`,
+      sourceAccountIndex === null
+        ? "Unknown vault"
+        : `Vault ${sourceAccountIndex}`,
     status: proposal.status,
     canExecute:
       proposal.payloadType === "transaction" ||
@@ -537,9 +539,7 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
 
   return {
     publicKey: wallet.publicKey,
-    signTransaction: async <
-      T extends Transaction | VersionedTransaction,
-    >(
+    signTransaction: async <T extends Transaction | VersionedTransaction>(
       transaction: T
     ): Promise<T> => {
       if (!wallet.signTransaction) {
@@ -602,11 +602,7 @@ function tokenRawAmountToNumber(
   const rawAmount = Number(amountRaw);
   const scale = 10 ** decimals;
 
-  if (
-    !Number.isFinite(rawAmount) ||
-    !Number.isFinite(scale) ||
-    scale <= 0
-  ) {
+  if (!Number.isFinite(rawAmount) || !Number.isFinite(scale) || scale <= 0) {
     return null;
   }
 
@@ -736,12 +732,18 @@ async function normalizeSpendingLimitError(
       combinedLogs.includes("Instruction: ExecuteTransactionSyncV2")
     ) {
       return new Error(
-        `Vault does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(currentLamports)} SOL, but it needs ${formatSolAmount(neededLamports)} SOL.`
+        `Vault does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(
+          currentLamports
+        )} SOL, but it needs ${formatSolAmount(neededLamports)} SOL.`
       );
     }
 
     return new Error(
-      `Not enough SOL in the connected wallet to pay transaction rent. Current balance available to this step is ${formatSolAmount(currentLamports)} SOL, but it needs at least ${formatSolAmount(neededLamports)} SOL plus fees. Top up the wallet and try again.`
+      `Not enough SOL in the connected wallet to pay transaction rent. Current balance available to this step is ${formatSolAmount(
+        currentLamports
+      )} SOL, but it needs at least ${formatSolAmount(
+        neededLamports
+      )} SOL plus fees. Top up the wallet and try again.`
     );
   }
 
@@ -775,7 +777,9 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   const [error, setError] = useState<string | null>(null);
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
-  const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [pendingProposalId, setPendingProposalId] = useState<string | null>(
+    null
+  );
   const [pendingSpendingLimitActionKey, setPendingSpendingLimitActionKey] =
     useState<string | null>(null);
 
@@ -842,7 +846,9 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
 
   const selectedVault = useMemo<SmartAccountVaultView | null>(() => {
     const vault =
-      overview?.vaults.find((entry) => entry.accountIndex === selectedVaultIndex) ??
+      overview?.vaults.find(
+        (entry) => entry.accountIndex === selectedVaultIndex
+      ) ??
       overview?.vaults[0] ??
       null;
 
@@ -851,20 +857,20 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     }
 
     const fallbackBalance = splitUsd(vault.portfolio.totals.totalUsd);
-    const entry =
-      vaultEntries.find((candidate) => candidate.accountIndex === vault.accountIndex) ??
-      {
-        accountIndex: vault.accountIndex,
-        label: `Vault ${vault.accountIndex}`,
-        address: vault.address,
-        balanceWhole: fallbackBalance.whole,
-        balanceFraction: fallbackBalance.fraction,
-        signers: mapSignersToEntries({
-          signers: vault.signers ?? [],
-          authenticatedWalletAddress: user?.walletAddress,
-          spendingLimits: vault.spendingLimits ?? [],
-        }),
-      };
+    const entry = vaultEntries.find(
+      (candidate) => candidate.accountIndex === vault.accountIndex
+    ) ?? {
+      accountIndex: vault.accountIndex,
+      label: `Vault ${vault.accountIndex}`,
+      address: vault.address,
+      balanceWhole: fallbackBalance.whole,
+      balanceFraction: fallbackBalance.fraction,
+      signers: mapSignersToEntries({
+        signers: vault.signers ?? [],
+        authenticatedWalletAddress: user?.walletAddress,
+        spendingLimits: vault.spendingLimits ?? [],
+      }),
+    };
     const solPriceUsd =
       vault.portfolio.totals.effectiveSolPriceUsd ??
       resolvePositionByMint(vault.portfolio.positions, NATIVE_SOL_MINT)
@@ -913,16 +919,22 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       }
 
       if (!wallet.publicKey || !user?.walletAddress) {
-        throw new Error("Connect the authenticated wallet to sign this action.");
+        throw new Error(
+          "Connect the authenticated wallet to sign this action."
+        );
       }
 
       if (wallet.publicKey.toBase58() !== user.walletAddress) {
-        throw new Error("Connected wallet does not match the authenticated wallet.");
+        throw new Error(
+          "Connected wallet does not match the authenticated wallet."
+        );
       }
 
       const walletBridge = createWalletAdapterBridge(wallet);
       if (!walletBridge) {
-        throw new Error("Connected wallet cannot sign smart-account transactions.");
+        throw new Error(
+          "Connected wallet cannot sign smart-account transactions."
+        );
       }
 
       const client = createSmartAccountVaultsClient({
@@ -939,16 +951,16 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         action === "approve"
           ? await client.prepareApproveProposal(sharedArgs)
           : action === "reject"
-            ? await client.prepareRejectProposal(sharedArgs)
-            : proposal.payloadType === "settings_transaction"
-              ? await client.prepareExecuteSettingsProposal(sharedArgs)
-              : proposal.payloadType === "transaction"
-                ? await client.prepareExecuteProposal(sharedArgs)
-                : (() => {
-                    throw new Error(
-                      "This proposal type cannot be executed from the wallet sidebar."
-                    );
-                  })();
+          ? await client.prepareRejectProposal(sharedArgs)
+          : proposal.payloadType === "settings_transaction"
+          ? await client.prepareExecuteSettingsProposal(sharedArgs)
+          : proposal.payloadType === "transaction"
+          ? await client.prepareExecuteProposal(sharedArgs)
+          : (() => {
+              throw new Error(
+                "This proposal type cannot be executed from the wallet sidebar."
+              );
+            })();
 
       setIsActionPending(true);
       setPendingProposalId(proposal.proposalAddress);
@@ -966,20 +978,17 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         setPendingProposalId(null);
       }
     },
-    [
-      connection,
-      overview,
-      refresh,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, overview, refresh, user?.walletAddress, wallet]
   );
 
   const runSpendingLimitAction = useCallback(
     async (args: {
       actionKey: string;
-      prepare: (client: ReturnType<typeof createSmartAccountVaultsClient>) =>
-        Promise<{ prepared: Parameters<typeof sendPreparedWithWallet>[0]["prepared"] }>;
+      prepare: (
+        client: ReturnType<typeof createSmartAccountVaultsClient>
+      ) => Promise<{
+        prepared: Parameters<typeof sendPreparedWithWallet>[0]["prepared"];
+      }>;
       requireAuthenticatedWallet?: boolean;
     }) => {
       if (!overview) {
@@ -992,7 +1001,9 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
 
       if (args.requireAuthenticatedWallet ?? true) {
         if (!user?.walletAddress) {
-          throw new Error("Connect the authenticated wallet to sign this action.");
+          throw new Error(
+            "Connect the authenticated wallet to sign this action."
+          );
         }
 
         if (wallet.publicKey.toBase58() !== user.walletAddress) {
@@ -1004,7 +1015,9 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
 
       const walletBridge = createWalletAdapterBridge(wallet);
       if (!walletBridge) {
-        throw new Error("Connected wallet cannot sign smart-account transactions.");
+        throw new Error(
+          "Connected wallet cannot sign smart-account transactions."
+        );
       }
 
       const client = createSmartAccountVaultsClient({
@@ -1055,13 +1068,13 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         (entry) => entry.accountIndex === args.accountIndex
       );
       const existingSpendingLimit = args.existingSpendingLimitAddress
-        ? (vault?.spendingLimits.find(
+        ? vault?.spendingLimits.find(
             (entry) => entry.address === args.existingSpendingLimitAddress
           ) ??
           overview.spendingLimits.find(
             (entry) => entry.address === args.existingSpendingLimitAddress
           ) ??
-          null)
+          null
         : null;
 
       if (args.existingSpendingLimitAddress && !existingSpendingLimit) {
@@ -1101,6 +1114,36 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
             existingSpendingLimitPolicy: args.existingSpendingLimitAddress
               ? new PublicKey(args.existingSpendingLimitAddress)
               : null,
+          }),
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
+  const addInitiateSigner = useCallback(
+    async (args: { signerAddress: string }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      const signer = new PublicKey(args.signerAddress);
+      const existingSigner = overview.policies
+        .filter((policy) => policy.state === "SpendingLimit")
+        .flatMap((policy) => policy.signers)
+        .find((entry) => entry.address === signer.toBase58());
+
+      if (existingSigner?.canInitiate) {
+        return;
+      }
+
+      await runSpendingLimitAction({
+        actionKey: `add-signer:${signer.toBase58()}`,
+        prepare: (client) =>
+          client.prepareAddInitiateSigner({
+            settingsPda: new PublicKey(overview.settingsPda),
+            creator: wallet.publicKey!,
+            feePayer: wallet.publicKey!,
+            signer,
           }),
       });
     },
@@ -1216,6 +1259,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),
     executeProposal: (proposal) => runProposalAction(proposal, "execute"),
+    addInitiateSigner,
     setSignerSpendingLimitUsd,
     topUpSignerWithSpendingLimitUsd,
     deleteSignerSpendingLimit,

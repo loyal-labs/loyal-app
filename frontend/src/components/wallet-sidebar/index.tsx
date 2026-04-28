@@ -1,6 +1,12 @@
 "use client";
 
-import { ArrowDownLeft, ArrowUpRight, RefreshCw, Wallet, X } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  RefreshCw,
+  Wallet,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { TurnstileWidget } from "@/components/auth/turnstile-widget";
@@ -61,7 +67,8 @@ export interface HeroRightSidebarProps {
   onDisconnect?: () => void;
   connectAgentName?: string;
   onConnectDecline?: () => void;
-  onConnectApprove?: () => void;
+  onConnectApprove?: () => Promise<void> | void;
+  onConnectDone?: () => void;
 }
 
 export function HeroRightSidebar(props: HeroRightSidebarProps) {
@@ -69,7 +76,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   const wasOpenRef = useRef(props.isOpen);
   const publicEnv = usePublicEnv();
   const { activeTab, onTabChange } = props;
-  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(
+    null
+  );
 
   // Turnstile captcha gate for sign-in tab
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
@@ -81,7 +90,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (!needsCaptchaWidget && captchaToken === null) {
       setCaptchaToken(
         turnstileMode === "bypass"
-          ? (publicEnv.turnstile as { mode: "bypass"; verificationToken: string }).verificationToken
+          ? (
+              publicEnv.turnstile as {
+                mode: "bypass";
+                verificationToken: string;
+              }
+            ).verificationToken
           : "captcha-skipped"
       );
     }
@@ -182,7 +196,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (!positions || positions.length === 0) return fallbackSwapTokens;
 
     const tokens: SwapToken[] = positions
-      .filter((p) => p.totalBalance > 0 || ["SOL", "USDC"].includes(p.asset.symbol))
+      .filter(
+        (p) => p.totalBalance > 0 || ["SOL", "USDC"].includes(p.asset.symbol)
+      )
       .map((p) => ({
         mint: p.asset.mint,
         symbol: p.asset.symbol,
@@ -193,9 +209,15 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     // Inject LOYL at 3rd position if not already present
     if (!tokens.some((t) => t.mint === LOYL_TOKEN.mint)) {
-      const loylPosition = positions.find((p) => p.asset.mint === LOYL_TOKEN.mint);
+      const loylPosition = positions.find(
+        (p) => p.asset.mint === LOYL_TOKEN.mint
+      );
       const loyl = loylPosition
-        ? { ...LOYL_TOKEN, price: loylPosition.priceUsd ?? 0, balance: loylPosition.totalBalance }
+        ? {
+            ...LOYL_TOKEN,
+            price: loylPosition.priceUsd ?? 0,
+            balance: loylPosition.totalBalance,
+          }
         : LOYL_TOKEN;
       tokens.splice(2, 0, loyl as SwapToken);
     }
@@ -206,7 +228,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   // Merge user's held tokens with popular tokens for swap target selection
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(derivedTokens.map((t) => t.mint).filter(Boolean));
-    const extras = popularTokens.filter((t) => t.mint && !heldMints.has(t.mint));
+    const extras = popularTokens.filter(
+      (t) => t.mint && !heldMints.has(t.mint)
+    );
     return [...derivedTokens, ...extras];
   }, [derivedTokens, popularTokens]);
 
@@ -219,7 +243,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     if (props.activeTab !== displayTab) {
       // Swap instantly when sidebar is closed, just opening, or transitioning to/from sign-in
-      if (!props.isOpen || justOpened || props.activeTab === "sign-in" || displayTab === "sign-in" || props.activeTab === "connect" || displayTab === "connect") {
+      if (
+        !props.isOpen ||
+        justOpened ||
+        props.activeTab === "sign-in" ||
+        displayTab === "sign-in" ||
+        props.activeTab === "connect" ||
+        displayTab === "connect"
+      ) {
         setDisplayTab(props.activeTab);
         setCrossFadeOpacity(1);
         return;
@@ -239,30 +270,42 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   }, [displayTab]);
 
   // Swap token state (lifted here so token selection sub-view can update it)
-  const [swapFromToken, setSwapFromToken] = useState<SwapToken>(derivedTokens[0] ?? fallbackSwapTokens[0]);
+  const [swapFromToken, setSwapFromToken] = useState<SwapToken>(
+    derivedTokens[0] ?? fallbackSwapTokens[0]
+  );
   const [swapToToken, setSwapToToken] = useState<SwapToken>(LOYL_TOKEN);
 
   // Swap/Shield mode
   const [swapMode, setSwapMode] = useState<SwapMode>("swap");
   const [swapFormActive, setSwapFormActive] = useState(true);
   const [shieldFormActive, setShieldFormActive] = useState(true);
-  const showSharedTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
-  const [swapButtonProps, setSwapButtonProps] = useState<FormButtonProps | null>(null);
-  const [shieldButtonProps, setShieldButtonProps] = useState<FormButtonProps | null>(null);
-  const activeButtonProps = swapMode === "swap" ? swapButtonProps : shieldButtonProps;
+  const showSharedTabs =
+    swapMode === "swap" ? swapFormActive : shieldFormActive;
+  const [swapButtonProps, setSwapButtonProps] =
+    useState<FormButtonProps | null>(null);
+  const [shieldButtonProps, setShieldButtonProps] =
+    useState<FormButtonProps | null>(null);
+  const activeButtonProps =
+    swapMode === "swap" ? swapButtonProps : shieldButtonProps;
 
   // Shield token state
-  const [shieldToken, setShieldToken] = useState<SwapToken>(derivedTokens[0] ?? fallbackSwapTokens[0]);
+  const [shieldToken, setShieldToken] = useState<SwapToken>(
+    derivedTokens[0] ?? fallbackSwapTokens[0]
+  );
 
   // Derived secured balance for the selected shield token
   const shieldSecuredBalance = useMemo(() => {
     if (!shieldToken.mint) return 0;
-    const position = props.walletDesktopData.positions.find((p) => p.asset.mint === shieldToken.mint);
+    const position = props.walletDesktopData.positions.find(
+      (p) => p.asset.mint === shieldToken.mint
+    );
     return position?.securedBalance ?? 0;
   }, [shieldToken.mint, props.walletDesktopData.positions]);
 
   // Send token state
-  const [sendToken, setSendToken] = useState<SwapToken>(derivedTokens[0] ?? fallbackSwapTokens[0]);
+  const [sendToken, setSendToken] = useState<SwapToken>(
+    derivedTokens[0] ?? fallbackSwapTokens[0]
+  );
 
   const handleQuickActionTabClick = useCallback(
     (tab: "portfolio" | "receive" | "send" | "swap") => {
@@ -301,34 +344,51 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       if (isSecured) {
         return {
           onSend: () => pushView({ type: "sendPanel" }),
-          onUnshield: () => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); },
+          onUnshield: () => {
+            handleSwapModeChange("shield");
+            pushView({ type: "swapPanel", mode: "shield" });
+          },
         };
       }
 
       const actions: TokenRowActions = {
         onSend: () => pushView({ type: "sendPanel" }),
-        onSwap: () => { handleSwapModeChange("swap"); pushView({ type: "swapPanel", mode: "swap" }); },
-        onShield: () => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); },
+        onSwap: () => {
+          handleSwapModeChange("swap");
+          pushView({ type: "swapPanel", mode: "swap" });
+        },
+        onShield: () => {
+          handleSwapModeChange("shield");
+          pushView({ type: "swapPanel", mode: "shield" });
+        },
       };
 
       if (isLoyal) {
         actions.onBuy = () => {
-          window.open(`https://jup.ag/tokens/${LOYL_TOKEN.mint}`, "_blank", "noopener,noreferrer");
+          window.open(
+            `https://jup.ag/tokens/${LOYL_TOKEN.mint}`,
+            "_blank",
+            "noopener,noreferrer"
+          );
         };
       }
 
       return actions;
     },
-    [handleSwapModeChange, pushView],
+    [handleSwapModeChange, pushView]
   );
 
   // Update tokens when wallet connects/disconnects (not on every balance refresh)
-  const prevHadTokens = useRef(derivedTokens.length > 0 && !!derivedTokens[0].mint);
+  const prevHadTokens = useRef(
+    derivedTokens.length > 0 && !!derivedTokens[0].mint
+  );
   useEffect(() => {
     const hasTokens = derivedTokens.length > 0 && !!derivedTokens[0].mint;
     if (hasTokens && !prevHadTokens.current) {
       setSwapFromToken(derivedTokens[0]);
-      setSwapToToken(derivedTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN);
+      setSwapToToken(
+        derivedTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
+      );
       setSendToken(derivedTokens[0]);
       setShieldToken(derivedTokens[0]);
     }
@@ -341,7 +401,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   const hasLevel3 = viewStack.length >= 3;
 
   // Helper to check view type
-  const viewType = (v: SubView) => (typeof v === "object" && v !== null ? v.type : v);
+  const viewType = (v: SubView) =>
+    typeof v === "object" && v !== null ? v.type : v;
 
   // Reset everything when sidebar closes
   useEffect(() => {
@@ -374,7 +435,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         }
       }
     },
-    [viewStack, swapFromToken, swapToToken],
+    [viewStack, swapFromToken, swapToToken]
   );
 
   const openApprovalReview = useCallback(
@@ -419,7 +480,11 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   }, []);
 
   // Render any sub-view by type. Used for both Layer 1 and Layer 2.
-  const renderSubView = (view: SubView, onBack: () => void, navigateFn: (v: Exclude<SubView, null>) => void = pushView) => {
+  const renderSubView = (
+    view: SubView,
+    onBack: () => void,
+    navigateFn: (v: Exclude<SubView, null>) => void = pushView
+  ) => {
     if (!view) return null;
     const type = viewType(view);
     const isVaultSubview =
@@ -482,7 +547,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       );
     }
     if (type === "transaction") {
-      const detail = (view as { type: "transaction"; detail: TransactionDetail; from: string }).detail;
+      const detail = (
+        view as { type: "transaction"; detail: TransactionDetail; from: string }
+      ).detail;
       return (
         <TransactionDetailView
           detail={detail}
@@ -492,7 +559,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       );
     }
     if (type === "tokenSelect") {
-      const field = (view as { type: "tokenSelect"; field: "from" | "to" }).field;
+      const field = (view as { type: "tokenSelect"; field: "from" | "to" })
+        .field;
       return (
         <TokenSelectView
           currentToken={field === "from" ? swapFromToken : swapToToken}
@@ -545,21 +613,27 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onDecline={() =>
             selectedApproval
               ? void runProposalAction(() =>
-                  props.smartAccountData.rejectProposal(selectedApproval.proposal)
+                  props.smartAccountData.rejectProposal(
+                    selectedApproval.proposal
+                  )
                 )
               : undefined
           }
           onApprove={() =>
             selectedApproval
               ? void runProposalAction(() =>
-                  props.smartAccountData.approveProposal(selectedApproval.proposal)
+                  props.smartAccountData.approveProposal(
+                    selectedApproval.proposal
+                  )
                 )
               : undefined
           }
           onExecute={() =>
             selectedApproval
               ? void runProposalAction(() =>
-                  props.smartAccountData.executeProposal(selectedApproval.proposal)
+                  props.smartAccountData.executeProposal(
+                    selectedApproval.proposal
+                  )
                 )
               : undefined
           }
@@ -567,7 +641,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       );
     }
     if (type === "accountPage") {
-      const account = (view as { type: "accountPage"; account: "main" | "vault" }).account;
+      const account = (
+        view as { type: "accountPage"; account: "main" | "vault" }
+      ).account;
       if (account === "vault") {
         return (
           <VaultAccountPageView
@@ -608,14 +684,27 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onNavigate={navigateFn}
           onOpenReceive={() => navigateFn({ type: "receivePanel" })}
           onOpenSend={() => navigateFn({ type: "sendPanel" })}
-          onOpenSwap={() => { handleSwapModeChange("swap"); navigateFn({ type: "swapPanel", mode: "swap" }); }}
-          onOpenShield={() => { handleSwapModeChange("shield"); navigateFn({ type: "swapPanel", mode: "shield" }); }}
+          onOpenSwap={() => {
+            handleSwapModeChange("swap");
+            navigateFn({ type: "swapPanel", mode: "swap" });
+          }}
+          onOpenShield={() => {
+            handleSwapModeChange("shield");
+            navigateFn({ type: "swapPanel", mode: "shield" });
+          }}
           getTokenActions={getTokenActions}
         />
       );
     }
     if (type === "agentPage") {
-      const agent = view as { type: "agentPage"; agentId: string; label: string; agentIcon?: string; balanceWhole: string; balanceFraction: string };
+      const agent = view as {
+        type: "agentPage";
+        agentId: string;
+        label: string;
+        agentIcon?: string;
+        balanceWhole: string;
+        balanceFraction: string;
+      };
       const selectedAgent =
         selectedVault?.entry.signers.find(
           (signer) => signer.address === agent.agentId
@@ -634,9 +723,16 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           balanceFraction={agent.balanceFraction}
           isBalanceHidden={props.isBalanceHidden}
           onBalanceHiddenChange={props.onBalanceHiddenChange}
-          tokenRows={selectedVault?.tokenRows ?? props.walletDesktopData.tokenRows}
-          activityRows={selectedVault?.activityRows ?? props.walletDesktopData.activityRows}
-          transactionDetails={selectedVault?.transactionDetails ?? props.walletDesktopData.transactionDetails}
+          tokenRows={
+            selectedVault?.tokenRows ?? props.walletDesktopData.tokenRows
+          }
+          activityRows={
+            selectedVault?.activityRows ?? props.walletDesktopData.activityRows
+          }
+          transactionDetails={
+            selectedVault?.transactionDetails ??
+            props.walletDesktopData.transactionDetails
+          }
           vaultAccountIndex={vaultAccountIndex}
           signerAddress={agent.agentId}
           spendingLimit={selectedAgent?.spendingLimit ?? null}
@@ -649,8 +745,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onBack={onBack}
           onNavigate={navigateFn}
           onSetSpendingLimit={props.smartAccountData.setSignerSpendingLimitUsd}
-          onDeleteSpendingLimit={props.smartAccountData.deleteSignerSpendingLimit}
-          onTopUpWithSpendingLimit={props.smartAccountData.topUpSignerWithSpendingLimitUsd}
+          onDeleteSpendingLimit={
+            props.smartAccountData.deleteSignerSpendingLimit
+          }
+          onTopUpWithSpendingLimit={
+            props.smartAccountData.topUpSignerWithSpendingLimitUsd
+          }
         />
       );
     }
@@ -660,7 +760,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           addLocalActivity={props.walletDesktopData.addLocalActivity}
           onBack={onBack}
           onClose={props.onClose}
-          onDone={() => { resetViews(); }}
+          onDone={() => {
+            resetViews();
+          }}
           onNavigate={navigateFn}
           token={sendToken}
         />
@@ -678,18 +780,38 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (type === "swapPanel") {
       const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
       return (
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
           {showTabs && (
-            <SwapShieldTabs mode={swapMode} onBack={onBack} onClose={props.onClose} onModeChange={handleSwapModeChange} />
+            <SwapShieldTabs
+              mode={swapMode}
+              onBack={onBack}
+              onClose={props.onClose}
+              onModeChange={handleSwapModeChange}
+            />
           )}
-          <div style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
+          <div
+            style={{
+              position: "relative",
+              flex: 1,
+              minHeight: 0,
+              overflow: "hidden",
+            }}
+          >
             <div
               style={{
                 position: "absolute",
                 inset: 0,
                 display: "flex",
                 flexDirection: "column",
-                transform: swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
+                transform:
+                  swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
                 transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
                 willChange: "transform",
               }}
@@ -699,7 +821,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 hideFormChrome
                 onBack={onBack}
                 onClose={props.onClose}
-                onDone={() => { resetViews(); }}
+                onDone={() => {
+                  resetViews();
+                }}
                 onFormActiveChange={setSwapFormActive}
                 onFormButtonChange={setSwapButtonProps}
                 onFromTokenChange={setSwapFromToken}
@@ -716,7 +840,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 inset: 0,
                 display: "flex",
                 flexDirection: "column",
-                transform: swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
+                transform:
+                  swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
                 transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
                 willChange: "transform",
               }}
@@ -725,7 +850,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 hideFormChrome
                 onBack={onBack}
                 onClose={props.onClose}
-                onDone={() => { resetViews(); }}
+                onDone={() => {
+                  resetViews();
+                }}
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
                 onNavigate={navigateFn}
@@ -740,7 +867,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
           {/* Shared bottom button — stays fixed */}
           {(() => {
-            const btnProps = swapMode === "swap" ? swapButtonProps : shieldButtonProps;
+            const btnProps =
+              swapMode === "swap" ? swapButtonProps : shieldButtonProps;
             return btnProps ? (
               <div style={{ padding: "16px 20px" }}>
                 <button
@@ -793,7 +921,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           background: rgba(0, 0, 0, 0.08) !important;
         }
         @keyframes sidebar-spin {
-          to { transform: rotate(360deg); }
+          to {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
 
@@ -815,7 +945,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             position: "relative",
             transform: props.isOpen ? "translateX(0)" : "translateX(110%)",
             opacity: props.isOpen ? 1 : 0,
-            transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+            transition:
+              "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
           }}
         >
           {/* Layer 0: Main panel */}
@@ -831,7 +962,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               flexDirection: "column",
               overflow: "hidden",
               transform: hasLevel1 ? "translateX(-6px)" : "translateX(0)",
-              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition:
+                "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               pointerEvents: hasLevel1 ? "none" : "auto",
             }}
           >
@@ -840,41 +972,84 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               style={{
                 display: "flex",
                 gap: "6px",
-                padding: props.showQuickActions && displayTab !== "sign-in" && displayTab !== "connect" ? "8px 8px 0" : "0 8px",
-                maxHeight: props.showQuickActions && displayTab !== "sign-in" && displayTab !== "connect" ? "52px" : "0",
-                opacity: props.showQuickActions && displayTab !== "sign-in" && displayTab !== "connect" ? 1 : 0,
+                padding:
+                  props.showQuickActions &&
+                  displayTab !== "sign-in" &&
+                  displayTab !== "connect"
+                    ? "8px 8px 0"
+                    : "0 8px",
+                maxHeight:
+                  props.showQuickActions &&
+                  displayTab !== "sign-in" &&
+                  displayTab !== "connect"
+                    ? "52px"
+                    : "0",
+                opacity:
+                  props.showQuickActions &&
+                  displayTab !== "sign-in" &&
+                  displayTab !== "connect"
+                    ? 1
+                    : 0,
                 overflow: "hidden",
-                transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                transition:
+                  "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
             >
-              {(["portfolio", "receive", "send", "swap"] as const).map((tab) => (
-                <button
-                  className="quick-action-btn"
-                  key={tab}
-                  onClick={() => handleQuickActionTabClick(tab)}
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "6px",
-                    padding: "8px 0",
-                    border: "none",
-                    borderRadius: "12px",
-                    cursor: "pointer",
-                    background: activeTab === tab ? "rgba(0, 0, 0, 0.06)" : "rgba(0, 0, 0, 0.02)",
-                    transition: "background 0.2s ease",
-                  }}
-                >
-                  {tab === "portfolio" && <Wallet size={16} style={{ color: "#F9363C" }} />}
-                  {tab === "receive" && <ArrowDownLeft size={16} style={{ color: "#F9363C" }} />}
-                  {tab === "send" && <ArrowUpRight size={16} style={{ color: "#F9363C" }} />}
-                  {tab === "swap" && <RefreshCw size={16} style={{ color: "#F9363C" }} />}
-                  <span style={{ fontFamily: "var(--font-geist-sans), sans-serif", fontSize: "13px", fontWeight: 500, lineHeight: "16px", color: "#000" }}>
-                    {tab === "portfolio" ? "Wallet" : tab === "receive" ? "Receive" : tab === "send" ? "Send" : "Swap"}
-                  </span>
-                </button>
-              ))}
+              {(["portfolio", "receive", "send", "swap"] as const).map(
+                (tab) => (
+                  <button
+                    className="quick-action-btn"
+                    key={tab}
+                    onClick={() => handleQuickActionTabClick(tab)}
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                      padding: "8px 0",
+                      border: "none",
+                      borderRadius: "12px",
+                      cursor: "pointer",
+                      background:
+                        activeTab === tab
+                          ? "rgba(0, 0, 0, 0.06)"
+                          : "rgba(0, 0, 0, 0.02)",
+                      transition: "background 0.2s ease",
+                    }}
+                  >
+                    {tab === "portfolio" && (
+                      <Wallet size={16} style={{ color: "#F9363C" }} />
+                    )}
+                    {tab === "receive" && (
+                      <ArrowDownLeft size={16} style={{ color: "#F9363C" }} />
+                    )}
+                    {tab === "send" && (
+                      <ArrowUpRight size={16} style={{ color: "#F9363C" }} />
+                    )}
+                    {tab === "swap" && (
+                      <RefreshCw size={16} style={{ color: "#F9363C" }} />
+                    )}
+                    <span
+                      style={{
+                        fontFamily: "var(--font-geist-sans), sans-serif",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        color: "#000",
+                      }}
+                    >
+                      {tab === "portfolio"
+                        ? "Wallet"
+                        : tab === "receive"
+                        ? "Receive"
+                        : tab === "send"
+                        ? "Send"
+                        : "Swap"}
+                    </span>
+                  </button>
+                )
+              )}
             </div>
 
             {/* Disconnect confirmation bar — slides in like quick action buttons */}
@@ -887,7 +1062,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 maxHeight: showDisconnectConfirm ? "80px" : "0",
                 opacity: showDisconnectConfirm ? 1 : 0,
                 overflow: "hidden",
-                transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                transition:
+                  "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               }}
             >
               <span
@@ -975,15 +1151,23 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onBalanceHiddenChange={props.onBalanceHiddenChange}
                   onClose={props.onClose}
                   onDisconnect={() => setShowDisconnectConfirm(true)}
-                  hasVaultAccount={props.smartAccountData.vaultEntries.length > 0}
+                  hasVaultAccount={
+                    props.smartAccountData.vaultEntries.length > 0
+                  }
                   approvals={props.smartAccountData.approvals}
                   vaultEntries={props.smartAccountData.vaultEntries}
                   onReviewApproval={openApprovalReview}
                   onSeeAllApprovals={() => pushView("allApprovals")}
                   onOpenReceive={() => pushView({ type: "receivePanel" })}
                   onOpenSend={() => pushView({ type: "sendPanel" })}
-                  onOpenSwap={() => { handleSwapModeChange("swap"); pushView({ type: "swapPanel", mode: "swap" }); }}
-                  onOpenShield={() => { handleSwapModeChange("shield"); pushView({ type: "swapPanel", mode: "shield" }); }}
+                  onOpenSwap={() => {
+                    handleSwapModeChange("swap");
+                    pushView({ type: "swapPanel", mode: "swap" });
+                  }}
+                  onOpenShield={() => {
+                    handleSwapModeChange("shield");
+                    pushView({ type: "swapPanel", mode: "shield" });
+                  }}
                   onOpenVault={openVaultAccount}
                   onOpenAgent={openAgentPage}
                   walletAddress={props.walletDesktopData.walletAddress}
@@ -1006,10 +1190,21 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 />
               )}
               {displayTab === "swap" && (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    flex: 1,
+                    minHeight: 0,
+                  }}
+                >
                   {/* Shared tab bar — stays fixed, hidden when non-form phase takes over */}
                   {showSharedTabs && (
-                    <SwapShieldTabs mode={swapMode} onClose={props.onClose} onModeChange={handleSwapModeChange} />
+                    <SwapShieldTabs
+                      mode={swapMode}
+                      onClose={props.onClose}
+                      onModeChange={handleSwapModeChange}
+                    />
                   )}
 
                   {/* Sliding content area */}
@@ -1027,8 +1222,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         inset: 0,
                         display: "flex",
                         flexDirection: "column",
-                        transform: swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
-                        transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                        transform:
+                          swapMode === "swap"
+                            ? "translateX(0)"
+                            : "translateX(-100%)",
+                        transition:
+                          "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
                         willChange: "transform",
                       }}
                     >
@@ -1053,8 +1252,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         inset: 0,
                         display: "flex",
                         flexDirection: "column",
-                        transform: swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
-                        transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                        transform:
+                          swapMode === "shield"
+                            ? "translateX(0)"
+                            : "translateX(100%)",
+                        transition:
+                          "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
                         willChange: "transform",
                       }}
                     >
@@ -1084,9 +1287,13 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                           width: "100%",
                           padding: "12px 16px",
                           borderRadius: "9999px",
-                          background: activeButtonProps.disabled ? "#CCCDCD" : "#000",
+                          background: activeButtonProps.disabled
+                            ? "#CCCDCD"
+                            : "#000",
                           border: "none",
-                          cursor: activeButtonProps.disabled ? "default" : "pointer",
+                          cursor: activeButtonProps.disabled
+                            ? "default"
+                            : "pointer",
                           fontFamily: "var(--font-geist-sans), sans-serif",
                           fontSize: "16px",
                           fontWeight: 400,
@@ -1104,7 +1311,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 </div>
               )}
               {displayTab === "sign-in" && (
-                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    flex: 1,
+                    minHeight: 0,
+                  }}
+                >
                   <div
                     style={{
                       display: "flex",
@@ -1146,7 +1360,15 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   </div>
                   <div style={{ padding: "8px 20px", flex: 1 }}>
                     {captchaToken === null ? (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", paddingTop: "16px" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: "12px",
+                          paddingTop: "16px",
+                        }}
+                      >
                         <p
                           style={{
                             fontFamily: "var(--font-geist-sans), sans-serif",
@@ -1173,8 +1395,25 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                           Connect your wallet to get started.
                         </p>
                         {props.walletDesktopData.isConnected ? (
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", padding: "24px 0" }}>
-                            <div style={{ width: "24px", height: "24px", border: "2px solid rgba(0,0,0,0.1)", borderTopColor: "#3C3C43", borderRadius: "9999px", animation: "sidebar-spin 0.8s linear infinite" }} />
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              gap: "12px",
+                              padding: "24px 0",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: "24px",
+                                height: "24px",
+                                border: "2px solid rgba(0,0,0,0.1)",
+                                borderTopColor: "#3C3C43",
+                                borderRadius: "9999px",
+                                animation: "sidebar-spin 0.8s linear infinite",
+                              }}
+                            />
                           </div>
                         ) : (
                           <WalletTab />
@@ -1191,10 +1430,11 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               )}
               {displayTab === "connect" && (
                 <ConnectRequestContent
-                  agentName={props.connectAgentName ?? "Unknown"}
+                  agentAddress={props.connectAgentName ?? "Unknown"}
                   onClose={props.onClose}
                   onDecline={props.onConnectDecline ?? props.onClose}
                   onApprove={props.onConnectApprove ?? props.onClose}
+                  onDone={props.onConnectDone ?? props.onClose}
                 />
               )}
             </div>
@@ -1218,7 +1458,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   : "translateX(0)"
                 : "translateX(105%)",
               opacity: hasLevel1 ? 1 : 0,
-              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition:
+                "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               pointerEvents: hasLevel1 && !hasLevel2 ? "auto" : "none",
             }}
           >
@@ -1243,7 +1484,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   : "translateX(0)"
                 : "translateX(105%)",
               opacity: hasLevel2 ? 1 : 0,
-              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition:
+                "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
               pointerEvents: hasLevel2 && !hasLevel3 ? "auto" : "none",
             }}
           >
@@ -1264,13 +1506,13 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               overflow: "hidden",
               transform: hasLevel3 ? "translateX(0)" : "translateX(105%)",
               opacity: hasLevel3 ? 1 : 0,
-              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition:
+                "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
               pointerEvents: hasLevel3 ? "auto" : "none",
             }}
           >
             {renderSubView(displayLevel3, popView)}
           </div>
-
         </div>
       </div>
     </>
