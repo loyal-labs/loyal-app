@@ -49,6 +49,7 @@ import {
 } from "./messages";
 import type {
   SmartAccountOverview,
+  SmartAccountAddSignerProposalInput,
   SmartAccountCustomInstructionProposalInput,
   SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
@@ -191,7 +192,10 @@ function compileVaultInstructions(message: VaultMessage) {
   });
 }
 
-function formatProposalTokenAmount(amountRaw: bigint, decimals: number): string {
+function formatProposalTokenAmount(
+  amountRaw: bigint,
+  decimals: number
+): string {
   if (decimals === 0) {
     return amountRaw.toString();
   }
@@ -641,9 +645,7 @@ function toGeneratedPolicyPeriod(
   }
 }
 
-function toSpendingLimitPolicyPeriod(
-  period: generated.PeriodV2
-): {
+function toSpendingLimitPolicyPeriod(period: generated.PeriodV2): {
   period: SmartAccountSpendingLimitPeriod;
   periodSeconds: number | null;
 } {
@@ -776,6 +778,40 @@ function createPolicySigner(signer: PublicKey): SmartAccountSigner {
   };
 }
 
+function createInitiatePolicySigner(signer: PublicKey): SmartAccountSigner {
+  return {
+    key: signer,
+    permissions: Permissions.fromPermissions([Permission.Initiate]),
+  };
+}
+
+function withInitiatePolicySigner(
+  signers: SmartAccountSigner[],
+  signer: PublicKey
+): SmartAccountSigner[] {
+  const existingSigner = signers.find((entry) => entry.key.equals(signer));
+  if (existingSigner) {
+    if (Permissions.has(existingSigner.permissions, Permission.Initiate)) {
+      throw new Error("Signer already has Initiate permission.");
+    }
+
+    return [
+      {
+        ...existingSigner,
+        permissions: {
+          mask: existingSigner.permissions.mask | Permission.Initiate,
+        },
+      },
+      ...signers.filter((entry) => !entry.key.equals(signer)),
+    ];
+  }
+
+  return [
+    createInitiatePolicySigner(signer),
+    ...signers.filter((entry) => !entry.key.equals(signer)),
+  ];
+}
+
 type SpendingLimitPolicyCreationPayload = Extract<
   generated.PolicyCreationPayload,
   { __kind: "SpendingLimit" }
@@ -863,7 +899,8 @@ function createSpendingLimitPolicyCreationPayload(args: {
             args.base?.timeConstraints.expiration ?? null
           ),
           period,
-          accumulateUnused: args.base?.timeConstraints.accumulateUnused ?? false,
+          accumulateUnused:
+            args.base?.timeConstraints.accumulateUnused ?? false,
         },
         quantityConstraints: {
           maxPerPeriod: toBn(args.amount),
@@ -925,16 +962,15 @@ function toSpendingLimitPolicySnapshot(args: {
   const periodDetails = toSpendingLimitPolicyPeriod(
     spendingLimit.timeConstraints.period
   );
-  const effectiveRemainingAmount =
-    getEffectiveSpendingLimitRemainingAmount({
-      accumulateUnused: spendingLimit.timeConstraints.accumulateUnused,
-      amount,
-      lastReset,
-      now: args.now,
-      period: periodDetails.period,
-      periodSeconds: periodDetails.periodSeconds,
-      remainingAmount,
-    });
+  const effectiveRemainingAmount = getEffectiveSpendingLimitRemainingAmount({
+    accumulateUnused: spendingLimit.timeConstraints.accumulateUnused,
+    amount,
+    lastReset,
+    now: args.now,
+    period: periodDetails.period,
+    periodSeconds: periodDetails.periodSeconds,
+    remainingAmount,
+  });
   const mint = spendingLimit.mint.toBase58();
   const asset = resolveSpendingLimitAsset({
     mint,
@@ -1184,7 +1220,9 @@ export function createSmartAccountVaultsClient(
           policy: entry.policy,
         })
       )
-      .filter((entry): entry is SmartAccountSpendingLimitSnapshot => entry !== null)
+      .filter(
+        (entry): entry is SmartAccountSpendingLimitSnapshot => entry !== null
+      )
       .sort((left, right) => left.address.localeCompare(right.address));
   }
 
@@ -1660,7 +1698,7 @@ export function createSmartAccountVaultsClient(
     });
   }
 
-  async function prepareSpendingLimitSettingsChange(args: {
+  async function prepareSettingsChange(args: {
     actions: SettingsAction[];
     creator: PublicKey;
     feePayer: PublicKey;
@@ -1734,6 +1772,109 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  async function listRawPolicies(args: { settingsPda: PublicKey }) {
+    const policyAccounts = await config.connection.getProgramAccounts(
+      smartAccountsClient.programId,
+      {
+        commitment: "confirmed",
+        filters: createPolicyFilters(args.settingsPda),
+      }
+    );
+
+    return policyAccounts
+      .map((account) => deserializePolicyAccount(account))
+      .filter((entry) => entry.policy.settings.equals(args.settingsPda))
+      .sort((left, right) =>
+        toBigInt(left.policy.seed) > toBigInt(right.policy.seed) ? 1 : -1
+      );
+  }
+
+  async function resolveAgentPolicy(args: SmartAccountAddSignerProposalInput) {
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+
+    if (args.policyPda) {
+      const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+        args.policyPda
+      );
+      if (!policy.settings.equals(args.settingsPda)) {
+        throw new Error("Agent policy belongs to another vault.");
+      }
+      if (policy.policyState.__kind !== "SpendingLimit") {
+        throw new Error("Agent policy must be a spending-limit policy.");
+      }
+      if (policy.policyState.fields[0].sourceAccountIndex !== accountIndex) {
+        throw new Error("Agent policy targets another vault account.");
+      }
+
+      return {
+        address: args.policyPda,
+        policy,
+      };
+    }
+
+    const policies = await listRawPolicies({ settingsPda: args.settingsPda });
+    const candidates = policies.filter(
+      (entry) =>
+        entry.policy.policyState.__kind === "SpendingLimit" &&
+        entry.policy.policyState.fields[0].sourceAccountIndex === accountIndex
+    );
+
+    if (candidates.length === 0) {
+      throw new Error(
+        "No spending-limit policy exists for this vault. Create a spending-limit policy before connecting the CLI."
+      );
+    }
+
+    return (
+      candidates.find(
+        (entry) =>
+          !entry.policy.signers.some(
+            (signer) =>
+              signer.key.equals(args.signer) &&
+              Permissions.has(signer.permissions, Permission.Initiate)
+          )
+      ) ?? candidates[0]
+    );
+  }
+
+  async function prepareAddInitiateSigner(
+    args: SmartAccountAddSignerProposalInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const policyEntry = await resolveAgentPolicy(args);
+    const policyCreationBase = toSpendingLimitPolicyCreationBase(
+      policyEntry.policy
+    );
+
+    return prepareSettingsChange({
+      actions: [
+        {
+          __kind: "PolicyUpdate",
+          policy: policyEntry.address,
+          signers: withInitiatePolicySigner(
+            policyEntry.policy.signers,
+            args.signer
+          ),
+          threshold: policyEntry.policy.threshold || 1,
+          timeLock: policyEntry.policy.timeLock,
+          policyUpdatePayload: createSpendingLimitPolicyCreationPayload({
+            amount: toBigInt(
+              policyCreationBase.quantityConstraints.maxPerPeriod
+            ),
+            base: policyCreationBase,
+          }),
+          expirationArgs: null,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "addInitiatePolicySigner",
+      policies: [policyEntry.address],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
   async function prepareSetSpendingLimitPolicy(
     args: SmartAccountSetSpendingLimitProposalInput
   ): Promise<SmartAccountPreparedSettingsChange> {
@@ -1751,7 +1892,9 @@ export function createSmartAccountVaultsClient(
       }
 
       if (!existingPolicy.settings.equals(args.settingsPda)) {
-        throw new Error("Existing spending-limit policy belongs to another vault.");
+        throw new Error(
+          "Existing spending-limit policy belongs to another vault."
+        );
       }
 
       const policyUpdatePayload = createSpendingLimitPolicyCreationPayload({
@@ -1809,7 +1952,7 @@ export function createSmartAccountVaultsClient(
       policies.push(newPolicyPda);
     }
 
-    return prepareSpendingLimitSettingsChange({
+    return prepareSettingsChange({
       actions,
       creator: args.creator,
       feePayer: args.feePayer,
@@ -1826,7 +1969,7 @@ export function createSmartAccountVaultsClient(
   async function prepareRemoveSpendingLimitPolicy(
     args: SmartAccountRemoveSpendingLimitProposalInput
   ): Promise<SmartAccountPreparedSettingsChange> {
-    return prepareSpendingLimitSettingsChange({
+    return prepareSettingsChange({
       actions: [
         {
           __kind: "PolicyRemove",
@@ -1922,15 +2065,17 @@ export function createSmartAccountVaultsClient(
       }
     );
 
-    return smartAccountsClient.features.execution.prepare.executePolicyPayloadSync({
-      feePayer: args.feePayer,
-      policy: args.spendingLimitPolicy,
-      accountIndex,
-      numSigners: 1,
-      policyPayload,
-      instruction_accounts: instructionAccounts,
-      memo: args.memo,
-    } as never);
+    return smartAccountsClient.features.execution.prepare.executePolicyPayloadSync(
+      {
+        feePayer: args.feePayer,
+        policy: args.spendingLimitPolicy,
+        accountIndex,
+        numSigners: 1,
+        policyPayload,
+        instruction_accounts: instructionAccounts,
+        memo: args.memo,
+      } as never
+    );
   }
 
   function prepareApproveProposal(args: {
@@ -2022,6 +2167,7 @@ export function createSmartAccountVaultsClient(
     prepareSplTransferProposal,
     prepareCustomInstructionProposal,
     preparePolicyCustomInstructionProposal,
+    prepareAddInitiateSigner,
     prepareSetSpendingLimitPolicy,
     prepareSetSpendingLimitProposal: prepareSetSpendingLimitPolicy,
     prepareRemoveSpendingLimitPolicy,
