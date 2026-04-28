@@ -18,9 +18,16 @@ const stickyRevealOffset = 68;
 
 export function LandingHeader() {
   const [eyeOffset, setEyeOffset] = useState(0);
+  const [isIntroEyeOpen, setIsIntroEyeOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isStickyVisible, setIsStickyVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsIntroEyeOpen(true), 1350);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let animationFrame = 0;
@@ -132,11 +139,13 @@ export function LandingHeader() {
       <header className="flex w-full justify-center bg-[#f9363c]">
         <HeaderContent
           eyeOffset={eyeOffset}
+          isEyeOpen={isIntroEyeOpen}
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
           maskId="landing-header-eye-mask-static"
           menuId="landing-mobile-menu-static"
           onMenuOpenChange={setIsMenuOpen}
+          shouldAnimateIn
         />
       </header>
 
@@ -151,6 +160,7 @@ export function LandingHeader() {
         <HeaderContent
           eyeOffset={eyeOffset}
           interactive={isStickyVisible}
+          isEyeOpen
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
           maskId="landing-header-eye-mask-sticky"
@@ -165,25 +175,32 @@ export function LandingHeader() {
 function HeaderContent({
   eyeOffset,
   interactive = true,
+  isEyeOpen,
   isMenuOpen,
   isBlinking,
   maskId,
   menuId,
   onMenuOpenChange,
+  shouldAnimateIn = false,
 }: {
   eyeOffset: number;
   interactive?: boolean;
+  isEyeOpen: boolean;
   isMenuOpen: boolean;
   isBlinking: boolean;
   maskId: string;
   menuId: string;
   onMenuOpenChange: (isOpen: boolean) => void;
+  shouldAnimateIn?: boolean;
 }) {
   const linkTabIndex = interactive ? undefined : -1;
   const closeMenu = () => onMenuOpenChange(false);
 
   return (
-    <div className="relative flex w-full max-w-[1560px] items-end justify-between px-4 py-3 lg:px-6">
+    <div
+      className="relative flex w-full max-w-[1560px] items-end justify-between px-4 py-3 lg:px-6"
+      data-header-reveal={shouldAnimateIn ? "" : undefined}
+    >
       <div className="flex items-center gap-6">
         <Link
           aria-label="Loyal home"
@@ -231,9 +248,11 @@ function HeaderContent({
       >
         <title>Loyal eye</title>
         <g
-          className="transition-transform duration-100 ease-in-out"
+          className="transition duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{
-            transform: isBlinking ? "scaleY(0.08)" : "scaleY(1)",
+            opacity: isEyeOpen ? 1 : 0,
+            transform:
+              !isEyeOpen || isBlinking ? "scaleY(0.08)" : "scaleY(1)",
             transformOrigin: "49px 44px",
           }}
         >

@@ -86,7 +86,7 @@ export function LandingBlog() {
               ))
             : posts.map((post, index) => (
                 <TrackedExternalLink
-                  className="group block min-w-0 text-black no-underline transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/10 focus-visible:ring-offset-2"
+                  className="group block min-w-0 text-black no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/10 focus-visible:ring-offset-2"
                   data-reveal="scale"
                   data-reveal-delay={index + 1}
                   href={post.link}
@@ -95,18 +95,7 @@ export function LandingBlog() {
                   source="landing_blog_card"
                   target="_blank"
                 >
-                  <div className="relative aspect-[488/326.35] overflow-hidden rounded-[24px] bg-[#f5f5f5]">
-                    {post.image && (
-                      <Image
-                        alt={post.title}
-                        className="object-cover transition duration-300 ease-out group-hover:scale-[1.04]"
-                        fill
-                        sizes="(min-width: 1560px) 488px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
-                        src={post.image}
-                        unoptimized
-                      />
-                    )}
-                  </div>
+                  <BlogThumbnail image={post.image} title={post.title} />
 
                   <div className="flex flex-col gap-2 pb-4 pr-8 pt-5">
                     <h3 className="line-clamp-2 text-[24px] font-medium leading-6 text-black">
@@ -121,5 +110,44 @@ export function LandingBlog() {
         </div>
       </div>
     </section>
+  );
+}
+
+function BlogThumbnail({
+  image,
+  title,
+}: {
+  image: string | null;
+  title: string;
+}) {
+  const [hasImageError, setHasImageError] = useState(false);
+  const shouldShowImage = Boolean(image) && !hasImageError;
+
+  return (
+    <div className="relative aspect-[488/326.35] overflow-hidden rounded-[24px] bg-[#f5f5f5]">
+      {shouldShowImage ? (
+        <Image
+          alt=""
+          aria-hidden="true"
+          className="object-cover transition duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-[1.025]"
+          fill
+          onError={() => setHasImageError(true)}
+          referrerPolicy="no-referrer"
+          sizes="(min-width: 1560px) 488px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
+          src={image as string}
+          unoptimized
+        />
+      ) : (
+        <div className="flex h-full w-full items-end justify-between bg-[#f9363c] p-6 text-white">
+          <span className="max-w-[360px] text-[28px] font-semibold leading-[1.05]">
+            {title}
+          </span>
+          <span className="text-[18px] font-medium leading-none">
+            askloyal.com
+          </span>
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-black/0 transition duration-300 ease-out group-hover:bg-black/[0.04]" />
+    </div>
   );
 }

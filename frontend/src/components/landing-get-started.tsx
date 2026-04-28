@@ -2,54 +2,62 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Segment = "Extension" | "Mobile" | "Web";
 
+const appUrl = "https://app.askloyal.com";
+const chromeWebStoreUrl =
+  "https://chromewebstore.google.com/detail/loyal-%E2%80%94-private-solana-wa/cdienfadefhlaknmedckgifkjdbioack?hl=en&authuser=1";
+const telegramMiniAppUrl =
+  "https://t.me/askloyal_tgbot/app?startapp=askloyalcom";
+
 const browserCards = [
   {
-    href: "/app",
+    href: chromeWebStoreUrl,
     icon: "/landing/figma/get-started-chrome.svg",
     label: "Chrome",
     shape: "rounded-[24px]",
   },
   {
-    href: "/app",
-    icon: "/landing/figma/get-started-firefox.svg",
-    label: "Firefox",
+    href: chromeWebStoreUrl,
+    icon: "/landing/figma/get-started-brave.svg",
+    label: "Brave",
     shape: "rounded-[400px]",
   },
   {
-    href: "/app",
+    href: chromeWebStoreUrl,
     icon: "/landing/figma/get-started-edge.svg",
     label: "Edge",
     shape: "rounded-[400px]",
   },
   {
-    href: "/app",
-    icon: "/landing/figma/get-started-brave.svg",
-    label: "Brave",
+    disabled: true,
+    icon: "/landing/figma/get-started-firefox.svg",
+    label: "Firefox",
+    note: "Coming soon",
     shape: "rounded-[24px]",
   },
 ];
 
 const mobileCards = [
   {
-    href: "/app",
-    icon: "/landing/figma/get-started-android.svg",
-    label: "Android",
-    shape: "rounded-[400px]",
-  },
-  {
-    href: "/app",
+    href: appUrl,
     icon: "/landing/figma/get-started-seeker.svg",
     label: "Seeker",
     shape: "rounded-[400px]",
   },
   {
-    href: "/app",
+    href: telegramMiniAppUrl,
     icon: "/landing/figma/get-started-telegram-mini-app.svg",
     label: "Telegram Mini App",
+    shape: "rounded-[400px]",
+  },
+  {
+    disabled: true,
+    icon: "/landing/figma/get-started-android.svg",
+    label: "Android",
+    note: "Coming soon",
     shape: "rounded-[24px]",
   },
 ];
@@ -61,8 +69,24 @@ const segmentByHash: Record<string, Segment> = {
   "#get-started-web": "Web",
 };
 
+const previewBySegment: Record<Segment, { alt: string; src: string }> = {
+  Extension: {
+    alt: "Loyal browser extension wallet preview",
+    src: "/landing/figma/get-started-extension-wallet.png",
+  },
+  Mobile: {
+    alt: "Loyal mobile app wallet preview",
+    src: "/landing/figma/get-started-mobile-wallet.png",
+  },
+  Web: {
+    alt: "Loyal web app wallet preview",
+    src: "/landing/figma/get-started-web-wallet.png",
+  },
+};
+
 export function LandingGetStarted() {
   const [activeSegment, setActiveSegment] = useState<Segment>("Extension");
+  const activePreview = previewBySegment[activeSegment];
 
   useEffect(() => {
     const syncTabFromHash = () => {
@@ -166,96 +190,104 @@ export function LandingGetStarted() {
           role="tabpanel"
         >
           {activeSegment === "Mobile" ? (
-            <>
-              <div className="grid aspect-square min-w-0 grid-rows-2 gap-2 overflow-hidden lg:aspect-auto lg:h-[600px] lg:gap-6">
-                <PlatformCard
-                  className="h-full"
-                  dataRevealDelay={1}
-                  iconClassName="h-16 w-16 lg:h-24 lg:w-24"
-                  platform={mobileCards[0]}
-                  preserveAspect={false}
-                />
-                <div className="grid min-h-0 grid-cols-2 gap-2 lg:gap-6">
-                  {mobileCards.slice(1).map((platform, index) => (
-                    <PlatformCard
-                      className="h-full"
-                      dataRevealDelay={index + 2}
-                      iconClassName="h-16 w-16 lg:h-24 lg:w-24"
-                      key={platform.label}
-                      platform={platform}
-                      preserveAspect={false}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div
-                className="relative aspect-square min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:aspect-auto lg:h-[600px]"
-                data-reveal="right"
-                data-reveal-delay="2"
-              >
-                <Image
-                  alt="Loyal mobile app wallet preview"
-                  className="object-cover"
-                  fill
-                  sizes="(min-width: 1560px) 732px, (min-width: 1024px) calc((100vw - 96px) / 2), calc(100vw - 48px)"
-                  src="/landing/figma/get-started-mobile-wallet.png"
-                />
-              </div>
-            </>
-          ) : activeSegment === "Web" ? (
-            <>
-              <ActionCard
+            <div className="grid aspect-square min-w-0 grid-rows-2 gap-2 overflow-hidden lg:aspect-auto lg:h-[600px] lg:gap-6">
+              <PlatformCard
+                className="h-full"
                 dataRevealDelay={1}
-                href="/app"
-                label="Open web app"
+                iconClassName="h-16 w-16 lg:h-24 lg:w-24"
+                platform={mobileCards[0]}
+                preserveAspect={false}
               />
-
-              <div
-                className="relative aspect-square min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:aspect-auto lg:h-[600px]"
-                data-reveal="right"
-                data-reveal-delay="2"
-              >
-                <Image
-                  alt="Loyal web app wallet preview"
-                  className="object-cover"
-                  fill
-                  sizes="(min-width: 1560px) 732px, (min-width: 1024px) calc((100vw - 96px) / 2), calc(100vw - 48px)"
-                  src="/landing/figma/get-started-web-wallet.png"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="grid min-w-0 grid-cols-2 gap-2 overflow-hidden lg:h-[600px] lg:grid-rows-2 lg:gap-6">
-                {browserCards.map((browser, index) => (
+              <div className="grid min-h-0 grid-cols-2 gap-2 lg:gap-6">
+                {mobileCards.slice(1).map((platform, index) => (
                   <PlatformCard
+                    className="h-full"
+                    dataRevealDelay={index + 2}
                     iconClassName="h-16 w-16 lg:h-24 lg:w-24"
-                    key={browser.label}
-                    platform={browser}
-                    dataRevealDelay={index + 1}
+                    key={platform.label}
+                    platform={platform}
+                    preserveAspect={false}
                   />
                 ))}
               </div>
-
-              <div
-                className="relative aspect-square min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:aspect-auto lg:h-[600px]"
-                data-reveal="right"
-                data-reveal-delay="2"
-              >
-                <Image
-                  alt="Loyal browser extension wallet preview"
-                  className="object-cover"
-                  fill
-                  sizes="(min-width: 1560px) 732px, (min-width: 1024px) calc((100vw - 96px) / 2), calc(100vw - 48px)"
-                  src="/landing/figma/get-started-extension-wallet.png"
+            </div>
+          ) : activeSegment === "Web" ? (
+            <ActionCard dataRevealDelay={1} href={appUrl} label="Open web app" />
+          ) : (
+            <div className="grid min-w-0 grid-cols-2 gap-2 overflow-hidden lg:h-[600px] lg:grid-rows-2 lg:gap-6">
+              {browserCards.map((browser, index) => (
+                <PlatformCard
+                  iconClassName="h-16 w-16 lg:h-24 lg:w-24"
+                  key={browser.label}
+                  platform={browser}
+                  dataRevealDelay={index + 1}
                 />
-              </div>
-            </>
+              ))}
+            </div>
           )}
+
+          <GetStartedPreview preview={activePreview} />
         </div>
       </div>
     </section>
+  );
+}
+
+function GetStartedPreview({
+  preview,
+}: {
+  preview: { alt: string; src: string };
+}) {
+  const [currentPreview, setCurrentPreview] = useState(preview);
+  const [previousPreview, setPreviousPreview] = useState<typeof preview | null>(
+    null
+  );
+  const currentPreviewRef = useRef(preview);
+
+  useEffect(() => {
+    if (preview.src === currentPreviewRef.current.src) {
+      return;
+    }
+
+    setPreviousPreview(currentPreviewRef.current);
+    currentPreviewRef.current = preview;
+    setCurrentPreview(preview);
+
+    const timer = window.setTimeout(() => setPreviousPreview(null), 520);
+
+    return () => window.clearTimeout(timer);
+  }, [preview]);
+
+  return (
+    <div
+      className="relative aspect-square min-w-0 overflow-hidden rounded-[24px] bg-[#f9363c] lg:aspect-auto lg:h-[600px]"
+      data-reveal="right"
+      data-reveal-delay="2"
+    >
+      {previousPreview ? (
+        <Image
+          alt=""
+          aria-hidden="true"
+          className="get-started-preview-image-exit object-cover"
+          fill
+          key={`previous-${previousPreview.src}`}
+          sizes="(min-width: 1560px) 732px, (min-width: 1024px) calc((100vw - 96px) / 2), calc(100vw - 48px)"
+          src={previousPreview.src}
+        />
+      ) : null}
+      <Image
+        alt={currentPreview.alt}
+        className={
+          previousPreview
+            ? "get-started-preview-image-enter object-cover"
+            : "object-cover"
+        }
+        fill
+        key={`current-${currentPreview.src}`}
+        sizes="(min-width: 1560px) 732px, (min-width: 1024px) calc((100vw - 96px) / 2), calc(100vw - 48px)"
+        src={currentPreview.src}
+      />
+    </div>
   );
 }
 
@@ -297,23 +329,24 @@ function PlatformCard({
   dataRevealDelay: number;
   iconClassName: string;
   platform: {
-    href: string;
+    disabled?: boolean;
+    href?: string;
     icon: string;
     label: string;
+    note?: string;
     shape: string;
   };
   preserveAspect?: boolean;
 }) {
-  return (
-    <Link
-      className={`group relative flex min-h-0 items-center justify-center overflow-hidden bg-transparent transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 ${preserveAspect ? "aspect-square lg:aspect-auto" : ""} ${className}`}
-      data-reveal="scale"
-      data-reveal-delay={dataRevealDelay}
-      href={platform.href}
-    >
+  const content = (
+    <>
       <span
         aria-hidden="true"
-        className={`absolute inset-0 bg-[#f5f5f5] transition-all duration-300 ease-out group-hover:scale-90 group-hover:rounded-none group-hover:bg-[#eeeeee] group-hover:[clip-path:polygon(50%_0%,61%_35%,98%_35%,68%_57%,79%_91%,50%_70%,21%_91%,32%_57%,2%_35%,39%_35%)] ${
+        className={`absolute inset-0 bg-[#f5f5f5] transition-all duration-300 ease-out ${
+          platform.disabled
+            ? ""
+            : "group-hover:scale-90 group-hover:rounded-none group-hover:bg-[#eeeeee] group-hover:[clip-path:polygon(50%_0%,61%_35%,98%_35%,68%_57%,79%_91%,50%_70%,21%_91%,32%_57%,2%_35%,39%_35%)]"
+        } ${
           preserveAspect
             ? ""
             : "left-1/2 right-auto h-full w-full -translate-x-1/2 group-hover:aspect-square group-hover:w-auto"
@@ -323,15 +356,47 @@ function PlatformCard({
         <Image
           alt=""
           aria-hidden="true"
-          className={iconClassName}
+          className={`${iconClassName} ${platform.disabled ? "grayscale" : ""}`}
           height={96}
           src={platform.icon}
           width={96}
         />
-        <span className="flex items-center justify-center whitespace-nowrap rounded-[100px] bg-white px-3 py-1 text-[14px] font-normal leading-5 text-[#f9363c] transition duration-200 ease-out group-hover:scale-105">
-          {platform.label}
+        <span className="flex flex-col items-center gap-1">
+          <span className="flex items-center justify-center whitespace-nowrap rounded-[100px] bg-white px-3 py-1 text-[14px] font-normal leading-5 text-[#f9363c] transition duration-200 ease-out group-hover:scale-105">
+            {platform.label}
+          </span>
+          {platform.note ? (
+            <span className="whitespace-nowrap text-[11px] font-normal leading-3 text-[#3c3c43]/45">
+              {platform.note}
+            </span>
+          ) : null}
         </span>
       </span>
+    </>
+  );
+  const classNames = `group relative flex min-h-0 items-center justify-center overflow-hidden bg-transparent transition duration-200 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black ${platform.disabled ? "cursor-default" : "hover:-translate-y-1 active:translate-y-0"} ${preserveAspect ? "aspect-square lg:aspect-auto" : ""} ${className}`;
+
+  if (platform.disabled) {
+    return (
+      <div
+        aria-disabled="true"
+        className={classNames}
+        data-reveal="scale"
+        data-reveal-delay={dataRevealDelay}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      className={classNames}
+      data-reveal="scale"
+      data-reveal-delay={dataRevealDelay}
+      href={platform.href ?? appUrl}
+    >
+      {content}
     </Link>
   );
 }

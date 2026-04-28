@@ -6,6 +6,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+const appUrl = "https://app.askloyal.com";
+
 async function loadLottieLight() {
   const mod = await import("lottie-web/build/player/lottie_light");
   return mod.default ?? mod;
@@ -64,8 +66,8 @@ export function LandingHero() {
       <div className="flex w-full max-w-[560px] items-center justify-between overflow-hidden px-4 pb-[125px] pt-7 md:pb-[147px] lg:max-w-[1560px] lg:px-6 lg:py-[120px]">
         <div className="grid w-full min-w-0 grid-cols-1 gap-0 lg:grid-cols-12 lg:grid-rows-[minmax(600px,max-content)] lg:gap-6">
           <div
-            className="is-revealed flex flex-col gap-6 pb-12 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:gap-0 lg:pb-0 lg:self-start"
-            data-reveal="left"
+            className="flex flex-col gap-6 pb-12 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:gap-0 lg:pb-0 lg:self-start"
+            data-hero-reveal="left"
           >
             <h1 className="max-w-[420px] text-[56px] font-semibold leading-none lg:text-[64px]">
               Put your money on autopilot
@@ -76,9 +78,9 @@ export function LandingHero() {
           </div>
 
           <div
-            className="is-revealed my-0 flex items-start justify-center lg:col-span-4 lg:col-start-5 lg:row-start-1 lg:self-start"
-            data-reveal="scale"
-            data-reveal-delay="1"
+            className="my-0 flex items-start justify-center lg:col-span-4 lg:col-start-5 lg:row-start-1 lg:self-start"
+            data-hero-reveal="scale"
+            data-hero-reveal-delay="1"
           >
             <HeroLottie
               isPaused={isPaused}
@@ -89,9 +91,9 @@ export function LandingHero() {
           </div>
 
           <div
-            className="is-revealed flex w-full flex-col gap-5 pr-0 pt-6 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:self-end lg:pr-16 lg:pt-0"
-            data-reveal="left"
-            data-reveal-delay="2"
+            className="flex w-full flex-col gap-5 pr-0 pt-6 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:self-end lg:pr-16 lg:pt-0"
+            data-hero-reveal="left"
+            data-hero-reveal-delay="2"
           >
             <div className="order-2 lg:order-1">
               <h2 className="text-[32px] font-semibold leading-[0.92]">
@@ -141,9 +143,9 @@ export function LandingHero() {
           </div>
 
           <div
-            className="is-revealed hidden items-center justify-center lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:flex lg:self-stretch"
-            data-reveal="right"
-            data-reveal-delay="2"
+            className="hidden items-center justify-center lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:flex lg:self-stretch"
+            data-hero-reveal="right"
+            data-hero-reveal-delay="3"
           >
             <div className="flex flex-col items-center justify-center gap-6">
               <HeroButton
@@ -153,7 +155,7 @@ export function LandingHero() {
               >
                 Get extension
               </HeroButton>
-              <HeroButton href="/app" tone="solid">
+              <HeroButton href={appUrl} tone="solid">
                 Open web app
               </HeroButton>
               <HeroButton
