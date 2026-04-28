@@ -64,6 +64,7 @@ import type {
   SmartAccountSignerSnapshot,
   SmartAccountSpendingLimitSnapshot,
   SmartAccountProposalSummary,
+  SmartAccountRemoveSignerProposalInput,
   SmartAccountTokenTransferProposalInput,
   SmartAccountTransferProposalInput,
   SmartAccountUseSpendingLimitInput,
@@ -826,6 +827,33 @@ function withInitiatePolicySigner(
   ];
 }
 
+function withoutPolicySigner(
+  signers: SmartAccountSigner[],
+  signer: PublicKey
+): SmartAccountSigner[] {
+  const nextSigners = signers.filter((entry) => !entry.key.equals(signer));
+
+  if (nextSigners.length === signers.length) {
+    throw new Error("Signer is not attached to this policy.");
+  }
+
+  return nextSigners;
+}
+
+function dedupeSignerSnapshots(
+  signers: SmartAccountSignerSnapshot[]
+): SmartAccountSignerSnapshot[] {
+  const uniqueSigners = new Map<string, SmartAccountSignerSnapshot>();
+
+  for (const signer of signers) {
+    if (!uniqueSigners.has(signer.address)) {
+      uniqueSigners.set(signer.address, signer);
+    }
+  }
+
+  return Array.from(uniqueSigners.values());
+}
+
 type SpendingLimitPolicyCreationPayload = Extract<
   generated.PolicyCreationPayload,
   { __kind: "SpendingLimit" }
@@ -1424,13 +1452,24 @@ export function createSmartAccountVaultsClient(
         timeLock: settings.timeLock,
       })
     );
-    const vaultSigners = [
-      ...signers,
-      ...policies.flatMap((policy) => policy.signers),
-    ];
+    const spendingLimitAccountIndexes = new Map(
+      spendingLimits.map((spendingLimit) => [
+        spendingLimit.address,
+        spendingLimit.accountIndex,
+      ])
+    );
     const vaultsWithSigners = vaults.map((vault) => ({
       ...vault,
-      signers: vaultSigners,
+      signers: dedupeSignerSnapshots([
+        ...signers,
+        ...policies
+          .filter(
+            (policy) =>
+              spendingLimitAccountIndexes.get(policy.address) ===
+              vault.accountIndex
+          )
+          .flatMap((policy) => policy.signers),
+      ]),
       spendingLimits: spendingLimits.filter(
         (spendingLimit) => spendingLimit.accountIndex === vault.accountIndex
       ),
@@ -1855,6 +1894,50 @@ export function createSmartAccountVaultsClient(
     );
   }
 
+  async function resolveAgentPolicyForRemoval(
+    args: SmartAccountRemoveSignerProposalInput
+  ) {
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+
+    if (args.policyPda) {
+      const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+        args.policyPda
+      );
+      if (!policy.settings.equals(args.settingsPda)) {
+        throw new Error("Agent policy belongs to another vault.");
+      }
+      if (policy.policyState.__kind !== "SpendingLimit") {
+        throw new Error("Agent policy must be a spending-limit policy.");
+      }
+      if (policy.policyState.fields[0].sourceAccountIndex !== accountIndex) {
+        throw new Error("Agent policy targets another vault account.");
+      }
+      if (!policy.signers.some((signer) => signer.key.equals(args.signer))) {
+        throw new Error("Signer is not attached to this policy.");
+      }
+
+      return {
+        address: args.policyPda,
+        policy,
+      };
+    }
+
+    const policies = await listRawPolicies({ settingsPda: args.settingsPda });
+    const candidates = policies.filter(
+      (entry) =>
+        entry.policy.policyState.__kind === "SpendingLimit" &&
+        entry.policy.policyState.fields[0].sourceAccountIndex ===
+          accountIndex &&
+        entry.policy.signers.some((signer) => signer.key.equals(args.signer))
+    );
+
+    if (candidates.length === 0) {
+      throw new Error("Signer is not connected to this vault.");
+    }
+
+    return candidates[0];
+  }
+
   async function prepareAddInitiateSigner(
     args: SmartAccountAddSignerProposalInput
   ): Promise<SmartAccountPreparedSettingsChange> {
@@ -1887,6 +1970,67 @@ export function createSmartAccountVaultsClient(
       feePayer: args.feePayer,
       memo: args.memo,
       operation: "addInitiatePolicySigner",
+      policies: [policyEntry.address],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareRemoveInitiateSigner(
+    args: SmartAccountRemoveSignerProposalInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const policyEntry = await resolveAgentPolicyForRemoval(args);
+    const nextSigners = withoutPolicySigner(
+      policyEntry.policy.signers,
+      args.signer
+    );
+
+    if (nextSigners.length === 0) {
+      return prepareSettingsChange({
+        actions: [
+          {
+            __kind: "PolicyRemove",
+            policy: policyEntry.address,
+          },
+        ],
+        creator: args.creator,
+        feePayer: args.feePayer,
+        memo: args.memo,
+        operation: "removeInitiatePolicySigner",
+        policies: [policyEntry.address],
+        settingsPda: args.settingsPda,
+        spendingLimits: [],
+      });
+    }
+
+    const policyCreationBase = toSpendingLimitPolicyCreationBase(
+      policyEntry.policy
+    );
+
+    return prepareSettingsChange({
+      actions: [
+        {
+          __kind: "PolicyUpdate",
+          policy: policyEntry.address,
+          signers: nextSigners,
+          threshold: Math.max(
+            1,
+            Math.min(policyEntry.policy.threshold || 1, nextSigners.length)
+          ),
+          timeLock: policyEntry.policy.timeLock,
+          policyUpdatePayload: createSpendingLimitPolicyCreationPayload({
+            amount: toBigInt(
+              policyCreationBase.quantityConstraints.maxPerPeriod
+            ),
+            base: policyCreationBase,
+          }),
+          expirationArgs: null,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "removeInitiatePolicySigner",
       policies: [policyEntry.address],
       settingsPda: args.settingsPda,
       spendingLimits: [],
@@ -2186,6 +2330,7 @@ export function createSmartAccountVaultsClient(
     prepareCustomInstructionProposal,
     preparePolicyCustomInstructionProposal,
     prepareAddInitiateSigner,
+    prepareRemoveInitiateSigner,
     prepareSetSpendingLimitPolicy,
     prepareSetSpendingLimitProposal: prepareSetSpendingLimitPolicy,
     prepareRemoveSpendingLimitPolicy,

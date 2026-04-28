@@ -715,6 +715,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         `delete:${vaultAccountIndex}:${agent.agentId}`,
         `topup:${vaultAccountIndex}:${agent.agentId}`,
       ]);
+      const pendingSignerDeleteKey = `delete-signer:${vaultAccountIndex}:${agent.agentId}`;
       return (
         <AgentPageView
           label={agent.label}
@@ -742,8 +743,19 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               props.smartAccountData.pendingSpendingLimitActionKey
             )
           }
+          canDeleteSigner={selectedAgent?.scope === "policy"}
+          isSignerDeletePending={
+            props.smartAccountData.pendingSpendingLimitActionKey ===
+            pendingSignerDeleteKey
+          }
           onBack={onBack}
           onNavigate={navigateFn}
+          onDeleteSigner={(deleteArgs) =>
+            props.smartAccountData.deleteSigner({
+              ...deleteArgs,
+              policyAddress: selectedAgent?.policyAddress ?? null,
+            })
+          }
           onSetSpendingLimit={props.smartAccountData.setSignerSpendingLimitUsd}
           onDeleteSpendingLimit={
             props.smartAccountData.deleteSignerSpendingLimit

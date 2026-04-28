@@ -153,8 +153,11 @@ export function AgentPageView({
   signerAddress,
   spendingLimit,
   isSpendingLimitPending = false,
+  canDeleteSigner = true,
+  isSignerDeletePending = false,
   onBack,
   onNavigate,
+  onDeleteSigner,
   onSetSpendingLimit,
   onDeleteSpendingLimit,
   onTopUpWithSpendingLimit,
@@ -173,8 +176,14 @@ export function AgentPageView({
   signerAddress: string;
   spendingLimit: SmartAccountSpendingLimitSnapshot | null;
   isSpendingLimitPending?: boolean;
+  canDeleteSigner?: boolean;
+  isSignerDeletePending?: boolean;
   onBack: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onDeleteSigner: (args: {
+    accountIndex: number;
+    signerAddress: string;
+  }) => Promise<void>;
   onSetSpendingLimit: (args: {
     accountIndex: number;
     amountUsd: number;
@@ -276,6 +285,25 @@ export function AgentPageView({
         error instanceof Error
           ? error.message
           : "Failed to delete spending limit."
+      );
+    }
+  };
+
+  const requestSignerDelete = async () => {
+    const confirmed = window.confirm(`Remove ${label} from this vault?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await onDeleteSigner({
+        accountIndex: vaultAccountIndex,
+        signerAddress,
+      });
+      onBack();
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Failed to remove signer."
       );
     }
   };
@@ -567,24 +595,31 @@ export function AgentPageView({
               </button>
             </div>
           </div>
-          {/* Remove agent — small icon, right-aligned, vertically centered with balance */}
-          <button
-            className="agent-remove-btn"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              transition: "opacity 0.15s ease",
-            }}
-            type="button"
-          >
-            <Trash2 size={20} style={{ color: "#F9363C" }} />
-          </button>
+          {canDeleteSigner && (
+            <button
+              aria-busy={isSignerDeletePending}
+              aria-label={`Remove ${label}`}
+              className="agent-remove-btn"
+              disabled={isSignerDeletePending}
+              onClick={requestSignerDelete}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: isSignerDeletePending ? "not-allowed" : "pointer",
+                padding: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                opacity: isSignerDeletePending ? 0.45 : 1,
+                transition: "opacity 0.15s ease",
+              }}
+              title={`Remove ${label}`}
+              type="button"
+            >
+              <Trash2 size={20} style={{ color: "#F9363C" }} />
+            </button>
+          )}
         </div>
 
         {/* Action buttons: Transfer + Top Up */}

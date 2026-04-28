@@ -222,6 +222,16 @@ export type SmartAccountAddSignerProposalInput = {
   memo?: string;
 };
 
+export type SmartAccountRemoveSignerProposalInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  policyPda?: PublicKey | null;
+  accountIndex?: number;
+  memo?: string;
+};
+
 export type SmartAccountPolicyCustomInstructionProposalInput = {
   policyPda: PublicKey;
   creator: PublicKey;

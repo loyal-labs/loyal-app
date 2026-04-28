@@ -38,6 +38,11 @@ Returned client shape:
 - `prepareSplTransferProposal(args)`
 - `prepareCustomInstructionProposal(args)`
 - `preparePolicyCustomInstructionProposal(args)`
+- `prepareAddInitiateSigner(args)`
+- `prepareRemoveInitiateSigner(args)`
+- `prepareSetSpendingLimitPolicy(args)`
+- `prepareRemoveSpendingLimitPolicy(args)`
+- `prepareUseSolSpendingLimitPolicy(args)`
 - `prepareApproveProposal(args)`
 - `prepareRejectProposal(args)`
 - `prepareExecuteProposal(args)`

@@ -100,6 +100,11 @@ export type SmartAccountSidebarData = {
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   addInitiateSigner: (args: { signerAddress: string }) => Promise<void>;
+  deleteSigner: (args: {
+    accountIndex: number;
+    policyAddress?: string | null;
+    signerAddress: string;
+  }) => Promise<void>;
   setSignerSpendingLimitUsd: (args: {
     accountIndex: number;
     amountUsd: number;
@@ -1174,6 +1179,37 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     [overview, runSpendingLimitAction, wallet.publicKey]
   );
 
+  const deleteSigner = useCallback(
+    async (args: {
+      accountIndex: number;
+      policyAddress?: string | null;
+      signerAddress: string;
+    }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      const policyAddress = args.policyAddress;
+      if (!policyAddress) {
+        throw new Error("Only constrained agent signers can be deleted here.");
+      }
+
+      await runSpendingLimitAction({
+        actionKey: `delete-signer:${args.accountIndex}:${args.signerAddress}`,
+        prepare: (client) =>
+          client.prepareRemoveInitiateSigner({
+            settingsPda: new PublicKey(overview.settingsPda),
+            creator: wallet.publicKey!,
+            feePayer: wallet.publicKey!,
+            signer: new PublicKey(args.signerAddress),
+            accountIndex: args.accountIndex,
+            policyPda: new PublicKey(policyAddress),
+          }),
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
   const topUpSignerWithSpendingLimitUsd = useCallback(
     async (args: {
       accountIndex: number;
@@ -1260,6 +1296,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),
     executeProposal: (proposal) => runProposalAction(proposal, "execute"),
     addInitiateSigner,
+    deleteSigner,
     setSignerSpendingLimitUsd,
     topUpSignerWithSpendingLimitUsd,
     deleteSignerSpendingLimit,
