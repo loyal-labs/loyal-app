@@ -2,7 +2,7 @@
 
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
@@ -11,6 +11,7 @@ import {
   trackFrontendAnalyticsEvent,
   trackPageView,
 } from "@/lib/core/analytics";
+import { LandingCookieConsent } from "./landing-cookie-consent";
 
 export type LandingAnchorClickParams = {
   currentOrigin: string;
@@ -58,23 +59,36 @@ function getClickedAnchor(target: EventTarget | null): HTMLAnchorElement | null 
 export function LandingAnalyticsBootstrap() {
   const pathname = usePathname();
   const publicEnv = usePublicEnv();
+  const [hasAnalyticsConsent, setHasAnalyticsConsent] = useState(false);
   const lastTrackedPathRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!hasAnalyticsConsent) {
+      return;
+    }
+
     void initAnalytics(publicEnv);
-  }, [publicEnv]);
+  }, [hasAnalyticsConsent, publicEnv]);
 
   useEffect(() => {
-    if (!pathname || pathname === lastTrackedPathRef.current) {
+    if (
+      !hasAnalyticsConsent ||
+      !pathname ||
+      pathname === lastTrackedPathRef.current
+    ) {
       return;
     }
 
     lastTrackedPathRef.current = pathname;
     trackPageView(publicEnv, pathname);
-  }, [pathname, publicEnv]);
+  }, [hasAnalyticsConsent, pathname, publicEnv]);
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
+      if (!hasAnalyticsConsent) {
+        return;
+      }
+
       const anchor = getClickedAnchor(event.target);
       if (!anchor || !pathname) {
         return;
@@ -103,7 +117,16 @@ export function LandingAnalyticsBootstrap() {
     return () => {
       document.removeEventListener("click", handleClick);
     };
-  }, [pathname, publicEnv]);
+  }, [hasAnalyticsConsent, pathname, publicEnv]);
 
-  return null;
+  const handleAnalyticsConsentChange = useCallback((hasConsent: boolean) => {
+    setHasAnalyticsConsent(hasConsent);
+  }, []);
+
+  return (
+    <LandingCookieConsent
+      onAnalyticsConsentChange={handleAnalyticsConsentChange}
+      publicEnv={publicEnv}
+    />
+  );
 }

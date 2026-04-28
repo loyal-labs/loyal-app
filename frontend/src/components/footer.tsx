@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 
+import { openCookiePreferences } from "@/components/analytics/landing-cookie-consent";
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { trackFrontendLinkClick } from "@/lib/core/analytics";
@@ -195,6 +196,26 @@ export function Footer() {
               {link.name}
             </TrackedExternalLink>
           ))}
+          <button
+            onClick={openCookiePreferences}
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "rgba(60, 60, 67, 0.6)",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontFeatureSettings: "'liga' off, 'clig' off",
+              padding: 0,
+              textDecoration: "none",
+              transition: "color 0.2s ease",
+            }}
+            type="button"
+          >
+            Cookie settings
+          </button>
         </div>
 
         {/* Stay Loyal + Copyright wrapper */}
