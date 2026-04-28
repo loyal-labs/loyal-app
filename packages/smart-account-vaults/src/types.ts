@@ -1,4 +1,5 @@
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts";
+import type { DecodedSolanaInstruction } from "@loyal-labs/solana-instruction-decoder";
 import type {
   ActivityPage,
   PortfolioSnapshot,
@@ -63,6 +64,7 @@ export type SmartAccountProposalSnapshot = {
   creator: string | null;
   accountIndex: number | null;
   summary: SmartAccountProposalSummary;
+  decodedInstructions: DecodedSolanaInstruction[];
 };
 
 export type SmartAccountSignerPermission = "initiate" | "vote" | "execute";

@@ -150,6 +150,7 @@
       "name": "@loyal-labs/extension",
       "version": "0.5.3",
       "dependencies": {
+        "@loyal-labs/solana-instruction-decoder": "workspace:*",
         "@solana/wallet-adapter-base": "^0.9.27",
         "@solana/wallet-adapter-react": "^0.15.39",
         "@solana/wallet-adapter-react-ui": "^0.9.39",
@@ -197,6 +198,7 @@
         "@loyal-labs/private-transactions": "workspace:*",
         "@loyal-labs/shared": "workspace:*",
         "@loyal-labs/smart-account-vaults": "workspace:*",
+        "@loyal-labs/solana-instruction-decoder": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
         "@loyal-labs/wallet-core": "workspace:*",
@@ -362,6 +364,7 @@
       "dependencies": {
         "@loyal-labs/loyal-smart-accounts": "workspace:*",
         "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
+        "@loyal-labs/solana-instruction-decoder": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
         "@solana/spl-token": "^0.4.13",
         "@solana/web3.js": "^1.98.0",
@@ -373,6 +376,19 @@
         "@types/bun": "latest",
         "@types/node": "^24.0.15",
         "typescript": "^5.7.3",
+      },
+    },
+    "packages/solana-instruction-decoder": {
+      "name": "@loyal-labs/solana-instruction-decoder",
+      "version": "0.1.0",
+      "dependencies": {
+        "@solana/spl-token": "^0.4.13",
+        "@solana/web3.js": "^1.98.0",
+        "buffer": "^6.0.3",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5",
       },
     },
     "packages/solana-rpc": {
@@ -1155,6 +1171,8 @@
     "@loyal-labs/shared": ["@loyal-labs/shared@workspace:packages/shared"],
 
     "@loyal-labs/smart-account-vaults": ["@loyal-labs/smart-account-vaults@workspace:packages/smart-account-vaults"],
+
+    "@loyal-labs/solana-instruction-decoder": ["@loyal-labs/solana-instruction-decoder@workspace:packages/solana-instruction-decoder"],
 
     "@loyal-labs/solana-rpc": ["@loyal-labs/solana-rpc@workspace:packages/solana-rpc"],
 

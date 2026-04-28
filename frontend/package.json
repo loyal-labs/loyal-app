@@ -30,6 +30,7 @@
     "@loyal-labs/private-transactions": "workspace:*",
     "@loyal-labs/shared": "workspace:*",
     "@loyal-labs/smart-account-vaults": "workspace:*",
+    "@loyal-labs/solana-instruction-decoder": "workspace:*",
     "@loyal-labs/solana-rpc": "workspace:*",
     "@loyal-labs/solana-wallet": "workspace:*",
     "@loyal-labs/wallet-core": "workspace:*",

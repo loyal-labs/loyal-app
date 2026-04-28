@@ -29,6 +29,7 @@ import {
   type PortfolioPosition,
   type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
+import { decodeSolanaInstruction } from "@loyal-labs/solana-instruction-decoder";
 import { decodeTransferCheckedInstruction } from "@solana/spl-token";
 import {
   PublicKey,
@@ -344,10 +345,12 @@ function summarizeTransactionPayload(args: {
 }): {
   summary: SmartAccountProposalSummary;
   accountIndex: number | null;
+  decodedInstructions: ReturnType<typeof decodeSolanaInstruction>[];
 } {
   if (args.payload.__kind !== "TransactionPayload") {
     return {
       accountIndex: null,
+      decodedInstructions: [],
       summary: summarizeUnknownInstruction({
         programId: null,
         instructionCount: 0,
@@ -357,6 +360,13 @@ function summarizeTransactionPayload(args: {
 
   const details = (args.payload as TransactionPayloadLike).fields[0];
   const instructions = compileVaultInstructions(details.message);
+  const decodedInstructions = instructions.map((instruction) =>
+    decodeSolanaInstruction({
+      programId: instruction.programId,
+      keys: instruction.keys,
+      data: instruction.data,
+    })
+  );
 
   for (const instruction of instructions) {
     if (instruction.programId.equals(SystemProgram.programId)) {
@@ -368,6 +378,7 @@ function summarizeTransactionPayload(args: {
       if (summary) {
         return {
           accountIndex: details.accountIndex,
+          decodedInstructions,
           summary,
         };
       }
@@ -383,6 +394,7 @@ function summarizeTransactionPayload(args: {
       if (summary) {
         return {
           accountIndex: details.accountIndex,
+          decodedInstructions,
           summary,
         };
       }
@@ -394,6 +406,7 @@ function summarizeTransactionPayload(args: {
   if (!firstInstruction) {
     return {
       accountIndex: details.accountIndex,
+      decodedInstructions,
       summary: summarizeUnknownInstruction({
         programId: null,
         instructionCount: 0,
@@ -403,6 +416,7 @@ function summarizeTransactionPayload(args: {
 
   return {
     accountIndex: details.accountIndex,
+    decodedInstructions,
     summary: summarizeUnknownInstruction({
       programId: firstInstruction.programId,
       instructionCount: instructions.length,
@@ -1319,8 +1333,10 @@ export function createSmartAccountVaultsClient(
         let payloadSummary: {
           summary: SmartAccountProposalSummary;
           accountIndex: number | null;
+          decodedInstructions: ReturnType<typeof decodeSolanaInstruction>[];
         } = {
           accountIndex: null,
+          decodedInstructions: [],
           summary: summarizeUnknownInstruction({
             programId: null,
             instructionCount: 0,
@@ -1344,6 +1360,7 @@ export function createSmartAccountVaultsClient(
           creator = settingsTransaction.settingsTransaction.creator.toBase58();
           payloadSummary = {
             accountIndex: null,
+            decodedInstructions: [],
             summary: summarizeSettingsTransaction(
               settingsTransaction.settingsTransaction
             ),
@@ -1369,6 +1386,7 @@ export function createSmartAccountVaultsClient(
           creator,
           accountIndex: payloadSummary.accountIndex,
           summary: payloadSummary.summary,
+          decodedInstructions: payloadSummary.decodedInstructions,
         } satisfies SmartAccountProposalSnapshot;
       })
       .sort((left, right) =>

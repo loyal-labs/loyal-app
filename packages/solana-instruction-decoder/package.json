@@ -1,5 +1,5 @@
 {
-  "name": "@loyal-labs/smart-account-vaults",
+  "name": "@loyal-labs/solana-instruction-decoder",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,22 +19,16 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "bun test src"
   },
   "dependencies": {
-    "@loyal-labs/loyal-smart-accounts": "workspace:*",
-    "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
-    "@loyal-labs/solana-instruction-decoder": "workspace:*",
-    "@loyal-labs/solana-wallet": "workspace:*",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.0",
-    "bn.js": "^5.2.2",
-    "bs58": "^6.0.0"
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
-    "@types/bn.js": "^5.1.6",
     "@types/bun": "latest",
-    "@types/node": "^24.0.15",
-    "typescript": "^5.7.3"
+    "typescript": "^5"
   }
 }

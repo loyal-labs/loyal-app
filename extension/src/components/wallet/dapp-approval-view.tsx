@@ -1,138 +1,19 @@
+import {
+  decodeMessagePayload,
+  decodeSolanaTransaction,
+  type DecodedSolanaInstruction,
+} from "@loyal-labs/solana-instruction-decoder";
 import { ChevronDown, ChevronUp, Globe } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { SubViewHeader } from "~/src/components/wallet/shared";
 import { track } from "~/src/lib/analytics";
 
 import { DAPP_EVENTS } from "./dapp-analytics";
-import { SubViewHeader } from "~/src/components/wallet/shared";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const mono = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace";
-
-// ---------------------------------------------------------------------------
-// Known program addresses
-// ---------------------------------------------------------------------------
-
-const KNOWN_PROGRAMS: Record<string, string> = {
-  "11111111111111111111111111111111": "System Program",
-  TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA: "Token Program",
-  TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb: "Token-2022",
-  ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL: "Associated Token",
-  ComputeBudget111111111111111111111111111111: "Compute Budget",
-  JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4: "Jupiter v6",
-  whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: "Orca Whirlpool",
-};
-
-function truncateAddress(addr: string): string {
-  if (addr.length <= 12) return addr;
-  return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
-}
-
-function programName(address: string): string {
-  return KNOWN_PROGRAMS[address] ?? truncateAddress(address);
-}
-
-// ---------------------------------------------------------------------------
-// Transaction decoder
-// ---------------------------------------------------------------------------
-
-interface InstructionSummary {
-  program: string;
-  description: string;
-}
-
-function base64ToUint8Array(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-async function decodeTransaction(
-  base64: string,
-): Promise<InstructionSummary[]> {
-  try {
-    const { Transaction, VersionedTransaction, SystemProgram, SystemInstruction, LAMPORTS_PER_SOL, PublicKey } =
-      await import("@solana/web3.js");
-
-    const bytes = base64ToUint8Array(base64);
-    const summaries: InstructionSummary[] = [];
-
-    let instructions: { programId: { toBase58(): string }; keys?: { pubkey: { toBase58(): string } }[]; data?: Buffer | Uint8Array }[];
-
-    try {
-      const vtx = VersionedTransaction.deserialize(bytes);
-      const lookup = vtx.message;
-      const staticKeys = lookup.staticAccountKeys;
-      instructions = lookup.compiledInstructions.map((ix) => ({
-        programId: staticKeys[ix.programIdIndex],
-        keys: ix.accountKeyIndexes.map((idx) => ({
-          pubkey: staticKeys[idx] ?? new PublicKey(new Uint8Array(32)),
-        })),
-        data: Buffer.from(ix.data),
-      }));
-    } catch {
-      const tx = Transaction.from(bytes);
-      instructions = tx.instructions;
-    }
-
-    for (const ix of instructions) {
-      const progAddr = ix.programId.toBase58();
-
-      if (progAddr === SystemProgram.programId.toBase58()) {
-        try {
-          const decoded = SystemInstruction.decodeTransfer({
-            programId: ix.programId,
-            keys: (ix.keys ?? []).map((k) => ({
-              pubkey: k.pubkey,
-              isSigner: false,
-              isWritable: true,
-            })),
-            data: ix.data ? Buffer.from(ix.data) : Buffer.alloc(0),
-          } as never);
-          const sol = Number(decoded.lamports) / LAMPORTS_PER_SOL;
-          summaries.push({
-            program: "System Program",
-            description: `Transfer ${sol} SOL to ${truncateAddress(decoded.toPubkey.toBase58())}`,
-          });
-          continue;
-        } catch {
-          // Not a transfer — fall through
-        }
-      }
-
-      const name = programName(progAddr);
-      summaries.push({
-        program: name,
-        description: KNOWN_PROGRAMS[progAddr]
-          ? `${name} instruction`
-          : `Instruction to ${name}`,
-      });
-    }
-
-    return summaries;
-  } catch {
-    return [{ program: "Unknown", description: "Failed to decode transaction" }];
-  }
-}
-
-function decodeMessage(base64: string): string {
-  try {
-    const bytes = base64ToUint8Array(base64);
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    // If it's printable text, show it; otherwise fall back to hex
-    if (/^[\x20-\x7E\n\r\t]+$/.test(text)) return text;
-    return Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join(" ");
-  } catch {
-    const bytes = base64ToUint8Array(base64);
-    return Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join(" ");
-  }
-}
 
 // ---------------------------------------------------------------------------
 // UI helpers
@@ -178,14 +59,12 @@ function getPermissionsText(
     case "signTransaction":
       return {
         label: "Action",
-        value:
-          "Review the transaction details below before approving.",
+        value: "Review the transaction details below before approving.",
       };
     case "signMessage":
       return {
         label: "Action",
-        value:
-          "Review the message content below before signing.",
+        value: "Review the message content below before signing.",
       };
   }
 }
@@ -203,22 +82,9 @@ function extractHostname(origin: string): string {
 // ---------------------------------------------------------------------------
 
 function TransactionDetails({ base64 }: { base64: string }) {
-  const [summaries, setSummaries] = useState<InstructionSummary[] | null>(null);
+  const decoded = useMemo(() => decodeSolanaTransaction(base64), [base64]);
   const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    void decodeTransaction(base64).then(setSummaries);
-  }, [base64]);
-
-  if (!summaries) {
-    return (
-      <div style={{ padding: "9px 12px" }}>
-        <span style={{ fontFamily: font, fontSize: "13px", color: secondary }}>
-          Decoding transaction...
-        </span>
-      </div>
-    );
-  }
+  const instructions = decoded.instructions;
 
   return (
     <>
@@ -233,27 +99,78 @@ function TransactionDetails({ base64 }: { base64: string }) {
             display: "block",
           }}
         >
-          Instructions ({summaries.length})
+          Instructions ({instructions.length})
         </span>
-        <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          {summaries.map((s, i) => (
+        {decoded.error ? (
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 400,
+              lineHeight: "18px",
+              color: "#000",
+              display: "block",
+              marginTop: "6px",
+            }}
+          >
+            {decoded.error}
+          </span>
+        ) : null}
+        <div
+          style={{
+            marginTop: "6px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+          }}
+        >
+          {instructions.map((instruction, i) => (
             <div
               key={i}
               style={{
                 display: "flex",
                 flexDirection: "column",
-                gap: "2px",
+                gap: "5px",
                 padding: "8px 10px",
                 background: "rgba(0, 0, 0, 0.04)",
                 borderRadius: "10px",
               }}
             >
-              <span style={{ fontFamily: font, fontSize: "12px", fontWeight: 500, color: secondary }}>
-                {s.program}
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  color: secondary,
+                }}
+              >
+                {instruction.programName}
               </span>
-              <span style={{ fontFamily: font, fontSize: "14px", fontWeight: 400, lineHeight: "18px", color: "#000", wordBreak: "break-all" }}>
-                {s.description}
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  lineHeight: "18px",
+                  color: "#000",
+                  wordBreak: "break-word",
+                }}
+              >
+                {instruction.title}
               </span>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "18px",
+                  color: "#000",
+                  wordBreak: "break-word",
+                }}
+              >
+                {instruction.description}
+              </span>
+              <InstructionMetadata instruction={instruction} />
             </div>
           ))}
         </div>
@@ -278,7 +195,8 @@ function TransactionDetails({ base64 }: { base64: string }) {
             color: secondary,
           }}
         >
-          Raw data {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          Raw data{" "}
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
         {expanded && (
           <div
@@ -292,7 +210,14 @@ function TransactionDetails({ base64 }: { base64: string }) {
               wordBreak: "break-all",
             }}
           >
-            <span style={{ fontFamily: mono, fontSize: "11px", lineHeight: "16px", color: secondary }}>
+            <span
+              style={{
+                fontFamily: mono,
+                fontSize: "11px",
+                lineHeight: "16px",
+                color: secondary,
+              }}
+            >
               {base64}
             </span>
           </div>
@@ -303,7 +228,7 @@ function TransactionDetails({ base64 }: { base64: string }) {
 }
 
 function MessageDetails({ base64 }: { base64: string }) {
-  const decoded = useMemo(() => decodeMessage(base64), [base64]);
+  const decoded = useMemo(() => decodeMessagePayload(base64), [base64]);
 
   return (
     <div style={{ padding: "9px 12px" }}>
@@ -331,10 +256,65 @@ function MessageDetails({ base64 }: { base64: string }) {
           whiteSpace: "pre-wrap",
         }}
       >
-        <span style={{ fontFamily: mono, fontSize: "13px", lineHeight: "18px", color: "#000" }}>
-          {decoded}
+        <span
+          style={{
+            fontFamily: mono,
+            fontSize: "13px",
+            lineHeight: "18px",
+            color: "#000",
+          }}
+        >
+          {decoded.value}
         </span>
       </div>
+    </div>
+  );
+}
+
+function InstructionMetadata({
+  instruction,
+}: {
+  instruction: DecodedSolanaInstruction;
+}) {
+  const details = instruction.details.slice(0, 4);
+  const accounts = instruction.accounts.slice(0, 4);
+
+  if (details.length === 0 && accounts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+      {details.map((detail) => (
+        <span
+          key={`${detail.label}:${detail.value}`}
+          style={{
+            fontFamily: font,
+            fontSize: "12px",
+            fontWeight: 400,
+            lineHeight: "16px",
+            color: secondary,
+            wordBreak: "break-word",
+          }}
+        >
+          {detail.label}: {detail.value}
+        </span>
+      ))}
+      {accounts.map((account, index) => (
+        <span
+          key={`${account.address}:${index}`}
+          style={{
+            fontFamily: mono,
+            fontSize: "11px",
+            fontWeight: 400,
+            lineHeight: "15px",
+            color: secondary,
+            wordBreak: "break-all",
+          }}
+        >
+          {account.label ?? `Account ${index + 1}`}: {account.address}
+        </span>
+      ))}
     </div>
   );
 }

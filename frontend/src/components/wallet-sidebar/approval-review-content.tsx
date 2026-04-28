@@ -1,11 +1,14 @@
 "use client";
 
 import type { SmartAccountApprovalItem } from "@/hooks/use-smart-account-sidebar-data";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { useState } from "react";
 
 import { SubViewHeader } from "./shared";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
+const mono = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace";
 
 function toStatusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
@@ -28,6 +31,8 @@ export function ApprovalReviewContent({
   onApprove: () => void;
   onExecute: () => void;
 }) {
+  const [isRawDataExpanded, setIsRawDataExpanded] = useState(false);
+
   if (!approval) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -53,6 +58,7 @@ export function ApprovalReviewContent({
 
   const canVote = approval.status === "active";
   const canExecute = approval.status === "approved" && approval.canExecute;
+  const decodedInstructions = approval.proposal.decodedInstructions ?? [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -228,6 +234,14 @@ export function ApprovalReviewContent({
                 {approval.sourceLabel}
               </span>
             </div>
+
+            <ProposalInstructionDetails
+              instructions={decodedInstructions}
+              isRawDataExpanded={isRawDataExpanded}
+              onToggleRawData={() =>
+                setIsRawDataExpanded((currentValue) => !currentValue)
+              }
+            />
           </div>
         </div>
       </div>
@@ -332,6 +346,221 @@ export function ApprovalReviewContent({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function ProposalInstructionDetails({
+  instructions,
+  isRawDataExpanded,
+  onToggleRawData,
+}: {
+  instructions: SmartAccountApprovalItem["proposal"]["decodedInstructions"];
+  isRawDataExpanded: boolean;
+  onToggleRawData: () => void;
+}) {
+  if (instructions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ padding: "9px 12px" }}>
+      <span
+        style={{
+          fontFamily: font,
+          fontSize: "13px",
+          fontWeight: 400,
+          lineHeight: "16px",
+          color: secondary,
+          display: "block",
+        }}
+      >
+        Decoded instructions ({instructions.length})
+      </span>
+      <div
+        style={{
+          marginTop: "6px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+        }}
+      >
+        {instructions.map((instruction, index) => (
+          <div
+            key={`${instruction.programId}:${instruction.rawDataBase64}:${index}`}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "5px",
+              padding: "8px 10px",
+              background: "rgba(0, 0, 0, 0.04)",
+              borderRadius: "10px",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "12px",
+                fontWeight: 500,
+                color: secondary,
+              }}
+            >
+              {instruction.programName}
+            </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 600,
+                lineHeight: "18px",
+                color: "#000",
+                wordBreak: "break-word",
+              }}
+            >
+              {instruction.title}
+            </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "18px",
+                color: "#000",
+                wordBreak: "break-word",
+              }}
+            >
+              {instruction.description}
+            </span>
+            <InstructionMetadata
+              accounts={instruction.accounts}
+              details={instruction.details}
+            />
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={onToggleRawData}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "8px 0 0",
+          fontFamily: font,
+          fontSize: "12px",
+          fontWeight: 500,
+          color: secondary,
+        }}
+        type="button"
+      >
+        Raw data{" "}
+        {isRawDataExpanded ? (
+          <ChevronUp size={14} />
+        ) : (
+          <ChevronDown size={14} />
+        )}
+      </button>
+
+      {isRawDataExpanded ? (
+        <div
+          style={{
+            marginTop: "4px",
+            padding: "8px",
+            background: "rgba(0, 0, 0, 0.04)",
+            borderRadius: "8px",
+            maxHeight: "160px",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          {instructions.map((instruction, index) => (
+            <div
+              key={`${instruction.programId}:raw:${index}`}
+              style={{ display: "flex", flexDirection: "column", gap: "3px" }}
+            >
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  lineHeight: "14px",
+                  color: secondary,
+                }}
+              >
+                #{index + 1} {instruction.instructionName}
+              </span>
+              <span
+                style={{
+                  fontFamily: mono,
+                  fontSize: "11px",
+                  lineHeight: "16px",
+                  color: secondary,
+                  wordBreak: "break-all",
+                }}
+              >
+                {instruction.rawDataBase64 ||
+                  instruction.rawDataHex ||
+                  "(empty)"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InstructionMetadata({
+  accounts,
+  details,
+}: {
+  accounts: SmartAccountApprovalItem["proposal"]["decodedInstructions"][number]["accounts"];
+  details: SmartAccountApprovalItem["proposal"]["decodedInstructions"][number]["details"];
+}) {
+  const visibleDetails = details.slice(0, 4);
+  const visibleAccounts = accounts.slice(0, 4);
+
+  if (visibleDetails.length === 0 && visibleAccounts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+      {visibleDetails.map((detail) => (
+        <span
+          key={`${detail.label}:${detail.value}`}
+          style={{
+            fontFamily: font,
+            fontSize: "12px",
+            fontWeight: 400,
+            lineHeight: "16px",
+            color: secondary,
+            wordBreak: "break-word",
+          }}
+        >
+          {detail.label}: {detail.value}
+        </span>
+      ))}
+      {visibleAccounts.map((account, index) => (
+        <span
+          key={`${account.address}:${index}`}
+          style={{
+            fontFamily: mono,
+            fontSize: "11px",
+            fontWeight: 400,
+            lineHeight: "15px",
+            color: secondary,
+            wordBreak: "break-all",
+          }}
+        >
+          {account.label ?? `Account ${index + 1}`}: {account.address}
+        </span>
+      ))}
     </div>
   );
 }
