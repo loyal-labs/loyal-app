@@ -136,7 +136,7 @@ export function LandingHeader() {
 
   return (
     <>
-      <header className="flex w-full justify-center bg-[#f9363c]">
+      <header className="relative z-50 flex w-full justify-center bg-[#f9363c]">
         <HeaderContent
           eyeOffset={eyeOffset}
           isEyeOpen={isIntroEyeOpen}

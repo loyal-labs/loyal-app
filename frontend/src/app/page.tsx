@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { LandingAnalyticsBootstrap } from "@/components/analytics/LandingAnalyticsBootstrap";
 import { LandingBlog } from "@/components/landing-blog";
 import { LandingFaq } from "@/components/landing-faq";
 import { LandingFooter } from "@/components/landing-footer";
@@ -34,6 +35,7 @@ const featureCards = [
 export default function LandingPage() {
   return (
     <main className="min-h-screen overflow-x-clip bg-white text-black">
+      <LandingAnalyticsBootstrap />
       <LandingScrollAnimations />
       <LandingHeader />
       <LandingHero />

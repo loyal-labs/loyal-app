@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 
 type Segment = "Extension" | "Mobile" | "Web";
@@ -11,6 +12,7 @@ const chromeWebStoreUrl =
   "https://chromewebstore.google.com/detail/loyal-%E2%80%94-private-solana-wa/cdienfadefhlaknmedckgifkjdbioack?hl=en&authuser=1";
 const telegramMiniAppUrl =
   "https://t.me/askloyal_tgbot/app?startapp=askloyalcom";
+const seekerDappStoreUrl = "solanadappstore://details?id=com.loyal.app";
 
 const browserCards = [
   {
@@ -42,7 +44,6 @@ const browserCards = [
 
 const mobileCards = [
   {
-    href: appUrl,
     icon: "/landing/figma/get-started-seeker.svg",
     label: "Seeker",
     shape: "rounded-[400px]",
@@ -86,6 +87,7 @@ const previewBySegment: Record<Segment, { alt: string; src: string }> = {
 
 export function LandingGetStarted() {
   const [activeSegment, setActiveSegment] = useState<Segment>("Extension");
+  const [showSeekerQr, setShowSeekerQr] = useState(false);
   const activePreview = previewBySegment[activeSegment];
 
   useEffect(() => {
@@ -123,6 +125,12 @@ export function LandingGetStarted() {
       document.removeEventListener("click", handleTabAnchorClick);
     };
   }, []);
+
+  useEffect(() => {
+    if (activeSegment !== "Mobile") {
+      setShowSeekerQr(false);
+    }
+  }, [activeSegment]);
 
   return (
     <section
@@ -191,11 +199,12 @@ export function LandingGetStarted() {
         >
           {activeSegment === "Mobile" ? (
             <div className="grid aspect-square min-w-0 grid-rows-2 gap-2 overflow-hidden lg:aspect-auto lg:h-[600px] lg:gap-6">
-              <PlatformCard
+              <SeekerCard
                 className="h-full"
                 dataRevealDelay={1}
                 iconClassName="h-16 w-16 lg:h-24 lg:w-24"
-                platform={mobileCards[0]}
+                isQrVisible={showSeekerQr}
+                onShowQr={() => setShowSeekerQr(true)}
                 preserveAspect={false}
               />
               <div className="grid min-h-0 grid-cols-2 gap-2 lg:gap-6">
@@ -318,6 +327,84 @@ function ActionCard({
   );
 }
 
+function SeekerCard({
+  className = "",
+  dataRevealDelay,
+  iconClassName,
+  isQrVisible,
+  onShowQr,
+  preserveAspect = true,
+}: {
+  className?: string;
+  dataRevealDelay: number;
+  iconClassName: string;
+  isQrVisible: boolean;
+  onShowQr: () => void;
+  preserveAspect?: boolean;
+}) {
+  const classNames = `group relative flex min-h-0 items-center justify-center overflow-hidden bg-transparent transition duration-200 ease-out hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 ${preserveAspect ? "aspect-square lg:aspect-auto" : ""} ${className}`;
+
+  return (
+    <button
+      aria-label={
+        isQrVisible
+          ? "Seeker dApp Store QR code"
+          : "Show Seeker dApp Store QR code"
+      }
+      className={classNames}
+      data-reveal="scale"
+      data-reveal-delay={dataRevealDelay}
+      onClick={onShowQr}
+      type="button"
+    >
+      <span
+        aria-hidden="true"
+        className={`absolute inset-0 rounded-[400px] bg-[#f5f5f5] transition-all duration-300 ease-out ${
+          isQrVisible
+            ? ""
+            : "group-hover:scale-90 group-hover:rounded-none group-hover:bg-[#eeeeee] group-hover:[clip-path:polygon(50%_0%,61%_35%,98%_35%,68%_57%,79%_91%,50%_70%,21%_91%,32%_57%,2%_35%,39%_35%)]"
+        } ${
+          preserveAspect || isQrVisible
+            ? ""
+            : "left-1/2 right-auto h-full w-full -translate-x-1/2 group-hover:aspect-square group-hover:w-auto"
+        }`}
+      />
+      <span className="relative z-10 flex w-full flex-col items-center justify-center gap-3 px-4 py-4">
+        {isQrVisible ? (
+          <>
+            <span className="flex rounded-[24px] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.06)] lg:p-4">
+              <QRCodeSVG
+                className="h-28 w-28 lg:h-36 lg:w-36"
+                level="M"
+                marginSize={1}
+                title="Loyal Seeker dApp Store listing QR code"
+                value={seekerDappStoreUrl}
+              />
+            </span>
+            <span className="rounded-full bg-white px-3 py-1 text-center text-[13px] font-normal leading-5 text-[#3c3c43]/60">
+              Only available on Seeker
+            </span>
+          </>
+        ) : (
+          <>
+            <Image
+              alt=""
+              aria-hidden="true"
+              className={iconClassName}
+              height={96}
+              src="/landing/figma/get-started-seeker.svg"
+              width={96}
+            />
+            <span className="flex items-center justify-center whitespace-nowrap rounded-[100px] bg-white px-3 py-1 text-[14px] font-normal leading-5 text-[#f9363c] transition duration-200 ease-out group-hover:scale-105">
+              Seeker
+            </span>
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
+
 function PlatformCard({
   className = "",
   dataRevealDelay,
@@ -347,7 +434,7 @@ function PlatformCard({
             ? ""
             : "group-hover:scale-90 group-hover:rounded-none group-hover:bg-[#eeeeee] group-hover:[clip-path:polygon(50%_0%,61%_35%,98%_35%,68%_57%,79%_91%,50%_70%,21%_91%,32%_57%,2%_35%,39%_35%)]"
         } ${
-          preserveAspect
+          preserveAspect || platform.disabled
             ? ""
             : "left-1/2 right-auto h-full w-full -translate-x-1/2 group-hover:aspect-square group-hover:w-auto"
         } ${platform.shape}`}

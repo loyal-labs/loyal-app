@@ -4,6 +4,7 @@ import {
   shouldTrackAuthSignInSuccess,
   shouldTrackFrontendPageView,
 } from "../AnalyticsBootstrap";
+import { getLandingAnchorClickProperties } from "../LandingAnalyticsBootstrap";
 import { getFrontendPageViewEventName } from "@/lib/core/analytics";
 
 describe("frontend analytics bootstrap helpers", () => {
@@ -70,5 +71,34 @@ describe("frontend analytics bootstrap helpers", () => {
         },
       })
     ).toBe(false);
+  });
+
+  test("builds tracked landing anchor click properties", () => {
+    expect(
+      getLandingAnchorClickProperties({
+        currentOrigin: "https://askloyal.com",
+        currentPathname: "/",
+        href: "#get-started",
+        linkText: "Get started",
+      })
+    ).toEqual({
+      anchor: "#get-started",
+      hostname: "askloyal.com",
+      link_text: "Get started",
+      path: "/",
+      source: "anchor_link",
+      url: "https://askloyal.com/#get-started",
+    });
+  });
+
+  test("ignores non-anchor landing links", () => {
+    expect(
+      getLandingAnchorClickProperties({
+        currentOrigin: "https://askloyal.com",
+        currentPathname: "/",
+        href: "https://docs.askloyal.com",
+        linkText: "Docs",
+      })
+    ).toBeNull();
   });
 });

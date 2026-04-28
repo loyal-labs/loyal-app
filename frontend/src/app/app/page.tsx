@@ -362,6 +362,45 @@ export default function LandingPage() {
           flexDirection: "column",
         }}
       >
+        {!isChatMode && (
+          <div
+            aria-label="Loyal is still in beta"
+            style={{
+              position: "absolute",
+              top: 24,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 20,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              justifyContent: "center",
+              borderRadius: 999,
+              border: "1px solid rgba(249, 54, 60, 0.08)",
+              background: "rgba(255, 232, 234, 0.92)",
+              boxShadow: "0 12px 30px rgba(0, 0, 0, 0.06)",
+              color: "#111",
+              fontSize: "clamp(13px, 2.8vw, 14px)",
+              fontWeight: 600,
+              lineHeight: 1,
+              padding: "9px 13px",
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 999,
+                background: "#f9363c",
+              }}
+            />
+            Loyal is still in beta!
+          </div>
+        )}
+
         <HeroSection
           isChatMode={isChatMode}
           onChatModeChange={setIsChatModeLocal}
