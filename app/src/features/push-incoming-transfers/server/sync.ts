@@ -91,9 +91,22 @@ async function updateSyncState(
     .where(eq(walletPushSyncState.walletPublicKey, walletPublicKey));
 }
 
+// Process-level cache for ATA membership. ATAs change rarely relative
+// to cron cadence; refetching them every tick burns 2 RPC calls per
+// wallet for nothing and was a major source of Helius 429s. Survives
+// across cron invocations on the same warm Vercel lambda.
+const ATA_CACHE_TTL_MS = 30 * 60 * 1000;
+const ataCache = new Map<string, { addresses: string[]; cachedAt: number }>();
+
 async function listOwnedAtaAddresses(
   walletPk: PublicKey,
 ): Promise<string[]> {
+  const key = walletPk.toBase58();
+  const cached = ataCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.cachedAt < ATA_CACHE_TTL_MS) {
+    return cached.addresses;
+  }
   const connection = getIncomingTransferConnection();
   const [classic, token2022] = await Promise.all([
     connection.getTokenAccountsByOwner(walletPk, {
@@ -106,7 +119,9 @@ async function listOwnedAtaAddresses(
   const addresses = new Set<string>();
   for (const entry of classic.value) addresses.add(entry.pubkey.toBase58());
   for (const entry of token2022.value) addresses.add(entry.pubkey.toBase58());
-  return Array.from(addresses);
+  const result = Array.from(addresses);
+  ataCache.set(key, { addresses: result, cachedAt: now });
+  return result;
 }
 
 type SignatureEntry = {
