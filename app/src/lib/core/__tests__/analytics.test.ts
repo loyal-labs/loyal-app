@@ -77,14 +77,6 @@ mock.module("@loyal-labs/shared/analytics", () => ({
   }),
 }));
 
-mock.module("@/lib/core/config/public", () => ({
-  publicEnv: {
-    mixpanelToken: "test-mixpanel-token",
-    mixpanelProxyPath: "/ingest",
-    solanaEnv: "devnet",
-  },
-}));
-
 let analytics: typeof import("../analytics");
 const SUMMARY_ID = "123e4567-e89b-12d3-a456-426614174000";
 const GROUP_CHAT_ID = "-1001234567890";
@@ -96,6 +88,12 @@ describe("app analytics facade", () => {
   });
 
   beforeEach(() => {
+    process.env.NEXT_PUBLIC_APP_ENVIRONMENT = "dev";
+    process.env.NEXT_PUBLIC_MIXPANEL_TOKEN = "test-mixpanel-token";
+    process.env.NEXT_PUBLIC_MIXPANEL_PROXY_PATH = "/ingest";
+    process.env.NEXT_PUBLIC_SOLANA_ENV = "devnet";
+    process.env.NEXT_PUBLIC_GIT_BRANCH = "test-branch";
+    process.env.NEXT_PUBLIC_GIT_COMMIT_HASH = "abcdef1";
     (globalThis as { window?: unknown }).window = {
       location: { origin: "https://loyal.example" },
     };
@@ -112,6 +110,12 @@ describe("app analytics facade", () => {
 
   afterEach(() => {
     delete (globalThis as { window?: unknown }).window;
+    delete process.env.NEXT_PUBLIC_APP_ENVIRONMENT;
+    delete process.env.NEXT_PUBLIC_MIXPANEL_TOKEN;
+    delete process.env.NEXT_PUBLIC_MIXPANEL_PROXY_PATH;
+    delete process.env.NEXT_PUBLIC_SOLANA_ENV;
+    delete process.env.NEXT_PUBLIC_GIT_BRANCH;
+    delete process.env.NEXT_PUBLIC_GIT_COMMIT_HASH;
   });
 
   test("applies devnet Mixpanel configuration on init", async () => {
@@ -127,9 +131,11 @@ describe("app analytics facade", () => {
           workspace: "miniapp",
         },
         registerProperties: {
-          workspace: "miniapp",
-          app_mode: "demo",
+          app_environment: "dev",
           app_solana_env: "devnet",
+          git_branch: "test-branch",
+          git_commit_hash: "abcdef1",
+          workspace: "miniapp",
         },
       },
     ]);

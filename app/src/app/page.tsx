@@ -7,6 +7,7 @@ import {
   getUnconsumedStartParamRoute,
   markStartParamConsumed,
 } from "@/hooks/useStartParam";
+import { track } from "@/lib/core/analytics";
 import { getCloudValue } from "@/lib/telegram/mini-app/cloud-storage";
 
 const LAST_PAGE_CACHE_KEY = "last_visited_page";
@@ -21,6 +22,10 @@ export default function SplashPage() {
     if (typeof window === "undefined") return undefined;
     return getUnconsumedStartParamRoute();
   });
+
+  useEffect(() => {
+    track("View /", { path: "/" });
+  }, []);
 
   useEffect(() => {
     if (hasRedirected.current) return;

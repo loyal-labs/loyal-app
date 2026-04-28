@@ -15,6 +15,7 @@ import type {
 import { parseSummaryFeedStartParam } from "@/lib/telegram/mini-app/start-param";
 
 let analyticsClient: AnalyticsClient | null = null;
+let analyticsClientKey: string | null = null;
 let lastIdentifiedDistinctId: string | null = null;
 let lastProfiledDistinctId: string | null = null;
 let lastProfileFingerprint: string | null = null;
@@ -39,29 +40,39 @@ function getApiHost(): string | undefined {
   return `${window.location.origin}${publicEnv.mixpanelProxyPath}`;
 }
 
+function getClientKey(): string {
+  return JSON.stringify({
+    token: publicEnv.mixpanelToken ?? null,
+    proxyPath: publicEnv.mixpanelProxyPath,
+    appEnvironment: publicEnv.appEnvironment,
+    solanaEnv: publicEnv.solanaEnv,
+    gitBranch: publicEnv.gitBranch,
+    gitCommitHash: publicEnv.gitCommitHash,
+  });
+}
+
 function getAnalyticsClient(): AnalyticsClient {
-  if (analyticsClient) {
+  const nextClientKey = getClientKey();
+
+  if (analyticsClient && analyticsClientKey === nextClientKey) {
     return analyticsClient;
   }
 
-  const isDevnetDemoMode = publicEnv.solanaEnv === "devnet";
-
+  analyticsClientKey = nextClientKey;
   analyticsClient = createMixpanelBrowserClient({
     token: publicEnv.mixpanelToken,
     apiHost: getApiHost(),
-    debug: isDevnetDemoMode,
+    debug: publicEnv.appEnvironment !== "prod",
     persistence: "localStorage",
     defaultEventProperties: {
       workspace: MINIAPP_WORKSPACE,
     },
     registerProperties: {
+      app_environment: publicEnv.appEnvironment,
+      app_solana_env: publicEnv.solanaEnv,
+      git_branch: publicEnv.gitBranch,
+      git_commit_hash: publicEnv.gitCommitHash,
       workspace: MINIAPP_WORKSPACE,
-      ...(isDevnetDemoMode
-        ? {
-            app_mode: "demo",
-            app_solana_env: "devnet",
-          }
-        : {}),
     },
   });
 
@@ -192,6 +203,7 @@ export function setUserProfile(properties: AnalyticsProperties): void {
 export function __resetAnalyticsStateForTests(): void {
   analyticsClient?.__resetForTests();
   analyticsClient = null;
+  analyticsClientKey = null;
   lastIdentifiedDistinctId = null;
   lastProfiledDistinctId = null;
   lastProfileFingerprint = null;

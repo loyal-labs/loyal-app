@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { ChatInput } from "@/components/chat-input";
 import { ChatMessages } from "@/components/chat-messages";
-import { HeroNav } from "@/components/hero-nav";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -66,10 +65,6 @@ export function HeroSection(props: HeroSectionProps) {
   const [parallaxOffset, setParallaxOffset] = useState(0);
   const [isInputStuckToBottom, setIsInputStuckToBottom] = useState(false);
   const [stickyInputBottomOffset, setStickyInputBottomOffset] = useState(24);
-  const [isScrolledToAbout, setIsScrolledToAbout] = useState(false);
-  const [isScrolledToRoadmap, setIsScrolledToRoadmap] = useState(false);
-  const [isScrolledToBlog, setIsScrolledToBlog] = useState(false);
-  const [isScrolledToLinks, setIsScrolledToLinks] = useState(false);
   const [dogCry, setDogCry] = useState(false);
   const [dogNice, setDogNice] = useState(false);
 
@@ -225,75 +220,6 @@ export function HeroSection(props: HeroSectionProps) {
     }
   }, [props.messages, props.isChatMode, props.inputRef]);
 
-  // Detect when user scrolls to About/Roadmap/Blog/Links sections
-  useEffect(() => {
-    if (props.isChatMode) return; // Don't track scroll in chat mode
-
-    const handlePageScroll = () => {
-      const aboutSection = document.getElementById("about-section");
-      const roadmapSection = document.getElementById("roadmap-section");
-      const blogSection = document.getElementById("blog-section");
-      const footerSection = document.getElementById("footer-section");
-
-      // Check if we're at the bottom of the page
-      const isAtBottom =
-        window.innerHeight + window.scrollY >=
-        document.documentElement.scrollHeight - 10;
-
-      // If at bottom, activate links section
-      if (isAtBottom && footerSection) {
-        setIsScrolledToAbout(false);
-        setIsScrolledToRoadmap(false);
-        setIsScrolledToBlog(false);
-        setIsScrolledToLinks(true);
-        return;
-      }
-
-      // Calculate which section is closest to the top threshold
-      const sections = [
-        { id: "about", element: aboutSection, setter: setIsScrolledToAbout },
-        {
-          id: "roadmap",
-          element: roadmapSection,
-          setter: setIsScrolledToRoadmap,
-        },
-        { id: "blog", element: blogSection, setter: setIsScrolledToBlog },
-        { id: "links", element: footerSection, setter: setIsScrolledToLinks },
-      ];
-
-      let closestSection = null;
-      let closestDistance = Number.POSITIVE_INFINITY;
-
-      for (const section of sections) {
-        if (section.element) {
-          const rect = section.element.getBoundingClientRect();
-          const isInView = rect.top <= 100 && rect.bottom >= 100;
-
-          if (isInView) {
-            // Calculate distance from top of section to threshold
-            const distance = Math.abs(rect.top - 100);
-            if (distance < closestDistance) {
-              closestDistance = distance;
-              closestSection = section;
-            }
-          }
-        }
-      }
-
-      // Set only the closest section as active
-      for (const section of sections) {
-        section.setter(section === closestSection);
-      }
-    };
-
-    window.addEventListener("scroll", handlePageScroll, { passive: true });
-    handlePageScroll(); // Check initial state
-
-    return () => {
-      window.removeEventListener("scroll", handlePageScroll);
-    };
-  }, [props.isChatMode]);
-
   // Parallax effect for landing page input + sticky behavior
   useEffect(() => {
     if (props.isChatMode) {
@@ -333,100 +259,8 @@ export function HeroSection(props: HeroSectionProps) {
     };
   }, [props.isChatMode]);
 
-  const handleScrollToAbout = () => {
-    const aboutSection = document.getElementById("about-section");
-    if (aboutSection) {
-      const navHeight = 80; // Height of nav + extra spacing
-      const elementPosition = aboutSection.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.scrollY - navHeight;
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: "smooth",
-      });
-
-      // Update URL hash
-      window.history.pushState(null, "", "#about");
-    }
-  };
-
-  const handleScrollToRoadmap = () => {
-    const roadmapSection = document.getElementById("roadmap-section");
-    if (roadmapSection) {
-      const navHeight = 80;
-      const elementPosition = roadmapSection.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.scrollY - navHeight;
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: "smooth",
-      });
-
-      // Update URL hash
-      window.history.pushState(null, "", "#roadmap");
-    }
-  };
-
-  const handleScrollToBlog = () => {
-    const blogSection = document.getElementById("blog-section");
-    if (blogSection) {
-      const navHeight = 80;
-      const elementPosition = blogSection.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.scrollY - navHeight;
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: "smooth",
-      });
-
-      // Update URL hash
-      window.history.pushState(null, "", "#blog");
-    }
-  };
-
-  const handleScrollToLinks = () => {
-    const footerSection = document.getElementById("footer-section");
-    if (footerSection) {
-      const navHeight = 80;
-      const elementPosition = footerSection.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.scrollY - navHeight;
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: "smooth",
-      });
-
-      // Update URL hash
-      window.history.pushState(null, "", "#links");
-    }
-  };
-
-  const handleBackToTop = () => {
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-
-    // Remove hash from URL
-    window.history.pushState(null, "", window.location.pathname);
-  };
-
   return (
     <>
-      {!props.isChatMode && (
-        <HeroNav
-          isScrolledToAbout={isScrolledToAbout}
-          isScrolledToRoadmap={isScrolledToRoadmap}
-          isScrolledToBlog={isScrolledToBlog}
-          isScrolledToLinks={isScrolledToLinks}
-          onScrollToAbout={handleScrollToAbout}
-          onScrollToRoadmap={handleScrollToRoadmap}
-          onScrollToBlog={handleScrollToBlog}
-          onScrollToLinks={handleScrollToLinks}
-          onBackToTop={handleBackToTop}
-        />
-      )}
-
       <HeroSidebar
         isChatMode={props.isChatMode}
         isSidebarOpen={isSidebarOpen}

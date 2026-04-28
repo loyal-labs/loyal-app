@@ -2,17 +2,8 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
-import { SignInModal } from "@/components/auth/sign-in-modal";
-import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
-import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
-import { Header } from "@/components/ui/header";
-import { AuthSessionProvider } from "@/contexts/auth-session-context";
-import { ChatModeProvider } from "@/contexts/chat-mode-context";
-import { FeatureFlagsProvider } from "@/providers/feature-flags-provider";
+
 import { PublicEnvProvider } from "@/contexts/public-env-context";
-import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
-import { UserChatsProvider } from "@/providers/user-chats";
 import { createPublicEnv } from "@/lib/core/config/public";
 
 const geistSans = Geist({
@@ -26,9 +17,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Loyal: Privacy Preserving Intelligence",
+  title: "Loyal: Private Wallets for Agentic Finance",
   description:
-    "True private intelligence network: open-source privacy-preserving AI with confidential compute in TEE and attested runtimes.",
+    "Keep funds private, authorize agent workflows, and run one smart account across wallets.",
   metadataBase: new URL("https://askloyal.com"),
   alternates: {
     canonical: "/",
@@ -41,9 +32,9 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: "https://askloyal.com/",
-    title: "Loyal: Privacy Preserving Intelligence",
+    title: "Loyal: Private Wallets for Agentic Finance",
     description:
-      "True private intelligence network: open-source privacy-preserving AI with confidential compute in TEE and attested runtimes.",
+      "Keep funds private, authorize agent workflows, and run one smart account across wallets.",
     images: [
       {
         url: "/og-image.png",
@@ -55,9 +46,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Loyal: Privacy Preserving Intelligence",
+    title: "Loyal: Private Wallets for Agentic Finance",
     description:
-      "True private intelligence network: open-source privacy-preserving AI with confidential compute in TEE and attested runtimes.",
+      "Keep funds private, authorize agent workflows, and run one smart account across wallets.",
     images: [
       {
         url: "/og-image.png",
@@ -80,23 +71,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <PublicEnvProvider value={publicEnv}>
-          <WalletConnectionProvider>
-            <AuthSessionProvider>
-              <FeatureFlagsProvider>
-                <SignInModalProvider>
-                  <WalletAutoReauth />
-                  <UserChatsProvider>
-                    <ChatModeProvider>
-                      <AnalyticsBootstrap />
-                      <Header />
-                      {children}
-                      <SignInModal />
-                    </ChatModeProvider>
-                  </UserChatsProvider>
-                </SignInModalProvider>
-              </FeatureFlagsProvider>
-            </AuthSessionProvider>
-          </WalletConnectionProvider>
+          {children}
         </PublicEnvProvider>
       </body>
     </html>
