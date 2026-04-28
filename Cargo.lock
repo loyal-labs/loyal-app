@@ -2557,24 +2557,26 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "bincode",
+ "borsh 1.5.7",
  "bs58",
  "clap",
  "dirs",
  "env_logger 0.11.9",
  "log",
- "rand 0.8.5",
- "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
+ "solana-account-decoder-client-types",
+ "solana-address-lookup-table-interface",
  "solana-client",
  "solana-commitment-config",
- "solana-rpc-client-api",
+ "solana-compute-budget-interface",
  "solana-sdk",
- "solana-sha256-hasher 2.3.0",
  "solana-system-interface 1.0.0",
  "spl-associated-token-account-client",
  "spl-token",
+ "tempfile",
  "urlencoding",
 ]
 
@@ -3090,6 +3092,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "private-transfers-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bs58",
+ "clap",
+ "dirs",
+ "env_logger 0.11.9",
+ "log",
+ "rand 0.8.5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "solana-client",
+ "solana-commitment-config",
+ "solana-rpc-client-api",
+ "solana-sdk",
+ "solana-sha256-hasher 2.3.0",
+ "solana-system-interface 1.0.0",
+ "spl-associated-token-account-client",
+ "spl-token",
+ "urlencoding",
 ]
 
 [[package]]
