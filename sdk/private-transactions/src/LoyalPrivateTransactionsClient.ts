@@ -101,7 +101,6 @@ import {
   estimatePlannedTransactionFees,
   type FeeEstimateTransactionPlan,
 } from "./fee-estimate";
-import { sendAndConfirmWithDiagnostics } from "./transaction-debug";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
