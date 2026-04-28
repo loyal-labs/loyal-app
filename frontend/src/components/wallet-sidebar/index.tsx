@@ -616,6 +616,16 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     }
     if (type === "agentPage") {
       const agent = view as { type: "agentPage"; agentId: string; label: string; agentIcon?: string; balanceWhole: string; balanceFraction: string };
+      const selectedAgent =
+        selectedVault?.entry.signers.find(
+          (signer) => signer.address === agent.agentId
+        ) ?? null;
+      const vaultAccountIndex = selectedVault?.entry.accountIndex ?? 0;
+      const pendingSpendingLimitKeys = new Set([
+        `set:${vaultAccountIndex}:${agent.agentId}`,
+        `delete:${vaultAccountIndex}:${agent.agentId}`,
+        `topup:${vaultAccountIndex}:${agent.agentId}`,
+      ]);
       return (
         <AgentPageView
           label={agent.label}
@@ -624,12 +634,23 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           balanceFraction={agent.balanceFraction}
           isBalanceHidden={props.isBalanceHidden}
           onBalanceHiddenChange={props.onBalanceHiddenChange}
-          tokenRows={props.walletDesktopData.tokenRows}
-          activityRows={props.walletDesktopData.activityRows}
-          transactionDetails={props.walletDesktopData.transactionDetails}
+          tokenRows={selectedVault?.tokenRows ?? props.walletDesktopData.tokenRows}
+          activityRows={selectedVault?.activityRows ?? props.walletDesktopData.activityRows}
+          transactionDetails={selectedVault?.transactionDetails ?? props.walletDesktopData.transactionDetails}
+          vaultAccountIndex={vaultAccountIndex}
+          signerAddress={agent.agentId}
+          spendingLimit={selectedAgent?.spendingLimit ?? null}
+          isSpendingLimitPending={
+            props.smartAccountData.pendingSpendingLimitActionKey !== null &&
+            pendingSpendingLimitKeys.has(
+              props.smartAccountData.pendingSpendingLimitActionKey
+            )
+          }
           onBack={onBack}
           onNavigate={navigateFn}
-          getTokenActions={getTokenActions}
+          onSetSpendingLimit={props.smartAccountData.setSignerSpendingLimitUsd}
+          onDeleteSpendingLimit={props.smartAccountData.deleteSignerSpendingLimit}
+          onTopUpWithSpendingLimit={props.smartAccountData.topUpSignerWithSpendingLimitUsd}
         />
       );
     }

@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, ChevronRight, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
+import { ArrowRight, ArrowUpRight, Check, ChevronRight, Copy, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
@@ -14,6 +15,85 @@ import type {
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
+
+function formatUsd(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "$0.00";
+  }
+
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function splitCurrency(value: string): { fraction: string; whole: string } {
+  const [whole, fraction] = value.split(".");
+
+  return {
+    whole: whole ?? "$0",
+    fraction: fraction ? `.${fraction}` : ".00",
+  };
+}
+
+function formatAddressForDisplay(address: string): string {
+  if (address.length <= 12) {
+    return address;
+  }
+
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+function formatLimitAmount(spendingLimit: SmartAccountSpendingLimitSnapshot) {
+  if (
+    typeof spendingLimit.amountUsd === "number" &&
+    typeof spendingLimit.remainingAmountUsd === "number"
+  ) {
+    return {
+      total: formatUsd(spendingLimit.amountUsd),
+      remaining: formatUsd(spendingLimit.remainingAmountUsd),
+    };
+  }
+
+  return {
+    total: `${spendingLimit.amountUi} ${spendingLimit.symbol}`,
+    remaining: `${spendingLimit.remainingAmountUi} ${spendingLimit.symbol}`,
+  };
+}
+
+function getLimitResetLabel(
+  spendingLimit: SmartAccountSpendingLimitSnapshot
+): string {
+  if (spendingLimit.isExpired) {
+    return "expired";
+  }
+
+  if (spendingLimit.period === "one_time") {
+    return "one-time limit";
+  }
+
+  if (!spendingLimit.nextReset) {
+    return `left this ${spendingLimit.periodLabel}`;
+  }
+
+  return `left in ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
+    "en-US",
+    { month: "long" }
+  )}`;
+}
+
+function getLimitProgress(spendingLimit: SmartAccountSpendingLimitSnapshot) {
+  const total = Number(spendingLimit.amountRaw);
+  const remaining = Number(spendingLimit.effectiveRemainingAmountRaw);
+
+  if (!(total > 0) || !Number.isFinite(total) || !Number.isFinite(remaining)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, (remaining / total) * 100));
+}
 
 export type AccessLevel = "suggest" | "sign" | "execute";
 
@@ -69,8 +149,15 @@ export function AgentPageView({
   tokenRows,
   activityRows,
   transactionDetails,
+  vaultAccountIndex,
+  signerAddress,
+  spendingLimit,
+  isSpendingLimitPending = false,
   onBack,
   onNavigate,
+  onSetSpendingLimit,
+  onDeleteSpendingLimit,
+  onTopUpWithSpendingLimit,
   getTokenActions,
 }: {
   label: string;
@@ -82,16 +169,153 @@ export function AgentPageView({
   tokenRows: TokenRow[];
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
+  vaultAccountIndex: number;
+  signerAddress: string;
+  spendingLimit: SmartAccountSpendingLimitSnapshot | null;
+  isSpendingLimitPending?: boolean;
   onBack: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onSetSpendingLimit: (args: {
+    accountIndex: number;
+    amountUsd: number;
+    existingSpendingLimitAddress?: string | null;
+    signerAddress: string;
+  }) => Promise<void>;
+  onDeleteSpendingLimit: (args: {
+    accountIndex: number;
+    spendingLimitAddress: string;
+    signerAddress: string;
+  }) => Promise<void>;
+  onTopUpWithSpendingLimit: (args: {
+    accountIndex: number;
+    amountUsd: number;
+    signerAddress: string;
+    spendingLimitAddress: string;
+  }) => Promise<void>;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   const [accessLevel, setAccessLevel] = useState<AccessLevel>("suggest");
   const [isAccessExpanded, setIsAccessExpanded] = useState(false);
   const [isLimitExpanded, setIsLimitExpanded] = useState(false);
-  const [hasLimit] = useState(true); // mock
+  const [isAddressCopied, setIsAddressCopied] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hasLimit = spendingLimit !== null;
+  const limitAmounts = spendingLimit ? formatLimitAmount(spendingLimit) : null;
+  const isLimitCurrency = limitAmounts?.remaining.startsWith("$") ?? true;
+  const remainingParts = limitAmounts
+    ? splitCurrency(limitAmounts.remaining)
+    : { whole: "$0", fraction: ".00" };
+  const totalParts = limitAmounts
+    ? splitCurrency(limitAmounts.total)
+    : { whole: "$0", fraction: ".00" };
+  const limitProgress = spendingLimit ? getLimitProgress(spendingLimit) : 0;
+  const displayedSignerAddress = formatAddressForDisplay(signerAddress);
+
+  const copySignerAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(signerAddress);
+      setIsAddressCopied(true);
+      window.setTimeout(() => setIsAddressCopied(false), 1400);
+    } catch {
+      window.alert("Failed to copy address.");
+    }
+  };
+
+  const requestLimitAmount = async () => {
+    const currentAmount =
+      typeof spendingLimit?.amountUsd === "number"
+        ? spendingLimit.amountUsd.toFixed(2)
+        : "";
+    const nextValue = window.prompt("Monthly spending limit in USD", currentAmount);
+
+    if (nextValue === null) {
+      return;
+    }
+
+    const amountUsd = Number.parseFloat(nextValue.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      window.alert("Enter a spending limit greater than $0.");
+      return;
+    }
+
+    try {
+      await onSetSpendingLimit({
+        accountIndex: vaultAccountIndex,
+        amountUsd,
+        existingSpendingLimitAddress: spendingLimit?.address ?? null,
+        signerAddress,
+      });
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to save spending limit."
+      );
+    }
+  };
+
+  const requestLimitDelete = async () => {
+    if (!spendingLimit) {
+      return;
+    }
+
+    const confirmed = window.confirm("Delete this spending limit?");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await onDeleteSpendingLimit({
+        accountIndex: vaultAccountIndex,
+        spendingLimitAddress: spendingLimit.address,
+        signerAddress,
+      });
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete spending limit."
+      );
+    }
+  };
+
+  const requestTopUpAmount = async () => {
+    if (!spendingLimit) {
+      window.alert("Set a spending limit before topping up.");
+      return;
+    }
+
+    if (spendingLimit.isExpired) {
+      window.alert("This spending limit is expired.");
+      return;
+    }
+
+    const nextValue = window.prompt("Top up amount in USD", "");
+
+    if (nextValue === null) {
+      return;
+    }
+
+    const amountUsd = Number.parseFloat(nextValue.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      window.alert("Enter a top-up amount greater than $0.");
+      return;
+    }
+
+    try {
+      await onTopUpWithSpendingLimit({
+        accountIndex: vaultAccountIndex,
+        amountUsd,
+        signerAddress,
+        spendingLimitAddress: spendingLimit.address,
+      });
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Failed to top up."
+      );
+    }
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -125,6 +349,9 @@ export function AgentPageView({
         }
         .agent-link-btn:hover {
           opacity: 0.7 !important;
+        }
+        .agent-address-btn:hover {
+          opacity: 0.72 !important;
         }
         .agent-scroll::-webkit-scrollbar {
           display: none;
@@ -241,6 +468,45 @@ export function AgentPageView({
             >
               {label}
             </span>
+            <button
+              aria-label={`Copy address ${signerAddress}`}
+              className="agent-address-btn"
+              onClick={copySignerAddress}
+              style={{
+                alignSelf: "flex-start",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                maxWidth: "100%",
+                padding: 0,
+                background: "transparent",
+                border: "none",
+                color: secondary,
+                cursor: "pointer",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                transition: "opacity 0.15s ease",
+              }}
+              title={signerAddress}
+              type="button"
+            >
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {displayedSignerAddress}
+              </span>
+              {isAddressCopied ? (
+                <Check size={14} strokeWidth={1.8} />
+              ) : (
+                <Copy size={14} strokeWidth={1.8} />
+              )}
+            </button>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ borderRadius: "8px", overflow: "hidden" }}>
                 <span
@@ -362,6 +628,8 @@ export function AgentPageView({
           </button>
           <button
             className="agent-topup-btn"
+            disabled={!spendingLimit || spendingLimit.isExpired || isSpendingLimitPending}
+            onClick={requestTopUpAmount}
             style={{
               flex: 1,
               display: "flex",
@@ -372,7 +640,14 @@ export function AgentPageView({
               borderRadius: "9999px",
               background: "#000",
               border: "none",
-              cursor: "pointer",
+              cursor:
+                !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending
+                  ? "default"
+                  : "pointer",
+              opacity:
+                !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending
+                  ? 0.45
+                  : 1,
               transition: "background 0.15s ease",
             }}
             type="button"
@@ -387,7 +662,7 @@ export function AgentPageView({
                 color: "#fff",
               }}
             >
-              Top Up
+              {isSpendingLimitPending ? "Saving" : "Top Up"}
             </span>
           </button>
         </div>
@@ -593,8 +868,8 @@ export function AgentPageView({
                   whiteSpace: "nowrap",
                 }}
               >
-                <span style={{ fontWeight: 500, color: isBalanceHidden ? "#BBBBC0" : "#000" }}>$211.56</span>
-                <span style={{ color: isBalanceHidden ? "#C8C8CC" : secondary }}>/$1,200.00</span>
+                <span style={{ fontWeight: 500, color: isBalanceHidden ? "#BBBBC0" : "#000" }}>{limitAmounts?.remaining ?? "$0.00"}</span>
+                <span style={{ color: isBalanceHidden ? "#C8C8CC" : secondary }}>/{limitAmounts?.total ?? "$0.00"}</span>
               </span>
             )}
             {!hasLimit && !isLimitExpanded && (
@@ -683,7 +958,13 @@ export function AgentPageView({
                           userSelect: isBalanceHidden ? "none" : "auto",
                         }}
                       >
-                        $211<span style={{ color: isBalanceHidden ? "#BBBBC0" : undefined }}>.56</span>
+                        {isLimitCurrency ? (
+                          <>
+                            {remainingParts.whole}<span style={{ color: isBalanceHidden ? "#BBBBC0" : undefined }}>{remainingParts.fraction}</span>
+                          </>
+                        ) : (
+                          limitAmounts?.remaining
+                        )}
                       </span>
                       <span
                         style={{
@@ -703,7 +984,13 @@ export function AgentPageView({
                           userSelect: isBalanceHidden ? "none" : "auto",
                         }}
                       >
-                        /$1,200<span>.00</span>
+                        /{isLimitCurrency ? (
+                          <>
+                            {totalParts.whole}<span>{totalParts.fraction}</span>
+                          </>
+                        ) : (
+                          limitAmounts?.total
+                        )}
                       </span>
                     </div>
                     <span
@@ -715,16 +1002,23 @@ export function AgentPageView({
                         color: secondary,
                       }}
                     >
-                      left in April
+                      {spendingLimit ? getLimitResetLabel(spendingLimit) : ""}
                     </span>
                   </div>
-                  <div
+                  <button
+                    className="agent-link-btn"
+                    disabled={isSpendingLimitPending}
+                    onClick={requestLimitAmount}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       paddingLeft: "12px",
-                      cursor: "pointer",
+                      cursor: isSpendingLimitPending ? "default" : "pointer",
+                      background: "transparent",
+                      border: "none",
+                      opacity: isSpendingLimitPending ? 0.6 : 1,
                     }}
+                    type="button"
                   >
                     <span
                       style={{
@@ -735,7 +1029,7 @@ export function AgentPageView({
                         color: secondary,
                       }}
                     >
-                      Change
+                      {isSpendingLimitPending ? "Saving" : "Change"}
                     </span>
                     <ChevronRight
                       size={24}
@@ -744,7 +1038,30 @@ export function AgentPageView({
                         marginLeft: "6px",
                       }}
                     />
-                  </div>
+                  </button>
+                  <button
+                    aria-label="Delete spending limit"
+                    className="agent-link-btn"
+                    disabled={isSpendingLimitPending}
+                    onClick={requestLimitDelete}
+                    style={{
+                      width: "36px",
+                      height: "36px",
+                      marginLeft: "4px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: isSpendingLimitPending ? "default" : "pointer",
+                      background: "transparent",
+                      border: "none",
+                      color: "#EF4444",
+                      opacity: isSpendingLimitPending ? 0.6 : 1,
+                    }}
+                    title="Delete spending limit"
+                    type="button"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
                 {/* Progress bar */}
                 <div style={{ padding: "8px 0 11px" }}>
@@ -759,7 +1076,7 @@ export function AgentPageView({
                   >
                     <div
                       style={{
-                        width: "17.6%",
+                        width: `${limitProgress}%`,
                         height: "9px",
                         borderRadius: "9999px",
                         background: "#F9363C",
@@ -797,37 +1114,29 @@ export function AgentPageView({
                   >
                     Limit is not set
                   </span>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    The agent can access the full balance of this account.
-                  </span>
                 </div>
                 <div style={{ paddingBottom: "11px" }}>
                   <button
                     className="agent-set-limit-btn"
+                    disabled={isSpendingLimitPending}
+                    onClick={requestLimitAmount}
                     style={{
                       padding: "6px 16px",
                       borderRadius: "9999px",
                       background: "#000",
                       border: "none",
-                      cursor: "pointer",
+                      cursor: isSpendingLimitPending ? "default" : "pointer",
                       fontFamily: font,
                       fontSize: "14px",
                       fontWeight: 400,
                       lineHeight: "20px",
                       color: "#fff",
+                      opacity: isSpendingLimitPending ? 0.6 : 1,
                       transition: "background 0.15s ease",
                     }}
                     type="button"
                   >
-                    Set Limit
+                    {isSpendingLimitPending ? "Saving" : "Set Limit"}
                   </button>
                 </div>
               </div>

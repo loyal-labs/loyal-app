@@ -3,9 +3,11 @@
 import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
+  SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
   type SmartAccountProposalSnapshot,
   type SmartAccountSignerSnapshot,
+  type SmartAccountSpendingLimitSnapshot,
 } from "@loyal-labs/smart-account-vaults";
 import {
   NATIVE_SOL_MINT,
@@ -14,6 +16,7 @@ import {
 } from "@loyal-labs/solana-wallet";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import type {
+  Connection,
   SendOptions,
   Transaction,
   VersionedTransaction,
@@ -72,6 +75,8 @@ export type SmartAccountSignerEntry = {
   canVote: boolean;
   canExecute: boolean;
   policyAddress: string | null;
+  spendingLimit: SmartAccountSpendingLimitSnapshot | null;
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
 };
 
 export type SmartAccountVaultView = {
@@ -94,8 +99,26 @@ export type SmartAccountSidebarData = {
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
+  setSignerSpendingLimitUsd: (args: {
+    accountIndex: number;
+    amountUsd: number;
+    existingSpendingLimitAddress?: string | null;
+    signerAddress: string;
+  }) => Promise<void>;
+  topUpSignerWithSpendingLimitUsd: (args: {
+    accountIndex: number;
+    amountUsd: number;
+    signerAddress: string;
+    spendingLimitAddress: string;
+  }) => Promise<void>;
+  deleteSignerSpendingLimit: (args: {
+    accountIndex: number;
+    spendingLimitAddress: string;
+    signerAddress: string;
+  }) => Promise<void>;
   isActionPending: boolean;
   pendingProposalId: string | null;
+  pendingSpendingLimitActionKey: string | null;
 };
 
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
@@ -272,9 +295,30 @@ function getSignerAccessLabel(
   return "Can propose";
 }
 
+function resolveSignerSpendingLimit(args: {
+  signerAddress: string;
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
+}): SmartAccountSpendingLimitSnapshot | null {
+  const matchingLimits = args.spendingLimits.filter((spendingLimit) =>
+    spendingLimit.signers.includes(args.signerAddress)
+  );
+
+  return (
+    matchingLimits.find(
+      (spendingLimit) =>
+        !spendingLimit.isExpired &&
+        spendingLimit.mint === SOL_SPENDING_LIMIT_MINT
+    ) ??
+    matchingLimits.find((spendingLimit) => !spendingLimit.isExpired) ??
+    matchingLimits[0] ??
+    null
+  );
+}
+
 function mapSignersToEntries(args: {
   signers: SmartAccountSignerSnapshot[];
   authenticatedWalletAddress: string | null | undefined;
+  spendingLimits?: SmartAccountSpendingLimitSnapshot[];
 }): SmartAccountSignerEntry[] {
   let agentCount = 0;
   let signerCount = 0;
@@ -310,6 +354,13 @@ function mapSignersToEntries(args: {
       canVote: signer.canVote,
       canExecute: signer.canExecute,
       policyAddress: signer.policyAddress,
+      spendingLimit: resolveSignerSpendingLimit({
+        signerAddress: signer.address,
+        spendingLimits: args.spendingLimits ?? [],
+      }),
+      spendingLimits: (args.spendingLimits ?? []).filter((spendingLimit) =>
+        spendingLimit.signers.includes(signer.address)
+      ),
     };
   });
 }
@@ -505,6 +556,216 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
   };
 }
 
+function resolveVaultSolPriceUsd(
+  vault: SmartAccountOverview["vaults"][number] | undefined
+): number | null {
+  const price =
+    vault?.portfolio.totals.effectiveSolPriceUsd ??
+    resolvePositionByMint(vault?.portfolio.positions ?? [], NATIVE_SOL_MINT)
+      ?.priceUsd ??
+    null;
+
+  return typeof price === "number" && Number.isFinite(price) && price > 0
+    ? price
+    : null;
+}
+
+function usdToLamports(amountUsd: number, solPriceUsd: number): bigint {
+  const lamports = Math.round((amountUsd / solPriceUsd) * LAMPORTS_PER_SOL);
+
+  return BigInt(Math.max(1, lamports));
+}
+
+function usdToTokenRawAmount(args: {
+  amountUsd: number;
+  decimals: number;
+  priceUsd: number;
+}): bigint {
+  const scale = 10 ** args.decimals;
+  const rawAmount = Math.round((args.amountUsd / args.priceUsd) * scale);
+
+  if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
+    throw new Error("Enter an amount greater than $0.");
+  }
+
+  if (!Number.isSafeInteger(rawAmount)) {
+    throw new Error("Amount is too large for this token.");
+  }
+
+  return BigInt(rawAmount);
+}
+
+function tokenRawAmountToNumber(
+  amountRaw: string,
+  decimals: number
+): number | null {
+  const rawAmount = Number(amountRaw);
+  const scale = 10 ** decimals;
+
+  if (
+    !Number.isFinite(rawAmount) ||
+    !Number.isFinite(scale) ||
+    scale <= 0
+  ) {
+    return null;
+  }
+
+  return rawAmount / scale;
+}
+
+function deriveSpendingLimitPriceUsd(
+  spendingLimit: SmartAccountSpendingLimitSnapshot
+): number | null {
+  if (
+    typeof spendingLimit.amountUsd !== "number" ||
+    !Number.isFinite(spendingLimit.amountUsd)
+  ) {
+    return null;
+  }
+
+  const amount = tokenRawAmountToNumber(
+    spendingLimit.amountRaw,
+    spendingLimit.decimals
+  );
+
+  if (!amount || amount <= 0) {
+    return null;
+  }
+
+  const price = spendingLimit.amountUsd / amount;
+
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function resolveSpendingLimitUsdConversion(args: {
+  spendingLimit: SmartAccountSpendingLimitSnapshot | null;
+  vault: SmartAccountOverview["vaults"][number] | undefined;
+}): { decimals: number; priceUsd: number | null; symbol: string } {
+  if (
+    !args.spendingLimit ||
+    args.spendingLimit.mint === SOL_SPENDING_LIMIT_MINT
+  ) {
+    return {
+      decimals: 9,
+      priceUsd: resolveVaultSolPriceUsd(args.vault),
+      symbol: "SOL",
+    };
+  }
+
+  const position = resolvePositionByMint(
+    args.vault?.portfolio.positions ?? [],
+    args.spendingLimit.mint
+  );
+  const priceUsd =
+    position?.priceUsd ?? deriveSpendingLimitPriceUsd(args.spendingLimit);
+
+  return {
+    decimals: args.spendingLimit.decimals,
+    priceUsd:
+      typeof priceUsd === "number" && Number.isFinite(priceUsd) && priceUsd > 0
+        ? priceUsd
+        : null,
+    symbol: args.spendingLimit.symbol || position?.asset.symbol || "TOKEN",
+  };
+}
+
+async function getSolanaErrorLogs(
+  error: unknown,
+  connection: Connection
+): Promise<string[]> {
+  const candidate = error as {
+    cause?: unknown;
+    getLogs?: (nextConnection: Connection) => Promise<string[]>;
+    logs?: string[];
+  };
+
+  if (Array.isArray(candidate.logs)) {
+    return candidate.logs;
+  }
+
+  if (typeof candidate.getLogs === "function") {
+    try {
+      return await candidate.getLogs(connection);
+    } catch {
+      return [];
+    }
+  }
+
+  const cause = candidate.cause as
+    | {
+        getLogs?: (nextConnection: Connection) => Promise<string[]>;
+        logs?: string[];
+      }
+    | undefined;
+
+  if (Array.isArray(cause?.logs)) {
+    return cause.logs;
+  }
+
+  if (typeof cause?.getLogs === "function") {
+    try {
+      return await cause.getLogs(connection);
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+async function normalizeSpendingLimitError(
+  error: unknown,
+  connection: Connection
+): Promise<Error> {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Failed to submit spending-limit transaction.";
+  const logs = await getSolanaErrorLogs(error, connection);
+  const combinedLogs = logs.length ? logs.join("\n") : message;
+  const lamportsMatch = combinedLogs.match(
+    /insufficient lamports (\d+), need (\d+)/
+  );
+
+  if (lamportsMatch) {
+    const currentLamports = Number(lamportsMatch[1]);
+    const neededLamports = Number(lamportsMatch[2]);
+
+    if (
+      combinedLogs.includes("Instruction: UseSpendingLimit") ||
+      combinedLogs.includes("Instruction: ExecuteTransactionSyncV2")
+    ) {
+      return new Error(
+        `Vault does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(currentLamports)} SOL, but it needs ${formatSolAmount(neededLamports)} SOL.`
+      );
+    }
+
+    return new Error(
+      `Not enough SOL in the connected wallet to pay transaction rent. Current balance available to this step is ${formatSolAmount(currentLamports)} SOL, but it needs at least ${formatSolAmount(neededLamports)} SOL plus fees. Top up the wallet and try again.`
+    );
+  }
+
+  if (
+    combinedLogs.includes("SpendingLimitExceeded") ||
+    combinedLogs.includes("SpendingLimitInsufficientRemainingAmount") ||
+    combinedLogs.includes("SpendingLimitViolatesMaxPerUseConstraint")
+  ) {
+    return new Error("Top-up amount exceeds the remaining spending limit.");
+  }
+
+  if (combinedLogs.includes("sum of account balances before and after")) {
+    return new Error(
+      "Updating the spending-limit policy failed while the program reallocated accounts. Refresh the wallet and try again."
+    );
+  }
+
+  if (logs.length) {
+    return new Error(`${message}\n${logs.join("\n")}`);
+  }
+
+  return error instanceof Error ? error : new Error(message);
+}
+
 export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   const { user } = useAuthSession();
   const { connection } = useConnection();
@@ -515,6 +776,8 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [pendingSpendingLimitActionKey, setPendingSpendingLimitActionKey] =
+    useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user?.settingsPda) {
@@ -563,6 +826,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       const signers = mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        spendingLimits: vault.spendingLimits ?? [],
       });
 
       return {
@@ -598,6 +862,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         signers: mapSignersToEntries({
           signers: vault.signers ?? [],
           authenticatedWalletAddress: user?.walletAddress,
+          spendingLimits: vault.spendingLimits ?? [],
         }),
       };
     const solPriceUsd =
@@ -710,6 +975,234 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     ]
   );
 
+  const runSpendingLimitAction = useCallback(
+    async (args: {
+      actionKey: string;
+      prepare: (client: ReturnType<typeof createSmartAccountVaultsClient>) =>
+        Promise<{ prepared: Parameters<typeof sendPreparedWithWallet>[0]["prepared"] }>;
+      requireAuthenticatedWallet?: boolean;
+    }) => {
+      if (!overview) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      if (!wallet.publicKey) {
+        throw new Error("Connect a wallet to sign this action.");
+      }
+
+      if (args.requireAuthenticatedWallet ?? true) {
+        if (!user?.walletAddress) {
+          throw new Error("Connect the authenticated wallet to sign this action.");
+        }
+
+        if (wallet.publicKey.toBase58() !== user.walletAddress) {
+          throw new Error(
+            "Connected wallet does not match the authenticated wallet."
+          );
+        }
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        throw new Error("Connected wallet cannot sign smart-account transactions.");
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const { prepared } = await args.prepare(client);
+
+      setIsActionPending(true);
+      setPendingSpendingLimitActionKey(args.actionKey);
+
+      try {
+        try {
+          await sendPreparedWithWallet({
+            connection,
+            wallet: walletBridge,
+            prepared,
+            confirm: true,
+          });
+        } catch (sendError) {
+          throw await normalizeSpendingLimitError(sendError, connection);
+        }
+        await refresh();
+      } finally {
+        setIsActionPending(false);
+        setPendingSpendingLimitActionKey(null);
+      }
+    },
+    [connection, overview, refresh, user?.walletAddress, wallet]
+  );
+
+  const setSignerSpendingLimitUsd = useCallback(
+    async (args: {
+      accountIndex: number;
+      amountUsd: number;
+      existingSpendingLimitAddress?: string | null;
+      signerAddress: string;
+    }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      if (!Number.isFinite(args.amountUsd) || args.amountUsd <= 0) {
+        throw new Error("Enter a spending limit greater than $0.");
+      }
+
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === args.accountIndex
+      );
+      const existingSpendingLimit = args.existingSpendingLimitAddress
+        ? (vault?.spendingLimits.find(
+            (entry) => entry.address === args.existingSpendingLimitAddress
+          ) ??
+          overview.spendingLimits.find(
+            (entry) => entry.address === args.existingSpendingLimitAddress
+          ) ??
+          null)
+        : null;
+
+      if (args.existingSpendingLimitAddress && !existingSpendingLimit) {
+        throw new Error("Spending limit is not loaded. Refresh and try again.");
+      }
+
+      const conversion = resolveSpendingLimitUsdConversion({
+        spendingLimit: existingSpendingLimit,
+        vault,
+      });
+
+      if (!conversion.priceUsd) {
+        throw new Error(
+          `${conversion.symbol}/USD price is unavailable for this spending limit.`
+        );
+      }
+
+      const amount = usdToTokenRawAmount({
+        amountUsd: args.amountUsd,
+        decimals: conversion.decimals,
+        priceUsd: conversion.priceUsd,
+      });
+
+      await runSpendingLimitAction({
+        actionKey: `set:${args.accountIndex}:${args.signerAddress}`,
+        prepare: (client) =>
+          client.prepareSetSpendingLimitPolicy({
+            settingsPda: new PublicKey(overview.settingsPda),
+            creator: wallet.publicKey!,
+            feePayer: wallet.publicKey!,
+            signer: new PublicKey(args.signerAddress),
+            accountIndex: args.existingSpendingLimitAddress
+              ? undefined
+              : args.accountIndex,
+            amount,
+            period: args.existingSpendingLimitAddress ? undefined : "month",
+            existingSpendingLimitPolicy: args.existingSpendingLimitAddress
+              ? new PublicKey(args.existingSpendingLimitAddress)
+              : null,
+          }),
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
+  const deleteSignerSpendingLimit = useCallback(
+    async (args: {
+      accountIndex: number;
+      spendingLimitAddress: string;
+      signerAddress: string;
+    }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      await runSpendingLimitAction({
+        actionKey: `delete:${args.accountIndex}:${args.signerAddress}`,
+        prepare: (client) =>
+          client.prepareRemoveSpendingLimitPolicy({
+            settingsPda: new PublicKey(overview.settingsPda),
+            creator: wallet.publicKey!,
+            feePayer: wallet.publicKey!,
+            spendingLimitPolicy: new PublicKey(args.spendingLimitAddress),
+          }),
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
+  const topUpSignerWithSpendingLimitUsd = useCallback(
+    async (args: {
+      accountIndex: number;
+      amountUsd: number;
+      signerAddress: string;
+      spendingLimitAddress: string;
+    }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      if (wallet.publicKey.toBase58() !== args.signerAddress) {
+        throw new Error(
+          "Connect the signer wallet that owns this spending limit to top it up."
+        );
+      }
+
+      if (!Number.isFinite(args.amountUsd) || args.amountUsd <= 0) {
+        throw new Error("Enter a top-up amount greater than $0.");
+      }
+
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === args.accountIndex
+      );
+      const spendingLimit =
+        vault?.spendingLimits.find(
+          (entry) => entry.address === args.spendingLimitAddress
+        ) ??
+        overview.spendingLimits.find(
+          (entry) => entry.address === args.spendingLimitAddress
+        ) ??
+        null;
+
+      if (!spendingLimit || spendingLimit.mint !== SOL_SPENDING_LIMIT_MINT) {
+        throw new Error("A SOL spending limit is required for top-up.");
+      }
+
+      if (spendingLimit.isExpired) {
+        throw new Error("This spending limit is expired.");
+      }
+
+      const solPriceUsd = resolveVaultSolPriceUsd(vault);
+      if (!solPriceUsd) {
+        throw new Error("SOL/USD price is unavailable for this vault.");
+      }
+
+      const amount = usdToLamports(args.amountUsd, solPriceUsd);
+      const remainingAmount = BigInt(spendingLimit.effectiveRemainingAmountRaw);
+
+      if (amount > remainingAmount) {
+        throw new Error("Top-up amount exceeds the remaining spending limit.");
+      }
+
+      await runSpendingLimitAction({
+        actionKey: `topup:${args.accountIndex}:${args.signerAddress}`,
+        prepare: async (client) => ({
+          prepared: await client.prepareUseSolSpendingLimitPolicy({
+            settingsPda: new PublicKey(overview.settingsPda),
+            feePayer: wallet.publicKey!,
+            signer: wallet.publicKey!,
+            spendingLimitPolicy: new PublicKey(args.spendingLimitAddress),
+            destination: new PublicKey(args.signerAddress),
+            accountIndex: args.accountIndex,
+            amountLamports: amount,
+          }),
+        }),
+        requireAuthenticatedWallet: false,
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
   return {
     overview,
     isLoading,
@@ -723,7 +1216,11 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),
     executeProposal: (proposal) => runProposalAction(proposal, "execute"),
+    setSignerSpendingLimitUsd,
+    topUpSignerWithSpendingLimitUsd,
+    deleteSignerSpendingLimit,
     isActionPending,
     pendingProposalId,
+    pendingSpendingLimitActionKey,
   };
 }
