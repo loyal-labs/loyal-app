@@ -1,6 +1,13 @@
 "use client";
 
-import { ChartNoAxesColumn, FileSliders, Wallet } from "lucide-react";
+import {
+  ChartNoAxesColumn,
+  FileSliders,
+  LogOut,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
+import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,24 +16,79 @@ import { DogWithMood } from "@/components/chat-input";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import { ConnectRequestContent } from "@/components/wallet-sidebar/connect-request-content";
 import { PortfolioContent } from "@/components/wallet-sidebar/portfolio-content";
+import { ReceiveContent } from "@/components/wallet-sidebar/receive-content";
+import { SendContent } from "@/components/wallet-sidebar/send-content";
+import {
+  ShieldContent,
+  SwapShieldTabs,
+} from "@/components/wallet-sidebar/shield-content";
 import { StashDetailView } from "@/components/wallet-sidebar/stash-detail-view";
+import { SwapContent } from "@/components/wallet-sidebar/swap-content";
+import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
+import { TokenDetailView } from "@/components/wallet-sidebar/token-detail-view";
+import { TransactionDetailView } from "@/components/wallet-sidebar/transaction-detail-view";
+import type { TokenRowActions } from "@/components/wallet-sidebar/token-row-item";
+import type {
+  FormButtonProps,
+  SubView,
+  SwapMode,
+  SwapToken,
+  TokenRow,
+  TransactionDetail,
+} from "@/components/wallet-sidebar/types";
+import {
+  LOYL_TOKEN,
+  swapTokens as fallbackSwapTokens,
+} from "@/components/wallet-sidebar/types";
 import { WalletDetailView } from "@/components/wallet-sidebar/wallet-detail-view";
 import type {
   SmartAccountApprovalItem,
   SmartAccountSignerEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
+import { usePopularTokens } from "@/hooks/use-popular-tokens";
 import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
+import { trackWalletShieldPressed } from "@/lib/core/analytics";
+import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
+import { ApprovalsPane } from "./approvals-pane";
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
-type DetailSelection = "action" | "addSigner" | "agent" | "approval" | "connect" | "overview" | "vault" | "wallet";
+type DetailTab = "activity" | "tokens";
+type DetailPaneTransition = "back" | "close" | "forward" | "open" | "switch";
+type DetailSelection =
+  | "action"
+  | "addSigner"
+  | "agent"
+  | "approval"
+  | "connect"
+  | "overview"
+  | "vault"
+  | "wallet";
 type ResizeTarget = "account" | "review";
+type PersistedWorkspaceSelection =
+  | {
+      type: "agent";
+      accountIndex: number;
+      signerAddress?: string;
+      signerId: string;
+    }
+  | {
+      type: "user";
+      accountIndex: number;
+      signerAddress: string;
+      signerId: string;
+    }
+  | { type: "vault"; accountIndex: number }
+  | { type: "wallet" };
 
 const PANE_WIDTH_STORAGE_KEY = "loyal-wallet-workspace-pane-widths";
+const SELECTED_WORKSPACE_ITEM_STORAGE_KEY =
+  "loyal-wallet-workspace-selected-item";
 const ACCOUNT_PANE_MIN_WIDTH = 360;
 const ACCOUNT_PANE_MAX_WIDTH = 520;
 const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
@@ -59,12 +121,107 @@ function getWalletIcon(address: string | null): string {
   return `/agents/Agent-${String(iconIndex).padStart(2, "0")}.svg`;
 }
 
+function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
+  const stored = window.localStorage.getItem(
+    SELECTED_WORKSPACE_ITEM_STORAGE_KEY
+  );
+
+  if (!stored) return null;
+
+  try {
+    const parsed = JSON.parse(stored) as Record<string, unknown>;
+
+    if (parsed.type === "wallet") {
+      return { type: "wallet" };
+    }
+
+    if (parsed.type === "vault" && typeof parsed.accountIndex === "number") {
+      return { type: "vault", accountIndex: parsed.accountIndex };
+    }
+
+    if (
+      parsed.type === "agent" &&
+      typeof parsed.accountIndex === "number" &&
+      typeof parsed.signerId === "string"
+    ) {
+      return {
+        type: "agent",
+        accountIndex: parsed.accountIndex,
+        signerAddress:
+          typeof parsed.signerAddress === "string"
+            ? parsed.signerAddress
+            : undefined,
+        signerId: parsed.signerId,
+      };
+    }
+
+    if (
+      parsed.type === "user" &&
+      typeof parsed.accountIndex === "number" &&
+      typeof parsed.signerAddress === "string" &&
+      typeof parsed.signerId === "string"
+    ) {
+      return {
+        type: "user",
+        accountIndex: parsed.accountIndex,
+        signerAddress: parsed.signerAddress,
+        signerId: parsed.signerId,
+      };
+    }
+  } catch {
+    window.localStorage.removeItem(SELECTED_WORKSPACE_ITEM_STORAGE_KEY);
+  }
+
+  return null;
+}
+
 const actionLabels: Record<WorkspaceAction, string> = {
   receive: "Receive",
   send: "Send",
   shield: "Shield",
   swap: "Swap",
 };
+
+function viewType(view: SubView) {
+  return typeof view === "object" && view !== null ? view.type : view;
+}
+
+function initialActionTransition(
+  view: Exclude<SubView, null>
+): DetailPaneTransition {
+  const type = viewType(view);
+
+  return type === "tokenDetail" ||
+    type === "transaction" ||
+    type === "tokenSelect" ||
+    type === "sendTokenSelect" ||
+    type === "shieldTokenSelect"
+    ? "forward"
+    : "open";
+}
+
+function tokenRowToSwapToken(token: TokenRow): SwapToken {
+  const mint = token.id?.replace(/-secured$/, "");
+
+  return {
+    balance: Number.parseFloat(token.amount.replace(/,/g, "")) || 0,
+    icon: token.icon,
+    isSecured: token.isSecured,
+    mint,
+    price: Number.parseFloat(token.price.replace(/[$,]/g, "")) || 0,
+    symbol: token.symbol,
+  };
+}
+
+function portfolioPositionToSwapToken(position: PortfolioPosition): SwapToken {
+  return {
+    balance: position.publicBalance,
+    icon: position.asset.imageUrl ?? getTokenIconUrl(position.asset.symbol),
+    mint: position.asset.mint,
+    price: position.priceUsd ?? 0,
+    symbol: position.asset.symbol,
+  };
+}
 
 function RailNavButton({
   icon,
@@ -102,22 +259,22 @@ function WalletRail({
   dogCry,
   dogNice,
   isBalanceHidden,
+  isSignedIn,
   isWalletLoading,
+  onDisconnect,
 }: {
   dogCry: boolean;
   dogNice: boolean;
   isBalanceHidden: boolean;
+  isSignedIn: boolean;
   isWalletLoading: boolean;
+  onDisconnect: () => void;
 }) {
   return (
     <aside className="wallet-workspace-rail" aria-label="Workspace navigation">
       <div className="wallet-workspace-rail-top">
         <div className="wallet-workspace-mascot" aria-hidden="true">
-          <DogWithMood
-            cry={dogCry}
-            nice={dogNice}
-            squint={isBalanceHidden}
-          />
+          <DogWithMood cry={dogCry} nice={dogNice} squint={isBalanceHidden} />
           <span
             className="wallet-workspace-mascot-spinner"
             data-visible={isWalletLoading}
@@ -143,8 +300,81 @@ function WalletRail({
         </nav>
       </div>
 
-      <div className="wallet-workspace-avatar" aria-hidden="true" />
+      <button
+        aria-disabled={!isSignedIn}
+        aria-label="Disconnect wallet"
+        className="wallet-workspace-logout"
+        data-disabled={!isSignedIn}
+        disabled={!isSignedIn}
+        onClick={onDisconnect}
+        title={isSignedIn ? "Disconnect wallet" : "Connect a wallet first"}
+        type="button"
+      >
+        <LogOut size={20} strokeWidth={1.8} />
+      </button>
     </aside>
+  );
+}
+
+function SignedOutAccountPane() {
+  return (
+    <div className="wallet-workspace-signin">
+      <div className="wallet-workspace-signin-top">
+        <div className="wallet-workspace-signin-mark">
+          <Wallet size={24} strokeWidth={1.8} />
+        </div>
+        <div>
+          <p className="wallet-workspace-signin-title">My Wallet</p>
+          <p className="wallet-workspace-signin-copy">
+            Connect a Solana wallet to load balances, vaults, agents, and
+            approvals.
+          </p>
+        </div>
+      </div>
+
+      <div className="wallet-workspace-signin-preview" aria-hidden="true">
+        <div className="wallet-workspace-signin-balance">
+          <span>$0</span>
+          <span>.00</span>
+        </div>
+        <div className="wallet-workspace-signin-line" />
+        <div className="wallet-workspace-signin-row">
+          <span />
+          <div>
+            <strong>Vaults</strong>
+            <small>Available after sign in</small>
+          </div>
+        </div>
+        <div className="wallet-workspace-signin-row">
+          <span />
+          <div>
+            <strong>Agents</strong>
+            <small>Permissions and limits</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SignedOutDetailPane({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <div className="wallet-workspace-auth-detail">
+      <div className="wallet-workspace-auth-detail-main">
+        <div className="wallet-workspace-auth-icon">
+          <ShieldCheck size={28} strokeWidth={1.7} />
+        </div>
+        <span>Wallet workspace</span>
+        <strong>Connect to manage private balances and agent access.</strong>
+        <p>
+          Your tokens, activity, shielded balances, spending limits, and smart
+          account approvals will appear here after sign in.
+        </p>
+        <button onClick={onSignIn} type="button">
+          Connect wallet
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -153,13 +383,46 @@ export function AppWalletWorkspace() {
   const smartAccountData = useSmartAccountSidebarData();
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
+  const publicEnv = usePublicEnv();
   const { isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
+  const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
-  const [selectedDetail, setSelectedDetail] = useState<string>("Wallet overview");
+  const [selectedDetail, setSelectedDetail] =
+    useState<string>("Wallet overview");
   const [detailSelection, setDetailSelection] =
     useState<DetailSelection>("vault");
+  const [detailInitialTab, setDetailInitialTab] =
+    useState<DetailTab>("tokens");
+  const [detailPaneTransition, setDetailPaneTransition] =
+    useState<DetailPaneTransition>("switch");
+  const [detailPaneTransitionKey, setDetailPaneTransitionKey] = useState(0);
+  const [actionReturnSelection, setActionReturnSelection] =
+    useState<Exclude<DetailSelection, "action">>("vault");
+  const [viewStack, setViewStack] = useState<Exclude<SubView, null>[]>([]);
+  const [swapMode, setSwapMode] = useState<SwapMode>("swap");
+  const [swapFormActive, setSwapFormActive] = useState(true);
+  const [shieldFormActive, setShieldFormActive] = useState(true);
+  const [swapButtonProps, setSwapButtonProps] =
+    useState<FormButtonProps | null>(null);
+  const [shieldButtonProps, setShieldButtonProps] =
+    useState<FormButtonProps | null>(null);
+  const [sendToken, setSendToken] = useState<SwapToken>(fallbackSwapTokens[0]);
+  const [swapFromToken, setSwapFromToken] = useState<SwapToken>(
+    fallbackSwapTokens[0]
+  );
+  const [swapToToken, setSwapToToken] = useState<SwapToken>(LOYL_TOKEN);
+  const [shieldToken, setShieldToken] = useState<SwapToken>(
+    fallbackSwapTokens[0]
+  );
+  const [shieldDirection, setShieldDirection] = useState<"shield" | "unshield">(
+    "shield"
+  );
+  const [sendInitialRecipient, setSendInitialRecipient] = useState("");
   const [selectedSignerId, setSelectedSignerId] = useState<string | null>(null);
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(
+    null
+  );
   const [accountPaneWidth, setAccountPaneWidth] = useState(
     ACCOUNT_PANE_DEFAULT_WIDTH
   );
@@ -176,11 +439,21 @@ export function AppWalletWorkspace() {
     startX: number;
     target: ResizeTarget;
   } | null>(null);
+  const hasRestoredSelectionRef = useRef(false);
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
+  const prevHadTokensRef = useRef(false);
   const selectedVault = smartAccountData.selectedVault;
   const selectedAgent =
-    selectedVault?.entry.signers.find((signer) => signer.id === selectedSignerId) ??
-    null;
+    selectedVault?.entry.signers.find(
+      (signer) => signer.id === selectedSignerId
+    ) ?? null;
+  const selectedApproval = useMemo(
+    () =>
+      smartAccountData.approvals.find(
+        (approval) => approval.id === selectedApprovalId
+      ) ?? null,
+    [selectedApprovalId, smartAccountData.approvals]
+  );
   const selectedVaultAccountIndex = selectedVault?.entry.accountIndex ?? 0;
   const selectedVaultSpendingLimit = useMemo(() => {
     const spendingLimits = selectedVault?.spendingLimits ?? [];
@@ -198,7 +471,9 @@ export function AppWalletWorkspace() {
   }, [selectedVault?.spendingLimits]);
   const walletSpendingLimitActionKeys = new Set([
     `set:${selectedVaultAccountIndex}:${walletDesktopData.walletAddress ?? ""}`,
-    `delete:${selectedVaultAccountIndex}:${walletDesktopData.walletAddress ?? ""}`,
+    `delete:${selectedVaultAccountIndex}:${
+      walletDesktopData.walletAddress ?? ""
+    }`,
   ]);
   const pendingSpendingLimitKeys = selectedAgent
     ? new Set([
@@ -210,10 +485,112 @@ export function AppWalletWorkspace() {
   const pendingSignerDeleteKey = selectedAgent
     ? `delete-signer:${selectedVaultAccountIndex}:${selectedAgent.address}`
     : null;
+  const derivedTokens = useMemo<SwapToken[]>(() => {
+    const positions = walletDesktopData.positions;
+
+    if (!positions || positions.length === 0) {
+      return fallbackSwapTokens;
+    }
+
+    const tokens: SwapToken[] = positions
+      .filter(
+        (position) =>
+          position.publicBalance > 0 ||
+          ["SOL", "USDC"].includes(position.asset.symbol)
+      )
+      .map(portfolioPositionToSwapToken);
+
+    if (!tokens.some((token) => token.mint === LOYL_TOKEN.mint)) {
+      const loylPosition = positions.find(
+        (position) => position.asset.mint === LOYL_TOKEN.mint
+      );
+      const loyl = loylPosition
+        ? {
+            ...LOYL_TOKEN,
+            balance: loylPosition.publicBalance,
+            price: loylPosition.priceUsd ?? 0,
+          }
+        : LOYL_TOKEN;
+
+      tokens.splice(2, 0, loyl);
+    }
+
+    return tokens;
+  }, [walletDesktopData.positions]);
+  const securedTokens = useMemo<SwapToken[]>(
+    () =>
+      walletDesktopData.positions
+        .filter((position) => position.securedBalance > 0)
+        .map((position) => ({
+          balance: position.securedBalance,
+          icon:
+            position.asset.imageUrl ?? getTokenIconUrl(position.asset.symbol),
+          isSecured: true,
+          mint: position.asset.mint,
+          price: position.priceUsd ?? 0,
+          symbol: position.asset.symbol,
+        })),
+    [walletDesktopData.positions]
+  );
+  const shieldSourceTokens = useMemo(
+    () => [...derivedTokens, ...securedTokens],
+    [derivedTokens, securedTokens]
+  );
+  const swapTargetTokens = useMemo<SwapToken[]>(() => {
+    const heldMints = new Set(
+      derivedTokens.map((token) => token.mint).filter(Boolean)
+    );
+    const extras = popularTokens.filter(
+      (token) => token.mint && !heldMints.has(token.mint)
+    );
+
+    return [...derivedTokens, ...extras];
+  }, [derivedTokens, popularTokens]);
+  const shieldSecuredBalance = useMemo(() => {
+    if (!shieldToken.mint) return 0;
+
+    const position = walletDesktopData.positions.find(
+      (entry) => entry.asset.mint === shieldToken.mint
+    );
+
+    return position?.securedBalance ?? 0;
+  }, [shieldToken.mint, walletDesktopData.positions]);
 
   useEffect(() => {
-    setConnectAgentAddress(new URLSearchParams(window.location.search).get("connect"));
+    setConnectAgentAddress(
+      new URLSearchParams(window.location.search).get("connect")
+    );
   }, []);
+
+  useEffect(() => {
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    const firstToken = derivedTokens[0];
+    const hasTokens = derivedTokens.length > 0 && !!firstToken?.mint;
+
+    if (hasTokens && !prevHadTokensRef.current && firstToken) {
+      setSendToken(firstToken);
+      setSwapFromToken(firstToken);
+      setShieldToken(firstToken);
+      setSwapToToken(
+        derivedTokens.find((token) => token.mint === LOYL_TOKEN.mint) ??
+          LOYL_TOKEN
+      );
+    }
+
+    prevHadTokensRef.current = hasTokens;
+  }, [derivedTokens]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(PANE_WIDTH_STORAGE_KEY);
@@ -238,7 +615,11 @@ export function AppWalletWorkspace() {
 
       if (typeof parsed.review === "number") {
         setReviewPaneWidth(
-          clampWidth(parsed.review, REVIEW_PANE_MIN_WIDTH, REVIEW_PANE_MAX_WIDTH)
+          clampWidth(
+            parsed.review,
+            REVIEW_PANE_MIN_WIDTH,
+            REVIEW_PANE_MAX_WIDTH
+          )
         );
       }
     } catch {
@@ -326,37 +707,370 @@ export function AppWalletWorkspace() {
     }
   }, [connectAgentAddress, isSignedIn, openSignIn]);
 
-  const handleDisconnect = useCallback(() => {
+  useEffect(() => {
+    if (!selectedApprovalId) return;
+
+    const approvalStillExists = smartAccountData.approvals.some(
+      (approval) => approval.id === selectedApprovalId
+    );
+
+    if (!approvalStillExists) {
+      setSelectedApprovalId(null);
+    }
+  }, [selectedApprovalId, smartAccountData.approvals]);
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      hasRestoredSelectionRef.current = false;
+    }
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    if (
+      hasRestoredSelectionRef.current ||
+      !isSignedIn ||
+      !smartAccountData.overview ||
+      walletDesktopData.isLoading ||
+      smartAccountData.isLoading
+    ) {
+      return;
+    }
+
+    const storedSelection = readPersistedWorkspaceSelection();
+
+    if (!storedSelection) {
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    if (storedSelection.type === "wallet") {
+      setDetailSelection("wallet");
+      setSelectedSignerId(null);
+      setSelectedDetail("My Wallet");
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    const storedVault = smartAccountData.vaultEntries.find(
+      (vault) => vault.accountIndex === storedSelection.accountIndex
+    );
+
+    if (!storedVault) {
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    smartAccountData.setSelectedVaultIndex(storedVault.accountIndex);
+
+    if (storedSelection.type === "vault") {
+      setDetailSelection("vault");
+      setSelectedSignerId(null);
+      setSelectedDetail(storedVault.label);
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    const storedSigner = storedVault.signers.find(
+      (signer) =>
+        signer.id === storedSelection.signerId ||
+        signer.address === storedSelection.signerAddress
+    );
+
+    if (!storedSigner) {
+      setDetailSelection("vault");
+      setSelectedSignerId(null);
+      setSelectedDetail(storedVault.label);
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    setSelectedSignerId(storedSigner.id);
+    setDetailSelection(storedSelection.type === "user" ? "wallet" : "agent");
+    setSelectedDetail(`${storedSigner.label} · ${storedSigner.shortAddress}`);
+    hasRestoredSelectionRef.current = true;
+  }, [
+    isSignedIn,
+    smartAccountData,
+    smartAccountData.overview,
+    walletDesktopData.isLoading,
+    smartAccountData.isLoading,
+    smartAccountData.vaultEntries,
+  ]);
+
+  useEffect(() => {
+    if (!hasRestoredSelectionRef.current || !isSignedIn) return;
+
+    const stableSelection =
+      detailSelection === "action" ? actionReturnSelection : detailSelection;
+
+    let selectionToPersist: PersistedWorkspaceSelection | null = null;
+
+    if (stableSelection === "wallet") {
+      selectionToPersist =
+        selectedSignerId && selectedAgent
+          ? {
+              type: "user",
+              accountIndex: selectedVaultAccountIndex,
+              signerAddress: selectedAgent.address,
+              signerId: selectedAgent.id,
+            }
+          : { type: "wallet" };
+    } else if (stableSelection === "vault" && selectedVault) {
+      selectionToPersist = {
+        type: "vault",
+        accountIndex: selectedVault.entry.accountIndex,
+      };
+    } else if (stableSelection === "agent" && selectedAgent) {
+      selectionToPersist = {
+        type: "agent",
+        accountIndex: selectedVaultAccountIndex,
+        signerAddress: selectedAgent.address,
+        signerId: selectedAgent.id,
+      };
+    }
+
+    if (!selectionToPersist) return;
+
+    window.localStorage.setItem(
+      SELECTED_WORKSPACE_ITEM_STORAGE_KEY,
+      JSON.stringify(selectionToPersist)
+    );
+  }, [
+    actionReturnSelection,
+    detailSelection,
+    isSignedIn,
+    selectedAgent,
+    selectedSignerId,
+    selectedVault,
+    selectedVaultAccountIndex,
+  ]);
+
+  const markDetailPaneTransition = useCallback(
+    (transition: DetailPaneTransition) => {
+      setDetailPaneTransition(transition);
+      setDetailPaneTransitionKey((current) => current + 1);
+    },
+    []
+  );
+
+  const closeActionView = useCallback(() => {
+    markDetailPaneTransition("close");
+    setViewStack([]);
+    setSendInitialRecipient("");
+    setDetailSelection(actionReturnSelection);
+  }, [actionReturnSelection, markDetailPaneTransition]);
+
+  const pushView = useCallback((view: Exclude<SubView, null>) => {
+    markDetailPaneTransition("forward");
+    setViewStack((current) => [...current, view]);
+  }, [markDetailPaneTransition]);
+
+  const popView = useCallback(() => {
+    markDetailPaneTransition("back");
+    setViewStack((current) => current.slice(0, -1));
+  }, [markDetailPaneTransition]);
+
+  const openActionView = useCallback(
+    (
+      view: Exclude<SubView, null>,
+      title: string,
+      initialRecipient = "",
+      returnSelection = detailSelection
+    ) => {
+      setActionReturnSelection(
+        returnSelection === "action" ? actionReturnSelection : returnSelection
+      );
+
+      if (viewType(view) === "swapPanel") {
+        setSwapMode(
+          typeof view === "object" && view.type === "swapPanel" && view.mode
+            ? view.mode
+            : "swap"
+        );
+      }
+
+      markDetailPaneTransition(initialActionTransition(view));
+      setSendInitialRecipient(initialRecipient);
+      setViewStack([view]);
+      setDetailSelection("action");
+      setSelectedDetail(title);
+    },
+    [actionReturnSelection, detailSelection, markDetailPaneTransition]
+  );
+
+  const openWorkspaceActionView = useCallback(
+    (
+      view: Exclude<SubView, null>,
+      title: string,
+      initialRecipient = "",
+      returnSelection = detailSelection
+    ) => {
+      if (viewType(view) === "transaction") {
+        setDetailInitialTab("activity");
+      }
+
+      openActionView(view, title, initialRecipient, returnSelection);
+    },
+    [detailSelection, openActionView]
+  );
+
+  const handleSwapModeChange = useCallback(
+    (mode: SwapMode) => {
+      if (swapMode !== mode && mode === "shield") {
+        trackWalletShieldPressed(publicEnv, {
+          interaction: "open",
+          source: "wallet_workspace",
+        });
+      }
+
+      setSwapMode(mode);
+    },
+    [publicEnv, swapMode]
+  );
+
+  const handleActionBack = useCallback(() => {
+    if (viewStack.length <= 1) {
+      closeActionView();
+      return;
+    }
+
+    popView();
+  }, [closeActionView, popView, viewStack.length]);
+
+  const handleTokenSelect = useCallback(
+    (token: SwapToken) => {
+      const topView = viewStack[viewStack.length - 1];
+
+      if (typeof topView === "object" && topView?.type === "tokenSelect") {
+        if (topView.field === "from") {
+          if (token.symbol === swapToToken.symbol) {
+            setSwapToToken(swapFromToken);
+          }
+
+          setSwapFromToken(token);
+        } else {
+          if (token.symbol === swapFromToken.symbol) {
+            setSwapFromToken(swapToToken);
+          }
+
+          setSwapToToken(token);
+        }
+      }
+    },
+    [swapFromToken, swapToToken, viewStack]
+  );
+
+  const getTokenActions = useCallback(
+    (token: TokenRow): TokenRowActions | undefined => {
+      const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
+      const isSecured = token.isSecured === true;
+      const swapToken = tokenRowToSwapToken(token);
+
+      if (isSecured) {
+        return {
+          onSend: () => {
+            setSendToken(swapToken);
+            openActionView({ type: "sendPanel" }, "Send");
+          },
+          onUnshield: () => {
+            setShieldToken(swapToken);
+            setShieldDirection("unshield");
+            openActionView({ type: "swapPanel", mode: "shield" }, "Unshield");
+          },
+        };
+      }
+
+      const actions: TokenRowActions = {
+        onSend: () => {
+          setSendToken(swapToken);
+          openActionView({ type: "sendPanel" }, "Send");
+        },
+        onShield: () => {
+          setShieldToken(swapToken);
+          setShieldDirection("shield");
+          openActionView({ type: "swapPanel", mode: "shield" }, "Shield");
+        },
+        onSwap: () => {
+          setSwapFromToken(swapToken);
+          openActionView({ type: "swapPanel", mode: "swap" }, "Swap");
+        },
+      };
+
+      if (isLoyal) {
+        actions.onBuy = () => {
+          window.open(
+            `https://jup.ag/tokens/${LOYL_TOKEN.mint}`,
+            "_blank",
+            "noopener,noreferrer"
+          );
+        };
+      }
+
+      return actions;
+    },
+    [openActionView]
+  );
+
+  const handleTokenDetail = useCallback(
+    (token: TokenRow) => {
+      openActionView(
+        { type: "tokenDetail", token, from: "portfolio" },
+        token.symbol
+      );
+    },
+    [openActionView]
+  );
+
+  const handleDisconnect = useCallback(async () => {
     setDogCry(true);
     setTimeout(() => setDogCry(false), 3000);
-    void logout();
-    void disconnect();
+    await Promise.allSettled([logout(), disconnect()]);
   }, [disconnect, logout]);
 
-  const handleRailAction = useCallback((action: WorkspaceAction) => {
-    setDetailSelection("action");
-    setSelectedSignerId(null);
-    setSelectedDetail(actionLabels[action]);
-  }, []);
+  const handleRailAction = useCallback(
+    (action: WorkspaceAction) => {
+      const actionView =
+        action === "receive"
+          ? ({ type: "receivePanel" } as const)
+          : action === "send"
+          ? ({ type: "sendPanel" } as const)
+          : action === "swap"
+          ? ({ type: "swapPanel", mode: "swap" } as const)
+          : ({ type: "swapPanel", mode: "shield" } as const);
+
+      if (action === "shield") {
+        setShieldDirection("shield");
+      }
+
+      openActionView(actionView, actionLabels[action]);
+    },
+    [openActionView]
+  );
 
   const handleOpenWallet = useCallback(() => {
+    markDetailPaneTransition("switch");
+    setDetailInitialTab("tokens");
     setDetailSelection("wallet");
     setSelectedSignerId(null);
     setSelectedDetail("My Wallet");
-  }, []);
+  }, [markDetailPaneTransition]);
 
   const handleOpenVault = useCallback(
     (accountIndex: number) => {
+      markDetailPaneTransition("switch");
+      setDetailInitialTab("tokens");
       smartAccountData.setSelectedVaultIndex(accountIndex);
       setDetailSelection("vault");
       setSelectedSignerId(null);
       setSelectedDetail(`Vault ${accountIndex}`);
     },
-    [smartAccountData]
+    [markDetailPaneTransition, smartAccountData]
   );
 
   const handleOpenAgent = useCallback(
     (agent: SmartAccountSignerEntry) => {
+      markDetailPaneTransition("switch");
+      setDetailInitialTab("tokens");
       setSelectedSignerId(agent.id);
 
       if (
@@ -371,28 +1085,287 @@ export function AppWalletWorkspace() {
       setDetailSelection("agent");
       setSelectedDetail(`${agent.label} · ${agent.shortAddress}`);
     },
-    [walletDesktopData.walletAddress]
+    [markDetailPaneTransition, walletDesktopData.walletAddress]
   );
 
-  const handleOpenAddSigner = useCallback((accountIndex: number) => {
-    setDetailSelection("addSigner");
-    setSelectedSignerId(null);
-    smartAccountData.setSelectedVaultIndex(accountIndex);
-    setSelectedDetail(`Add signer to Vault ${accountIndex}`);
-  }, [smartAccountData]);
+  const handleOpenAddSigner = useCallback(
+    (accountIndex: number) => {
+      markDetailPaneTransition("forward");
+      setDetailSelection("addSigner");
+      setSelectedSignerId(null);
+      smartAccountData.setSelectedVaultIndex(accountIndex);
+      setSelectedDetail(`Add signer to Vault ${accountIndex}`);
+    },
+    [markDetailPaneTransition, smartAccountData]
+  );
 
-  const handleReviewApproval = useCallback((approval: SmartAccountApprovalItem) => {
-    setDetailSelection("approval");
-    setSelectedSignerId(null);
-    setSelectedDetail(approval.title);
+  const handleReviewApproval = useCallback(
+    (approval: SmartAccountApprovalItem) => {
+      setSelectedApprovalId(approval.id);
+    },
+    []
+  );
+
+  const runProposalAction = useCallback(async (action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit smart-account action."
+      );
+    }
   }, []);
+
+  const renderDetailPane = () => {
+    if (!isSignedIn) {
+      return <SignedOutDetailPane onSignIn={openSignIn} />;
+    }
+
+    if (detailSelection === "action") {
+      return renderActionView();
+    }
+
+    if (detailSelection === "connect" && connectAgentAddress) {
+      return (
+        <ConnectRequestContent
+          agentAddress={connectAgentAddress}
+          onApprove={async () => {
+            await smartAccountData.addInitiateSigner({
+              signerAddress: connectAgentAddress,
+            });
+          }}
+          onClose={() => {
+            markDetailPaneTransition("close");
+            setDetailSelection("vault");
+          }}
+          onDecline={() => {
+            markDetailPaneTransition("close");
+            setDetailSelection("vault");
+          }}
+          onDone={() => {
+            markDetailPaneTransition("close");
+            setDetailSelection("vault");
+          }}
+        />
+      );
+    }
+
+    if (detailSelection === "wallet") {
+      return (
+        <WalletDetailView
+          address={walletDesktopData.walletAddress}
+          activityRows={walletDesktopData.allActivityRows}
+          balanceFraction={walletDesktopData.balanceFraction}
+          balanceWhole={walletDesktopData.balanceWhole}
+          icon={getWalletIcon(walletDesktopData.walletAddress)}
+          initialTab={detailInitialTab}
+          isBalanceHidden={isBalanceHidden}
+          label={selectedSignerId ? "User" : "My Wallet"}
+          onNavigate={(view) =>
+            openWorkspaceActionView(
+              view,
+              typeof view === "string" ? view : view.type,
+              "",
+              "wallet"
+            )
+          }
+          onOpenReceive={() =>
+            openActionView({ type: "receivePanel" }, "Receive", "", "wallet")
+          }
+          onOpenSend={() =>
+            openActionView({ type: "sendPanel" }, "Send", "", "wallet")
+          }
+          onOpenShield={() => {
+            setShieldDirection("shield");
+            openActionView(
+              { type: "swapPanel", mode: "shield" },
+              "Shield",
+              "",
+              "wallet"
+            );
+          }}
+          onOpenSwap={() =>
+            openActionView(
+              { type: "swapPanel", mode: "swap" },
+              "Swap",
+              "",
+              "wallet"
+            )
+          }
+          accessLevel={selectedSignerId ? selectedAgent?.accessLevel : undefined}
+          accessTitle="User Access"
+          getTokenActions={getTokenActions}
+          onTokenDetail={handleTokenDetail}
+          tokenRows={walletDesktopData.allTokenRows}
+          transactionDetails={walletDesktopData.transactionDetails}
+        />
+      );
+    }
+
+    if (detailSelection === "agent" && selectedAgent && selectedVault) {
+      return (
+        <AgentPageView
+          agentIcon={selectedAgent.icon}
+          balanceFraction={selectedAgent.balanceFraction}
+          balanceWhole={selectedAgent.balanceWhole}
+          canDeleteSigner={selectedAgent.scope === "policy"}
+          initialAccessLevel={selectedAgent.accessLevel}
+          isBalanceHidden={isBalanceHidden}
+          isSignerDeletePending={
+            smartAccountData.pendingSpendingLimitActionKey ===
+            pendingSignerDeleteKey
+          }
+          isSpendingLimitPending={
+            smartAccountData.pendingSpendingLimitActionKey !== null &&
+            pendingSpendingLimitKeys.has(
+              smartAccountData.pendingSpendingLimitActionKey
+            )
+          }
+          label={selectedAgent.label}
+          onBack={() => {
+            markDetailPaneTransition("back");
+            setSelectedSignerId(null);
+          }}
+          onBalanceHiddenChange={setIsBalanceHidden}
+          onDeleteSigner={(deleteArgs) =>
+            smartAccountData.deleteSigner({
+              ...deleteArgs,
+              policyAddress: selectedAgent.policyAddress ?? null,
+            })
+          }
+          onDeleteSpendingLimit={smartAccountData.deleteSignerSpendingLimit}
+          onNavigate={(view) =>
+            openWorkspaceActionView(
+              view,
+              typeof view === "string" ? view : view.type,
+              "",
+              "agent"
+            )
+          }
+          onSetSpendingLimit={smartAccountData.setSignerSpendingLimitUsd}
+          onTopUp={() =>
+            openActionView(
+              { type: "sendPanel" },
+              "Top Up",
+              selectedAgent.address,
+              "agent"
+            )
+          }
+          onTopUpWithSpendingLimit={
+            smartAccountData.topUpSignerWithSpendingLimitUsd
+          }
+          signerAddress={selectedAgent.address}
+          spendingLimit={selectedAgent.spendingLimit}
+          tokenRows={selectedVault.tokenRows}
+          transactionDetails={selectedVault.transactionDetails}
+          activityRows={selectedVault.activityRows}
+          vaultAccountIndex={selectedVaultAccountIndex}
+          getTokenActions={getTokenActions}
+          initialTab={detailInitialTab}
+          onTokenDetail={handleTokenDetail}
+          variant="workspace"
+        />
+      );
+    }
+
+    if (detailSelection === "vault" && selectedVault) {
+      return (
+        <StashDetailView
+          accountIndex={selectedVault.entry.accountIndex}
+          address={selectedVault.entry.address}
+          activityRows={selectedVault.activityRows}
+          balanceFraction={selectedVault.entry.balanceFraction}
+          balanceWhole={selectedVault.entry.balanceWhole}
+          isBalanceHidden={isBalanceHidden}
+          label={selectedVault.entry.label}
+          onNavigate={(view) =>
+            openWorkspaceActionView(
+              view,
+              typeof view === "string" ? view : view.type,
+              "",
+              "vault"
+            )
+          }
+          onOpenReceive={() =>
+            openActionView({ type: "receivePanel" }, "Top Up", "", "vault")
+          }
+          onOpenSend={() =>
+            openActionView({ type: "sendPanel" }, "Transfer", "", "vault")
+          }
+          spendingLimit={selectedVaultSpendingLimit}
+          isSpendingLimitPending={
+            smartAccountData.pendingSpendingLimitActionKey !== null &&
+            walletSpendingLimitActionKeys.has(
+              smartAccountData.pendingSpendingLimitActionKey
+            )
+          }
+          onSetSpendingLimit={async (amountUsd) => {
+            if (!walletDesktopData.walletAddress) {
+              throw new Error(
+                "Connect a wallet before setting a spending limit."
+              );
+            }
+
+            await smartAccountData.setSignerSpendingLimitUsd({
+              accountIndex: selectedVault.entry.accountIndex,
+              amountUsd,
+              existingSpendingLimitAddress:
+                selectedVaultSpendingLimit?.address ?? null,
+              signerAddress: walletDesktopData.walletAddress,
+            });
+          }}
+          onDeleteSpendingLimit={async (spendingLimit) => {
+            if (!walletDesktopData.walletAddress) {
+              throw new Error(
+                "Connect a wallet before deleting a spending limit."
+              );
+            }
+
+            await smartAccountData.deleteSignerSpendingLimit({
+              accountIndex: selectedVault.entry.accountIndex,
+              spendingLimitAddress: spendingLimit.address,
+              signerAddress: walletDesktopData.walletAddress,
+            });
+          }}
+          tokenRows={selectedVault.tokenRows}
+          transactionDetails={selectedVault.transactionDetails}
+          getTokenActions={getTokenActions}
+          initialTab={detailInitialTab}
+          onTokenDetail={handleTokenDetail}
+        />
+      );
+    }
+
+    if (detailSelection === "addSigner" && selectedVault) {
+      return (
+        <AddSignerPane
+          accountIndex={selectedVault.entry.accountIndex}
+          existingSigners={selectedVault.entry.signers}
+          onAddSigner={(signerAddress) =>
+            smartAccountData.addInitiateSigner({ signerAddress })
+          }
+          pendingActionKey={smartAccountData.pendingSpendingLimitActionKey}
+          vaultAddress={selectedVault.entry.address}
+          vaultLabel={selectedVault.entry.label}
+        />
+      );
+    }
+
+    return (
+      <div className="wallet-workspace-placeholder">
+        <span>Selected</span>
+        <strong>{selectedDetail}</strong>
+      </div>
+    );
+  };
 
   const handleResizeStart = useCallback(
     (target: ResizeTarget, event: React.PointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
       resizeStateRef.current = {
-        startWidth:
-          target === "account" ? accountPaneWidth : reviewPaneWidth,
+        startWidth: target === "account" ? accountPaneWidth : reviewPaneWidth,
         startX: event.clientX,
         target,
       };
@@ -402,9 +1375,253 @@ export function AppWalletWorkspace() {
     [accountPaneWidth, reviewPaneWidth]
   );
 
+  function renderActionView() {
+    const actionView = viewStack[viewStack.length - 1];
+
+    if (!actionView) {
+      return null;
+    }
+
+    const type = viewType(actionView);
+
+    if (type === "transaction") {
+      const detail = (
+        actionView as {
+          type: "transaction";
+          detail: TransactionDetail;
+          from: string;
+        }
+      ).detail;
+
+      return (
+        <TransactionDetailView
+          detail={detail}
+          onBack={handleActionBack}
+        />
+      );
+    }
+
+    if (type === "tokenDetail") {
+      const token = (actionView as { type: "tokenDetail"; token: TokenRow })
+        .token;
+
+      return <TokenDetailView onBack={handleActionBack} token={token} />;
+    }
+
+    if (type === "tokenSelect") {
+      const field = (
+        actionView as { type: "tokenSelect"; field: "from" | "to" }
+      ).field;
+
+      return (
+        <TokenSelectView
+          currentToken={field === "from" ? swapFromToken : swapToToken}
+          onBack={handleActionBack}
+          onClose={closeActionView}
+          onSearch={field === "to" ? searchTokens : undefined}
+          onSelect={handleTokenSelect}
+          title={field === "from" ? "You Swap" : "You Receive"}
+          tokens={field === "to" ? swapTargetTokens : derivedTokens}
+        />
+      );
+    }
+
+    if (type === "sendTokenSelect") {
+      return (
+        <TokenSelectView
+          currentToken={sendToken}
+          onBack={handleActionBack}
+          onClose={closeActionView}
+          onSelect={setSendToken}
+          title="Send"
+          tokens={derivedTokens}
+        />
+      );
+    }
+
+    if (type === "shieldTokenSelect") {
+      return (
+        <TokenSelectView
+          currentToken={shieldToken}
+          isTokenSelected={(token) =>
+            token.mint === shieldToken.mint &&
+            (token.isSecured
+              ? shieldDirection === "unshield"
+              : shieldDirection === "shield")
+          }
+          onBack={handleActionBack}
+          onClose={closeActionView}
+          onSelect={(token) => {
+            const nextDirection = token.isSecured ? "unshield" : "shield";
+            const baseToken =
+              derivedTokens.find(
+                (nextToken) => nextToken.mint === token.mint
+              ) ??
+              walletDesktopData.positions
+                .filter((position) => position.asset.mint === token.mint)
+                .map(portfolioPositionToSwapToken)[0] ??
+              token;
+
+            setShieldToken(baseToken);
+            setShieldDirection(nextDirection);
+          }}
+          title="Select token"
+          tokens={shieldSourceTokens}
+        />
+      );
+    }
+
+    if (type === "sendPanel") {
+      return (
+        <SendContent
+          addLocalActivity={walletDesktopData.addLocalActivity}
+          initialRecipient={sendInitialRecipient}
+          onClose={closeActionView}
+          onDone={closeActionView}
+          onNavigate={pushView}
+          token={sendToken}
+        />
+      );
+    }
+
+    if (type === "receivePanel") {
+      const receiveAddress =
+        actionReturnSelection === "vault"
+          ? selectedVault?.entry.address ?? walletDesktopData.walletAddress
+          : walletDesktopData.walletAddress;
+
+      return (
+        <ReceiveContent
+          onClose={closeActionView}
+          walletAddress={receiveAddress}
+        />
+      );
+    }
+
+    if (type === "swapPanel") {
+      const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
+      const buttonProps =
+        swapMode === "swap" ? swapButtonProps : shieldButtonProps;
+
+      return (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: 1,
+            height: "100%",
+            minHeight: 0,
+          }}
+        >
+          {showTabs && (
+            <SwapShieldTabs
+              mode={swapMode}
+              onClose={closeActionView}
+              onModeChange={handleSwapModeChange}
+            />
+          )}
+          <div
+            style={{
+              position: "relative",
+              flex: 1,
+              minHeight: 0,
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                transform:
+                  swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
+                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                willChange: "transform",
+              }}
+            >
+              <SwapContent
+                fromToken={swapFromToken}
+                hideFormChrome
+                onClose={closeActionView}
+                onDone={closeActionView}
+                onFormActiveChange={setSwapFormActive}
+                onFormButtonChange={setSwapButtonProps}
+                onFromTokenChange={setSwapFromToken}
+                onNavigate={pushView}
+                onSwapModeChange={handleSwapModeChange}
+                onToTokenChange={setSwapToToken}
+                swapMode={swapMode}
+                toToken={swapToToken}
+              />
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                transform:
+                  swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
+                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
+                willChange: "transform",
+              }}
+            >
+              <ShieldContent
+                hideFormChrome
+                onClose={closeActionView}
+                onDone={closeActionView}
+                onFormActiveChange={setShieldFormActive}
+                onFormButtonChange={setShieldButtonProps}
+                initialDirection={shieldDirection}
+                onDirectionChange={setShieldDirection}
+                onNavigate={pushView}
+                onSwapModeChange={handleSwapModeChange}
+                onTokenChange={setShieldToken}
+                securedBalance={shieldSecuredBalance}
+                swapMode={swapMode}
+                token={shieldToken}
+              />
+            </div>
+          </div>
+
+          {buttonProps && (
+            <div style={{ padding: "16px 20px" }}>
+              <button
+                disabled={buttonProps.disabled}
+                onClick={buttonProps.onClick}
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  borderRadius: "9999px",
+                  background: buttonProps.disabled ? "#CCCDCD" : "#000",
+                  border: "none",
+                  cursor: buttonProps.disabled ? "default" : "pointer",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#fff",
+                  textAlign: "center",
+                  transition: "background 0.15s ease",
+                }}
+                type="button"
+              >
+                {buttonProps.label}
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return null;
+  }
+
   return (
     <main
       className="wallet-workspace"
+      data-signed-in={isSignedIn}
       style={
         {
           "--wallet-account-pane-width": `${accountPaneWidth}px`,
@@ -416,9 +1633,11 @@ export function AppWalletWorkspace() {
         dogCry={dogCry}
         dogNice={dogNice}
         isBalanceHidden={isBalanceHidden}
+        isSignedIn={isSignedIn}
         isWalletLoading={
           walletDesktopData.isLoading || smartAccountData.isLoading
         }
+        onDisconnect={handleDisconnect}
       />
 
       <section className="wallet-workspace-pane wallet-workspace-account-pane">
@@ -429,7 +1648,9 @@ export function AppWalletWorkspace() {
             balanceWhole={walletDesktopData.balanceWhole}
             hasVaultAccount={smartAccountData.vaultEntries.length > 0}
             isBalanceHidden={isBalanceHidden}
-            isLoading={walletDesktopData.isLoading || smartAccountData.isLoading}
+            isLoading={
+              walletDesktopData.isLoading || smartAccountData.isLoading
+            }
             onBalanceHiddenChange={setIsBalanceHidden}
             onClose={() => undefined}
             onDisconnect={handleDisconnect}
@@ -443,12 +1664,18 @@ export function AppWalletWorkspace() {
             onOpenVault={handleOpenVault}
             onReviewApproval={handleReviewApproval}
             onSeeAllApprovals={() => {
+              markDetailPaneTransition("switch");
               setDetailSelection("approval");
               setSelectedDetail("Approvals");
             }}
             selectedSignerId={selectedSignerId}
             selectedVaultIndex={smartAccountData.selectedVaultIndex}
-            isWalletSelected={detailSelection === "wallet" && selectedSignerId === null}
+            isWalletSelected={
+              (detailSelection === "wallet" ||
+                (detailSelection === "action" &&
+                  actionReturnSelection === "wallet")) &&
+              selectedSignerId === null
+            }
             showActionButtons={false}
             showApprovals={false}
             showHeaderControls={false}
@@ -458,17 +1685,7 @@ export function AppWalletWorkspace() {
             walletLabel={walletDesktopData.walletLabel}
           />
         ) : (
-          <div className="wallet-workspace-signin">
-            <div>
-              <p className="wallet-workspace-signin-title">My Wallet</p>
-              <p className="wallet-workspace-signin-copy">
-                Connect your wallet to load vaults and agent permissions.
-              </p>
-            </div>
-            <button onClick={openSignIn} type="button">
-              Sign in
-            </button>
-          </div>
+          <SignedOutAccountPane />
         )}
       </section>
 
@@ -480,166 +1697,53 @@ export function AppWalletWorkspace() {
       />
 
       <section className="wallet-workspace-pane wallet-workspace-detail-pane">
-        {detailSelection === "connect" && connectAgentAddress ? (
-          <ConnectRequestContent
-            agentAddress={connectAgentAddress}
-            onApprove={async () => {
-              await smartAccountData.addInitiateSigner({
-                signerAddress: connectAgentAddress,
-              });
-            }}
-            onClose={() => setDetailSelection("vault")}
-            onDecline={() => setDetailSelection("vault")}
-            onDone={() => setDetailSelection("vault")}
-          />
-        ) : detailSelection === "wallet" ? (
-          <WalletDetailView
-            address={walletDesktopData.walletAddress}
-            activityRows={walletDesktopData.allActivityRows}
-            balanceFraction={walletDesktopData.balanceFraction}
-            balanceWhole={walletDesktopData.balanceWhole}
-            icon={getWalletIcon(walletDesktopData.walletAddress)}
-            isBalanceHidden={isBalanceHidden}
-            label={selectedSignerId ? "User" : "My Wallet"}
-            onNavigate={(view) => {
-              setDetailSelection("action");
-              setSelectedDetail(typeof view === "string" ? view : view.type);
-            }}
-            onOpenReceive={() => handleRailAction("receive")}
-            onOpenSend={() => handleRailAction("send")}
-            onOpenShield={() => handleRailAction("shield")}
-            onOpenSwap={() => handleRailAction("swap")}
-            tokenRows={walletDesktopData.allTokenRows}
-            transactionDetails={walletDesktopData.transactionDetails}
-          />
-        ) : detailSelection === "agent" && selectedAgent && selectedVault ? (
-          <AgentPageView
-            agentIcon={selectedAgent.icon}
-            balanceFraction={selectedAgent.balanceFraction}
-            balanceWhole={selectedAgent.balanceWhole}
-            canDeleteSigner={selectedAgent.scope === "policy"}
-            initialAccessLevel={selectedAgent.accessLevel}
-            isBalanceHidden={isBalanceHidden}
-            isSignerDeletePending={
-              smartAccountData.pendingSpendingLimitActionKey ===
-              pendingSignerDeleteKey
-            }
-            isSpendingLimitPending={
-              smartAccountData.pendingSpendingLimitActionKey !== null &&
-              pendingSpendingLimitKeys.has(
-                smartAccountData.pendingSpendingLimitActionKey
-              )
-            }
-            label={selectedAgent.label}
-            onBack={() => setSelectedSignerId(null)}
-            onBalanceHiddenChange={setIsBalanceHidden}
-            onDeleteSigner={(deleteArgs) =>
-              smartAccountData.deleteSigner({
-                ...deleteArgs,
-                policyAddress: selectedAgent.policyAddress ?? null,
-              })
-            }
-            onDeleteSpendingLimit={smartAccountData.deleteSignerSpendingLimit}
-            onNavigate={(view) => {
-              setSelectedDetail(typeof view === "string" ? view : view.type);
-            }}
-            onSetSpendingLimit={smartAccountData.setSignerSpendingLimitUsd}
-            onTopUpWithSpendingLimit={
-              smartAccountData.topUpSignerWithSpendingLimitUsd
-            }
-            signerAddress={selectedAgent.address}
-            spendingLimit={selectedAgent.spendingLimit}
-            tokenRows={selectedVault.tokenRows}
-            transactionDetails={selectedVault.transactionDetails}
-            activityRows={selectedVault.activityRows}
-            vaultAccountIndex={selectedVaultAccountIndex}
-            variant="workspace"
-          />
-        ) : detailSelection === "vault" && selectedVault ? (
-          <StashDetailView
-            accountIndex={selectedVault.entry.accountIndex}
-            address={selectedVault.entry.address}
-            activityRows={selectedVault.activityRows}
-            balanceFraction={selectedVault.entry.balanceFraction}
-            balanceWhole={selectedVault.entry.balanceWhole}
-            isBalanceHidden={isBalanceHidden}
-            label={selectedVault.entry.label}
-            onNavigate={(view) => {
-              setDetailSelection("action");
-              setSelectedDetail(typeof view === "string" ? view : view.type);
-            }}
-            onOpenReceive={() => handleRailAction("receive")}
-            onOpenSend={() => handleRailAction("send")}
-            spendingLimit={selectedVaultSpendingLimit}
-            isSpendingLimitPending={
-              smartAccountData.pendingSpendingLimitActionKey !== null &&
-              walletSpendingLimitActionKeys.has(
-                smartAccountData.pendingSpendingLimitActionKey
-              )
-            }
-            onSetSpendingLimit={async (amountUsd) => {
-              if (!walletDesktopData.walletAddress) {
-                throw new Error("Connect a wallet before setting a spending limit.");
-              }
-
-              await smartAccountData.setSignerSpendingLimitUsd({
-                accountIndex: selectedVault.entry.accountIndex,
-                amountUsd,
-                existingSpendingLimitAddress:
-                  selectedVaultSpendingLimit?.address ?? null,
-                signerAddress: walletDesktopData.walletAddress,
-              });
-            }}
-            onDeleteSpendingLimit={async (spendingLimit) => {
-              if (!walletDesktopData.walletAddress) {
-                throw new Error("Connect a wallet before deleting a spending limit.");
-              }
-
-              await smartAccountData.deleteSignerSpendingLimit({
-                accountIndex: selectedVault.entry.accountIndex,
-                spendingLimitAddress: spendingLimit.address,
-                signerAddress: walletDesktopData.walletAddress,
-              });
-            }}
-            tokenRows={selectedVault.tokenRows}
-            transactionDetails={selectedVault.transactionDetails}
-          />
-        ) : detailSelection === "addSigner" && selectedVault ? (
-          <AddSignerPane
-            accountIndex={selectedVault.entry.accountIndex}
-            existingSigners={selectedVault.entry.signers}
-            onAddSigner={(signerAddress) =>
-              smartAccountData.addInitiateSigner({ signerAddress })
-            }
-            pendingActionKey={smartAccountData.pendingSpendingLimitActionKey}
-            vaultAddress={selectedVault.entry.address}
-            vaultLabel={selectedVault.entry.label}
-          />
-        ) : (
-          <div className="wallet-workspace-placeholder">
-            <span>Selected</span>
-            <strong>{selectedDetail}</strong>
-          </div>
-        )}
-      </section>
-
-      <button
-        aria-label="Resize approvals pane"
-        className="wallet-workspace-resize-handle wallet-workspace-review-resize"
-        onPointerDown={(event) => handleResizeStart("review", event)}
-        type="button"
-      />
-
-      <section className="wallet-workspace-pane wallet-workspace-review-pane">
-        <div className="wallet-workspace-placeholder wallet-workspace-placeholder-left">
-          <span>Approvals</span>
-          <strong>
-            {smartAccountData.approvals.length > 0
-              ? `${smartAccountData.approvals.length} pending`
-              : "No smart-account proposals yet"}
-          </strong>
+        <div
+          className="wallet-workspace-detail-transition"
+          data-transition={detailPaneTransition}
+          key={detailPaneTransitionKey}
+        >
+          {renderDetailPane()}
         </div>
       </section>
+
+      {isSignedIn ? (
+        <>
+          <button
+            aria-label="Resize approvals pane"
+            className="wallet-workspace-resize-handle wallet-workspace-review-resize"
+            onPointerDown={(event) => handleResizeStart("review", event)}
+            type="button"
+          />
+
+          <section className="wallet-workspace-pane wallet-workspace-review-pane">
+          <ApprovalsPane
+            approvals={smartAccountData.approvals}
+            error={smartAccountData.error}
+            isBalanceHidden={isBalanceHidden}
+            isSubmitting={smartAccountData.isActionPending}
+            onApprove={(approval) =>
+              void runProposalAction(() =>
+                smartAccountData.approveProposal(approval.proposal)
+              )
+            }
+            onBackToList={() => setSelectedApprovalId(null)}
+            onDecline={(approval) =>
+              void runProposalAction(() =>
+                smartAccountData.rejectProposal(approval.proposal)
+              )
+            }
+            onExecute={(approval) =>
+              void runProposalAction(() =>
+                smartAccountData.executeProposal(approval.proposal)
+              )
+            }
+            onReview={handleReviewApproval}
+            pendingApprovalId={smartAccountData.pendingProposalId}
+            selectedApproval={selectedApproval}
+          />
+          </section>
+        </>
+      ) : null}
 
       {/* Footer intentionally hidden during the wallet workspace redesign. */}
 
@@ -653,7 +1757,9 @@ export function AppWalletWorkspace() {
             minmax(420px, 1fr)
             8px
             minmax(320px, var(--wallet-review-pane-width));
-          min-height: 100vh;
+          height: 100dvh;
+          max-height: 100dvh;
+          min-height: 0;
           width: 100%;
           overflow: hidden;
           background: #fff;
@@ -661,10 +1767,19 @@ export function AppWalletWorkspace() {
           font-family: var(--font-geist-sans), sans-serif;
         }
 
+        .wallet-workspace[data-signed-in="false"] {
+          grid-template-columns:
+            60px 32px
+            minmax(360px, var(--wallet-account-pane-width))
+            8px
+            minmax(420px, 1fr);
+        }
+
         .wallet-workspace-rail {
           display: flex;
           width: 60px;
-          min-height: 100vh;
+          height: 100%;
+          min-height: 0;
           flex-direction: column;
           justify-content: space-between;
           padding: 16px 0 16px 16px;
@@ -731,9 +1846,7 @@ export function AppWalletWorkspace() {
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          transition:
-            background 0.15s ease,
-            color 0.15s ease,
+          transition: background 0.15s ease, color 0.15s ease,
             transform 0.15s ease;
         }
 
@@ -766,18 +1879,48 @@ export function AppWalletWorkspace() {
           outline-offset: 2px;
         }
 
-        .wallet-workspace-avatar {
+        .wallet-workspace-logout {
           width: 44px;
           height: 44px;
           border-radius: 9999px;
-          background:
-            linear-gradient(135deg, rgba(0, 0, 0, 0.74), rgba(0, 0, 0, 0.9)),
-            #3d3d3d;
+          border: 0;
+          background: rgba(0, 0, 0, 0.04);
+          color: rgba(60, 60, 67, 0.58);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease,
+            transform 0.15s ease;
+        }
+
+        .wallet-workspace-logout:hover {
+          background: rgba(249, 54, 60, 0.12);
+          color: #f9363c;
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-logout:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.55);
+          outline-offset: 2px;
+        }
+
+        .wallet-workspace-logout[data-disabled="true"] {
+          cursor: default;
+          opacity: 0.35;
+        }
+
+        .wallet-workspace-logout[data-disabled="true"]:hover {
+          background: rgba(0, 0, 0, 0.04);
+          color: rgba(60, 60, 67, 0.58);
+          transform: none;
         }
 
         .wallet-workspace-pane {
-          min-height: 100vh;
+          height: 100%;
+          min-height: 0;
           min-width: 0;
+          overflow: hidden;
           background: #fff;
         }
 
@@ -791,13 +1934,62 @@ export function AppWalletWorkspace() {
         }
 
         .wallet-workspace-account-pane > div {
+          height: 100%;
+          min-height: 0;
           width: 100%;
         }
 
         .wallet-workspace-detail-pane {
           grid-column: 5;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
           padding: 8px;
           border-right: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .wallet-workspace[data-signed-in="false"] .wallet-workspace-detail-pane {
+          border-right: 0;
+        }
+
+        .wallet-workspace-detail-pane > div {
+          min-height: 0;
+          width: 100%;
+        }
+
+        .wallet-workspace-detail-transition {
+          display: flex;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          flex-direction: column;
+          animation: wallet-workspace-pane-switch 0.18s ease-out both;
+          will-change: opacity, transform;
+        }
+
+        .wallet-workspace-detail-transition > * {
+          width: 100%;
+          min-height: 0;
+          flex: 1 1 auto;
+        }
+
+        .wallet-workspace-detail-transition[data-transition="forward"] {
+          animation: wallet-workspace-pane-forward 0.24s
+            cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .wallet-workspace-detail-transition[data-transition="back"] {
+          animation: wallet-workspace-pane-back 0.22s
+            cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .wallet-workspace-detail-transition[data-transition="open"] {
+          animation: wallet-workspace-pane-open 0.2s
+            cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        .wallet-workspace-detail-transition[data-transition="close"] {
+          animation: wallet-workspace-pane-close 0.18s ease-out both;
         }
 
         .wallet-workspace-review-pane {
@@ -807,7 +1999,8 @@ export function AppWalletWorkspace() {
 
         .wallet-workspace-resize-handle {
           width: 8px;
-          min-height: 100vh;
+          height: 100%;
+          min-height: 0;
           padding: 0;
           border: 0;
           background: transparent;
@@ -832,7 +2025,7 @@ export function AppWalletWorkspace() {
         .wallet-workspace-placeholder {
           display: flex;
           height: 100%;
-          min-height: calc(100vh - 16px);
+          min-height: 0;
           flex-direction: column;
           align-items: center;
           justify-content: center;
@@ -869,14 +2062,164 @@ export function AppWalletWorkspace() {
           display: flex;
           width: 100%;
           height: 100%;
-          min-height: 100vh;
+          min-height: 0;
           flex-direction: column;
-          justify-content: space-between;
-          padding: 20px;
+          justify-content: flex-start;
+          gap: 18px;
+          padding: 20px 8px 20px 0;
         }
 
-        .wallet-workspace-signin button {
+        .wallet-workspace-signin-top {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          padding: 0 12px;
+        }
+
+        .wallet-workspace-signin-mark {
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
+          background: rgba(249, 54, 60, 0.12);
+          color: #f9363c;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .wallet-workspace-signin-preview {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin: 0 8px;
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(0, 0, 0, 0.035);
+        }
+
+        .wallet-workspace-signin-balance {
+          display: flex;
+          align-items: baseline;
+          color: #000;
+          font-size: 40px;
+          font-weight: 600;
+          letter-spacing: -0.44px;
+          line-height: 48px;
+        }
+
+        .wallet-workspace-signin-balance span:last-child {
+          color: rgba(60, 60, 67, 0.4);
+        }
+
+        .wallet-workspace-signin-line {
+          width: 100%;
+          height: 9px;
+          border-radius: 9999px;
+          background: linear-gradient(
+            90deg,
+            rgba(249, 54, 60, 0.22),
+            rgba(0, 0, 0, 0.05)
+          );
+        }
+
+        .wallet-workspace-signin-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .wallet-workspace-signin-row > span {
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          background: #fff;
+          flex: 0 0 auto;
+        }
+
+        .wallet-workspace-signin-row div {
+          display: flex;
+          min-width: 0;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .wallet-workspace-signin-row strong {
+          color: #000;
+          font-size: 14px;
+          font-weight: 500;
+          line-height: 18px;
+        }
+
+        .wallet-workspace-signin-row small {
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 13px;
+          line-height: 16px;
+        }
+
+        .wallet-workspace-auth-detail button:hover {
+          background: #222;
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-auth-detail {
+          display: flex;
+          height: 100%;
+          min-height: 0;
+          align-items: center;
+          justify-content: center;
+          padding: 32px;
+        }
+
+        .wallet-workspace-auth-detail-main {
+          display: flex;
+          width: min(100%, 420px);
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .wallet-workspace-auth-icon {
+          width: 56px;
+          height: 56px;
+          border-radius: 18px;
+          background: rgba(249, 54, 60, 0.12);
+          color: #f9363c;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 18px;
+        }
+
+        .wallet-workspace-auth-detail-main > span,
+        .wallet-workspace-review-empty > span {
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 13px;
+          line-height: 16px;
+          margin-bottom: 6px;
+        }
+
+        .wallet-workspace-auth-detail-main strong,
+        .wallet-workspace-review-empty strong {
+          color: #000;
+          font-size: 28px;
+          font-weight: 600;
+          line-height: 32px;
+          letter-spacing: -0.3px;
+          max-width: 360px;
+        }
+
+        .wallet-workspace-auth-detail-main p,
+        .wallet-workspace-review-empty p {
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 15px;
+          line-height: 21px;
+          margin: 12px 0 0;
+          max-width: 360px;
+        }
+
+        .wallet-workspace-auth-detail button {
           height: 44px;
+          padding: 0 18px;
           border: 0;
           border-radius: 9999px;
           background: #000;
@@ -884,11 +2227,90 @@ export function AppWalletWorkspace() {
           font: inherit;
           font-size: 16px;
           cursor: pointer;
+          margin-top: 22px;
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+
+        .wallet-workspace-review-empty {
+          display: flex;
+          height: 100%;
+          min-height: 0;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: flex-start;
+          padding: 28px 24px;
+        }
+
+        .wallet-workspace-review-empty strong {
+          font-size: 20px;
+          line-height: 24px;
+          letter-spacing: 0;
         }
 
         @keyframes wallet-workspace-spin {
           to {
             transform: rotate(360deg);
+          }
+        }
+
+        @keyframes wallet-workspace-pane-forward {
+          from {
+            opacity: 0;
+            transform: translateX(22px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+
+        @keyframes wallet-workspace-pane-back {
+          from {
+            opacity: 0;
+            transform: translateX(-22px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+
+        @keyframes wallet-workspace-pane-open {
+          from {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes wallet-workspace-pane-close {
+          from {
+            opacity: 0;
+            transform: translateY(-6px) scale(0.992);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes wallet-workspace-pane-switch {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .wallet-workspace-detail-transition {
+            animation: none !important;
           }
         }
 
@@ -905,12 +2327,20 @@ export function AppWalletWorkspace() {
           .wallet-workspace-review-pane {
             display: none;
           }
+
+          .wallet-workspace[data-signed-in="false"] {
+            grid-template-columns:
+              60px 32px
+              minmax(320px, min(var(--wallet-account-pane-width), 400px))
+              8px
+              minmax(320px, 1fr);
+          }
         }
 
         @media (max-width: 760px) {
           .wallet-workspace {
             grid-template-columns: 60px 16px minmax(0, 1fr);
-            overflow: auto;
+            overflow: hidden;
           }
 
           .wallet-workspace-account-resize,

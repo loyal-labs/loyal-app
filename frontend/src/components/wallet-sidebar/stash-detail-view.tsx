@@ -3,7 +3,7 @@
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
 import { ArrowUpRight, Check, Copy, Plus } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
 import { SpendingLimitSection } from "./spending-limit-section";
@@ -45,6 +45,8 @@ export function StashDetailView({
   onSetSpendingLimit,
   onDeleteSpendingLimit,
   getTokenActions,
+  onTokenDetail,
+  initialTab = "tokens",
 }: {
   accountIndex: number;
   address: string | null;
@@ -65,9 +67,16 @@ export function StashDetailView({
     spendingLimit: SmartAccountSpendingLimitSnapshot
   ) => Promise<void>;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
+  initialTab?: "activity" | "tokens";
 }) {
-  const [activeTab, setActiveTab] = useState<"activity" | "tokens">("tokens");
+  const [activeTab, setActiveTab] =
+    useState<"activity" | "tokens">(initialTab);
   const [isAddressCopied, setIsAddressCopied] = useState(false);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -83,6 +92,7 @@ export function StashDetailView({
 
   return (
     <div
+      className="stash-detail-view"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -92,6 +102,9 @@ export function StashDetailView({
       }}
     >
       <style jsx>{`
+        .stash-detail-view {
+          container-type: inline-size;
+        }
         .stash-transfer-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
@@ -101,12 +114,22 @@ export function StashDetailView({
         .stash-address-btn:hover {
           opacity: 0.72 !important;
         }
+        @container (max-width: 440px) {
+          .stash-action-label {
+            display: none;
+          }
+        }
       `}</style>
 
       <svg
         aria-hidden="true"
         height="0"
-        style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+        style={{
+          position: "absolute",
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+        }}
         width="0"
       >
         <defs>
@@ -201,7 +224,15 @@ export function StashDetailView({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
         <div
           style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
         >
@@ -246,7 +277,9 @@ export function StashDetailView({
                 {balanceWhole}
                 <span
                   style={{
-                    color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
                     transition: "color 0.15s ease",
                   }}
                 >
@@ -301,6 +334,7 @@ export function StashDetailView({
           >
             <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
+              className="stash-action-label"
               style={{
                 fontFamily: font,
                 fontSize: "16px",
@@ -332,6 +366,7 @@ export function StashDetailView({
           >
             <Plus size={24} style={{ color: "#fff" }} />
             <span
+              className="stash-action-label"
               style={{
                 fontFamily: font,
                 fontSize: "16px",
@@ -350,6 +385,8 @@ export function StashDetailView({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            flex: 1,
+            minHeight: 0,
             padding: "8px",
             width: "100%",
           }}
@@ -404,45 +441,72 @@ export function StashDetailView({
             })}
           </div>
 
-          {activeTab === "tokens" &&
-            tokenRows.map((token) => (
-              <TokenRowItem
-                actions={getTokenActions?.(token)}
-                isBalanceHidden={isBalanceHidden}
-                key={token.id ?? token.symbol}
-                token={token}
-              />
-            ))}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowX: "hidden",
+              overflowY: "auto",
+              width: "100%",
+            }}
+          >
+            {activeTab === "tokens" &&
+              tokenRows.map((token) => (
+                <TokenRowItem
+                  actions={getTokenActions?.(token)}
+                  isBalanceHidden={isBalanceHidden}
+                  key={token.id ?? token.symbol}
+                  onDetail={onTokenDetail}
+                  token={token}
+                />
+              ))}
 
-          {activeTab === "activity" &&
-            activityRows.map((activity) => (
-              <ActivityRowItem
-                activity={activity}
-                isBalanceHidden={isBalanceHidden}
-                key={activity.id}
-                onClick={() =>
-                  onNavigate({
-                    type: "transaction",
-                    detail: transactionDetails[activity.id],
-                    from: "portfolio",
-                  })
-                }
-              />
-            ))}
+            {activeTab === "tokens" && tokenRows.length === 0 && (
+              <div
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  padding: "12px",
+                  textAlign: "left",
+                  width: "100%",
+                }}
+              >
+                No tokens yet
+              </div>
+            )}
 
-          {activeTab === "activity" && activityRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-              }}
-            >
-              No activity yet
-            </div>
-          )}
+            {activeTab === "activity" &&
+              activityRows.map((activity) => (
+                <ActivityRowItem
+                  activity={activity}
+                  isBalanceHidden={isBalanceHidden}
+                  key={activity.id}
+                  onClick={() =>
+                    onNavigate({
+                      type: "transaction",
+                      detail: transactionDetails[activity.id],
+                      from: "portfolio",
+                    })
+                  }
+                />
+              ))}
+
+            {activeTab === "activity" && activityRows.length === 0 && (
+              <div
+                style={{
+                  padding: "12px",
+                  textAlign: "left",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  color: secondary,
+                  width: "100%",
+                }}
+              >
+                No activity yet
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

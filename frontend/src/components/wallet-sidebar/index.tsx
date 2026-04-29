@@ -197,14 +197,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     const tokens: SwapToken[] = positions
       .filter(
-        (p) => p.totalBalance > 0 || ["SOL", "USDC"].includes(p.asset.symbol)
+        (p) => p.publicBalance > 0 || ["SOL", "USDC"].includes(p.asset.symbol)
       )
       .map((p) => ({
         mint: p.asset.mint,
         symbol: p.asset.symbol,
-        icon: getTokenIconUrl(p.asset.symbol),
+        icon: p.asset.imageUrl ?? getTokenIconUrl(p.asset.symbol),
         price: p.priceUsd ?? 0,
-        balance: p.totalBalance,
+        balance: p.publicBalance,
       }));
 
     // Inject LOYL at 3rd position if not already present
@@ -216,7 +216,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         ? {
             ...LOYL_TOKEN,
             price: loylPosition.priceUsd ?? 0,
-            balance: loylPosition.totalBalance,
+            balance: loylPosition.publicBalance,
           }
         : LOYL_TOKEN;
       tokens.splice(2, 0, loyl as SwapToken);
@@ -224,6 +224,21 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     return tokens;
   }, [props.walletDesktopData.positions]);
+  const securedTokens = useMemo<SwapToken[]>(
+    () =>
+      props.walletDesktopData.positions
+        .filter((position) => position.securedBalance > 0)
+        .map((position) => ({
+          balance: position.securedBalance,
+          icon:
+            position.asset.imageUrl ?? getTokenIconUrl(position.asset.symbol),
+          isSecured: true,
+          mint: position.asset.mint,
+          price: position.priceUsd ?? 0,
+          symbol: position.asset.symbol,
+        })),
+    [props.walletDesktopData.positions]
+  );
 
   // Merge user's held tokens with popular tokens for swap target selection
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
@@ -292,6 +307,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   const [shieldToken, setShieldToken] = useState<SwapToken>(
     derivedTokens[0] ?? fallbackSwapTokens[0]
   );
+  const [shieldDirection, setShieldDirection] = useState<"shield" | "unshield">(
+    "shield"
+  );
 
   // Derived secured balance for the selected shield token
   const shieldSecuredBalance = useMemo(() => {
@@ -301,6 +319,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     );
     return position?.securedBalance ?? 0;
   }, [shieldToken.mint, props.walletDesktopData.positions]);
+  const shieldSourceTokens = useMemo(
+    () => [...derivedTokens, ...securedTokens],
+    [derivedTokens, securedTokens]
+  );
 
   // Send token state
   const [sendToken, setSendToken] = useState<SwapToken>(
@@ -345,6 +367,18 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         return {
           onSend: () => pushView({ type: "sendPanel" }),
           onUnshield: () => {
+            const baseToken = derivedTokens.find(
+              (nextToken) =>
+                nextToken.mint === token.id?.replace(/-secured$/, "")
+            ) ?? {
+              balance: Number.parseFloat(token.amount.replace(/,/g, "")) || 0,
+              icon: token.icon,
+              mint: token.id?.replace(/-secured$/, ""),
+              price: Number.parseFloat(token.price.replace(/[$,]/g, "")) || 0,
+              symbol: token.symbol,
+            };
+            setShieldToken(baseToken);
+            setShieldDirection("unshield");
             handleSwapModeChange("shield");
             pushView({ type: "swapPanel", mode: "shield" });
           },
@@ -358,6 +392,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           pushView({ type: "swapPanel", mode: "swap" });
         },
         onShield: () => {
+          setShieldDirection("shield");
           handleSwapModeChange("shield");
           pushView({ type: "swapPanel", mode: "shield" });
         },
@@ -375,7 +410,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
       return actions;
     },
-    [handleSwapModeChange, pushView]
+    [derivedTokens, handleSwapModeChange, pushView]
   );
 
   // Update tokens when wallet connects/disconnects (not on every balance refresh)
@@ -554,7 +589,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         <TransactionDetailView
           detail={detail}
           onBack={onBack}
-          onClose={props.onClose}
         />
       );
     }
@@ -589,14 +623,39 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       return (
         <TokenSelectView
           currentToken={shieldToken}
+          isTokenSelected={(token) =>
+            token.mint === shieldToken.mint &&
+            (token.isSecured
+              ? shieldDirection === "unshield"
+              : shieldDirection === "shield")
+          }
           onBack={onBack}
           onClose={props.onClose}
           onSelect={(token) => {
-            setShieldToken(token);
+            const nextDirection = token.isSecured ? "unshield" : "shield";
+            const baseToken =
+              derivedTokens.find(
+                (nextToken) => nextToken.mint === token.mint
+              ) ??
+              props.walletDesktopData.positions
+                .filter((position) => position.asset.mint === token.mint)
+                .map((position) => ({
+                  balance: position.publicBalance,
+                  icon:
+                    position.asset.imageUrl ??
+                    getTokenIconUrl(position.asset.symbol),
+                  mint: position.asset.mint,
+                  price: position.priceUsd ?? 0,
+                  symbol: position.asset.symbol,
+                }))[0] ??
+              token;
+
+            setShieldToken(baseToken);
+            setShieldDirection(nextDirection);
             popView();
           }}
-          title="Shield"
-          tokens={derivedTokens}
+          title="Select token"
+          tokens={shieldSourceTokens}
         />
       );
     }
@@ -689,6 +748,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             navigateFn({ type: "swapPanel", mode: "swap" });
           }}
           onOpenShield={() => {
+            setShieldDirection("shield");
             handleSwapModeChange("shield");
             navigateFn({ type: "swapPanel", mode: "shield" });
           }}
@@ -867,6 +927,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 }}
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
+                initialDirection={shieldDirection}
+                onDirectionChange={setShieldDirection}
                 onNavigate={navigateFn}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
@@ -1177,6 +1239,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                     pushView({ type: "swapPanel", mode: "swap" });
                   }}
                   onOpenShield={() => {
+                    setShieldDirection("shield");
                     handleSwapModeChange("shield");
                     pushView({ type: "swapPanel", mode: "shield" });
                   }}
@@ -1279,6 +1342,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onDone={() => props.onTabChange("portfolio")}
                         onFormActiveChange={setShieldFormActive}
                         onFormButtonChange={setShieldButtonProps}
+                        initialDirection={shieldDirection}
+                        onDirectionChange={setShieldDirection}
                         onNavigate={pushView}
                         onSwapModeChange={handleSwapModeChange}
                         onTokenChange={setShieldToken}

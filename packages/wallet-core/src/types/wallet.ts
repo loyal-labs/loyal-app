@@ -1,4 +1,10 @@
-export type RightSidebarTab = "portfolio" | "receive" | "send" | "swap" | "sign-in" | "connect";
+export type RightSidebarTab =
+  | "portfolio"
+  | "receive"
+  | "send"
+  | "swap"
+  | "sign-in"
+  | "connect";
 
 export interface TokenRow {
   id?: string;
@@ -10,6 +16,12 @@ export interface TokenRow {
   isSecured?: boolean;
   apyBps?: number | null;
   priceChange24h?: number | null;
+  totalAmountDisplay?: string | null;
+  totalValueDisplay?: string | null;
+  publicAmountDisplay?: string | null;
+  publicValueDisplay?: string | null;
+  securedAmountDisplay?: string | null;
+  securedValueDisplay?: string | null;
   /** Supply APY in basis points (e.g. 565 = 5.65%) — shown as badge when set. */
   /** USD value earned since principal was recorded (formatted, signed). */
   earnedValueDisplay?: string | null;
@@ -61,19 +73,43 @@ export type SubView =
   | "allTokens"
   | "allActivity"
   | "allApprovals"
-  | { type: "transaction"; detail: TransactionDetail; from: "portfolio" | "allActivity" }
+  | {
+      type: "transaction";
+      detail: TransactionDetail;
+      from: "portfolio" | "allActivity";
+    }
   | { type: "tokenSelect"; field: "from" | "to" }
   | { type: "sendTokenSelect" }
-  | { type: "shieldTokenSelect" }
+  | { type: "shieldTokenSelect"; source?: "public" | "secured" }
   | { type: "approvalReview" }
   | { type: "accountPage"; account: "main" | "vault" }
-  | { type: "agentPage"; agentId: string; label: string; agentIcon?: string; balanceWhole: string; balanceFraction: string }
-  | { type: "stashPage"; label: string; balanceWhole: string; balanceFraction: string }
+  | {
+      type: "agentPage";
+      agentId: string;
+      label: string;
+      agentIcon?: string;
+      balanceWhole: string;
+      balanceFraction: string;
+    }
+  | {
+      type: "stashPage";
+      label: string;
+      balanceWhole: string;
+      balanceFraction: string;
+    }
   | { type: "sendPanel" }
   | { type: "receivePanel" }
   | { type: "swapPanel"; mode?: "swap" | "shield" }
   | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
-  | { type: "dappSign"; origin: string; favicon?: string; requestId: string; kind: "signTransaction" | "signMessage"; transactionBase64?: string; messageBase64?: string }
+  | {
+      type: "dappSign";
+      origin: string;
+      favicon?: string;
+      requestId: string;
+      kind: "signTransaction" | "signMessage";
+      transactionBase64?: string;
+      messageBase64?: string;
+    }
   | { type: "tokenDetail"; token: TokenRow; from: "portfolio" | "allTokens" };
 
 export const LOYL_TOKEN: SwapToken = {

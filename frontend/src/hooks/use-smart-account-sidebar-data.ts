@@ -496,6 +496,12 @@ function mapVaultToTokenRows(positions: PortfolioPosition[]): TokenRow[] {
       amount: formatTokenBalance(position.totalBalance),
       value: formatUsd(position.totalValueUsd),
       icon: resolveTokenIcon(position),
+      totalAmountDisplay: formatTokenBalance(position.totalBalance),
+      totalValueDisplay: formatUsd(position.totalValueUsd),
+      publicAmountDisplay: formatTokenBalance(position.publicBalance),
+      publicValueDisplay: formatUsd(position.publicValueUsd),
+      securedAmountDisplay: formatTokenBalance(position.securedBalance),
+      securedValueDisplay: formatUsd(position.securedValueUsd),
     }));
 }
 

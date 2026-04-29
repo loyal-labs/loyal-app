@@ -594,11 +594,13 @@ function SwapTransactionDetail({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           padding: "8px",
           overflowY: "auto",
+          overflowX: "hidden",
         }}
       >
         {/* Amount hero */}

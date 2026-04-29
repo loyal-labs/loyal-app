@@ -1,15 +1,17 @@
 "use client";
 
 import {
+  ArrowDownLeft,
   ArrowUpRight,
   Check,
+  ChevronRight,
   Copy,
-  Plus,
   RefreshCw,
   Shield,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
@@ -21,6 +23,37 @@ import type {
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
+
+const ACCESS_OPTIONS: {
+  id: AccessLevel;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "suggest",
+    label: "Suggest Transactions",
+    description:
+      "Can prepare transaction suggestions for your review and approval",
+  },
+  {
+    id: "sign",
+    label: "Sign Transactions",
+    description:
+      "Can sign transactions, but only within the permissions you allow.",
+  },
+  {
+    id: "execute",
+    label: "Execute Transactions",
+    description:
+      "Can sign and send transactions on your behalf without additional approval.",
+  },
+];
+
+const ACCESS_DISPLAY: Record<AccessLevel, string> = {
+  execute: "Can execute",
+  sign: "Can sign",
+  suggest: "Can suggest",
+};
 
 function formatAddressForDisplay(address: string): string {
   if (address.length <= 12) {
@@ -46,6 +79,10 @@ export function WalletDetailView({
   onOpenSwap,
   onOpenShield,
   getTokenActions,
+  onTokenDetail,
+  accessLevel,
+  accessTitle = "User Access",
+  initialTab = "tokens",
 }: {
   address: string | null;
   label: string;
@@ -62,9 +99,28 @@ export function WalletDetailView({
   onOpenSwap: () => void;
   onOpenShield: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
+  accessLevel?: AccessLevel;
+  accessTitle?: string;
+  initialTab?: "activity" | "tokens";
 }) {
-  const [activeTab, setActiveTab] = useState<"activity" | "tokens">("tokens");
+  const [activeTab, setActiveTab] =
+    useState<"activity" | "tokens">(initialTab);
+  const [displayAccessLevel, setDisplayAccessLevel] = useState<AccessLevel>(
+    accessLevel ?? "suggest"
+  );
+  const [isAccessExpanded, setIsAccessExpanded] = useState(false);
   const [isAddressCopied, setIsAddressCopied] = useState(false);
+
+  useEffect(() => {
+    if (accessLevel) {
+      setDisplayAccessLevel(accessLevel);
+    }
+  }, [accessLevel]);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -80,6 +136,7 @@ export function WalletDetailView({
 
   return (
     <div
+      className="wallet-detail-view"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -89,6 +146,9 @@ export function WalletDetailView({
       }}
     >
       <style jsx>{`
+        .wallet-detail-view {
+          container-type: inline-size;
+        }
         .wallet-detail-action:hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
@@ -98,16 +158,36 @@ export function WalletDetailView({
         .wallet-detail-address-btn:hover {
           opacity: 0.72 !important;
         }
+        .wallet-detail-access-header:hover,
+        .wallet-detail-access-row:hover {
+          background: rgba(0, 0, 0, 0.04) !important;
+        }
+        @container (max-width: 560px) {
+          .wallet-detail-action-label {
+            display: none;
+          }
+        }
       `}</style>
 
       <svg
         aria-hidden="true"
         height="0"
-        style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+        style={{
+          position: "absolute",
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+        }}
         width="0"
       >
         <defs>
-          <filter id="wallet-detail-pixelate" x="0" y="0" width="100%" height="100%">
+          <filter
+            id="wallet-detail-pixelate"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+          >
             <feFlood x="4" y="4" height="2" width="2" />
             <feComposite width="10" height="10" />
             <feTile result="a" />
@@ -191,7 +271,15 @@ export function WalletDetailView({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
         <div
           style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
         >
@@ -237,7 +325,9 @@ export function WalletDetailView({
                 {balanceWhole}
                 <span
                   style={{
-                    color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
                     transition: "color 0.15s ease",
                   }}
                 >
@@ -275,7 +365,10 @@ export function WalletDetailView({
             type="button"
           >
             <ArrowUpRight size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}>
+            <span
+              className="wallet-detail-action-label"
+              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
+            >
               Send
             </span>
           </button>
@@ -297,8 +390,9 @@ export function WalletDetailView({
             }}
             type="button"
           >
-            <Plus size={22} style={{ color: "#fff" }} />
+            <ArrowDownLeft size={22} style={{ color: "#fff" }} />
             <span
+              className="wallet-detail-action-label"
               style={{
                 fontFamily: font,
                 fontSize: "15px",
@@ -306,7 +400,7 @@ export function WalletDetailView({
                 color: "#fff",
               }}
             >
-              Top Up
+              Receive
             </span>
           </button>
           <button
@@ -328,7 +422,10 @@ export function WalletDetailView({
             type="button"
           >
             <RefreshCw size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}>
+            <span
+              className="wallet-detail-action-label"
+              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
+            >
               Swap
             </span>
           </button>
@@ -351,17 +448,185 @@ export function WalletDetailView({
             type="button"
           >
             <Shield size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}>
+            <span
+              className="wallet-detail-action-label"
+              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
+            >
               Shield
             </span>
           </button>
         </div>
+
+        {accessLevel && (
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              padding: "8px",
+              width: "100%",
+            }}
+          >
+            <button
+              className="wallet-detail-access-header"
+              onClick={() => setIsAccessExpanded((value) => !value)}
+              style={{
+                alignItems: "center",
+                background: "transparent",
+                border: "none",
+                borderRadius: "16px",
+                cursor: "pointer",
+                display: "flex",
+                padding: "14px 12px",
+                transition: "background 0.15s ease",
+                width: "100%",
+              }}
+              type="button"
+            >
+              <span
+                style={{
+                  flex: 1,
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  color: "#000",
+                  letterSpacing: "-0.176px",
+                  textAlign: "left",
+                }}
+              >
+                {accessTitle}
+              </span>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: secondary,
+                  paddingLeft: "12px",
+                }}
+              >
+                {ACCESS_DISPLAY[displayAccessLevel]}
+              </span>
+              <ChevronRight
+                size={16}
+                style={{
+                  color: "rgba(60, 60, 67, 0.3)",
+                  flexShrink: 0,
+                  marginLeft: "6px",
+                  transform: isAccessExpanded
+                    ? "rotate(-90deg)"
+                    : "rotate(90deg)",
+                  transition: "transform 0.2s ease",
+                }}
+              />
+            </button>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                maxHeight: isAccessExpanded ? "300px" : "0px",
+                overflow: "hidden",
+                transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                width: "100%",
+              }}
+            >
+              {ACCESS_OPTIONS.map((option) => {
+                const selected = displayAccessLevel === option.id;
+
+                return (
+                  <button
+                    className="wallet-detail-access-row"
+                    key={option.id}
+                    onClick={() => setDisplayAccessLevel(option.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "6px 12px",
+                      borderRadius: "16px",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      width: "100%",
+                      transition: "background 0.15s ease",
+                      textAlign: "left",
+                    }}
+                    type="button"
+                  >
+                    <div
+                      style={{
+                        padding: "10px 0",
+                        paddingRight: "12px",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <AccessLevelIcon level={option.id} />
+                    </div>
+                    <div
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        padding: "10px 0",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "16px",
+                          fontWeight: 500,
+                          lineHeight: "20px",
+                          color: "#000",
+                          letterSpacing: "-0.176px",
+                        }}
+                      >
+                        {option.label}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 400,
+                          lineHeight: "16px",
+                          color: secondary,
+                        }}
+                      >
+                        {option.description}
+                      </span>
+                    </div>
+                    <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
+                      <div
+                        style={{
+                          width: "24px",
+                          height: "24px",
+                          borderRadius: "9999px",
+                          border: selected
+                            ? "7px solid #F9363C"
+                            : "2px solid rgba(60, 60, 67, 0.3)",
+                          background: "#fff",
+                          boxSizing: "border-box",
+                          transition: "border 0.15s ease",
+                        }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            flex: 1,
+            minHeight: 0,
             padding: "8px",
             width: "100%",
           }}
@@ -416,59 +681,72 @@ export function WalletDetailView({
             })}
           </div>
 
-          {activeTab === "tokens" &&
-            tokenRows.map((token) => (
-              <TokenRowItem
-                actions={getTokenActions?.(token)}
-                isBalanceHidden={isBalanceHidden}
-                key={token.id ?? token.symbol}
-                token={token}
-              />
-            ))}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowX: "hidden",
+              overflowY: "auto",
+              width: "100%",
+            }}
+          >
+            {activeTab === "tokens" &&
+              tokenRows.map((token) => (
+                <TokenRowItem
+                  actions={getTokenActions?.(token)}
+                  isBalanceHidden={isBalanceHidden}
+                  key={token.id ?? token.symbol}
+                  onDetail={onTokenDetail}
+                  token={token}
+                />
+              ))}
 
-          {activeTab === "activity" &&
-            activityRows.map((activity) => (
-              <ActivityRowItem
-                activity={activity}
-                isBalanceHidden={isBalanceHidden}
-                key={activity.id}
-                onClick={() =>
-                  onNavigate({
-                    type: "transaction",
-                    detail: transactionDetails[activity.id],
-                    from: "portfolio",
-                  })
-                }
-              />
-            ))}
+            {activeTab === "activity" &&
+              activityRows.map((activity) => (
+                <ActivityRowItem
+                  activity={activity}
+                  isBalanceHidden={isBalanceHidden}
+                  key={activity.id}
+                  onClick={() =>
+                    onNavigate({
+                      type: "transaction",
+                      detail: transactionDetails[activity.id],
+                      from: "portfolio",
+                    })
+                  }
+                />
+              ))}
 
-          {activeTab === "tokens" && tokenRows.length === 0 && (
+            {activeTab === "tokens" && tokenRows.length === 0 && (
             <div
               style={{
-                padding: "12px 20px",
-                textAlign: "center",
+                padding: "12px",
+                textAlign: "left",
                 fontFamily: font,
                 fontSize: "14px",
                 color: secondary,
+                width: "100%",
               }}
             >
               No tokens yet
             </div>
-          )}
+            )}
 
-          {activeTab === "activity" && activityRows.length === 0 && (
+            {activeTab === "activity" && activityRows.length === 0 && (
             <div
               style={{
-                padding: "12px 20px",
-                textAlign: "center",
+                padding: "12px",
+                textAlign: "left",
                 fontFamily: font,
                 fontSize: "14px",
                 color: secondary,
+                width: "100%",
               }}
             >
               No activity yet
             </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

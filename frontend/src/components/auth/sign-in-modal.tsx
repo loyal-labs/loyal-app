@@ -83,7 +83,7 @@ function ConnectedView() {
 
 export function SignInModal() {
   const { isOpen, close } = useSignInModal();
-  const { capability } = useAuthCapability();
+  const { hasAuthSession } = useAuthCapability();
   const publicEnv = usePublicEnv();
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const turnstileMode = publicEnv.turnstile.mode;
@@ -122,7 +122,7 @@ export function SignInModal() {
   return (
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
       <DialogContent className="border-neutral-200 bg-white text-neutral-900 sm:max-w-[520px] [&_[data-slot=dialog-close]]:text-neutral-500">
-        {capability !== "anonymous" ? (
+        {hasAuthSession ? (
           <>
             <DialogHeader>
               <DialogTitle className="text-neutral-900">Account</DialogTitle>

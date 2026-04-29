@@ -1,0 +1,475 @@
+"use client";
+
+import { FileSliders, Send } from "lucide-react";
+
+import type { SmartAccountApprovalItem } from "@/hooks/use-smart-account-sidebar-data";
+import { getTokenIconUrl } from "@/lib/token-icon";
+import { ApprovalReviewContent } from "@/components/wallet-sidebar/approval-review-content";
+import { getVaultIcon } from "@/components/wallet-sidebar/vault-icon";
+
+const font = "var(--font-geist-sans), sans-serif";
+const secondary = "rgba(60, 60, 67, 0.6)";
+
+function toStatusLabel(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function ApprovalEmptyState() {
+  return (
+    <div
+      style={{
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        justifyContent: "center",
+        minHeight: "220px",
+        padding: "24px",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          background: "rgba(0, 0, 0, 0.04)",
+          borderRadius: "9999px",
+          color: "rgba(60, 60, 67, 0.58)",
+          display: "flex",
+          height: "48px",
+          justifyContent: "center",
+          marginBottom: "12px",
+          width: "48px",
+        }}
+      >
+        <FileSliders size={22} strokeWidth={1.8} />
+      </div>
+      <span
+        style={{
+          color: "#000",
+          fontFamily: font,
+          fontSize: "16px",
+          fontWeight: 500,
+          lineHeight: "20px",
+        }}
+      >
+        No approvals yet
+      </span>
+      <span
+        style={{
+          color: secondary,
+          fontFamily: font,
+          fontSize: "13px",
+          fontWeight: 400,
+          lineHeight: "16px",
+          marginTop: "4px",
+          maxWidth: "220px",
+        }}
+      >
+        New proposals will appear here.
+      </span>
+    </div>
+  );
+}
+
+function ApprovalErrorState() {
+  return (
+    <div
+      style={{
+        color: secondary,
+        fontFamily: font,
+        fontSize: "14px",
+        lineHeight: "20px",
+        padding: "24px",
+        textAlign: "center",
+      }}
+    >
+      Failed to load proposals. Refresh to try again.
+    </div>
+  );
+}
+
+function ApprovalRow({
+  approval,
+  isBalanceHidden,
+  onReview,
+}: {
+  approval: SmartAccountApprovalItem;
+  isBalanceHidden: boolean;
+  onReview: (approval: SmartAccountApprovalItem) => void;
+}) {
+  const symbol = approval.symbol || "TOKEN";
+
+  return (
+    <button
+      className="workspace-approval-row"
+      onClick={() => onReview(approval)}
+      style={{
+        background: "transparent",
+        border: "none",
+        borderRadius: "16px",
+        cursor: "pointer",
+        display: "flex",
+        padding: "0 12px",
+        textAlign: "left",
+        transition: "background 0.15s ease",
+        width: "100%",
+      }}
+      type="button"
+    >
+      <div
+        style={{
+          flexShrink: 0,
+          height: "50px",
+          marginBottom: "6px",
+          marginRight: "12px",
+          marginTop: "6px",
+          position: "relative",
+          width: "48px",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt={symbol}
+          src={getTokenIconUrl(symbol)}
+          style={{
+            borderRadius: "9999px",
+            height: "40px",
+            left: 0,
+            objectFit: "cover",
+            position: "absolute",
+            top: 0,
+            width: "40px",
+          }}
+        />
+        <div
+          style={{
+            alignItems: "center",
+            background: "#2a2a2a",
+            border: "2px solid #fff",
+            borderRadius: "9999px",
+            bottom: 0,
+            display: "flex",
+            height: "24px",
+            justifyContent: "center",
+            position: "absolute",
+            right: 0,
+            width: "24px",
+          }}
+        >
+          <Send size={12} style={{ color: "#fff" }} />
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          minWidth: 0,
+          paddingBottom: "2px",
+        }}
+      >
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            minWidth: 0,
+            paddingTop: "1px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: 0,
+              padding: "10px 0",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {approval.title}
+            </span>
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {toStatusLabel(approval.status)} · to {approval.destinationLabel}
+            </span>
+          </div>
+
+          <div
+            style={{
+              alignItems: "flex-end",
+              display: "flex",
+              flexDirection: "column",
+              flexShrink: 0,
+              gap: "2px",
+              padding: "10px 0 10px 12px",
+            }}
+          >
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "#000",
+                filter: isBalanceHidden
+                  ? "url(#workspace-approvals-pixelate-sm)"
+                  : "none",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                transition: "filter 0.15s ease, color 0.15s ease",
+                userSelect: isBalanceHidden ? "none" : "auto",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {approval.amount} {approval.symbol}
+            </span>
+            <div
+              style={{
+                alignItems: "center",
+                display: "flex",
+                gap: "4px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                from
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt={approval.sourceLabel}
+                src={getVaultIcon(approval.sourceAccountIndex)}
+                style={{
+                  borderRadius: "4px",
+                  height: "16px",
+                  objectFit: "cover",
+                  width: "16px",
+                }}
+              />
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  maxWidth: "80px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {approval.sourceLabel}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            paddingBottom: "11px",
+          }}
+        >
+          <span
+            className="workspace-approval-review-pill"
+            style={{
+              background: "rgba(0, 0, 0, 0.04)",
+              borderRadius: "9999px",
+              color: "#000",
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              padding: "6px 16px",
+              transition: "background 0.15s ease",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Review &amp; Respond
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+export function ApprovalsPane({
+  approvals,
+  error,
+  isBalanceHidden,
+  isSubmitting,
+  pendingApprovalId,
+  selectedApproval,
+  onApprove,
+  onBackToList,
+  onDecline,
+  onExecute,
+  onReview,
+}: {
+  approvals: SmartAccountApprovalItem[];
+  error: string | null;
+  isBalanceHidden: boolean;
+  isSubmitting: boolean;
+  pendingApprovalId: string | null;
+  selectedApproval: SmartAccountApprovalItem | null;
+  onApprove: (approval: SmartAccountApprovalItem) => void;
+  onBackToList: () => void;
+  onDecline: (approval: SmartAccountApprovalItem) => void;
+  onExecute: (approval: SmartAccountApprovalItem) => void;
+  onReview: (approval: SmartAccountApprovalItem) => void;
+}) {
+  if (selectedApproval) {
+    const isSelectedSubmitting =
+      isSubmitting && pendingApprovalId === selectedApproval.id;
+
+    return (
+      <ApprovalReviewContent
+        approval={selectedApproval}
+        isSubmitting={isSelectedSubmitting}
+        onApprove={() => onApprove(selectedApproval)}
+        onBack={onBackToList}
+        onClose={onBackToList}
+        onDecline={() => onDecline(selectedApproval)}
+        onExecute={() => onExecute(selectedApproval)}
+        showClose={false}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: "#fff",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
+      <style jsx>{`
+        .workspace-approval-row:hover {
+          background: rgba(0, 0, 0, 0.04) !important;
+        }
+        .workspace-approval-row:hover .workspace-approval-review-pill {
+          background: rgba(0, 0, 0, 0.1) !important;
+        }
+      `}</style>
+
+      <svg
+        aria-hidden="true"
+        height="0"
+        style={{
+          height: 0,
+          overflow: "hidden",
+          position: "absolute",
+          width: 0,
+        }}
+        width="0"
+      >
+        <defs>
+          <filter
+            id="workspace-approvals-pixelate-sm"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+          >
+            <feFlood x="3" y="3" height="2" width="2" />
+            <feComposite width="8" height="8" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="4" />
+          </filter>
+        </defs>
+      </svg>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          padding: "8px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            padding: "3px 12px 1px",
+            width: "100%",
+          }}
+        >
+          <span
+            style={{
+              color: "#000",
+              flex: 1,
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              padding: "8px 0",
+            }}
+          >
+            Approvals
+          </span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowX: "hidden",
+          overflowY: "auto",
+          padding: "0 8px 8px",
+        }}
+      >
+        {error ? (
+          <ApprovalErrorState />
+        ) : approvals.length === 0 ? (
+          <ApprovalEmptyState />
+        ) : (
+          approvals.map((approval) => (
+            <ApprovalRow
+              approval={approval}
+              isBalanceHidden={isBalanceHidden}
+              key={approval.id}
+              onReview={onReview}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

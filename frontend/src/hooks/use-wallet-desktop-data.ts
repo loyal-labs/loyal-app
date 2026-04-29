@@ -56,7 +56,8 @@ const EMPTY_POSITIONS: PortfolioPosition[] = [];
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 
-const LOYL_ICON_URL = "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
+const LOYL_ICON_URL =
+  "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
 
 function resolveTokenIcon(position: PortfolioPosition): string {
   if (position.asset.imageUrl) {
@@ -95,7 +96,10 @@ function formatSolAmount(lamports: number): string {
   });
 }
 
-function formatTimestamp(timestamp: number | null): { date: string; time: string } {
+function formatTimestamp(timestamp: number | null): {
+  date: string;
+  time: string;
+} {
   const date = timestamp ? new Date(timestamp) : new Date();
   return {
     date: date.toLocaleDateString("en-US", {
@@ -134,11 +138,17 @@ function getActivityDisplay(
 } {
   switch (activity.type) {
     case "swap": {
-      const fromPosition = resolvePositionByMint(positions, activity.fromToken.mint);
+      const fromPosition = resolvePositionByMint(
+        positions,
+        activity.fromToken.mint
+      );
       return {
         symbol: fromPosition?.asset.symbol ?? "SOL",
-        icon: fromPosition ? resolveTokenIcon(fromPosition) : getTokenIconUrl("SOL"),
-        amount: activity.fromToken.amount ?? formatSolAmount(activity.amountLamports),
+        icon: fromPosition
+          ? resolveTokenIcon(fromPosition)
+          : getTokenIconUrl("SOL"),
+        amount:
+          activity.fromToken.amount ?? formatSolAmount(activity.amountLamports),
         usdValue:
           typeof fromPosition?.priceUsd === "number"
             ? parseFloat(activity.fromToken.amount) * fromPosition.priceUsd
@@ -152,7 +162,9 @@ function getActivityDisplay(
       const position = resolvePositionByMint(positions, activity.token.mint);
       return {
         symbol: position?.asset.symbol ?? "TOKEN",
-        icon: position ? resolveTokenIcon(position) : "/hero-new/Wallet-Cover.png",
+        icon: position
+          ? resolveTokenIcon(position)
+          : "/hero-new/Wallet-Cover.png",
         amount: activity.token.amount,
         usdValue:
           typeof position?.priceUsd === "number"
@@ -163,10 +175,10 @@ function getActivityDisplay(
           (activity.type === "secure"
             ? "Secure"
             : activity.type === "unshield"
-              ? "Unshield"
-              : activity.direction === "in"
-                ? "Unknown sender"
-                : "Unknown recipient"),
+            ? "Unshield"
+            : activity.direction === "in"
+            ? "Unknown sender"
+            : "Unknown recipient"),
       };
     }
     case "program_action": {
@@ -209,7 +221,9 @@ function getActivityDisplay(
             : null,
         counterparty:
           activity.counterparty ??
-          (activity.direction === "in" ? "Unknown sender" : "Unknown recipient"),
+          (activity.direction === "in"
+            ? "Unknown sender"
+            : "Unknown recipient"),
       };
   }
 }
@@ -274,15 +288,20 @@ function mapActivityToRowAndDetail(
   const display = getActivityDisplay(activity, positions, solPriceUsd);
   const isReceived = activity.direction === "in";
   const timestamp = formatTimestamp(activity.timestamp);
-  const isShieldType = activity.type === "secure" || activity.type === "unshield";
+  const isShieldType =
+    activity.type === "secure" || activity.type === "unshield";
   const amount = isShieldType
     ? `${display.amount} ${display.symbol}`
     : `${isReceived ? "+" : "-"}${display.amount} ${display.symbol}`;
 
   const rowType: ActivityRow["type"] =
-    activity.type === "secure" ? "shielded"
-    : activity.type === "unshield" ? "unshielded"
-    : isReceived ? "received" : "sent";
+    activity.type === "secure"
+      ? "shielded"
+      : activity.type === "unshield"
+      ? "unshielded"
+      : isReceived
+      ? "received"
+      : "sent";
 
   const row: ActivityRow = {
     id: activity.signature,
@@ -291,9 +310,12 @@ function mapActivityToRowAndDetail(
     amount,
     timestamp: timestamp.time,
     date: timestamp.date,
-    icon: activity.type === "secure" ? "/hero-new/Shield.png"
-      : activity.type === "unshield" ? "/hero-new/Unshield.svg"
-      : display.icon,
+    icon:
+      activity.type === "secure"
+        ? "/hero-new/Shield.png"
+        : activity.type === "unshield"
+        ? "/hero-new/Unshield.svg"
+        : display.icon,
     rawTimestamp: activity.timestamp ?? undefined,
   };
 
@@ -332,6 +354,12 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
     amount: formatTokenBalance(position.publicBalance),
     value: formatUsd(position.publicValueUsd),
     icon: resolveTokenIcon(position),
+    totalAmountDisplay: formatTokenBalance(position.totalBalance),
+    totalValueDisplay: formatUsd(position.totalValueUsd),
+    publicAmountDisplay: formatTokenBalance(position.publicBalance),
+    publicValueDisplay: formatUsd(position.publicValueUsd),
+    securedAmountDisplay: formatTokenBalance(position.securedBalance),
+    securedValueDisplay: formatUsd(position.securedValueUsd),
   };
 }
 
@@ -347,6 +375,12 @@ function mapPositionToSecuredTokenRow(
     value: formatUsd(position.securedValueUsd),
     icon: resolveTokenIcon(position),
     isSecured: true,
+    totalAmountDisplay: formatTokenBalance(position.totalBalance),
+    totalValueDisplay: formatUsd(position.totalValueUsd),
+    publicAmountDisplay: formatTokenBalance(position.publicBalance),
+    publicValueDisplay: formatUsd(position.publicValueUsd),
+    securedAmountDisplay: formatTokenBalance(position.securedBalance),
+    securedValueDisplay: formatUsd(position.securedValueUsd),
   };
 
   if (!earnings) {
@@ -375,14 +409,17 @@ export function useWalletDesktopData(): WalletDesktopData {
   const walletAddress = wallet.publicKey?.toBase58() ?? null;
   const [portfolioSnapshot, setPortfolioSnapshot] =
     useState<PortfolioSnapshot | null>(null);
-  const [earningsByMint, setEarningsByMint] =
-    useState<ReadonlyMap<string, KaminoEarnings>>(EMPTY_EARNINGS_BY_MINT);
+  const [earningsByMint, setEarningsByMint] = useState<
+    ReadonlyMap<string, KaminoEarnings>
+  >(EMPTY_EARNINGS_BY_MINT);
   const [earningsSummary, setEarningsSummary] =
     useState<WalletEarningsSummary | null>(null);
   const [activities, setActivities] = useState<WalletActivity[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [localRows, setLocalRows] = useState<ActivityRow[]>([]);
-  const [localDetails, setLocalDetails] = useState<Record<string, TransactionDetail>>({});
+  const [localDetails, setLocalDetails] = useState<
+    Record<string, TransactionDetail>
+  >({});
 
   const applyEnrichment = useCallback(
     async (snapshot: PortfolioSnapshot, address: string) => {
@@ -413,9 +450,14 @@ export function useWalletDesktopData(): WalletDesktopData {
       return;
     }
     try {
-      const stored = localStorage.getItem(`loyal:local-activity:${walletAddress}`);
+      const stored = localStorage.getItem(
+        `loyal:local-activity:${walletAddress}`
+      );
       if (stored) {
-        const parsed = JSON.parse(stored) as { rows: ActivityRow[]; details: Record<string, TransactionDetail> };
+        const parsed = JSON.parse(stored) as {
+          rows: ActivityRow[];
+          details: Record<string, TransactionDetail>;
+        };
         setLocalRows(parsed.rows ?? []);
         setLocalDetails(parsed.details ?? {});
       }
@@ -433,7 +475,7 @@ export function useWalletDesktopData(): WalletDesktopData {
             const nextDetails = { ...localDetails, [row.id]: detail };
             localStorage.setItem(
               `loyal:local-activity:${walletAddress}`,
-              JSON.stringify({ rows: next, details: nextDetails }),
+              JSON.stringify({ rows: next, details: nextDetails })
             );
           } catch {
             // ignore quota errors
@@ -443,7 +485,7 @@ export function useWalletDesktopData(): WalletDesktopData {
       });
       setLocalDetails((prev) => ({ ...prev, [row.id]: detail }));
     },
-    [walletAddress, localDetails],
+    [walletAddress, localDetails]
   );
 
   useEffect(() => {
@@ -571,7 +613,8 @@ export function useWalletDesktopData(): WalletDesktopData {
 
           setActivities((currentActivities) => {
             const matchIndex = currentActivities.findIndex(
-              (currentActivity) => currentActivity.signature === activity.signature
+              (currentActivity) =>
+                currentActivity.signature === activity.signature
             );
 
             if (matchIndex >= 0) {
@@ -625,7 +668,9 @@ export function useWalletDesktopData(): WalletDesktopData {
         }
       })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const positions = portfolioSnapshot?.positions ?? EMPTY_POSITIONS;
@@ -638,17 +683,13 @@ export function useWalletDesktopData(): WalletDesktopData {
   const allTokenRows = useMemo(() => {
     const rows: TokenRow[] = [];
     for (const position of positions) {
+      const earnings = earningsByMint.get(position.asset.mint);
       if (position.publicBalance > 0) {
         rows.push(mapPositionToTokenRow(position));
       }
       // Add secured row right after the public one
       if (position.securedBalance > 0) {
-        rows.push(
-          mapPositionToSecuredTokenRow(
-            position,
-            earningsByMint.get(position.asset.mint)
-          )
-        );
+        rows.push(mapPositionToSecuredTokenRow(position, earnings));
       }
     }
 
@@ -690,12 +731,22 @@ export function useWalletDesktopData(): WalletDesktopData {
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
     const SHIELD_PLUMBING_ACTIONS = new Set([
-      "initialize_deposit", "create_permission", "delegate", "undelegate",
-      "initialize_username_deposit", "create_username_permission",
-      "delegate_username_deposit", "undelegate_username_deposit",
+      "initialize_deposit",
+      "create_permission",
+      "delegate",
+      "undelegate",
+      "initialize_username_deposit",
+      "create_username_permission",
+      "delegate_username_deposit",
+      "undelegate_username_deposit",
     ]);
     const rows = activities
-      .filter((a) => !(a.type === "program_action" && SHIELD_PLUMBING_ACTIONS.has(a.action)))
+      .filter(
+        (a) =>
+          !(
+            a.type === "program_action" && SHIELD_PLUMBING_ACTIONS.has(a.action)
+          )
+      )
       .map((activity) => {
         const mapped = mapActivityToRowAndDetail(
           activity,
@@ -731,7 +782,10 @@ export function useWalletDesktopData(): WalletDesktopData {
 
     // Only recompute when the wallet changes, not on subscription updates
     const key = walletAddress ?? "";
-    if (balanceHistoryKeyRef.current === key && balanceHistoryRef.current.length > 1) {
+    if (
+      balanceHistoryKeyRef.current === key &&
+      balanceHistoryRef.current.length > 1
+    ) {
       return balanceHistoryRef.current;
     }
 
@@ -740,9 +794,12 @@ export function useWalletDesktopData(): WalletDesktopData {
       .filter((a) => a.timestamp !== null)
       .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
-    if (sorted.length === 0) return [{ timestamp: now, valueUsd: totals.totalUsd }];
+    if (sorted.length === 0)
+      return [{ timestamp: now, valueUsd: totals.totalUsd }];
 
-    const points: BalanceHistoryPoint[] = [{ timestamp: now, valueUsd: totals.totalUsd }];
+    const points: BalanceHistoryPoint[] = [
+      { timestamp: now, valueUsd: totals.totalUsd },
+    ];
     let runningUsd = totals.totalUsd;
 
     for (const activity of sorted) {
@@ -762,7 +819,13 @@ export function useWalletDesktopData(): WalletDesktopData {
     balanceHistoryRef.current = result;
     balanceHistoryKeyRef.current = key;
     return result;
-  }, [activities, positions, totals.totalUsd, totals.effectiveSolPriceUsd, walletAddress]);
+  }, [
+    activities,
+    positions,
+    totals.totalUsd,
+    totals.effectiveSolPriceUsd,
+    walletAddress,
+  ]);
 
   const formattedBalance = formatUsd(totals.totalUsd);
   const balanceParts = formattedBalance.split(".");

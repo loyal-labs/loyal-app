@@ -1,6 +1,13 @@
 "use client";
 
-import { ArrowUpRight, DollarSign, RefreshCw, Shield, ShieldOff } from "lucide-react";
+import {
+  ArrowUpRight,
+  DollarSign,
+  RefreshCw,
+  Shield,
+  ShieldOff,
+  Zap,
+} from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
@@ -50,7 +57,11 @@ function ActionIcon({
       title={title}
       type="button"
     >
-      <Icon size={16} strokeWidth={2} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
+      <Icon
+        size={16}
+        strokeWidth={2}
+        style={{ color: "rgba(60, 60, 67, 0.6)" }}
+      />
     </button>
   );
 }
@@ -59,21 +70,32 @@ export function TokenRowItem({
   token,
   isBalanceHidden,
   actions,
+  onDetail,
 }: {
   token: TokenRow;
   isBalanceHidden: boolean;
   actions?: TokenRowActions;
+  onDetail?: (token: TokenRow) => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
   const isLoyal = token.id === LOYL_MINT || token.symbol === "LOYAL";
+  const canOpenDetail = !!onDetail || isLoyal;
 
-  const handleLoyalClick = () => {
-    window.open(JUP_LOYAL_URL, "_blank", "noopener,noreferrer");
+  const handleRowClick = () => {
+    if (onDetail) {
+      onDetail(token);
+      return;
+    }
+
+    if (isLoyal) {
+      window.open(JUP_LOYAL_URL, "_blank", "noopener,noreferrer");
+    }
   };
 
   return (
     <div
+      onClick={handleRowClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -82,10 +104,10 @@ export function TokenRowItem({
         padding: "0 12px",
         borderRadius: "16px",
         width: "100%",
-        overflow: "hidden",
+        overflow: "visible",
         background: hovered ? "rgba(0, 0, 0, 0.04)" : "transparent",
         transition: "background-color 0.15s ease",
-        cursor: "default",
+        cursor: canOpenDetail ? "pointer" : "default",
       }}
     >
       <div
@@ -96,9 +118,7 @@ export function TokenRowItem({
           paddingTop: "6px",
           paddingBottom: "6px",
           flexShrink: 0,
-          cursor: isLoyal ? "pointer" : "default",
         }}
-        {...(isLoyal ? { onClick: handleLoyalClick } : {})}
       >
         <div style={{ position: "relative", width: "48px", height: "48px" }}>
           <div
@@ -136,22 +156,60 @@ export function TokenRowItem({
           gap: "2px",
           padding: "10px 0",
           minWidth: 0,
-          cursor: isLoyal ? "pointer" : "default",
         }}
-        {...(isLoyal ? { onClick: handleLoyalClick } : {})}
       >
-        <span
+        <div
           style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "16px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            color: "#000",
-            letterSpacing: "-0.176px",
+            alignItems: "center",
+            display: "flex",
+            gap: "6px",
+            minWidth: 0,
           }}
         >
-          {token.symbol}
-        </span>
+          <span
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#000",
+              letterSpacing: "-0.176px",
+            }}
+          >
+            {token.symbol}
+          </span>
+          {typeof token.apyBps === "number" && token.apyBps > 0 && (
+            <span
+              style={{
+                alignItems: "center",
+                background: "rgba(52, 199, 89, 0.12)",
+                borderRadius: "9999px",
+                color: "#2EA043",
+                display: "inline-flex",
+                flexShrink: 0,
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "11px",
+                fontWeight: 600,
+                gap: "2px",
+                letterSpacing: "-0.1px",
+                lineHeight: "14px",
+                padding: "2px 6px",
+              }}
+            >
+              <Zap
+                fill="currentColor"
+                size={10}
+                strokeWidth={2.5}
+                style={{ display: "block" }}
+              />
+              {(token.apyBps / 100).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+              % APY
+            </span>
+          )}
+        </div>
         <span
           style={{
             fontFamily: "var(--font-geist-sans), sans-serif",
@@ -240,35 +298,50 @@ export function TokenRowItem({
             {actions.onSend && (
               <ActionIcon
                 icon={ArrowUpRight}
-                onClick={(e) => { e.stopPropagation(); actions.onSend!(token); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.onSend!(token);
+                }}
                 title="Send"
               />
             )}
             {actions.onSwap && (
               <ActionIcon
                 icon={RefreshCw}
-                onClick={(e) => { e.stopPropagation(); actions.onSwap!(token); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.onSwap!(token);
+                }}
                 title="Swap"
               />
             )}
             {actions.onShield && (
               <ActionIcon
                 icon={Shield}
-                onClick={(e) => { e.stopPropagation(); actions.onShield!(token); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.onShield!(token);
+                }}
                 title="Shield"
               />
             )}
             {actions.onUnshield && (
               <ActionIcon
                 icon={ShieldOff}
-                onClick={(e) => { e.stopPropagation(); actions.onUnshield!(token); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.onUnshield!(token);
+                }}
                 title="Unshield"
               />
             )}
             {actions.onBuy && (
               <ActionIcon
                 icon={DollarSign}
-                onClick={(e) => { e.stopPropagation(); actions.onBuy!(token); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  actions.onBuy!(token);
+                }}
                 title="Buy"
               />
             )}

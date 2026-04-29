@@ -22,6 +22,7 @@ export function ApprovalReviewContent({
   onDecline,
   onApprove,
   onExecute,
+  showClose = true,
 }: {
   approval: SmartAccountApprovalItem | null;
   isSubmitting: boolean;
@@ -30,13 +31,19 @@ export function ApprovalReviewContent({
   onDecline: () => void;
   onApprove: () => void;
   onExecute: () => void;
+  showClose?: boolean;
 }) {
   const [isRawDataExpanded, setIsRawDataExpanded] = useState(false);
 
   if (!approval) {
     return (
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <SubViewHeader onBack={onBack} onClose={onClose} title="Approval" />
+        <SubViewHeader
+          onBack={onBack}
+          onClose={onClose}
+          showClose={showClose}
+          title="Approval"
+        />
         <div
           style={{
             flex: 1,
@@ -71,7 +78,12 @@ export function ApprovalReviewContent({
         }
       `}</style>
 
-      <SubViewHeader onBack={onBack} onClose={onClose} title="Approval" />
+      <SubViewHeader
+        onBack={onBack}
+        onClose={onClose}
+        showClose={showClose}
+        title="Approval"
+      />
 
       <div
         style={{

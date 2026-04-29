@@ -1,7 +1,8 @@
 "use client";
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
-import { ChevronRight, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -99,28 +100,45 @@ export function SpendingLimitSection({
     ? splitCurrency(limitAmounts.total)
     : { whole: "$0", fraction: ".00" };
   const limitProgress = spendingLimit ? getLimitProgress(spendingLimit) : 0;
+  const [draftAmount, setDraftAmount] = useState("");
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
-  const requestLimitAmount = async () => {
-    const currentAmount =
+  useEffect(() => {
+    if (!isEditing) {
+      setDraftError(null);
+      setDraftAmount(
+        typeof spendingLimit?.amountUsd === "number"
+          ? spendingLimit.amountUsd.toFixed(2)
+          : ""
+      );
+    }
+  }, [isEditing, spendingLimit?.amountUsd]);
+
+  const startLimitEdit = () => {
+    setDraftAmount(
       typeof spendingLimit?.amountUsd === "number"
         ? spendingLimit.amountUsd.toFixed(2)
-        : "";
-    const nextValue = window.prompt("Monthly spending limit in USD", currentAmount);
+        : ""
+    );
+    setDraftError(null);
+    setIsEditing(true);
+  };
 
-    if (nextValue === null) {
-      return;
-    }
-
-    const amountUsd = Number.parseFloat(nextValue.replace(/[$,\s]/g, ""));
+  const saveLimitAmount = async () => {
+    const amountUsd = Number.parseFloat(draftAmount.replace(/[$,\s]/g, ""));
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
-      window.alert("Enter a spending limit greater than $0.");
+      setDraftError("Enter an amount greater than $0.");
       return;
     }
+
+    setDraftError(null);
 
     try {
       await onSet(amountUsd);
+      setIsEditing(false);
     } catch (error) {
-      window.alert(
+      setDraftError(
         error instanceof Error
           ? error.message
           : "Failed to save spending limit."
@@ -165,6 +183,10 @@ export function SpendingLimitSection({
         .spending-limit-link:hover {
           opacity: 0.7 !important;
         }
+        .spending-limit-input:focus {
+          border-color: rgba(0, 0, 0, 0.2) !important;
+          box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04) !important;
+        }
       `}</style>
       <div
         style={{
@@ -191,7 +213,151 @@ export function SpendingLimitSection({
         </span>
       </div>
 
-      {spendingLimit ? (
+      {isEditing ? (
+        <div
+          style={{
+            width: "100%",
+            background: "#F5F5F5",
+            borderRadius: "16px",
+            padding: "12px",
+          }}
+        >
+          <label
+            style={{
+              color: "#000",
+              display: "block",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 500,
+              letterSpacing: "-0.176px",
+              lineHeight: "20px",
+              marginBottom: "8px",
+            }}
+          >
+            Monthly limit
+          </label>
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              gap: "8px",
+              width: "100%",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "18px",
+                  left: "14px",
+                  lineHeight: "24px",
+                  pointerEvents: "none",
+                  position: "absolute",
+                  top: "10px",
+                }}
+              >
+                $
+              </span>
+              <input
+                autoFocus
+                className="spending-limit-input"
+                disabled={isPending}
+                inputMode="decimal"
+                onChange={(event) => {
+                  setDraftAmount(event.target.value);
+                  setDraftError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void saveLimitAmount();
+                  }
+                  if (event.key === "Escape") {
+                    setIsEditing(false);
+                  }
+                }}
+                placeholder="0.00"
+                style={{
+                  background: "#fff",
+                  border: "1px solid rgba(0, 0, 0, 0.08)",
+                  borderRadius: "9999px",
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "18px",
+                  fontWeight: 500,
+                  height: "44px",
+                  lineHeight: "24px",
+                  outline: "none",
+                  padding: "0 14px 0 30px",
+                  transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+                  width: "100%",
+                }}
+                type="text"
+                value={draftAmount}
+              />
+            </div>
+            <button
+              aria-label="Save spending limit"
+              className="spending-limit-btn"
+              disabled={isPending}
+              onClick={() => void saveLimitAmount()}
+              style={{
+                alignItems: "center",
+                background: "#000",
+                border: "none",
+                borderRadius: "9999px",
+                color: "#fff",
+                cursor: isPending ? "default" : "pointer",
+                display: "flex",
+                height: "44px",
+                justifyContent: "center",
+                opacity: isPending ? 0.6 : 1,
+                transition: "background 0.15s ease",
+                width: "44px",
+              }}
+              type="button"
+            >
+              <Check size={20} />
+            </button>
+            <button
+              aria-label="Cancel spending limit edit"
+              className="spending-limit-link"
+              disabled={isPending}
+              onClick={() => setIsEditing(false)}
+              style={{
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.04)",
+                border: "none",
+                borderRadius: "9999px",
+                color: secondary,
+                cursor: isPending ? "default" : "pointer",
+                display: "flex",
+                height: "44px",
+                justifyContent: "center",
+                opacity: isPending ? 0.6 : 1,
+                width: "44px",
+              }}
+              type="button"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div
+            style={{
+              color: draftError ? "#F9363C" : secondary,
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              minHeight: "16px",
+              paddingTop: "8px",
+            }}
+          >
+            {draftError ?? "Applies to this vault signer for the current period."}
+          </div>
+        </div>
+      ) : spendingLimit ? (
         <div
           className="spending-limit-card"
           style={{
@@ -291,7 +457,7 @@ export function SpendingLimitSection({
             <button
               className="spending-limit-link"
               disabled={isPending}
-              onClick={requestLimitAmount}
+              onClick={startLimitEdit}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -401,7 +567,7 @@ export function SpendingLimitSection({
             <button
               className="spending-limit-btn"
               disabled={isPending}
-              onClick={requestLimitAmount}
+              onClick={startLimitEdit}
               style={{
                 padding: "6px 16px",
                 borderRadius: "9999px",

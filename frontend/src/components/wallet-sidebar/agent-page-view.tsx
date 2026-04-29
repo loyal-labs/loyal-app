@@ -1,7 +1,17 @@
 "use client";
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
-import { ArrowRight, Check, ChevronRight, Copy, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  ChevronRight,
+  Copy,
+  Eye,
+  EyeOff,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
@@ -97,10 +107,29 @@ function getLimitProgress(spendingLimit: SmartAccountSpendingLimitSnapshot) {
 
 export type AccessLevel = "suggest" | "sign" | "execute";
 
-const ACCESS_OPTIONS: { id: AccessLevel; label: string; description: string }[] = [
-  { id: "suggest", label: "Suggest Transactions", description: "Can prepare transaction suggestions for your review and approval" },
-  { id: "sign", label: "Sign Transactions", description: "Can sign transactions, but only within the permissions you allow." },
-  { id: "execute", label: "Execute Transactions", description: "Can sign and send transactions on your behalf without additional approval." },
+const ACCESS_OPTIONS: {
+  id: AccessLevel;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "suggest",
+    label: "Suggest Transactions",
+    description:
+      "Can prepare transaction suggestions for your review and approval",
+  },
+  {
+    id: "sign",
+    label: "Sign Transactions",
+    description:
+      "Can sign transactions, but only within the permissions you allow.",
+  },
+  {
+    id: "execute",
+    label: "Execute Transactions",
+    description:
+      "Can sign and send transactions on your behalf without additional approval.",
+  },
 ];
 
 const ACCESS_DISPLAY: Record<AccessLevel, string> = {
@@ -109,15 +138,34 @@ const ACCESS_DISPLAY: Record<AccessLevel, string> = {
   execute: "Can execute",
 };
 
-export function AccessLevelIcon({ level, size = 28, color: colorProp }: { level: AccessLevel; size?: number; color?: string }) {
+export function AccessLevelIcon({
+  level,
+  size = 28,
+  color: colorProp,
+}: {
+  level: AccessLevel;
+  size?: number;
+  color?: string;
+}) {
   const color = colorProp ?? "rgba(60, 60, 67, 0.6)";
   const scale = size / 28;
   const c = size / 2;
 
   if (level === "execute") {
     return (
-      <svg fill="none" height={size} viewBox={`0 0 ${size} ${size}`} width={size}>
-        <circle cx={c} cy={c} r={11.67 * scale} stroke={color} strokeWidth={1.5 * scale} />
+      <svg
+        fill="none"
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        width={size}
+      >
+        <circle
+          cx={c}
+          cy={c}
+          r={11.67 * scale}
+          stroke={color}
+          strokeWidth={1.5 * scale}
+        />
         <circle cx={c} cy={c} fill={color} r={2.33 * scale} />
       </svg>
     );
@@ -134,7 +182,9 @@ export function AccessLevelIcon({ level, size = 28, color: colorProp }: { level:
       {dots.map((d, i) => (
         <circle cx={d.cx} cy={d.cy} fill={color} key={i} r={1.2 * scale} />
       ))}
-      {level === "sign" && <circle cx={c} cy={c} fill={color} r={2.33 * scale} />}
+      {level === "sign" && (
+        <circle cx={c} cy={c} fill={color} r={2.33 * scale} />
+      )}
     </svg>
   );
 }
@@ -161,8 +211,11 @@ export function AgentPageView({
   onSetSpendingLimit,
   onDeleteSpendingLimit,
   onTopUpWithSpendingLimit,
+  onTopUp,
   getTokenActions,
+  onTokenDetail,
   initialAccessLevel = "suggest",
+  initialTab = "tokens",
   variant = "sidebar",
   showSpendingLimit = false,
 }: {
@@ -204,18 +257,27 @@ export function AgentPageView({
     signerAddress: string;
     spendingLimitAddress: string;
   }) => Promise<void>;
+  onTopUp?: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
   initialAccessLevel?: AccessLevel;
+  initialTab?: "activity" | "tokens";
   variant?: "sidebar" | "workspace";
   showSpendingLimit?: boolean;
 }) {
   const isWorkspace = variant === "workspace";
-  const [accessLevel, setAccessLevel] = useState<AccessLevel>(initialAccessLevel);
+  const [accessLevel, setAccessLevel] =
+    useState<AccessLevel>(initialAccessLevel);
   const [isAccessExpanded, setIsAccessExpanded] = useState(false);
   const [isLimitExpanded, setIsLimitExpanded] = useState(isWorkspace);
   const [isAddressCopied, setIsAddressCopied] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [workspaceTab, setWorkspaceTab] = useState<"activity" | "tokens">("tokens");
+  const [limitDraftAmount, setLimitDraftAmount] = useState("");
+  const [limitDraftError, setLimitDraftError] = useState<string | null>(null);
+  const [isLimitEditing, setIsLimitEditing] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<"activity" | "tokens">(
+    initialTab
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasLimit = spendingLimit !== null;
   const limitAmounts = spendingLimit ? formatLimitAmount(spendingLimit) : null;
@@ -228,16 +290,34 @@ export function AgentPageView({
     : { whole: "$0", fraction: ".00" };
   const limitProgress = spendingLimit ? getLimitProgress(spendingLimit) : 0;
   const displayedSignerAddress = formatAddressForDisplay(signerAddress);
+  const isTopUpDisabled = onTopUp
+    ? isSpendingLimitPending
+    : !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending;
 
   useEffect(() => {
     setAccessLevel(initialAccessLevel);
   }, [initialAccessLevel, signerAddress]);
 
   useEffect(() => {
+    setWorkspaceTab(initialTab);
+  }, [initialTab, signerAddress]);
+
+  useEffect(() => {
     if (isWorkspace) {
       setIsLimitExpanded(true);
     }
   }, [isWorkspace, signerAddress]);
+
+  useEffect(() => {
+    if (!isLimitEditing) {
+      setLimitDraftError(null);
+      setLimitDraftAmount(
+        typeof spendingLimit?.amountUsd === "number"
+          ? spendingLimit.amountUsd.toFixed(2)
+          : ""
+      );
+    }
+  }, [isLimitEditing, spendingLimit?.amountUsd]);
 
   const copySignerAddress = async () => {
     try {
@@ -249,22 +329,25 @@ export function AgentPageView({
     }
   };
 
-  const requestLimitAmount = async () => {
-    const currentAmount =
+  const startLimitEdit = () => {
+    setLimitDraftAmount(
       typeof spendingLimit?.amountUsd === "number"
         ? spendingLimit.amountUsd.toFixed(2)
-        : "";
-    const nextValue = window.prompt("Monthly spending limit in USD", currentAmount);
+        : ""
+    );
+    setLimitDraftError(null);
+    setIsLimitEditing(true);
+    setIsLimitExpanded(true);
+  };
 
-    if (nextValue === null) {
-      return;
-    }
-
-    const amountUsd = Number.parseFloat(nextValue.replace(/[$,\s]/g, ""));
+  const saveLimitAmount = async () => {
+    const amountUsd = Number.parseFloat(limitDraftAmount.replace(/[$,\s]/g, ""));
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
-      window.alert("Enter a spending limit greater than $0.");
+      setLimitDraftError("Enter an amount greater than $0.");
       return;
     }
+
+    setLimitDraftError(null);
 
     try {
       await onSetSpendingLimit({
@@ -273,8 +356,9 @@ export function AgentPageView({
         existingSpendingLimitAddress: spendingLimit?.address ?? null,
         signerAddress,
       });
+      setIsLimitEditing(false);
     } catch (error) {
-      window.alert(
+      setLimitDraftError(
         error instanceof Error
           ? error.message
           : "Failed to save spending limit."
@@ -327,6 +411,11 @@ export function AgentPageView({
   };
 
   const requestTopUpAmount = async () => {
+    if (onTopUp) {
+      onTopUp();
+      return;
+    }
+
     if (!spendingLimit) {
       window.alert("Set a spending limit before topping up.");
       return;
@@ -365,6 +454,7 @@ export function AgentPageView({
 
   return (
     <div
+      className="agent-detail-view"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -374,6 +464,9 @@ export function AgentPageView({
       }}
     >
       <style jsx>{`
+        .agent-detail-view {
+          container-type: inline-size;
+        }
         .agent-back-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
@@ -396,7 +489,7 @@ export function AgentPageView({
           background: rgba(0, 0, 0, 0.06) !important;
         }
         .agent-limit-card:hover {
-          background: #EDEDF0 !important;
+          background: #ededf0 !important;
         }
         .agent-set-limit-btn:hover {
           background: #222 !important;
@@ -407,8 +500,17 @@ export function AgentPageView({
         .agent-address-btn:hover {
           opacity: 0.72 !important;
         }
+        .agent-limit-input:focus {
+          border-color: rgba(0, 0, 0, 0.2) !important;
+          box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04) !important;
+        }
         .agent-scroll::-webkit-scrollbar {
           display: none;
+        }
+        @container (max-width: 360px) {
+          .agent-action-label {
+            display: none;
+          }
         }
       `}</style>
 
@@ -416,7 +518,12 @@ export function AgentPageView({
       <svg
         aria-hidden="true"
         height="0"
-        style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+        style={{
+          position: "absolute",
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+        }}
         width="0"
       >
         <defs>
@@ -576,14 +683,19 @@ export function AgentPageView({
         }}
         style={{
           flex: 1,
-          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflowY: isWorkspace ? "hidden" : "auto",
           overflowX: "hidden",
           scrollbarWidth: "none",
           borderTop:
             !isWorkspace && isScrolled
               ? "1px solid rgba(0, 0, 0, 0.08)"
               : "1px solid transparent",
-          boxShadow: isScrolled ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)" : "none",
+          boxShadow: isScrolled
+            ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)"
+            : "none",
           transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         }}
       >
@@ -668,21 +780,19 @@ export function AgentPageView({
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ borderRadius: "8px", overflow: "hidden" }}>
                 <span
-                style={{
-                  fontFamily: font,
-                  fontSize: isWorkspace ? "40px" : "32px",
-                  fontWeight: 600,
-                  lineHeight: isWorkspace ? "48px" : "40px",
-                  letterSpacing: isWorkspace ? "-0.44px" : "-0.352px",
-                  color: isBalanceHidden ? "#BBBBC0" : "#000",
-                  filter: isBalanceHidden
-                    ? "url(#agent-pixelate)"
-                    : "none",
-                  transition: "filter 0.15s ease, color 0.15s ease",
-                  userSelect: isBalanceHidden ? "none" : "auto",
-                  display: "block",
-                }}
-              >
+                  style={{
+                    fontFamily: font,
+                    fontSize: isWorkspace ? "40px" : "32px",
+                    fontWeight: 600,
+                    lineHeight: isWorkspace ? "48px" : "40px",
+                    letterSpacing: isWorkspace ? "-0.44px" : "-0.352px",
+                    color: isBalanceHidden ? "#BBBBC0" : "#000",
+                    filter: isBalanceHidden ? "url(#agent-pixelate)" : "none",
+                    transition: "filter 0.15s ease, color 0.15s ease",
+                    userSelect: isBalanceHidden ? "none" : "auto",
+                    display: "block",
+                  }}
+                >
                   {balanceWhole}
                   <span
                     style={{
@@ -765,7 +875,7 @@ export function AgentPageView({
         >
           <button
             className="agent-topup-btn"
-            disabled={!spendingLimit || spendingLimit.isExpired || isSpendingLimitPending}
+            disabled={isTopUpDisabled}
             onClick={requestTopUpAmount}
             style={{
               width: "100%",
@@ -777,20 +887,15 @@ export function AgentPageView({
               borderRadius: "9999px",
               background: "#000",
               border: "none",
-              cursor:
-                !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending
-                  ? "default"
-                  : "pointer",
-              opacity:
-                !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending
-                  ? 0.45
-                  : 1,
+              cursor: isTopUpDisabled ? "default" : "pointer",
+              opacity: isTopUpDisabled ? 0.45 : 1,
               transition: "background 0.15s ease",
             }}
             type="button"
           >
             <Plus size={24} style={{ color: "#fff" }} />
             <span
+              className="agent-action-label"
               style={{
                 fontFamily: font,
                 fontSize: "16px",
@@ -862,7 +967,9 @@ export function AgentPageView({
               style={{
                 color: "rgba(60, 60, 67, 0.3)",
                 marginLeft: "6px",
-                transform: isAccessExpanded ? "rotate(-90deg)" : "rotate(90deg)",
+                transform: isAccessExpanded
+                  ? "rotate(-90deg)"
+                  : "rotate(90deg)",
                 transition: "transform 0.2s ease",
                 flexShrink: 0,
               }}
@@ -880,35 +987,541 @@ export function AgentPageView({
               transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
-              {ACCESS_OPTIONS.map((option) => {
-                const selected = accessLevel === option.id;
-                return (
-                  <button
-                    className="agent-radio-row"
-                    key={option.id}
-                    onClick={() => setAccessLevel(option.id)}
+            {ACCESS_OPTIONS.map((option) => {
+              const selected = accessLevel === option.id;
+              return (
+                <button
+                  className="agent-radio-row"
+                  key={option.id}
+                  onClick={() => setAccessLevel(option.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "6px 12px",
+                    borderRadius: "16px",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    width: "100%",
+                    transition: "background 0.15s ease",
+                    textAlign: "left",
+                  }}
+                  type="button"
+                >
+                  {/* Icon */}
+                  <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "6px 12px",
-                      borderRadius: "16px",
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      width: "100%",
-                      transition: "background 0.15s ease",
-                      textAlign: "left",
+                      padding: "10px 0",
+                      paddingRight: "12px",
+                      flexShrink: 0,
                     }}
-                    type="button"
                   >
-                    {/* Icon */}
-                    <div style={{ padding: "10px 0", paddingRight: "12px", flexShrink: 0 }}>
-                      <AccessLevelIcon level={option.id} />
-                    </div>
-                    {/* Text */}
+                    <AccessLevelIcon level={option.id} />
+                  </div>
+                  {/* Text */}
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
+                      padding: "10px 0",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "16px",
+                        fontWeight: 500,
+                        lineHeight: "20px",
+                        color: "#000",
+                        letterSpacing: "-0.176px",
+                      }}
+                    >
+                      {option.label}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                        color: secondary,
+                      }}
+                    >
+                      {option.description}
+                    </span>
+                  </div>
+                  {/* Radio */}
+                  <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                     <div
                       style={{
-                        flex: 1,
+                        width: "24px",
+                        height: "24px",
+                        borderRadius: "9999px",
+                        border: selected
+                          ? "7px solid #F9363C"
+                          : "2px solid rgba(60, 60, 67, 0.3)",
+                        background: "#fff",
+                        boxSizing: "border-box",
+                        transition: "border 0.15s ease",
+                      }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {showSpendingLimit && (
+            <>
+              {/* Spending Limit — collapsible */}
+              <button
+                className="agent-limit-header"
+                onClick={() => setIsLimitExpanded((v) => !v)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  width: "100%",
+                  background: isWorkspace
+                    ? "transparent"
+                    : "rgba(0, 0, 0, 0.04)",
+                  borderRadius: "16px",
+                  padding: "14px 12px",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "background 0.15s ease",
+                }}
+                type="button"
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    lineHeight: "20px",
+                    color: "#000",
+                    letterSpacing: "-0.176px",
+                    textAlign: "left",
+                  }}
+                >
+                  Spending Limit
+                </span>
+                {hasLimit && !isLimitExpanded && (
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 400,
+                      lineHeight: "20px",
+                      color: secondary,
+                      paddingLeft: "12px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        color: isBalanceHidden ? "#BBBBC0" : "#000",
+                      }}
+                    >
+                      {limitAmounts?.remaining ?? "$0.00"}
+                    </span>
+                    <span
+                      style={{ color: isBalanceHidden ? "#C8C8CC" : secondary }}
+                    >
+                      /{limitAmounts?.total ?? "$0.00"}
+                    </span>
+                  </span>
+                )}
+                {!hasLimit && !isLimitExpanded && (
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 400,
+                      lineHeight: "20px",
+                      color: secondary,
+                      paddingLeft: "12px",
+                    }}
+                  >
+                    Not set
+                  </span>
+                )}
+                <ChevronRight
+                  size={16}
+                  style={{
+                    color: "rgba(60, 60, 67, 0.3)",
+                    marginLeft: "6px",
+                    transform: isLimitExpanded
+                      ? "rotate(-90deg)"
+                      : "rotate(90deg)",
+                    transition: "transform 0.2s ease",
+                    flexShrink: 0,
+                  }}
+                />
+              </button>
+
+              {/* Expanded limit content */}
+              <div
+                style={{
+                  width: "100%",
+                  maxHeight: isLimitExpanded ? "270px" : "0px",
+                  overflow: "hidden",
+                  transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                }}
+              >
+                {isLimitEditing ? (
+                  <div
+                    style={{
+                      width: "100%",
+                      background: isWorkspace ? "transparent" : "#F5F5F5",
+                      borderRadius: "16px",
+                      padding: "12px",
+                    }}
+                  >
+                    <label
+                      style={{
+                        color: "#000",
+                        display: "block",
+                        fontFamily: font,
+                        fontSize: "16px",
+                        fontWeight: 500,
+                        letterSpacing: "-0.176px",
+                        lineHeight: "20px",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Monthly limit
+                    </label>
+                    <div
+                      style={{
+                        alignItems: "center",
+                        display: "flex",
+                        gap: "8px",
+                        width: "100%",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                        <span
+                          style={{
+                            color: secondary,
+                            fontFamily: font,
+                            fontSize: "18px",
+                            left: "14px",
+                            lineHeight: "24px",
+                            pointerEvents: "none",
+                            position: "absolute",
+                            top: "10px",
+                          }}
+                        >
+                          $
+                        </span>
+                        <input
+                          autoFocus
+                          className="agent-limit-input"
+                          disabled={isSpendingLimitPending}
+                          inputMode="decimal"
+                          onChange={(event) => {
+                            setLimitDraftAmount(event.target.value);
+                            setLimitDraftError(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void saveLimitAmount();
+                            }
+                            if (event.key === "Escape") {
+                              setIsLimitEditing(false);
+                            }
+                          }}
+                          placeholder="0.00"
+                          style={{
+                            background: "#fff",
+                            border: "1px solid rgba(0, 0, 0, 0.08)",
+                            borderRadius: "9999px",
+                            color: "#000",
+                            fontFamily: font,
+                            fontSize: "18px",
+                            fontWeight: 500,
+                            height: "44px",
+                            lineHeight: "24px",
+                            outline: "none",
+                            padding: "0 14px 0 30px",
+                            transition:
+                              "border-color 0.15s ease, box-shadow 0.15s ease",
+                            width: "100%",
+                          }}
+                          type="text"
+                          value={limitDraftAmount}
+                        />
+                      </div>
+                      <button
+                        aria-label="Save spending limit"
+                        className="agent-set-limit-btn"
+                        disabled={isSpendingLimitPending}
+                        onClick={() => void saveLimitAmount()}
+                        style={{
+                          alignItems: "center",
+                          background: "#000",
+                          border: "none",
+                          borderRadius: "9999px",
+                          color: "#fff",
+                          cursor: isSpendingLimitPending ? "default" : "pointer",
+                          display: "flex",
+                          height: "44px",
+                          justifyContent: "center",
+                          opacity: isSpendingLimitPending ? 0.6 : 1,
+                          transition: "background 0.15s ease",
+                          width: "44px",
+                        }}
+                        type="button"
+                      >
+                        <Check size={20} />
+                      </button>
+                      <button
+                        aria-label="Cancel spending limit edit"
+                        className="agent-link-btn"
+                        disabled={isSpendingLimitPending}
+                        onClick={() => setIsLimitEditing(false)}
+                        style={{
+                          alignItems: "center",
+                          background: "rgba(0, 0, 0, 0.04)",
+                          border: "none",
+                          borderRadius: "9999px",
+                          color: secondary,
+                          cursor: isSpendingLimitPending ? "default" : "pointer",
+                          display: "flex",
+                          height: "44px",
+                          justifyContent: "center",
+                          opacity: isSpendingLimitPending ? 0.6 : 1,
+                          width: "44px",
+                        }}
+                        type="button"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        color: limitDraftError ? "#F9363C" : secondary,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                        minHeight: "16px",
+                        paddingTop: "8px",
+                      }}
+                    >
+                      {limitDraftError ??
+                        "Applies to this agent for the current period."}
+                    </div>
+                  </div>
+                ) : hasLimit ? (
+                  <div
+                    className="agent-limit-card"
+                    style={{
+                      width: "100%",
+                      background: isWorkspace ? "transparent" : "#F5F5F5",
+                      borderRadius: "16px",
+                      padding: "0 12px",
+                      transition: "background 0.15s ease",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        paddingTop: "1px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "2px",
+                          padding: "10px 0",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            overflow: "hidden",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: font,
+                              fontSize: "20px",
+                              fontWeight: 600,
+                              lineHeight: "24px",
+                              color: isBalanceHidden ? "#BBBBC0" : "#000",
+                              letterSpacing: "-0.22px",
+                              filter: isBalanceHidden
+                                ? "url(#agent-pixelate-sm)"
+                                : "none",
+                              transition: "filter 0.15s ease, color 0.15s ease",
+                              userSelect: isBalanceHidden ? "none" : "auto",
+                            }}
+                          >
+                            {isLimitCurrency ? (
+                              <>
+                                {remainingParts.whole}
+                                <span
+                                  style={{
+                                    color: isBalanceHidden
+                                      ? "#BBBBC0"
+                                      : undefined,
+                                  }}
+                                >
+                                  {remainingParts.fraction}
+                                </span>
+                              </>
+                            ) : (
+                              limitAmounts?.remaining
+                            )}
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: font,
+                              fontSize: "16px",
+                              fontWeight: 400,
+                              lineHeight: "20px",
+                              color: isBalanceHidden ? "#C8C8CC" : secondary,
+                              letterSpacing: "-0.176px",
+                              filter: isBalanceHidden
+                                ? "url(#agent-pixelate-sm)"
+                                : "none",
+                              transition: "filter 0.15s ease, color 0.15s ease",
+                              userSelect: isBalanceHidden ? "none" : "auto",
+                            }}
+                          >
+                            /
+                            {isLimitCurrency ? (
+                              <>
+                                {totalParts.whole}
+                                <span>{totalParts.fraction}</span>
+                              </>
+                            ) : (
+                              limitAmounts?.total
+                            )}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            fontFamily: font,
+                            fontSize: "13px",
+                            fontWeight: 400,
+                            lineHeight: "16px",
+                            color: secondary,
+                          }}
+                        >
+                          {spendingLimit
+                            ? getLimitResetLabel(spendingLimit)
+                            : ""}
+                        </span>
+                      </div>
+                      <button
+                        className="agent-link-btn"
+                        disabled={isSpendingLimitPending}
+                        onClick={startLimitEdit}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          paddingLeft: "12px",
+                          cursor: isSpendingLimitPending
+                            ? "default"
+                            : "pointer",
+                          background: "transparent",
+                          border: "none",
+                          opacity: isSpendingLimitPending ? 0.6 : 1,
+                        }}
+                        type="button"
+                      >
+                        <span
+                          style={{
+                            fontFamily: font,
+                            fontSize: "16px",
+                            fontWeight: 400,
+                            lineHeight: "20px",
+                            color: secondary,
+                          }}
+                        >
+                          {isSpendingLimitPending ? "Saving" : "Change"}
+                        </span>
+                        <ChevronRight
+                          size={24}
+                          style={{
+                            color: "rgba(60, 60, 67, 0.3)",
+                            marginLeft: "6px",
+                          }}
+                        />
+                      </button>
+                      <button
+                        aria-label="Delete spending limit"
+                        className="agent-link-btn"
+                        disabled={isSpendingLimitPending}
+                        onClick={requestLimitDelete}
+                        style={{
+                          width: "36px",
+                          height: "36px",
+                          marginLeft: "4px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: isSpendingLimitPending
+                            ? "default"
+                            : "pointer",
+                          background: "transparent",
+                          border: "none",
+                          color: "#EF4444",
+                          opacity: isSpendingLimitPending ? 0.6 : 1,
+                        }}
+                        title="Delete spending limit"
+                        type="button"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{ padding: "8px 0 11px" }}>
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "9px",
+                          borderRadius: "9999px",
+                          background: "rgba(0, 0, 0, 0.04)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${limitProgress}%`,
+                            height: "9px",
+                            borderRadius: "9999px",
+                            background: "#F9363C",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      background: "#F5F5F5",
+                      borderRadius: "16px",
+                      padding: "0 12px 2px",
+                    }}
+                  >
+                    <div
+                      style={{
                         display: "flex",
                         flexDirection: "column",
                         gap: "2px",
@@ -925,363 +1538,39 @@ export function AgentPageView({
                           letterSpacing: "-0.176px",
                         }}
                       >
-                        {option.label}
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: font,
-                          fontSize: "13px",
-                          fontWeight: 400,
-                          lineHeight: "16px",
-                          color: secondary,
-                        }}
-                      >
-                        {option.description}
+                        Limit is not set
                       </span>
                     </div>
-                    {/* Radio */}
-                    <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-                      <div
+                    <div style={{ paddingBottom: "11px" }}>
+                      <button
+                        className="agent-set-limit-btn"
+                        disabled={isSpendingLimitPending}
+                        onClick={startLimitEdit}
                         style={{
-                          width: "24px",
-                          height: "24px",
+                          padding: "6px 16px",
                           borderRadius: "9999px",
-                          border: selected
-                            ? "7px solid #F9363C"
-                            : "2px solid rgba(60, 60, 67, 0.3)",
-                          background: "#fff",
-                          boxSizing: "border-box",
-                          transition: "border 0.15s ease",
-                        }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-          </div>
-
-          {showSpendingLimit && (
-          <>
-          {/* Spending Limit — collapsible */}
-          <button
-            className="agent-limit-header"
-            onClick={() => setIsLimitExpanded((v) => !v)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              width: "100%",
-              background: isWorkspace ? "transparent" : "rgba(0, 0, 0, 0.04)",
-              borderRadius: "16px",
-              padding: "14px 12px",
-              border: "none",
-              cursor: "pointer",
-              transition: "background 0.15s ease",
-            }}
-            type="button"
-          >
-            <span
-              style={{
-                flex: 1,
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-                textAlign: "left",
-              }}
-            >
-              Spending Limit
-            </span>
-            {hasLimit && !isLimitExpanded && (
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: secondary,
-                  paddingLeft: "12px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <span style={{ fontWeight: 500, color: isBalanceHidden ? "#BBBBC0" : "#000" }}>{limitAmounts?.remaining ?? "$0.00"}</span>
-                <span style={{ color: isBalanceHidden ? "#C8C8CC" : secondary }}>/{limitAmounts?.total ?? "$0.00"}</span>
-              </span>
-            )}
-            {!hasLimit && !isLimitExpanded && (
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: secondary,
-                  paddingLeft: "12px",
-                }}
-              >
-                Not set
-              </span>
-            )}
-            <ChevronRight
-              size={16}
-              style={{
-                color: "rgba(60, 60, 67, 0.3)",
-                marginLeft: "6px",
-                transform: isLimitExpanded ? "rotate(-90deg)" : "rotate(90deg)",
-                transition: "transform 0.2s ease",
-                flexShrink: 0,
-              }}
-            />
-          </button>
-
-          {/* Expanded limit content */}
-          <div
-            style={{
-              width: "100%",
-              maxHeight: isLimitExpanded ? "200px" : "0px",
-              overflow: "hidden",
-              transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-            }}
-          >
-            {hasLimit ? (
-              <div
-                className="agent-limit-card"
-                style={{
-                  width: "100%",
-                  background: isWorkspace ? "transparent" : "#F5F5F5",
-                  borderRadius: "16px",
-                  padding: "0 12px",
-                  transition: "background 0.15s ease",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    paddingTop: "1px",
-                  }}
-                >
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "2px",
-                      padding: "10px 0",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "baseline",
-                        overflow: "hidden",
-                        borderRadius: "6px",
-                      }}
-                    >
-                      <span
-                        style={{
+                          background: "#000",
+                          border: "none",
+                          cursor: isSpendingLimitPending
+                            ? "default"
+                            : "pointer",
                           fontFamily: font,
-                          fontSize: "20px",
-                          fontWeight: 600,
-                          lineHeight: "24px",
-                          color: isBalanceHidden ? "#BBBBC0" : "#000",
-                          letterSpacing: "-0.22px",
-                          filter: isBalanceHidden
-                            ? "url(#agent-pixelate-sm)"
-                            : "none",
-                          transition:
-                            "filter 0.15s ease, color 0.15s ease",
-                          userSelect: isBalanceHidden ? "none" : "auto",
-                        }}
-                      >
-                        {isLimitCurrency ? (
-                          <>
-                            {remainingParts.whole}<span style={{ color: isBalanceHidden ? "#BBBBC0" : undefined }}>{remainingParts.fraction}</span>
-                          </>
-                        ) : (
-                          limitAmounts?.remaining
-                        )}
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: font,
-                          fontSize: "16px",
+                          fontSize: "14px",
                           fontWeight: 400,
                           lineHeight: "20px",
-                          color: isBalanceHidden
-                            ? "#C8C8CC"
-                            : secondary,
-                          letterSpacing: "-0.176px",
-                          filter: isBalanceHidden
-                            ? "url(#agent-pixelate-sm)"
-                            : "none",
-                          transition:
-                            "filter 0.15s ease, color 0.15s ease",
-                          userSelect: isBalanceHidden ? "none" : "auto",
+                          color: "#fff",
+                          opacity: isSpendingLimitPending ? 0.6 : 1,
+                          transition: "background 0.15s ease",
                         }}
+                        type="button"
                       >
-                        /{isLimitCurrency ? (
-                          <>
-                            {totalParts.whole}<span>{totalParts.fraction}</span>
-                          </>
-                        ) : (
-                          limitAmounts?.total
-                        )}
-                      </span>
+                        {isSpendingLimitPending ? "Saving" : "Set Limit"}
+                      </button>
                     </div>
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "13px",
-                        fontWeight: 400,
-                        lineHeight: "16px",
-                        color: secondary,
-                      }}
-                    >
-                      {spendingLimit ? getLimitResetLabel(spendingLimit) : ""}
-                    </span>
                   </div>
-                  <button
-                    className="agent-link-btn"
-                    disabled={isSpendingLimitPending}
-                    onClick={requestLimitAmount}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      paddingLeft: "12px",
-                      cursor: isSpendingLimitPending ? "default" : "pointer",
-                      background: "transparent",
-                      border: "none",
-                      opacity: isSpendingLimitPending ? 0.6 : 1,
-                    }}
-                    type="button"
-                  >
-                    <span
-                      style={{
-                        fontFamily: font,
-                        fontSize: "16px",
-                        fontWeight: 400,
-                        lineHeight: "20px",
-                        color: secondary,
-                      }}
-                    >
-                      {isSpendingLimitPending ? "Saving" : "Change"}
-                    </span>
-                    <ChevronRight
-                      size={24}
-                      style={{
-                        color: "rgba(60, 60, 67, 0.3)",
-                        marginLeft: "6px",
-                      }}
-                    />
-                  </button>
-                  <button
-                    aria-label="Delete spending limit"
-                    className="agent-link-btn"
-                    disabled={isSpendingLimitPending}
-                    onClick={requestLimitDelete}
-                    style={{
-                      width: "36px",
-                      height: "36px",
-                      marginLeft: "4px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: isSpendingLimitPending ? "default" : "pointer",
-                      background: "transparent",
-                      border: "none",
-                      color: "#EF4444",
-                      opacity: isSpendingLimitPending ? 0.6 : 1,
-                    }}
-                    title="Delete spending limit"
-                    type="button"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-                {/* Progress bar */}
-                <div style={{ padding: "8px 0 11px" }}>
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "9px",
-                      borderRadius: "9999px",
-                      background: "rgba(0, 0, 0, 0.04)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${limitProgress}%`,
-                        height: "9px",
-                        borderRadius: "9999px",
-                        background: "#F9363C",
-                      }}
-                    />
-                  </div>
-                </div>
+                )}
               </div>
-            ) : (
-              <div
-                style={{
-                  width: "100%",
-                  background: "#F5F5F5",
-                  borderRadius: "16px",
-                  padding: "0 12px 2px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                    padding: "10px 0",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "16px",
-                      fontWeight: 500,
-                      lineHeight: "20px",
-                      color: "#000",
-                      letterSpacing: "-0.176px",
-                    }}
-                  >
-                    Limit is not set
-                  </span>
-                </div>
-                <div style={{ paddingBottom: "11px" }}>
-                  <button
-                    className="agent-set-limit-btn"
-                    disabled={isSpendingLimitPending}
-                    onClick={requestLimitAmount}
-                    style={{
-                      padding: "6px 16px",
-                      borderRadius: "9999px",
-                      background: "#000",
-                      border: "none",
-                      cursor: isSpendingLimitPending ? "default" : "pointer",
-                      fontFamily: font,
-                      fontSize: "14px",
-                      fontWeight: 400,
-                      lineHeight: "20px",
-                      color: "#fff",
-                      opacity: isSpendingLimitPending ? 0.6 : 1,
-                      transition: "background 0.15s ease",
-                    }}
-                    type="button"
-                  >
-                    {isSpendingLimitPending ? "Saving" : "Set Limit"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-          </>
+            </>
           )}
         </div>
 
@@ -1291,6 +1580,8 @@ export function AgentPageView({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            flex: isWorkspace ? 1 : undefined,
+            minHeight: isWorkspace ? 0 : undefined,
             padding: "8px",
             width: "100%",
           }}
@@ -1380,43 +1671,97 @@ export function AgentPageView({
               </>
             )}
           </div>
-          {(!isWorkspace || workspaceTab === "tokens") &&
+
+          {isWorkspace ? (
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowX: "hidden",
+                overflowY: "auto",
+                width: "100%",
+              }}
+            >
+              {workspaceTab === "tokens" &&
+                tokenRows.map((token) => (
+                  <TokenRowItem
+                    actions={getTokenActions?.(token)}
+                    isBalanceHidden={isBalanceHidden}
+                    key={token.id ?? token.symbol}
+                    onDetail={onTokenDetail}
+                    token={token}
+                  />
+                ))}
+              {workspaceTab === "tokens" && tokenRows.length === 0 && (
+                <div
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "14px",
+                    padding: "12px",
+                    textAlign: "left",
+                    width: "100%",
+                  }}
+                >
+                  No tokens yet
+                </div>
+              )}
+              {workspaceTab === "activity" &&
+                activityRows.map((activity) => (
+                  <ActivityRowItem
+                    activity={activity}
+                    isBalanceHidden={isBalanceHidden}
+                    key={activity.id}
+                    onClick={() =>
+                      onNavigate({
+                        type: "transaction",
+                        detail: transactionDetails[activity.id],
+                        from: "portfolio",
+                      })
+                    }
+                  />
+                ))}
+              {workspaceTab === "activity" && activityRows.length === 0 && (
+                <div
+                  style={{
+                    padding: "12px",
+                    textAlign: "left",
+                    fontFamily: font,
+                    fontSize: "14px",
+                    color: secondary,
+                    width: "100%",
+                  }}
+                >
+                  No activity yet
+                </div>
+              )}
+            </div>
+          ) : (
             tokenRows.map((token) => (
               <TokenRowItem
                 actions={getTokenActions?.(token)}
                 isBalanceHidden={isBalanceHidden}
                 key={token.id ?? token.symbol}
+                onDetail={onTokenDetail}
                 token={token}
               />
-            ))}
-          {isWorkspace && workspaceTab === "activity" &&
-            activityRows.map((activity) => (
-              <ActivityRowItem
-                activity={activity}
-                isBalanceHidden={isBalanceHidden}
-                key={activity.id}
-                onClick={() =>
-                  onNavigate({
-                    type: "transaction",
-                    detail: transactionDetails[activity.id],
-                    from: "portfolio",
-                  })
-                }
-              />
-            ))}
-          {isWorkspace && workspaceTab === "activity" && activityRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-              }}
-            >
-              No activity yet
-            </div>
+            ))
           )}
+          {!isWorkspace &&
+            tokenRows.length === 0 && (
+              <div
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  padding: "12px",
+                  textAlign: "left",
+                  width: "100%",
+                }}
+              >
+                No tokens yet
+              </div>
+            )}
         </div>
         {!isWorkspace && (
           <div

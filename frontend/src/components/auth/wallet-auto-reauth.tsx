@@ -19,6 +19,16 @@ export function WalletAutoReauth() {
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    if (connected && publicKey) {
+      return;
+    }
+
+    attemptedAddressRef.current = null;
+    failedRef.current = false;
+    setStatus("idle");
+  }, [connected, publicKey]);
+
+  useEffect(() => {
     if (!isHydrated || isAuthenticated) {
       return;
     }

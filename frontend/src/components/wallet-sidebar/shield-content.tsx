@@ -34,7 +34,9 @@ function SwapShieldTabs({
       }}
     >
       <style jsx>{`
-        .swap-back:hover { background: rgba(0, 0, 0, 0.08) !important; }
+        .swap-back:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
       `}</style>
       {onBack && (
         <button
@@ -484,6 +486,8 @@ export function ShieldContent({
   hideFormChrome,
   onFormActiveChange,
   onFormButtonChange,
+  initialDirection = "shield",
+  onDirectionChange,
 }: {
   onClose: () => void;
   onDone: () => void;
@@ -497,9 +501,13 @@ export function ShieldContent({
   hideFormChrome?: boolean;
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
+  initialDirection?: "shield" | "unshield";
+  onDirectionChange?: (direction: "shield" | "unshield") => void;
 }) {
   const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield();
-  const [direction, setDirection] = useState<"shield" | "unshield">("shield");
+  const [direction, setDirection] = useState<"shield" | "unshield">(
+    initialDirection
+  );
   const [amount, setAmount] = useState("");
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
@@ -509,6 +517,10 @@ export function ShieldContent({
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
   }, [phase, onFormActiveChange]);
+
+  useEffect(() => {
+    setDirection(initialDirection);
+  }, [initialDirection]);
 
   const token = tokenProp;
   const numericAmount = Number.parseFloat(amount) || 0;
@@ -547,8 +559,12 @@ export function ShieldContent({
   const amountColor = insufficientFunds && hasAmount ? red : "#000";
 
   const handleToggleDirection = useCallback(() => {
-    setDirection((d) => (d === "shield" ? "unshield" : "shield"));
-  }, []);
+    setDirection((d) => {
+      const nextDirection = d === "shield" ? "unshield" : "shield";
+      onDirectionChange?.(nextDirection);
+      return nextDirection;
+    });
+  }, [onDirectionChange]);
 
   const handlePercentage = useCallback(
     (pct: number) => {
@@ -627,7 +643,14 @@ export function ShieldContent({
       disabled: buttonDisabled,
       onClick: handleConfirm,
     });
-  }, [hideFormChrome, onFormButtonChange, phase, buttonLabel, buttonDisabled, handleConfirm]);
+  }, [
+    hideFormChrome,
+    onFormButtonChange,
+    phase,
+    buttonLabel,
+    buttonDisabled,
+    handleConfirm,
+  ]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);
@@ -1011,10 +1034,12 @@ export function ShieldContent({
           <div
             style={{
               flex: 1,
+              minHeight: 0,
               display: "flex",
               flexDirection: "column",
               padding: "8px",
               overflowY: "auto",
+              overflowX: "hidden",
             }}
           >
             {/* Token icon with badge */}
@@ -1358,12 +1383,20 @@ export function ShieldContent({
                 />
                 {direction === "shield" ? (
                   <SelectableTokenPill
-                    onClick={() => onNavigate({ type: "shieldTokenSelect" })}
+                    onClick={() =>
+                      onNavigate({
+                        type: "shieldTokenSelect",
+                      })
+                    }
                     token={token}
                   />
                 ) : (
                   <ShieldedSelectableTokenPill
-                    onClick={() => onNavigate({ type: "shieldTokenSelect" })}
+                    onClick={() =>
+                      onNavigate({
+                        type: "shieldTokenSelect",
+                      })
+                    }
                     token={token}
                   />
                 )}

@@ -167,7 +167,14 @@ export function AddSignerPane({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          overflowX: "hidden",
+        }}
+      >
         <div
           style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
         >
