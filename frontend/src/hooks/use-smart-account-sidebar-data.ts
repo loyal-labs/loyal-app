@@ -84,6 +84,7 @@ export type SmartAccountVaultView = {
   tokenRows: TokenRow[];
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
 };
 
 export type SmartAccountSidebarData = {
@@ -263,10 +264,6 @@ function getSignerIcon(args: {
   address: string;
   isAuthenticatedUser: boolean;
 }): string {
-  if (args.isAuthenticatedUser) {
-    return "/purplebg.png";
-  }
-
   const iconIndex = (hashAddress(args.address) % AGENT_ICON_COUNT) + 1;
   return `/agents/Agent-${String(iconIndex).padStart(2, "0")}.svg`;
 }
@@ -906,6 +903,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       tokenRows,
       activityRows,
       transactionDetails,
+      spendingLimits: vault.spendingLimits ?? [],
     };
   }, [overview?.vaults, selectedVaultIndex, user?.walletAddress, vaultEntries]);
 

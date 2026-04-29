@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { WalletName } from "@solana/wallet-adapter-base";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+import {
+  DEV_KEYPAIR_WALLET_NAME,
+  setDevKeypairSecretInput,
+} from "@/components/solana/dev-keypair-wallet";
+import { usePublicEnv } from "@/contexts/public-env-context";
 
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
 
@@ -56,6 +62,62 @@ function MobileWalletList() {
   );
 }
 
+function DevKeypairImportForm({
+  connectWallet,
+}: {
+  connectWallet: (walletName: WalletName) => void;
+}) {
+  const [secretKey, setSecretKey] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const importKeypair = useCallback(() => {
+    setErrorMessage(null);
+    try {
+      setDevKeypairSecretInput(secretKey);
+      setSecretKey("");
+      connectWallet(DEV_KEYPAIR_WALLET_NAME);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Invalid secret key."
+      );
+    }
+  }, [connectWallet, secretKey]);
+
+  return (
+    <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="font-medium text-neutral-900 text-sm">
+          Local dev keypair
+        </p>
+        <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600">
+          local only
+        </span>
+      </div>
+      <textarea
+        autoCapitalize="off"
+        autoComplete="off"
+        autoCorrect="off"
+        className="min-h-20 w-full resize-none rounded-md border border-neutral-200 bg-white px-3 py-2 font-mono text-neutral-900 text-xs outline-none transition placeholder:text-neutral-400 focus:border-neutral-400"
+        onChange={(event) => setSecretKey(event.target.value)}
+        placeholder="Paste base58 secret key or Solana CLI JSON keypair"
+        spellCheck={false}
+        value={secretKey}
+      />
+      {errorMessage ? (
+        <p className="mt-2 text-red-600 text-xs">{errorMessage}</p>
+      ) : null}
+      <button
+        className="mt-2 w-full rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        disabled={secretKey.trim().length === 0}
+        onClick={importKeypair}
+        type="button"
+      >
+        Import and sign in
+      </button>
+    </div>
+  );
+}
+
 export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
   const {
     connected,
@@ -69,7 +131,12 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
     onFlowStart,
   });
 
+  const publicEnv = usePublicEnv();
   const isMobile = useIsMobile();
+  const showDevKeypairImport = publicEnv.appEnvironment === "local";
+  const visibleInstalledWallets = installedWallets.filter(
+    (installedWallet) => installedWallet.adapter.name !== DEV_KEYPAIR_WALLET_NAME
+  );
 
   // Delay showing errors so transient failures during connection don't flash
   const isErrorState =
@@ -141,7 +208,10 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
         </button>
       ) : (
         <div className="flex flex-col gap-2">
-          {installedWallets.map((installedWallet) => (
+          {showDevKeypairImport ? (
+            <DevKeypairImportForm connectWallet={connectWallet} />
+          ) : null}
+          {visibleInstalledWallets.map((installedWallet) => (
             <button
               className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-neutral-900 text-sm transition hover:bg-neutral-50"
               key={installedWallet.adapter.name}
@@ -158,13 +228,17 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
               <span>{installedWallet.adapter.name}</span>
             </button>
           ))}
-          {installedWallets.length === 0 && isMobile && <MobileWalletList />}
-          {installedWallets.length === 0 && !isMobile && (
+          {visibleInstalledWallets.length === 0 && isMobile && (
+            <MobileWalletList />
+          )}
+          {visibleInstalledWallets.length === 0 &&
+            !isMobile &&
+            !showDevKeypairImport && (
             <p className="py-4 text-center text-neutral-500 text-sm">
               No wallet extensions detected. Install a Solana wallet extension
               to continue.
             </p>
-          )}
+            )}
         </div>
       )}
     </div>

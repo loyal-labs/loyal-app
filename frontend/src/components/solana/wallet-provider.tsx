@@ -1,16 +1,21 @@
 "use client";
 
+import { WalletAdapterNetwork, type Adapter } from "@solana/wallet-adapter-base";
 import {
   ConnectionProvider,
   WalletProvider,
 } from "@solana/wallet-adapter-react";
-import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { WalletConnectWalletAdapter } from "@walletconnect/solana-adapter";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import type { FC, ReactNode } from "react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+
+import {
+  DEV_KEYPAIR_WALLET_NAME,
+  DevKeypairWalletAdapter,
+} from "./dev-keypair-wallet";
 
 const WALLETCONNECT_PROJECT_ID = "9d9f57c5553496b42ac1b9977066559d";
 
@@ -29,7 +34,8 @@ type WalletConnectionProviderProps = {
 export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
   children,
 }) => {
-  const { solanaRpcEndpoint, solanaEnv } = usePublicEnv();
+  const publicEnv = usePublicEnv();
+  const { solanaRpcEndpoint, solanaEnv } = publicEnv;
   const endpoint = useMemo(() => solanaRpcEndpoint, [solanaRpcEndpoint]);
 
   const wallets = useMemo(
@@ -40,8 +46,16 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
           projectId: WALLETCONNECT_PROJECT_ID,
         },
       }),
+      ...(publicEnv.appEnvironment === "local"
+        ? [new DevKeypairWalletAdapter()]
+        : []),
     ],
-    [solanaEnv]
+    [publicEnv.appEnvironment, solanaEnv]
+  );
+
+  const shouldAutoConnect = useCallback(
+    async (adapter: Adapter) => adapter.name !== DEV_KEYPAIR_WALLET_NAME,
+    []
   );
 
   return (
@@ -49,7 +63,7 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
       config={{ commitment: "confirmed", confirmTransactionInitialTimeout: 60_000 }}
       endpoint={endpoint}
     >
-      <WalletProvider autoConnect wallets={wallets}>
+      <WalletProvider autoConnect={shouldAutoConnect} wallets={wallets}>
         {children}
       </WalletProvider>
     </ConnectionProvider>

@@ -74,6 +74,7 @@ export function useWalletProofAuth({
     initialWalletProofState
   );
   const connectAttemptedRef = useRef(false);
+  const selectedWalletNameRef = useRef<WalletName | null>(null);
   const verifyAttemptedForAddressRef = useRef<string | null>(null);
 
   const installedWallets = useMemo(
@@ -144,7 +145,12 @@ export function useWalletProofAuth({
       return;
     }
 
-    if (!wallet || connecting || connectAttemptedRef.current) {
+    if (
+      !wallet ||
+      wallet.adapter.name !== selectedWalletNameRef.current ||
+      connecting ||
+      connectAttemptedRef.current
+    ) {
       return;
     }
 
@@ -168,6 +174,7 @@ export function useWalletProofAuth({
     (walletName: WalletName) => {
       connectAttemptedRef.current = false;
       verifyAttemptedForAddressRef.current = null;
+      selectedWalletNameRef.current = walletName;
       onFlowStart?.();
       dispatch({ type: "connecting" });
       select(walletName);

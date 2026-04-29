@@ -1,12 +1,16 @@
 "use client";
 
-import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
-import { ArrowUpRight, Check, Copy, Plus } from "lucide-react";
-import Image from "next/image";
+import {
+  ArrowUpRight,
+  Check,
+  Copy,
+  Plus,
+  RefreshCw,
+  Shield,
+} from "lucide-react";
 import { useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
-import { SpendingLimitSection } from "./spending-limit-section";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
@@ -14,7 +18,6 @@ import type {
   TokenRow,
   TransactionDetail,
 } from "./types";
-import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -27,10 +30,10 @@ function formatAddressForDisplay(address: string): string {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-export function StashDetailView({
-  accountIndex,
+export function WalletDetailView({
   address,
   label,
+  icon,
   balanceWhole,
   balanceFraction,
   isBalanceHidden,
@@ -40,15 +43,13 @@ export function StashDetailView({
   onNavigate,
   onOpenSend,
   onOpenReceive,
-  spendingLimit,
-  isSpendingLimitPending = false,
-  onSetSpendingLimit,
-  onDeleteSpendingLimit,
+  onOpenSwap,
+  onOpenShield,
   getTokenActions,
 }: {
-  accountIndex: number;
   address: string | null;
   label: string;
+  icon: string;
   balanceWhole: string;
   balanceFraction: string;
   isBalanceHidden: boolean;
@@ -58,12 +59,8 @@ export function StashDetailView({
   onNavigate: (view: Exclude<SubView, null>) => void;
   onOpenSend: () => void;
   onOpenReceive: () => void;
-  spendingLimit?: SmartAccountSpendingLimitSnapshot | null;
-  isSpendingLimitPending?: boolean;
-  onSetSpendingLimit?: (amountUsd: number) => Promise<void>;
-  onDeleteSpendingLimit?: (
-    spendingLimit: SmartAccountSpendingLimitSnapshot
-  ) => Promise<void>;
+  onOpenSwap: () => void;
+  onOpenShield: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   const [activeTab, setActiveTab] = useState<"activity" | "tokens">("tokens");
@@ -92,13 +89,13 @@ export function StashDetailView({
       }}
     >
       <style jsx>{`
-        .stash-transfer-btn:hover {
+        .wallet-detail-action:hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
-        .stash-topup-btn:hover {
+        .wallet-detail-primary:hover {
           background: #222 !important;
         }
-        .stash-address-btn:hover {
+        .wallet-detail-address-btn:hover {
           opacity: 0.72 !important;
         }
       `}</style>
@@ -110,19 +107,12 @@ export function StashDetailView({
         width="0"
       >
         <defs>
-          <filter id="stash-pixelate" x="0" y="0" width="100%" height="100%">
+          <filter id="wallet-detail-pixelate" x="0" y="0" width="100%" height="100%">
             <feFlood x="4" y="4" height="2" width="2" />
             <feComposite width="10" height="10" />
             <feTile result="a" />
             <feComposite in="SourceGraphic" in2="a" operator="in" />
             <feMorphology operator="dilate" radius="5" />
-          </filter>
-          <filter id="stash-pixelate-sm" x="0" y="0" width="100%" height="100%">
-            <feFlood x="3" y="3" height="2" width="2" />
-            <feComposite width="8" height="8" />
-            <feTile result="a" />
-            <feComposite in="SourceGraphic" in2="a" operator="in" />
-            <feMorphology operator="dilate" radius="4" />
           </filter>
         </defs>
       </svg>
@@ -161,7 +151,7 @@ export function StashDetailView({
           {address && (
             <button
               aria-label={`Copy address ${address}`}
-              className="stash-address-btn"
+              className="wallet-detail-address-btn"
               onClick={copyAddress}
               style={{
                 display: "flex",
@@ -205,10 +195,10 @@ export function StashDetailView({
         <div
           style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
         >
-          <Image
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
             alt={label}
-            height={64}
-            src={getVaultIcon(accountIndex)}
+            src={icon}
             style={{
               width: "64px",
               height: "64px",
@@ -216,7 +206,6 @@ export function StashDetailView({
               flexShrink: 0,
               marginRight: "12px",
             }}
-            width={64}
           />
           <div
             style={{
@@ -237,7 +226,9 @@ export function StashDetailView({
                   lineHeight: "48px",
                   letterSpacing: "-0.44px",
                   color: isBalanceHidden ? "#BBBBC0" : "#000",
-                  filter: isBalanceHidden ? "url(#stash-pixelate)" : "none",
+                  filter: isBalanceHidden
+                    ? "url(#wallet-detail-pixelate)"
+                    : "none",
                   transition: "filter 0.15s ease, color 0.15s ease",
                   userSelect: isBalanceHidden ? "none" : "auto",
                   display: "block",
@@ -257,40 +248,24 @@ export function StashDetailView({
           </div>
         </div>
 
-        {(onSetSpendingLimit || onDeleteSpendingLimit) && (
-          <SpendingLimitSection
-            isBalanceHidden={isBalanceHidden}
-            isPending={isSpendingLimitPending}
-            onDelete={async (nextSpendingLimit) => {
-              if (!onDeleteSpendingLimit) return;
-              await onDeleteSpendingLimit(nextSpendingLimit);
-            }}
-            onSet={async (amountUsd) => {
-              if (!onSetSpendingLimit) return;
-              await onSetSpendingLimit(amountUsd);
-            }}
-            spendingLimit={spendingLimit ?? null}
-          />
-        )}
-
         <div
           style={{
-            display: "flex",
-            gap: "16px",
-            alignItems: "start",
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: "10px",
             padding: "8px 20px",
           }}
         >
           <button
-            className="stash-transfer-btn"
+            className="wallet-detail-action"
             onClick={onOpenSend}
             style={{
-              flex: 1,
               display: "flex",
               gap: "6px",
               alignItems: "center",
               justifyContent: "center",
-              padding: "10px 16px 10px 8px",
+              minWidth: 0,
+              padding: "10px 8px",
               borderRadius: "9999px",
               background: "rgba(249, 54, 60, 0.14)",
               border: "none",
@@ -299,29 +274,21 @@ export function StashDetailView({
             }}
             type="button"
           >
-            <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#000",
-              }}
-            >
-              Transfer
+            <ArrowUpRight size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}>
+              Send
             </span>
           </button>
           <button
-            className="stash-topup-btn"
+            className="wallet-detail-primary"
             onClick={onOpenReceive}
             style={{
-              flex: 1,
               display: "flex",
               gap: "6px",
               alignItems: "center",
               justifyContent: "center",
-              padding: "10px 16px 10px 8px",
+              minWidth: 0,
+              padding: "10px 8px",
               borderRadius: "9999px",
               background: "#000",
               border: "none",
@@ -330,17 +297,62 @@ export function StashDetailView({
             }}
             type="button"
           >
-            <Plus size={24} style={{ color: "#fff" }} />
+            <Plus size={22} style={{ color: "#fff" }} />
             <span
               style={{
                 fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
+                fontSize: "15px",
                 lineHeight: "20px",
                 color: "#fff",
               }}
             >
               Top Up
+            </span>
+          </button>
+          <button
+            className="wallet-detail-action"
+            onClick={onOpenSwap}
+            style={{
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <RefreshCw size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}>
+              Swap
+            </span>
+          </button>
+          <button
+            className="wallet-detail-action"
+            onClick={onOpenShield}
+            style={{
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <Shield size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}>
+              Shield
             </span>
           </button>
         </div>
@@ -429,6 +441,20 @@ export function StashDetailView({
                 }
               />
             ))}
+
+          {activeTab === "tokens" && tokenRows.length === 0 && (
+            <div
+              style={{
+                padding: "12px 20px",
+                textAlign: "center",
+                fontFamily: font,
+                fontSize: "14px",
+                color: secondary,
+              }}
+            >
+              No tokens yet
+            </div>
+          )}
 
           {activeTab === "activity" && activityRows.length === 0 && (
             <div

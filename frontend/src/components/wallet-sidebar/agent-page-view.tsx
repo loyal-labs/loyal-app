@@ -1,8 +1,8 @@
 "use client";
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
-import { ArrowRight, ArrowUpRight, Check, ChevronRight, Copy, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { ArrowRight, Check, ChevronRight, Copy, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
@@ -162,6 +162,9 @@ export function AgentPageView({
   onDeleteSpendingLimit,
   onTopUpWithSpendingLimit,
   getTokenActions,
+  initialAccessLevel = "suggest",
+  variant = "sidebar",
+  showSpendingLimit = false,
 }: {
   label: string;
   agentIcon: string;
@@ -202,12 +205,17 @@ export function AgentPageView({
     spendingLimitAddress: string;
   }) => Promise<void>;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  initialAccessLevel?: AccessLevel;
+  variant?: "sidebar" | "workspace";
+  showSpendingLimit?: boolean;
 }) {
-  const [accessLevel, setAccessLevel] = useState<AccessLevel>("suggest");
+  const isWorkspace = variant === "workspace";
+  const [accessLevel, setAccessLevel] = useState<AccessLevel>(initialAccessLevel);
   const [isAccessExpanded, setIsAccessExpanded] = useState(false);
-  const [isLimitExpanded, setIsLimitExpanded] = useState(false);
+  const [isLimitExpanded, setIsLimitExpanded] = useState(isWorkspace);
   const [isAddressCopied, setIsAddressCopied] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<"activity" | "tokens">("tokens");
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasLimit = spendingLimit !== null;
   const limitAmounts = spendingLimit ? formatLimitAmount(spendingLimit) : null;
@@ -220,6 +228,16 @@ export function AgentPageView({
     : { whole: "$0", fraction: ".00" };
   const limitProgress = spendingLimit ? getLimitProgress(spendingLimit) : 0;
   const displayedSignerAddress = formatAddressForDisplay(signerAddress);
+
+  useEffect(() => {
+    setAccessLevel(initialAccessLevel);
+  }, [initialAccessLevel, signerAddress]);
+
+  useEffect(() => {
+    if (isWorkspace) {
+      setIsLimitExpanded(true);
+    }
+  }, [isWorkspace, signerAddress]);
 
   const copySignerAddress = async () => {
     try {
@@ -346,7 +364,15 @@ export function AgentPageView({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        background: "#fff",
+      }}
+    >
       <style jsx>{`
         .agent-back-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
@@ -411,87 +437,34 @@ export function AgentPageView({
         </defs>
       </svg>
 
-      {/* Header: back (arrow right — slides back to the right) */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-start",
-          padding: "8px",
-        }}
-      >
-        <button
-          className="agent-back-btn"
-          onClick={onBack}
-          style={{
-            width: "36px",
-            height: "36px",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "9999px",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            color: "#3C3C43",
-          }}
-          type="button"
-        >
-          <ArrowRight size={24} />
-        </button>
-      </div>
-
-      {/* Scrollable content */}
-      <div
-        ref={scrollRef}
-        className="agent-scroll"
-        onScroll={() => {
-          const top = scrollRef.current?.scrollTop ?? 0;
-          setIsScrolled(top > 0);
-        }}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          scrollbarWidth: "none",
-          borderTop: isScrolled ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid transparent",
-          boxShadow: isScrolled ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)" : "none",
-          transition: "border-color 0.15s ease, box-shadow 0.15s ease",
-        }}
-      >
-        {/* Agent info: icon + label + balance + remove button */}
+      {isWorkspace ? (
         <div
-          style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px",
+            flexShrink: 0,
+          }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt={label}
-            src={agentIcon}
-            style={{
-              width: "64px",
-              height: "64px",
-              borderRadius: "16px",
-              flexShrink: 0,
-              marginRight: "12px",
-            }}
-          />
           <div
             style={{
-              flex: 1,
               display: "flex",
               flexDirection: "column",
-              gap: "2px",
-              padding: "9px 0",
+              minWidth: 0,
+              padding: "0 12px",
             }}
           >
             <span
               style={{
+                color: "#000",
                 fontFamily: font,
-                fontSize: "15px",
-                fontWeight: 400,
+                fontSize: "16px",
+                fontWeight: 600,
                 lineHeight: "20px",
-                color: secondary,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
               {label}
@@ -501,7 +474,6 @@ export function AgentPageView({
               className="agent-address-btn"
               onClick={copySignerAddress}
               style={{
-                alignSelf: "flex-start",
                 display: "flex",
                 alignItems: "center",
                 gap: "5px",
@@ -530,29 +502,187 @@ export function AgentPageView({
                 {displayedSignerAddress}
               </span>
               {isAddressCopied ? (
-                <Check size={14} strokeWidth={1.8} />
+                <Check size={12} strokeWidth={1.8} />
               ) : (
-                <Copy size={14} strokeWidth={1.8} />
+                <Copy size={12} strokeWidth={1.8} />
               )}
             </button>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ borderRadius: "8px", overflow: "hidden" }}>
+          </div>
+          {canDeleteSigner && (
+            <button
+              aria-busy={isSignerDeletePending}
+              aria-label={`Remove ${label}`}
+              className="agent-remove-btn"
+              disabled={isSignerDeletePending}
+              onClick={requestSignerDelete}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: isSignerDeletePending ? "not-allowed" : "pointer",
+                padding: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                opacity: isSignerDeletePending ? 0.45 : 1,
+                transition: "opacity 0.15s ease",
+              }}
+              title={`Remove ${label}`}
+              type="button"
+            >
+              <Trash2 size={20} style={{ color: "#F9363C" }} />
+            </button>
+          )}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            padding: "8px",
+          }}
+        >
+          <button
+            className="agent-back-btn"
+            onClick={onBack}
+            style={{
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              background: "rgba(0, 0, 0, 0.04)",
+              border: "none",
+              borderRadius: "9999px",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              color: "#3C3C43",
+            }}
+            type="button"
+          >
+            <ArrowRight size={24} />
+          </button>
+        </div>
+      )}
+
+      {/* Scrollable content */}
+      <div
+        ref={scrollRef}
+        className="agent-scroll"
+        onScroll={() => {
+          const top = scrollRef.current?.scrollTop ?? 0;
+          setIsScrolled(top > 0);
+        }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          scrollbarWidth: "none",
+          borderTop:
+            !isWorkspace && isScrolled
+              ? "1px solid rgba(0, 0, 0, 0.08)"
+              : "1px solid transparent",
+          boxShadow: isScrolled ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)" : "none",
+          transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+        }}
+      >
+        <div
+          style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt={label}
+            src={agentIcon}
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "16px",
+              flexShrink: 0,
+              marginRight: "12px",
+            }}
+          />
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              padding: "9px 0",
+            }}
+          >
+            {!isWorkspace && (
+              <>
                 <span
                   style={{
                     fontFamily: font,
-                    fontSize: "32px",
-                    fontWeight: 600,
-                    lineHeight: "40px",
-                    letterSpacing: "-0.352px",
-                    color: isBalanceHidden ? "#BBBBC0" : "#000",
-                    filter: isBalanceHidden
-                      ? "url(#agent-pixelate)"
-                      : "none",
-                    transition: "filter 0.15s ease, color 0.15s ease",
-                    userSelect: isBalanceHidden ? "none" : "auto",
-                    display: "block",
+                    fontSize: "15px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: secondary,
                   }}
                 >
+                  {label}
+                </span>
+                <button
+                  aria-label={`Copy address ${signerAddress}`}
+                  className="agent-address-btn"
+                  onClick={copySignerAddress}
+                  style={{
+                    alignSelf: "flex-start",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    maxWidth: "100%",
+                    padding: 0,
+                    background: "transparent",
+                    border: "none",
+                    color: secondary,
+                    cursor: "pointer",
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                    transition: "opacity 0.15s ease",
+                  }}
+                  title={signerAddress}
+                  type="button"
+                >
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {displayedSignerAddress}
+                  </span>
+                  {isAddressCopied ? (
+                    <Check size={14} strokeWidth={1.8} />
+                  ) : (
+                    <Copy size={14} strokeWidth={1.8} />
+                  )}
+                </button>
+              </>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ borderRadius: "8px", overflow: "hidden" }}>
+                <span
+                style={{
+                  fontFamily: font,
+                  fontSize: isWorkspace ? "40px" : "32px",
+                  fontWeight: 600,
+                  lineHeight: isWorkspace ? "48px" : "40px",
+                  letterSpacing: isWorkspace ? "-0.44px" : "-0.352px",
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden
+                    ? "url(#agent-pixelate)"
+                    : "none",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                  display: "block",
+                }}
+              >
                   {balanceWhole}
                   <span
                     style={{
@@ -566,36 +696,38 @@ export function AgentPageView({
                   </span>
                 </span>
               </div>
-              <button
-                onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  flexShrink: 0,
-                }}
-                type="button"
-              >
-                {isBalanceHidden ? (
-                  <EyeOff
-                    size={22}
-                    strokeWidth={1.5}
-                    style={{ color: "rgba(60, 60, 67, 0.5)" }}
-                  />
-                ) : (
-                  <Eye
-                    size={22}
-                    strokeWidth={1.5}
-                    style={{ color: "rgba(60, 60, 67, 0.5)" }}
-                  />
-                )}
-              </button>
+              {!isWorkspace && (
+                <button
+                  onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    flexShrink: 0,
+                  }}
+                  type="button"
+                >
+                  {isBalanceHidden ? (
+                    <EyeOff
+                      size={22}
+                      strokeWidth={1.5}
+                      style={{ color: "rgba(60, 60, 67, 0.5)" }}
+                    />
+                  ) : (
+                    <Eye
+                      size={22}
+                      strokeWidth={1.5}
+                      style={{ color: "rgba(60, 60, 67, 0.5)" }}
+                    />
+                  )}
+                </button>
+              )}
             </div>
           </div>
-          {canDeleteSigner && (
+          {!isWorkspace && canDeleteSigner && (
             <button
               aria-busy={isSignerDeletePending}
               aria-label={`Remove ${label}`}
@@ -632,41 +764,11 @@ export function AgentPageView({
           }}
         >
           <button
-            disabled
-            style={{
-              flex: 1,
-              display: "flex",
-              gap: "6px",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "10px 16px 10px 8px",
-              borderRadius: "9999px",
-              background: "rgba(249, 54, 60, 0.14)",
-              border: "none",
-              cursor: "not-allowed",
-              opacity: 0.4,
-            }}
-            type="button"
-          >
-            <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#000",
-              }}
-            >
-              Transfer
-            </span>
-          </button>
-          <button
             className="agent-topup-btn"
             disabled={!spendingLimit || spendingLimit.isExpired || isSpendingLimitPending}
             onClick={requestTopUpAmount}
             style={{
-              flex: 1,
+              width: "100%",
               display: "flex",
               gap: "6px",
               alignItems: "center",
@@ -720,7 +822,7 @@ export function AgentPageView({
               display: "flex",
               alignItems: "center",
               width: "100%",
-              background: "rgba(0, 0, 0, 0.04)",
+              background: isWorkspace ? "transparent" : "rgba(0, 0, 0, 0.04)",
               borderRadius: "16px",
               padding: "14px 12px",
               border: "none",
@@ -858,6 +960,8 @@ export function AgentPageView({
               })}
           </div>
 
+          {showSpendingLimit && (
+          <>
           {/* Spending Limit — collapsible */}
           <button
             className="agent-limit-header"
@@ -866,7 +970,7 @@ export function AgentPageView({
               display: "flex",
               alignItems: "center",
               width: "100%",
-              background: "rgba(0, 0, 0, 0.04)",
+              background: isWorkspace ? "transparent" : "rgba(0, 0, 0, 0.04)",
               borderRadius: "16px",
               padding: "14px 12px",
               border: "none",
@@ -947,7 +1051,7 @@ export function AgentPageView({
                 className="agent-limit-card"
                 style={{
                   width: "100%",
-                  background: "#F5F5F5",
+                  background: isWorkspace ? "transparent" : "#F5F5F5",
                   borderRadius: "16px",
                   padding: "0 12px",
                   transition: "background 0.15s ease",
@@ -1177,6 +1281,8 @@ export function AgentPageView({
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
 
         {/* Tokens section */}
@@ -1198,114 +1304,107 @@ export function AgentPageView({
               justifyContent: "space-between",
             }}
           >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-              }}
-            >
-              Tokens
-            </span>
-            <button
-              className="agent-link-btn"
-              onClick={() => onNavigate("allTokens")}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-                transition: "opacity 0.15s ease",
-              }}
-              type="button"
-            >
-              See All
-            </button>
+            {isWorkspace ? (
+              <div style={{ display: "flex", gap: "24px", width: "100%" }}>
+                {(["tokens", "activity"] as const).map((tab) => {
+                  const isSelected = workspaceTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setWorkspaceTab(tab)}
+                      style={{
+                        position: "relative",
+                        background: "transparent",
+                        border: "none",
+                        padding: "12px 0 8px",
+                        cursor: "pointer",
+                        fontFamily: font,
+                        fontSize: "16px",
+                        fontWeight: 500,
+                        lineHeight: "20px",
+                        color: isSelected ? "#000" : "rgba(0, 0, 0, 0.4)",
+                        letterSpacing: "-0.176px",
+                      }}
+                      type="button"
+                    >
+                      {tab === "tokens" ? "Tokens" : "Activity"}
+                      {isSelected && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            bottom: "5px",
+                            height: "1px",
+                            background: "#000",
+                          }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    lineHeight: "20px",
+                    color: "#000",
+                    letterSpacing: "-0.176px",
+                  }}
+                >
+                  Tokens
+                </span>
+                <button
+                  className="agent-link-btn"
+                  onClick={() => onNavigate("allTokens")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#F9363C",
+                    transition: "opacity 0.15s ease",
+                  }}
+                  type="button"
+                >
+                  See All
+                </button>
+              </>
+            )}
           </div>
-          {tokenRows.map((token) => (
-            <TokenRowItem
-              actions={getTokenActions?.(token)}
-              isBalanceHidden={isBalanceHidden}
-              key={token.id ?? token.symbol}
-              token={token}
-            />
-          ))}
-        </div>
-
-        {/* Activity section */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "8px",
-            width: "100%",
-          }}
-        >
-          <div
-            style={{
-              width: "100%",
-              padding: "12px 12px 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-              }}
-            >
-              Activity
-            </span>
-            <button
-              className="agent-link-btn"
-              onClick={() => onNavigate("allActivity")}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-                transition: "opacity 0.15s ease",
-              }}
-              type="button"
-            >
-              See All
-            </button>
-          </div>
-          {activityRows.map((activity) => (
-            <ActivityRowItem
-              activity={activity}
-              isBalanceHidden={isBalanceHidden}
-              key={activity.id}
-              onClick={() =>
-                onNavigate({
-                  type: "transaction",
-                  detail: transactionDetails[activity.id],
-                  from: "portfolio",
-                })
-              }
-            />
-          ))}
-          {activityRows.length === 0 && (
+          {(!isWorkspace || workspaceTab === "tokens") &&
+            tokenRows.map((token) => (
+              <TokenRowItem
+                actions={getTokenActions?.(token)}
+                isBalanceHidden={isBalanceHidden}
+                key={token.id ?? token.symbol}
+                token={token}
+              />
+            ))}
+          {isWorkspace && workspaceTab === "activity" &&
+            activityRows.map((activity) => (
+              <ActivityRowItem
+                activity={activity}
+                isBalanceHidden={isBalanceHidden}
+                key={activity.id}
+                onClick={() =>
+                  onNavigate({
+                    type: "transaction",
+                    detail: transactionDetails[activity.id],
+                    from: "portfolio",
+                  })
+                }
+              />
+            ))}
+          {isWorkspace && workspaceTab === "activity" && activityRows.length === 0 && (
             <div
               style={{
                 padding: "12px 20px",
@@ -1319,6 +1418,86 @@ export function AgentPageView({
             </div>
           )}
         </div>
+        {!isWorkspace && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "8px",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                padding: "12px 12px 8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  color: "#000",
+                  letterSpacing: "-0.176px",
+                }}
+              >
+                Activity
+              </span>
+              <button
+                className="agent-link-btn"
+                onClick={() => onNavigate("allActivity")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#F9363C",
+                  transition: "opacity 0.15s ease",
+                }}
+                type="button"
+              >
+                See All
+              </button>
+            </div>
+            {activityRows.map((activity) => (
+              <ActivityRowItem
+                activity={activity}
+                isBalanceHidden={isBalanceHidden}
+                key={activity.id}
+                onClick={() =>
+                  onNavigate({
+                    type: "transaction",
+                    detail: transactionDetails[activity.id],
+                    from: "portfolio",
+                  })
+                }
+              />
+            ))}
+            {activityRows.length === 0 && (
+              <div
+                style={{
+                  padding: "12px 20px",
+                  textAlign: "center",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  color: secondary,
+                }}
+              >
+                No activity yet
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

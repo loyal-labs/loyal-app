@@ -5,5 +5,5 @@ export function getVaultIcon(accountIndex: number | null | undefined): string {
     return "/hero-new/Wallet-Cover.png";
   }
 
-  return accountIndex === 0 ? "/redbg.png" : "/purplebg.png";
+  return "/agents/Stash.svg";
 }

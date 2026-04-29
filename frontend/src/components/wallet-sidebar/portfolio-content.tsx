@@ -4,10 +4,10 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
-  ChevronLeft,
   Copy,
   Eye,
   EyeOff,
+  Plus,
   RefreshCw,
   Send,
   X,
@@ -46,6 +46,7 @@ const skeletonCircle = (size: string) => ({
 
 const COLLAPSED_SIGNER_COUNT = 3;
 const SIGNER_EXPAND_THRESHOLD = 5;
+const rowHoverBackground = "rgba(0, 0, 0, 0.04)";
 
 const accessColors: Record<AccessLevel, string> = {
   execute: "rgba(249, 54, 60, 0.65)",
@@ -60,13 +61,17 @@ const accessBorderColors: Record<AccessLevel, string> = {
 };
 
 function SignerTreeRow({
+  isFirst,
   isLast,
   isBalanceHidden,
+  isSelected,
   onOpen,
   signer,
 }: {
+  isFirst: boolean;
   isLast: boolean;
   isBalanceHidden: boolean;
+  isSelected: boolean;
   onOpen: (signer: SmartAccountSignerEntry) => void;
   signer: SmartAccountSignerEntry;
 }) {
@@ -81,9 +86,11 @@ function SignerTreeRow({
         position: "relative",
         display: "flex",
         alignItems: "center",
-        padding: "6px 12px 6px 52px",
+        minHeight: "56px",
+        marginTop: isFirst ? "12px" : 0,
+        padding: "0 12px",
         borderRadius: "16px",
-        background: "transparent",
+        background: isSelected ? rowHoverBackground : "transparent",
         border: "none",
         cursor: "pointer",
         width: "100%",
@@ -96,21 +103,21 @@ function SignerTreeRow({
       <div
         style={{
           position: "absolute",
-          left: "35px",
-          top: 0,
-          bottom: isLast ? "50%" : 0,
+          left: "36px",
+          top: isFirst ? "-12px" : 0,
+          bottom: isLast ? "28px" : 0,
           width: "1px",
-          background: "rgba(60, 60, 67, 0.12)",
+          background: "rgba(60, 60, 67, 0.16)",
         }}
       />
       <div
         style={{
           position: "absolute",
-          left: "35px",
-          top: "50%",
-          width: "13px",
+          left: "36px",
+          top: "28px",
+          width: "12px",
           height: "1px",
-          background: "rgba(60, 60, 67, 0.12)",
+          background: "rgba(60, 60, 67, 0.16)",
         }}
       />
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -122,12 +129,14 @@ function SignerTreeRow({
           height: "48px",
           borderRadius: "12px",
           flexShrink: 0,
+          marginLeft: "36px",
           marginRight: "12px",
         }}
       />
       <div
         style={{
           flex: 1,
+          minWidth: 0,
           display: "flex",
           flexDirection: "column",
           gap: "2px",
@@ -166,6 +175,7 @@ function SignerTreeRow({
             display: "flex",
             alignItems: "center",
             gap: "6px",
+            minWidth: 0,
           }}
         >
           <span
@@ -175,43 +185,122 @@ function SignerTreeRow({
               fontWeight: 400,
               lineHeight: "16px",
               color: secondary,
-            }}
-          >
-            {signer.label}
-          </span>
-          <span
-            style={{
-              fontFamily: font,
-              fontSize: "11px",
-              fontWeight: 500,
-              lineHeight: "14px",
-              color: accessColor,
-              border: `1px solid ${accessBorderColor}`,
-              borderRadius: "9999px",
-              padding: "1px 8px 1px 4px",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
               whiteSpace: "nowrap",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "2px",
             }}
           >
-            <AccessLevelIcon
-              color={accessColor}
-              level={signer.accessLevel}
-              size={14}
-            />
-            {signer.accessLabel}
+            {signer.label} · {signer.shortAddress}
           </span>
         </div>
       </div>
-      <ChevronLeft
-        size={24}
+      <span
         style={{
-          color: "rgba(60, 60, 67, 0.3)",
+          fontFamily: font,
+          fontSize: "11px",
+          fontWeight: 500,
+          lineHeight: "14px",
+          color: accessColor,
+          border: `1px solid ${accessBorderColor}`,
+          borderRadius: "9999px",
+          padding: "1px 8px 1px 4px",
+          whiteSpace: "nowrap",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "2px",
           flexShrink: 0,
           marginLeft: "12px",
         }}
+      >
+        <AccessLevelIcon
+          color={accessColor}
+          level={signer.accessLevel}
+          size={14}
+        />
+        {signer.accessLabel}
+      </span>
+    </button>
+  );
+}
+
+function AddSignerTreeRow({
+  isFirst,
+  onOpen,
+}: {
+  isFirst: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      className="portfolio-account-row"
+      onClick={onOpen}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        minHeight: "56px",
+        marginTop: isFirst ? "12px" : 0,
+        padding: "0 12px",
+        borderRadius: "16px",
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        width: "100%",
+        transition: "background 0.15s ease",
+        textAlign: "left",
+      }}
+      type="button"
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: "36px",
+          top: isFirst ? "-12px" : 0,
+          bottom: "28px",
+          width: "1px",
+          background: "rgba(60, 60, 67, 0.16)",
+        }}
       />
+      <div
+        style={{
+          position: "absolute",
+          left: "36px",
+          top: "28px",
+          width: "12px",
+          height: "1px",
+          background: "rgba(60, 60, 67, 0.16)",
+        }}
+      />
+      <span
+        style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "12px",
+          flexShrink: 0,
+          marginLeft: "36px",
+          marginRight: "12px",
+          background: "rgba(249, 54, 60, 0.14)",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "rgba(60, 60, 67, 0.6)",
+        }}
+      >
+        <Plus size={28} strokeWidth={1.5} />
+      </span>
+      <span
+        style={{
+          fontFamily: font,
+          fontSize: "16px",
+          fontWeight: 500,
+          lineHeight: "20px",
+          color: "#000",
+          letterSpacing: "-0.176px",
+        }}
+      >
+        Add
+      </span>
     </button>
   );
 }
@@ -234,10 +323,18 @@ export function PortfolioContent({
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  onOpenWallet,
   onOpenVault,
   onOpenAgent,
+  onOpenAddSigner,
   walletAddress,
   walletLabel,
+  selectedSignerId = null,
+  selectedVaultIndex = null,
+  isWalletSelected = false,
+  showActionButtons = true,
+  showApprovals = true,
+  showHeaderControls = true,
 }: {
   balanceFraction: string;
   balanceWhole: string;
@@ -256,10 +353,18 @@ export function PortfolioContent({
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  onOpenWallet?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
+  onOpenAddSigner?: (accountIndex: number) => void;
   walletAddress: string | null;
   walletLabel: string;
+  selectedSignerId?: string | null;
+  selectedVaultIndex?: number | null;
+  isWalletSelected?: boolean;
+  showActionButtons?: boolean;
+  showApprovals?: boolean;
+  showHeaderControls?: boolean;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -280,6 +385,10 @@ export function PortfolioContent({
       next.add(accountIndex);
       return next;
     });
+  }, []);
+  const shortRowAddress = useCallback((address: string | null | undefined) => {
+    if (!address) return null;
+    return `${address.slice(0, 4)}…${address.slice(-4)}`;
   }, []);
   const handleCopyAddress = useCallback(
     (e: React.MouseEvent) => {
@@ -331,12 +440,14 @@ export function PortfolioContent({
           <div style={skeletonBar("180px", "40px")} />
           <div style={skeletonBar("120px", "14px")} />
         </div>
-        <div style={{ padding: "8px 20px", display: "flex", gap: "16px" }}>
-          <div style={skeletonCircle("44px")} />
-          <div style={skeletonCircle("44px")} />
-          <div style={skeletonCircle("44px")} />
-          <div style={skeletonBar("120px", "44px")} />
-        </div>
+        {showActionButtons && (
+          <div style={{ padding: "8px 20px", display: "flex", gap: "16px" }}>
+            <div style={skeletonCircle("44px")} />
+            <div style={skeletonCircle("44px")} />
+            <div style={skeletonCircle("44px")} />
+            <div style={skeletonBar("120px", "44px")} />
+          </div>
+        )}
         <div style={{ flex: 1, padding: "8px" }}>
           <div style={{ padding: "12px 12px 8px" }}>
             <div style={skeletonBar("80px", "16px")} />
@@ -489,6 +600,7 @@ export function PortfolioContent({
             </div>
           </div>
         </div>
+        {showHeaderControls && (
         <div
           style={{
             display: "flex",
@@ -541,10 +653,37 @@ export function PortfolioContent({
             <X size={24} />
           </button>
         </div>
+        )}
       </div>
 
       {/* Balance */}
-      <div style={{ padding: "8px 20px" }}>
+      <div
+        className="portfolio-account-row"
+        onClick={onOpenWallet}
+        onKeyDown={(event) => {
+          if (!onOpenWallet) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpenWallet();
+          }
+        }}
+        role={onOpenWallet ? "button" : undefined}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+          width: "calc(100% - 16px)",
+          margin: "0 8px",
+          padding: "8px 12px",
+          borderRadius: "16px",
+          background: isWalletSelected ? rowHoverBackground : "transparent",
+          border: "none",
+          cursor: onOpenWallet ? "pointer" : "default",
+          textAlign: "left",
+          transition: "background 0.15s ease",
+        }}
+        tabIndex={onOpenWallet ? 0 : undefined}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ borderRadius: "8px", overflow: "hidden" }}>
             <span
@@ -573,7 +712,10 @@ export function PortfolioContent({
             </span>
           </div>
           <button
-            onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onBalanceHiddenChange(!isBalanceHidden);
+            }}
             style={{
               background: "none",
               border: "none",
@@ -614,6 +756,7 @@ export function PortfolioContent({
       </div>
 
       {/* Action buttons: receive, send, swap + Shield pill */}
+      {showActionButtons && (
       <div
         style={{
           display: "flex",
@@ -714,6 +857,7 @@ export function PortfolioContent({
           </span>
         </button>
       </div>
+      )}
 
       {/* Scrollable content */}
       <div
@@ -761,12 +905,11 @@ export function PortfolioContent({
                   needsSignerExpand && !signersExpanded
                     ? vault.signers.slice(0, COLLAPSED_SIGNER_COUNT)
                     : vault.signers;
-                const hasChildRows =
-                  visibleSigners.length > 0 &&
-                  (!needsSignerExpand || signersExpanded);
-                const hasVisibleTreeRows =
-                  visibleSigners.length > 0 ||
-                  (needsSignerExpand && !signersExpanded);
+                const vaultAddressLabel = shortRowAddress(vault.address);
+                const isVaultSelected =
+                  selectedVaultIndex === vault.accountIndex &&
+                  selectedSignerId === null &&
+                  !isWalletSelected;
 
                 return (
                   <div
@@ -780,9 +923,12 @@ export function PortfolioContent({
                         position: "relative",
                         display: "flex",
                         alignItems: "center",
-                        padding: "6px 12px",
+                        minHeight: "68px",
+                        padding: "4px 12px",
                         borderRadius: "16px",
-                        background: "transparent",
+                        background: isVaultSelected
+                          ? rowHoverBackground
+                          : "transparent",
                         border: "none",
                         cursor: "pointer",
                         width: "100%",
@@ -791,18 +937,16 @@ export function PortfolioContent({
                       }}
                       type="button"
                     >
-                      {hasVisibleTreeRows && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: "35px",
-                            top: "50%",
-                            bottom: 0,
-                            width: "1px",
-                            background: "rgba(60, 60, 67, 0.12)",
-                          }}
-                        />
-                      )}
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: "36px",
+                          top: "50%",
+                          bottom: "-12px",
+                          width: "1px",
+                          background: "rgba(60, 60, 67, 0.16)",
+                        }}
+                      />
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         alt={vault.label}
@@ -818,6 +962,7 @@ export function PortfolioContent({
                       <div
                         style={{
                           flex: 1,
+                          minWidth: 0,
                           display: "flex",
                           flexDirection: "column",
                           gap: "2px",
@@ -862,28 +1007,24 @@ export function PortfolioContent({
                             fontWeight: 400,
                             lineHeight: "16px",
                             color: secondary,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          {vault.label}
+                          {vaultAddressLabel
+                            ? `${vault.label} · ${vaultAddressLabel}`
+                            : vault.label}
                         </span>
                       </div>
-                      <ChevronLeft
-                        size={24}
-                        style={{
-                          color: "rgba(60, 60, 67, 0.3)",
-                          flexShrink: 0,
-                          marginLeft: "12px",
-                        }}
-                      />
                     </button>
 
                     {visibleSigners.map((signer, signerIndex) => (
                       <SignerTreeRow
-                        isLast={
-                          hasChildRows &&
-                          signerIndex === visibleSigners.length - 1
-                        }
+                        isFirst={signerIndex === 0}
+                        isLast={false}
                         isBalanceHidden={isBalanceHidden}
+                        isSelected={selectedSignerId === signer.id}
                         key={signer.id}
                         onOpen={onOpenAgent}
                         signer={signer}
@@ -899,7 +1040,8 @@ export function PortfolioContent({
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          padding: "4px 12px 4px 52px",
+                          minHeight: "44px",
+                          padding: "0 12px",
                           borderRadius: "16px",
                           background: "transparent",
                           border: "none",
@@ -912,21 +1054,21 @@ export function PortfolioContent({
                         <div
                           style={{
                             position: "absolute",
-                            left: "35px",
+                            left: "36px",
                             top: 0,
-                            bottom: "50%",
+                            bottom: 0,
                             width: "1px",
-                            background: "rgba(60, 60, 67, 0.12)",
+                            background: "rgba(60, 60, 67, 0.16)",
                           }}
                         />
                         <div
                           style={{
                             position: "absolute",
-                            left: "35px",
-                            top: "50%",
-                            width: "13px",
+                            left: "36px",
+                            top: "22px",
+                            width: "12px",
                             height: "1px",
-                            background: "rgba(60, 60, 67, 0.12)",
+                            background: "rgba(60, 60, 67, 0.16)",
                           }}
                         />
                         <div
@@ -936,6 +1078,7 @@ export function PortfolioContent({
                             alignItems: "center",
                             gap: "8px",
                             padding: "8px 0",
+                            marginLeft: "36px",
                           }}
                         >
                           <div
@@ -967,6 +1110,11 @@ export function PortfolioContent({
                         </div>
                       </button>
                     )}
+
+                    <AddSignerTreeRow
+                      isFirst={visibleSigners.length === 0}
+                      onOpen={() => onOpenAddSigner?.(vault.accountIndex)}
+                    />
                   </div>
                 );
               })}
@@ -987,6 +1135,7 @@ export function PortfolioContent({
         </div>
 
         {/* Approvals section */}
+        {showApprovals && (
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
@@ -1266,6 +1415,7 @@ export function PortfolioContent({
               </div>
             ))}
         </div>
+        )}
       </div>
     </div>
   );
