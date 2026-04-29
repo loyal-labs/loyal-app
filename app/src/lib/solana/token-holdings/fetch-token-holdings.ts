@@ -5,7 +5,7 @@ import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "@/lib/constants";
 import { fetchTokenPricesByMints } from "@/lib/jupiter/price";
 
 import { fetchJson } from "../../core/http";
-import { fetchLoyalDeposits } from "../deposits/loyal-deposits";
+import { getPrivateClient } from "../deposits/private-client";
 import { getSolanaEnv } from "../rpc/connection";
 import { CACHE_TTL_MS } from "./constants";
 import { resolveTokenIcon } from "./resolve-token-info";
@@ -16,6 +16,12 @@ import type {
   HeliusResponse,
   TokenHolding,
 } from "./types";
+
+type HeliusSingleAssetResponse = {
+  jsonrpc: "2.0";
+  result: HeliusAsset | null;
+  id: string;
+};
 
 const holdingsCache = new Map<string, CachedHoldings>();
 const inflightRequests = new Map<string, Promise<TokenHolding[]>>();
@@ -138,6 +144,87 @@ async function fetchHoldingsFromHelius(
   return holdings;
 }
 
+/**
+ * Fetch metadata for a single mint via Helius DAS `getAsset`.
+ *
+ * Used to resolve shielded-only token holdings — i.e. tokens the user has
+ * deposited into the Loyal secure vault but no longer holds on the base
+ * chain. Since `getAssetsByOwner` omits zero-balance token accounts, a
+ * shielded-max deposit would otherwise render without any metadata.
+ */
+async function fetchAssetByMint(
+  rpcUrl: string,
+  mint: string
+): Promise<HeliusAsset | null> {
+  try {
+    const response = await fetchJson<HeliusSingleAssetResponse>(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "shielded-asset",
+        method: "getAsset",
+        params: { id: mint },
+      }),
+    });
+    return response.result ?? null;
+  } catch (error) {
+    console.warn(
+      `[token-holdings] getAsset failed for mint ${mint}`,
+      error
+    );
+    return null;
+  }
+}
+
+/**
+ * Build a zero-balance TokenHolding from mint metadata, intended as the
+ * "base row" template used to derive a shielded holding when the user has
+ * no base-chain balance for the mint. The caller overwrites `balance` and
+ * `valueUsd` with shielded values.
+ */
+function buildHoldingTemplateFromAsset(asset: HeliusAsset): TokenHolding | null {
+  const tokenInfo = asset.token_info;
+  if (!tokenInfo) return null;
+
+  const { decimals, price_info } = tokenInfo;
+  const symbol = resolveSymbol(asset);
+  const name = resolveName(asset, symbol);
+
+  return {
+    mint: asset.id,
+    symbol,
+    name,
+    balance: 0,
+    decimals,
+    priceUsd: price_info?.price_per_token ?? null,
+    valueUsd: null,
+    imageUrl: resolveImageUrl(asset),
+  };
+}
+
+/**
+ * Last-resort template when metadata can't be resolved. Preserves the mint
+ * so the row still renders (icon fallback + truncated mint as symbol).
+ */
+function buildUnknownHoldingTemplate(
+  mint: string,
+  decimals: number
+): TokenHolding {
+  const short =
+    mint.length > 10 ? `${mint.slice(0, 4)}...${mint.slice(-4)}` : mint;
+  return {
+    mint,
+    symbol: short,
+    name: short,
+    balance: 0,
+    decimals,
+    priceUsd: null,
+    valueUsd: null,
+    imageUrl: null,
+  };
+}
+
 async function enrichHoldingsWithJupiterPrices(
   holdings: TokenHolding[],
 ): Promise<TokenHolding[]> {
@@ -168,43 +255,91 @@ async function enrichHoldingsWithJupiterPrices(
   });
 }
 
-// Fetch holdings from Helius and from Magic Block PER (Secure deposits)
+/**
+ * Fetch holdings from Helius (base-chain balances) and from the Loyal secure
+ * vault (shielded deposits via MagicBlock PER), then merge them into a single
+ * TokenHolding list.
+ *
+ * Shielded deposits are enumerated directly from the Loyal program (both the
+ * base and ephemeral chains) rather than derived from Helius, so a mint only
+ * held inside the secure vault — e.g. after shielding the user's full USDC
+ * balance — still renders a row.
+ */
 async function fetchCombinedHoldings(
   rpcUrl: string,
   publicKey: string
 ): Promise<TokenHolding[]> {
   const userPubkey = new PublicKey(publicKey);
-  const solMint = new PublicKey(NATIVE_SOL_MINT);
 
-  // Fetch token holdings and Secure SOL
-  const [holdingsFromHelius, loyalNativeDeposits] = await Promise.all([
+  const [holdingsFromHelius, privateClient] = await Promise.all([
     fetchHoldingsFromHelius(rpcUrl, publicKey),
-    fetchLoyalDeposits(userPubkey, [solMint]),
+    getPrivateClient(),
   ]);
 
-  // Fetch other Secure token deposits based on tokens in base chain
-  const tokenMints = holdingsFromHelius
-    .map((h) => new PublicKey(h.mint))
-    .filter((mint) => !mint.equals(solMint));
-  const loyalTokenDeposits = await fetchLoyalDeposits(userPubkey, tokenMints);
+  let userDeposits: Awaited<
+    ReturnType<typeof privateClient.getAllDepositsByUser>
+  > = [];
+  try {
+    userDeposits = await privateClient.getAllDepositsByUser(userPubkey);
+  } catch (error) {
+    console.warn(
+      "[token-holdings] getAllDepositsByUser failed; shielded rows will be hidden",
+      error
+    );
+  }
 
-  // FIXME: show Secure token holdings even if user don't have tokens on base chain
+  const nonZeroDeposits = userDeposits.filter((d) => d.amount > BigInt(0));
+
+  // Resolve metadata for any shielded mint we can't match against a
+  // base-chain row. Each unresolved mint costs one DAS getAsset request; in
+  // practice a user has only a handful of shielded tokens.
+  const heliusByMint = new Map<string, TokenHolding>();
+  for (const holding of holdingsFromHelius) {
+    heliusByMint.set(holding.mint, holding);
+  }
+
+  const unresolvedMints = nonZeroDeposits
+    .map((d) => d.tokenMint.toBase58())
+    .filter((mint) => !heliusByMint.has(mint));
+  const uniqueUnresolvedMints = [...new Set(unresolvedMints)];
+
+  const resolvedAssets = await Promise.all(
+    uniqueUnresolvedMints.map(async (mint) => {
+      const asset = await fetchAssetByMint(rpcUrl, mint);
+      return [mint, asset] as const;
+    })
+  );
+  const assetByMint = new Map(resolvedAssets);
+
   const securedHoldings: TokenHolding[] = [];
-  for (const [mint, amount] of [
-    ...loyalNativeDeposits,
-    ...loyalTokenDeposits,
-  ]) {
-    const mintStr = mint.toString();
-    const original = holdingsFromHelius.find((h) => h.mint === mintStr);
-    if (original) {
-      const securedBalance = amount / Math.pow(10, original.decimals);
-      securedHoldings.push({
-        ...original,
-        balance: securedBalance,
-        valueUsd: original.priceUsd ? securedBalance * original.priceUsd : null,
-        isSecured: true,
-      });
+  for (const deposit of nonZeroDeposits) {
+    const mintStr = deposit.tokenMint.toBase58();
+    const rawAmount = Number(deposit.amount);
+
+    let template = heliusByMint.get(mintStr) ?? null;
+    if (!template) {
+      const asset = assetByMint.get(mintStr) ?? null;
+      if (asset) {
+        template = buildHoldingTemplateFromAsset(asset);
+      }
     }
+
+    if (!template) {
+      // Fall back to a placeholder — we still want the row visible so the
+      // user can see their shielded balance and unshield it. Decimals default
+      // to 0 so the raw on-chain amount is displayed verbatim; that is ugly
+      // but correct and only hit when every metadata source failed.
+      template = buildUnknownHoldingTemplate(mintStr, 0);
+    }
+
+    const securedBalance = rawAmount / Math.pow(10, template.decimals);
+    securedHoldings.push({
+      ...template,
+      balance: securedBalance,
+      valueUsd:
+        template.priceUsd !== null ? securedBalance * template.priceUsd : null,
+      isSecured: true,
+    });
   }
 
   const allHoldings = [...holdingsFromHelius, ...securedHoldings];

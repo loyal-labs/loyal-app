@@ -371,8 +371,8 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
 		id: position.asset.mint,
 		symbol: position.asset.symbol,
 		price: formatUsd(position.priceUsd),
-		amount: formatTokenBalance(position.totalBalance),
-		value: formatUsd(position.totalValueUsd),
+		amount: formatTokenBalance(position.publicBalance),
+		value: formatUsd(position.publicValueUsd),
 		icon: resolveTokenIcon(position),
 	};
 }
@@ -593,7 +593,7 @@ export function useWalletData(params: {
 	const allTokenRows = useMemo(() => {
 		const rows: TokenRow[] = [];
 		for (const position of positions) {
-			if (position.totalBalance > 0) {
+			if (position.publicBalance > 0) {
 				rows.push(mapPositionToTokenRow(position));
 			}
 			if (position.securedBalance > 0) {
@@ -619,6 +619,14 @@ export function useWalletData(params: {
 				}
 			} else {
 				const pos = positions.find((p) => p.asset.mint === mint);
+				if (
+					mint === LOYL_MINT &&
+					pos &&
+					pos.publicBalance === 0 &&
+					pos.securedBalance > 0
+				) {
+					continue;
+				}
 				const row: TokenRow = pos
 					? mapPositionToTokenRow(pos)
 					: {

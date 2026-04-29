@@ -110,7 +110,13 @@ docs/scopes
 /packages/*/dist/
 /sdk/*/dist/
 
-# Turbo cache
-.turbo/
-
 report.md
+skills-lock**
+ss_claude_**
+second-report**
+
+docs/superpowers
+
+.superpowers
+
+.agents/**

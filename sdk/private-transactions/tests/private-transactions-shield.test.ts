@@ -36,12 +36,12 @@ import {
   transfer,
 } from "@solana/spl-token";
 import {
-  verifyTeeRpcIntegrity,
+  verifyTeeIntegrity,
   getAuthToken,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-import { sign } from "tweetnacl";
 import path from "node:path";
 import type { TelegramVerification } from "../../../target/types/telegram_verification";
+import { createKeypairMessageSigner } from "../src/webcrypto";
 
 const AUTH_TOKEN_CACHE_PATH = path.join(
   import.meta.dir,
@@ -77,13 +77,9 @@ async function getOrCacheAuthToken(
     return cached;
   }
 
-  const isVerified = await verifyTeeRpcIntegrity(ephemeralRpcEndpoint);
-  if (!isVerified) {
-    throw new Error("TEE RPC integrity verification failed");
-  }
+  await verifyTeeIntegrity(ephemeralRpcEndpoint);
 
-  const signMessage = (message: Uint8Array) =>
-    Promise.resolve(sign.detached(message, keypair.secretKey));
+  const signMessage = createKeypairMessageSigner(keypair);
 
   const result = await getAuthToken(
     ephemeralRpcEndpoint,
@@ -614,7 +610,6 @@ export async function shieldTokens(params: {
     increase: true,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 
@@ -715,7 +710,6 @@ export async function unshieldTokens(params: {
     increase: false,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
 

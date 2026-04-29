@@ -52,6 +52,7 @@
     "@solana/wallet-standard-util": "^1.1.2",
     "@solana/web3.js": "^1.98.4",
     "@tabler/icons-react": "^3.35.0",
+    "@usercentrics/cmp-browser-sdk": "4.62.2",
     "@vercel/speed-insights": "^1.2.0",
     "@walletconnect/solana-adapter": "^0.0.8",
     "ai": "^5.0.13",

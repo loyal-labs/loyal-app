@@ -16,10 +16,14 @@ export type { AppEnvironment } from "./shared";
 const LOCAL_TURNSTILE_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
+const GRID_AUTH_BASE_URL_ENV_NAME = "NEXT_PUBLIC_GRID_AUTH_BASE_URL";
+const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
+const USERCENTRICS_SETTINGS_ID_ENV_NAME =
+  "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
 export type TurnstileConfig =
   | { mode: "bypass"; verificationToken: string }
@@ -33,6 +37,8 @@ export type SwapConfig =
 export type PublicEnv = {
   appEnvironment: AppEnvironment;
   turnstile: TurnstileConfig;
+  gridAuthBaseUrl: string | undefined;
+  flagsManifestUrl: string | undefined;
   solanaEnv: SolanaEnv;
   solanaRpcEndpoint: string;
   swap: SwapConfig;
@@ -40,6 +46,7 @@ export type PublicEnv = {
   demoRecipeEnabled: boolean;
   mixpanelToken: string | undefined;
   mixpanelProxyPath: string;
+  usercentricsSettingsId: string | undefined;
   gitBranch: string;
   gitCommitHash: string;
 };
@@ -95,6 +102,8 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
   return {
     appEnvironment,
     turnstile: resolveTurnstileConfig(env, appEnvironment),
+    gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
+    flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
     solanaEnv,
     solanaRpcEndpoint: getSolanaEndpoints(solanaEnv).rpcEndpoint,
     swap: resolveSwapConfig(env),
@@ -111,6 +120,10 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
 
       return value.startsWith("/") ? value : `/${value}`;
     })(),
+    usercentricsSettingsId: getOptionalEnv(
+      env,
+      USERCENTRICS_SETTINGS_ID_ENV_NAME
+    ),
     gitBranch: getOptionalEnv(env, "NEXT_PUBLIC_GIT_BRANCH") ?? "unknown",
     gitCommitHash: getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
   };

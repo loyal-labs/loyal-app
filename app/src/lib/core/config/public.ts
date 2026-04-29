@@ -1,11 +1,19 @@
 import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
 
-import { isStrictTrue, normalizeOptionalValue } from "./shared";
+import {
+  type AppEnvironment,
+  isStrictTrue,
+  normalizeOptionalValue,
+  resolveAppEnvironment,
+} from "./shared";
 
 export type PublicSolanaEnv = SolanaEnv;
 const DEFAULT_MIXPANEL_PROXY_PATH = "/ingest";
 
 export const publicEnv = {
+  get appEnvironment(): AppEnvironment {
+    return resolveAppEnvironment(process.env.NEXT_PUBLIC_APP_ENVIRONMENT);
+  },
   get serverHost(): string | undefined {
     return normalizeOptionalValue(process.env.NEXT_PUBLIC_SERVER_HOST);
   },

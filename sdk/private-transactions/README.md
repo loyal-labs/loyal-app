@@ -40,32 +40,11 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
   commitment: "confirmed",
 });
 
-// Shield: move tokens into private deposit
-await client.initializeDeposit({
+// Shield: move tokens into private deposit in one base transaction
+await client.shieldTokens({
   tokenMint,
   user: signer.publicKey,
-  payer: signer.publicKey,
-});
-
-await client.modifyBalance({
-  tokenMint,
-  user: signer.publicKey,
-  payer: signer.publicKey,
-  userTokenAccount: new PublicKey("<sender-ata>"),
   amount: 1_000_000,
-  increase: true,
-});
-
-await client.createPermission({
-  tokenMint,
-  user: signer.publicKey,
-  payer: signer.publicKey,
-});
-
-await client.delegateDeposit({
-  tokenMint,
-  user: signer.publicKey,
-  payer: signer.publicKey,
   validator: ER_VALIDATOR,
 });
 
@@ -79,23 +58,14 @@ await client.transferToUsernameDeposit({
   sessionToken: null,
 });
 
-// Unshield: commit PER state and withdraw tokens
-await client.undelegateDeposit({
+// Unshield: withdraw from private deposit in one base transaction
+await client.unshieldTokens({
   tokenMint,
   user: signer.publicKey,
-  payer: signer.publicKey,
+  amount: 1_000_000,
   sessionToken: null,
   magicProgram: MAGIC_PROGRAM_ID,
   magicContext: MAGIC_CONTEXT_ID,
-});
-
-await client.modifyBalance({
-  tokenMint,
-  user: signer.publicKey,
-  payer: signer.publicKey,
-  userTokenAccount: new PublicKey("<sender-ata>"),
-  amount: 1_000_000,
-  increase: false,
 });
 ```
 
@@ -131,10 +101,62 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
 
 ### Shield / Unshield
 
+- `shieldTokens` — one-transaction base shield flow, with optional pre-undelegate when the deposit is already delegated
+- `unshieldTokens` — one-transaction base unshield flow, with optional pre-undelegate and automatic re-delegate when balance remains
+- `buildShieldFlowTransactionPlan` — create the planned `shield` or `unshield` transactions and instruction metadata once
+- `buildShieldTokensTransactionPlan` / `buildUnshieldTokensTransactionPlan` — explicit shield/unshield plan builders
+- `estimateShieldFlowFee` — estimate transaction-level network fees plus instruction-attributed rent from an existing plan
+- `estimateShieldTokensFee` / `estimateUnshieldTokensFee` — explicit shield/unshield estimators for an existing plan
+- `executeShieldFlowTransactionPlan` — send the exact transactions from an existing plan in order
+- `executeShieldTokensTransactionPlan` / `executeUnshieldTokensTransactionPlan` — explicit shield/unshield executors for an existing plan
 - `initializeDeposit` — create deposit account (no-op if exists)
 - `modifyBalance` — deposit (`increase: true`) or withdraw (`increase: false`) real tokens
 - `createPermission` — set up PER access control (idempotent)
 - `delegateDeposit` — delegate to TEE validator
+
+Fee estimates use Solana's `getFeeForMessage` on the planned transaction
+messages. Instruction rows report `rentLamports` for new accounts that the SDK
+expects to create; network fees are not attributed per instruction because
+Solana charges them at the transaction/message level. Build the plan once and
+pass the same plan into the estimator so the estimate is tied to the exact
+instructions your app is about to inspect or send. To execute that exact plan,
+pass it to the matching `execute*TransactionPlan` method; it will send any
+pre-undelegate transaction first, wait for the required owner transition when
+the plan includes one, then send the base transaction.
+
+```ts
+const shieldPlan = await client.buildShieldTokensTransactionPlan({
+  user: signer.publicKey,
+  tokenMint,
+  amount: 1_000_000,
+});
+const shieldEstimate = await client.estimateShieldTokensFee({
+  plan: shieldPlan,
+});
+
+const unshieldPlan = await client.buildUnshieldTokensTransactionPlan({
+  user: signer.publicKey,
+  tokenMint,
+  amount: 1_000_000,
+});
+const unshieldEstimate = await client.estimateUnshieldTokensFee({
+  plan: unshieldPlan,
+});
+
+console.log(shieldEstimate.totalLamports);
+console.log(unshieldEstimate.totalLamports);
+
+const shieldResult = await client.executeShieldTokensTransactionPlan({
+  plan: shieldPlan,
+});
+
+const unshieldResult = await client.executeUnshieldTokensTransactionPlan({
+  plan: unshieldPlan,
+});
+
+console.log(shieldResult.signatures);
+console.log(unshieldResult.signatures);
+```
 
 ### Private Transfers (on PER)
 

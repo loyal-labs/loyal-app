@@ -37,6 +37,9 @@ export {
   waitForAccountOwnerChange,
 } from "./src/LoyalPrivateTransactionsClient";
 
+export { shieldTokens } from "./src/actions/shieldTokens";
+export { unshieldTokens } from "./src/actions/unshieldTokens";
+
 // Types
 export type {
   WalletSigner,
@@ -48,6 +51,28 @@ export type {
   InitializeDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
+  BuildShieldFlowTransactionPlanParams,
+  BuildShieldTokensTransactionPlanParams,
+  BuildUnshieldTokensTransactionPlanParams,
+  ExecuteShieldFlowTransactionPlanParams,
+  ExecuteShieldTokensTransactionPlanParams,
+  ExecuteUnshieldTokensTransactionPlanParams,
+  ShieldFlowKind,
+  FeeEstimateCluster,
+  EstimateShieldFlowFeeParams,
+  EstimateShieldTokensFeeParams,
+  EstimateUnshieldTokensFeeParams,
+  ShieldFlowInstructionPlan,
+  ShieldFlowOwnerChangeWait,
+  ShieldFlowTransactionPlan,
+  ShieldFlowPlan,
+  InstructionCostEstimate,
+  ShieldFlowTransactionFeeEstimate,
+  ShieldFlowFeeEstimate,
+  ShieldFlowTransactionExecutionResult,
+  ShieldFlowExecutionResult,
+  ShieldTokensClientParams,
+  UnshieldTokensClientParams,
   GetKaminoShieldedBalanceQuoteParams,
   GetKaminoCollateralSharesForLiquidityAmountParams,
   KaminoReserveSnapshot,

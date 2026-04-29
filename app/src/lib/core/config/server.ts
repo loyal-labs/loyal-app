@@ -112,6 +112,9 @@ export const serverEnv = {
   get jupiterApiKey(): string {
     return getRequiredEnv("JUPITER_API_KEY");
   },
+  get coingeckoApiKey(): string {
+    return getRequiredEnv("COINGECKO_API_KEY");
+  },
   get irysSolanaKey(): string {
     return getRequiredEnv("IRYS_SOLANA_KEY");
   },
@@ -126,6 +129,9 @@ export const serverEnv = {
   },
   get telegramSetupSecret(): string {
     return getRequiredEnv("TELEGRAM_SETUP_SECRET");
+  },
+  get pushDebugSecret(): string {
+    return getRequiredEnv("PUSH_DEBUG_SECRET");
   },
   get libraryUploadToken(): string {
     return getRequiredEnv("LIBRARY_UPLOAD_TOKEN");

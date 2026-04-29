@@ -31,10 +31,9 @@ export const roadmapEvents: RoadmapEvent[] = [
     year: 2026,
     periodType: "Q" as const,
     periodNumber: 1,
-    isChecked: false,
-    isActive: true,
+    isChecked: true,
     events: [
-      { title: "Squads multisig interoperability", isChecked: false },
+      { title: "Squads multisig interoperability", isChecked: true },
       { title: "LP management & staking automation", isChecked: false },
       { title: "Knowledge graph data visualization", isChecked: false },
       { title: "Fiat on-/off-ramping", isChecked: false },
@@ -45,6 +44,7 @@ export const roadmapEvents: RoadmapEvent[] = [
     periodType: "Q" as const,
     periodNumber: 2,
     isChecked: false,
+    isActive: true,
     events: [
       { title: "Workflow builder & executor", isChecked: false },
       { title: "Data connectors for email & calendar", isChecked: false },

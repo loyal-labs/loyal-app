@@ -1,0 +1,13 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 98 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Eye">
+<path id="Vector" d="M49 0C76.062 0 98 19.6995 98 44H0C0 19.6995 21.938 0 49 0Z" fill="var(--fill-0, white)"/>
+<g id="Eye Mask">
+<mask id="mask0_0_31" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="98" height="44">
+<path id="Mask" d="M49 0C76.062 0 98 19.6995 98 44H0C0 19.6995 21.938 0 49 0Z" fill="var(--fill-0, white)"/>
+</mask>
+<g mask="url(#mask0_0_31)">
+<ellipse id="Vector_2" cx="61.3298" cy="34.7092" rx="24.2225" ry="25.0971" fill="var(--fill-0, black)"/>
+</g>
+</g>
+</g>
+</svg>

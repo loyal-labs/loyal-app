@@ -7,13 +7,13 @@ import { roadmapEvents } from "@/data/roadmap";
 const GEIST = "var(--font-geist-sans), sans-serif";
 
 function RoadmapSectionComponent() {
-  const q1_2026Index = roadmapEvents.findIndex(
+  const q2_2026Index = roadmapEvents.findIndex(
     (item) =>
       item.year === 2026 &&
       item.periodType === "Q" &&
-      item.periodNumber === 1
+      item.periodNumber === 2
   );
-  const initialRoadmapIndex = q1_2026Index >= 0 ? q1_2026Index : 0;
+  const initialRoadmapIndex = q2_2026Index >= 0 ? q2_2026Index : 0;
   const [currentIndex, setCurrentIndex] = useState(initialRoadmapIndex);
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(true);
 
@@ -561,7 +561,9 @@ function RoadmapSectionComponent() {
                                             borderRadius: "50%",
                                             background: event.isChecked
                                               ? "#34C759"
-                                              : "#F9363C",
+                                              : item.isChecked
+                                                ? "#FFCC00"
+                                                : "#F9363C",
                                           }}
                                         />
                                       </div>

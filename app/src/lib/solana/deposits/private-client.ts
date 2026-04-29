@@ -1,7 +1,7 @@
 import { LoyalPrivateTransactionsClient } from "@loyal-labs/private-transactions";
 import {
   getAuthToken,
-  verifyTeeRpcIntegrity,
+  verifyTeeIntegrity,
 } from "@magicblock-labs/ephemeral-rollups-sdk";
 import type { Keypair } from "@solana/web3.js";
 import { sign } from "tweetnacl";
@@ -88,19 +88,16 @@ const getCachedAuthToken = async (
   };
 };
 
-const verifyTeeIntegrity = (solanaEnv: SolanaEnv): void => {
+const verifyTeeIntegrityAsync = (solanaEnv: SolanaEnv): void => {
   const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
   const t0 = performance.now();
-  verifyTeeRpcIntegrity(perRpcEndpoint)
-    .then((isVerified) => {
+  verifyTeeIntegrity(perRpcEndpoint)
+    .then(() => {
       console.log(
-        `[private-client] verifyTeeRpcIntegrity: ${(
+        `[private-client] verifyTeeIntegrity: ${(
           performance.now() - t0
         ).toFixed(1)}ms`,
       );
-      if (!isVerified) {
-        console.error("TEE RPC integrity verification failed");
-      }
     })
     .catch((error) => {
       console.error("TEE RPC integrity verification error", error);
@@ -113,7 +110,7 @@ const fetchAndCacheAuthToken = async (
 ): Promise<{ token: string; expiresAt: number } | null> => {
   try {
     // Fire-and-forget TEE integrity check; logs result but does not block callers
-    setTimeout(() => verifyTeeIntegrity(solanaEnv), 10_000);
+    setTimeout(() => verifyTeeIntegrityAsync(solanaEnv), 10_000);
 
     const signMessage = (message: Uint8Array): Promise<Uint8Array> =>
       Promise.resolve(sign.detached(message, keypair.secretKey));

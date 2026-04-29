@@ -33,7 +33,7 @@
     "@loyal-labs/llm-server": "workspace:*",
     "@loyal-labs/private-transactions": "workspace:*",
     "@loyal-labs/shared": "workspace:*",
-    "@magicblock-labs/ephemeral-rollups-sdk": "^0.8.5",
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
     "@neondatabase/serverless": "^1.0.2",
     "@noble/ed25519": "^3.0.0",
     "@noble/hashes": "^1.8.0",

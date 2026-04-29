@@ -29,6 +29,12 @@ import {
   getSwapFeeReserveSol,
   getSwapFlowFeeProfile,
 } from "./fee-reserve";
+import {
+  formatAmountDisplayValue,
+  formatAmountInputValue,
+  getAmountInputMaxDecimals,
+  parseAmountInput,
+} from "./swap-amount-input";
 
 // iOS-style sheet timing (shared with other sheets)
 const SHEET_TRANSITION = "transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)";
@@ -75,20 +81,6 @@ function getTokenIconAlt(token: Pick<Token, "symbol" | "name">): string {
   if (name) return `${name} token icon`;
 
   return "Token icon";
-}
-
-function getMaxDecimals(symbol: string): number {
-  return symbol === "SOL" ? 6 : 2;
-}
-
-function parseAmountInput(value: string, maxDecimals: number): string | null {
-  const normalized = value.replace(",", ".");
-  if (!/^[0-9]*\.?[0-9]*$/.test(normalized)) return null;
-  if (normalized.includes(".")) {
-    const [, dec] = normalized.split(".");
-    if (dec && dec.length > maxDecimals) return null;
-  }
-  return normalized;
 }
 
 export type SwapFormValues = {
@@ -555,10 +547,8 @@ export default function SwapSheet({
 
   // Format receive amount for display
   const receiveAmountDisplay = useMemo(() => {
-    if (receiveAmount === 0) return "0";
-    const decimals = toToken.symbol === "SOL" ? 6 : 2;
-    return receiveAmount.toFixed(decimals).replace(/\.?0+$/, "") || "0";
-  }, [receiveAmount, toToken.symbol]);
+    return formatAmountDisplayValue(receiveAmount, toToken.decimals);
+  }, [receiveAmount, toToken.decimals]);
 
   // Calculate USD value of receive amount
   const receiveUsdValue = useMemo(() => {
@@ -591,6 +581,14 @@ export default function SwapSheet({
     amountAndFeeUseSameSolBalance:
       secureFeeProfile.amountAndFeeUseSameSolBalance,
   });
+  const fromInputMaxDecimals = getAmountInputMaxDecimals(fromToken.decimals);
+  const secureInputMaxDecimals = getAmountInputMaxDecimals(secureToken.decimals);
+  const swapResultAmountDisplay = useMemo(() => {
+    return formatAmountDisplayValue(swappedToAmount ?? 0, toToken.decimals);
+  }, [swappedToAmount, toToken.decimals]);
+  const secureResultAmountDisplay = useMemo(() => {
+    return formatAmountDisplayValue(swappedToAmount ?? 0, secureToken.decimals);
+  }, [swappedToAmount, secureToken.decimals]);
 
   // Check if swap is valid
   const isSwapValid = useMemo(() => {
@@ -687,8 +685,12 @@ export default function SwapSheet({
       if (!isNaN(val) && val > 0) {
         const fromValueUsd = val * fromToken.priceUsd;
         const newAmount = fromValueUsd / toToken.priceUsd;
-        const decimals = toToken.symbol === "SOL" ? 6 : 2;
-        setAmountStr(newAmount.toFixed(decimals).replace(/\.?0+$/, "") || "0");
+        setAmountStr(
+          formatAmountInputValue(
+            newAmount,
+            getAmountInputMaxDecimals(toToken.decimals)
+          )
+        );
       }
     }
   }, [fromToken, toToken, amountStr]);
@@ -742,14 +744,11 @@ export default function SwapSheet({
       hapticFeedback.impactOccurred("light");
       const amount =
         percentage === 100 ? maxSwapAmount : fromToken.balance * (percentage / 100);
-      const formatted =
-        amount
-          .toFixed(getMaxDecimals(fromToken.symbol))
-          .replace(/\.?0+$/, "") || "0";
+      const formatted = formatAmountInputValue(amount, fromInputMaxDecimals);
       setAmountStr(formatted);
       amountInputRef.current?.focus({ preventScroll: true });
     },
-    [fromToken.balance, fromToken.symbol, maxSwapAmount]
+    [fromInputMaxDecimals, fromToken.balance, maxSwapAmount]
   );
 
   // Open secure token selector
@@ -784,14 +783,11 @@ export default function SwapSheet({
         percentage === 100
           ? maxSecureAmount
           : secureToken.balance * (percentage / 100);
-      const formatted =
-        amount
-          .toFixed(getMaxDecimals(secureToken.symbol))
-          .replace(/\.?0+$/, "") || "0";
+      const formatted = formatAmountInputValue(amount, secureInputMaxDecimals);
       setSecureAmountStr(formatted);
       secureAmountInputRef.current?.focus({ preventScroll: true });
     },
-    [maxSecureAmount, secureToken.balance, secureToken.symbol]
+    [maxSecureAmount, secureInputMaxDecimals, secureToken.balance]
   );
 
   // Handler wrappers for TokenSelectView callbacks
@@ -1167,7 +1163,7 @@ export default function SwapSheet({
                         onChange={(e) => {
                           const parsed = parseAmountInput(
                             e.target.value,
-                            getMaxDecimals(fromToken.symbol)
+                            fromInputMaxDecimals
                           );
                           if (parsed !== null) {
                             setAmountStr(parsed);
@@ -1412,7 +1408,7 @@ export default function SwapSheet({
                         onChange={(e) => {
                           const parsed = parseAmountInput(
                             e.target.value,
-                            getMaxDecimals(secureToken.symbol)
+                            secureInputMaxDecimals
                           );
                           if (parsed !== null) {
                             setSecureAmountStr(parsed);
@@ -2048,8 +2044,7 @@ export default function SwapSheet({
                         style={{ color: "rgba(60, 60, 67, 0.6)" }}
                       >
                         <span className="text-black">
-                          {swappedToAmount?.toFixed(4).replace(/\.?0+$/, "") ||
-                            "0"}{" "}
+                          {swapResultAmountDisplay}{" "}
                           {swappedToSymbol || ""}
                         </span>{" "}
                         has been deposited to your wallet
@@ -2175,8 +2170,7 @@ export default function SwapSheet({
                         style={{ color: "rgba(60, 60, 67, 0.6)" }}
                       >
                         <span className="text-black">
-                          {swappedToAmount?.toFixed(4).replace(/\.?0+$/, "") ||
-                            "0"}{" "}
+                          {secureResultAmountDisplay}{" "}
                           {swappedToSymbol || secureToken.symbol}
                         </span>{" "}
                         moved to your{" "}

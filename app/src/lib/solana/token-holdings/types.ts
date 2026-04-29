@@ -8,6 +8,9 @@ export type TokenHolding = {
   valueUsd: number | null;
   imageUrl: string | null;
   isSecured?: boolean;
+  principalBalance?: number | null;
+  earnedBalance?: number | null;
+  earnedValueUsd?: number | null;
 };
 
 export type HeliusAsset = {

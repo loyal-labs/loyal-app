@@ -78,6 +78,8 @@ const publicEnv = {
     mode: "widget",
     siteKey: "site-key",
   },
+  gridAuthBaseUrl: "https://auth.askloyal.com",
+  flagsManifestUrl: "https://askloyal.com/api/flags/frontend-manifest",
   solanaEnv: "devnet",
   solanaRpcEndpoint: "https://rpc.example",
   swap: {

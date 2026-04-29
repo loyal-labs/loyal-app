@@ -5,6 +5,7 @@ import {
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  shieldTokens as shieldTokensAction,
 } from "@loyal-labs/private-transactions";
 import {
   getAssociatedTokenAddressSync,
@@ -15,6 +16,11 @@ import { PublicKey } from "@solana/web3.js";
 
 import { getSolanaEnv, getWebsocketConnection } from "../rpc/connection";
 import { getWalletKeypair } from "../wallet/wallet-details";
+import {
+  recordKaminoUsdcShield,
+  recordKaminoUsdcUnshield,
+  resolveTrackedKaminoUsdcMint,
+} from "./kamino-usdc-position";
 import { getPrivateClient } from "./private-client";
 import { closeWsolAta, wrapSolToWSol } from "./wsol-utils";
 
@@ -56,7 +62,9 @@ async function warnIfDelegatedOnUnexpectedValidator(params: {
 }): Promise<void> {
   const { client, depositPda, expectedValidator, flow } = params;
   try {
-    const delegationStatus = await client.getAccountDelegationStatus(depositPda);
+    const delegationStatus = await client.getAccountDelegationStatus(
+      depositPda
+    );
     const authority = delegationStatus.result?.delegationRecord?.authority;
     if (authority && authority !== expectedValidator.toBase58()) {
       console.warn(
@@ -175,127 +183,45 @@ export async function shieldTokens(params: {
   tokenMint: PublicKey;
   amount: number;
 }): Promise<string> {
-  const startTime = Date.now();
-  console.log("> shieldTokens");
   const keypair = await getWalletKeypair();
   const client = await getPrivateClient();
   const { tokenMint, amount } = params;
-  const validator = getErValidatorForSolanaEnv(getSolanaEnv());
 
-  // 1. Initialize deposit if it doesn't exist yet
-  const existingDeposit = await client.getBaseDeposit(
-    keypair.publicKey,
-    tokenMint
-  );
-  if (!existingDeposit) {
-    console.log("initializeDeposit");
-    const initializeDepositSig = await client.initializeDeposit({
-      tokenMint,
-      user: keypair.publicKey,
-      payer: keypair.publicKey,
-    });
-    console.log("initializeDeposit sig", initializeDepositSig);
-    const [depositPda] = findDepositPda(keypair.publicKey, tokenMint);
-    await waitForAccount(client, depositPda);
-  }
+  const depositBeforeModify =
+    (await client.getEphemeralDeposit(keypair.publicKey, tokenMint))?.amount ??
+    BigInt(0);
 
-  // 2. Wrap native SOL → wSOL if needed
-  const isNativeSol = tokenMint.equals(NATIVE_MINT);
-  const connection = getWebsocketConnection();
-  let createdAta = false;
-
-  if (isNativeSol) {
-    console.log("wrapSolToWSol");
-    const result = await wrapSolToWSol({
-      connection,
-      payer: keypair,
-      lamports: amount,
-    });
-    console.log("wrapSolToWSol wsolAta: ", result.wsolAta.toString());
-    createdAta = result.createdAta;
-  }
-
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    keypair.publicKey,
-    false,
-    TOKEN_PROGRAM_ID
-  );
-  console.log("userTokenAccount", userTokenAccount.toString());
-
-  // 3. Undelegate if currently delegated (modifyBalance requires base layer ownership)
-  const [depositPda] = findDepositPda(keypair.publicKey, tokenMint);
-  const depositAccountInfo =
-    await client.baseProgram.provider.connection.getAccountInfo(depositPda);
-  if (depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-    await warnIfDelegatedOnUnexpectedValidator({
-      client,
-      depositPda,
-      expectedValidator: validator,
-      flow: "shield",
-    });
-    console.log("undelegateDeposit (deposit is delegated, undelegating first)");
-    const undelegateSig = await client.undelegateDeposit({
-      tokenMint,
-      user: keypair.publicKey,
-      payer: keypair.publicKey,
-      magicProgram: MAGIC_PROGRAM_ID,
-      magicContext: MAGIC_CONTEXT_ID,
-    });
-    console.log("undelegateDeposit sig", undelegateSig);
-  }
-
-  // 4. Move tokens into the deposit vault
-  console.log("modifyBalance");
-  const { signature } = await client.modifyBalance({
-    tokenMint,
-    amount,
-    increase: true,
+  const signature = await shieldTokensAction({
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
+    tokenMint,
+    amount: BigInt(amount),
+    baseProgram: client.baseProgram,
+    perProgram: client.ephemeralProgram,
   });
-  console.log("modifyBalance sig", signature);
 
-  // Close temporary wSOL ATA if we created it
-  if (isNativeSol && createdAta) {
-    console.log("closeWsolAta");
-    await closeWsolAta({
-      connection,
-      payer: keypair,
-      wsolAta: userTokenAccount,
-    });
-    console.log("closeWsolAta done");
+  const depositAfterModify =
+    (await client.getEphemeralDeposit(keypair.publicKey, tokenMint))?.amount ??
+    BigInt(0);
+
+  const trackedKaminoMint = resolveTrackedKaminoUsdcMint(getSolanaEnv());
+  if (trackedKaminoMint === tokenMint.toBase58()) {
+    const addedCollateralSharesAmountRaw =
+      depositAfterModify - depositBeforeModify;
+
+    if (addedCollateralSharesAmountRaw > BigInt(0)) {
+      try {
+        await recordKaminoUsdcShield({
+          publicKey: keypair.publicKey.toBase58(),
+          solanaEnv: getSolanaEnv(),
+          addedPrincipalLiquidityAmountRaw: BigInt(amount),
+          addedCollateralSharesAmountRaw,
+        });
+      } catch (error) {
+        console.warn("Failed to persist Kamino USDC shield basis", error);
+      }
+    }
   }
-
-  // 5. Create permission (may already exist)
-  try {
-    console.log("createPermission");
-    const createPermissionSig = await client.createPermission({
-      tokenMint,
-      user: keypair.publicKey,
-      payer: keypair.publicKey,
-    });
-    console.log("createPermission sig", createPermissionSig);
-  } catch {
-    // Permission may already exist, that's fine
-  }
-
-  // 6. Delegate deposit to PER
-  try {
-    console.log("delegateDeposit");
-    const delegateDepositSig = await client.delegateDeposit({
-      tokenMint,
-      user: keypair.publicKey,
-      payer: keypair.publicKey,
-      validator,
-    });
-    console.log("delegateDeposit sig", delegateDepositSig);
-  } catch {
-    // May already be delegated
-  }
-
-  console.log(`< shieldTokens (${Date.now() - startTime}ms)`);
 
   return signature;
 }
@@ -317,6 +243,9 @@ export async function unshieldTokens(params: {
   const keypair = await getWalletKeypair();
   const client = await getPrivateClient();
   const connection = getWebsocketConnection();
+  const solanaEnv = getSolanaEnv();
+  const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+  const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
 
   // 1. Undelegate from PER if currently delegated (waits for owner to be PROGRAM_ID on both connections)
   const [depositPda] = findDepositPda(keypair.publicKey, tokenMint);
@@ -358,16 +287,91 @@ export async function unshieldTokens(params: {
     TOKEN_PROGRAM_ID
   );
 
+  const depositBeforeModify = await client.getBaseDeposit(
+    keypair.publicKey,
+    tokenMint
+  );
+  const currentCollateralSharesAmountRaw =
+    depositBeforeModify?.amount ?? BigInt(0);
+
+  let modifyAmount = BigInt(amount);
+  let currentLiquidityAmountRawBeforeUnshield: bigint | null = null;
+  let redeemedLiquidityAmountRaw: bigint | null = null;
+  if (isTrackedKaminoToken) {
+    const quotedCollateralSharesAmountRaw =
+      await client.getKaminoCollateralSharesForLiquidityAmount({
+        tokenMint,
+        liquidityAmountRaw: BigInt(amount),
+      });
+
+    if (quotedCollateralSharesAmountRaw !== null) {
+      modifyAmount = quotedCollateralSharesAmountRaw;
+    }
+
+    const currentCollateralSharesAmountRaw =
+      depositBeforeModify?.amount ?? BigInt(0);
+    if (
+      currentCollateralSharesAmountRaw > BigInt(0) &&
+      modifyAmount > currentCollateralSharesAmountRaw
+    ) {
+      modifyAmount = currentCollateralSharesAmountRaw;
+    }
+
+    if (currentCollateralSharesAmountRaw > BigInt(0)) {
+      try {
+        const [currentPositionQuote, redeemedLiquidityQuote] =
+          await Promise.all([
+            client.getKaminoShieldedBalanceQuote({
+              tokenMint,
+              collateralSharesAmountRaw: currentCollateralSharesAmountRaw,
+            }),
+            modifyAmount > BigInt(0)
+              ? client.getKaminoShieldedBalanceQuote({
+                  tokenMint,
+                  collateralSharesAmountRaw: modifyAmount,
+                })
+              : Promise.resolve(null),
+          ]);
+
+        currentLiquidityAmountRawBeforeUnshield =
+          currentPositionQuote?.redeemableLiquidityAmountRaw ?? null;
+        redeemedLiquidityAmountRaw =
+          redeemedLiquidityQuote?.redeemableLiquidityAmountRaw ?? null;
+      } catch (error) {
+        console.warn("Failed to quote Kamino USDC unshield earnings", error);
+      }
+    }
+  }
+
   console.log("modifyBalance");
-  const { signature } = await client.modifyBalance({
+  const { deposit, signature } = await client.modifyBalance({
     tokenMint,
-    amount,
+    amount: modifyAmount,
     increase: false,
     user: keypair.publicKey,
     payer: keypair.publicKey,
-    userTokenAccount,
   });
   console.log("modifyBalance sig", signature);
+
+  if (isTrackedKaminoToken) {
+    const beforeShares = currentCollateralSharesAmountRaw;
+    const burnedCollateralSharesAmountRaw = beforeShares - deposit.amount;
+
+    if (burnedCollateralSharesAmountRaw > BigInt(0)) {
+      try {
+        await recordKaminoUsdcUnshield({
+          publicKey: keypair.publicKey.toBase58(),
+          solanaEnv,
+          actualCollateralSharesAmountRawBeforeUnshield: beforeShares,
+          currentLiquidityAmountRawBeforeUnshield,
+          burnedCollateralSharesAmountRaw,
+          redeemedLiquidityAmountRaw,
+        });
+      } catch (error) {
+        console.warn("Failed to persist Kamino USDC unshield basis", error);
+      }
+    }
+  }
 
   // 3. Unwrap wSOL back to native SOL
   if (isNativeSol) {

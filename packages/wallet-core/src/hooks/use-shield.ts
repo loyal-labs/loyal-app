@@ -187,7 +187,6 @@ export function useShield(
 					increase: true,
 					user,
 					payer: user,
-					userTokenAccount,
 				});
 
 				// Close wSOL ATA if we created it
@@ -302,7 +301,6 @@ export function useShield(
 					increase: false,
 					user,
 					payer: user,
-					userTokenAccount,
 				});
 
 				// Unwrap wSOL if native SOL

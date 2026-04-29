@@ -22,11 +22,7 @@ import {
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import {
-    ConnectionMagicRouter,
-    verifyTeeRpcIntegrity,
-    getAuthToken,
-} from "@magicblock-labs/ephemeral-rollups-sdk";
+import { ConnectionMagicRouter } from "@magicblock-labs/ephemeral-rollups-sdk";
 import {
     LoyalPrivateTransactionsClient,
     MAGIC_CONTEXT_ID,
@@ -390,7 +386,6 @@ describe("private-transactions SDK (PER)", () => {
                     increase: delta > 0,
                     user,
                     payer: user,
-                    userTokenAccount,
                     rpcOptions,
                 }),
             );

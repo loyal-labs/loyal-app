@@ -12,16 +12,15 @@ mode: "wide"
 
     The Loyal client is just one option for interacting with the network, and it follows MagicBlock’s Private Ephemeral Rollup flow end-to-end before it will send a request. The sequence is:
 
-    1. Generate a 32-byte nonce, send it to the TEE RPC, and validate the returned TDX quote via PCCS collateral. We rely on `verifyTeeRpcIntegrity` from the `@magicblock-labs/ephemeral-rollups-sdk`; if the quote fails verification, the UI halts.
+    1. Generate a 32-byte nonce, send it to the TEE RPC, and validate the returned TDX quote via PCCS collateral. We rely on `verifyTeeIntegrity` from the `@magicblock-labs/ephemeral-rollups-sdk`; if the quote fails verification, the UI halts.
     2. With integrity confirmed, the wallet asks the RPC for a challenge that is scoped to its public key, signs it, and exchanges the signature for a short-lived authorization token using `getAuthToken`.
     3. The token is appended as a query string when opening the Solana connection so every request is tied to the attested session.
 
     ```ts
-    import { verifyTeeRpcIntegrity, getAuthToken } from "@magicblock-labs/ephemeral-rollups-sdk";
+    import { verifyTeeIntegrity, getAuthToken } from "@magicblock-labs/ephemeral-rollups-sdk";
     import { Connection } from "@solana/web3.js";
 
-    const isIntegrityVerified = await verifyTeeRpcIntegrity(PRIVATE_ER_URL);
-    if (!isIntegrityVerified) throw new Error("TEE attestation failed");
+    await verifyTeeIntegrity(PRIVATE_ER_URL);
 
     const { publicKey, signMessage } = useWallet();
     const authToken = await getAuthToken(PRIVATE_ER_URL, publicKey, signMessage);

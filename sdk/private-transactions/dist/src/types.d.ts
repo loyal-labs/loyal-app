@@ -1,4 +1,4 @@
-import type { PublicKey, Transaction, VersionedTransaction, Keypair, Commitment } from "@solana/web3.js";
+import type { PublicKey, Transaction, VersionedTransaction, Keypair, Commitment, TransactionInstruction } from "@solana/web3.js";
 import type { AnchorProvider } from "@coral-xyz/anchor";
 /**
  * Minimal wallet interface matching @solana/wallet-adapter-base
@@ -16,6 +16,140 @@ export interface WalletLike {
  * - AnchorProvider: Existing Anchor projects
  */
 export type WalletSigner = WalletLike | Keypair | AnchorProvider;
+export type InstructionCheck = {
+    address: PublicKey;
+    delegated: boolean;
+    passNotExist: boolean;
+    label: string;
+};
+export type CheckedTransactionInstruction = {
+    ix: TransactionInstruction;
+    ensure: InstructionCheck[];
+};
+export type ShieldFlowKind = "shield" | "unshield";
+export type FeeEstimateCluster = "base" | "ephemeral";
+export interface BuildShieldFlowTransactionPlanParams {
+    kind: ShieldFlowKind;
+    user: PublicKey;
+    tokenMint: PublicKey;
+    amount: number | bigint;
+    payer?: PublicKey;
+    validator?: PublicKey;
+    sessionToken?: PublicKey | null;
+    magicProgram?: PublicKey;
+    magicContext?: PublicKey;
+}
+export type BuildShieldTokensTransactionPlanParams = Omit<BuildShieldFlowTransactionPlanParams, "kind">;
+export type BuildUnshieldTokensTransactionPlanParams = Omit<BuildShieldFlowTransactionPlanParams, "kind">;
+export interface EstimateShieldFlowFeeParams {
+    plan: ShieldFlowPlan;
+    commitment?: Commitment;
+}
+export interface EstimateShieldTokensFeeParams extends EstimateShieldFlowFeeParams {
+}
+export interface EstimateUnshieldTokensFeeParams extends EstimateShieldFlowFeeParams {
+}
+export interface ExecuteShieldFlowTransactionPlanParams {
+    plan: ShieldFlowPlan;
+    rpcOptions?: RpcOptions;
+}
+export interface ExecuteShieldTokensTransactionPlanParams extends ExecuteShieldFlowTransactionPlanParams {
+}
+export interface ExecuteUnshieldTokensTransactionPlanParams extends ExecuteShieldFlowTransactionPlanParams {
+}
+export interface ShieldTokensClientParams {
+    user: PublicKey;
+    tokenMint: PublicKey;
+    amount: number | bigint;
+    payer?: PublicKey;
+    validator?: PublicKey;
+    sessionToken?: PublicKey | null;
+    magicProgram?: PublicKey;
+    magicContext?: PublicKey;
+    rpcOptions?: RpcOptions;
+}
+export interface UnshieldTokensClientParams {
+    user: PublicKey;
+    tokenMint: PublicKey;
+    amount: number | bigint;
+    payer?: PublicKey;
+    validator?: PublicKey;
+    sessionToken?: PublicKey | null;
+    magicProgram?: PublicKey;
+    magicContext?: PublicKey;
+    rpcOptions?: RpcOptions;
+}
+export interface InstructionCostEstimate {
+    transactionIndex: number;
+    instructionIndex: number;
+    label: string;
+    programId: PublicKey;
+    rentLamports: number;
+}
+export interface ShieldFlowInstructionPlan {
+    label: string;
+    ix: TransactionInstruction;
+    rentLamports?: number;
+}
+export interface ShieldFlowOwnerChangeWait {
+    address: PublicKey;
+    owner: PublicKey;
+    bestEffort?: boolean;
+}
+export interface ShieldFlowTransactionPlan {
+    label: string;
+    cluster: FeeEstimateCluster;
+    instructions: ShieldFlowInstructionPlan[];
+    checks?: InstructionCheck[];
+    postSendOwnerChange?: ShieldFlowOwnerChangeWait;
+}
+export interface ShieldFlowPlan {
+    kind: ShieldFlowKind;
+    user: PublicKey;
+    payer: PublicKey;
+    tokenMint: PublicKey;
+    amount: bigint;
+    transactions: ShieldFlowTransactionPlan[];
+}
+export interface ShieldFlowTransactionFeeEstimate {
+    index: number;
+    label: string;
+    cluster: FeeEstimateCluster;
+    feePayer: PublicKey;
+    blockhash: string;
+    lastValidBlockHeight: number;
+    instructionCount: number;
+    feeLamports: number;
+    rentLamports: number;
+    instructions: InstructionCostEstimate[];
+}
+export interface ShieldFlowFeeEstimate {
+    kind: ShieldFlowKind;
+    user: PublicKey;
+    payer: PublicKey;
+    tokenMint: PublicKey;
+    amount: bigint;
+    totalFeeLamports: number;
+    totalRentLamports: number;
+    totalLamports: number;
+    transactions: ShieldFlowTransactionFeeEstimate[];
+    instructions: InstructionCostEstimate[];
+    note: string;
+}
+export interface ShieldFlowTransactionExecutionResult {
+    index: number;
+    label: string;
+    cluster: FeeEstimateCluster;
+    signature: string;
+}
+export interface ShieldFlowExecutionResult {
+    kind: ShieldFlowKind;
+    user: PublicKey;
+    payer: PublicKey;
+    tokenMint: PublicKey;
+    amount: bigint;
+    signatures: ShieldFlowTransactionExecutionResult[];
+}
 /**
  * RPC options for transactions
  */
@@ -104,8 +238,8 @@ export interface ModifyBalanceParams {
     amount: number | bigint;
     increase: boolean;
     payer: PublicKey;
-    userTokenAccount: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Result of a balance modification
@@ -148,6 +282,7 @@ export interface CreatePermissionParams {
     tokenMint: PublicKey;
     payer: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Parameters for creating a permission for a username deposit
@@ -169,6 +304,7 @@ export interface DelegateDepositParams {
     payer: PublicKey;
     validator: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Parameters for delegating a username deposit to an ephemeral rollup

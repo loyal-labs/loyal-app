@@ -1,7 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { Program } from "@coral-xyz/anchor";
 import type { TelegramPrivateTransfer } from "./idl/telegram_private_transfer.ts";
-import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
+import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoShieldedBalanceQuote, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, ExecuteShieldFlowTransactionPlanParams, ExecuteShieldTokensTransactionPlanParams, ExecuteUnshieldTokensTransactionPlanParams, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowExecutionResult, ShieldFlowFeeEstimate, ShieldFlowPlan, ShieldTokensClientParams, UnshieldTokensClientParams, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
 export declare function waitForAccountOwnerChange(connection: Connection, account: PublicKey, expectedOwner: PublicKey, timeoutMs?: number, intervalMs?: number): {
     wait: () => Promise<void>;
     cancel: () => Promise<void>;
@@ -44,6 +44,17 @@ export declare class LoyalPrivateTransactionsClient {
      * Verifies TEE RPC integrity and obtains an auth token automatically.
      */
     static fromConfig(config: ClientConfig): Promise<LoyalPrivateTransactionsClient>;
+    shieldTokens(params: ShieldTokensClientParams): Promise<string>;
+    unshieldTokens(params: UnshieldTokensClientParams): Promise<string>;
+    buildShieldFlowTransactionPlan(params: BuildShieldFlowTransactionPlanParams): Promise<ShieldFlowPlan>;
+    buildShieldTokensTransactionPlan(params: BuildShieldTokensTransactionPlanParams): Promise<ShieldFlowPlan>;
+    buildUnshieldTokensTransactionPlan(params: BuildUnshieldTokensTransactionPlanParams): Promise<ShieldFlowPlan>;
+    estimateShieldFlowFee(params: EstimateShieldFlowFeeParams): Promise<ShieldFlowFeeEstimate>;
+    estimateShieldTokensFee(params: EstimateShieldTokensFeeParams): Promise<ShieldFlowFeeEstimate>;
+    estimateUnshieldTokensFee(params: EstimateUnshieldTokensFeeParams): Promise<ShieldFlowFeeEstimate>;
+    executeShieldFlowTransactionPlan(params: ExecuteShieldFlowTransactionPlanParams): Promise<ShieldFlowExecutionResult>;
+    executeShieldTokensTransactionPlan(params: ExecuteShieldTokensTransactionPlanParams): Promise<ShieldFlowExecutionResult>;
+    executeUnshieldTokensTransactionPlan(params: ExecuteUnshieldTokensTransactionPlanParams): Promise<ShieldFlowExecutionResult>;
     /**
      * Initialize a deposit account for a user and token mint
      */
@@ -57,7 +68,7 @@ export declare class LoyalPrivateTransactionsClient {
     /**
      * Create a permission for a deposit account (required for PER)
      */
-    createPermission(params: CreatePermissionParams): Promise<string | null>;
+    createPermission(params: CreatePermissionParams): Promise<string>;
     /**
      * Create a permission for a username-based deposit account
      */
@@ -138,7 +149,6 @@ export declare class LoyalPrivateTransactionsClient {
      * Get the program ID
      */
     getProgramId(): PublicKey;
-    private validateUsername;
     private permissionAccountExists;
     private isAccountAlreadyInUse;
     private ensureNotDelegated;
