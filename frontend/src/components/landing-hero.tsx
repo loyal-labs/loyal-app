@@ -7,6 +7,17 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const appUrl = "https://app.askloyal.com";
+const heroSlides = [
+  {
+    title: "Smart policies",
+    description: "Use narrow permissions to automate boring finance chores",
+  },
+  {
+    title: "Privacy makes money",
+    description:
+      "Earn up to 8% APY on your dollars while keeping them private",
+  },
+] as const;
 
 async function loadLottieLight() {
   const mod = await import("lottie-web/build/player/lottie_light");
@@ -57,6 +68,7 @@ export function LandingHero() {
 
   const firstProgress = activeProgressBar === 0 ? loopProgress : 1;
   const secondProgress = activeProgressBar === 1 ? loopProgress : 0;
+  const activeSlide = heroSlides[activeProgressBar];
 
   return (
     <section
@@ -70,10 +82,10 @@ export function LandingHero() {
             data-hero-reveal="left"
           >
             <h1 className="max-w-[420px] text-[56px] font-semibold leading-none lg:text-[64px]">
-              Put your money on autopilot
+              Keep your agents on the leash!
             </h1>
             <p className="w-[292px] max-w-full text-[20px] font-normal leading-none lg:mt-6 lg:w-auto lg:max-w-[320px] lg:text-[24px]">
-              Keep full control over your funds and away from prying eyes
+              Automate your finances without giving up control
             </p>
           </div>
 
@@ -96,12 +108,14 @@ export function LandingHero() {
             data-hero-reveal-delay="2"
           >
             <div className="order-2 lg:order-1">
-              <h2 className="text-[32px] font-semibold leading-[0.92]">
-                Yield on shielded assets
-              </h2>
-              <p className="mt-3 text-[20px] font-normal leading-[1.1] lg:mt-4">
-                Earn yield on USDC, SOL, and USDT while your assets stay private
-              </p>
+              <div key={activeProgressBar}>
+                <h2 className="text-[32px] font-semibold leading-[0.92]">
+                  {activeSlide.title}
+                </h2>
+                <p className="mt-3 text-[20px] font-normal leading-[1.1] lg:mt-4">
+                  {activeSlide.description}
+                </p>
+              </div>
             </div>
             <div className="order-1 flex w-full items-center gap-3 lg:order-2 lg:mt-8">
               <button

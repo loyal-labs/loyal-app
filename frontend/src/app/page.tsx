@@ -14,7 +14,7 @@ import { LandingScrollAnimations } from "@/components/landing-scroll-animations"
 const featureCards = [
   {
     images: ["/landing/figma/feature-yield-card.png"],
-    text: "Earn in the background without locking up your funds or giving up control",
+    text: "Let agents optimize your portfolio and automate boring financial chores",
     tone: "black",
   },
   {
@@ -22,12 +22,12 @@ const featureCards = [
       "/landing/figma/feature-phone-bg.png",
       "/landing/figma/feature-phone-overlay.png",
     ],
-    text: "Keep your finds private, execute secure transactions and make money on shielded assets",
+    text: "Earn up to 8% APY on private dollars while keeping them private",
     tone: "light",
   },
   {
     images: ["/landing/figma/feature-agent-card.png"],
-    text: "Define guardrails and rulesets for your financial workflows: assign granular permissions to every agent",
+    text: "Scoped access protects your money from catastrophic hallucinations",
     tone: "red",
   },
 ];
@@ -90,7 +90,7 @@ export default function LandingPage() {
             data-reveal="left"
           >
             <h2 className="max-w-[420px] text-[48px] font-semibold leading-none text-black lg:text-[56px]">
-              Multiple wallets, one smart account
+              One account, many wallets
             </h2>
           </div>
 
@@ -117,14 +117,13 @@ export default function LandingPage() {
             data-reveal-delay="2"
           >
             <p className="max-w-[280px] text-[20px] font-normal leading-[1.1] text-black lg:max-w-[300px] lg:text-[24px]">
-              Schedule payments, run strategies, and let never sleeping AI work
-              for you
+              Optimize earnings without compromising financial security
             </p>
             <Link
               className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
               href="#get-started"
             >
-              Get started
+              Automate finances
             </Link>
           </div>
         </div>
@@ -141,9 +140,7 @@ export default function LandingPage() {
           >
             <div className="flex w-full flex-col items-start gap-6 px-6 py-6 pr-8 lg:gap-8 lg:px-8 lg:py-8 lg:pr-16">
               <h2 className="max-w-[600px] text-[24px] font-medium leading-[1.1] text-black lg:text-[32px]">
-                Access trusted agentic workflows built into the wallet app and
-                browser extension, or build on&nbsp;top with permissionless
-                access
+                Smart policies unlock self-custodian agentic finance without catastrophic hallucinations
               </h2>
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[20px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 lg:h-auto lg:text-[16px]"
@@ -164,9 +161,7 @@ export default function LandingPage() {
           >
             <div className="flex w-full flex-col items-start gap-6 px-6 py-6 pr-8 lg:gap-8 lg:px-8 lg:py-8 lg:pr-16">
               <h2 className="max-w-[600px] text-[24px] font-medium leading-[1.1] text-white lg:text-[32px]">
-                Access agentic workflows available for the mobile app and
-                browser extension, or build on top with permissionless access
-                using our SDK — all code is open source
+                The easiest way to let Hermes, OpenClaw, Claude Code or Codex help you optimize your finances
               </h2>
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[20px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0 lg:h-auto lg:text-[16px]"
