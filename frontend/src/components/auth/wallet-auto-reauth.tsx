@@ -4,6 +4,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
+import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
@@ -12,6 +13,7 @@ type ReauthStatus = "idle" | "awaiting_signature" | "verifying" | "done" | "dism
 export function WalletAutoReauth() {
   const { isHydrated, isAuthenticated, refreshSession } = useAuthSession();
   const authApiClient = useAuthApiClient();
+  const { isOpen: isSignInModalOpen } = useSignInModal();
   const { connected, publicKey, signMessage, disconnect } = useWallet();
 
   const attemptedAddressRef = useRef<string | null>(null);
@@ -109,7 +111,7 @@ export function WalletAutoReauth() {
     status === "done" ||
     status === "rejected";
 
-  if (!showBanner) {
+  if (isSignInModalOpen || !showBanner) {
     return null;
   }
 
@@ -120,7 +122,7 @@ export function WalletAutoReauth() {
     : "rgba(220, 120, 120, 0.5)";
 
   const buttonStyle = {
-    color: "rgba(255, 255, 255, 0.7)",
+    color: "#8E8E93",
     fontFamily: "var(--font-geist-sans), sans-serif",
     fontSize: "14px",
     fontWeight: 400,
@@ -130,7 +132,7 @@ export function WalletAutoReauth() {
     cursor: "pointer",
     padding: 0,
     textDecoration: "underline",
-    textDecorationColor: "rgba(255, 255, 255, 0.3)",
+    textDecorationColor: "rgba(60, 60, 67, 0.24)",
     textUnderlineOffset: "2px",
     whiteSpace: "nowrap" as const,
   };
@@ -155,12 +157,13 @@ export function WalletAutoReauth() {
         display: "flex",
         alignItems: "center",
         gap: "10px",
-        background: "rgba(30, 30, 30, 0.85)",
-        backdropFilter: "blur(48px)",
-        WebkitBackdropFilter: "blur(48px)",
+        background: "rgba(255, 255, 255, 0.94)",
+        backdropFilter: "blur(24px)",
+        WebkitBackdropFilter: "blur(24px)",
+        border: "1px solid rgba(0, 0, 0, 0.08)",
         borderRadius: "60px",
         padding: "10px 20px",
-        boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.08)",
+        boxShadow: "0 12px 36px rgba(0, 0, 0, 0.12)",
         animation: isSuccess
           ? "fadeOut 0.4s cubic-bezier(0.4, 0, 0.2, 1) 1.1s forwards"
           : "slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
@@ -203,7 +206,7 @@ export function WalletAutoReauth() {
       </span>
       <span
         style={{
-          color: "rgba(255, 255, 255, 0.9)",
+          color: "#1C1C1E",
           fontFamily: "var(--font-geist-sans), sans-serif",
           fontSize: "14px",
           fontWeight: 400,
@@ -215,7 +218,7 @@ export function WalletAutoReauth() {
       </span>
       {status === "rejected" && (
         <>
-          <span style={{ color: "rgba(255, 255, 255, 0.3)" }}>|</span>
+          <span style={{ color: "rgba(60, 60, 67, 0.2)" }}>|</span>
           <button onClick={handleRetry} style={buttonStyle}>
             Retry
           </button>

@@ -15,6 +15,7 @@ import {
 import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import type {
   SmartAccountApprovalItem,
   SmartAccountSignerEntry,
@@ -413,6 +414,7 @@ export function PortfolioContent({
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  onOpenCommandMenu,
   onOpenWallet,
   onOpenVault,
   onOpenAgent,
@@ -444,6 +446,7 @@ export function PortfolioContent({
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  onOpenCommandMenu?: () => void;
   onOpenWallet?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
@@ -629,6 +632,9 @@ export function PortfolioContent({
           background: rgba(60, 60, 67, 0.1) !important;
           color: rgba(60, 60, 67, 0.6) !important;
         }
+        .portfolio-command-btn:hover {
+          background: rgba(0, 0, 0, 0.06) !important;
+        }
         .portfolio-scroll::-webkit-scrollbar {
           display: none;
         }
@@ -726,6 +732,36 @@ export function PortfolioContent({
             </div>
           </div>
         </div>
+        {onOpenCommandMenu ? (
+          <button
+            className="portfolio-command-btn"
+            onClick={onOpenCommandMenu}
+            style={{
+              alignItems: "center",
+              background: "transparent",
+              border: "none",
+              borderRadius: "999px",
+              color: "rgba(60, 60, 67, 0.6)",
+              cursor: "pointer",
+              display: "inline-flex",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "12px",
+              fontWeight: 500,
+              gap: "6px",
+              lineHeight: "18px",
+              padding: "5px 7px",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <span>Try</span>
+            <KbdGroup>
+              <Kbd>Cmd</Kbd>
+              <Kbd>K</Kbd>
+            </KbdGroup>
+          </button>
+        ) : null}
         {showHeaderControls && (
         <div
           style={{

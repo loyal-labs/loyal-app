@@ -6,14 +6,19 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Plus,
   RefreshCw,
-  Shield,
 } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem, type TokenRowActions } from "./token-row-item";
+import {
+  getTokenPairConnection,
+  TokenRowItem,
+  type TokenRowActions,
+} from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -84,6 +89,7 @@ export function WalletDetailView({
   accessLevel,
   accessTitle = "User Access",
   initialTab = "tokens",
+  receiveLabel = "Receive",
 }: {
   address: string | null;
   label: string;
@@ -105,6 +111,7 @@ export function WalletDetailView({
   accessLevel?: AccessLevel;
   accessTitle?: string;
   initialTab?: "activity" | "tokens";
+  receiveLabel?: string;
 }) {
   const [activeTab, setActiveTab] =
     useState<"activity" | "tokens">(initialTab);
@@ -375,7 +382,7 @@ export function WalletDetailView({
             </span>
           </button>
           <button
-            className="wallet-detail-primary"
+            className="wallet-detail-action"
             onClick={onOpenReceive}
             style={{
               display: "flex",
@@ -385,24 +392,30 @@ export function WalletDetailView({
               minWidth: 0,
               padding: "10px 8px",
               borderRadius: "9999px",
-              background: "#000",
+              background: "rgba(249, 54, 60, 0.14)",
               border: "none",
               cursor: "pointer",
               transition: "background 0.15s ease",
             }}
             type="button"
           >
-            <ArrowDownLeft size={22} style={{ color: "#fff" }} />
+            {receiveLabel === "Top Up" ? (
+              <Plus size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            ) : (
+              <ArrowDownLeft
+                size={22}
+                style={{ color: "rgba(0, 0, 0, 0.6)" }}
+              />
+            )}
             <span
               className="wallet-detail-action-label"
               style={{
                 fontFamily: font,
                 fontSize: "15px",
                 lineHeight: "20px",
-                color: "#fff",
               }}
             >
-              Receive
+              {receiveLabel}
             </span>
           </button>
           <button
@@ -432,7 +445,7 @@ export function WalletDetailView({
             </span>
           </button>
           <button
-            className="wallet-detail-action"
+            className="wallet-detail-primary"
             onClick={onOpenShield}
             style={{
               display: "flex",
@@ -442,17 +455,32 @@ export function WalletDetailView({
               minWidth: 0,
               padding: "10px 8px",
               borderRadius: "9999px",
-              background: "rgba(249, 54, 60, 0.14)",
+              background: "#000",
               border: "none",
               cursor: "pointer",
               transition: "background 0.15s ease",
             }}
             type="button"
           >
-            <Shield size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <Image
+              alt=""
+              height={22}
+              src="/hero-new/Shield_40.svg"
+              style={{
+                display: "block",
+                height: "22px",
+                width: "22px",
+              }}
+              width={22}
+            />
             <span
               className="wallet-detail-action-label"
-              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
+              style={{
+                color: "#fff",
+                fontFamily: font,
+                fontSize: "15px",
+                lineHeight: "20px",
+              }}
             >
               Shield
             </span>
@@ -698,12 +726,13 @@ export function WalletDetailView({
             }}
           >
             {activeTab === "tokens" &&
-              tokenRows.map((token) => (
+              tokenRows.map((token, index) => (
                 <TokenRowItem
                   actions={getTokenActions?.(token)}
                   isBalanceHidden={isBalanceHidden}
                   key={token.id ?? token.symbol}
                   onDetail={onTokenDetail}
+                  pairConnection={getTokenPairConnection(tokenRows, index)}
                   token={token}
                 />
               ))}

@@ -20,6 +20,8 @@ import {
   enrichSnapshotWithKaminoUsdcEarnings,
   type KaminoEarnings,
 } from "@/lib/kamino/enrich-portfolio";
+import { getCachedKaminoLendingApyBps } from "@/lib/kamino/kamino-read-client";
+import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
@@ -368,7 +370,8 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
 
 function mapPositionToSecuredTokenRow(
   position: PortfolioPosition,
-  earnings: KaminoEarnings | undefined
+  earnings: KaminoEarnings | undefined,
+  fallbackApyBps?: number | null
 ): TokenRow {
   const row: TokenRow = {
     id: `${position.asset.mint}-secured`,
@@ -386,11 +389,14 @@ function mapPositionToSecuredTokenRow(
     securedValueDisplay: formatUsd(position.securedValueUsd),
   };
 
+  const apyBps = earnings?.apyBps ?? fallbackApyBps ?? null;
+  if (apyBps !== null) {
+    row.apyBps = apyBps;
+  }
+
   if (!earnings) {
     return row;
   }
-
-  row.apyBps = earnings.apyBps ?? null;
 
   if (
     typeof earnings.earnedValueUsd === "number" &&
@@ -435,6 +441,7 @@ export function useWalletDesktopData(): WalletDesktopData {
   >(EMPTY_EARNINGS_BY_MINT);
   const [earningsSummary, setEarningsSummary] =
     useState<WalletEarningsSummary | null>(null);
+  const [apyByMint, setApyByMint] = useState<Record<string, number | null>>({});
   const [activities, setActivities] = useState<WalletActivity[]>([]);
   const [hasRequestedActivity, setHasRequestedActivity] = useState(false);
   const activityLoadPromiseRef = useRef<Promise<void> | null>(null);
@@ -753,6 +760,36 @@ export function useWalletDesktopData(): WalletDesktopData {
     totalSol: null,
     effectiveSolPriceUsd: null,
   };
+  const kaminoUsdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
+
+  useEffect(() => {
+    if (!kaminoUsdcMint) {
+      setApyByMint({});
+      return;
+    }
+
+    const hasShieldedKaminoUsdc = positions.some(
+      (position) =>
+        position.asset.mint === kaminoUsdcMint && position.securedBalance > 0
+    );
+    if (!hasShieldedKaminoUsdc) {
+      setApyByMint({});
+      return;
+    }
+
+    let cancelled = false;
+    void getCachedKaminoLendingApyBps({
+      solanaEnv: publicEnv.solanaEnv,
+      mint: kaminoUsdcMint,
+    }).then((apyBps) => {
+      if (cancelled) return;
+      setApyByMint(apyBps !== null ? { [kaminoUsdcMint]: apyBps } : {});
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [kaminoUsdcMint, positions, publicEnv.solanaEnv]);
 
   const allTokenRows = useMemo(() => {
     const rows: TokenRow[] = [];
@@ -763,7 +800,13 @@ export function useWalletDesktopData(): WalletDesktopData {
       }
       // Add secured row right after the public one
       if (position.securedBalance > 0) {
-        rows.push(mapPositionToSecuredTokenRow(position, earnings));
+        rows.push(
+          mapPositionToSecuredTokenRow(
+            position,
+            earnings,
+            apyByMint[position.asset.mint]
+          )
+        );
       }
     }
 
@@ -800,7 +843,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     }
 
     return rows;
-  }, [positions, loylPriceUsd, earningsByMint]);
+  }, [positions, loylPriceUsd, earningsByMint, apyByMint]);
 
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};

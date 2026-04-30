@@ -24,6 +24,32 @@ export type TokenRowActions = {
   onBuy?: (token: TokenRow) => void;
 };
 
+export type TokenPairConnection = "none" | "first" | "last";
+
+function getTokenPairKey(token: TokenRow): string {
+  return (token.id?.replace(/-secured$/, "") ?? token.symbol).toLowerCase();
+}
+
+export function getTokenPairConnection(
+  tokens: TokenRow[],
+  index: number
+): TokenPairConnection {
+  const token = tokens[index];
+  const previous = tokens[index - 1];
+  const next = tokens[index + 1];
+
+  if (!token) return "none";
+
+  const isPair = (candidate: TokenRow | undefined) =>
+    candidate !== undefined &&
+    getTokenPairKey(candidate) === getTokenPairKey(token) &&
+    candidate.isSecured !== token.isSecured;
+
+  if (isPair(previous)) return "last";
+  if (isPair(next)) return "first";
+  return "none";
+}
+
 function ActionIcon({
   icon: Icon,
   title,
@@ -71,11 +97,13 @@ export function TokenRowItem({
   isBalanceHidden,
   actions,
   onDetail,
+  pairConnection = "none",
 }: {
   token: TokenRow;
   isBalanceHidden: boolean;
   actions?: TokenRowActions;
   onDetail?: (token: TokenRow) => void;
+  pairConnection?: TokenPairConnection;
 }) {
   const [hovered, setHovered] = useState(false);
 
@@ -99,17 +127,35 @@ export function TokenRowItem({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: "flex",
         alignItems: "center",
-        padding: "0 12px",
-        borderRadius: "16px",
-        width: "100%",
-        overflow: "visible",
         background: hovered ? "rgba(0, 0, 0, 0.04)" : "transparent",
-        transition: "background-color 0.15s ease",
+        borderRadius: "16px",
         cursor: canOpenDetail ? "pointer" : "default",
+        display: "flex",
+        marginBottom: pairConnection === "last" ? "8px" : 0,
+        overflow: "visible",
+        padding: "0 12px",
+        position: "relative",
+        transition: "background-color 0.15s ease",
+        width: "100%",
       }}
     >
+      {pairConnection !== "none" && (
+        <span
+          aria-hidden="true"
+          style={{
+            background: hovered
+              ? "rgba(0, 0, 0, 0.14)"
+              : "rgba(0, 0, 0, 0.09)",
+            bottom: pairConnection === "first" ? "-4px" : "30px",
+            left: "36px",
+            position: "absolute",
+            top: pairConnection === "first" ? "30px" : "-4px",
+            transition: "background 0.15s ease",
+            width: "1px",
+          }}
+        />
+      )}
       <div
         style={{
           display: "flex",

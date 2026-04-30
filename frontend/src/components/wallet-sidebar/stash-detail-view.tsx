@@ -7,7 +7,11 @@ import { useEffect, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
 import { SpendingLimitSection } from "./spending-limit-section";
-import { TokenRowItem, type TokenRowActions } from "./token-row-item";
+import {
+  getTokenPairConnection,
+  TokenRowItem,
+  type TokenRowActions,
+} from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
@@ -458,12 +462,13 @@ export function StashDetailView({
             }}
           >
             {activeTab === "tokens" &&
-              tokenRows.map((token) => (
+              tokenRows.map((token, index) => (
                 <TokenRowItem
                   actions={getTokenActions?.(token)}
                   isBalanceHidden={isBalanceHidden}
                   key={token.id ?? token.symbol}
                   onDetail={onTokenDetail}
+                  pairConnection={getTokenPairConnection(tokenRows, index)}
                   token={token}
                 />
               ))}

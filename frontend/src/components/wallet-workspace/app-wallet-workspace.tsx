@@ -1,17 +1,27 @@
 "use client";
 
 import {
+  ArrowDownLeft,
+  ArrowUpRight,
   ChartNoAxesColumn,
+  Copy,
+  Eye,
+  EyeOff,
   FileSliders,
-  LogOut,
-  RefreshCw,
-  ShieldCheck,
-  Wallet,
+  KeyRound,
   LayoutDashboard,
+  LogOut,
+  Plus,
+  RefreshCw,
+  Repeat2,
+  Shield as ShieldIcon,
+  Sparkles,
+  Wallet,
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
@@ -58,6 +68,10 @@ import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
+import {
+  WalletCommandMenu,
+  type WalletCommandGroup,
+} from "./wallet-command-menu";
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
 type DetailTab = "activity" | "tokens";
@@ -91,6 +105,25 @@ type PersistedWorkspaceSelection =
 const PANE_WIDTH_STORAGE_KEY = "loyal-wallet-workspace-pane-widths";
 const SELECTED_WORKSPACE_ITEM_STORAGE_KEY =
   "loyal-wallet-workspace-selected-item";
+const COMMAND_SUGGESTION_URL = "https://tally.so/r/ZjRpev";
+const GET_STARTED_URL = "/#get-started";
+const workspaceSocialLinks = [
+  {
+    href: "https://x.com/loyal_hq",
+    icon: "/landing/figma/footer-social-x.svg",
+    label: "X",
+  },
+  {
+    href: "https://t.me/loyal_tgchat",
+    icon: "/landing/figma/footer-social-telegram.svg",
+    label: "Telegram",
+  },
+  {
+    href: "https://discord.askloyal.com",
+    icon: "/landing/figma/footer-social-discord.svg",
+    label: "Discord",
+  },
+];
 const ACCOUNT_PANE_MIN_WIDTH = 360;
 const ACCOUNT_PANE_MAX_WIDTH = 520;
 const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
@@ -198,6 +231,11 @@ function tokenRowToSwapToken(token: TokenRow): SwapToken {
   };
 }
 
+function shortCommandAddress(address: string | null | undefined): string {
+  if (!address) return "No wallet connected";
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
 function portfolioPositionToSwapToken(position: PortfolioPosition): SwapToken {
   return {
     balance: position.publicBalance,
@@ -290,18 +328,61 @@ function WalletRail({
         </nav>
       </div>
 
-      <button
-        aria-disabled={!isSignedIn}
-        aria-label="Disconnect wallet"
-        className="wallet-workspace-logout"
-        data-disabled={!isSignedIn}
-        disabled={!isSignedIn}
-        onClick={onDisconnect}
-        title={isSignedIn ? "Disconnect wallet" : "Connect a wallet first"}
-        type="button"
-      >
-        <LogOut size={20} strokeWidth={1.8} />
-      </button>
+      <div className="wallet-workspace-rail-bottom">
+        <button
+          aria-disabled={!isSignedIn}
+          aria-label="Disconnect wallet"
+          className="wallet-workspace-logout"
+          data-disabled={!isSignedIn}
+          disabled={!isSignedIn}
+          onClick={onDisconnect}
+          title={isSignedIn ? "Disconnect wallet" : "Connect a wallet first"}
+          type="button"
+        >
+          <LogOut size={20} strokeWidth={1.8} />
+        </button>
+        <nav
+          aria-label="Workspace help links"
+          className="wallet-workspace-rail-links"
+        >
+          <a
+            className="wallet-workspace-rail-link"
+            href={COMMAND_SUGGESTION_URL}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Send feedback
+          </a>
+          <a
+            className="wallet-workspace-rail-link"
+            href={GET_STARTED_URL}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Get Loyal
+          </a>
+          <span className="wallet-workspace-rail-socials">
+            {workspaceSocialLinks.map((link) => (
+              <a
+                aria-label={link.label}
+                className="wallet-workspace-rail-social-link"
+                href={link.href}
+                key={link.label}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <Image
+                  alt=""
+                  aria-hidden="true"
+                  height={18}
+                  src={link.icon}
+                  width={18}
+                />
+              </a>
+            ))}
+          </span>
+        </nav>
+      </div>
     </aside>
   );
 }
@@ -442,6 +523,7 @@ export function AppWalletWorkspace() {
   const { open: openSignIn } = useSignInModal();
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
+  const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [selectedDetail, setSelectedDetail] =
     useState<string>("Wallet overview");
   const [detailSelection, setDetailSelection] =
@@ -496,6 +578,8 @@ export function AppWalletWorkspace() {
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   const prevHadTokensRef = useRef(false);
   const selectedVault = smartAccountData.selectedVault;
+  const activeDetailSelection =
+    detailSelection === "action" ? actionReturnSelection : detailSelection;
   const isAuthResolving = !isAuthHydrated;
   const isWorkspaceLoading =
     isSignedIn && (walletDesktopData.isLoading || smartAccountData.isLoading);
@@ -512,6 +596,13 @@ export function AppWalletWorkspace() {
         (approval) => approval.id === selectedApprovalId
       ) ?? null,
     [selectedApprovalId, smartAccountData.approvals]
+  );
+  const latestPendingApproval = useMemo(
+    () =>
+      smartAccountData.approvals.find(
+        (approval) => approval.status === "active"
+      ) ?? null,
+    [smartAccountData.approvals]
   );
   const selectedVaultAccountIndex = selectedVault?.entry.accountIndex ?? 0;
   const selectedVaultSpendingLimit = useMemo(() => {
@@ -1109,6 +1200,78 @@ export function AppWalletWorkspace() {
     [openActionView]
   );
 
+  const handleCommandCopyWalletAddress = useCallback(() => {
+    if (!walletDesktopData.walletAddress) return;
+
+    void navigator.clipboard?.writeText(walletDesktopData.walletAddress);
+    setDogNice(true);
+    setTimeout(() => setDogNice(false), 1600);
+  }, [walletDesktopData.walletAddress]);
+
+  const handleCommandReceiveOrTopUp = useCallback(() => {
+    if (activeDetailSelection === "wallet") {
+      if (selectedSignerId && selectedAgent) {
+        openActionView(
+          { type: "sendPanel" },
+          "Top Up",
+          selectedAgent.address,
+          "wallet"
+        );
+        return;
+      }
+
+      openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
+      return;
+    }
+
+    if (activeDetailSelection === "vault") {
+      openActionView({ type: "receivePanel" }, "Top Up", "", "vault");
+    }
+  }, [
+    activeDetailSelection,
+    openActionView,
+    selectedAgent,
+    selectedSignerId,
+  ]);
+
+  const handleCommandSend = useCallback(() => {
+    if (activeDetailSelection === "vault") {
+      openActionView({ type: "sendPanel" }, "Transfer", "", "vault");
+      return;
+    }
+
+    openActionView({ type: "sendPanel" }, "Send", "", "wallet");
+  }, [activeDetailSelection, openActionView]);
+
+  const handleCommandSwap = useCallback(() => {
+    openActionView({ type: "swapPanel", mode: "swap" }, "Swap", "", "wallet");
+  }, [openActionView]);
+
+  const handleCommandShield = useCallback(() => {
+    setShieldDirection("shield");
+    openActionView(
+      { type: "swapPanel", mode: "shield" },
+      "Shield",
+      "",
+      "wallet"
+    );
+  }, [openActionView]);
+
+  const handleCommandShieldUsdc = useCallback(() => {
+    const usdcToken = derivedTokens.find((token) => token.symbol === "USDC");
+
+    if (!usdcToken) return;
+
+    setShieldToken(usdcToken);
+    setShieldDirection("shield");
+    openActionView(
+      { type: "swapPanel", mode: "shield" },
+      "Shield",
+      "",
+      "wallet"
+    );
+  }, [derivedTokens, openActionView]);
+
   const handleOpenWallet = useCallback(() => {
     markDetailPaneTransition("switch");
     setDetailInitialTab("tokens");
@@ -1161,6 +1324,12 @@ export function AppWalletWorkspace() {
     [markDetailPaneTransition, smartAccountData]
   );
 
+  const handleCommandAddSigner = useCallback(() => {
+    if (!selectedVault) return;
+
+    handleOpenAddSigner(selectedVault.entry.accountIndex);
+  }, [handleOpenAddSigner, selectedVault]);
+
   const handleReviewApproval = useCallback(
     (approval: SmartAccountApprovalItem) => {
       setSelectedApprovalId(approval.id);
@@ -1179,6 +1348,219 @@ export function AppWalletWorkspace() {
       );
     }
   }, []);
+
+  const commandGroups = useMemo<WalletCommandGroup[]>(() => {
+    const isWalletActive = activeDetailSelection === "wallet";
+    const isVaultActive = activeDetailSelection === "vault";
+    const usdcToken = derivedTokens.find((token) => token.symbol === "USDC");
+    const tokenCommands = walletDesktopData.allTokenRows.map((token, index) => {
+      const tokenKind = token.isSecured ? "Shielded balance" : "Balance";
+      const tokenValue = token.value ? ` · ${token.value}` : "";
+
+      return {
+        description: `${tokenKind} ${token.amount} ${token.symbol}${tokenValue}`,
+        iconUrl: token.icon,
+        id: `token:${token.id ?? token.symbol}:${token.isSecured ? "shielded" : "public"}:${index}`,
+        keywords: [
+          token.symbol,
+          token.isSecured ? "shielded private" : "unshielded public",
+          "details",
+        ],
+        label: `${token.symbol}${token.isSecured ? " shielded" : ""}`,
+        onSelect: () => handleTokenDetail(token),
+      };
+    });
+
+    return [
+      {
+        heading: "Actions",
+        items: [
+          {
+            description: "Open shield flow for USDC APY",
+            disabled: !isSignedIn || !usdcToken,
+            icon: <Sparkles size={18} strokeWidth={1.9} />,
+            id: "action:shield-usdc",
+            keywords: ["apy", "earn", "usdc", "private"],
+            label: "Shield USDC to earn",
+            onSelect: handleCommandShieldUsdc,
+          },
+          {
+            description: isVaultActive ? "Move funds from vault" : "Send tokens",
+            disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
+            icon: <ArrowUpRight size={19} strokeWidth={1.9} />,
+            id: "action:send",
+            label: isVaultActive ? "Transfer" : "Send",
+            onSelect: handleCommandSend,
+          },
+          {
+            description: isVaultActive
+              ? "Receive funds into this vault"
+              : selectedSignerId
+                ? "Fund selected user from your wallet"
+                : "Show wallet receive address",
+            disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
+            icon: <ArrowDownLeft size={19} strokeWidth={1.9} />,
+            id: "action:receive",
+            label: isVaultActive ? "Top Up" : selectedSignerId ? "Top Up" : "Receive",
+            onSelect: handleCommandReceiveOrTopUp,
+          },
+          {
+            description: "Exchange tokens",
+            disabled: !isSignedIn || !isWalletActive,
+            icon: <Repeat2 size={19} strokeWidth={1.9} />,
+            id: "action:swap",
+            label: "Swap",
+            onSelect: handleCommandSwap,
+          },
+          {
+            description: "Move a token into private balance",
+            disabled: !isSignedIn || !isWalletActive,
+            icon: <ShieldIcon size={19} strokeWidth={1.9} />,
+            id: "action:shield",
+            label: "Shield",
+            onSelect: handleCommandShield,
+          },
+          {
+            description: selectedVault
+              ? `Add signer to ${selectedVault.entry.label}`
+              : undefined,
+            disabled: !isSignedIn || !selectedVault,
+            icon: <Plus size={20} strokeWidth={1.8} />,
+            id: "action:add-signer",
+            label: "Add signer",
+            onSelect: handleCommandAddSigner,
+          },
+        ],
+      },
+      {
+        heading: "Tokens",
+        items: tokenCommands,
+      },
+      {
+        heading: "Approvals",
+        items: [
+          {
+            description: latestPendingApproval
+              ? `${latestPendingApproval.amount} ${latestPendingApproval.symbol} to ${latestPendingApproval.destinationLabel}`
+              : undefined,
+            disabled:
+              !isSignedIn ||
+              !latestPendingApproval ||
+              smartAccountData.isActionPending,
+            icon: <KeyRound size={18} strokeWidth={1.9} />,
+            id: "approval:approve-latest",
+            keywords: ["proposal", "approve", "approval"],
+            label: "Approve latest pending approval",
+            onSelect: () => {
+              if (!latestPendingApproval) return;
+
+              void runProposalAction(() =>
+                smartAccountData.approveProposal(latestPendingApproval.proposal)
+              );
+            },
+          },
+        ],
+      },
+      {
+        heading: "Account",
+        items: [
+          {
+            description: "Start wallet sign in",
+            disabled: isSignedIn,
+            icon: <Wallet size={18} strokeWidth={1.8} />,
+            id: "account:connect",
+            label: "Connect wallet",
+            onSelect: openSignIn,
+          },
+          {
+            description: isBalanceHidden
+              ? "Reveal balances in the workspace"
+              : "Blur balances in the workspace",
+            disabled: !isSignedIn,
+            icon: isBalanceHidden ? (
+              <Eye size={19} strokeWidth={1.8} />
+            ) : (
+              <EyeOff size={19} strokeWidth={1.8} />
+            ),
+            id: "account:hide-assets",
+            keywords: ["privacy", "balance", "hide", "show"],
+            label: isBalanceHidden ? "Show assets" : "Hide assets",
+            onSelect: () => setIsBalanceHidden((current) => !current),
+          },
+          {
+            description: shortCommandAddress(walletDesktopData.walletAddress),
+            disabled: !walletDesktopData.walletAddress,
+            icon: <Copy size={18} strokeWidth={1.8} />,
+            id: "account:copy-wallet",
+            keywords: ["copy", "address", "wallet"],
+            label: "Copy wallet address",
+            onSelect: handleCommandCopyWalletAddress,
+          },
+          {
+            description: "Disconnect this browser session",
+            disabled: !isSignedIn,
+            icon: <LogOut size={18} strokeWidth={1.8} />,
+            id: "account:disconnect",
+            label: "Disconnect wallet",
+            onSelect: () => {
+              void handleDisconnect();
+            },
+          },
+        ],
+      },
+    ];
+  }, [
+    activeDetailSelection,
+    derivedTokens,
+    handleCommandAddSigner,
+    handleCommandCopyWalletAddress,
+    handleCommandReceiveOrTopUp,
+    handleCommandSend,
+    handleCommandShield,
+    handleCommandShieldUsdc,
+    handleCommandSwap,
+    handleDisconnect,
+    handleTokenDetail,
+    isBalanceHidden,
+    isSignedIn,
+    latestPendingApproval,
+    openSignIn,
+    runProposalAction,
+    selectedSignerId,
+    selectedVault,
+    smartAccountData,
+    walletDesktopData.allTokenRows,
+    walletDesktopData.walletAddress,
+  ]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsCommandMenuOpen((current) => !current);
+        return;
+      }
+
+      if (event.key !== "Escape") return;
+      if (isCommandMenuOpen) return;
+
+      if (detailSelection === "action" && viewStack.length > 0) {
+        event.preventDefault();
+        handleActionBack();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [
+    detailSelection,
+    handleActionBack,
+    isCommandMenuOpen,
+    viewStack.length,
+  ]);
 
   const renderDetailPane = () => {
     if (isSmartAccountRateLimited) {
@@ -1263,9 +1645,19 @@ export function AppWalletWorkspace() {
               "wallet"
             )
           }
-          onOpenReceive={() =>
-            openActionView({ type: "receivePanel" }, "Receive", "", "wallet")
-          }
+          onOpenReceive={() => {
+            if (selectedSignerId && selectedAgent) {
+              openActionView(
+                { type: "sendPanel" },
+                "Top Up",
+                selectedAgent.address,
+                "wallet"
+              );
+              return;
+            }
+
+            openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
+          }}
           onOpenSend={() =>
             openActionView({ type: "sendPanel" }, "Send", "", "wallet")
           }
@@ -1297,6 +1689,7 @@ export function AppWalletWorkspace() {
           onTokenDetail={handleTokenDetail}
           tokenRows={walletDesktopData.allTokenRows}
           transactionDetails={walletDesktopData.transactionDetails}
+          receiveLabel={selectedSignerId ? "Top Up" : "Receive"}
         />
       );
     }
@@ -1745,6 +2138,12 @@ export function AppWalletWorkspace() {
         onDisconnect={handleDisconnect}
       />
 
+      <WalletCommandMenu
+        groups={commandGroups}
+        onOpenChange={setIsCommandMenuOpen}
+        open={isCommandMenuOpen}
+      />
+
       {showAuthenticatedWorkspaceShell && !isSmartAccountRateLimited ? (
         <>
           <section className="wallet-workspace-pane wallet-workspace-account-pane">
@@ -1760,6 +2159,7 @@ export function AppWalletWorkspace() {
               onDisconnect={handleDisconnect}
               onOpenAgent={handleOpenAgent}
               onOpenAddSigner={handleOpenAddSigner}
+              onOpenCommandMenu={() => setIsCommandMenuOpen(true)}
               onOpenReceive={() => handleRailAction("receive")}
               onOpenSend={() => handleRailAction("send")}
               onOpenShield={() => handleRailAction("shield")}
@@ -2082,6 +2482,82 @@ export function AppWalletWorkspace() {
           background: rgba(0, 0, 0, 0.04);
           color: rgba(60, 60, 67, 0.58);
           transform: none;
+        }
+
+        .wallet-workspace-rail-bottom {
+          position: relative;
+          z-index: 30;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: max-content;
+        }
+
+        .wallet-workspace-rail-links {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .wallet-workspace-rail-link {
+          display: inline-flex;
+          height: 36px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9999px;
+          background: rgba(0, 0, 0, 0.04);
+          color: rgba(60, 60, 67, 0.58);
+          font-family: inherit;
+          font-size: 13px;
+          font-weight: 500;
+          line-height: 16px;
+          padding: 0 12px;
+          text-decoration: none;
+          white-space: nowrap;
+          transition: background 0.15s ease, color 0.15s ease,
+            transform 0.15s ease;
+        }
+
+        .wallet-workspace-rail-link:hover {
+          background: rgba(0, 0, 0, 0.08);
+          color: rgba(28, 28, 30, 0.78);
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-rail-link:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.55);
+          outline-offset: 2px;
+        }
+
+        .wallet-workspace-rail-socials {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          margin-left: 4px;
+        }
+
+        .wallet-workspace-rail-social-link {
+          display: inline-flex;
+          width: 36px;
+          height: 36px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9999px;
+          background: rgba(0, 0, 0, 0.04);
+          opacity: 0.78;
+          transition: background 0.15s ease, opacity 0.15s ease,
+            transform 0.15s ease;
+        }
+
+        .wallet-workspace-rail-social-link:hover {
+          background: rgba(0, 0, 0, 0.08);
+          opacity: 1;
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-rail-social-link:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.55);
+          outline-offset: 2px;
         }
 
         .wallet-workspace-pane {
