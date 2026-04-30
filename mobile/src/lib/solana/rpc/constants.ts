@@ -1,5 +1,5 @@
 export const SECURE_MAINNET_RPC_URL =
-  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
+  "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 // Helius dedicated-endpoint WSS refused connections (the original FIXME
 // flagged this). REST stays on the Helius dedicated endpoint (host-based
 // tenant auth); WSS uses the Helius public endpoint with an api-key so
@@ -14,7 +14,7 @@ export const SECURE_MAINNET_RPC_WS = HELIUS_API_KEY
   : "wss://api.mainnet-beta.solana.com";
 
 export const SECURE_DEVNET_RPC_URL =
-  "https://aurora-o23cd4-fast-devnet.helius-rpc.com";
+  "https://karlotta-a6micy-fast-devnet.helius-rpc.com";
 // export const SECURE_DEVNET_RPC_WS =
 //   "wss://aurora-o23cd4-fast-devnet.helius-rpc.com";
 
