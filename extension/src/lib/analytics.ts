@@ -18,6 +18,7 @@ const MIXPANEL_API_HOST = "https://api-js.mixpanel.com";
 const DISTINCT_ID_KEY = "mp_ext_distinct_id";
 
 const registeredProperties: AnalyticsProperties = {
+  workspace: "extension",
   platform: "extension",
 };
 
@@ -147,6 +148,7 @@ export function identifyWallet(
     wallet_address: publicKey,
     wallet_source: source,
     identity_provider: "extension",
+    last_workspace: "extension",
   });
 }
 
