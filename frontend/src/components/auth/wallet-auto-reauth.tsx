@@ -4,7 +4,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
-import { WalletProofSignerError, signWalletProofMessage } from "@/lib/auth/wallet-proof-signer";
+import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
+import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
 type ReauthStatus = "idle" | "awaiting_signature" | "verifying" | "done" | "dismissed" | "rejected";
 
@@ -47,22 +48,12 @@ export function WalletAutoReauth() {
 
     async function reauthenticate() {
       try {
-        const challenge = await authApiClient.challengeWalletAuth({
+        await runWalletProofFlow({
+          authApiClient,
+          messageSigner: signMessage,
+          onStatusChange: setStatus,
           walletAddress,
         });
-
-        setStatus("awaiting_signature");
-        const signature = await signWalletProofMessage({
-          signMessage,
-          message: challenge.message,
-        });
-
-        setStatus("verifying");
-        await authApiClient.completeWalletAuth({
-          challengeToken: challenge.challengeToken,
-          signature,
-        });
-
         await refreshSession();
         setStatus("done");
         console.log("[wallet-auto-reauth] session restored for", walletAddress);

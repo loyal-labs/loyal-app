@@ -6,6 +6,7 @@ import {
   type WalletActivity,
 } from "@loyal-labs/solana-wallet";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -13,6 +14,7 @@ import type {
   TokenRow,
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
+import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   enrichSnapshotWithKaminoUsdcEarnings,
@@ -405,8 +407,26 @@ const EMPTY_EARNINGS_BY_MINT: ReadonlyMap<string, KaminoEarnings> = new Map();
 export function useWalletDesktopData(): WalletDesktopData {
   const client = useSolanaWalletDataClient();
   const publicEnv = usePublicEnv();
+  const { user } = useAuthSession();
   const wallet = useWallet();
-  const walletAddress = wallet.publicKey?.toBase58() ?? null;
+  const sessionWalletAddress = user?.walletAddress ?? null;
+  const walletAddress =
+    sessionWalletAddress ?? wallet.publicKey?.toBase58() ?? null;
+  const ownerPublicKey = useMemo(() => {
+    if (wallet.publicKey && wallet.publicKey.toBase58() === walletAddress) {
+      return wallet.publicKey;
+    }
+
+    if (!walletAddress) {
+      return null;
+    }
+
+    try {
+      return new PublicKey(walletAddress);
+    } catch {
+      return null;
+    }
+  }, [wallet.publicKey, walletAddress]);
   const [portfolioSnapshot, setPortfolioSnapshot] =
     useState<PortfolioSnapshot | null>(null);
   const [earningsByMint, setEarningsByMint] = useState<
@@ -491,10 +511,10 @@ export function useWalletDesktopData(): WalletDesktopData {
   useEffect(() => {
     console.log("[wallet-data] effect fired", {
       connected: wallet.connected,
-      publicKey: wallet.publicKey?.toBase58() ?? null,
+      publicKey: ownerPublicKey?.toBase58() ?? null,
     });
 
-    if (!(wallet.connected && wallet.publicKey)) {
+    if (!ownerPublicKey) {
       setPortfolioSnapshot(null);
       setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
       setEarningsSummary(null);
@@ -506,7 +526,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     let cancelled = false;
     setIsLoading(true);
 
-    const publicKey = wallet.publicKey;
+    const publicKey = ownerPublicKey;
     const address = publicKey.toBase58();
     console.log("[wallet-data] fetching portfolio for", address);
 
@@ -553,10 +573,10 @@ export function useWalletDesktopData(): WalletDesktopData {
     return () => {
       cancelled = true;
     };
-  }, [client, wallet.connected, wallet.publicKey, applyEnrichment]);
+  }, [client, wallet.connected, ownerPublicKey, applyEnrichment]);
 
   useEffect(() => {
-    if (!(wallet.connected && wallet.publicKey)) {
+    if (!ownerPublicKey) {
       return;
     }
 
@@ -564,11 +584,12 @@ export function useWalletDesktopData(): WalletDesktopData {
     let unsubscribePortfolio: (() => Promise<void>) | null = null;
     let unsubscribeActivity: (() => Promise<void>) | null = null;
 
-    const subscriptionAddress = wallet.publicKey.toBase58();
+    const subscriptionPublicKey = ownerPublicKey;
+    const subscriptionAddress = subscriptionPublicKey.toBase58();
 
     void client
       .subscribePortfolio(
-        wallet.publicKey,
+        subscriptionPublicKey,
         (snapshot) => {
           if (closed) return;
           void applyEnrichment(snapshot, subscriptionAddress).then(
@@ -605,7 +626,7 @@ export function useWalletDesktopData(): WalletDesktopData {
 
     void client
       .subscribeActivity(
-        wallet.publicKey,
+        subscriptionPublicKey,
         (activity) => {
           if (closed) {
             return;
@@ -651,7 +672,7 @@ export function useWalletDesktopData(): WalletDesktopData {
         void unsubscribeActivity();
       }
     };
-  }, [client, wallet.connected, wallet.publicKey, applyEnrichment]);
+  }, [client, ownerPublicKey, applyEnrichment]);
 
   // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
@@ -839,7 +860,11 @@ export function useWalletDesktopData(): WalletDesktopData {
 
   return {
     walletAddress,
-    isConnected: Boolean(wallet.connected && walletAddress),
+    isConnected: Boolean(
+      wallet.connected &&
+        wallet.publicKey &&
+        wallet.publicKey.toBase58() === walletAddress
+    ),
     isLoading,
     balanceWhole: balanceParts[0] ?? "$0",
     balanceFraction: balanceParts[1] ? `.${balanceParts[1]}` : "",

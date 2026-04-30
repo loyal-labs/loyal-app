@@ -11,7 +11,8 @@ import {
   initialWalletProofState,
   walletProofReducer,
 } from "@/lib/auth/wallet-proof-state";
-import { WalletProofSignerError, signWalletProofMessage } from "@/lib/auth/wallet-proof-signer";
+import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
+import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
 function mapWalletProofError(error: unknown): {
   status: "rejected" | "unsupported" | "error";
@@ -107,20 +108,11 @@ export function useWalletProofAuth({
     verifyAttemptedForAddressRef.current = walletAddress;
 
     try {
-      const challenge = await authApiClient.challengeWalletAuth({
+      await runWalletProofFlow({
+        authApiClient,
+        messageSigner: signMessage,
+        onStatusChange: (status) => dispatch({ type: status }),
         walletAddress,
-      });
-
-      dispatch({ type: "awaiting_signature" });
-      const signature = await signWalletProofMessage({
-        signMessage,
-        message: challenge.message,
-      });
-
-      dispatch({ type: "verifying" });
-      await authApiClient.completeWalletAuth({
-        challengeToken: challenge.challengeToken,
-        signature,
       });
       await refreshSession();
       dispatch({ type: "success" });

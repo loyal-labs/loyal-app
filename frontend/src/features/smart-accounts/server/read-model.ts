@@ -15,6 +15,18 @@ const walletDataClientCache = new Map<
   SolanaEnv,
   ReturnType<typeof createSolanaWalletDataClient>
 >();
+const OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS = [250, 750, 1500, 2500];
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isMissingSettingsAccountError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("Unable to find Settings account at")
+  );
+}
 
 function getConnection(solanaEnv: SolanaEnv) {
   const cachedConnection = connectionCache.get(solanaEnv);
@@ -56,7 +68,28 @@ export async function fetchCurrentSmartAccountOverview(args: {
     programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
   });
 
-  return client.fetchOverview({
-    settingsPda: new PublicKey(args.settingsPda),
-  });
+  const settingsPda = new PublicKey(args.settingsPda);
+  let lastError: unknown;
+
+  for (
+    let attempt = 0;
+    attempt <= OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
+    try {
+      return await client.fetchOverview({ settingsPda });
+    } catch (error) {
+      if (
+        !isMissingSettingsAccountError(error) ||
+        attempt === OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+
+      lastError = error;
+      await wait(OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS[attempt]!);
+    }
+  }
+
+  throw lastError;
 }
