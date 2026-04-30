@@ -302,7 +302,7 @@ export async function getGaslessClaimsData(): Promise<GaslessClaimsData> {
 }
 
 const SOLANA_MAINNET_RPC_URL =
-  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
+  "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 
 async function loadFaucetBalance(): Promise<number | null> {
   const publicKey = process.env.DEPLOYMENT_PUBLIC_KEY;
