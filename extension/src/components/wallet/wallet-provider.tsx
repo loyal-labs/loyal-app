@@ -39,8 +39,8 @@ import {
 type Network = "mainnet" | "devnet";
 
 const RPC_ENDPOINTS: Record<Network, string> = {
-  mainnet: "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
-  devnet: "https://aurora-o23cd4-fast-devnet.helius-rpc.com",
+  mainnet: "https://fredra-z7l52f-fast-mainnet.helius-rpc.com",
+  devnet: "https://karlotta-a6micy-fast-devnet.helius-rpc.com",
 };
 
 function getRpcUrl(network: Network): string {

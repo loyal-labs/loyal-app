@@ -32,14 +32,14 @@ describe("resolveSolanaEnv", () => {
 describe("getSolanaEndpoints", () => {
   test("returns the mainnet helius endpoints", () => {
     expect(getSolanaEndpoints("mainnet")).toEqual({
-      rpcEndpoint: "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
-      websocketEndpoint: "wss://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
+      rpcEndpoint: "https://fredra-z7l52f-fast-mainnet.helius-rpc.com",
+      websocketEndpoint: "wss://fredra-z7l52f-fast-mainnet.helius-rpc.com",
     });
   });
 
   test("returns the current devnet split endpoints", () => {
     expect(getSolanaEndpoints("devnet")).toEqual({
-      rpcEndpoint: "https://aurora-o23cd4-fast-devnet.helius-rpc.com",
+      rpcEndpoint: "https://karlotta-a6micy-fast-devnet.helius-rpc.com",
       websocketEndpoint: "wss://api.devnet.solana.com",
     });
   });
