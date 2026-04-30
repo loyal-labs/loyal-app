@@ -46,6 +46,7 @@ export function StashDetailView({
   onDeleteSpendingLimit,
   getTokenActions,
   onTokenDetail,
+  onActivityTabOpen,
   initialTab = "tokens",
 }: {
   accountIndex: number;
@@ -68,6 +69,7 @@ export function StashDetailView({
   ) => Promise<void>;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
+  onActivityTabOpen?: () => void;
   initialTab?: "activity" | "tokens";
 }) {
   const [activeTab, setActiveTab] =
@@ -290,22 +292,6 @@ export function StashDetailView({
           </div>
         </div>
 
-        {(onSetSpendingLimit || onDeleteSpendingLimit) && (
-          <SpendingLimitSection
-            isBalanceHidden={isBalanceHidden}
-            isPending={isSpendingLimitPending}
-            onDelete={async (nextSpendingLimit) => {
-              if (!onDeleteSpendingLimit) return;
-              await onDeleteSpendingLimit(nextSpendingLimit);
-            }}
-            onSet={async (amountUsd) => {
-              if (!onSetSpendingLimit) return;
-              await onSetSpendingLimit(amountUsd);
-            }}
-            spendingLimit={spendingLimit ?? null}
-          />
-        )}
-
         <div
           style={{
             display: "flex",
@@ -380,6 +366,22 @@ export function StashDetailView({
           </button>
         </div>
 
+        {(onSetSpendingLimit || onDeleteSpendingLimit) && (
+          <SpendingLimitSection
+            isBalanceHidden={isBalanceHidden}
+            isPending={isSpendingLimitPending}
+            onDelete={async (nextSpendingLimit) => {
+              if (!onDeleteSpendingLimit) return;
+              await onDeleteSpendingLimit(nextSpendingLimit);
+            }}
+            onSet={async (amountUsd) => {
+              if (!onSetSpendingLimit) return;
+              await onSetSpendingLimit(amountUsd);
+            }}
+            spendingLimit={spendingLimit ?? null}
+          />
+        )}
+
         <div
           style={{
             display: "flex",
@@ -407,7 +409,12 @@ export function StashDetailView({
               return (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => {
+                    if (tab === "activity") {
+                      onActivityTabOpen?.();
+                    }
+                    setActiveTab(tab);
+                  }}
                   style={{
                     position: "relative",
                     background: "transparent",

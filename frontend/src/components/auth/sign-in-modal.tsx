@@ -1,5 +1,7 @@
 "use client";
 
+import { Check, Copy, LogOut, Unplug } from "lucide-react";
+import Image from "next/image";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -33,50 +35,78 @@ function ConnectedView() {
   }, [address]);
 
   return (
-    <div className="flex flex-col items-center gap-3 py-8">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-        <span className="text-green-600 text-xl">✓</span>
+    <div className="flex flex-col gap-5 px-6 pb-6">
+      <div className="rounded-[28px] bg-[#f5f5f5] p-4">
+        <div className="flex items-center gap-4">
+          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-white">
+            <Image
+              alt=""
+              className="h-full w-full object-cover"
+              height={64}
+              src="/agents/Agent-03.svg"
+              width={64}
+            />
+            <span className="-right-1 -bottom-1 absolute flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#f5f5f5] bg-[#24c45a]">
+              <Check aria-hidden="true" className="h-3.5 w-3.5 text-white" />
+            </span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-[22px] text-neutral-950 leading-7">
+              {hasWalletConnection ? "Connected" : "Signed in"}
+            </p>
+            <p className="mt-1 text-neutral-500 text-sm">
+              Wallet workspace is ready.
+            </p>
+          </div>
+        </div>
+
+        {address ? (
+          <button
+            className="mt-4 flex w-full items-center gap-2 rounded-full bg-white px-4 py-3 text-left transition hover:bg-neutral-50"
+            onClick={handleCopy}
+            title="Copy address"
+            type="button"
+          >
+            <span className="min-w-0 flex-1 truncate font-mono text-neutral-500 text-sm">
+              {address}
+            </span>
+            {copied ? (
+              <Check className="h-4 w-4 shrink-0 text-[#24c45a]" />
+            ) : (
+              <Copy className="h-4 w-4 shrink-0 text-neutral-400" />
+            )}
+          </button>
+        ) : null}
       </div>
-      <p className="font-medium text-sm">
-        {hasWalletConnection ? "Connected" : "Signed in"}
-      </p>
-      {address ? (
-        <button
-          className="group max-w-full cursor-pointer break-all px-4 text-center font-mono text-neutral-500 text-xs transition hover:text-neutral-700"
-          onClick={handleCopy}
-          title="Copy address"
-          type="button"
-        >
-          {address}
-          <span className="ml-1 inline-block text-neutral-400 group-hover:text-neutral-600">
-            {copied ? "✓" : "⧉"}
-          </span>
-        </button>
-      ) : null}
-      {hasAuthSession ? (
-        <button
-          className="mt-1 text-neutral-400 text-xs underline transition hover:text-neutral-700"
-          onClick={async () => {
-            await logout();
-            close();
-          }}
-          type="button"
-        >
-          Sign out
-        </button>
-      ) : null}
-      {hasWalletConnection ? (
-        <button
-          className="text-neutral-400 text-xs underline transition hover:text-neutral-700"
-          onClick={async () => {
-            await disconnect();
-            close();
-          }}
-          type="button"
-        >
-          Disconnect wallet
-        </button>
-      ) : null}
+
+      <div className="flex flex-col gap-2">
+        {hasAuthSession ? (
+          <button
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
+            onClick={async () => {
+              await logout();
+              close();
+            }}
+            type="button"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
+        ) : null}
+        {hasWalletConnection ? (
+          <button
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#fde8e9] px-4 font-medium text-[#f9363c] text-sm transition hover:bg-[#fadadb]"
+            onClick={async () => {
+              await disconnect();
+              close();
+            }}
+            type="button"
+          >
+            <Unplug className="h-4 w-4" />
+            Disconnect wallet
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -121,11 +151,13 @@ export function SignInModal() {
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
-      <DialogContent className="border-neutral-200 bg-white text-neutral-900 sm:max-w-[520px] [&_[data-slot=dialog-close]]:text-neutral-500">
+      <DialogContent className="gap-0 overflow-hidden rounded-[32px] border border-black/10 bg-white p-0 text-neutral-950 shadow-[0_24px_70px_rgba(0,0,0,0.2)] sm:max-w-[480px] [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:flex [&_[data-slot=dialog-close]]:h-11 [&_[data-slot=dialog-close]]:w-11 [&_[data-slot=dialog-close]]:items-center [&_[data-slot=dialog-close]]:justify-center [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:bg-black/[0.04] [&_[data-slot=dialog-close]]:text-neutral-500 [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close]]:transition [&_[data-slot=dialog-close]]:hover:bg-black/[0.08] [&_[data-slot=dialog-close]]:hover:text-neutral-900">
         {hasAuthSession ? (
           <>
-            <DialogHeader>
-              <DialogTitle className="text-neutral-900">Account</DialogTitle>
+            <DialogHeader className="px-6 pt-6 pb-5 text-left">
+              <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
+                Account
+              </DialogTitle>
               <DialogDescription className="sr-only">
                 Signed in
               </DialogDescription>
@@ -134,21 +166,23 @@ export function SignInModal() {
           </>
         ) : (
           <>
-            <DialogHeader>
-              <DialogTitle className="text-neutral-900">Sign In</DialogTitle>
+            <DialogHeader className="px-6 pt-6 pb-5 text-left">
+              <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
+                Sign In
+              </DialogTitle>
               <DialogDescription className="text-neutral-500">
                 Choose your preferred sign-in method.
               </DialogDescription>
             </DialogHeader>
             {captchaToken === null ? (
-              <div className="flex flex-col items-center gap-3 py-4">
+              <div className="flex flex-col items-center gap-3 px-6 pb-6">
                 <p className="text-neutral-500 text-sm">
                   Complete verification to continue
                 </p>
                 <TurnstileWidget onVerify={setCaptchaToken} />
               </div>
             ) : (
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 px-6 pb-6">
                 <WalletTab />
               </div>
             )}

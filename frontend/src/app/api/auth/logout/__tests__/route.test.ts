@@ -11,9 +11,18 @@ const createClearedSessionCookieOptions = mock(() => ({
 }));
 
 mock.module("@/features/identity/server/session-cookie", () => ({
+  WALLET_AUTH_SESSION_COOKIE_NAME: "loyal_wallet_session",
   createAuthSessionCookieService: () => ({
     createClearedSessionCookieOptions,
   }),
+}));
+
+const getServerEnv = mock(() => {
+  throw new Error("logout must not require full server env");
+});
+
+mock.module("@/lib/core/config/server", () => ({
+  getServerEnv,
 }));
 
 let POST: typeof import("../route").POST;
@@ -24,9 +33,8 @@ describe("auth logout route", () => {
   });
 
   beforeEach(() => {
-    process.env.PHALA_API_KEY = "test-key";
-    process.env.DATABASE_URL = "postgresql://localhost/test";
     createClearedSessionCookieOptions.mockClear();
+    getServerEnv.mockClear();
   });
 
   test("clears the auth session cookie", async () => {
@@ -38,6 +46,7 @@ describe("auth logout route", () => {
 
     expect(response.status).toBe(204);
     expect(createClearedSessionCookieOptions).toHaveBeenCalled();
+    expect(getServerEnv).not.toHaveBeenCalled();
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
   });
 });

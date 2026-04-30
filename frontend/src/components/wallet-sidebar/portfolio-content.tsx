@@ -35,15 +35,6 @@ const skeletonBar = (width: string, height: string) => ({
   animation: "skeleton-pulse 1.5s ease-in-out infinite",
 });
 
-const skeletonCircle = (size: string) => ({
-  width: size,
-  height: size,
-  borderRadius: "9999px",
-  background: "rgba(0, 0, 0, 0.06)",
-  flexShrink: 0 as const,
-  animation: "skeleton-pulse 1.5s ease-in-out infinite",
-});
-
 const COLLAPSED_SIGNER_COUNT = 3;
 const SIGNER_EXPAND_THRESHOLD = 5;
 const rowHoverBackground = "rgba(0, 0, 0, 0.04)";
@@ -59,6 +50,105 @@ const accessBorderColors: Record<AccessLevel, string> = {
   sign: "rgba(200, 160, 0, 0.3)",
   suggest: "rgba(60, 60, 67, 0.2)",
 };
+
+function getSmartAccountErrorCopy(error: string | null | undefined) {
+  const isRateLimited = error?.toLowerCase().includes("rate limited") ?? false;
+
+  return {
+    body: isRateLimited
+      ? "Smart-account reads are cooling down. Your wallet is still connected."
+      : "We could not load smart-account data. Try again in a moment.",
+    title: isRateLimited ? "Network limit reached" : "Could not load accounts",
+  };
+}
+
+function SmartAccountInlineError({
+  error,
+  onRetry,
+}: {
+  error: string | null | undefined;
+  onRetry?: () => void;
+}) {
+  const copy = getSmartAccountErrorCopy(error);
+
+  return (
+    <div
+      style={{
+        background: "#F5F5F5",
+        borderRadius: "24px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        margin: "8px",
+        padding: "16px",
+      }}
+    >
+      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+        <span
+          style={{
+            alignItems: "center",
+            background: "#FDE8E9",
+            borderRadius: "999px",
+            color: "#F9363C",
+            display: "inline-flex",
+            flex: "0 0 auto",
+            height: "36px",
+            justifyContent: "center",
+            width: "36px",
+          }}
+        >
+          <RefreshCw size={18} strokeWidth={1.8} />
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <p
+            style={{
+              color: "#000",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 600,
+              lineHeight: "20px",
+              margin: 0,
+            }}
+          >
+            {copy.title}
+          </p>
+          <p
+            style={{
+              color: secondary,
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "17px",
+              margin: "4px 0 0",
+            }}
+          >
+            {copy.body}
+          </p>
+        </div>
+      </div>
+      {onRetry ? (
+        <button
+          onClick={onRetry}
+          style={{
+            alignSelf: "flex-start",
+            background: "#000",
+            border: "none",
+            borderRadius: "999px",
+            color: "#fff",
+            cursor: "pointer",
+            fontFamily: font,
+            fontSize: "14px",
+            fontWeight: 500,
+            lineHeight: "18px",
+            padding: "8px 16px",
+          }}
+          type="button"
+        >
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 function SignerTreeRow({
   isFirst,
@@ -327,6 +417,7 @@ export function PortfolioContent({
   onOpenVault,
   onOpenAgent,
   onOpenAddSigner,
+  onSmartAccountRetry,
   walletAddress,
   walletLabel,
   selectedSignerId = null,
@@ -357,6 +448,7 @@ export function PortfolioContent({
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   onOpenAddSigner?: (accountIndex: number) => void;
+  onSmartAccountRetry?: () => void;
   walletAddress: string | null;
   walletLabel: string;
   selectedSignerId?: string | null;
@@ -416,61 +508,95 @@ export function PortfolioContent({
             }
           }
         `}</style>
-        <div style={{ padding: "8px" }}>
-          <div
-            style={{
-              padding: "12px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-            }}
-          >
-            <div style={skeletonBar("100px", "16px")} />
-            <div style={skeletonBar("60px", "13px")} />
-          </div>
-        </div>
         <div
           style={{
-            padding: "8px 20px",
             display: "flex",
             flexDirection: "column",
-            gap: "4px",
+            height: "100%",
+            minHeight: 0,
+            padding: "0 8px 8px",
           }}
         >
-          <div style={skeletonBar("180px", "40px")} />
-          <div style={skeletonBar("120px", "14px")} />
-        </div>
-        {showActionButtons && (
-          <div style={{ padding: "8px 20px", display: "flex", gap: "16px" }}>
-            <div style={skeletonCircle("44px")} />
-            <div style={skeletonCircle("44px")} />
-            <div style={skeletonCircle("44px")} />
-            <div style={skeletonBar("120px", "44px")} />
+          <div style={{ padding: "12px 12px 18px" }}>
+            <div style={skeletonBar("148px", "24px")} />
+            <div style={{ height: "8px" }} />
+            <div style={skeletonBar("190px", "20px")} />
           </div>
-        )}
-        <div style={{ flex: 1, padding: "8px" }}>
-          <div style={{ padding: "12px 12px 8px" }}>
-            <div style={skeletonBar("80px", "16px")} />
+
+          <div style={{ padding: "8px 12px 28px" }}>
+            <div style={skeletonBar("220px", "64px")} />
+            <div style={{ height: "14px" }} />
+            <div style={skeletonBar("168px", "20px")} />
           </div>
+
+          {showActionButtons && (
+            <div style={{ padding: "0 12px 24px", display: "flex", gap: "12px" }}>
+              <div style={skeletonBar("74px", "44px")} />
+              <div style={skeletonBar("74px", "44px")} />
+              <div style={skeletonBar("74px", "44px")} />
+            </div>
+          )}
+
           <div
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: "flex-start",
               gap: "12px",
-              padding: "6px 12px",
+              padding: "12px 16px",
+              borderRadius: "28px",
+              background: "rgba(0, 0, 0, 0.04)",
             }}
           >
-            <div style={skeletonCircle("48px")} />
+            <div style={{ ...skeletonBar("64px", "64px"), borderRadius: "20px" }} />
             <div
               style={{
                 flex: 1,
                 display: "flex",
                 flexDirection: "column" as const,
-                gap: "6px",
+                gap: "8px",
+                paddingTop: "6px",
               }}
             >
-              <div style={skeletonBar("100px", "20px")} />
-              <div style={skeletonBar("40px", "13px")} />
+              <div style={skeletonBar("120px", "28px")} />
+              <div style={skeletonBar("178px", "18px")} />
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "64px 1fr",
+              gap: "12px",
+              padding: "12px 16px 0 40px",
+            }}
+          >
+            <div
+              style={{
+                width: "1px",
+                height: "52px",
+                justifySelf: "center",
+                background: "rgba(0, 0, 0, 0.08)",
+              }}
+            />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+              }}
+            >
+              <div style={{ ...skeletonBar("56px", "56px"), borderRadius: "18px" }} />
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column" as const,
+                  gap: "8px",
+                }}
+              >
+                <div style={skeletonBar("92px", "24px")} />
+                <div style={skeletonBar("154px", "16px")} />
+              </div>
             </div>
           </div>
         </div>
@@ -883,17 +1009,10 @@ export function PortfolioContent({
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
           {smartAccountError ? (
-            <div
-              style={{
-                padding: "12px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-              }}
-            >
-              Failed to load vaults. Pull to refresh or reopen the sidebar.
-            </div>
+            <SmartAccountInlineError
+              error={smartAccountError}
+              onRetry={onSmartAccountRetry}
+            />
           ) : hasVaultAccount ? (
             <>
               {sortedVaultEntries.map((vault) => {
@@ -1187,17 +1306,10 @@ export function PortfolioContent({
 
           {/* Approval rows */}
           {smartAccountError ? (
-            <div
-              style={{
-                padding: "32px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: "rgba(60, 60, 67, 0.6)",
-              }}
-            >
-              Failed to load proposals. Refresh to try again.
-            </div>
+            <SmartAccountInlineError
+              error={smartAccountError}
+              onRetry={onSmartAccountRetry}
+            />
           ) : approvals.length === 0 && (
             <div
               style={{

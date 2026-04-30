@@ -1,15 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { WalletName } from "@solana/wallet-adapter-base";
+import { AlertCircle, ArrowUpRight, LoaderCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
-import {
-  DEV_KEYPAIR_WALLET_NAME,
-  setDevKeypairSecretInput,
-} from "@/components/solana/dev-keypair-wallet";
-import { usePublicEnv } from "@/contexts/public-env-context";
-
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
 
 const MOBILE_WALLETS = [
@@ -48,72 +42,17 @@ function MobileWalletList() {
       </p>
       {MOBILE_WALLETS.map((wallet) => (
         <TrackedExternalLink
-          className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-neutral-900 text-sm transition hover:bg-neutral-50"
+          className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06]"
           href={wallet.browseUrl(currentUrl)}
           key={wallet.name}
           linkText={`Open in ${wallet.name}`}
           source="wallet_mobile_browser_link"
         >
           <img alt={wallet.name} className="h-6 w-6" src={wallet.icon} />
-          <span>Open in {wallet.name}</span>
+          <span className="min-w-0 flex-1">Open in {wallet.name}</span>
+          <ArrowUpRight className="h-4 w-4 text-neutral-400" />
         </TrackedExternalLink>
       ))}
-    </div>
-  );
-}
-
-function DevKeypairImportForm({
-  connectWallet,
-}: {
-  connectWallet: (walletName: WalletName) => void;
-}) {
-  const [secretKey, setSecretKey] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const importKeypair = useCallback(() => {
-    setErrorMessage(null);
-    try {
-      setDevKeypairSecretInput(secretKey);
-      setSecretKey("");
-      connectWallet(DEV_KEYPAIR_WALLET_NAME);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Invalid secret key."
-      );
-    }
-  }, [connectWallet, secretKey]);
-
-  return (
-    <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-3">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="font-medium text-neutral-900 text-sm">
-          Local dev keypair
-        </p>
-        <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600">
-          local only
-        </span>
-      </div>
-      <textarea
-        autoCapitalize="off"
-        autoComplete="off"
-        autoCorrect="off"
-        className="min-h-20 w-full resize-none rounded-md border border-neutral-200 bg-white px-3 py-2 font-mono text-neutral-900 text-xs outline-none transition placeholder:text-neutral-400 focus:border-neutral-400"
-        onChange={(event) => setSecretKey(event.target.value)}
-        placeholder="Paste base58 secret key or Solana CLI JSON keypair"
-        spellCheck={false}
-        value={secretKey}
-      />
-      {errorMessage ? (
-        <p className="mt-2 text-red-600 text-xs">{errorMessage}</p>
-      ) : null}
-      <button
-        className="mt-2 w-full rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
-        disabled={secretKey.trim().length === 0}
-        onClick={importKeypair}
-        type="button"
-      >
-        Import and sign in
-      </button>
     </div>
   );
 }
@@ -131,12 +70,7 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
     onFlowStart,
   });
 
-  const publicEnv = usePublicEnv();
   const isMobile = useIsMobile();
-  const showDevKeypairImport = publicEnv.appEnvironment === "local";
-  const visibleInstalledWallets = installedWallets.filter(
-    (installedWallet) => installedWallet.adapter.name !== DEV_KEYPAIR_WALLET_NAME
-  );
 
   // Delay showing errors so transient failures during connection don't flash
   const isErrorState =
@@ -159,9 +93,11 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
     state.status === "verifying"
   ) {
     return (
-      <div className="flex flex-col items-center gap-3 py-4">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-        <p className="text-neutral-500 text-sm">
+      <div className="flex flex-col items-center gap-4 rounded-[28px] bg-[#f5f5f5] px-5 py-8 text-center">
+        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white">
+          <LoaderCircle className="h-6 w-6 animate-spin text-neutral-950" />
+        </span>
+        <p className="max-w-[320px] text-neutral-500 text-sm">
           {state.status === "connecting"
             ? "Connecting your wallet..."
             : state.status === "awaiting_signature"
@@ -174,19 +110,26 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
 
   if (isErrorState && showError) {
     return (
-      <div className="flex flex-col gap-4 py-4">
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700 text-sm">
-          <p>{state.errorMessage}</p>
-          {state.errorDetails.length > 0 && (
-            <ul className="mt-2 list-disc pl-5">
-              {state.errorDetails.map((detail) => (
-                <li key={detail}>{detail}</li>
-              ))}
-            </ul>
-          )}
+      <div className="flex flex-col gap-3">
+        <div className="rounded-[24px] bg-[#fff1f2] p-4 text-[#d50012] text-sm">
+          <div className="flex gap-3">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white">
+              <AlertCircle className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="font-medium">{state.errorMessage}</p>
+              {state.errorDetails.length > 0 && (
+                <ul className="mt-2 list-disc pl-5 text-[#d50012]/80">
+                  {state.errorDetails.map((detail) => (
+                    <li key={detail}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
         <button
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white transition hover:bg-neutral-800"
+          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
           onClick={retry}
           type="button"
         >
@@ -197,10 +140,10 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
   }
 
   return (
-    <div className="flex flex-col gap-4 py-4">
+    <div className="flex flex-col gap-4">
       {connected && publicKey ? (
         <button
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white transition hover:bg-neutral-800"
+          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
           onClick={startConnectedWalletVerification}
           type="button"
         >
@@ -208,12 +151,9 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
         </button>
       ) : (
         <div className="flex flex-col gap-2">
-          {showDevKeypairImport ? (
-            <DevKeypairImportForm connectWallet={connectWallet} />
-          ) : null}
-          {visibleInstalledWallets.map((installedWallet) => (
+          {installedWallets.map((installedWallet) => (
             <button
-              className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-neutral-900 text-sm transition hover:bg-neutral-50"
+              className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06]"
               key={installedWallet.adapter.name}
               onClick={() => connectWallet(installedWallet.adapter.name)}
               type="button"
@@ -225,20 +165,21 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
                   src={installedWallet.adapter.icon}
                 />
               )}
-              <span>{installedWallet.adapter.name}</span>
+              <span className="min-w-0 flex-1 text-left">
+                {installedWallet.adapter.name}
+              </span>
+              <ArrowUpRight className="h-4 w-4 text-neutral-400" />
             </button>
           ))}
-          {visibleInstalledWallets.length === 0 && isMobile && (
+          {installedWallets.length === 0 && isMobile && (
             <MobileWalletList />
           )}
-          {visibleInstalledWallets.length === 0 &&
-            !isMobile &&
-            !showDevKeypairImport && (
+          {installedWallets.length === 0 && !isMobile && (
             <p className="py-4 text-center text-neutral-500 text-sm">
               No wallet extensions detected. Install a Solana wallet extension
               to continue.
             </p>
-            )}
+          )}
         </div>
       )}
     </div>

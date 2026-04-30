@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import {
-  fetchCurrentSmartAccountOverview,
+  fetchCurrentSmartAccountVaultActivity,
   isSmartAccountOverviewRateLimitError,
 } from "@/features/smart-accounts/server/read-model";
+
+const ACTIVITY_LIMIT = 10;
 
 export async function GET(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
@@ -21,12 +23,35 @@ export async function GET(request: Request) {
     );
   }
 
+  const url = new URL(request.url);
+  const accountIndexParam = url.searchParams.get("accountIndex");
+  const accountIndex =
+    accountIndexParam == null ? Number.NaN : Number(accountIndexParam);
+
+  if (
+    !Number.isInteger(accountIndex) ||
+    accountIndex < 0 ||
+    accountIndex > 255
+  ) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "invalid_account_index",
+          message: "A valid vault account index is required.",
+        },
+      },
+      { status: 400 }
+    );
+  }
+
   try {
-    const overview = await fetchCurrentSmartAccountOverview({
+    const activity = await fetchCurrentSmartAccountVaultActivity({
+      accountIndex,
+      activityLimit: ACTIVITY_LIMIT,
       settingsPda: principal.settingsPda,
     });
 
-    return NextResponse.json({ overview });
+    return NextResponse.json({ accountIndex, activity });
   } catch (error) {
     if (isSmartAccountOverviewRateLimitError(error)) {
       return NextResponse.json(
@@ -34,7 +59,7 @@ export async function GET(request: Request) {
           error: {
             code: "rpc_rate_limited",
             message:
-              "Smart-account data is temporarily rate limited. Please wait a moment and try again.",
+              "Vault activity is temporarily rate limited. Please wait a moment and try again.",
           },
         },
         {

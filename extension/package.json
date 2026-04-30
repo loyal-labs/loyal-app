@@ -2,7 +2,7 @@
   "name": "@loyal-labs/extension",
   "description": "Loyal wallet browser extension",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.5.5",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -15,7 +15,6 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
-    "@loyal-labs/solana-instruction-decoder": "workspace:*",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-react-ui": "^0.9.39",

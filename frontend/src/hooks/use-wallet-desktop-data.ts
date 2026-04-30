@@ -51,12 +51,13 @@ export type WalletDesktopData = {
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
   earningsSummary: WalletEarningsSummary | null;
+  loadActivity: () => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
+const WALLET_ACTIVITY_INITIAL_LIMIT = 10;
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
-const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 
 const LOYL_ICON_URL =
   "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
@@ -435,6 +436,9 @@ export function useWalletDesktopData(): WalletDesktopData {
   const [earningsSummary, setEarningsSummary] =
     useState<WalletEarningsSummary | null>(null);
   const [activities, setActivities] = useState<WalletActivity[]>([]);
+  const [hasRequestedActivity, setHasRequestedActivity] = useState(false);
+  const activityLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const ownerAddressRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [localRows, setLocalRows] = useState<ActivityRow[]>([]);
   const [localDetails, setLocalDetails] = useState<
@@ -508,6 +512,43 @@ export function useWalletDesktopData(): WalletDesktopData {
     [walletAddress, localDetails]
   );
 
+  const loadActivity = useCallback(async () => {
+    if (!ownerPublicKey) {
+      return;
+    }
+
+    setHasRequestedActivity(true);
+
+    if (activityLoadPromiseRef.current) {
+      return activityLoadPromiseRef.current;
+    }
+
+    const publicKey = ownerPublicKey;
+    const address = publicKey.toBase58();
+    const loadPromise = client
+      .getActivity(publicKey, { limit: WALLET_ACTIVITY_INITIAL_LIMIT })
+      .then((history) => {
+        if (ownerAddressRef.current === address) {
+          setActivities(history.activities);
+        }
+      })
+      .finally(() => {
+        if (activityLoadPromiseRef.current === loadPromise) {
+          activityLoadPromiseRef.current = null;
+        }
+      });
+
+    activityLoadPromiseRef.current = loadPromise;
+    return loadPromise;
+  }, [client, ownerPublicKey]);
+
+  useEffect(() => {
+    ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
+    setActivities([]);
+    setHasRequestedActivity(false);
+    activityLoadPromiseRef.current = null;
+  }, [ownerPublicKey]);
+
   useEffect(() => {
     console.log("[wallet-data] effect fired", {
       connected: wallet.connected,
@@ -530,11 +571,9 @@ export function useWalletDesktopData(): WalletDesktopData {
     const address = publicKey.toBase58();
     console.log("[wallet-data] fetching portfolio for", address);
 
-    void Promise.all([
-      client.getPortfolio(publicKey),
-      client.getActivity(publicKey, { limit: 25 }),
-    ])
-      .then(async ([nextPortfolio, history]) => {
+    void client
+      .getPortfolio(publicKey)
+      .then(async (nextPortfolio) => {
         if (cancelled) {
           return;
         }
@@ -560,7 +599,6 @@ export function useWalletDesktopData(): WalletDesktopData {
               }
             : null
         );
-        setActivities(history.activities);
         setIsLoading(false);
       })
       .catch((error) => {
@@ -615,7 +653,7 @@ export function useWalletDesktopData(): WalletDesktopData {
             }
           );
         },
-        { emitInitial: false }
+        { emitInitial: false, fallbackRefreshMs: 0 }
       )
       .then((unsubscribe) => {
         unsubscribePortfolio = unsubscribe;
@@ -624,44 +662,50 @@ export function useWalletDesktopData(): WalletDesktopData {
         console.error("Failed to subscribe to wallet portfolio", error);
       });
 
-    void client
-      .subscribeActivity(
-        subscriptionPublicKey,
-        (activity) => {
-          if (closed) {
-            return;
-          }
-
-          setActivities((currentActivities) => {
-            const matchIndex = currentActivities.findIndex(
-              (currentActivity) =>
-                currentActivity.signature === activity.signature
-            );
-
-            if (matchIndex >= 0) {
-              const nextActivities = [...currentActivities];
-              nextActivities[matchIndex] = {
-                ...currentActivities[matchIndex],
-                ...activity,
-              };
-              return nextActivities.sort(
-                (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
-              );
+    if (hasRequestedActivity) {
+      void client
+        .subscribeActivity(
+          subscriptionPublicKey,
+          (activity) => {
+            if (closed) {
+              return;
             }
 
-            return [activity, ...currentActivities].sort(
-              (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
-            );
-          });
-        },
-        { emitInitial: false }
-      )
-      .then((unsubscribe) => {
-        unsubscribeActivity = unsubscribe;
-      })
-      .catch((error) => {
-        console.error("Failed to subscribe to wallet activity", error);
-      });
+            setActivities((currentActivities) => {
+              const matchIndex = currentActivities.findIndex(
+                (currentActivity) =>
+                  currentActivity.signature === activity.signature
+              );
+
+              if (matchIndex >= 0) {
+                const nextActivities = [...currentActivities];
+                nextActivities[matchIndex] = {
+                  ...currentActivities[matchIndex],
+                  ...activity,
+                };
+                return nextActivities.sort(
+                  (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
+                );
+              }
+
+              return [activity, ...currentActivities].sort(
+                (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
+              );
+            });
+          },
+          {
+            emitInitial: false,
+            fallbackRefreshMs: 0,
+            historyLimit: WALLET_ACTIVITY_INITIAL_LIMIT,
+          }
+        )
+        .then((unsubscribe) => {
+          unsubscribeActivity = unsubscribe;
+        })
+        .catch((error) => {
+          console.error("Failed to subscribe to wallet activity", error);
+        });
+    }
 
     return () => {
       closed = true;
@@ -672,22 +716,31 @@ export function useWalletDesktopData(): WalletDesktopData {
         void unsubscribeActivity();
       }
     };
-  }, [client, ownerPublicKey, applyEnrichment]);
+  }, [client, ownerPublicKey, applyEnrichment, hasRequestedActivity]);
 
-  // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
+  // Fetch LOYAL token price for the always-visible placeholder row.
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch(`${JUPITER_TOKEN_SEARCH_URL}?query=${LOYL_MINT}`)
+    fetch(`/api/tokens/${LOYL_MINT}/market`)
       .then((res) => res.json())
-      .then((tokens: { id: string; usdPrice?: number }[]) => {
-        if (cancelled) return;
-        const match = tokens.find((t) => t.id === LOYL_MINT);
-        const price = match?.usdPrice;
-        if (typeof price === "number" && Number.isFinite(price) && price > 0) {
-          setLoylPriceUsd(price);
+      .then(
+        (market: {
+          market?: {
+            priceUsd?: number | null;
+          };
+        }) => {
+          if (cancelled) return;
+          const price = market.market?.priceUsd;
+          if (
+            typeof price === "number" &&
+            Number.isFinite(price) &&
+            price > 0
+          ) {
+            setLoylPriceUsd(price);
+          }
         }
-      })
+      )
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -884,6 +937,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     positions,
     balanceHistory,
     earningsSummary,
+    loadActivity,
     addLocalActivity,
   };
 }

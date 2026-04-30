@@ -1,21 +1,17 @@
 "use client";
 
-import { WalletAdapterNetwork, type Adapter } from "@solana/wallet-adapter-base";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import {
   ConnectionProvider,
   WalletProvider,
 } from "@solana/wallet-adapter-react";
 import { WalletConnectWalletAdapter } from "@walletconnect/solana-adapter";
-import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import type { FC, ReactNode } from "react";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-
-import {
-  DEV_KEYPAIR_WALLET_NAME,
-  DevKeypairWalletAdapter,
-} from "./dev-keypair-wallet";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 
 const WALLETCONNECT_PROJECT_ID = "9d9f57c5553496b42ac1b9977066559d";
 
@@ -37,6 +33,19 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
   const publicEnv = usePublicEnv();
   const { solanaRpcEndpoint, solanaEnv } = publicEnv;
   const endpoint = useMemo(() => solanaRpcEndpoint, [solanaRpcEndpoint]);
+  const rpcFetch = useMemo(
+    () => getFrontendSolanaRpcFetch(globalThis.fetch),
+    []
+  );
+  const connectionConfig = useMemo(
+    () => ({
+      commitment: "confirmed" as const,
+      confirmTransactionInitialTimeout: 60_000,
+      disableRetryOnRateLimit: true,
+      fetch: rpcFetch,
+    }),
+    [rpcFetch]
+  );
 
   const wallets = useMemo(
     () => [
@@ -46,24 +55,16 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
           projectId: WALLETCONNECT_PROJECT_ID,
         },
       }),
-      ...(publicEnv.appEnvironment === "local"
-        ? [new DevKeypairWalletAdapter()]
-        : []),
     ],
-    [publicEnv.appEnvironment, solanaEnv]
-  );
-
-  const shouldAutoConnect = useCallback(
-    async (adapter: Adapter) => adapter.name !== DEV_KEYPAIR_WALLET_NAME,
-    []
+    [solanaEnv]
   );
 
   return (
     <ConnectionProvider
-      config={{ commitment: "confirmed", confirmTransactionInitialTimeout: 60_000 }}
+      config={connectionConfig}
       endpoint={endpoint}
     >
-      <WalletProvider autoConnect={shouldAutoConnect} wallets={wallets}>
+      <WalletProvider autoConnect wallets={wallets}>
         {children}
       </WalletProvider>
     </ConnectionProvider>

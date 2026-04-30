@@ -8,8 +8,10 @@ import {
   type SmartAccountProposalSnapshot,
   type SmartAccountSignerSnapshot,
   type SmartAccountSpendingLimitSnapshot,
+  type SmartAccountVaultSnapshot,
 } from "@loyal-labs/smart-account-vaults";
 import {
+  type ActivityPage,
   NATIVE_SOL_MINT,
   type PortfolioPosition,
   type WalletActivity,
@@ -22,7 +24,7 @@ import type {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ActivityRow,
@@ -34,6 +36,18 @@ import { getTokenIconUrl } from "@/lib/token-icon";
 
 type SmartAccountRouteResponse = {
   overview: SmartAccountOverview;
+};
+
+type SmartAccountVaultActivityRouteResponse = {
+  accountIndex: number;
+  activity: ActivityPage;
+};
+
+type SmartAccountRouteErrorResponse = {
+  error?: {
+    code?: string;
+    message?: string;
+  };
 };
 
 export type SmartAccountApprovalItem = {
@@ -87,6 +101,11 @@ export type SmartAccountVaultView = {
   spendingLimits: SmartAccountSpendingLimitSnapshot[];
 };
 
+type SmartAccountVaultActivityView = Pick<
+  SmartAccountVaultView,
+  "activityRows" | "transactionDetails"
+>;
+
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   isLoading: boolean;
@@ -96,6 +115,7 @@ export type SmartAccountSidebarData = {
   setSelectedVaultIndex: (index: number) => void;
   selectedVault: SmartAccountVaultView | null;
   approvals: SmartAccountApprovalItem[];
+  loadVaultActivity: (accountIndex: number) => Promise<void>;
   refresh: () => Promise<void>;
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
@@ -264,6 +284,10 @@ function getSignerIcon(args: {
   address: string;
   isAuthenticatedUser: boolean;
 }): string {
+  if (args.isAuthenticatedUser) {
+    return "/agents/Agent-03.svg";
+  }
+
   const iconIndex = (hashAddress(args.address) % AGENT_ICON_COUNT) + 1;
   return `/agents/Agent-${String(iconIndex).padStart(2, "0")}.svg`;
 }
@@ -503,6 +527,40 @@ function mapVaultToTokenRows(positions: PortfolioPosition[]): TokenRow[] {
       securedAmountDisplay: formatTokenBalance(position.securedBalance),
       securedValueDisplay: formatUsd(position.securedValueUsd),
     }));
+}
+
+function mapVaultActivityPageToView(
+  activityPage: ActivityPage,
+  positions: PortfolioPosition[],
+  solPriceUsd: number
+): SmartAccountVaultActivityView {
+  const transactionDetails: Record<string, TransactionDetail> = {};
+  const activityRows = activityPage.activities.map((activity) => {
+    const mapped = mapVaultActivity(activity, positions, solPriceUsd);
+    transactionDetails[mapped.row.id] = mapped.detail;
+    return mapped.row;
+  });
+
+  return {
+    activityRows,
+    transactionDetails,
+  };
+}
+
+function mapVaultToActivityView(
+  vault: SmartAccountVaultSnapshot
+): SmartAccountVaultActivityView {
+  const solPriceUsd =
+    vault.portfolio.totals.effectiveSolPriceUsd ??
+    resolvePositionByMint(vault.portfolio.positions, NATIVE_SOL_MINT)
+      ?.priceUsd ??
+    85;
+
+  return mapVaultActivityPageToView(
+    vault.activity,
+    vault.portfolio.positions,
+    solPriceUsd
+  );
 }
 
 function mapProposalToApprovalItem(
@@ -790,6 +848,11 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   );
   const [pendingSpendingLimitActionKey, setPendingSpendingLimitActionKey] =
     useState<string | null>(null);
+  const [vaultActivityByAccountIndex, setVaultActivityByAccountIndex] =
+    useState<Record<number, SmartAccountVaultActivityView>>({});
+  const vaultActivityLoadPromisesRef = useRef<Map<number, Promise<void>>>(
+    new Map()
+  );
 
   const refresh = useCallback(async () => {
     if (!user?.settingsPda) {
@@ -807,13 +870,21 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to load smart-account overview.");
+        const errorPayload =
+          (await response.json().catch(() => null)) as
+            | SmartAccountRouteErrorResponse
+            | null;
+        const message =
+          errorPayload?.error?.message ?? "Failed to load smart-account overview.";
+
+        throw new Error(message);
       }
 
       const payload = (await response.json()) as SmartAccountRouteResponse;
       setOverview(payload.overview);
+      setVaultActivityByAccountIndex({});
+      vaultActivityLoadPromisesRef.current.clear();
     } catch (nextError) {
-      setOverview(null);
       setError(
         nextError instanceof Error
           ? nextError.message
@@ -830,7 +901,77 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
 
   useEffect(() => {
     setSelectedVaultIndex(0);
+    setVaultActivityByAccountIndex({});
+    vaultActivityLoadPromisesRef.current.clear();
   }, [overview?.settingsPda]);
+
+  const loadVaultActivity = useCallback(
+    async (accountIndex: number) => {
+      if (!user?.settingsPda) {
+        return;
+      }
+
+      const existingPromise =
+        vaultActivityLoadPromisesRef.current.get(accountIndex);
+      if (existingPromise) {
+        return existingPromise;
+      }
+
+      const promise = (async () => {
+        const response = await fetch(
+          `/api/smart-accounts/vault-activity?accountIndex=${accountIndex}`,
+          {
+            credentials: "include",
+          }
+        );
+
+        if (!response.ok) {
+          const errorPayload =
+            (await response.json().catch(() => null)) as
+              | SmartAccountRouteErrorResponse
+              | null;
+          const message =
+            errorPayload?.error?.message ?? "Failed to load vault activity.";
+
+          throw new Error(message);
+        }
+
+        const payload =
+          (await response.json()) as SmartAccountVaultActivityRouteResponse;
+        const vault = overview?.vaults.find(
+          (entry) => entry.accountIndex === payload.accountIndex
+        );
+
+        if (!vault) {
+          return;
+        }
+
+        const solPriceUsd =
+          vault.portfolio.totals.effectiveSolPriceUsd ??
+          resolvePositionByMint(vault.portfolio.positions, NATIVE_SOL_MINT)
+            ?.priceUsd ??
+          85;
+        const activityView = mapVaultActivityPageToView(
+          payload.activity,
+          vault.portfolio.positions,
+          solPriceUsd
+        );
+        setVaultActivityByAccountIndex((current) => ({
+          ...current,
+          [payload.accountIndex]: activityView,
+        }));
+      })();
+
+      vaultActivityLoadPromisesRef.current.set(accountIndex, promise);
+
+      try {
+        await promise;
+      } finally {
+        vaultActivityLoadPromisesRef.current.delete(accountIndex);
+      }
+    },
+    [overview?.vaults, user?.settingsPda]
+  );
 
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
     return (overview?.vaults ?? []).map((vault) => {
@@ -879,23 +1020,10 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         spendingLimits: vault.spendingLimits ?? [],
       }),
     };
-    const solPriceUsd =
-      vault.portfolio.totals.effectiveSolPriceUsd ??
-      resolvePositionByMint(vault.portfolio.positions, NATIVE_SOL_MINT)
-        ?.priceUsd ??
-      85;
-
     const tokenRows = mapVaultToTokenRows(vault.portfolio.positions);
-    const transactionDetails: Record<string, TransactionDetail> = {};
-    const activityRows = vault.activity.activities.map((activity) => {
-      const mapped = mapVaultActivity(
-        activity,
-        vault.portfolio.positions,
-        solPriceUsd
-      );
-      transactionDetails[mapped.row.id] = mapped.detail;
-      return mapped.row;
-    });
+    const activityView =
+      vaultActivityByAccountIndex[vault.accountIndex] ??
+      mapVaultToActivityView(vault);
 
     return {
       entry: {
@@ -907,11 +1035,17 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         signers: entry.signers,
       },
       tokenRows,
-      activityRows,
-      transactionDetails,
+      activityRows: activityView.activityRows,
+      transactionDetails: activityView.transactionDetails,
       spendingLimits: vault.spendingLimits ?? [],
     };
-  }, [overview?.vaults, selectedVaultIndex, user?.walletAddress, vaultEntries]);
+  }, [
+    overview?.vaults,
+    selectedVaultIndex,
+    user?.walletAddress,
+    vaultActivityByAccountIndex,
+    vaultEntries,
+  ]);
 
   const approvals = useMemo(
     () => (overview?.proposals ?? []).map(mapProposalToApprovalItem),
@@ -1295,6 +1429,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     setSelectedVaultIndex,
     selectedVault,
     approvals,
+    loadVaultActivity,
     refresh,
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),

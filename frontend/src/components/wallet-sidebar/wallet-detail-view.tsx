@@ -80,6 +80,7 @@ export function WalletDetailView({
   onOpenShield,
   getTokenActions,
   onTokenDetail,
+  onActivityTabOpen,
   accessLevel,
   accessTitle = "User Access",
   initialTab = "tokens",
@@ -100,6 +101,7 @@ export function WalletDetailView({
   onOpenShield: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
+  onActivityTabOpen?: () => void;
   accessLevel?: AccessLevel;
   accessTitle?: string;
   initialTab?: "activity" | "tokens";
@@ -647,7 +649,12 @@ export function WalletDetailView({
               return (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => {
+                    if (tab === "activity") {
+                      onActivityTabOpen?.();
+                    }
+                    setActiveTab(tab);
+                  }}
                   style={{
                     position: "relative",
                     background: "transparent",

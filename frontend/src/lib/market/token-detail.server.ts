@@ -49,6 +49,19 @@ export type TokenDetailResponse = {
   chart: TokenDetailChartPoint[];
 };
 
+export type TokenMarketResponse = {
+  mint: string;
+  token: {
+    decimals: number | null;
+    logoUrl: string | null;
+    name: string | null;
+    symbol: string | null;
+  };
+  market: {
+    priceUsd: number | null;
+  };
+};
+
 type CoinGeckoTokenData = {
   name: string | null;
   symbol: string | null;
@@ -85,8 +98,15 @@ type TokenDetailCacheEntry = {
   value: TokenDetailResponse;
 };
 
+type TokenMarketCacheEntry = {
+  expiresAt: number;
+  value: TokenMarketResponse;
+};
+
 const tokenDetailCache = new Map<string, TokenDetailCacheEntry>();
 const tokenDetailInflight = new Map<string, Promise<TokenDetailResponse>>();
+const tokenMarketCache = new Map<string, TokenMarketCacheEntry>();
+const tokenMarketInflight = new Map<string, Promise<TokenMarketResponse>>();
 
 function getCoinGeckoHeaders(): HeadersInit {
   const apiKey =
@@ -290,6 +310,32 @@ function getCachedTokenDetail(mint: string): TokenDetailResponse | null {
   return cached.value;
 }
 
+function getCachedTokenMarket(mint: string): TokenMarketResponse | null {
+  const cached = tokenMarketCache.get(mint);
+
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    tokenMarketCache.delete(mint);
+    return null;
+  }
+
+  return cached.value;
+}
+
+function setCachedTokenMarket(
+  value: TokenMarketResponse
+): TokenMarketResponse {
+  tokenMarketCache.set(value.mint, {
+    expiresAt: Date.now() + TOKEN_DETAIL_CACHE_TTL_MS,
+    value,
+  });
+
+  return value;
+}
+
 function derivePriceChange24hPercent(
   chart: TokenDetailChartPoint[]
 ): number | null {
@@ -438,5 +484,43 @@ export async function fetchTokenDetailByMint(
   });
 
   tokenDetailInflight.set(mint, request);
+  return request;
+}
+
+export async function fetchTokenMarketByMint(
+  mint: string
+): Promise<TokenMarketResponse> {
+  assertCoinGeckoApiKeyConfigured();
+
+  const cached = getCachedTokenMarket(mint);
+  if (cached) {
+    return cached;
+  }
+
+  const inflight = tokenMarketInflight.get(mint);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = (async () => {
+    const token = await getSettledValue(fetchCoinGeckoTokenData(mint));
+
+    return setCachedTokenMarket({
+      mint,
+      token: {
+        decimals: token?.decimals ?? null,
+        logoUrl: token?.imageUrl ?? null,
+        name: token?.name ?? null,
+        symbol: token?.symbol ?? null,
+      },
+      market: {
+        priceUsd: token?.priceUsd ?? null,
+      },
+    });
+  })().finally(() => {
+    tokenMarketInflight.delete(mint);
+  });
+
+  tokenMarketInflight.set(mint, request);
   return request;
 }

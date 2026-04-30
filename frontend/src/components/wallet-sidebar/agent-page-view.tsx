@@ -214,10 +214,12 @@ export function AgentPageView({
   onTopUp,
   getTokenActions,
   onTokenDetail,
+  onActivityTabOpen,
   initialAccessLevel = "suggest",
   initialTab = "tokens",
   variant = "sidebar",
   showSpendingLimit = false,
+  showTopUpAction = true,
 }: {
   label: string;
   agentIcon: string;
@@ -260,10 +262,12 @@ export function AgentPageView({
   onTopUp?: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
+  onActivityTabOpen?: () => void;
   initialAccessLevel?: AccessLevel;
   initialTab?: "activity" | "tokens";
   variant?: "sidebar" | "workspace";
   showSpendingLimit?: boolean;
+  showTopUpAction?: boolean;
 }) {
   const isWorkspace = variant === "workspace";
   const [accessLevel, setAccessLevel] =
@@ -864,50 +868,51 @@ export function AgentPageView({
           )}
         </div>
 
-        {/* Action buttons: Transfer + Top Up */}
-        <div
-          style={{
-            display: "flex",
-            gap: "16px",
-            alignItems: "start",
-            padding: "8px 20px",
-          }}
-        >
-          <button
-            className="agent-topup-btn"
-            disabled={isTopUpDisabled}
-            onClick={requestTopUpAmount}
+        {showTopUpAction && (
+          <div
             style={{
-              width: "100%",
               display: "flex",
-              gap: "6px",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "10px 16px 10px 8px",
-              borderRadius: "9999px",
-              background: "#000",
-              border: "none",
-              cursor: isTopUpDisabled ? "default" : "pointer",
-              opacity: isTopUpDisabled ? 0.45 : 1,
-              transition: "background 0.15s ease",
+              gap: "16px",
+              alignItems: "start",
+              padding: "8px 20px",
             }}
-            type="button"
           >
-            <Plus size={24} style={{ color: "#fff" }} />
-            <span
-              className="agent-action-label"
+            <button
+              className="agent-topup-btn"
+              disabled={isTopUpDisabled}
+              onClick={requestTopUpAmount}
               style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#fff",
+                width: "100%",
+                display: "flex",
+                gap: "6px",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "10px 16px 10px 8px",
+                borderRadius: "9999px",
+                background: "#000",
+                border: "none",
+                cursor: isTopUpDisabled ? "default" : "pointer",
+                opacity: isTopUpDisabled ? 0.45 : 1,
+                transition: "background 0.15s ease",
               }}
+              type="button"
             >
-              {isSpendingLimitPending ? "Saving" : "Top Up"}
-            </span>
-          </button>
-        </div>
+              <Plus size={24} style={{ color: "#fff" }} />
+              <span
+                className="agent-action-label"
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#fff",
+                }}
+              >
+                {isSpendingLimitPending ? "Saving" : "Top Up"}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Agent Access section — collapsible */}
         <div
@@ -948,7 +953,7 @@ export function AgentPageView({
                 textAlign: "left",
               }}
             >
-              Agent Access
+              Access level
             </span>
             <span
               style={{
@@ -1178,7 +1183,7 @@ export function AgentPageView({
                   <div
                     style={{
                       width: "100%",
-                      background: isWorkspace ? "transparent" : "#F5F5F5",
+                      background: "#F5F5F5",
                       borderRadius: "16px",
                       padding: "12px",
                     }}
@@ -1325,7 +1330,7 @@ export function AgentPageView({
                     className="agent-limit-card"
                     style={{
                       width: "100%",
-                      background: isWorkspace ? "transparent" : "#F5F5F5",
+                      background: "#F5F5F5",
                       borderRadius: "16px",
                       padding: "0 12px",
                       transition: "background 0.15s ease",
@@ -1602,7 +1607,12 @@ export function AgentPageView({
                   return (
                     <button
                       key={tab}
-                      onClick={() => setWorkspaceTab(tab)}
+                      onClick={() => {
+                        if (tab === "activity") {
+                          onActivityTabOpen?.();
+                        }
+                        setWorkspaceTab(tab);
+                      }}
                       style={{
                         position: "relative",
                         background: "transparent",

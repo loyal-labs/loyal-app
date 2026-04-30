@@ -16,10 +16,6 @@ export default defineConfig({
       "../packages/solana-wallet/src",
       import.meta.url
     ).pathname,
-    "@loyal-labs/solana-instruction-decoder": new URL(
-      "../packages/solana-instruction-decoder/src",
-      import.meta.url
-    ).pathname,
     "@loyal-labs/shared": new URL("../packages/shared/src", import.meta.url)
       .pathname,
     "@loyal-labs/private-transactions": new URL(

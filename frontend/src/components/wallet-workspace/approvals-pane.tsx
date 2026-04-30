@@ -1,6 +1,6 @@
 "use client";
 
-import { FileSliders, Send } from "lucide-react";
+import { FileSliders, RefreshCw, Send } from "lucide-react";
 
 import type { SmartAccountApprovalItem } from "@/hooks/use-smart-account-sidebar-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
@@ -71,19 +71,112 @@ function ApprovalEmptyState() {
   );
 }
 
-function ApprovalErrorState() {
+function getApprovalErrorCopy(error: string | null) {
+  const isRateLimited = error?.toLowerCase().includes("rate limited") ?? false;
+
+  return {
+    body: isRateLimited
+      ? "Approvals are temporarily unavailable while smart-account reads cool down."
+      : "We could not load approvals. Try again in a moment.",
+    title: isRateLimited ? "Network limit reached" : "Could not load approvals",
+  };
+}
+
+function ApprovalErrorState({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry?: () => void;
+}) {
+  const copy = getApprovalErrorCopy(error);
+
   return (
     <div
       style={{
-        color: secondary,
-        fontFamily: font,
-        fontSize: "14px",
-        lineHeight: "20px",
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        justifyContent: "center",
+        minHeight: "260px",
         padding: "24px",
         textAlign: "center",
       }}
     >
-      Failed to load proposals. Refresh to try again.
+      <div
+        style={{
+          alignItems: "center",
+          background: "#F5F5F5",
+          borderRadius: "28px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px",
+          maxWidth: "280px",
+          padding: "24px",
+          width: "100%",
+        }}
+      >
+        <span
+          style={{
+            alignItems: "center",
+            background: "#FDE8E9",
+            borderRadius: "999px",
+            color: "#F9363C",
+            display: "inline-flex",
+            height: "48px",
+            justifyContent: "center",
+            width: "48px",
+          }}
+        >
+          <RefreshCw size={22} strokeWidth={1.8} />
+        </span>
+        <div>
+          <p
+            style={{
+              color: "#000",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 600,
+              lineHeight: "20px",
+              margin: 0,
+            }}
+          >
+            {copy.title}
+          </p>
+          <p
+            style={{
+              color: secondary,
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "17px",
+              margin: "6px 0 0",
+            }}
+          >
+            {copy.body}
+          </p>
+        </div>
+        {onRetry ? (
+          <button
+            onClick={onRetry}
+            style={{
+              background: "#000",
+              border: "none",
+              borderRadius: "999px",
+              color: "#fff",
+              cursor: "pointer",
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "18px",
+              padding: "8px 16px",
+            }}
+            type="button"
+          >
+            Retry
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -337,6 +430,7 @@ export function ApprovalsPane({
   onDecline,
   onExecute,
   onReview,
+  onRetry,
 }: {
   approvals: SmartAccountApprovalItem[];
   error: string | null;
@@ -349,6 +443,7 @@ export function ApprovalsPane({
   onDecline: (approval: SmartAccountApprovalItem) => void;
   onExecute: (approval: SmartAccountApprovalItem) => void;
   onReview: (approval: SmartAccountApprovalItem) => void;
+  onRetry?: () => void;
 }) {
   if (selectedApproval) {
     const isSelectedSubmitting =
@@ -456,7 +551,7 @@ export function ApprovalsPane({
         }}
       >
         {error ? (
-          <ApprovalErrorState />
+          <ApprovalErrorState error={error} onRetry={onRetry} />
         ) : approvals.length === 0 ? (
           <ApprovalEmptyState />
         ) : (

@@ -1,8 +1,8 @@
 import {
-  getSolanaEndpoints,
   resolveSolanaEnv,
   type SolanaEnv,
 } from "@loyal-labs/solana-rpc";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
   getOptionalEnv,
   isStrictTrue,
@@ -105,7 +105,7 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
     gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
     flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
     solanaEnv,
-    solanaRpcEndpoint: getSolanaEndpoints(solanaEnv).rpcEndpoint,
+    solanaRpcEndpoint: getFrontendSolanaEndpoints(solanaEnv).rpcEndpoint,
     swap: resolveSwapConfig(env),
     skillsEnabled: isStrictTrue(
       getOptionalEnv(env, SKILLS_ENABLED_ENV_NAME) ?? "true"

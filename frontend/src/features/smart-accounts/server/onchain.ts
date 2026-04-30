@@ -9,9 +9,10 @@ import {
   type LoyalSmartAccountsClient,
 } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { getSolanaEndpoints } from "@loyal-labs/solana-rpc";
 
 import { getServerEnv } from "@/lib/core/config/server";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 let cachedSponsorKeypair: Keypair | null = null;
@@ -22,9 +23,12 @@ function getSmartAccountsConnection(solanaEnv: SolanaEnv): Connection {
     return cachedConnection;
   }
 
-  const { rpcEndpoint, websocketEndpoint } = getSolanaEndpoints(solanaEnv);
+  const { rpcEndpoint, websocketEndpoint } =
+    getFrontendSolanaEndpoints(solanaEnv);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
+    disableRetryOnRateLimit: true,
+    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
     wsEndpoint: websocketEndpoint,
   });
 

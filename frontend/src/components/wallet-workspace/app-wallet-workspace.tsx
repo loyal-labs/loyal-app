@@ -4,8 +4,10 @@ import {
   ChartNoAxesColumn,
   FileSliders,
   LogOut,
+  RefreshCw,
   ShieldCheck,
   Wallet,
+  LayoutDashboard,
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
@@ -100,25 +102,8 @@ function clampWidth(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-const AGENT_ICON_COUNT = 26;
-
-function hashAddress(address: string): number {
-  let hash = 0;
-
-  for (let index = 0; index < address.length; index += 1) {
-    hash = (hash * 31 + address.charCodeAt(index)) >>> 0;
-  }
-
-  return hash;
-}
-
-function getWalletIcon(address: string | null): string {
-  if (!address) {
-    return "/agents/Agent-01.svg";
-  }
-
-  const iconIndex = (hashAddress(address) % AGENT_ICON_COUNT) + 1;
-  return `/agents/Agent-${String(iconIndex).padStart(2, "0")}.svg`;
+function getWalletIcon(): string {
+  return "/agents/Agent-03.svg";
 }
 
 function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
@@ -228,11 +213,13 @@ function RailNavButton({
   isActive = false,
   label,
   isPlaceholder = false,
+  tooltip,
 }: {
   icon: React.ReactNode;
   isActive?: boolean;
   label: string;
   isPlaceholder?: boolean;
+  tooltip?: string;
 }) {
   return (
     <button
@@ -242,12 +229,13 @@ function RailNavButton({
       className="wallet-workspace-rail-nav-button"
       data-active={isActive}
       data-placeholder={isPlaceholder}
+      data-tooltip={tooltip}
       onClick={(event) => {
         if (isPlaceholder) {
           event.preventDefault();
         }
       }}
-      title={isPlaceholder ? `${label} coming soon` : label}
+      title={tooltip ? undefined : label}
       type="button"
     >
       {icon}
@@ -291,11 +279,13 @@ function WalletRail({
             icon={<FileSliders size={24} strokeWidth={1.8} />}
             isPlaceholder
             label="Policies"
+            tooltip="Policies will live here"
           />
           <RailNavButton
             icon={<ChartNoAxesColumn size={24} strokeWidth={1.8} />}
             isPlaceholder
             label="Charts"
+            tooltip="Charts will live here"
           />
         </nav>
       </div>
@@ -316,55 +306,14 @@ function WalletRail({
   );
 }
 
-function SignedOutAccountPane() {
-  return (
-    <div className="wallet-workspace-signin">
-      <div className="wallet-workspace-signin-top">
-        <div className="wallet-workspace-signin-mark">
-          <Wallet size={24} strokeWidth={1.8} />
-        </div>
-        <div>
-          <p className="wallet-workspace-signin-title">My Wallet</p>
-          <p className="wallet-workspace-signin-copy">
-            Connect a Solana wallet to load balances, vaults, agents, and
-            approvals.
-          </p>
-        </div>
-      </div>
-
-      <div className="wallet-workspace-signin-preview" aria-hidden="true">
-        <div className="wallet-workspace-signin-balance">
-          <span>$0</span>
-          <span>.00</span>
-        </div>
-        <div className="wallet-workspace-signin-line" />
-        <div className="wallet-workspace-signin-row">
-          <span />
-          <div>
-            <strong>Vaults</strong>
-            <small>Available after sign in</small>
-          </div>
-        </div>
-        <div className="wallet-workspace-signin-row">
-          <span />
-          <div>
-            <strong>Agents</strong>
-            <small>Permissions and limits</small>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SignedOutDetailPane({ onSignIn }: { onSignIn: () => void }) {
   return (
     <div className="wallet-workspace-auth-detail">
       <div className="wallet-workspace-auth-detail-main">
         <div className="wallet-workspace-auth-icon">
-          <ShieldCheck size={28} strokeWidth={1.7} />
+          <LayoutDashboard size={28} strokeWidth={1.7} />
         </div>
-        <span>Wallet workspace</span>
+        <span>Ground control</span>
         <strong>Connect to manage private balances and agent access.</strong>
         <p>
           Your tokens, activity, shielded balances, spending limits, and smart
@@ -378,13 +327,118 @@ function SignedOutDetailPane({ onSignIn }: { onSignIn: () => void }) {
   );
 }
 
+function WorkspaceDetailSkeleton() {
+  return (
+    <div
+      className="wallet-workspace-loading-detail"
+      aria-label="Loading wallet"
+    >
+      <div className="wallet-workspace-loading-hero">
+        <div className="wallet-workspace-skeleton-avatar" />
+        <div className="wallet-workspace-loading-hero-copy">
+          <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-title" />
+          <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-short" />
+        </div>
+      </div>
+
+      <div className="wallet-workspace-skeleton-balance" />
+
+      <div className="wallet-workspace-loading-actions">
+        <div className="wallet-workspace-skeleton-pill" />
+        <div className="wallet-workspace-skeleton-pill wallet-workspace-skeleton-pill-active" />
+        <div className="wallet-workspace-skeleton-pill" />
+        <div className="wallet-workspace-skeleton-pill" />
+      </div>
+
+      <div className="wallet-workspace-loading-tabs">
+        <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-tab" />
+        <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-tab-muted" />
+      </div>
+
+      <div className="wallet-workspace-loading-token-list">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div className="wallet-workspace-loading-token-row" key={index}>
+            <div className="wallet-workspace-skeleton-token" />
+            <div className="wallet-workspace-loading-token-copy">
+              <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-token" />
+              <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-price" />
+            </div>
+            <div className="wallet-workspace-loading-token-values">
+              <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-amount" />
+              <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-value" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceApprovalsSkeleton() {
+  return (
+    <div
+      className="wallet-workspace-loading-approvals"
+      aria-label="Loading approvals"
+    >
+      <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-approvals-title" />
+      <div className="wallet-workspace-loading-approval-card">
+        <div className="wallet-workspace-skeleton-approval-icon" />
+        <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-approval-main" />
+        <div className="wallet-workspace-skeleton-line wallet-workspace-skeleton-line-approval-sub" />
+      </div>
+    </div>
+  );
+}
+
+function getWorkspaceErrorCopy(error: string | null) {
+  const isRateLimited = isRateLimitedSmartAccountError(error);
+
+  return {
+    body: isRateLimited
+      ? "The RPC provider is temporarily rate limiting smart-account reads. Your wallet connection is still active; wait a moment and retry."
+      : "We could not load smart-account data. Try again in a moment.",
+    title: isRateLimited ? "Network limit reached" : "Could not load accounts",
+  };
+}
+
+function isRateLimitedSmartAccountError(error: string | null | undefined) {
+  return error?.toLowerCase().includes("rate limited") ?? false;
+}
+
+function WorkspaceErrorPane({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry: () => void;
+}) {
+  const copy = getWorkspaceErrorCopy(error);
+
+  return (
+    <div className="wallet-workspace-error-pane">
+      <div className="wallet-workspace-error-card">
+        <span className="wallet-workspace-error-icon">
+          <RefreshCw size={28} strokeWidth={1.8} />
+        </span>
+        <div>
+          <p className="wallet-workspace-error-title">{copy.title}</p>
+          <p className="wallet-workspace-error-copy">{copy.body}</p>
+        </div>
+        <button onClick={onRetry} type="button">
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AppWalletWorkspace() {
   const walletDesktopData = useWalletDesktopData();
   const smartAccountData = useSmartAccountSidebarData();
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
-  const { isSignedIn } = useAuthCapability();
+  const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
@@ -392,8 +446,7 @@ export function AppWalletWorkspace() {
     useState<string>("Wallet overview");
   const [detailSelection, setDetailSelection] =
     useState<DetailSelection>("vault");
-  const [detailInitialTab, setDetailInitialTab] =
-    useState<DetailTab>("tokens");
+  const [detailInitialTab, setDetailInitialTab] = useState<DetailTab>("tokens");
   const [detailPaneTransition, setDetailPaneTransition] =
     useState<DetailPaneTransition>("switch");
   const [detailPaneTransitionKey, setDetailPaneTransitionKey] = useState(0);
@@ -443,6 +496,12 @@ export function AppWalletWorkspace() {
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   const prevHadTokensRef = useRef(false);
   const selectedVault = smartAccountData.selectedVault;
+  const isAuthResolving = !isAuthHydrated;
+  const isWorkspaceLoading =
+    isSignedIn && (walletDesktopData.isLoading || smartAccountData.isLoading);
+  const isSmartAccountRateLimited =
+    isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
+  const showAuthenticatedWorkspaceShell = isSignedIn;
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
@@ -860,10 +919,13 @@ export function AppWalletWorkspace() {
     setDetailSelection(actionReturnSelection);
   }, [actionReturnSelection, markDetailPaneTransition]);
 
-  const pushView = useCallback((view: Exclude<SubView, null>) => {
-    markDetailPaneTransition("forward");
-    setViewStack((current) => [...current, view]);
-  }, [markDetailPaneTransition]);
+  const pushView = useCallback(
+    (view: Exclude<SubView, null>) => {
+      markDetailPaneTransition("forward");
+      setViewStack((current) => [...current, view]);
+    },
+    [markDetailPaneTransition]
+  );
 
   const popView = useCallback(() => {
     markDetailPaneTransition("back");
@@ -1119,8 +1181,38 @@ export function AppWalletWorkspace() {
   }, []);
 
   const renderDetailPane = () => {
+    if (isSmartAccountRateLimited) {
+      return (
+        <WorkspaceErrorPane
+          error={smartAccountData.error}
+          onRetry={() => {
+            void smartAccountData.refresh();
+          }}
+        />
+      );
+    }
+
+    if (isAuthResolving) {
+      return <div className="wallet-workspace-auth-pending" />;
+    }
+
+    if (isWorkspaceLoading) {
+      return <WorkspaceDetailSkeleton />;
+    }
+
     if (!isSignedIn) {
       return <SignedOutDetailPane onSignIn={openSignIn} />;
+    }
+
+    if (smartAccountData.error && !smartAccountData.overview) {
+      return (
+        <WorkspaceErrorPane
+          error={smartAccountData.error}
+          onRetry={() => {
+            void smartAccountData.refresh();
+          }}
+        />
+      );
     }
 
     if (detailSelection === "action") {
@@ -1159,7 +1251,7 @@ export function AppWalletWorkspace() {
           activityRows={walletDesktopData.allActivityRows}
           balanceFraction={walletDesktopData.balanceFraction}
           balanceWhole={walletDesktopData.balanceWhole}
-          icon={getWalletIcon(walletDesktopData.walletAddress)}
+          icon={getWalletIcon()}
           initialTab={detailInitialTab}
           isBalanceHidden={isBalanceHidden}
           label={selectedSignerId ? "User" : "My Wallet"}
@@ -1194,9 +1286,14 @@ export function AppWalletWorkspace() {
               "wallet"
             )
           }
-          accessLevel={selectedSignerId ? selectedAgent?.accessLevel : undefined}
-          accessTitle="User Access"
+          accessLevel={
+            selectedSignerId ? selectedAgent?.accessLevel : undefined
+          }
+          accessTitle="Access level"
           getTokenActions={getTokenActions}
+          onActivityTabOpen={() => {
+            void walletDesktopData.loadActivity();
+          }}
           onTokenDetail={handleTokenDetail}
           tokenRows={walletDesktopData.allTokenRows}
           transactionDetails={walletDesktopData.transactionDetails}
@@ -1257,6 +1354,8 @@ export function AppWalletWorkspace() {
             smartAccountData.topUpSignerWithSpendingLimitUsd
           }
           signerAddress={selectedAgent.address}
+          showSpendingLimit
+          showTopUpAction={false}
           spendingLimit={selectedAgent.spendingLimit}
           tokenRows={selectedVault.tokenRows}
           transactionDetails={selectedVault.transactionDetails}
@@ -1264,6 +1363,11 @@ export function AppWalletWorkspace() {
           vaultAccountIndex={selectedVaultAccountIndex}
           getTokenActions={getTokenActions}
           initialTab={detailInitialTab}
+          onActivityTabOpen={() => {
+            void smartAccountData
+              .loadVaultActivity(selectedVault.entry.accountIndex)
+              .catch(() => undefined);
+          }}
           onTokenDetail={handleTokenDetail}
           variant="workspace"
         />
@@ -1333,6 +1437,11 @@ export function AppWalletWorkspace() {
           transactionDetails={selectedVault.transactionDetails}
           getTokenActions={getTokenActions}
           initialTab={detailInitialTab}
+          onActivityTabOpen={() => {
+            void smartAccountData
+              .loadVaultActivity(selectedVault.entry.accountIndex)
+              .catch(() => undefined);
+          }}
           onTokenDetail={handleTokenDetail}
         />
       );
@@ -1394,10 +1503,7 @@ export function AppWalletWorkspace() {
       ).detail;
 
       return (
-        <TransactionDetailView
-          detail={detail}
-          onBack={handleActionBack}
-        />
+        <TransactionDetailView detail={detail} onBack={handleActionBack} />
       );
     }
 
@@ -1621,7 +1727,8 @@ export function AppWalletWorkspace() {
   return (
     <main
       className="wallet-workspace"
-      data-signed-in={isSignedIn}
+      data-rate-limited={isSmartAccountRateLimited}
+      data-signed-in={showAuthenticatedWorkspaceShell}
       style={
         {
           "--wallet-account-pane-width": `${accountPaneWidth}px`,
@@ -1634,67 +1741,66 @@ export function AppWalletWorkspace() {
         dogNice={dogNice}
         isBalanceHidden={isBalanceHidden}
         isSignedIn={isSignedIn}
-        isWalletLoading={
-          walletDesktopData.isLoading || smartAccountData.isLoading
-        }
+        isWalletLoading={isWorkspaceLoading}
         onDisconnect={handleDisconnect}
       />
 
-      <section className="wallet-workspace-pane wallet-workspace-account-pane">
-        {isSignedIn ? (
-          <PortfolioContent
-            approvals={smartAccountData.approvals}
-            balanceFraction={walletDesktopData.balanceFraction}
-            balanceWhole={walletDesktopData.balanceWhole}
-            hasVaultAccount={smartAccountData.vaultEntries.length > 0}
-            isBalanceHidden={isBalanceHidden}
-            isLoading={
-              walletDesktopData.isLoading || smartAccountData.isLoading
-            }
-            onBalanceHiddenChange={setIsBalanceHidden}
-            onClose={() => undefined}
-            onDisconnect={handleDisconnect}
-            onOpenAgent={handleOpenAgent}
-            onOpenAddSigner={handleOpenAddSigner}
-            onOpenReceive={() => handleRailAction("receive")}
-            onOpenSend={() => handleRailAction("send")}
-            onOpenShield={() => handleRailAction("shield")}
-            onOpenSwap={() => handleRailAction("swap")}
-            onOpenWallet={handleOpenWallet}
-            onOpenVault={handleOpenVault}
-            onReviewApproval={handleReviewApproval}
-            onSeeAllApprovals={() => {
-              markDetailPaneTransition("switch");
-              setDetailSelection("approval");
-              setSelectedDetail("Approvals");
-            }}
-            selectedSignerId={selectedSignerId}
-            selectedVaultIndex={smartAccountData.selectedVaultIndex}
-            isWalletSelected={
-              (detailSelection === "wallet" ||
-                (detailSelection === "action" &&
-                  actionReturnSelection === "wallet")) &&
-              selectedSignerId === null
-            }
-            showActionButtons={false}
-            showApprovals={false}
-            showHeaderControls={false}
-            smartAccountError={smartAccountData.error}
-            vaultEntries={smartAccountData.vaultEntries}
-            walletAddress={walletDesktopData.walletAddress}
-            walletLabel={walletDesktopData.walletLabel}
-          />
-        ) : (
-          <SignedOutAccountPane />
-        )}
-      </section>
+      {showAuthenticatedWorkspaceShell && !isSmartAccountRateLimited ? (
+        <>
+          <section className="wallet-workspace-pane wallet-workspace-account-pane">
+            <PortfolioContent
+              approvals={smartAccountData.approvals}
+              balanceFraction={walletDesktopData.balanceFraction}
+              balanceWhole={walletDesktopData.balanceWhole}
+              hasVaultAccount={smartAccountData.vaultEntries.length > 0}
+              isBalanceHidden={isBalanceHidden}
+              isLoading={isWorkspaceLoading}
+              onBalanceHiddenChange={setIsBalanceHidden}
+              onClose={() => undefined}
+              onDisconnect={handleDisconnect}
+              onOpenAgent={handleOpenAgent}
+              onOpenAddSigner={handleOpenAddSigner}
+              onOpenReceive={() => handleRailAction("receive")}
+              onOpenSend={() => handleRailAction("send")}
+              onOpenShield={() => handleRailAction("shield")}
+              onOpenSwap={() => handleRailAction("swap")}
+              onOpenWallet={handleOpenWallet}
+              onOpenVault={handleOpenVault}
+              onSmartAccountRetry={() => {
+                void smartAccountData.refresh();
+              }}
+              onReviewApproval={handleReviewApproval}
+              onSeeAllApprovals={() => {
+                markDetailPaneTransition("switch");
+                setDetailSelection("approval");
+                setSelectedDetail("Approvals");
+              }}
+              selectedSignerId={selectedSignerId}
+              selectedVaultIndex={smartAccountData.selectedVaultIndex}
+              isWalletSelected={
+                (detailSelection === "wallet" ||
+                  (detailSelection === "action" &&
+                    actionReturnSelection === "wallet")) &&
+                selectedSignerId === null
+              }
+              showActionButtons={false}
+              showApprovals={false}
+              showHeaderControls={false}
+              smartAccountError={smartAccountData.error}
+              vaultEntries={smartAccountData.vaultEntries}
+              walletAddress={walletDesktopData.walletAddress}
+              walletLabel={walletDesktopData.walletLabel}
+            />
+          </section>
 
-      <button
-        aria-label="Resize account pane"
-        className="wallet-workspace-resize-handle wallet-workspace-account-resize"
-        onPointerDown={(event) => handleResizeStart("account", event)}
-        type="button"
-      />
+          <button
+            aria-label="Resize account pane"
+            className="wallet-workspace-resize-handle wallet-workspace-account-resize"
+            onPointerDown={(event) => handleResizeStart("account", event)}
+            type="button"
+          />
+        </>
+      ) : null}
 
       <section className="wallet-workspace-pane wallet-workspace-detail-pane">
         <div
@@ -1706,7 +1812,7 @@ export function AppWalletWorkspace() {
         </div>
       </section>
 
-      {isSignedIn ? (
+      {showAuthenticatedWorkspaceShell && !isSmartAccountRateLimited ? (
         <>
           <button
             aria-label="Resize approvals pane"
@@ -1716,31 +1822,38 @@ export function AppWalletWorkspace() {
           />
 
           <section className="wallet-workspace-pane wallet-workspace-review-pane">
-          <ApprovalsPane
-            approvals={smartAccountData.approvals}
-            error={smartAccountData.error}
-            isBalanceHidden={isBalanceHidden}
-            isSubmitting={smartAccountData.isActionPending}
-            onApprove={(approval) =>
-              void runProposalAction(() =>
-                smartAccountData.approveProposal(approval.proposal)
-              )
-            }
-            onBackToList={() => setSelectedApprovalId(null)}
-            onDecline={(approval) =>
-              void runProposalAction(() =>
-                smartAccountData.rejectProposal(approval.proposal)
-              )
-            }
-            onExecute={(approval) =>
-              void runProposalAction(() =>
-                smartAccountData.executeProposal(approval.proposal)
-              )
-            }
-            onReview={handleReviewApproval}
-            pendingApprovalId={smartAccountData.pendingProposalId}
-            selectedApproval={selectedApproval}
-          />
+            {isWorkspaceLoading ? (
+              <WorkspaceApprovalsSkeleton />
+            ) : (
+              <ApprovalsPane
+                approvals={smartAccountData.approvals}
+                error={smartAccountData.error}
+                isBalanceHidden={isBalanceHidden}
+                isSubmitting={smartAccountData.isActionPending}
+                onApprove={(approval) =>
+                  void runProposalAction(() =>
+                    smartAccountData.approveProposal(approval.proposal)
+                  )
+                }
+                onBackToList={() => setSelectedApprovalId(null)}
+                onDecline={(approval) =>
+                  void runProposalAction(() =>
+                    smartAccountData.rejectProposal(approval.proposal)
+                  )
+                }
+                onExecute={(approval) =>
+                  void runProposalAction(() =>
+                    smartAccountData.executeProposal(approval.proposal)
+                  )
+                }
+                onReview={handleReviewApproval}
+                onRetry={() => {
+                  void smartAccountData.refresh();
+                }}
+                pendingApprovalId={smartAccountData.pendingProposalId}
+                selectedApproval={selectedApproval}
+              />
+            )}
           </section>
         </>
       ) : null}
@@ -1768,11 +1881,11 @@ export function AppWalletWorkspace() {
         }
 
         .wallet-workspace[data-signed-in="false"] {
-          grid-template-columns:
-            60px 32px
-            minmax(360px, var(--wallet-account-pane-width))
-            8px
-            minmax(420px, 1fr);
+          grid-template-columns: 60px 32px minmax(0, 1fr);
+        }
+
+        .wallet-workspace[data-rate-limited="true"] {
+          grid-template-columns: 60px 32px minmax(420px, 1fr);
         }
 
         .wallet-workspace-rail {
@@ -1836,6 +1949,7 @@ export function AppWalletWorkspace() {
         }
 
         .wallet-workspace-rail-nav-button {
+          position: relative;
           width: 44px;
           height: 44px;
           border: 0;
@@ -1856,8 +1970,62 @@ export function AppWalletWorkspace() {
         }
 
         .wallet-workspace-rail-nav-button[data-placeholder="true"] {
+          color: rgba(60, 60, 67, 0.35);
           cursor: default;
-          opacity: 0.45;
+        }
+
+        .wallet-workspace-rail-nav-button[data-tooltip]::before {
+          position: absolute;
+          top: 50%;
+          left: calc(100% + 8px);
+          width: 8px;
+          height: 8px;
+          border-radius: 2px;
+          background: rgba(18, 18, 18, 0.94);
+          content: "";
+          opacity: 0;
+          pointer-events: none;
+          transform: translate3d(-4px, -50%, 0) rotate(45deg) scale(0.94);
+          transition: opacity 0.16s ease, transform 0.16s ease;
+          z-index: 20;
+        }
+
+        .wallet-workspace-rail-nav-button[data-tooltip]::after {
+          position: absolute;
+          top: 50%;
+          left: calc(100% + 12px);
+          min-width: max-content;
+          max-width: 220px;
+          border-radius: 12px;
+          background: rgba(18, 18, 18, 0.94);
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
+          color: #fff;
+          content: attr(data-tooltip);
+          font-family: inherit;
+          font-size: 13px;
+          font-weight: 500;
+          line-height: 16px;
+          opacity: 0;
+          padding: 8px 10px;
+          pointer-events: none;
+          transform: translate3d(-4px, -50%, 0) scale(0.98);
+          transform-origin: left center;
+          transition: opacity 0.16s ease, transform 0.16s ease;
+          white-space: nowrap;
+          z-index: 21;
+        }
+
+        .wallet-workspace-rail-nav-button[data-tooltip]:hover::before,
+        .wallet-workspace-rail-nav-button[data-tooltip]:hover::after,
+        .wallet-workspace-rail-nav-button[data-tooltip]:focus-visible::before,
+        .wallet-workspace-rail-nav-button[data-tooltip]:focus-visible::after {
+          opacity: 1;
+          transform: translate3d(0, -50%, 0) scale(1);
+        }
+
+        .wallet-workspace-rail-nav-button[data-tooltip]:hover::before,
+        .wallet-workspace-rail-nav-button[data-tooltip]:focus-visible::before {
+          transform: translate3d(0, -50%, 0) rotate(45deg) scale(1);
         }
 
         .wallet-workspace-rail-nav-button:hover {
@@ -1948,7 +2116,15 @@ export function AppWalletWorkspace() {
           border-right: 1px solid rgba(0, 0, 0, 0.06);
         }
 
-        .wallet-workspace[data-signed-in="false"] .wallet-workspace-detail-pane {
+        .wallet-workspace[data-signed-in="false"]
+          .wallet-workspace-detail-pane {
+          grid-column: 3;
+          border-right: 0;
+        }
+
+        .wallet-workspace[data-rate-limited="true"]
+          .wallet-workspace-detail-pane {
+          grid-column: 3;
           border-right: 0;
         }
 
@@ -2022,6 +2198,266 @@ export function AppWalletWorkspace() {
           grid-column: 6;
         }
 
+        @keyframes wallet-workspace-skeleton {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.46;
+          }
+        }
+
+        .wallet-workspace-loading-detail,
+        .wallet-workspace-loading-approvals {
+          display: flex;
+          height: 100%;
+          min-height: 0;
+          flex-direction: column;
+        }
+
+        .wallet-workspace-loading-detail {
+          padding: 36px 48px;
+          overflow: hidden;
+        }
+
+        .wallet-workspace-loading-hero {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+        }
+
+        .wallet-workspace-loading-hero-copy,
+        .wallet-workspace-loading-token-copy,
+        .wallet-workspace-loading-token-values {
+          display: flex;
+          min-width: 0;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .wallet-workspace-skeleton-line,
+        .wallet-workspace-skeleton-avatar,
+        .wallet-workspace-skeleton-balance,
+        .wallet-workspace-skeleton-pill,
+        .wallet-workspace-skeleton-token,
+        .wallet-workspace-skeleton-approval-icon {
+          background: rgba(0, 0, 0, 0.055);
+          animation: wallet-workspace-skeleton 1.55s ease-in-out infinite;
+        }
+
+        .wallet-workspace-skeleton-avatar {
+          width: 96px;
+          height: 96px;
+          flex: 0 0 auto;
+          border-radius: 26px;
+        }
+
+        .wallet-workspace-skeleton-line {
+          height: 16px;
+          border-radius: 999px;
+        }
+
+        .wallet-workspace-skeleton-line-title {
+          width: 154px;
+          height: 28px;
+        }
+
+        .wallet-workspace-skeleton-line-short {
+          width: 196px;
+          height: 18px;
+        }
+
+        .wallet-workspace-skeleton-balance {
+          width: min(330px, 72%);
+          height: 76px;
+          margin-top: 28px;
+          border-radius: 22px;
+        }
+
+        .wallet-workspace-loading-actions {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(88px, 1fr));
+          gap: 12px;
+          margin-top: 28px;
+        }
+
+        .wallet-workspace-skeleton-pill {
+          height: 56px;
+          border-radius: 999px;
+        }
+
+        .wallet-workspace-skeleton-pill-active {
+          background: rgba(0, 0, 0, 0.1);
+        }
+
+        .wallet-workspace-loading-tabs {
+          display: flex;
+          gap: 32px;
+          margin-top: 52px;
+        }
+
+        .wallet-workspace-skeleton-line-tab {
+          width: 92px;
+          height: 24px;
+          background: rgba(0, 0, 0, 0.09);
+        }
+
+        .wallet-workspace-skeleton-line-tab-muted {
+          width: 104px;
+          height: 24px;
+        }
+
+        .wallet-workspace-loading-token-list {
+          display: flex;
+          min-height: 0;
+          flex-direction: column;
+          gap: 10px;
+          margin-top: 28px;
+          overflow: hidden;
+        }
+
+        .wallet-workspace-loading-token-row {
+          display: grid;
+          grid-template-columns: 56px minmax(0, 1fr) minmax(92px, auto);
+          align-items: center;
+          gap: 16px;
+          padding: 8px 0;
+        }
+
+        .wallet-workspace-skeleton-token {
+          width: 56px;
+          height: 56px;
+          border-radius: 999px;
+        }
+
+        .wallet-workspace-skeleton-line-token {
+          width: 118px;
+          height: 22px;
+        }
+
+        .wallet-workspace-skeleton-line-price {
+          width: 72px;
+          height: 16px;
+        }
+
+        .wallet-workspace-loading-token-values {
+          align-items: flex-end;
+        }
+
+        .wallet-workspace-skeleton-line-amount {
+          width: 88px;
+          height: 22px;
+        }
+
+        .wallet-workspace-skeleton-line-value {
+          width: 64px;
+          height: 16px;
+        }
+
+        .wallet-workspace-loading-approvals {
+          padding: 20px 24px;
+        }
+
+        .wallet-workspace-skeleton-line-approvals-title {
+          width: 112px;
+          height: 28px;
+          background: rgba(0, 0, 0, 0.09);
+        }
+
+        .wallet-workspace-loading-approval-card {
+          display: flex;
+          flex: 1;
+          min-height: 0;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+        }
+
+        .wallet-workspace-skeleton-approval-icon {
+          width: 56px;
+          height: 56px;
+          border-radius: 999px;
+        }
+
+        .wallet-workspace-skeleton-line-approval-main {
+          width: 156px;
+          height: 20px;
+        }
+
+        .wallet-workspace-skeleton-line-approval-sub {
+          width: 210px;
+          height: 16px;
+        }
+
+        .wallet-workspace-error-pane {
+          display: flex;
+          height: 100%;
+          min-height: 0;
+          align-items: center;
+          justify-content: center;
+          padding: 32px;
+        }
+
+        .wallet-workspace-error-card {
+          display: flex;
+          width: min(360px, 100%);
+          flex-direction: column;
+          align-items: center;
+          gap: 14px;
+          border-radius: 32px;
+          background: #f5f5f5;
+          padding: 28px;
+          text-align: center;
+        }
+
+        .wallet-workspace-error-icon {
+          display: inline-flex;
+          width: 60px;
+          height: 60px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: #fde8e9;
+          color: #f9363c;
+        }
+
+        .wallet-workspace-error-title {
+          margin: 0;
+          font-size: 20px;
+          font-weight: 600;
+          line-height: 24px;
+          color: #000;
+        }
+
+        .wallet-workspace-error-copy {
+          margin: 8px 0 0;
+          font-size: 14px;
+          line-height: 20px;
+          color: rgba(60, 60, 67, 0.6);
+        }
+
+        .wallet-workspace-error-card button {
+          margin-top: 4px;
+          border: 0;
+          border-radius: 999px;
+          background: #000;
+          color: #fff;
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 14px;
+          font-weight: 500;
+          line-height: 18px;
+          padding: 10px 18px;
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+
+        .wallet-workspace-error-card button:hover {
+          background: rgba(0, 0, 0, 0.82);
+          transform: translateY(-1px);
+        }
+
         .wallet-workspace-placeholder {
           display: flex;
           height: 100%;
@@ -2042,119 +2478,18 @@ export function AppWalletWorkspace() {
           text-align: left;
         }
 
-        .wallet-workspace-placeholder span,
-        .wallet-workspace-signin-copy {
+        .wallet-workspace-placeholder span {
           font-size: 13px;
           line-height: 16px;
           color: rgba(60, 60, 67, 0.6);
         }
 
-        .wallet-workspace-placeholder strong,
-        .wallet-workspace-signin-title {
+        .wallet-workspace-placeholder strong {
           margin: 0;
           font-size: 20px;
           font-weight: 600;
           line-height: 24px;
           color: #000;
-        }
-
-        .wallet-workspace-signin {
-          display: flex;
-          width: 100%;
-          height: 100%;
-          min-height: 0;
-          flex-direction: column;
-          justify-content: flex-start;
-          gap: 18px;
-          padding: 20px 8px 20px 0;
-        }
-
-        .wallet-workspace-signin-top {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-          padding: 0 12px;
-        }
-
-        .wallet-workspace-signin-mark {
-          width: 52px;
-          height: 52px;
-          border-radius: 16px;
-          background: rgba(249, 54, 60, 0.12);
-          color: #f9363c;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .wallet-workspace-signin-preview {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          margin: 0 8px;
-          padding: 16px;
-          border-radius: 20px;
-          background: rgba(0, 0, 0, 0.035);
-        }
-
-        .wallet-workspace-signin-balance {
-          display: flex;
-          align-items: baseline;
-          color: #000;
-          font-size: 40px;
-          font-weight: 600;
-          letter-spacing: -0.44px;
-          line-height: 48px;
-        }
-
-        .wallet-workspace-signin-balance span:last-child {
-          color: rgba(60, 60, 67, 0.4);
-        }
-
-        .wallet-workspace-signin-line {
-          width: 100%;
-          height: 9px;
-          border-radius: 9999px;
-          background: linear-gradient(
-            90deg,
-            rgba(249, 54, 60, 0.22),
-            rgba(0, 0, 0, 0.05)
-          );
-        }
-
-        .wallet-workspace-signin-row {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          min-width: 0;
-        }
-
-        .wallet-workspace-signin-row > span {
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
-          background: #fff;
-          flex: 0 0 auto;
-        }
-
-        .wallet-workspace-signin-row div {
-          display: flex;
-          min-width: 0;
-          flex-direction: column;
-          gap: 2px;
-        }
-
-        .wallet-workspace-signin-row strong {
-          color: #000;
-          font-size: 14px;
-          font-weight: 500;
-          line-height: 18px;
-        }
-
-        .wallet-workspace-signin-row small {
-          color: rgba(60, 60, 67, 0.6);
-          font-size: 13px;
-          line-height: 16px;
         }
 
         .wallet-workspace-auth-detail button:hover {
@@ -2168,66 +2503,67 @@ export function AppWalletWorkspace() {
           min-height: 0;
           align-items: center;
           justify-content: center;
-          padding: 32px;
+          padding: 48px;
         }
 
         .wallet-workspace-auth-detail-main {
           display: flex;
-          width: min(100%, 420px);
+          width: min(100%, 500px);
           flex-direction: column;
           align-items: flex-start;
         }
 
         .wallet-workspace-auth-icon {
-          width: 56px;
-          height: 56px;
-          border-radius: 18px;
+          width: 72px;
+          height: 72px;
+          border-radius: 22px;
           background: rgba(249, 54, 60, 0.12);
           color: #f9363c;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          margin-bottom: 18px;
+          margin-bottom: 28px;
         }
 
-        .wallet-workspace-auth-detail-main > span,
-        .wallet-workspace-review-empty > span {
+        .wallet-workspace-auth-icon svg {
+          width: 32px;
+          height: 32px;
+        }
+
+        .wallet-workspace-auth-detail-main > span {
           color: rgba(60, 60, 67, 0.6);
-          font-size: 13px;
-          line-height: 16px;
-          margin-bottom: 6px;
+          font-size: 18px;
+          line-height: 24px;
+          margin-bottom: 10px;
         }
 
-        .wallet-workspace-auth-detail-main strong,
-        .wallet-workspace-review-empty strong {
+        .wallet-workspace-auth-detail-main strong {
           color: #000;
-          font-size: 28px;
+          font-size: 40px;
           font-weight: 600;
-          line-height: 32px;
-          letter-spacing: -0.3px;
-          max-width: 360px;
+          line-height: 1.16;
+          max-width: 500px;
         }
 
-        .wallet-workspace-auth-detail-main p,
-        .wallet-workspace-review-empty p {
+        .wallet-workspace-auth-detail-main p {
           color: rgba(60, 60, 67, 0.6);
-          font-size: 15px;
-          line-height: 21px;
-          margin: 12px 0 0;
-          max-width: 360px;
+          font-size: 20px;
+          line-height: 1.42;
+          margin: 22px 0 0;
+          max-width: 520px;
         }
 
         .wallet-workspace-auth-detail button {
-          height: 44px;
-          padding: 0 18px;
+          height: 58px;
+          padding: 0 26px;
           border: 0;
           border-radius: 9999px;
           background: #000;
           color: #fff;
           font: inherit;
-          font-size: 16px;
+          font-size: 20px;
           cursor: pointer;
-          margin-top: 22px;
+          margin-top: 30px;
           transition: background 0.15s ease, transform 0.15s ease;
         }
 
@@ -2245,6 +2581,21 @@ export function AppWalletWorkspace() {
           font-size: 20px;
           line-height: 24px;
           letter-spacing: 0;
+        }
+
+        .wallet-workspace-review-empty > span {
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 13px;
+          line-height: 16px;
+          margin-bottom: 6px;
+        }
+
+        .wallet-workspace-review-empty p {
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 15px;
+          line-height: 21px;
+          margin: 12px 0 0;
+          max-width: 360px;
         }
 
         @keyframes wallet-workspace-spin {
@@ -2329,11 +2680,22 @@ export function AppWalletWorkspace() {
           }
 
           .wallet-workspace[data-signed-in="false"] {
-            grid-template-columns:
-              60px 32px
-              minmax(320px, min(var(--wallet-account-pane-width), 400px))
-              8px
-              minmax(320px, 1fr);
+            grid-template-columns: 60px 32px minmax(0, 1fr);
+          }
+
+          .wallet-workspace[data-signed-in="false"]
+            .wallet-workspace-detail-pane {
+            grid-column: 3;
+          }
+
+          .wallet-workspace[data-rate-limited="true"] {
+            grid-template-columns: 60px 32px minmax(320px, 1fr);
+          }
+
+          .wallet-workspace[data-rate-limited="true"]
+            .wallet-workspace-detail-pane {
+            grid-column: 3;
+            border-right: 0;
           }
         }
 
@@ -2348,6 +2710,58 @@ export function AppWalletWorkspace() {
           .wallet-workspace-detail-pane,
           .wallet-workspace-review-pane {
             display: none;
+          }
+
+          .wallet-workspace[data-rate-limited="true"]
+            .wallet-workspace-detail-pane {
+            display: flex;
+            grid-column: 3;
+          }
+
+          .wallet-workspace[data-signed-in="false"]
+            .wallet-workspace-detail-pane {
+            display: flex;
+            grid-column: 3;
+          }
+
+          .wallet-workspace-auth-detail {
+            padding: 32px 24px;
+          }
+
+          .wallet-workspace-auth-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 20px;
+            margin-bottom: 24px;
+          }
+
+          .wallet-workspace-auth-icon svg {
+            width: 28px;
+            height: 28px;
+          }
+
+          .wallet-workspace-auth-detail-main > span {
+            font-size: 17px;
+            line-height: 22px;
+            margin-bottom: 10px;
+          }
+
+          .wallet-workspace-auth-detail-main strong {
+            font-size: 32px;
+            line-height: 1.15;
+          }
+
+          .wallet-workspace-auth-detail-main p {
+            font-size: 18px;
+            line-height: 1.4;
+            margin-top: 20px;
+          }
+
+          .wallet-workspace-auth-detail button {
+            height: 54px;
+            padding: 0 24px;
+            font-size: 18px;
+            margin-top: 28px;
           }
         }
       `}</style>

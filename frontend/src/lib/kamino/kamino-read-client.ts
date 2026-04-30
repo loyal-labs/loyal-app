@@ -2,8 +2,10 @@ import {
   type KaminoShieldedBalanceQuote,
   LoyalPrivateTransactionsClient,
 } from "@loyal-labs/private-transactions";
-import { getSolanaEndpoints, type SolanaEnv } from "@loyal-labs/solana-rpc";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Keypair, PublicKey } from "@solana/web3.js";
+
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 
 /**
  * Build a read-only LoyalPrivateTransactionsClient for Kamino reserve queries
@@ -37,7 +39,8 @@ export function getKaminoReadClient(
   }
 
   const promise = (async () => {
-    const { rpcEndpoint, websocketEndpoint } = getSolanaEndpoints(solanaEnv);
+    const { rpcEndpoint, websocketEndpoint } =
+      getFrontendSolanaEndpoints(solanaEnv);
     const throwawaySigner = Keypair.generate();
 
     const client = await LoyalPrivateTransactionsClient.fromConfig({
