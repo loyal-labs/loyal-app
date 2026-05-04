@@ -16,6 +16,7 @@ The package root re-exports everything from:
 
 - `src/client.ts`
 - `src/messages.ts`
+- `src/spending-limits.ts`
 - `src/types.ts`
 - `src/wallet.ts`
 
@@ -32,6 +33,8 @@ Returned client shape:
 - `sdk`
 - `fetchVault(args)`
 - `listVaults(args)`
+- `listSpendingLimitPolicies(args)`
+- `listSpendingLimits(args)`
 - `listProposals(args)`
 - `fetchOverview(args)`
 - `prepareSolTransferProposal(args)`
@@ -47,6 +50,7 @@ Returned client shape:
 - `prepareRejectProposal(args)`
 - `prepareExecuteProposal(args)`
 - `prepareExecuteSettingsProposal(args)`
+- `prepareExecutePolicyProposal(args)`
 
 Notes:
 
@@ -101,6 +105,16 @@ Status/enum-like types:
 - `SmartAccountProposalSummaryKind`
 - `SmartAccountSignerPermission`
 - `SmartAccountSignerScope`
+
+Spending-limit helpers:
+
+- `getSpendingLimitPeriodSeconds`
+- `getEffectiveSpendingLimitRemainingAmount`
+- `getSpendingLimitNextReset`
+- `formatTokenAmount`
+- `tokenAmountToNumber`
+- `toSpendingLimitPeriodLabel`
+- `SOL_SPENDING_LIMIT_MINT`
 
 ## How It Works
 
@@ -192,6 +206,7 @@ the package:
 - `prepareRejectProposal()` wraps proposal rejection.
 - `prepareExecuteProposal()` executes a regular stored transaction.
 - `prepareExecuteSettingsProposal()` first derives any extra execution accounts required by settings actions, then prepares the settings-transaction execution.
+- `prepareExecutePolicyProposal()` resolves execution accounts for stored policy transactions and prepares policy execution.
 
 The send step is intentionally separate. Typical usage is:
 
@@ -248,8 +263,8 @@ Useful mappings:
 - `walletDataClient` is optional in the config type, but `fetchVault()`, `listVaults()`, and `fetchOverview()` require it at runtime.
 - Proposal creation uses `current transaction index + 1`, so concurrent proposers can race and produce stale prepared operations.
 - Proposal summaries are intentionally lossy. Only common transfer/settings payloads are decoded into first-class summaries.
-- There is no first-class `prepareExecutePolicyProposal()` helper in this wrapper. Some policy execution flows still require dropping to `client.sdk`.
-- This package currently has no package-local tests or examples.
+- Stored policy proposal execution currently supports spending-limit payloads and async program-interaction payloads. Other policy payloads may still require dropping to `client.sdk`.
+- Package-local tests cover spending-limit reset and policy-update preservation behavior in `src/__tests__/spending-limits.test.ts`.
 
 ## Where It Is Used In This Repo
 

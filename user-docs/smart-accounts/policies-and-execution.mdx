@@ -57,6 +57,12 @@ That structure is why the SDK surface is organized by feature instead of as one 
 
 Policies are scoped rule sets with their own execution boundaries. They are useful when a smart account needs narrower permissions than the full settings-level governance model.
 
+Policies have their own signer set, threshold, time lock, transaction index, and stale-index protection. A transaction targets one consensus account at a time: either the root `Settings` account or one specific policy account.
+
+<Note>
+Multiple policies under the same smart account are parallel authorities. They do not automatically stack like middleware on every transaction.
+</Note>
+
 ## Policy Types You Should Know
 
 ### Program Interaction
@@ -70,6 +76,10 @@ Why it matters: this is the policy type behind constrained automation and rule-b
 Use this when a smart account can spend, but only within quantity and time constraints.
 
 Why it matters: it is the simplest way to express operational budgets.
+
+For new Loyal flows, this means `SpendingLimitPolicy`, not the older legacy spending-limit account model. A spending-limit policy can have its own allowed signer set and can be used for scoped top-ups or recurring operational budgets without giving the signer root settings authority.
+
+When editing an existing spending-limit policy, update it with `PolicyUpdate`. Rebuild the update from the fetched policy state so fields you did not change stay intact.
 
 ### Internal Fund Transfers
 
@@ -89,6 +99,8 @@ Why it matters: it gives you a middle ground between rigid governance and unrest
 - Add policies only where they remove risk or operational friction
 - Use async governance for human approval workflows
 - Use synchronous execution for coordinated or automated flows
+- Put agent or automation keys on policies, not on the root settings signer list, unless they truly need full account governance
+- Prefer policy updates over remove/create flows when changing existing spending-limit constraints
 
 <Info>
 If a policy model feels more complicated than the operational problem you are solving, keep the first version simpler. Smart-account design compounds quickly.

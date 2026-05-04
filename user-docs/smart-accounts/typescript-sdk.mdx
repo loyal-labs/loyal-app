@@ -25,6 +25,7 @@ It also exports lower-level protocol helpers:
 - `pda`
 - `codecs`
 - `errors`
+- `PROGRAM_ID`
 
 ## Install
 
@@ -145,6 +146,12 @@ await client.smartAccounts.create({
 | `prepare.*` | A reusable prepared operation before send |
 | `client.*` | The shortest path from request to signature |
 
+Every feature namespace follows the same model: raw account classes, optional raw instruction builders, prepared-operation builders, account queries, and bound client methods. For example, proposals expose create/approve/reject/cancel operations, transactions expose create/buffer/log-event operations, and execution exposes async, synchronous, settings, batch, and policy execution helpers.
+
+<Note>
+The low-level SDK exposes both current policy APIs and legacy spending-limit instructions. For new Loyal product flows, prefer policy-based spending limits through the vault adapter described below.
+</Note>
+
 ## PDA Helpers You Will Use Early
 
 Two helpers matter immediately:
@@ -158,10 +165,38 @@ The first derives the configuration root. The second derives a sub-account that 
 Do not send funds to the settings PDA by accident. In most integrations, the sub-account or vault PDA is the address users should treat as the asset-holding account.
 </Warning>
 
+## App-Facing Vault Adapter
+
+Most Loyal frontend flows use `@loyal-labs/smart-account-vaults` on top of this SDK. That package turns the lower-level Squads account model into app-ready APIs for:
+
+- vault portfolio and activity reads
+- proposal summaries and approval actions
+- policy signer connect/disconnect flows
+- spending-limit policy create, update, delete, and top-up actions
+- wallet-adapter sending for prepared operations
+
+```ts
+import {
+  createSmartAccountVaultsClient,
+  sendPreparedWithWallet,
+} from "@loyal-labs/smart-account-vaults";
+
+const vaults = createSmartAccountVaultsClient({
+  connection,
+  programId,
+  walletDataClient,
+});
+
+const overview = await vaults.fetchOverview({ settingsPda });
+```
+
+Read [Frontend and Vault APIs](/smart-accounts/frontend-and-vaults) for the full frontend integration layer.
+
 ## What To Read Next
 
 - [Concepts](/smart-accounts/concepts) for the vocabulary behind the fields
 - [Policies and Execution](/smart-accounts/policies-and-execution) for the governance and execution model
+- [Frontend and Vault APIs](/smart-accounts/frontend-and-vaults) for the app-facing package and frontend flow
 
 <Info>
 The TS SDK already exposes the broader feature namespaces listed above. This page stays centered on the create flow and the main integration pattern so it remains useful instead of turning into a dump of every operation.

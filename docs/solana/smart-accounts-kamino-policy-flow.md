@@ -1,12 +1,35 @@
 # Kamino Lending Agent Policy Flow
 
-This is the practical implementation shape for:
+This document covers the current operator-script flow and the target product
+integration shape for:
 
 - vault USDC balance must be greater than `500 USDC`
 - only Kamino Lending may be called
 - only a supported KLend deposit instruction may be called
 - only the Agent policy signer is needed for recurring deposits
 - the user remains the root `Settings` owner
+
+## Current State
+
+Implemented today:
+
+- `scripts/create-kamino-lending-policy.ts` builds a `ProgramInteraction`
+  policy creation settings transaction, creates the proposal, and can optionally
+  approve and execute it.
+- `scripts/propose-smart-account-transaction.ts` can submit later Agent-owned
+  transactions through `--policy-pda`, including Kamino KTX responses or generic
+  instruction JSON.
+- The frontend provisions root smart accounts and exposes generic smart-account
+  overview, approvals, policy signer updates, spending-limit policy creation,
+  and supported policy execution flows.
+- The frontend has Kamino read-side helpers for portfolio/APY/shield balances.
+
+Not implemented yet:
+
+- A frontend "enable auto-yield" action that creates this Kamino policy.
+- Persisted/indexed storage for the resulting Kamino `policyPda`.
+- A runtime Agent worker that periodically computes `balance - 500 USDC`,
+  fetches Kamino deposit instructions, and executes them through this policy.
 
 ## Policy Model
 
@@ -36,7 +59,7 @@ The policy creation script builds one instruction constraint:
   - owner at offset `32` equals the vault PDA
   - amount at offset `64` is `DataOperator.GreaterThan 500_000_000`
 
-This gates execution on the vault source ATA having more than 500 USDC before the Kamino deposit. The backend still computes the dynamic deposit amount, usually `balance - 500 USDC`.
+This gates execution on the vault source ATA having more than 500 USDC before the Kamino deposit. The future worker/backend should still compute the dynamic deposit amount, usually `balance - 500 USDC`.
 
 ## Operator Scripts
 
@@ -88,7 +111,11 @@ bun run smart-accounts:propose \
 
 The custom instruction file can be a Kamino KTX response with `instructions` and `lutsByAddress`, or a generic JSON object with `instructions: [{ programId, data, keys }]`.
 
-## Frontend Changes
+## Target Frontend Integration
+
+This flow is not wired into the frontend yet. The current frontend pieces are
+the generic smart-account flows listed below; the Kamino-specific opt-in should
+reuse those package APIs instead of adding direct Squads plumbing to the UI.
 
 For new users, keep `frontend/src/features/smart-accounts/server/onchain.ts` creating the root smart account as it does today:
 
@@ -109,7 +136,29 @@ For existing users, expose the same flow behind an "enable auto-yield" action:
 
 Do not add the Agent as a root `Settings` signer. The Agent should only appear in `Policy.signers[]`.
 
-## Runtime Worker
+Existing generic frontend smart-account plumbing:
+
+- `frontend/src/features/smart-accounts/server/read-model.ts` loads
+  `SmartAccountOverview` through `packages/smart-account-vaults`.
+- `/api/smart-accounts/overview` returns the overview without eager activity
+  scans; `/api/smart-accounts/vault-activity` loads selected-vault activity.
+- `frontend/src/hooks/use-smart-account-sidebar-data.ts` prepares approval,
+  execution, signer, and spending-limit actions with
+  `createSmartAccountVaultsClient`.
+- Connect requests from `loyal auth` arrive as `?connect=<agentPubkey>` and are
+  approved by calling `prepareAddInitiateSigner`, which updates a
+  `SpendingLimit` policy signer set with `PolicyUpdate`.
+- Spending-limit amount edits call `prepareSetSpendingLimitPolicy`. Existing
+  policies must stay update-in-place so mint, destinations, period, usage, and
+  time-lock semantics are preserved.
+- Agent top-ups call `prepareUseSolSpendingLimitPolicy`, which prepares
+  synchronous `executePolicyPayloadSync`; the signing wallet must be a valid
+  policy signer, not necessarily the authenticated root settings signer.
+- Stored policy proposals can be executed from the UI through
+  `prepareExecutePolicyProposal` when the payload is a supported
+  `SpendingLimit` or async `ProgramInteraction` payload.
+
+## Target Runtime Worker
 
 The Agent worker should:
 
