@@ -81,7 +81,7 @@ export function SmartAccountSponsorshipSpendChart({
         <div className="flex">
           <div className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left sm:border-t-0 sm:border-l sm:px-8 sm:py-6">
             <span className="text-xs text-muted-foreground">30d spent</span>
-            <span className="text-lg leading-none font-bold tabular-nums sm:text-3xl">
+            <span className="text-lg leading-none font-bold whitespace-nowrap tabular-nums sm:text-3xl">
               {totalSpentSol30d.toLocaleString()} SOL
             </span>
           </div>
@@ -89,7 +89,7 @@ export function SmartAccountSponsorshipSpendChart({
             <span className="text-xs text-muted-foreground">
               {usesUsd ? "USD estimate" : "USD"}
             </span>
-            <span className="text-lg leading-none font-bold tabular-nums sm:text-3xl">
+            <span className="text-lg leading-none font-bold whitespace-nowrap tabular-nums sm:text-3xl">
               {totalSpentUsd30d === null ? "N/A" : formatUsd(totalSpentUsd30d)}
             </span>
           </div>

@@ -30,7 +30,7 @@ export type SmartAccountSpendPoint = {
 
 export type SmartAccountRegistrationRow = {
   id: string;
-  registeredAt: Date;
+  registeredAt: string;
   solanaEnv: string;
   userAddress: string;
   vaultAddress: string | null;
@@ -271,7 +271,10 @@ async function loadSmartAccountsData(): Promise<SmartAccountsData> {
 
   return {
     creationPoints,
-    registrations: registrationRows,
+    registrations: registrationRows.map((row) => ({
+      ...row,
+      registeredAt: row.registeredAt.toISOString(),
+    })),
     solPriceUsd,
     spendPoints,
     totalAccounts: Number(totalAccountRows[0]?.count) || 0,

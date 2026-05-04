@@ -42,6 +42,11 @@ function getSolscanAccountUrl(address: string, solanaEnv: string) {
   return `https://solscan.io/account/${address}${params}`;
 }
 
+function formatRegistrationDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "N/A" : dateTimeFormatter.format(date);
+}
+
 function AddressLink({
   address,
   solanaEnv,
@@ -117,7 +122,7 @@ export default async function SmartAccountsPage() {
                   registrations.map((registration) => (
                     <TableRow key={registration.id}>
                       <TableCell className="tabular-nums">
-                        {dateTimeFormatter.format(registration.registeredAt)}
+                        {formatRegistrationDate(registration.registeredAt)}
                       </TableCell>
                       <TableCell>
                         <AddressLink
