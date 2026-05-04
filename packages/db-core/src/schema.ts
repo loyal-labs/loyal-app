@@ -614,23 +614,20 @@ export const pushTokens = pgTable(
  * run can ask `getSignaturesForAddress(..., { until: lastSignature })`
  * for only the new tail instead of re-scanning every run.
  */
-export const walletPushSyncState = pgTable(
-  "wallet_push_sync_state",
-  {
-    walletPublicKey: text("wallet_public_key").primaryKey(),
-    lastSignature: text("last_signature"),
-    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    lastError: text("last_error"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-);
+export const walletPushSyncState = pgTable("wallet_push_sync_state", {
+  walletPublicKey: text("wallet_public_key").primaryKey(),
+  lastSignature: text("last_signature"),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
 
 /**
  * Wallet-first users for the Loyal web frontend.
@@ -684,7 +681,9 @@ export const appUserWallets = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [uniqueIndex("app_user_wallets_wallet_address_uidx").on(table.walletAddress)]
+  (table) => [
+    uniqueIndex("app_user_wallets_wallet_address_uidx").on(table.walletAddress),
+  ]
 );
 
 /**
@@ -736,6 +735,56 @@ export const appUserSmartAccounts = pgTable(
 );
 
 /**
+ * Individual sponsored smart-account creation transactions observed from the
+ * Loyal web frontend. One row per transaction signature and environment.
+ */
+export const appSmartAccountSponsorshipTransactions = pgTable(
+  "app_smart_account_sponsorship_transactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    signature: text("signature").notNull(),
+    payerAddress: text("payer_address").notNull(),
+    userAddress: text("user_address").notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    smartAccountAddress: text("smart_account_address").notNull(),
+    slot: bigint("slot", { mode: "bigint" }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    spentLamports: numeric("spent_lamports", {
+      precision: 30,
+      scale: 0,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_smart_account_sponsorship_tx_env_signature_uidx").on(
+      table.solanaEnv,
+      table.signature
+    ),
+    index("app_smart_account_sponsorship_tx_occurred_at_idx").on(
+      table.occurredAt
+    ),
+    index("app_smart_account_sponsorship_tx_user_address_idx").on(
+      table.userAddress
+    ),
+    index("app_smart_account_sponsorship_tx_smart_account_idx").on(
+      table.smartAccountAddress
+    ),
+    check(
+      "app_smart_account_sponsorship_tx_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+  ]
+);
+
+/**
  * Idempotency and replay records for wallet auth completion.
  * One row per signed challenge token hash.
  */
@@ -753,11 +802,13 @@ export const appWalletAuthCompletions = pgTable(
     processingStartedAt: timestamp("processing_started_at", {
       withTimezone: true,
     }),
-    userId: uuid("user_id").references(() => appUsers.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => appUsers.id, {
+      onDelete: "set null",
+    }),
     smartAccountAddress: text("smart_account_address"),
-    provisioningOutcome: text("provisioning_outcome").$type<
-      AppWalletAuthProvisioningOutcome | null
-    >(),
+    provisioningOutcome: text(
+      "provisioning_outcome"
+    ).$type<AppWalletAuthProvisioningOutcome | null>(),
     lastErrorCode: text("last_error_code"),
     lastErrorMessage: text("last_error_message"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -772,7 +823,9 @@ export const appWalletAuthCompletions = pgTable(
     uniqueIndex("app_wallet_auth_completions_challenge_hash_uidx").on(
       table.challengeHash
     ),
-    index("app_wallet_auth_completions_wallet_address_idx").on(table.walletAddress),
+    index("app_wallet_auth_completions_wallet_address_idx").on(
+      table.walletAddress
+    ),
     index("app_wallet_auth_completions_state_idx").on(table.state),
     index("app_wallet_auth_completions_user_id_idx").on(table.userId),
     check(
@@ -847,7 +900,10 @@ export const appChatMessages = pgTable(
     uniqueIndex("app_chat_messages_chat_role_turn_uidx")
       .on(table.chatId, table.role, table.turnId)
       .where(sql`${table.turnId} IS NOT NULL`),
-    index("app_chat_messages_chat_created_idx").on(table.chatId, table.createdAt),
+    index("app_chat_messages_chat_created_idx").on(
+      table.chatId,
+      table.createdAt
+    ),
     check(
       "app_chat_messages_role_check",
       sql`${table.role} IN ('user', 'assistant', 'system')`
@@ -1439,28 +1495,40 @@ export const appChatsRelations = relations(appChats, ({ one, many }) => ({
   messages: many(appChatMessages),
 }));
 
-export const appChatMessagesRelations = relations(appChatMessages, ({ one }) => ({
-  chat: one(appChats, {
-    fields: [appChatMessages.chatId],
-    references: [appChats.id],
-  }),
-}));
+export const appChatMessagesRelations = relations(
+  appChatMessages,
+  ({ one }) => ({
+    chat: one(appChats, {
+      fields: [appChatMessages.chatId],
+      references: [appChats.id],
+    }),
+  })
+);
 
-export const librarySectionsRelations = relations(librarySections, ({ many }) => ({
-  articles: many(libraryArticles),
-}));
+export const librarySectionsRelations = relations(
+  librarySections,
+  ({ many }) => ({
+    articles: many(libraryArticles),
+  })
+);
 
-export const libraryArticlesRelations = relations(libraryArticles, ({ one }) => ({
-  section: one(librarySections, {
-    fields: [libraryArticles.sectionId],
-    references: [librarySections.id],
-  }),
-}));
+export const libraryArticlesRelations = relations(
+  libraryArticles,
+  ({ one }) => ({
+    section: one(librarySections, {
+      fields: [libraryArticles.sectionId],
+      references: [librarySections.id],
+    }),
+  })
+);
 
-export const featureRegistryRelations = relations(featureRegistry, ({ many }) => ({
-  appStatuses: many(featureAppStatuses),
-  flagLinks: many(featureFlagLinks),
-}));
+export const featureRegistryRelations = relations(
+  featureRegistry,
+  ({ many }) => ({
+    appStatuses: many(featureAppStatuses),
+    flagLinks: many(featureFlagLinks),
+  })
+);
 
 export const featureAppStatusesRelations = relations(
   featureAppStatuses,
@@ -1473,12 +1541,15 @@ export const featureAppStatusesRelations = relations(
   })
 );
 
-export const featureEvidenceRelations = relations(featureEvidence, ({ one }) => ({
-  featureAppStatus: one(featureAppStatuses, {
-    fields: [featureEvidence.featureAppStatusId],
-    references: [featureAppStatuses.id],
-  }),
-}));
+export const featureEvidenceRelations = relations(
+  featureEvidence,
+  ({ one }) => ({
+    featureAppStatus: one(featureAppStatuses, {
+      fields: [featureEvidence.featureAppStatusId],
+      references: [featureAppStatuses.id],
+    }),
+  })
+);
 
 export const runtimeFlagsRelations = relations(runtimeFlags, ({ many }) => ({
   featureLinks: many(featureFlagLinks),
@@ -1544,8 +1615,7 @@ export type PushToken = typeof pushTokens.$inferSelect;
 export type InsertPushToken = typeof pushTokens.$inferInsert;
 
 export type WalletPushSyncState = typeof walletPushSyncState.$inferSelect;
-export type InsertWalletPushSyncState =
-  typeof walletPushSyncState.$inferInsert;
+export type InsertWalletPushSyncState = typeof walletPushSyncState.$inferInsert;
 
 export type AppUser = typeof appUsers.$inferSelect;
 export type InsertAppUser = typeof appUsers.$inferInsert;
@@ -1554,7 +1624,13 @@ export type AppUserWallet = typeof appUserWallets.$inferSelect;
 export type InsertAppUserWallet = typeof appUserWallets.$inferInsert;
 
 export type AppUserSmartAccount = typeof appUserSmartAccounts.$inferSelect;
-export type InsertAppUserSmartAccount = typeof appUserSmartAccounts.$inferInsert;
+export type InsertAppUserSmartAccount =
+  typeof appUserSmartAccounts.$inferInsert;
+
+export type AppSmartAccountSponsorshipTransaction =
+  typeof appSmartAccountSponsorshipTransactions.$inferSelect;
+export type InsertAppSmartAccountSponsorshipTransaction =
+  typeof appSmartAccountSponsorshipTransactions.$inferInsert;
 
 export type AppWalletAuthCompletion =
   typeof appWalletAuthCompletions.$inferSelect;

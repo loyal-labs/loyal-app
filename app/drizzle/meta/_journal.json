@@ -148,6 +148,13 @@
       "when": 1777457012068,
       "tag": "0020_strong_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777879564863,
+      "tag": "0021_old_hitman",
+      "breakpoints": true
     }
   ]
 }

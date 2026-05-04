@@ -13,6 +13,7 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { getServerEnv } from "@/lib/core/config/server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { recordSmartAccountSponsorshipTransactionBySignature } from "./sponsorship-analytics";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 let cachedSponsorKeypair: Keypair | null = null;
@@ -57,7 +58,9 @@ function getSponsorKeypair(): Keypair {
     throw new Error("DEPLOYMENT_PK is not set");
   }
 
-  cachedSponsorKeypair = Keypair.fromSecretKey(bs58.decode(deploymentPrivateKey));
+  cachedSponsorKeypair = Keypair.fromSecretKey(
+    bs58.decode(deploymentPrivateKey)
+  );
   return cachedSponsorKeypair;
 }
 
@@ -128,7 +131,33 @@ export async function createSponsoredSmartAccount(args: {
     rentCollector: null,
   });
 
-  return client.send(prepared, {
+  const signature = await client.send(prepared, {
     signers: [sponsor],
   });
+  const [smartAccountPda] = pda.getSmartAccountPda({
+    accountIndex: 0,
+    programId: new PublicKey(args.programId),
+    settingsPda: new PublicKey(args.settingsPda),
+  });
+
+  void recordSmartAccountSponsorshipTransactionBySignature({
+    connection: getSmartAccountsConnection(args.solanaEnv),
+    payerAddress: sponsor.publicKey.toBase58(),
+    settingsPda: args.settingsPda,
+    signature,
+    smartAccountAddress: smartAccountPda.toBase58(),
+    solanaEnv: args.solanaEnv,
+    userAddress: args.walletAddress,
+  }).catch((error) => {
+    console.error(
+      "[smart-accounts][sponsorship-analytics] failed to record transaction",
+      {
+        error,
+        settingsPda: args.settingsPda,
+        signature,
+      }
+    );
+  });
+
+  return signature;
 }
