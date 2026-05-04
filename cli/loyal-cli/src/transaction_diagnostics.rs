@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use solana_client::{client_error::ClientError, rpc_client::RpcClient};
 use solana_rpc_client_api::config::RpcSimulateTransactionConfig;
 use solana_sdk::{
@@ -17,9 +17,7 @@ pub(crate) fn send_transaction_with_diagnostics(
         Ok(signature) => Ok(signature),
         Err(error) => {
             let diagnostics = build_transaction_diagnostics(client, transaction, &error);
-            Err(error)
-                .with_context(|| diagnostics)
-                .with_context(|| context)
+            Err(anyhow!(diagnostics)).with_context(|| context)
         }
     }
 }
@@ -115,6 +113,7 @@ fn simulate_transaction(client: &RpcClient, transaction: &Transaction) -> Simula
 
 #[derive(Debug)]
 struct AccountDiagnostics {
+    index: usize,
     address: Pubkey,
     roles: Vec<&'static str>,
     status: AccountStatus,
@@ -130,6 +129,7 @@ impl AccountDiagnostics {
 enum AccountStatus {
     Found {
         lamports: u64,
+        rent_exempt_minimum: Option<u64>,
         owner: Pubkey,
         executable: bool,
         data_len: usize,
@@ -153,6 +153,7 @@ fn inspect_transaction_accounts(
         }
 
         accounts.push(AccountDiagnostics {
+            index,
             address: *address,
             roles,
             status: fetch_account_status(client, address),
@@ -218,6 +219,9 @@ fn fetch_account_status(client: &RpcClient, address: &Pubkey) -> AccountStatus {
         Ok(response) => match response.value {
             Some(account) => AccountStatus::Found {
                 lamports: account.lamports,
+                rent_exempt_minimum: client
+                    .get_minimum_balance_for_rent_exemption(account.data.len())
+                    .ok(),
                 owner: account.owner,
                 executable: account.executable,
                 data_len: account.data.len(),
@@ -234,10 +238,10 @@ fn infer_root_cause(
     accounts: &[AccountDiagnostics],
 ) -> String {
     let send_error = send_error.to_string();
-    let simulation_error = simulation_error
+    let simulation_error_text = simulation_error
         .map(|error| format!("{error:?}"))
         .unwrap_or_default();
-    let combined = format!("{send_error} {simulation_error}").to_lowercase();
+    let combined = format!("{send_error} {simulation_error_text}").to_lowercase();
 
     if contains_any(
         &combined,
@@ -257,6 +261,67 @@ fn infer_root_cause(
         }
         return "one of the instruction programs is not deployed on the selected Solana cluster."
             .to_string();
+    }
+
+    if let Some(account_index) = insufficient_rent_account_index(simulation_error, &combined) {
+        if let Some(account) = accounts
+            .iter()
+            .find(|account| account.index == account_index)
+        {
+            let role_label = if account.has_role("fee-payer") {
+                "fee payer"
+            } else if account.has_role("signer") {
+                "signer"
+            } else if account.has_role("writable") {
+                "writable account"
+            } else {
+                "account"
+            };
+
+            match &account.status {
+                AccountStatus::Found {
+                    lamports,
+                    rent_exempt_minimum,
+                    ..
+                } => {
+                    let rent_clause = rent_exempt_minimum.map_or_else(String::new, |minimum| {
+                        format!(
+                            " It must retain at least {} lamports ({:.9} SOL) after this transaction.",
+                            minimum,
+                            lamports_to_sol(minimum)
+                        )
+                    });
+                    let action = if account.has_role("fee-payer") {
+                        "Fund this Loyal CLI identity and retry."
+                    } else {
+                        "Fund this account or reduce the transaction's SOL debits and retry."
+                    };
+
+                    return format!(
+                        "account index {account_index} ({role_label} {}) would fall below its rent-exempt reserve after this transaction. Current balance is {} lamports ({:.9} SOL).{rent_clause} {action}",
+                        account.address,
+                        lamports,
+                        lamports_to_sol(*lamports),
+                    );
+                }
+                AccountStatus::Missing => {
+                    return format!(
+                        "account index {account_index} ({role_label} {}) is missing and cannot satisfy rent requirements.",
+                        account.address
+                    );
+                }
+                AccountStatus::RpcError(error) => {
+                    return format!(
+                        "account index {account_index} would fall below rent-exempt reserve, but the CLI could not fetch {}: {error}",
+                        account.address
+                    );
+                }
+            }
+        }
+
+        return format!(
+            "account index {account_index} would fall below its rent-exempt reserve after this transaction."
+        );
     }
 
     if contains_any(
@@ -337,6 +402,26 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
 
+fn insufficient_rent_account_index(
+    simulation_error: Option<&TransactionError>,
+    combined_error: &str,
+) -> Option<usize> {
+    match simulation_error {
+        Some(TransactionError::InsufficientFundsForRent { account_index }) => {
+            Some(*account_index as usize)
+        }
+        Some(TransactionError::InvalidRentPayingAccount) => Some(0),
+        _ => extract_account_index(combined_error),
+    }
+}
+
+fn extract_account_index(error: &str) -> Option<usize> {
+    let marker = "account (";
+    let start = error.find(marker)? + marker.len();
+    let end = error[start..].find(')')? + start;
+    error[start..end].parse().ok()
+}
+
 fn format_account_lines(accounts: &[AccountDiagnostics]) -> Vec<String> {
     let mut lines = vec!["  account checks:".to_string()];
 
@@ -350,26 +435,38 @@ fn format_account_lines(accounts: &[AccountDiagnostics]) -> Vec<String> {
         match &account.status {
             AccountStatus::Found {
                 lamports,
+                rent_exempt_minimum,
                 owner,
                 executable,
                 data_len,
-            } => lines.push(format!(
-                "    {} [{}]: {} lamports ({:.9} SOL), owner {}, executable {}, data bytes {}",
-                account.address,
-                roles,
-                lamports,
-                lamports_to_sol(*lamports),
-                owner,
-                executable,
-                data_len
-            )),
+            } => {
+                let rent_suffix = rent_exempt_minimum.map_or_else(String::new, |minimum| {
+                    format!(
+                        ", rent-exempt min {} lamports ({:.9} SOL)",
+                        minimum,
+                        lamports_to_sol(minimum)
+                    )
+                });
+                lines.push(format!(
+                    "    {}: {} [{}]: {} lamports ({:.9} SOL), owner {}, executable {}, data bytes {}{}",
+                    account.index,
+                    account.address,
+                    roles,
+                    lamports,
+                    lamports_to_sol(*lamports),
+                    owner,
+                    executable,
+                    data_len,
+                    rent_suffix
+                ));
+            }
             AccountStatus::Missing => lines.push(format!(
-                "    {} [{}]: missing account",
-                account.address, roles
+                "    {}: {} [{}]: missing account",
+                account.index, account.address, roles
             )),
             AccountStatus::RpcError(error) => lines.push(format!(
-                "    {} [{}]: failed to fetch account: {}",
-                account.address, roles, error
+                "    {}: {} [{}]: failed to fetch account: {}",
+                account.index, account.address, roles, error
             )),
         }
     }
@@ -426,6 +523,7 @@ mod tests {
     fn explains_missing_fee_payer_for_prior_credit_error() {
         let payer = Pubkey::new_unique();
         let accounts = vec![AccountDiagnostics {
+            index: 0,
             address: payer,
             roles: vec!["fee-payer", "signer", "writable"],
             status: AccountStatus::Missing,
@@ -448,6 +546,7 @@ mod tests {
     fn explains_missing_program_for_program_account_error() {
         let program_id = Pubkey::new_unique();
         let accounts = vec![AccountDiagnostics {
+            index: 2,
             address: program_id,
             roles: vec!["readonly", "instruction-program"],
             status: AccountStatus::Missing,
@@ -461,5 +560,37 @@ mod tests {
 
         assert!(root_cause.contains(&program_id.to_string()));
         assert!(root_cause.contains("not deployed"));
+    }
+
+    #[test]
+    fn explains_fee_payer_rent_reserve_failure() {
+        let payer = Pubkey::new_unique();
+        let accounts = vec![AccountDiagnostics {
+            index: 0,
+            address: payer,
+            roles: vec!["fee-payer", "signer", "writable"],
+            status: AccountStatus::Found {
+                lamports: 5_074_280,
+                rent_exempt_minimum: Some(890_880),
+                owner: Pubkey::new_unique(),
+                executable: false,
+                data_len: 0,
+            },
+        }];
+
+        let root_cause = infer_root_cause(
+            &client_error("Transaction results in an account (0) with insufficient funds for rent"),
+            Some(
+                &solana_sdk::transaction::TransactionError::InsufficientFundsForRent {
+                    account_index: 0,
+                },
+            ),
+            &accounts,
+        );
+
+        assert!(root_cause.contains("account index 0"));
+        assert!(root_cause.contains(&payer.to_string()));
+        assert!(root_cause.contains("rent-exempt reserve"));
+        assert!(root_cause.contains("Fund this Loyal CLI identity"));
     }
 }

@@ -229,6 +229,17 @@ function resolvePositionByMint(
   return positions.find((position) => position.asset.mint === mint);
 }
 
+function resolveSolPriceUsd(args: {
+  effectiveSolPriceUsd?: number | null;
+  positions: PortfolioPosition[];
+}): number {
+  return (
+    args.effectiveSolPriceUsd ??
+    resolvePositionByMint(args.positions, NATIVE_SOL_MINT)?.priceUsd ??
+    85
+  );
+}
+
 function resolveTokenSymbol(
   position: PortfolioPosition | undefined,
   mint: string
@@ -343,6 +354,7 @@ function resolveSignerSpendingLimit(args: {
 function mapSignersToEntries(args: {
   signers: SmartAccountSignerSnapshot[];
   authenticatedWalletAddress: string | null | undefined;
+  solPriceUsd: number;
   spendingLimits?: SmartAccountSpendingLimitSnapshot[];
 }): SmartAccountSignerEntry[] {
   let agentCount = 0;
@@ -357,6 +369,9 @@ function mapSignersToEntries(args: {
       : signer.scope === "policy"
       ? `Agent ${++agentCount}`
       : `Signer ${++signerCount}`;
+    const balance = splitUsd(
+      lamportsToUsd(signer.lamports ?? 0, args.solPriceUsd)
+    );
 
     return {
       id: `${signer.scope}:${signer.consensusAddress}:${signer.address}:${
@@ -369,8 +384,8 @@ function mapSignersToEntries(args: {
         address: signer.address,
         isAuthenticatedUser,
       }),
-      balanceWhole: "$0",
-      balanceFraction: ".00",
+      balanceWhole: balance.whole,
+      balanceFraction: balance.fraction,
       accessLevel: getSignerAccessLevel(signer),
       accessLabel: getSignerAccessLabel(signer),
       scope: signer.scope,
@@ -568,6 +583,10 @@ function mapProposalToApprovalItem(
 ): SmartAccountApprovalItem {
   const amount = proposal.summary.amountUi ?? "Pending";
   const isSettingsChange = proposal.summary.kind === "settings_change";
+  const isExecutablePolicyProposal =
+    proposal.payloadType === "policy_transaction" &&
+    (proposal.summary.kind !== "unknown" ||
+      proposal.decodedInstructions.length > 0);
   const symbol =
     proposal.summary.symbol ??
     (proposal.summary.kind === "sol_transfer"
@@ -593,9 +612,31 @@ function mapProposalToApprovalItem(
     status: proposal.status,
     canExecute:
       proposal.payloadType === "transaction" ||
-      proposal.payloadType === "settings_transaction",
+      proposal.payloadType === "settings_transaction" ||
+      isExecutablePolicyProposal,
     proposal,
   };
+}
+
+function compareProposalSnapshotsByRecency(
+  left: SmartAccountProposalSnapshot,
+  right: SmartAccountProposalSnapshot
+) {
+  const timestampDelta =
+    (right.statusTimestamp ?? 0) - (left.statusTimestamp ?? 0);
+
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+
+  const leftIndex = BigInt(left.transactionIndex);
+  const rightIndex = BigInt(right.transactionIndex);
+
+  if (leftIndex !== rightIndex) {
+    return rightIndex > leftIndex ? 1 : -1;
+  }
+
+  return left.proposalAddress.localeCompare(right.proposalAddress);
 }
 
 function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
@@ -976,9 +1017,14 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
     return (overview?.vaults ?? []).map((vault) => {
       const balance = splitUsd(vault.portfolio.totals.totalUsd);
+      const solPriceUsd = resolveSolPriceUsd({
+        effectiveSolPriceUsd: vault.portfolio.totals.effectiveSolPriceUsd,
+        positions: vault.portfolio.positions,
+      });
       const signers = mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        solPriceUsd,
         spendingLimits: vault.spendingLimits ?? [],
       });
 
@@ -1017,6 +1063,10 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       signers: mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        solPriceUsd: resolveSolPriceUsd({
+          effectiveSolPriceUsd: vault.portfolio.totals.effectiveSolPriceUsd,
+          positions: vault.portfolio.positions,
+        }),
         spendingLimits: vault.spendingLimits ?? [],
       }),
     };
@@ -1048,7 +1098,10 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
   ]);
 
   const approvals = useMemo(
-    () => (overview?.proposals ?? []).map(mapProposalToApprovalItem),
+    () =>
+      [...(overview?.proposals ?? [])]
+        .sort(compareProposalSnapshotsByRecency)
+        .map(mapProposalToApprovalItem),
     [overview?.proposals]
   );
 
@@ -1097,6 +1150,8 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
           ? await client.prepareRejectProposal(sharedArgs)
           : proposal.payloadType === "settings_transaction"
           ? await client.prepareExecuteSettingsProposal(sharedArgs)
+          : proposal.payloadType === "policy_transaction"
+          ? await client.prepareExecutePolicyProposal(sharedArgs)
           : proposal.payloadType === "transaction"
           ? await client.prepareExecuteProposal(sharedArgs)
           : (() => {
@@ -1359,12 +1414,6 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
-      if (wallet.publicKey.toBase58() !== args.signerAddress) {
-        throw new Error(
-          "Connect the signer wallet that owns this spending limit to top it up."
-        );
-      }
-
       if (!Number.isFinite(args.amountUsd) || args.amountUsd <= 0) {
         throw new Error("Enter a top-up amount greater than $0.");
       }
@@ -1387,6 +1436,17 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
 
       if (spendingLimit.isExpired) {
         throw new Error("This spending limit is expired.");
+      }
+
+      const connectedWalletAddress = wallet.publicKey.toBase58();
+      const policySigner = overview.policies
+        .find((policy) => policy.address === spendingLimit.address)
+        ?.signers.find((signer) => signer.address === connectedWalletAddress);
+
+      if (!policySigner?.canInitiate) {
+        throw new Error(
+          "Connected wallet is not authorized to use this spending limit. Connect a wallet listed on this spending-limit policy with proposal access, or add it to the policy first."
+        );
       }
 
       const solPriceUsd = resolveVaultSolPriceUsd(vault);

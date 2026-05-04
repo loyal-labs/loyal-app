@@ -56,6 +56,7 @@ export type SmartAccountProposalSnapshot = {
   transactionAddress: string | null;
   consensusAddress: string;
   transactionIndex: string;
+  statusTimestamp: number | null;
   payloadType: SmartAccountProposalPayloadType;
   status: SmartAccountProposalStatus;
   approvals: string[];
@@ -77,6 +78,7 @@ export type SmartAccountSignerSnapshot = {
   consensusAddress: string;
   permissions: SmartAccountSignerPermission[];
   permissionMask: number;
+  lamports: number | null;
   canInitiate: boolean;
   canVote: boolean;
   canExecute: boolean;
@@ -95,6 +97,8 @@ export type SmartAccountPolicySnapshot = {
   transactionIndex: string;
   staleTransactionIndex: string;
   state: string;
+  accountIndex: number | null;
+  mint: string | null;
   signers: SmartAccountSignerSnapshot[];
 };
 

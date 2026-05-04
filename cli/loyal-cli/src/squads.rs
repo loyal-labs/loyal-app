@@ -48,6 +48,8 @@ const CREATE_PROPOSAL_DISCRIMINATOR: [u8; 8] = [132, 116, 68, 174, 216, 160, 198
 const POLICY_SIGNER_OFFSET: usize = 69;
 const POLICY_SIGNER_SIZE: usize = 33;
 const PERMISSION_INITIATE: u8 = 0b0000_0001;
+const CONFIRM_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const CONFIRM_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -854,8 +856,8 @@ fn propose_with_payload(
         &signer,
         transaction_index,
     )?;
-    let blockhash = rpc_client
-        .get_latest_blockhash()
+    let (blockhash, last_valid_block_height) = rpc_client
+        .get_latest_blockhash_with_commitment(config.commitment)
         .context("failed to fetch latest blockhash")?;
     let transaction = Transaction::new_signed_with_payer(
         &[create_transaction_ix, create_proposal_ix],
@@ -870,7 +872,7 @@ fn propose_with_payload(
     )?;
 
     if !common.no_confirm {
-        confirm_signature(&rpc_client, &signature)?;
+        confirm_signature(&rpc_client, &signature, last_valid_block_height)?;
     }
 
     Ok(ProposalOutput {
@@ -1471,14 +1473,41 @@ fn proposal_pda(consensus_pda: &Pubkey, transaction_index: u64, program_id: &Pub
     .0
 }
 
-fn confirm_signature(client: &RpcClient, signature: &Signature) -> Result<()> {
-    if client
-        .confirm_transaction(signature)
-        .context("failed to confirm proposal transaction")?
-    {
-        Ok(())
-    } else {
-        bail!("proposal transaction was not confirmed: {signature}")
+fn confirm_signature(
+    client: &RpcClient,
+    signature: &Signature,
+    last_valid_block_height: u64,
+) -> Result<()> {
+    let started_at = Instant::now();
+
+    loop {
+        let statuses = client
+            .get_signature_statuses(&[*signature])
+            .context("failed to fetch proposal transaction status")?
+            .value;
+
+        if let Some(Some(status)) = statuses.first() {
+            if let Some(error) = &status.err {
+                bail!("proposal transaction failed after submission: {signature}: {error:?}");
+            }
+
+            if status.satisfies_commitment(client.commitment()) {
+                return Ok(());
+            }
+        }
+
+        if client
+            .get_block_height_with_commitment(client.commitment())
+            .is_ok_and(|height| height > last_valid_block_height)
+        {
+            bail!("proposal transaction was not confirmed before blockhash expiry: {signature}");
+        }
+
+        if started_at.elapsed() >= CONFIRM_TIMEOUT {
+            bail!("timed out waiting for proposal transaction confirmation: {signature}");
+        }
+
+        std::thread::sleep(CONFIRM_POLL_INTERVAL);
     }
 }
 

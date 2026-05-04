@@ -7,7 +7,9 @@ import {
   type LoyalSmartAccountsClient,
   type PreparedLoyalSmartAccountsOperation,
 } from "@loyal-labs/loyal-smart-accounts";
+import { executePolicyTransaction as buildExecutePolicyTransactionInstruction } from "@loyal-labs/loyal-smart-accounts-core/internal";
 import {
+  accountsForTransactionExecute,
   Policy,
   Permission,
   Permissions,
@@ -19,6 +21,7 @@ import {
   proposalDiscriminator,
   settingsTransactionDiscriminator,
   toBigInt,
+  transactionMessageBeet,
   transactionDiscriminator,
   transactionMessageToMultisigTransactionMessageBytes,
   type SettingsAction,
@@ -30,7 +33,12 @@ import {
   type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
 import { decodeSolanaInstruction } from "@loyal-labs/solana-instruction-decoder";
-import { decodeTransferCheckedInstruction } from "@solana/spl-token";
+import {
+  decodeTransferCheckedInstruction,
+  getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import {
   PublicKey,
   SystemProgram,
@@ -88,8 +96,13 @@ type VaultMessage = {
   accountKeys: PublicKey[];
   instructions: Array<{
     programIdIndex: number;
-    accountIndexes: Uint8Array;
-    data: Uint8Array;
+    accountIndexes: Uint8Array | number[];
+    data: Uint8Array | number[];
+  }>;
+  addressTableLookups?: Array<{
+    accountKey: PublicKey;
+    writableIndexes: Uint8Array | number[];
+    readonlyIndexes: Uint8Array | number[];
   }>;
 };
 
@@ -101,6 +114,16 @@ type TransactionPayloadDetailsLike = {
 type TransactionPayloadLike = Transaction["payload"] & {
   __kind: "TransactionPayload";
   fields: [TransactionPayloadDetailsLike];
+};
+
+type PolicyPayloadLike = Transaction["payload"] & {
+  __kind: "PolicyPayload";
+  fields: [{ payload: generated.PolicyPayload }];
+};
+
+type AsyncPolicyTransactionPayloadLike = {
+  accountIndex: number;
+  transactionMessage: Uint8Array;
 };
 
 function dedupeLookupTableAccounts(
@@ -192,6 +215,27 @@ function compileVaultInstructions(message: VaultMessage) {
       data: Buffer.from(instruction.data),
     };
   });
+}
+
+function toGeneratedTransactionMessage(
+  message: VaultMessage
+): generated.SmartAccountTransactionMessage {
+  return {
+    numSigners: message.numSigners,
+    numWritableSigners: message.numWritableSigners,
+    numWritableNonSigners: message.numWritableNonSigners,
+    accountKeys: message.accountKeys,
+    instructions: message.instructions.map((instruction) => ({
+      programIdIndex: instruction.programIdIndex,
+      accountIndexes: Uint8Array.from(instruction.accountIndexes),
+      data: Uint8Array.from(instruction.data),
+    })),
+    addressTableLookups: (message.addressTableLookups ?? []).map((lookup) => ({
+      accountKey: lookup.accountKey,
+      writableIndexes: Uint8Array.from(lookup.writableIndexes),
+      readonlyIndexes: Uint8Array.from(lookup.readonlyIndexes),
+    })),
+  };
 }
 
 function formatProposalTokenAmount(
@@ -343,11 +387,20 @@ function summarizeSettingsTransaction(
 function summarizeTransactionPayload(args: {
   payload: Transaction["payload"];
   assetIndex: Map<string, PortfolioPosition>;
+  policy: SmartAccountPolicySnapshot | null;
 }): {
   summary: SmartAccountProposalSummary;
   accountIndex: number | null;
   decodedInstructions: ReturnType<typeof decodeSolanaInstruction>[];
 } {
+  if (args.payload.__kind === "PolicyPayload") {
+    return summarizePolicyPayload({
+      assetIndex: args.assetIndex,
+      payload: (args.payload as PolicyPayloadLike).fields[0].payload,
+      policy: args.policy,
+    });
+  }
+
   if (args.payload.__kind !== "TransactionPayload") {
     return {
       accountIndex: null,
@@ -360,7 +413,23 @@ function summarizeTransactionPayload(args: {
   }
 
   const details = (args.payload as TransactionPayloadLike).fields[0];
-  const instructions = compileVaultInstructions(details.message);
+  return summarizeVaultMessage({
+    accountIndex: details.accountIndex,
+    assetIndex: args.assetIndex,
+    message: details.message,
+  });
+}
+
+function summarizeVaultMessage(args: {
+  message: VaultMessage;
+  accountIndex: number;
+  assetIndex: Map<string, PortfolioPosition>;
+}): {
+  summary: SmartAccountProposalSummary;
+  accountIndex: number | null;
+  decodedInstructions: ReturnType<typeof decodeSolanaInstruction>[];
+} {
+  const instructions = compileVaultInstructions(args.message);
   const decodedInstructions = instructions.map((instruction) =>
     decodeSolanaInstruction({
       programId: instruction.programId,
@@ -378,7 +447,7 @@ function summarizeTransactionPayload(args: {
 
       if (summary) {
         return {
-          accountIndex: details.accountIndex,
+          accountIndex: args.accountIndex,
           decodedInstructions,
           summary,
         };
@@ -394,7 +463,7 @@ function summarizeTransactionPayload(args: {
 
       if (summary) {
         return {
-          accountIndex: details.accountIndex,
+          accountIndex: args.accountIndex,
           decodedInstructions,
           summary,
         };
@@ -406,7 +475,7 @@ function summarizeTransactionPayload(args: {
 
   if (!firstInstruction) {
     return {
-      accountIndex: details.accountIndex,
+      accountIndex: args.accountIndex,
       decodedInstructions,
       summary: summarizeUnknownInstruction({
         programId: null,
@@ -416,11 +485,86 @@ function summarizeTransactionPayload(args: {
   }
 
   return {
-    accountIndex: details.accountIndex,
+    accountIndex: args.accountIndex,
     decodedInstructions,
     summary: summarizeUnknownInstruction({
       programId: firstInstruction.programId,
       instructionCount: instructions.length,
+    }),
+  };
+}
+
+function summarizePolicyPayload(args: {
+  payload: generated.PolicyPayload;
+  policy: SmartAccountPolicySnapshot | null;
+  assetIndex: Map<string, PortfolioPosition>;
+}): {
+  summary: SmartAccountProposalSummary;
+  accountIndex: number | null;
+  decodedInstructions: ReturnType<typeof decodeSolanaInstruction>[];
+} {
+  if (args.payload.__kind === "SpendingLimit") {
+    const payload = args.payload.fields[0];
+    const mint = args.policy?.mint ?? null;
+    const asset =
+      mint === null
+        ? {
+            decimals: payload.decimals,
+            symbol: null,
+          }
+        : resolveSpendingLimitAsset({
+            assetIndex: args.assetIndex,
+            mint,
+          });
+    const kind =
+      mint === SOL_SPENDING_LIMIT_MINT ? "sol_transfer" : "spl_transfer";
+
+    return {
+      accountIndex: args.policy?.accountIndex ?? null,
+      decodedInstructions: [],
+      summary: {
+        kind,
+        title: "Send",
+        subtitle: `to ${payload.destination.toBase58()}`,
+        symbol: asset.symbol,
+        amountUi: formatProposalTokenAmount(
+          toBigInt(payload.amount),
+          payload.decimals
+        ),
+        amountRaw: toBigInt(payload.amount).toString(),
+        mint,
+        decimals: payload.decimals,
+        destination: payload.destination.toBase58(),
+        programId: null,
+        instructionCount: 1,
+      },
+    };
+  }
+
+  if (args.payload.__kind === "ProgramInteraction") {
+    const payload = args.payload.fields[0].transactionPayload;
+
+    if (payload.__kind === "AsyncTransaction") {
+      const details = payload.fields[0] as AsyncPolicyTransactionPayloadLike;
+      const [message] = transactionMessageBeet.deserialize(
+        Buffer.from(details.transactionMessage),
+        0
+      );
+
+      return summarizeVaultMessage({
+        accountIndex: details.accountIndex,
+        assetIndex: args.assetIndex,
+        message,
+      });
+    }
+  }
+
+  return {
+    accountIndex: args.policy?.accountIndex ?? null,
+    decodedInstructions: [],
+    summary: summarizeUnknownInstruction({
+      programId: null,
+      instructionCount: 0,
     }),
   };
 }
@@ -560,6 +704,7 @@ function toSignerSnapshot(args: {
     consensusAddress: args.consensusPda.toBase58(),
     permissions,
     permissionMask: args.signer.permissions.mask,
+    lamports: null,
     canInitiate: permissions.includes("initiate"),
     canVote: permissions.includes("vote"),
     canExecute: permissions.includes("execute"),
@@ -767,6 +912,38 @@ function toNullableTimestamp(
   return Number.isFinite(value) ? value : null;
 }
 
+function toProposalStatusTimestamp(status: {
+  __kind: string;
+  timestamp?: Parameters<typeof toBigInt>[0];
+}): number | null {
+  if (!("timestamp" in status)) {
+    return null;
+  }
+
+  return toNullableTimestamp(status.timestamp ?? null);
+}
+
+function compareProposalSnapshotsByRecency(
+  left: SmartAccountProposalSnapshot,
+  right: SmartAccountProposalSnapshot
+) {
+  const timestampDelta =
+    (right.statusTimestamp ?? 0) - (left.statusTimestamp ?? 0);
+
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+
+  const leftIndex = BigInt(left.transactionIndex);
+  const rightIndex = BigInt(right.transactionIndex);
+
+  if (leftIndex !== rightIndex) {
+    return rightIndex > leftIndex ? 1 : -1;
+  }
+
+  return left.proposalAddress.localeCompare(right.proposalAddress);
+}
+
 function resolveNextPolicySeed(settings: {
   policySeed: Parameters<typeof toBigInt>[0] | null;
 }) {
@@ -852,6 +1029,42 @@ function dedupeSignerSnapshots(
   }
 
   return Array.from(uniqueSigners.values());
+}
+
+async function fetchSignerLamports(args: {
+  connection: Connection;
+  signers: SmartAccountSignerSnapshot[];
+}): Promise<Map<string, number>> {
+  const balances = new Map<string, number>();
+  const uniqueAddresses = [
+    ...new Set(args.signers.map((signer) => signer.address)),
+  ];
+  const chunkSize = 100;
+
+  for (let index = 0; index < uniqueAddresses.length; index += chunkSize) {
+    const addressChunk = uniqueAddresses.slice(index, index + chunkSize);
+    const publicKeys = addressChunk.map((address) => new PublicKey(address));
+    const accountInfos = await args.connection.getMultipleAccountsInfo(
+      publicKeys,
+      "confirmed"
+    );
+
+    addressChunk.forEach((address, addressIndex) => {
+      balances.set(address, accountInfos[addressIndex]?.lamports ?? 0);
+    });
+  }
+
+  return balances;
+}
+
+function withSignerLamports(
+  signers: SmartAccountSignerSnapshot[],
+  lamportsByAddress: Map<string, number>
+): SmartAccountSignerSnapshot[] {
+  return signers.map((signer) => ({
+    ...signer,
+    lamports: lamportsByAddress.get(signer.address) ?? signer.lamports ?? 0,
+  }));
 }
 
 type SpendingLimitPolicyCreationPayload = Extract<
@@ -1217,8 +1430,18 @@ export function createSmartAccountVaultsClient(
             policySeed: seed,
           })
         );
-        const policyState =
-          (entry.policy.policyState as { __kind?: string }).__kind ?? "unknown";
+        const rawPolicyState = entry.policy.policyState;
+        const policyState = rawPolicyState.__kind ?? "unknown";
+        const accountIndex =
+          rawPolicyState.__kind === "SpendingLimit"
+            ? rawPolicyState.fields[0].sourceAccountIndex
+            : rawPolicyState.__kind === "ProgramInteraction"
+            ? rawPolicyState.fields[0].accountIndex
+            : null;
+        const mint =
+          rawPolicyState.__kind === "SpendingLimit"
+            ? rawPolicyState.fields[0].spendingLimit.mint.toBase58()
+            : null;
 
         return {
           address: entry.address.toBase58(),
@@ -1231,6 +1454,8 @@ export function createSmartAccountVaultsClient(
             entry.policy.staleTransactionIndex
           ).toString(),
           state: policyState,
+          accountIndex,
+          mint,
           signers,
         } satisfies SmartAccountPolicySnapshot;
       })
@@ -1339,6 +1564,9 @@ export function createSmartAccountVaultsClient(
         ];
       })
     );
+    const policiesByAddress = new Map(
+      policies.map((policy) => [policy.address, policy])
+    );
     const assetIndex = args.assetIndex ?? new Map<string, PortfolioPosition>();
 
     return proposalAccounts
@@ -1381,6 +1609,7 @@ export function createSmartAccountVaultsClient(
           payloadSummary = summarizeTransactionPayload({
             payload: transaction.transaction.payload,
             assetIndex,
+            policy: policiesByAddress.get(consensusPda.toBase58()) ?? null,
           });
         } else if (settingsTransaction) {
           payloadType = "settings_transaction";
@@ -1400,6 +1629,7 @@ export function createSmartAccountVaultsClient(
           transactionAddress,
           consensusAddress: consensusPda.toBase58(),
           transactionIndex,
+          statusTimestamp: toProposalStatusTimestamp(entry.proposal.status),
           payloadType,
           status: toProposalStatus(entry.proposal.status.__kind),
           approvals: entry.proposal.approved.map((address) =>
@@ -1417,9 +1647,7 @@ export function createSmartAccountVaultsClient(
           decodedInstructions: payloadSummary.decodedInstructions,
         } satisfies SmartAccountProposalSnapshot;
       })
-      .sort((left, right) =>
-        BigInt(right.transactionIndex) > BigInt(left.transactionIndex) ? 1 : -1
-      );
+      .sort(compareProposalSnapshotsByRecency);
   }
 
   async function fetchOverview(args: {
@@ -1443,7 +1671,7 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       assetIndex,
     });
-    const signers = settings.signers.map((signer) =>
+    const rootSigners = settings.signers.map((signer) =>
       toSignerSnapshot({
         signer,
         scope: "settings",
@@ -1452,6 +1680,18 @@ export function createSmartAccountVaultsClient(
         timeLock: settings.timeLock,
       })
     );
+    const signerLamports = await fetchSignerLamports({
+      connection: config.connection,
+      signers: [
+        ...rootSigners,
+        ...policies.flatMap((policy) => policy.signers),
+      ],
+    });
+    const signers = withSignerLamports(rootSigners, signerLamports);
+    const policiesWithSignerLamports = policies.map((policy) => ({
+      ...policy,
+      signers: withSignerLamports(policy.signers, signerLamports),
+    }));
     const spendingLimitAccountIndexes = new Map(
       spendingLimits.map((spendingLimit) => [
         spendingLimit.address,
@@ -1462,7 +1702,7 @@ export function createSmartAccountVaultsClient(
       ...vault,
       signers: dedupeSignerSnapshots([
         ...signers,
-        ...policies
+        ...policiesWithSignerLamports
           .filter(
             (policy) =>
               spendingLimitAccountIndexes.get(policy.address) ===
@@ -1477,7 +1717,7 @@ export function createSmartAccountVaultsClient(
     const proposals = await listProposals({
       settingsPda: args.settingsPda,
       assetIndex,
-      policies,
+      policies: policiesWithSignerLamports,
     });
 
     return {
@@ -1498,7 +1738,7 @@ export function createSmartAccountVaultsClient(
           })[0]
           .toBase58(),
       signers,
-      policies,
+      policies: policiesWithSignerLamports,
       spendingLimits,
       vaults: vaultsWithSigners,
       proposals,
@@ -2240,6 +2480,218 @@ export function createSmartAccountVaultsClient(
     );
   }
 
+  async function resolveMintTokenProgramId(
+    mint: PublicKey
+  ): Promise<PublicKey> {
+    const mintAccount = await config.connection.getAccountInfo(
+      mint,
+      "confirmed"
+    );
+
+    if (!mintAccount) {
+      throw new Error(`Token mint account ${mint.toBase58()} was not found.`);
+    }
+
+    if (
+      mintAccount.owner.equals(TOKEN_PROGRAM_ID) ||
+      mintAccount.owner.equals(TOKEN_2022_PROGRAM_ID)
+    ) {
+      return mintAccount.owner;
+    }
+
+    throw new Error(
+      `Token mint account ${mint.toBase58()} is not owned by a supported token program.`
+    );
+  }
+
+  async function getSpendingLimitPolicyExecutionAccounts(args: {
+    policy: Policy;
+    policyPayload: generated.PolicyPayload & { __kind: "SpendingLimit" };
+  }): Promise<{
+    accountMetas: AccountMeta[];
+    lookupTableAccounts: AddressLookupTableAccount[];
+  }> {
+    const policyState = args.policy.policyState;
+
+    if (policyState.__kind !== "SpendingLimit") {
+      throw new Error(
+        "Stored policy transaction is not a spending-limit policy."
+      );
+    }
+
+    const payload = args.policyPayload.fields[0];
+    const spendingLimitPolicy = policyState.fields[0];
+    const sourceSmartAccountPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.policy.settings,
+      accountIndex: spendingLimitPolicy.sourceAccountIndex,
+    })[0];
+    const accountMetas: AccountMeta[] = [];
+
+    if (args.policy.expiration?.__kind === "SettingsState") {
+      accountMetas.push({
+        pubkey: args.policy.settings,
+        isSigner: false,
+        isWritable: false,
+      });
+    }
+
+    if (spendingLimitPolicy.spendingLimit.mint.equals(PublicKey.default)) {
+      accountMetas.push(
+        {
+          pubkey: sourceSmartAccountPda,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: payload.destination,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: SystemProgram.programId,
+          isSigner: false,
+          isWritable: false,
+        }
+      );
+
+      return {
+        accountMetas,
+        lookupTableAccounts: [],
+      };
+    }
+
+    const mint = spendingLimitPolicy.spendingLimit.mint;
+    const tokenProgramId = await resolveMintTokenProgramId(mint);
+    const sourceTokenAccount = getAssociatedTokenAddressSync(
+      mint,
+      sourceSmartAccountPda,
+      true,
+      tokenProgramId
+    );
+    const destinationTokenAccount = getAssociatedTokenAddressSync(
+      mint,
+      payload.destination,
+      true,
+      tokenProgramId
+    );
+
+    accountMetas.push(
+      {
+        pubkey: sourceSmartAccountPda,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: payload.destination,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: mint,
+        isSigner: false,
+        isWritable: false,
+      },
+      {
+        pubkey: sourceTokenAccount,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: destinationTokenAccount,
+        isSigner: false,
+        isWritable: true,
+      },
+      {
+        pubkey: tokenProgramId,
+        isSigner: false,
+        isWritable: false,
+      }
+    );
+
+    return {
+      accountMetas,
+      lookupTableAccounts: [],
+    };
+  }
+
+  async function getProgramInteractionPolicyExecutionAccounts(args: {
+    policy: Policy;
+    policyPayload: generated.PolicyPayload & { __kind: "ProgramInteraction" };
+    transactionPda: PublicKey;
+  }): Promise<{
+    accountMetas: AccountMeta[];
+    lookupTableAccounts: AddressLookupTableAccount[];
+  }> {
+    const transactionPayload = args.policyPayload.fields[0].transactionPayload;
+
+    if (transactionPayload.__kind !== "AsyncTransaction") {
+      throw new Error(
+        "Only async program-interaction policy transactions can be executed from a stored proposal."
+      );
+    }
+
+    const details = transactionPayload.fields[0];
+    const [message] = transactionMessageBeet.deserialize(
+      Buffer.from(details.transactionMessage),
+      0
+    );
+    const sourceSmartAccountPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.policy.settings,
+      accountIndex: details.accountIndex,
+    })[0];
+    const executionAccounts = await accountsForTransactionExecute({
+      connection: config.connection,
+      message: toGeneratedTransactionMessage(message),
+      ephemeralSignerBumps: Array.from(
+        { length: details.ephemeralSigners },
+        () => 0
+      ),
+      smartAccountPda: sourceSmartAccountPda,
+      transactionPda: args.transactionPda,
+      programId: smartAccountsClient.programId,
+    });
+
+    if (args.policy.expiration?.__kind === "SettingsState") {
+      executionAccounts.accountMetas.unshift({
+        pubkey: args.policy.settings,
+        isSigner: false,
+        isWritable: false,
+      });
+    }
+
+    return executionAccounts;
+  }
+
+  async function getPolicyTransactionExecutionAccounts(args: {
+    policy: Policy;
+    policyPayload: generated.PolicyPayload;
+    transactionPda: PublicKey;
+  }): Promise<{
+    accountMetas: AccountMeta[];
+    lookupTableAccounts: AddressLookupTableAccount[];
+  }> {
+    if (args.policyPayload.__kind === "SpendingLimit") {
+      return getSpendingLimitPolicyExecutionAccounts({
+        policy: args.policy,
+        policyPayload: args.policyPayload,
+      });
+    }
+
+    if (args.policyPayload.__kind === "ProgramInteraction") {
+      return getProgramInteractionPolicyExecutionAccounts({
+        policy: args.policy,
+        policyPayload: args.policyPayload,
+        transactionPda: args.transactionPda,
+      });
+    }
+
+    throw new Error(
+      `Policy payload ${args.policyPayload.__kind} cannot be executed from the wallet sidebar.`
+    );
+  }
+
   function prepareApproveProposal(args: {
     settingsPda: PublicKey;
     transactionIndex: bigint;
@@ -2315,6 +2767,55 @@ export function createSmartAccountVaultsClient(
     );
   }
 
+  async function prepareExecutePolicyProposal(args: {
+    settingsPda: PublicKey;
+    transactionIndex: bigint;
+    signer: PublicKey;
+    feePayer: PublicKey;
+  }): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+    const transactionPda = pda.getTransactionPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      transactionIndex: args.transactionIndex,
+    })[0];
+    const transaction =
+      await smartAccountsClient.execution.queries.fetchTransaction(
+        transactionPda
+      );
+
+    if (transaction.payload.__kind !== "PolicyPayload") {
+      throw new Error("Stored transaction is not a policy transaction.");
+    }
+
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.settingsPda
+    );
+    const policyPayload = (transaction.payload as PolicyPayloadLike).fields[0]
+      .payload;
+    const executionAccounts = await getPolicyTransactionExecutionAccounts({
+      policy,
+      policyPayload,
+      transactionPda,
+    });
+    const instruction = buildExecutePolicyTransactionInstruction({
+      feePayer: args.feePayer,
+      policy: args.settingsPda,
+      transactionIndex: args.transactionIndex,
+      signer: args.signer,
+      anchorRemainingAccounts: executionAccounts.accountMetas,
+      programId: smartAccountsClient.programId,
+    });
+
+    return freezePreparedOperation({
+      operation: "executePolicyTransaction",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      requiresConfirmation: true,
+      instructions: [instruction],
+      lookupTableAccounts: executionAccounts.lookupTableAccounts,
+    });
+  }
+
   return {
     connection: config.connection,
     programId: smartAccountsClient.programId,
@@ -2341,5 +2842,6 @@ export function createSmartAccountVaultsClient(
     prepareRejectProposal,
     prepareExecuteProposal,
     prepareExecuteSettingsProposal,
+    prepareExecutePolicyProposal,
   };
 }
