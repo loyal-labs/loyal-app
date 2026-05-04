@@ -5,7 +5,11 @@ use crate::constants::{
 };
 
 #[derive(Parser, Debug)]
-#[command(name = "loyal", version, about = "Loyal private transfer CLI")]
+#[command(
+    name = "loyal-private-transfers",
+    version,
+    about = "Loyal private transfer CLI"
+)]
 pub(crate) struct Cli {
     #[arg(long, short = 'C', global = true)]
     pub(crate) config: Option<String>,
