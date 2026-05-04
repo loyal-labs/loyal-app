@@ -8,7 +8,6 @@ import {
   type SecureBalanceMap,
   type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { useMemo } from "react";
 
@@ -32,8 +31,6 @@ function readDepositAmount(data: Buffer): bigint {
 
 export function useSolanaWalletDataClient(): SolanaWalletDataClient {
   const publicEnv = usePublicEnv();
-  const wallet = useWallet();
-  const walletPublicKey = wallet.publicKey ?? null;
 
   return useMemo(() => {
     const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
@@ -101,5 +98,5 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
         ) as SecureBalanceMap;
       },
     });
-  }, [publicEnv.solanaEnv, walletPublicKey]);
+  }, [publicEnv.solanaEnv]);
 }

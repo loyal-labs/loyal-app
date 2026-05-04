@@ -7,6 +7,7 @@ import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
 import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
 import { FeatureFlagsProvider } from "@/providers/feature-flags-provider";
+import { AppWorkspaceShell } from "./app-workspace-shell";
 
 export const metadata: Metadata = {
   title: "Loyal App",
@@ -26,6 +27,7 @@ export default function AppLayout({
             <WalletAutoReauth />
             <AnalyticsBootstrap />
             {/* Header/main nav is hidden for the wallet workspace redesign. */}
+            <AppWorkspaceShell />
             {children}
             <SignInModal />
           </SignInModalProvider>

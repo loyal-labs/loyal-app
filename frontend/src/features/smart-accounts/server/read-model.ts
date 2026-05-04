@@ -28,6 +28,10 @@ const walletDataClientWithActivityCache = new Map<
 >();
 const OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS = [250, 750, 1500, 2500];
 const OVERVIEW_RATE_LIMIT_COOLDOWN_MS = 15_000;
+const overviewLoadPromisesByKey = new Map<
+  string,
+  Promise<SmartAccountOverview>
+>();
 const overviewRateLimitCooldownUntilByKey = new Map<string, number>();
 
 export class SmartAccountOverviewRateLimitError extends Error {
@@ -178,56 +182,74 @@ export async function fetchCurrentSmartAccountOverview(args: {
   settingsPda: string;
 }): Promise<SmartAccountOverview> {
   const serverEnv = getServerEnv();
+  const settingsPda = new PublicKey(args.settingsPda);
+  const cacheKey = `${serverEnv.solanaEnv}:${settingsPda.toBase58()}`;
+  const cooldownUntil = overviewRateLimitCooldownUntilByKey.get(cacheKey);
+  const now = Date.now();
+
+  if (cooldownUntil && cooldownUntil > now) {
+    throw createRateLimitError(cacheKey, now);
+  }
+
+  const existingLoad = overviewLoadPromisesByKey.get(cacheKey);
+  if (existingLoad) {
+    return existingLoad;
+  }
+
   const client = createSmartAccountVaultsClient({
     connection: getConnection(serverEnv.solanaEnv),
     walletDataClient: getWalletDataClient(serverEnv.solanaEnv),
     programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
   });
 
-  const settingsPda = new PublicKey(args.settingsPda);
-  const cacheKey = `${serverEnv.solanaEnv}:${settingsPda.toBase58()}`;
-  const cooldownUntil = overviewRateLimitCooldownUntilByKey.get(cacheKey);
-  const now = Date.now();
-  if (cooldownUntil && cooldownUntil > now) {
-    throw createRateLimitError(cacheKey, now);
-  }
+  const loadPromise = (async () => {
+    let lastError: unknown;
 
-  let lastError: unknown;
+    for (
+      let attempt = 0;
+      attempt <= OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS.length;
+      attempt += 1
+    ) {
+      try {
+        const overview = await client.fetchOverview({
+          activityLimit: 0,
+          settingsPda,
+        });
+        overviewRateLimitCooldownUntilByKey.delete(cacheKey);
+        return overview;
+      } catch (error) {
+        if (isRpcRateLimitError(error)) {
+          overviewRateLimitCooldownUntilByKey.set(
+            cacheKey,
+            Date.now() + OVERVIEW_RATE_LIMIT_COOLDOWN_MS
+          );
+          throw createRateLimitError(cacheKey);
+        }
 
-  for (
-    let attempt = 0;
-    attempt <= OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS.length;
-    attempt += 1
-  ) {
-    try {
-      const overview = await client.fetchOverview({
-        activityLimit: 0,
-        settingsPda,
-      });
-      overviewRateLimitCooldownUntilByKey.delete(cacheKey);
-      return overview;
-    } catch (error) {
-      if (isRpcRateLimitError(error)) {
-        overviewRateLimitCooldownUntilByKey.set(
-          cacheKey,
-          Date.now() + OVERVIEW_RATE_LIMIT_COOLDOWN_MS
-        );
-        throw createRateLimitError(cacheKey);
+        if (
+          !isMissingSettingsAccountError(error) ||
+          attempt === OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS.length
+        ) {
+          throw error;
+        }
+
+        lastError = error;
+        await wait(OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS[attempt]!);
       }
+    }
 
-      if (
-        !isMissingSettingsAccountError(error) ||
-        attempt === OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS.length
-      ) {
-        throw error;
-      }
+    throw lastError;
+  })();
 
-      lastError = error;
-      await wait(OVERVIEW_MISSING_SETTINGS_RETRY_DELAYS_MS[attempt]!);
+  overviewLoadPromisesByKey.set(cacheKey, loadPromise);
+
+  try {
+    return await loadPromise;
+  } finally {
+    if (overviewLoadPromisesByKey.get(cacheKey) === loadPromise) {
+      overviewLoadPromisesByKey.delete(cacheKey);
     }
   }
-
-  throw lastError;
 }
 
 export async function fetchCurrentSmartAccountVaultActivity(args: {

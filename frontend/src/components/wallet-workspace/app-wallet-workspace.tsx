@@ -23,7 +23,7 @@ import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
@@ -548,6 +548,7 @@ export function AppWalletWorkspace({
   initialSection?: WorkspaceSection;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const walletDesktopData = useWalletDesktopData();
   const smartAccountData = useSmartAccountSidebarData();
   const { disconnect } = useWallet();
@@ -556,8 +557,10 @@ export function AppWalletWorkspace({
   const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
+  const routeSection: WorkspaceSection =
+    pathname === "/app/policies" ? "policies" : initialSection;
   const [activeSection, setActiveSection] =
-    useState<WorkspaceSection>(initialSection);
+    useState<WorkspaceSection>(routeSection);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [selectedPolicyId, setSelectedPolicyId] = useState("autoswap-primary");
@@ -619,6 +622,10 @@ export function AppWalletWorkspace({
     },
     [router]
   );
+
+  useEffect(() => {
+    setActiveSection(routeSection);
+  }, [routeSection]);
   const hasRestoredSelectionRef = useRef(false);
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   const prevHadTokensRef = useRef(false);
