@@ -7,13 +7,14 @@ import {
   Copy,
   Eye,
   EyeOff,
-  FileSliders,
   KeyRound,
+  Layers2,
   LayoutDashboard,
   LogOut,
   Plus,
   RefreshCw,
   Repeat2,
+  Settings,
   Shield as ShieldIcon,
   Sparkles,
   Wallet,
@@ -22,6 +23,7 @@ import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
@@ -68,12 +70,14 @@ import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
+import { PoliciesPane } from "./policies-pane";
 import {
   WalletCommandMenu,
   type WalletCommandGroup,
 } from "./wallet-command-menu";
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
+type WorkspaceSection = "policies" | "wallet";
 type DetailTab = "activity" | "tokens";
 type DetailPaneTransition = "back" | "close" | "forward" | "open" | "switch";
 type DetailSelection =
@@ -251,12 +255,14 @@ function RailNavButton({
   isActive = false,
   label,
   isPlaceholder = false,
+  onClick,
   tooltip,
 }: {
   icon: React.ReactNode;
   isActive?: boolean;
   label: string;
   isPlaceholder?: boolean;
+  onClick?: () => void;
   tooltip?: string;
 }) {
   return (
@@ -271,7 +277,10 @@ function RailNavButton({
       onClick={(event) => {
         if (isPlaceholder) {
           event.preventDefault();
+          return;
         }
+
+        onClick?.();
       }}
       title={tooltip ? undefined : label}
       type="button"
@@ -282,19 +291,23 @@ function RailNavButton({
 }
 
 function WalletRail({
+  activeSection,
   dogCry,
   dogNice,
   isBalanceHidden,
   isSignedIn,
   isWalletLoading,
   onDisconnect,
+  onSectionChange,
 }: {
+  activeSection: WorkspaceSection;
   dogCry: boolean;
   dogNice: boolean;
   isBalanceHidden: boolean;
   isSignedIn: boolean;
   isWalletLoading: boolean;
   onDisconnect: () => void;
+  onSectionChange: (section: WorkspaceSection) => void;
 }) {
   return (
     <aside className="wallet-workspace-rail" aria-label="Workspace navigation">
@@ -310,20 +323,27 @@ function WalletRail({
         <nav className="wallet-workspace-rail-nav">
           <RailNavButton
             icon={<Wallet size={24} strokeWidth={1.8} />}
-            isActive
+            isActive={activeSection === "wallet"}
             label="Wallet"
+            onClick={() => onSectionChange("wallet")}
           />
           <RailNavButton
-            icon={<FileSliders size={24} strokeWidth={1.8} />}
-            isPlaceholder
+            icon={<Layers2 size={24} strokeWidth={1.8} />}
+            isActive={activeSection === "policies"}
             label="Policies"
-            tooltip="Policies will live here"
+            onClick={() => onSectionChange("policies")}
           />
           <RailNavButton
             icon={<ChartNoAxesColumn size={24} strokeWidth={1.8} />}
             isPlaceholder
             label="Charts"
             tooltip="Charts will live here"
+          />
+          <RailNavButton
+            icon={<Settings size={24} strokeWidth={1.8} />}
+            isPlaceholder
+            label="Settings"
+            tooltip="Settings will live here"
           />
         </nav>
       </div>
@@ -513,7 +533,21 @@ function WorkspaceErrorPane({
   );
 }
 
-export function AppWalletWorkspace() {
+function PoliciesPlaceholderPane({ title }: { title: string }) {
+  return (
+    <div className="wallet-workspace-placeholder">
+      <span>Policies</span>
+      <strong>{title}</strong>
+    </div>
+  );
+}
+
+export function AppWalletWorkspace({
+  initialSection = "wallet",
+}: {
+  initialSection?: WorkspaceSection;
+}) {
+  const router = useRouter();
   const walletDesktopData = useWalletDesktopData();
   const smartAccountData = useSmartAccountSidebarData();
   const { disconnect } = useWallet();
@@ -522,8 +556,11 @@ export function AppWalletWorkspace() {
   const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
+  const [activeSection, setActiveSection] =
+    useState<WorkspaceSection>(initialSection);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
+  const [selectedPolicyId, setSelectedPolicyId] = useState("autoswap-primary");
   const [selectedDetail, setSelectedDetail] =
     useState<string>("Wallet overview");
   const [detailSelection, setDetailSelection] =
@@ -574,6 +611,14 @@ export function AppWalletWorkspace() {
     startX: number;
     target: ResizeTarget;
   } | null>(null);
+
+  const handleSectionChange = useCallback(
+    (section: WorkspaceSection) => {
+      setActiveSection(section);
+      router.push(section === "policies" ? "/app/policies" : "/app");
+    },
+    [router]
+  );
   const hasRestoredSelectionRef = useRef(false);
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   const prevHadTokensRef = useRef(false);
@@ -585,7 +630,7 @@ export function AppWalletWorkspace() {
     isSignedIn && (walletDesktopData.isLoading || smartAccountData.isLoading);
   const isSmartAccountRateLimited =
     isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
-  const showAuthenticatedWorkspaceShell = isSignedIn;
+  const showWorkspaceShell = isSignedIn || activeSection === "policies";
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
@@ -1313,6 +1358,31 @@ export function AppWalletWorkspace() {
     [markDetailPaneTransition, walletDesktopData.walletAddress]
   );
 
+  const handleOpenFirstPolicyAgent = useCallback(
+    () => {
+      const firstVaultAgent = smartAccountData.vaultEntries
+        .map((vault) => ({
+          accountIndex: vault.accountIndex,
+          signer: vault.signers[0],
+        }))
+        .find(
+          (entry): entry is { accountIndex: number; signer: SmartAccountSignerEntry } =>
+            Boolean(entry.signer)
+        );
+
+      setActiveSection("wallet");
+      router.push("/app");
+
+      if (!firstVaultAgent) {
+        return;
+      }
+
+      smartAccountData.setSelectedVaultIndex(firstVaultAgent.accountIndex);
+      handleOpenAgent(firstVaultAgent.signer);
+    },
+    [handleOpenAgent, router, smartAccountData]
+  );
+
   const handleOpenAddSigner = useCallback(
     (accountIndex: number) => {
       markDetailPaneTransition("forward");
@@ -1563,6 +1633,10 @@ export function AppWalletWorkspace() {
   ]);
 
   const renderDetailPane = () => {
+    if (activeSection === "policies") {
+      return <PoliciesPlaceholderPane title="Builder pane coming next" />;
+    }
+
     if (isSmartAccountRateLimited) {
       return (
         <WorkspaceErrorPane
@@ -2121,7 +2195,8 @@ export function AppWalletWorkspace() {
     <main
       className="wallet-workspace"
       data-rate-limited={isSmartAccountRateLimited}
-      data-signed-in={showAuthenticatedWorkspaceShell}
+      data-signed-in={showWorkspaceShell}
+      data-workspace-section={activeSection}
       style={
         {
           "--wallet-account-pane-width": `${accountPaneWidth}px`,
@@ -2130,12 +2205,14 @@ export function AppWalletWorkspace() {
       }
     >
       <WalletRail
+        activeSection={activeSection}
         dogCry={dogCry}
         dogNice={dogNice}
         isBalanceHidden={isBalanceHidden}
         isSignedIn={isSignedIn}
         isWalletLoading={isWorkspaceLoading}
         onDisconnect={handleDisconnect}
+        onSectionChange={handleSectionChange}
       />
 
       <WalletCommandMenu
@@ -2144,53 +2221,61 @@ export function AppWalletWorkspace() {
         open={isCommandMenuOpen}
       />
 
-      {showAuthenticatedWorkspaceShell && !isSmartAccountRateLimited ? (
+      {showWorkspaceShell && (!isSmartAccountRateLimited || activeSection === "policies") ? (
         <>
           <section className="wallet-workspace-pane wallet-workspace-account-pane">
-            <PortfolioContent
-              approvals={smartAccountData.approvals}
-              balanceFraction={walletDesktopData.balanceFraction}
-              balanceWhole={walletDesktopData.balanceWhole}
-              hasVaultAccount={smartAccountData.vaultEntries.length > 0}
-              isBalanceHidden={isBalanceHidden}
-              isLoading={isWorkspaceLoading}
-              onBalanceHiddenChange={setIsBalanceHidden}
-              onClose={() => undefined}
-              onDisconnect={handleDisconnect}
-              onOpenAgent={handleOpenAgent}
-              onOpenAddSigner={handleOpenAddSigner}
-              onOpenCommandMenu={() => setIsCommandMenuOpen(true)}
-              onOpenReceive={() => handleRailAction("receive")}
-              onOpenSend={() => handleRailAction("send")}
-              onOpenShield={() => handleRailAction("shield")}
-              onOpenSwap={() => handleRailAction("swap")}
-              onOpenWallet={handleOpenWallet}
-              onOpenVault={handleOpenVault}
-              onSmartAccountRetry={() => {
-                void smartAccountData.refresh();
-              }}
-              onReviewApproval={handleReviewApproval}
-              onSeeAllApprovals={() => {
-                markDetailPaneTransition("switch");
-                setDetailSelection("approval");
-                setSelectedDetail("Approvals");
-              }}
-              selectedSignerId={selectedSignerId}
-              selectedVaultIndex={smartAccountData.selectedVaultIndex}
-              isWalletSelected={
-                (detailSelection === "wallet" ||
-                  (detailSelection === "action" &&
-                    actionReturnSelection === "wallet")) &&
-                selectedSignerId === null
-              }
-              showActionButtons={false}
-              showApprovals={false}
-              showHeaderControls={false}
-              smartAccountError={smartAccountData.error}
-              vaultEntries={smartAccountData.vaultEntries}
-              walletAddress={walletDesktopData.walletAddress}
-              walletLabel={walletDesktopData.walletLabel}
-            />
+            {activeSection === "policies" ? (
+              <PoliciesPane
+                onOpenAgent={handleOpenFirstPolicyAgent}
+                onSelectPolicy={setSelectedPolicyId}
+                selectedPolicyId={selectedPolicyId}
+              />
+            ) : (
+              <PortfolioContent
+                approvals={smartAccountData.approvals}
+                balanceFraction={walletDesktopData.balanceFraction}
+                balanceWhole={walletDesktopData.balanceWhole}
+                hasVaultAccount={smartAccountData.vaultEntries.length > 0}
+                isBalanceHidden={isBalanceHidden}
+                isLoading={isWorkspaceLoading}
+                onBalanceHiddenChange={setIsBalanceHidden}
+                onClose={() => undefined}
+                onDisconnect={handleDisconnect}
+                onOpenAgent={handleOpenAgent}
+                onOpenAddSigner={handleOpenAddSigner}
+                onOpenCommandMenu={() => setIsCommandMenuOpen(true)}
+                onOpenReceive={() => handleRailAction("receive")}
+                onOpenSend={() => handleRailAction("send")}
+                onOpenShield={() => handleRailAction("shield")}
+                onOpenSwap={() => handleRailAction("swap")}
+                onOpenWallet={handleOpenWallet}
+                onOpenVault={handleOpenVault}
+                onSmartAccountRetry={() => {
+                  void smartAccountData.refresh();
+                }}
+                onReviewApproval={handleReviewApproval}
+                onSeeAllApprovals={() => {
+                  markDetailPaneTransition("switch");
+                  setDetailSelection("approval");
+                  setSelectedDetail("Approvals");
+                }}
+                selectedSignerId={selectedSignerId}
+                selectedVaultIndex={smartAccountData.selectedVaultIndex}
+                isWalletSelected={
+                  (detailSelection === "wallet" ||
+                    (detailSelection === "action" &&
+                      actionReturnSelection === "wallet")) &&
+                  selectedSignerId === null
+                }
+                showActionButtons={false}
+                showApprovals={false}
+                showHeaderControls={false}
+                smartAccountError={smartAccountData.error}
+                vaultEntries={smartAccountData.vaultEntries}
+                walletAddress={walletDesktopData.walletAddress}
+                walletLabel={walletDesktopData.walletLabel}
+              />
+            )}
           </section>
 
           <button
@@ -2212,7 +2297,7 @@ export function AppWalletWorkspace() {
         </div>
       </section>
 
-      {showAuthenticatedWorkspaceShell && !isSmartAccountRateLimited ? (
+      {showWorkspaceShell && (!isSmartAccountRateLimited || activeSection === "policies") ? (
         <>
           <button
             aria-label="Resize approvals pane"
@@ -2222,7 +2307,9 @@ export function AppWalletWorkspace() {
           />
 
           <section className="wallet-workspace-pane wallet-workspace-review-pane">
-            {isWorkspaceLoading ? (
+            {activeSection === "policies" ? (
+              <PoliciesPlaceholderPane title="Builder blocks coming next" />
+            ) : isWorkspaceLoading ? (
               <WorkspaceApprovalsSkeleton />
             ) : (
               <ApprovalsPane
