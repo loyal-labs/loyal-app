@@ -70,7 +70,9 @@ import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
+import { BuilderBlocksPane } from "./builder-blocks-pane";
 import { PoliciesPane } from "./policies-pane";
+import { WorkflowBuilderPane } from "./workflow-builder-pane";
 import {
   WalletCommandMenu,
   type WalletCommandGroup,
@@ -529,15 +531,6 @@ function WorkspaceErrorPane({
           Retry
         </button>
       </div>
-    </div>
-  );
-}
-
-function PoliciesPlaceholderPane({ title }: { title: string }) {
-  return (
-    <div className="wallet-workspace-placeholder">
-      <span>Policies</span>
-      <strong>{title}</strong>
     </div>
   );
 }
@@ -1370,7 +1363,7 @@ export function AppWalletWorkspace({
       const firstVaultAgent = smartAccountData.vaultEntries
         .map((vault) => ({
           accountIndex: vault.accountIndex,
-          signer: vault.signers[0],
+          signer: vault.signers.find((signer) => signer.scope === "policy"),
         }))
         .find(
           (entry): entry is { accountIndex: number; signer: SmartAccountSignerEntry } =>
@@ -1389,6 +1382,12 @@ export function AppWalletWorkspace({
     },
     [handleOpenAgent, router, smartAccountData]
   );
+
+  const handleOpenAutoswapPolicy = useCallback(() => {
+    setSelectedPolicyId("autoswap-primary");
+    setActiveSection("policies");
+    router.push("/app/policies");
+  }, [router]);
 
   const handleOpenAddSigner = useCallback(
     (accountIndex: number) => {
@@ -1641,7 +1640,7 @@ export function AppWalletWorkspace({
 
   const renderDetailPane = () => {
     if (activeSection === "policies") {
-      return <PoliciesPlaceholderPane title="Builder pane coming next" />;
+      return <WorkflowBuilderPane />;
     }
 
     if (isSmartAccountRateLimited) {
@@ -1779,6 +1778,16 @@ export function AppWalletWorkspace({
       return (
         <AgentPageView
           agentIcon={selectedAgent.icon}
+          activeWorkflows={[
+            {
+              description: "Autoswap policy",
+              href: "/app/policies",
+              id: "autoswap-primary",
+              onOpen: handleOpenAutoswapPolicy,
+              status: "Active",
+              title: "Autoswap",
+            },
+          ]}
           balanceFraction={selectedAgent.balanceFraction}
           balanceWhole={selectedAgent.balanceWhole}
           canDeleteSigner={selectedAgent.scope === "policy"}
@@ -2315,7 +2324,7 @@ export function AppWalletWorkspace({
 
           <section className="wallet-workspace-pane wallet-workspace-review-pane">
             {activeSection === "policies" ? (
-              <PoliciesPlaceholderPane title="Builder blocks coming next" />
+              <BuilderBlocksPane />
             ) : isWorkspaceLoading ? (
               <WorkspaceApprovalsSkeleton />
             ) : (
@@ -2380,6 +2389,13 @@ export function AppWalletWorkspace({
 
         .wallet-workspace[data-rate-limited="true"] {
           grid-template-columns: 60px 32px minmax(420px, 1fr);
+        }
+
+        .wallet-workspace[data-workspace-section="policies"] {
+          grid-template-columns:
+            60px 32px minmax(360px, var(--wallet-account-pane-width)) 8px
+            minmax(420px, 1fr) 8px
+            minmax(320px, var(--wallet-review-pane-width));
         }
 
         .wallet-workspace-rail {
@@ -2671,6 +2687,11 @@ export function AppWalletWorkspace({
           border-right: 1px solid rgba(0, 0, 0, 0.06);
         }
 
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-account-pane {
+          border-right: 0;
+        }
+
         .wallet-workspace-account-pane > div {
           height: 100%;
           min-height: 0;
@@ -2684,6 +2705,13 @@ export function AppWalletWorkspace({
           min-height: 0;
           padding: 8px;
           border-right: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-detail-pane {
+          padding: 8px 0;
+          border-right: 0;
+          overflow: hidden;
         }
 
         .wallet-workspace[data-signed-in="false"]
@@ -2741,6 +2769,25 @@ export function AppWalletWorkspace({
         .wallet-workspace-review-pane {
           grid-column: 7;
           padding: 8px 8px 8px 0;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-review-pane {
+          padding: 8px 8px 8px 0;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-review-resize {
+          position: relative;
+          z-index: 2;
+          background: #f5f5f5;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-review-resize:hover,
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-review-resize:focus-visible {
+          background: #f5f5f5;
         }
 
         .wallet-workspace-resize-handle {
