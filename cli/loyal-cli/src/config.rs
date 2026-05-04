@@ -2,10 +2,11 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_commitment_config::CommitmentConfig;
 use std::{env, fs, path::PathBuf};
+use url::Url;
 
 use crate::cli::Cli;
 
-const DEFAULT_WEB_URL: &str = "https://askloyal.com";
+const DEFAULT_WEB_URL: &str = "https://askloyal.com/app";
 pub(crate) const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 pub(crate) const DEFAULT_SMART_ACCOUNTS_PROGRAM_ID: &str =
     "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG";
@@ -166,9 +167,22 @@ pub(crate) fn save_connection(config: &ResolvedConfig, connection: &SavedConnect
 }
 
 pub(crate) fn connect_url(base_url: &str, pubkey: &str) -> String {
+    let normalized_base_url = base_url.trim_end_matches('/');
+
+    if let Ok(mut url) = Url::parse(normalized_base_url) {
+        url.query_pairs_mut().append_pair("connect", pubkey);
+        return url.to_string();
+    }
+
+    let separator = if normalized_base_url.contains('?') {
+        "&"
+    } else {
+        "?"
+    };
     format!(
-        "{}/?connect={}",
-        base_url.trim_end_matches('/'),
+        "{}{}connect={}",
+        normalized_base_url,
+        separator,
         urlencoding::encode(pubkey)
     )
 }
@@ -273,5 +287,34 @@ fn parse_commitment(value: &str) -> Result<CommitmentConfig> {
         other => {
             anyhow::bail!("unsupported commitment '{other}', use processed|confirmed|finalized")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::connect_url;
+
+    #[test]
+    fn connect_url_preserves_path_prefix() {
+        assert_eq!(
+            connect_url("http://localhost:3000/app", "agent-pubkey"),
+            "http://localhost:3000/app?connect=agent-pubkey"
+        );
+    }
+
+    #[test]
+    fn connect_url_handles_root_frontend_url() {
+        assert_eq!(
+            connect_url("http://localhost:3000", "agent-pubkey"),
+            "http://localhost:3000/?connect=agent-pubkey"
+        );
+    }
+
+    #[test]
+    fn connect_url_appends_to_existing_query() {
+        assert_eq!(
+            connect_url("https://askloyal.com/app?source=cli", "agent pubkey"),
+            "https://askloyal.com/app?source=cli&connect=agent+pubkey"
+        );
     }
 }

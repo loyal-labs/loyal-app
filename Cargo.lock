@@ -2578,6 +2578,7 @@ dependencies = [
  "spl-associated-token-account-client",
  "spl-token",
  "tempfile",
+ "url",
  "urlencoding",
 ]
 

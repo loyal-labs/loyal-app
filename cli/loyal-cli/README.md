@@ -59,7 +59,7 @@ loyal propose transfer sol <RECIPIENT_ADDRESS> <AMOUNT>
 loyal propose transfer token <TOKEN_MINT_ADDRESS> <TOKEN_AMOUNT> <RECIPIENT_ADDRESS>
 ```
 
-`loyal auth` opens `<FRONTEND_URL>/?connect=<CLI_PUBLIC_KEY>` and subscribes to
+`loyal auth` opens `<FRONTEND_URL>?connect=<CLI_PUBLIC_KEY>` and subscribes to
 Squads policy accounts until the CLI public key is added to `Policy.signers[]`
 with the Initiate permission.
 
