@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { Connection, Keypair, VersionedTransaction } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  type PublicKey,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import * as sdk from "../index";
 
 describe("client transport", () => {
@@ -82,6 +87,34 @@ describe("client transport", () => {
     });
 
     expect(signature).toBe("signature-explicit");
+  });
+
+  it("prepares operations with PublicKey-like values from bundle boundaries", async () => {
+    const creator = Keypair.generate().publicKey;
+    const treasury = Keypair.generate().publicKey;
+    const creatorLike = {
+      equals: (other: PublicKey) => creator.equals(other),
+      toBase58: () => creator.toBase58(),
+      toBuffer: () => creator.toBuffer(),
+      toBytes: () => creator.toBytes(),
+    } as unknown as PublicKey;
+
+    const prepared = await sdk.smartAccounts.prepare.create({
+      creator: creatorLike,
+      treasury,
+      settingsAuthority: null,
+      threshold: 1,
+      signers: [
+        {
+          key: creator,
+          permissions: sdk.codecs.Permissions.all(),
+        },
+      ],
+      timeLock: 0,
+      rentCollector: null,
+    });
+
+    expect(prepared.payer.toBase58()).toBe(creator.toBase58());
   });
 
   it("confirms required prepared operations by default and deduplicates signers", async () => {

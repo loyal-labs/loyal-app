@@ -5,8 +5,15 @@ import { useSwap } from "@loyal-labs/wallet-core/hooks";
 import type { SwapConfig } from "@loyal-labs/wallet-core/hooks";
 
 import { SwapShieldTabs } from "~/src/components/wallet/shield-content";
-import type { FormButtonProps, SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
+import type {
+  FormButtonProps,
+  SubView,
+  SwapMode,
+  SwapToken,
+} from "@loyal-labs/wallet-core/types";
 
+import { track, getAnalyticsErrorProperties } from "~/src/lib/analytics";
+import { SWAP_EVENTS } from "./swap-analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -727,7 +734,8 @@ function SwapTransactionDetail({
                 signature &&
                 window.open(
                   `https://explorer.solana.com/tx/${signature}`,
-                  "_blank"
+                  "_blank",
+                  "noopener,noreferrer"
                 )
               }
               style={{
@@ -927,7 +935,10 @@ export function SwapContent({
         fromToken.symbol,
         toToken.symbol,
         String(numericFrom),
-        fromToken.mint
+        fromToken.mint,
+        undefined,
+        undefined,
+        toToken.mint
       ).finally(() => setIsQuoting(false));
     }, 500);
     return () => {
@@ -938,6 +949,7 @@ export function SwapContent({
     fromToken.symbol,
     fromToken.mint,
     toToken.symbol,
+    toToken.mint,
     hasAmount,
     insufficientFunds,
     phase,
@@ -999,11 +1011,32 @@ export function SwapContent({
       setPhase("success");
       setFromAmount("");
       resetQuote();
+      track(SWAP_EVENTS.swapTokens, {
+        from_symbol: fromToken.symbol,
+        to_symbol: toToken.symbol,
+        from_amount: numericFrom,
+        to_amount: toAmount,
+      });
     } else {
       setErrorMessage(result.error);
       setPhase("error");
+      track(SWAP_EVENTS.swapTokensFailed, {
+        from_symbol: fromToken.symbol,
+        to_symbol: toToken.symbol,
+        ...getAnalyticsErrorProperties(result.error),
+      });
     }
-  }, [hasAmount, toAmount, toToken.price, quote, executeSwap, resetQuote]);
+  }, [
+    hasAmount,
+    toAmount,
+    toToken.price,
+    toToken.symbol,
+    fromToken.symbol,
+    numericFrom,
+    quote,
+    executeSwap,
+    resetQuote,
+  ]);
 
   // Report form button props to parent when chrome is managed externally
   useEffect(() => {
@@ -1037,11 +1070,14 @@ export function SwapContent({
 
   const handlePercentage = useCallback(
     (pct: number) => {
-      const val =
+      let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
+      if (fromToken.symbol.toUpperCase() === "SOL" && fromToken.balance - val < 0.00005) {
+        val = Math.max(0, fromToken.balance - 0.00005);
+      }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [fromToken.balance]
+    [fromToken.balance, fromToken.symbol]
   );
 
   const renderPhaseContent = (p: SwapPhase) => {

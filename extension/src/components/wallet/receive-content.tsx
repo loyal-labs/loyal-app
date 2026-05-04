@@ -2,7 +2,6 @@ import { Check, Copy, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useState } from "react";
 
-import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -110,13 +109,6 @@ export function ReceiveContent({
             marginTop: "60px",
           }}
         >
-          <img
-            alt="Solana"
-            height={52}
-            src={getTokenIconUrl("SOL")}
-            style={{ borderRadius: "9999px" }}
-            width={52}
-          />
           <p
             style={{
               fontFamily: font,

@@ -1,20 +1,22 @@
 "use client";
 
-import { Check, Copy, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, X } from "lucide-react";
 import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useState } from "react";
 
-import { getTokenIconUrl } from "@/lib/token-icon";
+
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
 export function ReceiveContent({
   walletAddress,
+  onBack,
   onClose,
 }: {
   walletAddress: string | null;
+  onBack?: () => void;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -29,9 +31,17 @@ export function ReceiveContent({
   const address = walletAddress ?? "";
 
   return (
-    <>
+    <div
+      style={{
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
       <style jsx>{`
-        .receive-close:hover {
+        .receive-back:hover, .receive-close:hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
         .receive-copy-btn:hover {
@@ -48,25 +58,48 @@ export function ReceiveContent({
           padding: "8px",
         }}
       >
-        <div
-          style={{
-            flex: 1,
-            paddingLeft: "12px",
-            paddingTop: "4px",
-            paddingBottom: "4px",
-          }}
-        >
-          <span
+        <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+          {onBack && (
+            <button
+              className="receive-back"
+              onClick={onBack}
+              style={{
+                width: "36px",
+                height: "36px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.04)",
+                border: "none",
+                borderRadius: "9999px",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                color: "#3C3C43",
+              }}
+              type="button"
+            >
+              <ArrowLeft size={24} />
+            </button>
+          )}
+          <div
             style={{
-              fontFamily: font,
-              fontSize: "18px",
-              fontWeight: 600,
-              lineHeight: "28px",
-              color: "#000",
+              paddingLeft: onBack ? "8px" : "12px",
+              paddingTop: "4px",
+              paddingBottom: "4px",
             }}
           >
-            Receive
-          </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "18px",
+                fontWeight: 600,
+                lineHeight: "28px",
+                color: "#000",
+              }}
+            >
+              Receive
+            </span>
+          </div>
         </div>
         <button
           className="receive-close"
@@ -95,10 +128,12 @@ export function ReceiveContent({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          padding: "0 24px",
+          justifyContent: "center",
+          padding: "24px",
           overflow: "auto",
         }}
       >
@@ -108,17 +143,10 @@ export function ReceiveContent({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            gap: "16px",
-            marginTop: "60px",
+            gap: "18px",
+            width: "100%",
           }}
         >
-          <Image
-            alt="Solana"
-            height={52}
-            src={getTokenIconUrl("SOL")}
-            style={{ borderRadius: "9999px" }}
-            width={52}
-          />
           <p
             style={{
               fontFamily: font,
@@ -139,7 +167,7 @@ export function ReceiveContent({
         <div
           style={{
             marginTop: "24px",
-            background: "#fff",
+            border: "1px solid rgba(0, 0, 0, 0.08)",
             borderRadius: "20px",
             padding: "32px",
             display: "flex",
@@ -211,7 +239,7 @@ export function ReceiveContent({
       </div>
 
       {/* Copy Address button */}
-      <div style={{ padding: "16px 20px" }}>
+      <div style={{ flexShrink: 0, padding: "16px 20px" }}>
         <button
           className="receive-copy-btn"
           disabled={!address}
@@ -250,6 +278,6 @@ export function ReceiveContent({
           </span>
         </button>
       </div>
-    </>
+    </div>
   );
 }

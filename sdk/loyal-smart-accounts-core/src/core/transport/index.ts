@@ -85,7 +85,9 @@ export function freezePreparedOperation<Name extends string>(
   return Object.freeze({
     ...operation,
     instructions: Object.freeze([...operation.instructions]),
-    lookupTableAccounts: Object.freeze([...operation.lookupTableAccounts]),
+    lookupTableAccounts: Object.freeze([
+      ...(operation.lookupTableAccounts ?? []),
+    ]),
   });
 }
 

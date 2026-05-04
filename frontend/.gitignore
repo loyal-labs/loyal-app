@@ -53,3 +53,5 @@ next-env.d.ts
 /.brv
 
 CLAUDE.md
+
+.env*.local

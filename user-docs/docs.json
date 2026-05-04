@@ -41,7 +41,8 @@
             "pages": [
               "smart-accounts/overview",
               "smart-accounts/concepts",
-              "smart-accounts/policies-and-execution"
+              "smart-accounts/policies-and-execution",
+              "smart-accounts/frontend-and-vaults"
             ]
           },
           {

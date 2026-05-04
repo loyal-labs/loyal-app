@@ -6,6 +6,7 @@ import {
   type WalletActivity,
 } from "@loyal-labs/solana-wallet";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -13,11 +14,14 @@ import type {
   TokenRow,
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
+import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   enrichSnapshotWithKaminoUsdcEarnings,
   type KaminoEarnings,
 } from "@/lib/kamino/enrich-portfolio";
+import { getCachedKaminoLendingApyBps } from "@/lib/kamino/kamino-read-client";
+import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
@@ -49,14 +53,16 @@ export type WalletDesktopData = {
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
   earningsSummary: WalletEarningsSummary | null;
+  loadActivity: () => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
+const WALLET_ACTIVITY_INITIAL_LIMIT = 10;
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
-const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 
-const LOYL_ICON_URL = "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
+const LOYL_ICON_URL =
+  "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
 
 function resolveTokenIcon(position: PortfolioPosition): string {
   if (position.asset.imageUrl) {
@@ -95,7 +101,10 @@ function formatSolAmount(lamports: number): string {
   });
 }
 
-function formatTimestamp(timestamp: number | null): { date: string; time: string } {
+function formatTimestamp(timestamp: number | null): {
+  date: string;
+  time: string;
+} {
   const date = timestamp ? new Date(timestamp) : new Date();
   return {
     date: date.toLocaleDateString("en-US", {
@@ -134,11 +143,17 @@ function getActivityDisplay(
 } {
   switch (activity.type) {
     case "swap": {
-      const fromPosition = resolvePositionByMint(positions, activity.fromToken.mint);
+      const fromPosition = resolvePositionByMint(
+        positions,
+        activity.fromToken.mint
+      );
       return {
         symbol: fromPosition?.asset.symbol ?? "SOL",
-        icon: fromPosition ? resolveTokenIcon(fromPosition) : getTokenIconUrl("SOL"),
-        amount: activity.fromToken.amount ?? formatSolAmount(activity.amountLamports),
+        icon: fromPosition
+          ? resolveTokenIcon(fromPosition)
+          : getTokenIconUrl("SOL"),
+        amount:
+          activity.fromToken.amount ?? formatSolAmount(activity.amountLamports),
         usdValue:
           typeof fromPosition?.priceUsd === "number"
             ? parseFloat(activity.fromToken.amount) * fromPosition.priceUsd
@@ -152,7 +167,9 @@ function getActivityDisplay(
       const position = resolvePositionByMint(positions, activity.token.mint);
       return {
         symbol: position?.asset.symbol ?? "TOKEN",
-        icon: position ? resolveTokenIcon(position) : "/hero-new/Wallet-Cover.png",
+        icon: position
+          ? resolveTokenIcon(position)
+          : "/hero-new/Wallet-Cover.png",
         amount: activity.token.amount,
         usdValue:
           typeof position?.priceUsd === "number"
@@ -163,10 +180,10 @@ function getActivityDisplay(
           (activity.type === "secure"
             ? "Secure"
             : activity.type === "unshield"
-              ? "Unshield"
-              : activity.direction === "in"
-                ? "Unknown sender"
-                : "Unknown recipient"),
+            ? "Unshield"
+            : activity.direction === "in"
+            ? "Unknown sender"
+            : "Unknown recipient"),
       };
     }
     case "program_action": {
@@ -209,7 +226,9 @@ function getActivityDisplay(
             : null,
         counterparty:
           activity.counterparty ??
-          (activity.direction === "in" ? "Unknown sender" : "Unknown recipient"),
+          (activity.direction === "in"
+            ? "Unknown sender"
+            : "Unknown recipient"),
       };
   }
 }
@@ -274,15 +293,20 @@ function mapActivityToRowAndDetail(
   const display = getActivityDisplay(activity, positions, solPriceUsd);
   const isReceived = activity.direction === "in";
   const timestamp = formatTimestamp(activity.timestamp);
-  const isShieldType = activity.type === "secure" || activity.type === "unshield";
+  const isShieldType =
+    activity.type === "secure" || activity.type === "unshield";
   const amount = isShieldType
     ? `${display.amount} ${display.symbol}`
     : `${isReceived ? "+" : "-"}${display.amount} ${display.symbol}`;
 
   const rowType: ActivityRow["type"] =
-    activity.type === "secure" ? "shielded"
-    : activity.type === "unshield" ? "unshielded"
-    : isReceived ? "received" : "sent";
+    activity.type === "secure"
+      ? "shielded"
+      : activity.type === "unshield"
+      ? "unshielded"
+      : isReceived
+      ? "received"
+      : "sent";
 
   const row: ActivityRow = {
     id: activity.signature,
@@ -291,9 +315,12 @@ function mapActivityToRowAndDetail(
     amount,
     timestamp: timestamp.time,
     date: timestamp.date,
-    icon: activity.type === "secure" ? "/hero-new/Shield.png"
-      : activity.type === "unshield" ? "/hero-new/Unshield.svg"
-      : display.icon,
+    icon:
+      activity.type === "secure"
+        ? "/hero-new/Shield.png"
+        : activity.type === "unshield"
+        ? "/hero-new/Unshield.svg"
+        : display.icon,
     rawTimestamp: activity.timestamp ?? undefined,
   };
 
@@ -332,12 +359,19 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
     amount: formatTokenBalance(position.publicBalance),
     value: formatUsd(position.publicValueUsd),
     icon: resolveTokenIcon(position),
+    totalAmountDisplay: formatTokenBalance(position.totalBalance),
+    totalValueDisplay: formatUsd(position.totalValueUsd),
+    publicAmountDisplay: formatTokenBalance(position.publicBalance),
+    publicValueDisplay: formatUsd(position.publicValueUsd),
+    securedAmountDisplay: formatTokenBalance(position.securedBalance),
+    securedValueDisplay: formatUsd(position.securedValueUsd),
   };
 }
 
 function mapPositionToSecuredTokenRow(
   position: PortfolioPosition,
-  earnings: KaminoEarnings | undefined
+  earnings: KaminoEarnings | undefined,
+  fallbackApyBps?: number | null
 ): TokenRow {
   const row: TokenRow = {
     id: `${position.asset.mint}-secured`,
@@ -347,13 +381,22 @@ function mapPositionToSecuredTokenRow(
     value: formatUsd(position.securedValueUsd),
     icon: resolveTokenIcon(position),
     isSecured: true,
+    totalAmountDisplay: formatTokenBalance(position.totalBalance),
+    totalValueDisplay: formatUsd(position.totalValueUsd),
+    publicAmountDisplay: formatTokenBalance(position.publicBalance),
+    publicValueDisplay: formatUsd(position.publicValueUsd),
+    securedAmountDisplay: formatTokenBalance(position.securedBalance),
+    securedValueDisplay: formatUsd(position.securedValueUsd),
   };
+
+  const apyBps = earnings?.apyBps ?? fallbackApyBps ?? null;
+  if (apyBps !== null) {
+    row.apyBps = apyBps;
+  }
 
   if (!earnings) {
     return row;
   }
-
-  row.apyBps = earnings.apyBps ?? null;
 
   if (
     typeof earnings.earnedValueUsd === "number" &&
@@ -371,18 +414,43 @@ const EMPTY_EARNINGS_BY_MINT: ReadonlyMap<string, KaminoEarnings> = new Map();
 export function useWalletDesktopData(): WalletDesktopData {
   const client = useSolanaWalletDataClient();
   const publicEnv = usePublicEnv();
+  const { user } = useAuthSession();
   const wallet = useWallet();
-  const walletAddress = wallet.publicKey?.toBase58() ?? null;
+  const sessionWalletAddress = user?.walletAddress ?? null;
+  const walletAddress =
+    sessionWalletAddress ?? wallet.publicKey?.toBase58() ?? null;
+  const ownerPublicKey = useMemo(() => {
+    if (wallet.publicKey && wallet.publicKey.toBase58() === walletAddress) {
+      return wallet.publicKey;
+    }
+
+    if (!walletAddress) {
+      return null;
+    }
+
+    try {
+      return new PublicKey(walletAddress);
+    } catch {
+      return null;
+    }
+  }, [wallet.publicKey, walletAddress]);
   const [portfolioSnapshot, setPortfolioSnapshot] =
     useState<PortfolioSnapshot | null>(null);
-  const [earningsByMint, setEarningsByMint] =
-    useState<ReadonlyMap<string, KaminoEarnings>>(EMPTY_EARNINGS_BY_MINT);
+  const [earningsByMint, setEarningsByMint] = useState<
+    ReadonlyMap<string, KaminoEarnings>
+  >(EMPTY_EARNINGS_BY_MINT);
   const [earningsSummary, setEarningsSummary] =
     useState<WalletEarningsSummary | null>(null);
+  const [apyByMint, setApyByMint] = useState<Record<string, number | null>>({});
   const [activities, setActivities] = useState<WalletActivity[]>([]);
+  const [hasRequestedActivity, setHasRequestedActivity] = useState(false);
+  const activityLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const ownerAddressRef = useRef<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [localRows, setLocalRows] = useState<ActivityRow[]>([]);
-  const [localDetails, setLocalDetails] = useState<Record<string, TransactionDetail>>({});
+  const [localDetails, setLocalDetails] = useState<
+    Record<string, TransactionDetail>
+  >({});
 
   const applyEnrichment = useCallback(
     async (snapshot: PortfolioSnapshot, address: string) => {
@@ -413,9 +481,14 @@ export function useWalletDesktopData(): WalletDesktopData {
       return;
     }
     try {
-      const stored = localStorage.getItem(`loyal:local-activity:${walletAddress}`);
+      const stored = localStorage.getItem(
+        `loyal:local-activity:${walletAddress}`
+      );
       if (stored) {
-        const parsed = JSON.parse(stored) as { rows: ActivityRow[]; details: Record<string, TransactionDetail> };
+        const parsed = JSON.parse(stored) as {
+          rows: ActivityRow[];
+          details: Record<string, TransactionDetail>;
+        };
         setLocalRows(parsed.rows ?? []);
         setLocalDetails(parsed.details ?? {});
       }
@@ -433,7 +506,7 @@ export function useWalletDesktopData(): WalletDesktopData {
             const nextDetails = { ...localDetails, [row.id]: detail };
             localStorage.setItem(
               `loyal:local-activity:${walletAddress}`,
-              JSON.stringify({ rows: next, details: nextDetails }),
+              JSON.stringify({ rows: next, details: nextDetails })
             );
           } catch {
             // ignore quota errors
@@ -443,16 +516,53 @@ export function useWalletDesktopData(): WalletDesktopData {
       });
       setLocalDetails((prev) => ({ ...prev, [row.id]: detail }));
     },
-    [walletAddress, localDetails],
+    [walletAddress, localDetails]
   );
+
+  const loadActivity = useCallback(async () => {
+    if (!ownerPublicKey) {
+      return;
+    }
+
+    setHasRequestedActivity(true);
+
+    if (activityLoadPromiseRef.current) {
+      return activityLoadPromiseRef.current;
+    }
+
+    const publicKey = ownerPublicKey;
+    const address = publicKey.toBase58();
+    const loadPromise = client
+      .getActivity(publicKey, { limit: WALLET_ACTIVITY_INITIAL_LIMIT })
+      .then((history) => {
+        if (ownerAddressRef.current === address) {
+          setActivities(history.activities);
+        }
+      })
+      .finally(() => {
+        if (activityLoadPromiseRef.current === loadPromise) {
+          activityLoadPromiseRef.current = null;
+        }
+      });
+
+    activityLoadPromiseRef.current = loadPromise;
+    return loadPromise;
+  }, [client, ownerPublicKey]);
+
+  useEffect(() => {
+    ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
+    setActivities([]);
+    setHasRequestedActivity(false);
+    activityLoadPromiseRef.current = null;
+  }, [ownerPublicKey]);
 
   useEffect(() => {
     console.log("[wallet-data] effect fired", {
       connected: wallet.connected,
-      publicKey: wallet.publicKey?.toBase58() ?? null,
+      publicKey: ownerPublicKey?.toBase58() ?? null,
     });
 
-    if (!(wallet.connected && wallet.publicKey)) {
+    if (!ownerPublicKey) {
       setPortfolioSnapshot(null);
       setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
       setEarningsSummary(null);
@@ -464,15 +574,13 @@ export function useWalletDesktopData(): WalletDesktopData {
     let cancelled = false;
     setIsLoading(true);
 
-    const publicKey = wallet.publicKey;
+    const publicKey = ownerPublicKey;
     const address = publicKey.toBase58();
     console.log("[wallet-data] fetching portfolio for", address);
 
-    void Promise.all([
-      client.getPortfolio(publicKey),
-      client.getActivity(publicKey, { limit: 25 }),
-    ])
-      .then(async ([nextPortfolio, history]) => {
+    void client
+      .getPortfolio(publicKey)
+      .then(async (nextPortfolio) => {
         if (cancelled) {
           return;
         }
@@ -498,7 +606,6 @@ export function useWalletDesktopData(): WalletDesktopData {
               }
             : null
         );
-        setActivities(history.activities);
         setIsLoading(false);
       })
       .catch((error) => {
@@ -511,10 +618,10 @@ export function useWalletDesktopData(): WalletDesktopData {
     return () => {
       cancelled = true;
     };
-  }, [client, wallet.connected, wallet.publicKey, applyEnrichment]);
+  }, [client, wallet.connected, ownerPublicKey, applyEnrichment]);
 
   useEffect(() => {
-    if (!(wallet.connected && wallet.publicKey)) {
+    if (!ownerPublicKey) {
       return;
     }
 
@@ -522,11 +629,12 @@ export function useWalletDesktopData(): WalletDesktopData {
     let unsubscribePortfolio: (() => Promise<void>) | null = null;
     let unsubscribeActivity: (() => Promise<void>) | null = null;
 
-    const subscriptionAddress = wallet.publicKey.toBase58();
+    const subscriptionPublicKey = ownerPublicKey;
+    const subscriptionAddress = subscriptionPublicKey.toBase58();
 
     void client
       .subscribePortfolio(
-        wallet.publicKey,
+        subscriptionPublicKey,
         (snapshot) => {
           if (closed) return;
           void applyEnrichment(snapshot, subscriptionAddress).then(
@@ -552,7 +660,7 @@ export function useWalletDesktopData(): WalletDesktopData {
             }
           );
         },
-        { emitInitial: false }
+        { emitInitial: false, fallbackRefreshMs: 0 }
       )
       .then((unsubscribe) => {
         unsubscribePortfolio = unsubscribe;
@@ -561,43 +669,50 @@ export function useWalletDesktopData(): WalletDesktopData {
         console.error("Failed to subscribe to wallet portfolio", error);
       });
 
-    void client
-      .subscribeActivity(
-        wallet.publicKey,
-        (activity) => {
-          if (closed) {
-            return;
-          }
-
-          setActivities((currentActivities) => {
-            const matchIndex = currentActivities.findIndex(
-              (currentActivity) => currentActivity.signature === activity.signature
-            );
-
-            if (matchIndex >= 0) {
-              const nextActivities = [...currentActivities];
-              nextActivities[matchIndex] = {
-                ...currentActivities[matchIndex],
-                ...activity,
-              };
-              return nextActivities.sort(
-                (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
-              );
+    if (hasRequestedActivity) {
+      void client
+        .subscribeActivity(
+          subscriptionPublicKey,
+          (activity) => {
+            if (closed) {
+              return;
             }
 
-            return [activity, ...currentActivities].sort(
-              (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
-            );
-          });
-        },
-        { emitInitial: false }
-      )
-      .then((unsubscribe) => {
-        unsubscribeActivity = unsubscribe;
-      })
-      .catch((error) => {
-        console.error("Failed to subscribe to wallet activity", error);
-      });
+            setActivities((currentActivities) => {
+              const matchIndex = currentActivities.findIndex(
+                (currentActivity) =>
+                  currentActivity.signature === activity.signature
+              );
+
+              if (matchIndex >= 0) {
+                const nextActivities = [...currentActivities];
+                nextActivities[matchIndex] = {
+                  ...currentActivities[matchIndex],
+                  ...activity,
+                };
+                return nextActivities.sort(
+                  (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
+                );
+              }
+
+              return [activity, ...currentActivities].sort(
+                (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
+              );
+            });
+          },
+          {
+            emitInitial: false,
+            fallbackRefreshMs: 0,
+            historyLimit: WALLET_ACTIVITY_INITIAL_LIMIT,
+          }
+        )
+        .then((unsubscribe) => {
+          unsubscribeActivity = unsubscribe;
+        })
+        .catch((error) => {
+          console.error("Failed to subscribe to wallet activity", error);
+        });
+    }
 
     return () => {
       closed = true;
@@ -608,24 +723,35 @@ export function useWalletDesktopData(): WalletDesktopData {
         void unsubscribeActivity();
       }
     };
-  }, [client, wallet.connected, wallet.publicKey, applyEnrichment]);
+  }, [client, ownerPublicKey, applyEnrichment, hasRequestedActivity]);
 
-  // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
+  // Fetch LOYAL token price for the always-visible placeholder row.
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch(`${JUPITER_TOKEN_SEARCH_URL}?query=${LOYL_MINT}`)
+    fetch(`/api/tokens/${LOYL_MINT}/market`)
       .then((res) => res.json())
-      .then((tokens: { id: string; usdPrice?: number }[]) => {
-        if (cancelled) return;
-        const match = tokens.find((t) => t.id === LOYL_MINT);
-        const price = match?.usdPrice;
-        if (typeof price === "number" && Number.isFinite(price) && price > 0) {
-          setLoylPriceUsd(price);
+      .then(
+        (market: {
+          market?: {
+            priceUsd?: number | null;
+          };
+        }) => {
+          if (cancelled) return;
+          const price = market.market?.priceUsd;
+          if (
+            typeof price === "number" &&
+            Number.isFinite(price) &&
+            price > 0
+          ) {
+            setLoylPriceUsd(price);
+          }
         }
-      })
+      )
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const positions = portfolioSnapshot?.positions ?? EMPTY_POSITIONS;
@@ -634,10 +760,41 @@ export function useWalletDesktopData(): WalletDesktopData {
     totalSol: null,
     effectiveSolPriceUsd: null,
   };
+  const kaminoUsdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
+
+  useEffect(() => {
+    if (!kaminoUsdcMint) {
+      setApyByMint({});
+      return;
+    }
+
+    const hasShieldedKaminoUsdc = positions.some(
+      (position) =>
+        position.asset.mint === kaminoUsdcMint && position.securedBalance > 0
+    );
+    if (!hasShieldedKaminoUsdc) {
+      setApyByMint({});
+      return;
+    }
+
+    let cancelled = false;
+    void getCachedKaminoLendingApyBps({
+      solanaEnv: publicEnv.solanaEnv,
+      mint: kaminoUsdcMint,
+    }).then((apyBps) => {
+      if (cancelled) return;
+      setApyByMint(apyBps !== null ? { [kaminoUsdcMint]: apyBps } : {});
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [kaminoUsdcMint, positions, publicEnv.solanaEnv]);
 
   const allTokenRows = useMemo(() => {
     const rows: TokenRow[] = [];
     for (const position of positions) {
+      const earnings = earningsByMint.get(position.asset.mint);
       if (position.publicBalance > 0) {
         rows.push(mapPositionToTokenRow(position));
       }
@@ -646,7 +803,8 @@ export function useWalletDesktopData(): WalletDesktopData {
         rows.push(
           mapPositionToSecuredTokenRow(
             position,
-            earningsByMint.get(position.asset.mint)
+            earnings,
+            apyByMint[position.asset.mint]
           )
         );
       }
@@ -685,17 +843,27 @@ export function useWalletDesktopData(): WalletDesktopData {
     }
 
     return rows;
-  }, [positions, loylPriceUsd, earningsByMint]);
+  }, [positions, loylPriceUsd, earningsByMint, apyByMint]);
 
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
     const SHIELD_PLUMBING_ACTIONS = new Set([
-      "initialize_deposit", "create_permission", "delegate", "undelegate",
-      "initialize_username_deposit", "create_username_permission",
-      "delegate_username_deposit", "undelegate_username_deposit",
+      "initialize_deposit",
+      "create_permission",
+      "delegate",
+      "undelegate",
+      "initialize_username_deposit",
+      "create_username_permission",
+      "delegate_username_deposit",
+      "undelegate_username_deposit",
     ]);
     const rows = activities
-      .filter((a) => !(a.type === "program_action" && SHIELD_PLUMBING_ACTIONS.has(a.action)))
+      .filter(
+        (a) =>
+          !(
+            a.type === "program_action" && SHIELD_PLUMBING_ACTIONS.has(a.action)
+          )
+      )
       .map((activity) => {
         const mapped = mapActivityToRowAndDetail(
           activity,
@@ -731,7 +899,10 @@ export function useWalletDesktopData(): WalletDesktopData {
 
     // Only recompute when the wallet changes, not on subscription updates
     const key = walletAddress ?? "";
-    if (balanceHistoryKeyRef.current === key && balanceHistoryRef.current.length > 1) {
+    if (
+      balanceHistoryKeyRef.current === key &&
+      balanceHistoryRef.current.length > 1
+    ) {
       return balanceHistoryRef.current;
     }
 
@@ -740,9 +911,12 @@ export function useWalletDesktopData(): WalletDesktopData {
       .filter((a) => a.timestamp !== null)
       .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
-    if (sorted.length === 0) return [{ timestamp: now, valueUsd: totals.totalUsd }];
+    if (sorted.length === 0)
+      return [{ timestamp: now, valueUsd: totals.totalUsd }];
 
-    const points: BalanceHistoryPoint[] = [{ timestamp: now, valueUsd: totals.totalUsd }];
+    const points: BalanceHistoryPoint[] = [
+      { timestamp: now, valueUsd: totals.totalUsd },
+    ];
     let runningUsd = totals.totalUsd;
 
     for (const activity of sorted) {
@@ -762,7 +936,13 @@ export function useWalletDesktopData(): WalletDesktopData {
     balanceHistoryRef.current = result;
     balanceHistoryKeyRef.current = key;
     return result;
-  }, [activities, positions, totals.totalUsd, totals.effectiveSolPriceUsd, walletAddress]);
+  }, [
+    activities,
+    positions,
+    totals.totalUsd,
+    totals.effectiveSolPriceUsd,
+    walletAddress,
+  ]);
 
   const formattedBalance = formatUsd(totals.totalUsd);
   const balanceParts = formattedBalance.split(".");
@@ -776,7 +956,11 @@ export function useWalletDesktopData(): WalletDesktopData {
 
   return {
     walletAddress,
-    isConnected: Boolean(wallet.connected && walletAddress),
+    isConnected: Boolean(
+      wallet.connected &&
+        wallet.publicKey &&
+        wallet.publicKey.toBase58() === walletAddress
+    ),
     isLoading,
     balanceWhole: balanceParts[0] ?? "$0",
     balanceFraction: balanceParts[1] ? `.${balanceParts[1]}` : "",
@@ -796,6 +980,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     positions,
     balanceHistory,
     earningsSummary,
+    loadActivity,
     addLocalActivity,
   };
 }

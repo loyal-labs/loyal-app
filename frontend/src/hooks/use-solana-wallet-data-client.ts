@@ -8,12 +8,14 @@ import {
   type SecureBalanceMap,
   type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
-import { getSolanaEndpoints } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { useMemo } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { createFrontendAssetProvider } from "@/lib/solana/frontend-asset-provider";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 
 /** Deposit account layout: 8-byte discriminator + 32 user + 32 tokenMint + 8 amount (u64 LE) */
 const DEPOSIT_AMOUNT_OFFSET = 8 + 32 + 32; // 72
@@ -34,11 +36,38 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
   const walletPublicKey = wallet.publicKey ?? null;
 
   return useMemo(() => {
-    const { rpcEndpoint } = getSolanaEndpoints(publicEnv.solanaEnv);
-    const baseConnection = new Connection(rpcEndpoint, "confirmed");
+    const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
+      publicEnv.solanaEnv
+    );
+    const baseConnection = new Connection(rpcEndpoint, {
+      commitment: "confirmed",
+      disableRetryOnRateLimit: true,
+      fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+    });
 
     return createSolanaWalletDataClient({
+      assetProvider: createFrontendAssetProvider({
+        commitment: "confirmed",
+        fetchImpl: globalThis.fetch,
+        rpcEndpoint,
+        websocketEndpoint,
+      }),
       env: publicEnv.solanaEnv,
+      createRpcConnection: (endpoint, commitment) =>
+        new Connection(endpoint, {
+          commitment,
+          disableRetryOnRateLimit: true,
+          fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+        }),
+      createWebsocketConnection: (endpoint, websocketEndpoint, commitment) =>
+        new Connection(endpoint, {
+          commitment,
+          disableRetryOnRateLimit: true,
+          fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+          wsEndpoint: websocketEndpoint,
+        }),
+      rpcEndpoint,
+      websocketEndpoint,
       secureBalanceProvider: async ({ owner, tokenMints, assetBalances }) => {
         const nativeMint = new PublicKey(NATIVE_SOL_MINT);
         const uniqueMints = new Map<string, PublicKey>();
@@ -50,6 +79,7 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
         // Compute all deposit PDAs and fetch account data in a single batch
         const mintEntries = Array.from(uniqueMints.entries());
         const pdas = mintEntries.map(([, mint]) => findDepositPda(owner, mint)[0]);
+
         const accountInfos = await baseConnection.getMultipleAccountsInfo(pdas);
 
         const rawDeposits = new Map<string, bigint>();

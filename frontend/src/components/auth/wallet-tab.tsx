@@ -1,9 +1,9 @@
 "use client";
 
+import { AlertCircle, ArrowUpRight, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
-
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
 
 const MOBILE_WALLETS = [
@@ -42,14 +42,15 @@ function MobileWalletList() {
       </p>
       {MOBILE_WALLETS.map((wallet) => (
         <TrackedExternalLink
-          className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-neutral-900 text-sm transition hover:bg-neutral-50"
+          className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06]"
           href={wallet.browseUrl(currentUrl)}
           key={wallet.name}
           linkText={`Open in ${wallet.name}`}
           source="wallet_mobile_browser_link"
         >
           <img alt={wallet.name} className="h-6 w-6" src={wallet.icon} />
-          <span>Open in {wallet.name}</span>
+          <span className="min-w-0 flex-1">Open in {wallet.name}</span>
+          <ArrowUpRight className="h-4 w-4 text-neutral-400" />
         </TrackedExternalLink>
       ))}
     </div>
@@ -92,14 +93,16 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
     state.status === "verifying"
   ) {
     return (
-      <div className="flex flex-col items-center gap-3 py-4">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-        <p className="text-neutral-500 text-sm">
+      <div className="flex flex-col items-center gap-4 rounded-[28px] bg-[#f5f5f5] px-5 py-8 text-center">
+        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white">
+          <LoaderCircle className="h-6 w-6 animate-spin text-neutral-950" />
+        </span>
+        <p className="max-w-[320px] text-neutral-500 text-sm">
           {state.status === "connecting"
             ? "Connecting your wallet..."
             : state.status === "awaiting_signature"
               ? "Approve the message signature in your wallet..."
-              : "Verifying wallet ownership..."}
+              : "Verifying your wallet and preparing your smart account..."}
         </p>
       </div>
     );
@@ -107,19 +110,26 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
 
   if (isErrorState && showError) {
     return (
-      <div className="flex flex-col gap-4 py-4">
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700 text-sm">
-          <p>{state.errorMessage}</p>
-          {state.errorDetails.length > 0 && (
-            <ul className="mt-2 list-disc pl-5">
-              {state.errorDetails.map((detail) => (
-                <li key={detail}>{detail}</li>
-              ))}
-            </ul>
-          )}
+      <div className="flex flex-col gap-3">
+        <div className="rounded-[24px] bg-[#fff1f2] p-4 text-[#d50012] text-sm">
+          <div className="flex gap-3">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white">
+              <AlertCircle className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="font-medium">{state.errorMessage}</p>
+              {state.errorDetails.length > 0 && (
+                <ul className="mt-2 list-disc pl-5 text-[#d50012]/80">
+                  {state.errorDetails.map((detail) => (
+                    <li key={detail}>{detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
         <button
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white transition hover:bg-neutral-800"
+          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
           onClick={retry}
           type="button"
         >
@@ -130,10 +140,10 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
   }
 
   return (
-    <div className="flex flex-col gap-4 py-4">
+    <div className="flex flex-col gap-4">
       {connected && publicKey ? (
         <button
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white transition hover:bg-neutral-800"
+          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
           onClick={startConnectedWalletVerification}
           type="button"
         >
@@ -143,7 +153,7 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
         <div className="flex flex-col gap-2">
           {installedWallets.map((installedWallet) => (
             <button
-              className="flex items-center gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-neutral-900 text-sm transition hover:bg-neutral-50"
+              className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06]"
               key={installedWallet.adapter.name}
               onClick={() => connectWallet(installedWallet.adapter.name)}
               type="button"
@@ -155,10 +165,15 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
                   src={installedWallet.adapter.icon}
                 />
               )}
-              <span>{installedWallet.adapter.name}</span>
+              <span className="min-w-0 flex-1 text-left">
+                {installedWallet.adapter.name}
+              </span>
+              <ArrowUpRight className="h-4 w-4 text-neutral-400" />
             </button>
           ))}
-          {installedWallets.length === 0 && isMobile && <MobileWalletList />}
+          {installedWallets.length === 0 && isMobile && (
+            <MobileWalletList />
+          )}
           {installedWallets.length === 0 && !isMobile && (
             <p className="py-4 text-center text-neutral-500 text-sm">
               No wallet extensions detected. Install a Solana wallet extension

@@ -1,11 +1,10 @@
 "use client";
 
-import { Check, Globe, Share } from "lucide-react";
+import { ArrowLeft, Check, Globe, Share } from "lucide-react";
 import { useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
-import { SubViewHeader } from "./shared";
 import type { TransactionDetail } from "./types";
 
 function truncateAddress(addr: string): string {
@@ -16,11 +15,9 @@ function truncateAddress(addr: string): string {
 export function TransactionDetailView({
   detail,
   onBack,
-  onClose,
 }: {
   detail: TransactionDetail;
   onBack: () => void;
-  onClose: () => void;
 }) {
   const publicEnv = usePublicEnv();
   const [copied, setCopied] = useState(false);
@@ -42,24 +39,65 @@ export function TransactionDetailView({
         .tx-action-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
-        .tx-back-btn:hover,
-        .tx-close-btn:hover {
+        .tx-back-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
       `}</style>
 
       {/* Header */}
-      <SubViewHeader onBack={onBack} onClose={onClose} title={title} />
+      <div
+        style={{
+          alignItems: "center",
+          display: "flex",
+          justifyContent: "space-between",
+          padding: "8px",
+        }}
+      >
+        <span style={{ height: "36px", width: "36px" }} />
+        <span
+          style={{
+            color: "#000",
+            fontFamily: "var(--font-geist-sans), sans-serif",
+            fontSize: "18px",
+            fontWeight: 600,
+            lineHeight: "28px",
+          }}
+        >
+          {title}
+        </span>
+        <button
+          className="tx-back-btn"
+          onClick={onBack}
+          style={{
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            color: "#3C3C43",
+            cursor: "pointer",
+            display: "flex",
+            height: "36px",
+            justifyContent: "center",
+            transition: "all 0.2s ease",
+            width: "36px",
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      </div>
 
       {/* Content */}
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           padding: "8px",
           overflowY: "auto",
+          overflowX: "hidden",
         }}
       >
         {/* Amount hero */}

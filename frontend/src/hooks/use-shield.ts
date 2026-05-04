@@ -7,7 +7,7 @@ import {
   MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
-import { getPerEndpoints, getSolanaEndpoints } from "@loyal-labs/solana-rpc";
+import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import {
   getAssociatedTokenAddressSync,
@@ -28,7 +28,16 @@ import {
   recordKaminoUsdcUnshield,
   resolveTrackedKaminoUsdcMint,
 } from "@/lib/kamino/kamino-usdc-position";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
+
+function cleanSolanaErrorMessage(message: string): string {
+  const logsIndex = message.indexOf("Logs:");
+  if (logsIndex !== -1) {
+    return message.slice(0, logsIndex).trim();
+  }
+  return message;
+}
 
 export type ShieldResult = {
   signature?: string;
@@ -68,7 +77,9 @@ export function useShield() {
       throw new Error("Wallet must support signTransaction, signAllTransactions, and signMessage");
     }
 
-    const { rpcEndpoint, websocketEndpoint } = getSolanaEndpoints(publicEnv.solanaEnv);
+    const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
+      publicEnv.solanaEnv
+    );
     const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
 
     const signer = {
@@ -225,7 +236,7 @@ export function useShield() {
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
             ? "Transaction was rejected in your wallet."
-            : err.message;
+            : cleanSolanaErrorMessage(err.message);
         }
         setError(errorMessage);
         setLoading(false);
@@ -356,7 +367,7 @@ export function useShield() {
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
             ? "Transaction was rejected in your wallet."
-            : err.message;
+            : cleanSolanaErrorMessage(err.message);
         }
         setError(errorMessage);
         setLoading(false);

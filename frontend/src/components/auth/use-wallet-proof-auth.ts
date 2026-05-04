@@ -11,7 +11,8 @@ import {
   initialWalletProofState,
   walletProofReducer,
 } from "@/lib/auth/wallet-proof-state";
-import { WalletProofSignerError, signWalletProofMessage } from "@/lib/auth/wallet-proof-signer";
+import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
+import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
 function mapWalletProofError(error: unknown): {
   status: "rejected" | "unsupported" | "error";
@@ -74,6 +75,7 @@ export function useWalletProofAuth({
     initialWalletProofState
   );
   const connectAttemptedRef = useRef(false);
+  const selectedWalletNameRef = useRef<WalletName | null>(null);
   const verifyAttemptedForAddressRef = useRef<string | null>(null);
 
   const installedWallets = useMemo(
@@ -106,20 +108,11 @@ export function useWalletProofAuth({
     verifyAttemptedForAddressRef.current = walletAddress;
 
     try {
-      const challenge = await authApiClient.challengeWalletAuth({
+      await runWalletProofFlow({
+        authApiClient,
+        messageSigner: signMessage,
+        onStatusChange: (status) => dispatch({ type: status }),
         walletAddress,
-      });
-
-      dispatch({ type: "awaiting_signature" });
-      const signature = await signWalletProofMessage({
-        signMessage,
-        message: challenge.message,
-      });
-
-      dispatch({ type: "verifying" });
-      await authApiClient.completeWalletAuth({
-        challengeToken: challenge.challengeToken,
-        signature,
       });
       await refreshSession();
       dispatch({ type: "success" });
@@ -144,7 +137,12 @@ export function useWalletProofAuth({
       return;
     }
 
-    if (!wallet || connecting || connectAttemptedRef.current) {
+    if (
+      !wallet ||
+      wallet.adapter.name !== selectedWalletNameRef.current ||
+      connecting ||
+      connectAttemptedRef.current
+    ) {
       return;
     }
 
@@ -168,6 +166,7 @@ export function useWalletProofAuth({
     (walletName: WalletName) => {
       connectAttemptedRef.current = false;
       verifyAttemptedForAddressRef.current = null;
+      selectedWalletNameRef.current = walletName;
       onFlowStart?.();
       dispatch({ type: "connecting" });
       select(walletName);

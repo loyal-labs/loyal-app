@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowRight, Search, X } from "lucide-react";
 
 export function SearchInput({
   value,
@@ -55,10 +55,12 @@ export function SubViewHeader({
   title,
   onBack,
   onClose,
+  showClose = true,
 }: {
   title: string;
   onBack: () => void;
   onClose: () => void;
+  showClose?: boolean;
 }) {
   return (
     <>
@@ -96,7 +98,7 @@ export function SubViewHeader({
           }}
           type="button"
         >
-          <ArrowLeft size={24} />
+          <ArrowRight size={24} />
         </button>
         <span
           style={{
@@ -109,26 +111,30 @@ export function SubViewHeader({
         >
           {title}
         </span>
-        <button
-          className="subview-close"
-          onClick={onClose}
-          style={{
-            width: "36px",
-            height: "36px",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "9999px",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            color: "#3C3C43",
-          }}
-          type="button"
-        >
-          <X size={24} />
-        </button>
+        {showClose ? (
+          <button
+            className="subview-close"
+            onClick={onClose}
+            style={{
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              background: "rgba(0, 0, 0, 0.04)",
+              border: "none",
+              borderRadius: "9999px",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              color: "#3C3C43",
+            }}
+            type="button"
+          >
+            <X size={24} />
+          </button>
+        ) : (
+          <span style={{ height: "36px", width: "36px" }} />
+        )}
       </div>
     </>
   );

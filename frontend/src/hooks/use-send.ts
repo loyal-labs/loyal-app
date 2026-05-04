@@ -23,6 +23,14 @@ import { useCallback, useState } from "react";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { trackWalletSendCompleted } from "@/lib/core/analytics";
 
+function cleanSolanaErrorMessage(message: string): string {
+  const logsIndex = message.indexOf("Logs:");
+  if (logsIndex !== -1) {
+    return message.slice(0, logsIndex).trim();
+  }
+  return message;
+}
+
 export type SendResult = {
   signature?: string;
   success: boolean;
@@ -297,7 +305,7 @@ export function useSend() {
           } else if (err.message.includes("User rejected")) {
             errorMessage = "Transaction was rejected in your wallet.";
           } else {
-            errorMessage = err.message;
+            errorMessage = cleanSolanaErrorMessage(err.message);
           }
         }
 

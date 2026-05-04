@@ -1,0 +1,207 @@
+---
+title: "Frontend and Vault APIs"
+description: "How Loyal's app-facing smart-account APIs sit on top of the lower-level Squads SDK surface."
+---
+
+Loyal has two TypeScript layers for smart-account integrations:
+
+| Layer | Package | Best for |
+| --- | --- | --- |
+| Protocol SDK | `@loyal-labs/loyal-smart-accounts` | Building raw Squads instructions, prepared operations, and low-level account queries |
+| Vault adapter | `@loyal-labs/smart-account-vaults` | App UI flows for vaults, proposals, policy signers, and spending-limit actions |
+
+Use the protocol SDK when you need full control. Use the vault adapter when you are building wallet or agent UX around Loyal's standard smart-account model.
+
+## Protocol SDK Shape
+
+`@loyal-labs/loyal-smart-accounts` exports feature namespaces:
+
+- `programConfig`
+- `smartAccounts`
+- `proposals`
+- `transactions`
+- `batches`
+- `policies`
+- `spendingLimits`
+- `execution`
+
+It also exports lower-level helpers:
+
+- `generated`
+- `PROGRAM_ID`
+- `pda`
+- `codecs`
+- `errors`
+- `accounts`
+
+Each feature follows the same structure:
+
+| API | What it does |
+| --- | --- |
+| `accounts` | Generated account classes |
+| `instructions` | Raw instruction builders for exposed offline operations |
+| `prepare` | Prepared-operation builders |
+| `queries` | Account fetch helpers |
+| client methods | Prepare, sign, send, and optionally confirm through the configured transport |
+
+```ts
+import {
+  createLoyalSmartAccountsClient,
+  pda,
+} from "@loyal-labs/loyal-smart-accounts";
+
+const client = createLoyalSmartAccountsClient({ connection });
+
+const [vaultPda] = pda.getSmartAccountPda({
+  settingsPda,
+  accountIndex: 0,
+});
+
+const proposal = await client.proposals.queries.fetchProposal(proposalPda);
+```
+
+## Vault Adapter Shape
+
+`@loyal-labs/smart-account-vaults` wraps the protocol SDK for app-facing vault flows.
+
+Read APIs:
+
+- `fetchVault`
+- `listVaults`
+- `listSpendingLimitPolicies`
+- `listSpendingLimits`
+- `listProposals`
+- `fetchOverview`
+
+Prepare APIs:
+
+- `prepareSolTransferProposal`
+- `prepareSplTransferProposal`
+- `prepareCustomInstructionProposal`
+- `preparePolicyCustomInstructionProposal`
+- `prepareAddInitiateSigner`
+- `prepareRemoveInitiateSigner`
+- `prepareSetSpendingLimitPolicy`
+- `prepareRemoveSpendingLimitPolicy`
+- `prepareUseSolSpendingLimitPolicy`
+- `prepareApproveProposal`
+- `prepareRejectProposal`
+- `prepareExecuteProposal`
+- `prepareExecuteSettingsProposal`
+- `prepareExecutePolicyProposal`
+
+Wallet helpers:
+
+- `sendPreparedWithWallet`
+- `isWalletAdapterLike`
+
+```ts
+import {
+  createSmartAccountVaultsClient,
+  sendPreparedWithWallet,
+} from "@loyal-labs/smart-account-vaults";
+
+const vaults = createSmartAccountVaultsClient({
+  connection,
+  programId,
+  walletDataClient,
+});
+
+const overview = await vaults.fetchOverview({
+  settingsPda,
+  activityLimit: 0,
+});
+```
+
+## Frontend Read Flow
+
+The Loyal frontend uses server routes for the heavy read model:
+
+1. Resolve the authenticated user session.
+2. Load the user's `settingsPda`.
+3. Create a vault adapter client with the configured Solana RPC, smart-account program id, and wallet data client.
+4. Return `SmartAccountOverview` to the browser.
+5. Load vault activity separately when a vault is opened.
+
+`SmartAccountOverview` includes:
+
+- program id
+- settings PDA
+- canonical vault address
+- root signers
+- policy signers
+- spending-limit policies
+- vault portfolio snapshots
+- proposal snapshots
+
+This keeps frontend components focused on rendering and wallet signing rather than scanning Squads program accounts directly from the browser.
+
+## Frontend Write Flow
+
+Browser actions prepare an operation with the vault adapter, then send it with the connected wallet.
+
+```ts
+const { prepared } = await vaults.prepareSetSpendingLimitPolicy({
+  settingsPda,
+  creator: wallet.publicKey,
+  feePayer: wallet.publicKey,
+  signer: agentPublicKey,
+  amount,
+  accountIndex: 0,
+  period: "month",
+});
+
+await sendPreparedWithWallet({
+  connection,
+  wallet,
+  prepared,
+  confirm: true,
+});
+```
+
+Proposal actions choose the execution helper by payload type:
+
+| Proposal payload | Helper |
+| --- | --- |
+| `transaction` | `prepareExecuteProposal` |
+| `settings_transaction` | `prepareExecuteSettingsProposal` |
+| `policy_transaction` | `prepareExecutePolicyProposal` |
+
+## Agent Connection Flow
+
+The Loyal agent CLI starts with:
+
+```bash
+loyal auth
+```
+
+The CLI opens the frontend with `?connect=<agent_public_key>`. The frontend asks the user to approve the connection and then adds the CLI key as an `Initiate` signer on a spending-limit policy.
+
+After approval, the CLI watches or scans Squads policy accounts until it finds a policy where:
+
+- the policy belongs to the user's settings account
+- the CLI public key is in `Policy.signers[]`
+- the signer has `Initiate` permission
+
+The CLI can then create policy transactions and proposals without becoming a root settings signer.
+
+## Spending Limit Behavior
+
+For new user-facing flows, prefer `SpendingLimitPolicy` over legacy spending-limit accounts.
+
+When editing an existing spending-limit policy, Loyal updates the policy with `PolicyUpdate`. The update is built from the fetched existing policy so unchanged fields stay unchanged. That protects mint, destinations, period, expiration, accumulation, exact-quantity behavior, usage state, threshold, and time lock.
+
+Top-ups use synchronous policy payload execution for SOL spending-limit policies. The connected wallet only needs to be a valid signer on that policy; it does not need to be the root authenticated settings signer.
+
+## Logs And Diagnostics
+
+The frontend extracts Solana logs from wallet errors when spending-limit sends fail and turns common failures into actionable messages:
+
+- vault SOL is insufficient for a top-up
+- fee payer SOL is insufficient for rent or fees
+- the top-up exceeds the remaining spending limit
+- a policy update failed during account reallocation
+
+The agent CLI also simulates failed proposal submissions and prints transaction diagnostics, including simulation logs, account status, and instruction details.
+
+Next: [Policies and Execution](/smart-accounts/policies-and-execution)

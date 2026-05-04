@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { ChatInput } from "@/components/chat-input";
 import { ChatMessages } from "@/components/chat-messages";
+import { HeroNav } from "@/components/hero-nav";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
 import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import {
   trackAuthSignInPressed,
@@ -42,6 +44,7 @@ export interface HeroSectionProps {
   onNewChat: () => void;
   onSelectChat: (chatId: string, clientChatId: string | null) => Promise<void>;
   currentChatId: string;
+  connectAgentName?: string;
 }
 
 export function shouldOpenRightSidebarTab(args: {
@@ -57,6 +60,7 @@ export function HeroSection(props: HeroSectionProps) {
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
   const walletDesktopData = useWalletDesktopData();
+  const smartAccountData = useSmartAccountSidebarData();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] =
@@ -65,8 +69,13 @@ export function HeroSection(props: HeroSectionProps) {
   const [parallaxOffset, setParallaxOffset] = useState(0);
   const [isInputStuckToBottom, setIsInputStuckToBottom] = useState(false);
   const [stickyInputBottomOffset, setStickyInputBottomOffset] = useState(24);
+  const [isScrolledToAbout, setIsScrolledToAbout] = useState(false);
+  const [isScrolledToRoadmap, setIsScrolledToRoadmap] = useState(false);
+  const [isScrolledToBlog, setIsScrolledToBlog] = useState(false);
+  const [isScrolledToLinks, setIsScrolledToLinks] = useState(false);
   const [dogCry, setDogCry] = useState(false);
   const [dogNice, setDogNice] = useState(false);
+  const pendingConnectRef = useRef(false);
 
   const { registerHandler } = useSignInModal();
 
@@ -100,7 +109,7 @@ export function HeroSection(props: HeroSectionProps) {
         return;
       }
 
-      if (tab !== "sign-in") {
+      if (tab !== "sign-in" && tab !== "connect") {
         trackWalletSidebarTabOpen(publicEnv, {
           source: "hero_action_card",
           tab,
@@ -126,7 +135,7 @@ export function HeroSection(props: HeroSectionProps) {
     }
   }, [openSignIn, props.openSignInRef]);
 
-  // Auto-switch from sign-in tab to portfolio when user signs in
+  // Auto-switch from sign-in tab to portfolio (or connect) when user signs in
   const wasSignedInRef = useRef(props.isSignedIn);
   const [pendingAutoClose, setPendingAutoClose] = useState(false);
   useEffect(() => {
@@ -134,8 +143,13 @@ export function HeroSection(props: HeroSectionProps) {
     wasSignedInRef.current = props.isSignedIn;
 
     if (justSignedIn && isRightSidebarOpen) {
-      setRightSidebarTab("portfolio");
-      setPendingAutoClose(true);
+      if (pendingConnectRef.current) {
+        pendingConnectRef.current = false;
+        setRightSidebarTab("connect");
+      } else {
+        setRightSidebarTab("portfolio");
+        setPendingAutoClose(true);
+      }
     }
   }, [props.isSignedIn, isRightSidebarOpen]);
 
@@ -153,7 +167,8 @@ export function HeroSection(props: HeroSectionProps) {
   // Dog shows "nice" face whenever wallet finishes loading
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   useEffect(() => {
-    const justFinished = wasWalletLoadingRef.current && !walletDesktopData.isLoading;
+    const justFinished =
+      wasWalletLoadingRef.current && !walletDesktopData.isLoading;
     wasWalletLoadingRef.current = walletDesktopData.isLoading;
 
     if (justFinished && walletDesktopData.isConnected) {
@@ -166,7 +181,10 @@ export function HeroSection(props: HeroSectionProps) {
   useEffect(() => {
     if (props.isChatMode && props.inputRef.current) {
       const focusInput = () => {
-        if (props.inputRef.current && document.activeElement !== props.inputRef.current) {
+        if (
+          props.inputRef.current &&
+          document.activeElement !== props.inputRef.current
+        ) {
           props.inputRef.current.focus();
           props.inputRef.current.select(); // Also select any existing text
         }
@@ -208,7 +226,11 @@ export function HeroSection(props: HeroSectionProps) {
 
   // Keep focus on textarea when messages change (e.g., after receiving response)
   useEffect(() => {
-    if (props.isChatMode && props.messages.length > 0 && props.inputRef.current) {
+    if (
+      props.isChatMode &&
+      props.messages.length > 0 &&
+      props.inputRef.current
+    ) {
       // Small delay to ensure UI has updated
       const timeout = setTimeout(() => {
         if (document.activeElement !== props.inputRef.current) {
@@ -219,6 +241,75 @@ export function HeroSection(props: HeroSectionProps) {
       return () => clearTimeout(timeout);
     }
   }, [props.messages, props.isChatMode, props.inputRef]);
+
+  // Detect when user scrolls to About/Roadmap/Blog/Links sections
+  useEffect(() => {
+    if (props.isChatMode) return; // Don't track scroll in chat mode
+
+    const handlePageScroll = () => {
+      const aboutSection = document.getElementById("about-section");
+      const roadmapSection = document.getElementById("roadmap-section");
+      const blogSection = document.getElementById("blog-section");
+      const footerSection = document.getElementById("footer-section");
+
+      // Check if we're at the bottom of the page
+      const isAtBottom =
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 10;
+
+      // If at bottom, activate links section
+      if (isAtBottom && footerSection) {
+        setIsScrolledToAbout(false);
+        setIsScrolledToRoadmap(false);
+        setIsScrolledToBlog(false);
+        setIsScrolledToLinks(true);
+        return;
+      }
+
+      // Calculate which section is closest to the top threshold
+      const sections = [
+        { id: "about", element: aboutSection, setter: setIsScrolledToAbout },
+        {
+          id: "roadmap",
+          element: roadmapSection,
+          setter: setIsScrolledToRoadmap,
+        },
+        { id: "blog", element: blogSection, setter: setIsScrolledToBlog },
+        { id: "links", element: footerSection, setter: setIsScrolledToLinks },
+      ];
+
+      let closestSection = null;
+      let closestDistance = Number.POSITIVE_INFINITY;
+
+      for (const section of sections) {
+        if (section.element) {
+          const rect = section.element.getBoundingClientRect();
+          const isInView = rect.top <= 100 && rect.bottom >= 100;
+
+          if (isInView) {
+            // Calculate distance from top of section to threshold
+            const distance = Math.abs(rect.top - 100);
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              closestSection = section;
+            }
+          }
+        }
+      }
+
+      // Set only the closest section as active
+      for (const section of sections) {
+        section.setter(section === closestSection);
+      }
+    };
+
+    window.addEventListener("scroll", handlePageScroll, { passive: true });
+    handlePageScroll(); // Check initial state
+
+    return () => {
+      window.removeEventListener("scroll", handlePageScroll);
+    };
+  }, [props.isChatMode]);
 
   // Parallax effect for landing page input + sticky behavior
   useEffect(() => {
@@ -238,7 +329,8 @@ export function HeroSection(props: HeroSectionProps) {
       setParallaxOffset(offset);
 
       // Calculate when the input form has completely scrolled above the viewport
-      const inputNaturalCenterFromTop = viewportHeight / 2 - 17 - scrollY * 0.85;
+      const inputNaturalCenterFromTop =
+        viewportHeight / 2 - 17 - scrollY * 0.85;
       const formHalfHeight = 40; // ~half the rendered form height
       const formBottomFromTop = inputNaturalCenterFromTop + formHalfHeight;
 
@@ -259,8 +351,116 @@ export function HeroSection(props: HeroSectionProps) {
     };
   }, [props.isChatMode]);
 
+  const handleScrollToAbout = () => {
+    const aboutSection = document.getElementById("about-section");
+    if (aboutSection) {
+      const navHeight = 80; // Height of nav + extra spacing
+      const elementPosition = aboutSection.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.scrollY - navHeight;
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: "smooth",
+      });
+
+      // Update URL hash
+      window.history.pushState(null, "", "#about");
+    }
+  };
+
+  const handleScrollToRoadmap = () => {
+    const roadmapSection = document.getElementById("roadmap-section");
+    if (roadmapSection) {
+      const navHeight = 80;
+      const elementPosition = roadmapSection.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.scrollY - navHeight;
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: "smooth",
+      });
+
+      // Update URL hash
+      window.history.pushState(null, "", "#roadmap");
+    }
+  };
+
+  const handleScrollToBlog = () => {
+    const blogSection = document.getElementById("blog-section");
+    if (blogSection) {
+      const navHeight = 80;
+      const elementPosition = blogSection.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.scrollY - navHeight;
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: "smooth",
+      });
+
+      // Update URL hash
+      window.history.pushState(null, "", "#blog");
+    }
+  };
+
+  const handleScrollToLinks = () => {
+    const footerSection = document.getElementById("footer-section");
+    if (footerSection) {
+      const navHeight = 80;
+      const elementPosition = footerSection.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.scrollY - navHeight;
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: "smooth",
+      });
+
+      // Update URL hash
+      window.history.pushState(null, "", "#links");
+    }
+  };
+
+  // Open connect request sidebar when ?connect= param is present
+  const connectHandledRef = useRef(false);
+  useEffect(() => {
+    if (!props.connectAgentName || connectHandledRef.current) return;
+    connectHandledRef.current = true;
+
+    if (props.isSignedIn) {
+      setRightSidebarTab("connect");
+      setIsRightSidebarOpen(true);
+    } else {
+      pendingConnectRef.current = true;
+      setRightSidebarTab("sign-in");
+      setIsRightSidebarOpen(true);
+    }
+  }, [props.connectAgentName, props.isSignedIn]);
+
+  const handleBackToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+
+    // Remove hash from URL
+    window.history.pushState(null, "", window.location.pathname);
+  };
+
   return (
     <>
+      {!props.isChatMode && (
+        <HeroNav
+          isScrolledToAbout={isScrolledToAbout}
+          isScrolledToRoadmap={isScrolledToRoadmap}
+          isScrolledToBlog={isScrolledToBlog}
+          isScrolledToLinks={isScrolledToLinks}
+          onScrollToAbout={handleScrollToAbout}
+          onScrollToRoadmap={handleScrollToRoadmap}
+          onScrollToBlog={handleScrollToBlog}
+          onScrollToLinks={handleScrollToLinks}
+          onBackToTop={handleBackToTop}
+        />
+      )}
+
       <HeroSidebar
         isChatMode={props.isChatMode}
         isSidebarOpen={isSidebarOpen}
@@ -339,7 +539,9 @@ export function HeroSection(props: HeroSectionProps) {
             balanceWhole={walletDesktopData.balanceWhole}
             balanceFraction={walletDesktopData.balanceFraction}
             balanceSolLabel={walletDesktopData.balanceSolLabel}
-            balanceHistory={walletDesktopData.balanceHistory.map((p) => p.valueUsd)}
+            balanceHistory={walletDesktopData.balanceHistory.map(
+              (p) => p.valueUsd
+            )}
             onOpenRightSidebar={openRightSidebarFromHero}
             onOpenSignIn={openTrackedSignIn}
             dogCry={dogCry}
@@ -354,6 +556,7 @@ export function HeroSection(props: HeroSectionProps) {
             isBalanceHidden={isBalanceHidden}
             onBalanceHiddenChange={setIsBalanceHidden}
             walletDesktopData={walletDesktopData}
+            smartAccountData={smartAccountData}
             showQuickActions={props.isChatMode || isInputStuckToBottom}
             onDisconnect={async () => {
               setRightSidebarTab("sign-in");
@@ -361,6 +564,19 @@ export function HeroSection(props: HeroSectionProps) {
               setTimeout(() => setDogCry(false), 3000);
               await disconnect();
               await logout();
+            }}
+            connectAgentName={props.connectAgentName}
+            onConnectDecline={() => setIsRightSidebarOpen(false)}
+            onConnectApprove={async () => {
+              if (!props.connectAgentName) {
+                throw new Error("Missing agent public key.");
+              }
+              await smartAccountData.addInitiateSigner({
+                signerAddress: props.connectAgentName,
+              });
+            }}
+            onConnectDone={() => {
+              setRightSidebarTab("portfolio");
             }}
           />
         </div>
