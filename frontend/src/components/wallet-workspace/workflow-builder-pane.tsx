@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowRight,
   ArrowUp,
   ArrowUpRight,
   Check,
@@ -154,7 +155,11 @@ const initialBuilderValues = Object.fromEntries(
   Object.entries(editableOptions).map(([key, options]) => [key, options[0]])
 ) as BuilderValues;
 
-export function WorkflowBuilderPane() {
+export function WorkflowBuilderPane({
+  onBack,
+}: {
+  onBack?: () => void;
+} = {}) {
   const [activeChip, setActiveChip] = useState<EditableChipKey | null>(null);
   const [values, setValues] = useState<BuilderValues>(initialBuilderValues);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -188,6 +193,16 @@ export function WorkflowBuilderPane() {
   return (
     <div className="workflow-builder-pane" ref={paneRef}>
       <header className="workflow-builder-header">
+        {onBack ? (
+          <button
+            aria-label="Back to policy details"
+            className="workflow-builder-back"
+            onClick={onBack}
+            type="button"
+          >
+            <ArrowRight size={20} strokeWidth={2} />
+          </button>
+        ) : null}
         <h2>Autoswap</h2>
       </header>
 
@@ -361,14 +376,16 @@ export function WorkflowBuilderPane() {
           border-right: 1px solid rgba(0, 0, 0, 0.08);
           background: #f5f5f5;
           color: #000;
+          padding-top: 8px;
         }
 
         .workflow-builder-header {
           display: flex;
           height: 52px;
           flex: 0 0 auto;
-          align-items: flex-start;
-          padding: 19px 20px 9px;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 20px;
         }
 
         .workflow-builder-header h2 {
@@ -378,6 +395,29 @@ export function WorkflowBuilderPane() {
           font-weight: 600;
           line-height: 24px;
           letter-spacing: 0;
+        }
+
+        .workflow-builder-back {
+          display: inline-flex;
+          width: 36px;
+          height: 36px;
+          flex: 0 0 auto;
+          align-items: center;
+          justify-content: center;
+          border: 0;
+          border-radius: 9999px;
+          background: rgba(0, 0, 0, 0.04);
+          color: #3c3c43;
+          cursor: pointer;
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+
+        .workflow-builder-back:hover {
+          background: rgba(0, 0, 0, 0.08);
+        }
+
+        .workflow-builder-back:active {
+          transform: scale(0.96);
         }
 
         .workflow-builder-body {

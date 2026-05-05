@@ -24,6 +24,7 @@ import {
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1785,21 +1786,43 @@ export function AppWalletWorkspace({
       if (isAuthResolving) {
         return <div className="wallet-workspace-auth-pending" />;
       }
-      if (policyView === "builder") {
-        return (
-          <WorkflowBuilderPane onBack={() => setPolicyView("details")} />
-        );
-      }
       const selectedPolicy =
         mockPolicies.find((p) => p.id === selectedPolicyId) ?? mockPolicies[0];
       return (
-        <PolicyDetailsPane
-          availableSigners={availablePolicySigners}
-          key={selectedPolicy.id}
-          onEditRules={() => setPolicyView("builder")}
-          onOpenSigner={handleOpenFirstPolicyAgent}
-          policy={selectedPolicy}
-        />
+        <div className="wallet-workspace-policies-stack">
+          <PolicyDetailsPane
+            availableSigners={availablePolicySigners}
+            key={selectedPolicy.id}
+            onEditRules={() => setPolicyView("builder")}
+            onOpenSigner={handleOpenFirstPolicyAgent}
+            policy={selectedPolicy}
+          />
+          <AnimatePresence initial={false}>
+            {policyView === "builder" ? (
+              <motion.div
+                animate={{
+                  x: 0,
+                  transition: {
+                    delay: 0.3,
+                    duration: 0.4,
+                    ease: [0.22, 1, 0.36, 1],
+                  },
+                }}
+                className="wallet-workspace-builder-overlay"
+                exit={{
+                  x: "calc(100% + 8px)",
+                  transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] },
+                }}
+                initial={{ x: "calc(100% + 8px)" }}
+                key="builder-overlay"
+              >
+                <WorkflowBuilderPane
+                  onBack={() => setPolicyView("details")}
+                />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
       );
     }
 
@@ -2486,9 +2509,32 @@ export function AppWalletWorkspace({
 
           <section className="wallet-workspace-pane wallet-workspace-review-pane">
             {activeSection === "policies" ? (
-              policyView === "builder" ? (
-                <BuilderBlocksPane />
-              ) : null
+              <AnimatePresence initial={false}>
+                {policyView === "builder" ? (
+                  <motion.div
+                    animate={{
+                      x: 0,
+                      transition: {
+                        duration: 0.4,
+                        ease: [0.22, 1, 0.36, 1],
+                      },
+                    }}
+                    className="wallet-workspace-review-anim"
+                    exit={{
+                      x: "100%",
+                      transition: {
+                        delay: 0.4,
+                        duration: 0.4,
+                        ease: [0.22, 1, 0.36, 1],
+                      },
+                    }}
+                    initial={{ x: "100%" }}
+                    key="builder-blocks"
+                  >
+                    <BuilderBlocksPane />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
             ) : isWorkspaceLoading ? (
               <WorkspaceApprovalsSkeleton />
             ) : (
@@ -2923,6 +2969,39 @@ export function AppWalletWorkspace({
           width: 100%;
           min-height: 0;
           flex: 1 1 auto;
+        }
+
+        .wallet-workspace-policies-stack {
+          position: relative;
+          display: flex;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          flex-direction: column;
+        }
+
+        .wallet-workspace-policies-stack > * {
+          width: 100%;
+          min-height: 0;
+          flex: 1 1 auto;
+        }
+
+        .wallet-workspace-builder-overlay {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          will-change: transform;
+        }
+
+        .wallet-workspace-review-anim {
+          display: flex;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          flex-direction: column;
+          will-change: transform;
         }
 
         .wallet-workspace-detail-transition[data-transition="forward"] {
