@@ -67,26 +67,23 @@ pub(crate) fn resolve_config(cli: &Cli) -> Result<ResolvedConfig> {
     let parsed = read_config_file(&config_path)?;
     let solana_config = read_solana_config_file()?;
 
-    let web_url = cli
-        .url
-        .clone()
-        .or_else(|| env::var("LOYAL_URL").ok())
-        .or_else(|| env::var("LOYAL_BASE_URL").ok())
+    let web_url = normalize_optional_url(cli.url.clone())
+        .or_else(|| normalize_optional_url(env::var("LOYAL_URL").ok()))
+        .or_else(|| normalize_optional_url(env::var("LOYAL_BASE_URL").ok()))
+        .or_else(|| normalize_optional_url(parsed.web_url))
         .unwrap_or_else(|| DEFAULT_WEB_URL.to_string());
 
-    let rpc_url = cli
-        .rpc_url
-        .clone()
-        .or_else(|| env::var("LOYAL_RPC_URL").ok())
-        .or_else(|| env::var("RPC_URL").ok())
-        .or(solana_config.json_rpc_url)
+    let rpc_url = normalize_optional_url(cli.rpc_url.clone())
+        .or_else(|| normalize_optional_url(env::var("LOYAL_RPC_URL").ok()))
+        .or_else(|| normalize_optional_url(env::var("RPC_URL").ok()))
+        .or_else(|| normalize_optional_url(parsed.json_rpc_url))
+        .or_else(|| normalize_optional_url(solana_config.json_rpc_url))
         .unwrap_or_else(|| DEFAULT_RPC_URL.to_string());
 
-    let ws_url = cli
-        .ws_url
-        .clone()
-        .or_else(|| env::var("LOYAL_WS_URL").ok())
-        .or(solana_config.websocket_url);
+    let ws_url = normalize_optional_url(cli.ws_url.clone())
+        .or_else(|| normalize_optional_url(env::var("LOYAL_WS_URL").ok()))
+        .or_else(|| normalize_optional_url(parsed.websocket_url))
+        .or_else(|| normalize_optional_url(solana_config.websocket_url));
 
     let keypair_path = cli
         .keypair
@@ -279,6 +276,17 @@ fn normalize_web_url(value: &str) -> String {
     value.trim_end_matches('/').to_string()
 }
 
+fn normalize_optional_url(value: Option<String>) -> Option<String> {
+    value.and_then(|url| {
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
 fn parse_commitment(value: &str) -> Result<CommitmentConfig> {
     match value {
         "processed" => Ok(CommitmentConfig::processed()),
@@ -292,7 +300,7 @@ fn parse_commitment(value: &str) -> Result<CommitmentConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::connect_url;
+    use super::{connect_url, normalize_optional_url, websocket_url_from_rpc};
 
     #[test]
     fn connect_url_preserves_path_prefix() {
@@ -316,5 +324,28 @@ mod tests {
             connect_url("https://askloyal.com/app?source=cli", "agent pubkey"),
             "https://askloyal.com/app?source=cli&connect=agent+pubkey"
         );
+    }
+
+    #[test]
+    fn normalize_optional_url_discards_empty_values() {
+        assert_eq!(normalize_optional_url(None), None);
+        assert_eq!(normalize_optional_url(Some(String::new())), None);
+        assert_eq!(normalize_optional_url(Some("  \t\n".to_string())), None);
+    }
+
+    #[test]
+    fn normalize_optional_url_trims_non_empty_values() {
+        assert_eq!(
+            normalize_optional_url(Some("  wss://api.mainnet-beta.solana.com/  ".to_string())),
+            Some("wss://api.mainnet-beta.solana.com/".to_string())
+        );
+    }
+
+    #[test]
+    fn empty_optional_ws_url_falls_back_to_rpc_websocket_url() {
+        let ws_url = normalize_optional_url(Some(String::new()))
+            .unwrap_or_else(|| websocket_url_from_rpc("https://api.mainnet-beta.solana.com"));
+
+        assert_eq!(ws_url, "wss://api.mainnet-beta.solana.com");
     }
 }
