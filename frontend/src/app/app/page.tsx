@@ -364,7 +364,7 @@ export default function LandingPage() {
       >
         {!isChatMode && (
           <div
-            aria-label="Please use this browser extension while a new version is being submitted to the store"
+            aria-label="Loyal is still in beta!"
             style={{
               position: "absolute",
               top: 24,
@@ -399,21 +399,7 @@ export default function LandingPage() {
               }}
             />
             <span>
-              Please use{" "}
-              <TrackedExternalLink
-                href="https://github.com/loyal-labs/loyal-app/releases/download/ext-v0.5.5/loyal-ext-universal-v0.5.5.zip"
-                source="app-page-beta-banner"
-                linkText="this"
-                style={{
-                  color: "#111",
-                  textDecoration: "underline",
-                  fontWeight: 700,
-                }}
-              >
-                this
-              </TrackedExternalLink>{" "}
-              browser extension while a new version is being submitted to the
-              store
+              Loyal is still in beta!
             </span>
           </div>
         )}
