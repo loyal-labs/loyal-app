@@ -7,9 +7,11 @@ import {
   Copy,
   Eye,
   EyeOff,
+  File as FileIcon,
   KeyRound,
   Layers2,
   LayoutDashboard,
+  LayoutTemplate,
   LogOut,
   Plus,
   RefreshCw,
@@ -71,7 +73,13 @@ import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
 import { BuilderBlocksPane } from "./builder-blocks-pane";
-import { PoliciesPane } from "./policies-pane";
+import {
+  mockPolicies,
+  type NewPolicyMode,
+  PoliciesPane,
+  PolicyGlyph,
+} from "./policies-pane";
+import { PolicyDetailsPane } from "./policy-details-pane";
 import { WorkflowBuilderPane } from "./workflow-builder-pane";
 import {
   WalletCommandMenu,
@@ -556,7 +564,15 @@ export function AppWalletWorkspace({
     useState<WorkspaceSection>(routeSection);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
-  const [selectedPolicyId, setSelectedPolicyId] = useState("autoswap-primary");
+  const [selectedPolicyId, setSelectedPolicyIdState] =
+    useState("autoswap-primary");
+  const [policyView, setPolicyView] = useState<"details" | "builder">(
+    "details"
+  );
+  const setSelectedPolicyId = (id: string) => {
+    setSelectedPolicyIdState(id);
+    setPolicyView("details");
+  };
   const [selectedDetail, setSelectedDetail] =
     useState<string>("Wallet overview");
   const [detailSelection, setDetailSelection] =
@@ -630,11 +646,48 @@ export function AppWalletWorkspace({
     isSignedIn && (walletDesktopData.isLoading || smartAccountData.isLoading);
   const isSmartAccountRateLimited =
     isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
-  const showWorkspaceShell = isSignedIn || activeSection === "policies";
+  const showWorkspaceShell =
+    isAuthHydrated && (isSignedIn || activeSection === "policies");
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
     ) ?? null;
+  const availablePolicySigners = useMemo(() => {
+    const PALETTE = [
+      "#ffd41b",
+      "#32b67c",
+      "#8f3fe0",
+      "#3f8ae0",
+      "#e66b2e",
+      "#e52e40",
+      "#2bb4d6",
+    ];
+    const fromVault = (selectedVault?.entry.signers ?? []).map(
+      (signer, index) => ({
+        addressMasked: signer.shortAddress,
+        agentAvatar: signer.icon,
+        bg: PALETTE[index % PALETTE.length],
+        id: signer.id,
+        name: signer.label,
+      })
+    );
+    if (fromVault.length > 0) return fromVault;
+    const addr = walletDesktopData.walletAddress;
+    if (!addr) return [];
+    return [
+      {
+        addressMasked: `${addr.slice(0, 4)}…${addr.slice(-4)}`,
+        agentAvatar: undefined,
+        bg: "#3f8ae0",
+        id: addr,
+        name: walletDesktopData.walletLabel ?? "You",
+      },
+    ];
+  }, [
+    selectedVault,
+    walletDesktopData.walletAddress,
+    walletDesktopData.walletLabel,
+  ]);
   const selectedApproval = useMemo(
     () =>
       smartAccountData.approvals.find(
@@ -1389,6 +1442,36 @@ export function AppWalletWorkspace({
     router.push("/app/policies");
   }, [router]);
 
+  const handleCommandSelectPolicy = useCallback(
+    (policyId: string) => {
+      setSelectedPolicyId(policyId);
+      setActiveSection("policies");
+      router.push("/app/policies");
+    },
+    [router]
+  );
+
+  const handleNewPolicy = useCallback(
+    (mode: NewPolicyMode) => {
+      void mode;
+      setActiveSection("policies");
+      router.push("/app/policies");
+      setPolicyView("builder");
+    },
+    [router]
+  );
+
+  const runOnWallet = useCallback(
+    (fn: () => void) => {
+      if (activeSection !== "wallet") {
+        setActiveSection("wallet");
+        router.push("/app");
+      }
+      fn();
+    },
+    [activeSection, router]
+  );
+
   const handleOpenAddSigner = useCallback(
     (accountIndex: number) => {
       markDetailPaneTransition("forward");
@@ -1443,75 +1526,127 @@ export function AppWalletWorkspace({
           "details",
         ],
         label: `${token.symbol}${token.isSecured ? " shielded" : ""}`,
-        onSelect: () => handleTokenDetail(token),
+        onSelect: () => runOnWallet(() => handleTokenDetail(token)),
       };
     });
 
+    const policyCommands = mockPolicies
+      .filter((policy) => policy.status === "active")
+      .map((policy) => ({
+        description: policy.schedule,
+        icon: (
+          <span
+            style={{
+              alignItems: "center",
+              backgroundImage: `linear-gradient(135deg, ${policy.gradient[0]} 0%, ${policy.gradient[1]} 100%)`,
+              color: "#fff",
+              display: "inline-flex",
+              height: 40,
+              justifyContent: "center",
+              width: 40,
+            }}
+          >
+            <PolicyGlyph kind={policy.icon} size={20} />
+          </span>
+        ),
+        id: `policy:${policy.id}`,
+        keywords: ["policy", "automation", policy.title],
+        label: policy.title,
+        onSelect: () => handleCommandSelectPolicy(policy.id),
+      }));
+
+    const policiesGroup: WalletCommandGroup = {
+      heading: "Policies",
+      items: policyCommands,
+    };
+    const actionsGroup: WalletCommandGroup = {
+      heading: "Actions",
+      items: [
+        {
+          description: "Start from a blank workflow",
+          icon: <FileIcon size={19} strokeWidth={1.9} />,
+          id: "policy:create-blank",
+          keywords: ["create", "new", "blank", "policy"],
+          label: "Create policy",
+          onSelect: () => handleNewPolicy("blank"),
+        },
+        {
+          description: "Pick a starter template",
+          icon: <LayoutTemplate size={19} strokeWidth={1.9} />,
+          id: "policy:create-template",
+          keywords: ["create", "new", "template", "policy"],
+          label: "Create policy from template",
+          onSelect: () => handleNewPolicy("template"),
+        },
+        {
+          description: "Open shield flow for USDC APY",
+          disabled: !isSignedIn || !usdcToken,
+          icon: <Sparkles size={18} strokeWidth={1.9} />,
+          id: "action:shield-usdc",
+          keywords: ["apy", "earn", "usdc", "private"],
+          label: "Shield USDC to earn",
+          onSelect: () => runOnWallet(handleCommandShieldUsdc),
+        },
+        {
+          description: isVaultActive ? "Move funds from vault" : "Send tokens",
+          disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
+          icon: <ArrowUpRight size={19} strokeWidth={1.9} />,
+          id: "action:send",
+          label: isVaultActive ? "Transfer" : "Send",
+          onSelect: () => runOnWallet(handleCommandSend),
+        },
+        {
+          description: isVaultActive
+            ? "Receive funds into this vault"
+            : selectedSignerId
+              ? "Fund selected user from your wallet"
+              : "Show wallet receive address",
+          disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
+          icon: <ArrowDownLeft size={19} strokeWidth={1.9} />,
+          id: "action:receive",
+          label: isVaultActive ? "Top Up" : selectedSignerId ? "Top Up" : "Receive",
+          onSelect: () => runOnWallet(handleCommandReceiveOrTopUp),
+        },
+        {
+          description: "Exchange tokens",
+          disabled: !isSignedIn || !isWalletActive,
+          icon: <Repeat2 size={19} strokeWidth={1.9} />,
+          id: "action:swap",
+          label: "Swap",
+          onSelect: () => runOnWallet(handleCommandSwap),
+        },
+        {
+          description: "Move a token into private balance",
+          disabled: !isSignedIn || !isWalletActive,
+          icon: <ShieldIcon size={19} strokeWidth={1.9} />,
+          id: "action:shield",
+          label: "Shield",
+          onSelect: () => runOnWallet(handleCommandShield),
+        },
+        {
+          description: selectedVault
+            ? `Add signer to ${selectedVault.entry.label}`
+            : undefined,
+          disabled: !isSignedIn || !selectedVault,
+          icon: <Plus size={20} strokeWidth={1.8} />,
+          id: "action:add-signer",
+          label: "Add signer",
+          onSelect: () => runOnWallet(handleCommandAddSigner),
+        },
+      ],
+    };
+    const tokensGroup: WalletCommandGroup = {
+      heading: "Tokens",
+      items: tokenCommands,
+    };
+
+    const isPoliciesSection = activeSection === "policies";
+
     return [
-      {
-        heading: "Actions",
-        items: [
-          {
-            description: "Open shield flow for USDC APY",
-            disabled: !isSignedIn || !usdcToken,
-            icon: <Sparkles size={18} strokeWidth={1.9} />,
-            id: "action:shield-usdc",
-            keywords: ["apy", "earn", "usdc", "private"],
-            label: "Shield USDC to earn",
-            onSelect: handleCommandShieldUsdc,
-          },
-          {
-            description: isVaultActive ? "Move funds from vault" : "Send tokens",
-            disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
-            icon: <ArrowUpRight size={19} strokeWidth={1.9} />,
-            id: "action:send",
-            label: isVaultActive ? "Transfer" : "Send",
-            onSelect: handleCommandSend,
-          },
-          {
-            description: isVaultActive
-              ? "Receive funds into this vault"
-              : selectedSignerId
-                ? "Fund selected user from your wallet"
-                : "Show wallet receive address",
-            disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
-            icon: <ArrowDownLeft size={19} strokeWidth={1.9} />,
-            id: "action:receive",
-            label: isVaultActive ? "Top Up" : selectedSignerId ? "Top Up" : "Receive",
-            onSelect: handleCommandReceiveOrTopUp,
-          },
-          {
-            description: "Exchange tokens",
-            disabled: !isSignedIn || !isWalletActive,
-            icon: <Repeat2 size={19} strokeWidth={1.9} />,
-            id: "action:swap",
-            label: "Swap",
-            onSelect: handleCommandSwap,
-          },
-          {
-            description: "Move a token into private balance",
-            disabled: !isSignedIn || !isWalletActive,
-            icon: <ShieldIcon size={19} strokeWidth={1.9} />,
-            id: "action:shield",
-            label: "Shield",
-            onSelect: handleCommandShield,
-          },
-          {
-            description: selectedVault
-              ? `Add signer to ${selectedVault.entry.label}`
-              : undefined,
-            disabled: !isSignedIn || !selectedVault,
-            icon: <Plus size={20} strokeWidth={1.8} />,
-            id: "action:add-signer",
-            label: "Add signer",
-            onSelect: handleCommandAddSigner,
-          },
-        ],
-      },
-      {
-        heading: "Tokens",
-        items: tokenCommands,
-      },
+      ...(isPoliciesSection ? [policiesGroup] : []),
+      actionsGroup,
+      tokensGroup,
+      ...(isPoliciesSection ? [] : [policiesGroup]),
       {
         heading: "Approvals",
         items: [
@@ -1527,13 +1662,16 @@ export function AppWalletWorkspace({
             id: "approval:approve-latest",
             keywords: ["proposal", "approve", "approval"],
             label: "Approve latest pending approval",
-            onSelect: () => {
-              if (!latestPendingApproval) return;
+            onSelect: () =>
+              runOnWallet(() => {
+                if (!latestPendingApproval) return;
 
-              void runProposalAction(() =>
-                smartAccountData.approveProposal(latestPendingApproval.proposal)
-              );
-            },
+                void runProposalAction(() =>
+                  smartAccountData.approveProposal(
+                    latestPendingApproval.proposal
+                  )
+                );
+              }),
           },
         ],
       },
@@ -1587,20 +1725,24 @@ export function AppWalletWorkspace({
     ];
   }, [
     activeDetailSelection,
+    activeSection,
     derivedTokens,
     handleCommandAddSigner,
     handleCommandCopyWalletAddress,
     handleCommandReceiveOrTopUp,
+    handleCommandSelectPolicy,
     handleCommandSend,
     handleCommandShield,
     handleCommandShieldUsdc,
     handleCommandSwap,
     handleDisconnect,
+    handleNewPolicy,
     handleTokenDetail,
     isBalanceHidden,
     isSignedIn,
     latestPendingApproval,
     openSignIn,
+    runOnWallet,
     runProposalAction,
     selectedSignerId,
     selectedVault,
@@ -1640,7 +1782,25 @@ export function AppWalletWorkspace({
 
   const renderDetailPane = () => {
     if (activeSection === "policies") {
-      return <WorkflowBuilderPane />;
+      if (isAuthResolving) {
+        return <div className="wallet-workspace-auth-pending" />;
+      }
+      if (policyView === "builder") {
+        return (
+          <WorkflowBuilderPane onBack={() => setPolicyView("details")} />
+        );
+      }
+      const selectedPolicy =
+        mockPolicies.find((p) => p.id === selectedPolicyId) ?? mockPolicies[0];
+      return (
+        <PolicyDetailsPane
+          availableSigners={availablePolicySigners}
+          key={selectedPolicy.id}
+          onEditRules={() => setPolicyView("builder")}
+          onOpenSigner={handleOpenFirstPolicyAgent}
+          policy={selectedPolicy}
+        />
+      );
     }
 
     if (isSmartAccountRateLimited) {
@@ -2210,6 +2370,7 @@ export function AppWalletWorkspace({
   return (
     <main
       className="wallet-workspace"
+      data-policy-view={activeSection === "policies" ? policyView : undefined}
       data-rate-limited={isSmartAccountRateLimited}
       data-signed-in={showWorkspaceShell}
       data-workspace-section={activeSection}
@@ -2242,6 +2403,7 @@ export function AppWalletWorkspace({
           <section className="wallet-workspace-pane wallet-workspace-account-pane">
             {activeSection === "policies" ? (
               <PoliciesPane
+                onNewPolicy={handleNewPolicy}
                 onOpenAgent={handleOpenFirstPolicyAgent}
                 onSelectPolicy={setSelectedPolicyId}
                 selectedPolicyId={selectedPolicyId}
@@ -2324,7 +2486,9 @@ export function AppWalletWorkspace({
 
           <section className="wallet-workspace-pane wallet-workspace-review-pane">
             {activeSection === "policies" ? (
-              <BuilderBlocksPane />
+              policyView === "builder" ? (
+                <BuilderBlocksPane />
+              ) : null
             ) : isWorkspaceLoading ? (
               <WorkspaceApprovalsSkeleton />
             ) : (
@@ -2710,8 +2874,22 @@ export function AppWalletWorkspace({
         .wallet-workspace[data-workspace-section="policies"]
           .wallet-workspace-detail-pane {
           padding: 8px 0;
-          border-right: 0;
           overflow: hidden;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"][data-policy-view="builder"]
+          .wallet-workspace-detail-pane {
+          border-right: 0;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"][data-policy-view="details"]
+          .wallet-workspace-detail-pane {
+          border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"]
+          .wallet-workspace-detail-pane {
+          grid-column: 5 !important;
         }
 
         .wallet-workspace[data-signed-in="false"]
@@ -2776,18 +2954,27 @@ export function AppWalletWorkspace({
           padding: 8px 8px 8px 0;
         }
 
-        .wallet-workspace[data-workspace-section="policies"]
+        .wallet-workspace[data-workspace-section="policies"][data-policy-view="builder"]
           .wallet-workspace-review-resize {
           position: relative;
           z-index: 2;
           background: #f5f5f5;
+          background-clip: content-box;
+          box-sizing: border-box;
+          padding: 8px 0;
         }
 
-        .wallet-workspace[data-workspace-section="policies"]
+        .wallet-workspace[data-workspace-section="policies"][data-policy-view="builder"]
           .wallet-workspace-review-resize:hover,
-        .wallet-workspace[data-workspace-section="policies"]
+        .wallet-workspace[data-workspace-section="policies"][data-policy-view="builder"]
           .wallet-workspace-review-resize:focus-visible {
           background: #f5f5f5;
+          background-clip: content-box;
+        }
+
+        .wallet-workspace[data-workspace-section="policies"][data-policy-view="details"]
+          .wallet-workspace-review-resize {
+          background: transparent;
         }
 
         .wallet-workspace-resize-handle {
