@@ -118,7 +118,7 @@ export function BuilderBlocksPane() {
           height: 52px;
           flex: 0 0 auto;
           align-items: flex-start;
-          padding: 11px 20px 9px 12px;
+          padding: 14px 20px 2px 12px;
         }
 
         .builder-blocks-header h2 {
