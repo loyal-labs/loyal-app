@@ -5,8 +5,10 @@ import { PROGRAM_ADDRESS } from "@loyal-labs/loyal-smart-accounts";
 import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
 import {
   isStrictTrue,
+  isVercelPreviewEnv,
   getOptionalEnv,
   getRequiredEnv,
+  parseAuthCookieParentDomains,
   type AppEnvironment,
   type EnvSource,
   resolveAppEnvironment,
@@ -46,7 +48,8 @@ export type ServerEnv = {
   databaseUrl: string;
   authAppName: string;
   authCookieAllowLocalhost: boolean;
-  authCookieParentDomain: string | undefined;
+  authCookieParentDomains: readonly string[];
+  authCookiePreviewFallback: boolean;
   authJwtSecret: string | undefined;
   authJwtTtlSeconds: number;
   authSessionRs256PrivateKey: string | undefined;
@@ -116,7 +119,10 @@ export function createServerEnv(env: EnvSource): ServerEnv {
     authCookieAllowLocalhost: isStrictTrue(
       getOptionalEnv(env, AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME) ?? "true"
     ),
-    authCookieParentDomain: getOptionalEnv(env, AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME),
+    authCookieParentDomains: parseAuthCookieParentDomains(
+      getOptionalEnv(env, AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME)
+    ),
+    authCookiePreviewFallback: isVercelPreviewEnv(env),
     authJwtSecret: getOptionalEnv(env, AUTH_JWT_SECRET_ENV_NAME),
     authJwtTtlSeconds: parsePositiveInteger(
       getOptionalEnv(env, AUTH_JWT_TTL_SECONDS_ENV_NAME),

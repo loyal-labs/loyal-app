@@ -4,7 +4,12 @@ import {
   createAuthSessionCookieService,
   WALLET_AUTH_SESSION_COOKIE_NAME,
 } from "@/features/identity/server/session-cookie";
-import { getOptionalEnv, isStrictTrue } from "@/lib/core/config/shared";
+import {
+  getOptionalEnv,
+  isStrictTrue,
+  isVercelPreviewEnv,
+  parseAuthCookieParentDomains,
+} from "@/lib/core/config/shared";
 
 const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME =
   "AUTH_SESSION_RS256_PUBLIC_KEY";
@@ -42,10 +47,10 @@ function getLogoutCookieConfig() {
     authCookieAllowLocalhost: isStrictTrue(
       getOptionalEnv(process.env, AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME) ?? "true"
     ),
-    authCookieParentDomain: getOptionalEnv(
-      process.env,
-      AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME
+    authCookieParentDomains: parseAuthCookieParentDomains(
+      getOptionalEnv(process.env, AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME)
     ),
+    authCookiePreviewFallback: isVercelPreviewEnv(process.env),
     authJwtSecret: getOptionalEnv(process.env, AUTH_JWT_SECRET_ENV_NAME),
     authJwtTtlSeconds: parsePositiveInteger(
       getOptionalEnv(process.env, AUTH_JWT_TTL_SECONDS_ENV_NAME),

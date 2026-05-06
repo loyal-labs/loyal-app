@@ -36,7 +36,8 @@ type SessionCookieServiceDependencies = {
   getConfig: () => Pick<
     ServerEnv,
     | "authCookieAllowLocalhost"
-    | "authCookieParentDomain"
+    | "authCookieParentDomains"
+    | "authCookiePreviewFallback"
     | "authJwtSecret"
     | "authJwtTtlSeconds"
     | "authSessionRs256PrivateKey"
@@ -111,28 +112,36 @@ function resolveCookieOptions(
     };
   }
 
-  const allowedParentDomain = normalizeHostname(
-    config.authCookieParentDomain ?? ""
+  const matchedParentDomain = config.authCookieParentDomains.find(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
   );
-  if (!allowedParentDomain) {
+
+  if (matchedParentDomain) {
+    return {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge,
+      domain: matchedParentDomain,
+    };
+  }
+
+  if (config.authCookiePreviewFallback) {
+    return {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge,
+    };
+  }
+
+  if (config.authCookieParentDomains.length === 0) {
     throw new Error("AUTH_COOKIE_PARENT_DOMAIN is not set");
   }
 
-  if (
-    hostname !== allowedParentDomain &&
-    !hostname.endsWith(`.${allowedParentDomain}`)
-  ) {
-    throw new Error(`Host "${hostname}" is not allowed for auth session cookies`);
-  }
-
-  return {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: true,
-    path: "/",
-    maxAge,
-    domain: allowedParentDomain,
-  };
+  throw new Error(`Host "${hostname}" is not allowed for auth session cookies`);
 }
 
 export function createAuthSessionCookieService(

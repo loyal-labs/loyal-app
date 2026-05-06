@@ -101,11 +101,45 @@ describe("server config", () => {
 
     expect(env.authAppName).toBe("loyal-web");
     expect(env.authCookieAllowLocalhost).toBe(false);
-    expect(env.authCookieParentDomain).toBe("askloyal.com");
+    expect(env.authCookieParentDomains).toEqual(["askloyal.com"]);
+    expect(env.authCookiePreviewFallback).toBe(false);
     expect(env.authJwtSecret).toBe("jwt-secret-jwt-secret-jwt-secret-123");
     expect(env.authJwtTtlSeconds).toBe(7200);
     expect(env.authSessionRs256PrivateKey).toBe("private\nkey");
     expect(env.authSessionRs256PublicKey).toBe("public\nkey");
     expect(env.deploymentPrivateKey).toBe("deployment-key");
+  });
+
+  test("parses comma-separated cookie parent domains", () => {
+    const env = createServerEnv({
+      PHALA_API_KEY: "server-key",
+      DATABASE_URL: "postgresql://localhost/test",
+      AUTH_COOKIE_PARENT_DOMAIN: "askloyal.com, ASKLOYAL.DEV ,askloyal.com,",
+    });
+
+    expect(env.authCookieParentDomains).toEqual([
+      "askloyal.com",
+      "askloyal.dev",
+    ]);
+  });
+
+  test("enables preview cookie fallback when running on a Vercel preview", () => {
+    const env = createServerEnv({
+      PHALA_API_KEY: "server-key",
+      DATABASE_URL: "postgresql://localhost/test",
+      VERCEL_ENV: "preview",
+    });
+
+    expect(env.authCookiePreviewFallback).toBe(true);
+  });
+
+  test("does not enable preview cookie fallback for Vercel production", () => {
+    const env = createServerEnv({
+      PHALA_API_KEY: "server-key",
+      DATABASE_URL: "postgresql://localhost/test",
+      VERCEL_ENV: "production",
+    });
+
+    expect(env.authCookiePreviewFallback).toBe(false);
   });
 });

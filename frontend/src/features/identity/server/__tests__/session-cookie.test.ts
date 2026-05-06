@@ -7,7 +7,8 @@ let SESSION_REFRESH_MIN_AGE_MS: typeof import("../session-cookie").SESSION_REFRE
 
 const config = {
   authCookieAllowLocalhost: true,
-  authCookieParentDomain: "askloyal.com",
+  authCookieParentDomains: ["askloyal.com"] as readonly string[],
+  authCookiePreviewFallback: false,
   authJwtSecret: "jwt-secret-jwt-secret-jwt-secret-123",
   authJwtTtlSeconds: 60 * 60 * 24 * 7,
   authSessionRs256PrivateKey: undefined,
@@ -101,6 +102,75 @@ describe("frontend session cookie service", () => {
         now
       )
     ).toBe(true);
+  });
+
+  test("scopes the cookie domain to the matching parent domain", () => {
+    const service = createAuthSessionCookieService({
+      getConfig: () => ({
+        ...config,
+        authCookieParentDomains: ["askloyal.com", "loyal.dev"],
+      }),
+    });
+
+    const options = service.createSessionCookieOptions(
+      new Request("https://app.loyal.dev/api/auth/wallet/complete")
+    );
+
+    expect(options).toMatchObject({
+      secure: true,
+      domain: "loyal.dev",
+    });
+  });
+
+  test("falls back to a same-origin secure cookie when no parent matches and preview fallback is enabled", () => {
+    const service = createAuthSessionCookieService({
+      getConfig: () => ({
+        ...config,
+        authCookiePreviewFallback: true,
+      }),
+    });
+
+    const options = service.createSessionCookieOptions(
+      new Request(
+        "https://loyal-frontend-1aw0fogjn-loyal-team.vercel.app/api/auth/wallet/complete"
+      )
+    );
+
+    expect(options).toMatchObject({
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+    });
+    expect(options).not.toHaveProperty("domain");
+  });
+
+  test("rejects unauthorized hosts when no parent matches and preview fallback is disabled", () => {
+    const service = createAuthSessionCookieService({
+      getConfig: () => config,
+    });
+
+    expect(() =>
+      service.createSessionCookieOptions(
+        new Request(
+          "https://loyal-frontend-1aw0fogjn-loyal-team.vercel.app/api/auth/wallet/complete"
+        )
+      )
+    ).toThrow(/is not allowed for auth session cookies/);
+  });
+
+  test("rejects requests when no parent domains are configured and preview fallback is disabled", () => {
+    const service = createAuthSessionCookieService({
+      getConfig: () => ({
+        ...config,
+        authCookieParentDomains: [],
+      }),
+    });
+
+    expect(() =>
+      service.createSessionCookieOptions(
+        new Request("https://app.askloyal.com/api/auth/wallet/complete")
+      )
+    ).toThrow(/AUTH_COOKIE_PARENT_DOMAIN is not set/);
   });
 
   test("never auto-refreshes non-wallet sessions", () => {
