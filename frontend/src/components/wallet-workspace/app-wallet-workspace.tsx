@@ -10,7 +10,6 @@ import {
   File as FileIcon,
   KeyRound,
   Layers2,
-  LayoutDashboard,
   LayoutTemplate,
   LogOut,
   Plus,
@@ -422,17 +421,14 @@ function SignedOutDetailPane({ onSignIn }: { onSignIn: () => void }) {
   return (
     <div className="wallet-workspace-auth-detail">
       <div className="wallet-workspace-auth-detail-main">
-        <div className="wallet-workspace-auth-icon">
-          <LayoutDashboard size={28} strokeWidth={1.7} />
-        </div>
-        <span>Ground control</span>
-        <strong>Connect to manage private balances and agent access.</strong>
-        <p>
-          Your tokens, activity, shielded balances, spending limits, and smart
-          account approvals will appear here after sign in.
-        </p>
-        <button onClick={onSignIn} type="button">
-          Connect wallet
+        <button
+          className="wallet-workspace-auth-cta"
+          onClick={onSignIn}
+          type="button"
+        >
+          <span className="wallet-workspace-auth-cta-label">
+            Connect wallet
+          </span>
         </button>
       </div>
     </div>
@@ -557,7 +553,8 @@ export function AppWalletWorkspace({
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
   const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
-  const { open: openSignIn } = useSignInModal();
+  const { open: openSignIn, close: closeSignIn } = useSignInModal();
+  const signInOpenedForConnectRef = useRef(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const routeSection: WorkspaceSection =
     pathname === "/app/policies" ? "policies" : initialSection;
@@ -951,10 +948,17 @@ export function AppWalletWorkspace({
     setDetailSelection("connect");
     setSelectedDetail("Connection request");
 
-    if (!isSignedIn) {
-      openSignIn();
+    if (isSignedIn) {
+      if (signInOpenedForConnectRef.current) {
+        signInOpenedForConnectRef.current = false;
+        closeSignIn();
+      }
+      return;
     }
-  }, [connectAgentAddress, isSignedIn, openSignIn]);
+
+    signInOpenedForConnectRef.current = true;
+    openSignIn();
+  }, [connectAgentAddress, isSignedIn, openSignIn, closeSignIn]);
 
   useEffect(() => {
     if (!selectedApprovalId) return;
@@ -3375,11 +3379,6 @@ export function AppWalletWorkspace({
           color: #000;
         }
 
-        .wallet-workspace-auth-detail button:hover {
-          background: #222;
-          transform: translateY(-1px);
-        }
-
         .wallet-workspace-auth-detail {
           display: flex;
           height: 100%;
@@ -3391,63 +3390,122 @@ export function AppWalletWorkspace({
 
         .wallet-workspace-auth-detail-main {
           display: flex;
-          width: min(100%, 500px);
-          flex-direction: column;
-          align-items: flex-start;
+          align-items: center;
+          justify-content: center;
         }
 
-        .wallet-workspace-auth-icon {
-          width: 72px;
-          height: 72px;
-          border-radius: 22px;
-          background: rgba(249, 54, 60, 0.12);
-          color: #f9363c;
+        .wallet-workspace-auth-cta {
+          position: relative;
+          isolation: isolate;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          margin-bottom: 28px;
-        }
-
-        .wallet-workspace-auth-icon svg {
-          width: 32px;
-          height: 32px;
-        }
-
-        .wallet-workspace-auth-detail-main > span {
-          color: rgba(60, 60, 67, 0.6);
-          font-size: 18px;
-          line-height: 24px;
-          margin-bottom: 10px;
-        }
-
-        .wallet-workspace-auth-detail-main strong {
-          color: #000;
-          font-size: 40px;
-          font-weight: 600;
-          line-height: 1.16;
-          max-width: 500px;
-        }
-
-        .wallet-workspace-auth-detail-main p {
-          color: rgba(60, 60, 67, 0.6);
-          font-size: 20px;
-          line-height: 1.42;
-          margin: 22px 0 0;
-          max-width: 520px;
-        }
-
-        .wallet-workspace-auth-detail button {
-          height: 58px;
-          padding: 0 26px;
+          height: 60px;
+          padding: 0 36px;
           border: 0;
           border-radius: 9999px;
-          background: #000;
+          background: #0a0a0a;
           color: #fff;
-          font: inherit;
-          font-size: 20px;
           cursor: pointer;
-          margin-top: 30px;
-          transition: background 0.15s ease, transform 0.15s ease;
+          font: inherit;
+          font-size: 18px;
+          font-weight: 500;
+          letter-spacing: -0.1px;
+          box-shadow:
+            inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+            0 14px 30px -12px rgba(0, 0, 0, 0.55),
+            0 5px 12px -2px rgba(0, 0, 0, 0.28);
+          transition-property: transform, box-shadow, background-color;
+          transition-duration: 240ms;
+          transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        .wallet-workspace-auth-cta::before {
+          content: "";
+          position: absolute;
+          inset: -10px;
+          z-index: -1;
+          border-radius: inherit;
+          background: radial-gradient(
+            closest-side,
+            rgba(0, 0, 0, 0.4),
+            rgba(0, 0, 0, 0) 72%
+          );
+          filter: blur(16px);
+          opacity: 0.5;
+          pointer-events: none;
+          animation: wallet-cta-breath 3.6s cubic-bezier(0.45, 0, 0.55, 1)
+            infinite;
+          will-change: transform, opacity;
+        }
+
+        .wallet-workspace-auth-cta::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          pointer-events: none;
+          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
+          animation: wallet-cta-halo 2.8s cubic-bezier(0.2, 0, 0, 1) infinite;
+        }
+
+        .wallet-workspace-auth-cta-label {
+          position: relative;
+          z-index: 1;
+        }
+
+        .wallet-workspace-auth-cta:hover {
+          background: #1a1a1a;
+          transform: translateY(-1px);
+          box-shadow:
+            inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+            0 20px 44px -12px rgba(0, 0, 0, 0.65),
+            0 7px 16px -2px rgba(0, 0, 0, 0.35);
+        }
+
+        .wallet-workspace-auth-cta:active {
+          transform: scale(0.96);
+          transition-duration: 90ms;
+        }
+
+        .wallet-workspace-auth-cta:focus-visible {
+          outline: none;
+          box-shadow:
+            inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+            0 0 0 2px #fff,
+            0 0 0 4px #0a0a0a,
+            0 14px 30px -12px rgba(0, 0, 0, 0.55);
+        }
+
+        @keyframes wallet-cta-breath {
+          0%,
+          100% {
+            opacity: 0.4;
+            transform: scale(0.98);
+          }
+          50% {
+            opacity: 0.8;
+            transform: scale(1.08);
+          }
+        }
+
+        @keyframes wallet-cta-halo {
+          0% {
+            box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
+            opacity: 0.55;
+          }
+          80%,
+          100% {
+            box-shadow: 0 0 0 14px rgba(0, 0, 0, 0);
+            opacity: 0;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .wallet-workspace-auth-cta::before,
+          .wallet-workspace-auth-cta::after {
+            animation: none;
+          }
         }
 
         .wallet-workspace-review-empty {
@@ -3611,40 +3669,10 @@ export function AppWalletWorkspace({
             padding: 32px 24px;
           }
 
-          .wallet-workspace-auth-icon {
-            width: 64px;
-            height: 64px;
-            border-radius: 20px;
-            margin-bottom: 24px;
-          }
-
-          .wallet-workspace-auth-icon svg {
-            width: 28px;
-            height: 28px;
-          }
-
-          .wallet-workspace-auth-detail-main > span {
+          .wallet-workspace-auth-cta {
+            height: 56px;
+            padding: 0 32px;
             font-size: 17px;
-            line-height: 22px;
-            margin-bottom: 10px;
-          }
-
-          .wallet-workspace-auth-detail-main strong {
-            font-size: 32px;
-            line-height: 1.15;
-          }
-
-          .wallet-workspace-auth-detail-main p {
-            font-size: 18px;
-            line-height: 1.4;
-            margin-top: 20px;
-          }
-
-          .wallet-workspace-auth-detail button {
-            height: 54px;
-            padding: 0 24px;
-            font-size: 18px;
-            margin-top: 28px;
           }
         }
       `}</style>

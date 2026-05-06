@@ -185,7 +185,7 @@ export function PolicyDetailsPane({
         </button>
       </div>
 
-      <section className="policy-details-section">
+      {/* <section className="policy-details-section">
         <h3 className="policy-details-section-heading">Assigned signers</h3>
         {assignedSigners.map((signer) => (
           <SignerRow
@@ -238,7 +238,7 @@ export function PolicyDetailsPane({
             </div>
           ) : null}
         </div>
-      </section>
+      </section> */}
 
       <section className="policy-details-section">
         <h3 className="policy-details-section-heading">Activity</h3>
