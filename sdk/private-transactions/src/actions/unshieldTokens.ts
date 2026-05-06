@@ -10,8 +10,11 @@ import {
 } from "../constants";
 import { processEnsureChecks } from "../checks/enshureChecks";
 import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
+import { closeDepositIx } from "../instructions/closeDeposit";
+import { closePermissionIx } from "../instructions/closePermission";
 import { delegateDepositIx } from "../instructions/delegateDeposit";
 import { modifyBalanceIx } from "../instructions/modifyBalance";
+import { undelegateDepositIx } from "../instructions/undelegateDeposit";
 import { findDepositPda } from "../pda";
 import {
   estimateDepositDelegationRentLamports,
@@ -21,13 +24,13 @@ import type { InstructionCheck, RpcOptions } from "../types";
 import { sendAndConfirmWithDiagnostics } from "../transaction-debug";
 import { waitForAccountOwnerChange } from "../utils";
 import { closeWsolAta, createWsolAta, wrapSolToWsolIx } from "../wsol";
-import { undelegateDepositIx } from "../instructions/undelegateDeposit";
 import {
   labelTransactionInstructions,
   type LabeledTransactionInstruction,
   type LabeledTransactionPlan,
 } from "./shieldTokens";
 import { sendPlannedUndelegateDepositTransaction } from "./undelegateDeposit";
+import { undelegatePermissionIx } from "../instructions/undelegatePermission";
 
 export type UnshieldTokensInstructionPlan = {
   instructions: LabeledTransactionInstruction[];
@@ -85,6 +88,7 @@ export async function buildUnshieldTokensInstructionPlan(params: {
   const currentDepositAmount = currentDepositAccount
     ? BigInt(currentDepositAccount.amount.toString())
     : null;
+  // If we do partial unshield then we should redelegate remaining deposit
   const shouldRedelegate =
     currentDepositAmount !== null && currentDepositAmount - amount > 0n;
   const [modifyBalanceRentLamports, delegationRentLamports] = await Promise.all(
@@ -150,6 +154,28 @@ export async function buildUnshieldTokensInstructionPlan(params: {
       rentLamports: delegationRentLamports,
     });
     checks.push(...delegateDepositIxs.ensure);
+  } else {
+    // Unshield of full amount - do cleanup
+
+    // Close permissions
+    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+    instructions.push({
+      label: "closePermission",
+      ix: closePermissionIxs.ix,
+      // rentLamports: ...,
+    });
+    checks.push(...closePermissionIxs.ensure);
+
+    const closeDepositIxs = await closeDepositIx(baseProgram, {
+      user,
+      tokenMint,
+    });
+    instructions.push({
+      label: "closeDeposit",
+      ix: closeDepositIxs.ix,
+      // rentLamports: ...,
+    });
+    checks.push(...closeDepositIxs.ensure);
   }
 
   return {
@@ -182,7 +208,27 @@ export async function buildUnshieldTokensTransactionPlan(params: {
   let preUndelegateTransaction: LabeledTransactionPlan | null = null;
 
   if (instructionPlan.needsUndelegate) {
-    const undelegateIxs = await undelegateDepositIx(params.perProgram, {
+    preUndelegateTransaction = {
+      label: "unshield:undelegate",
+      cluster: "ephemeral",
+      instructions: [],
+      checks: [],
+    };
+
+    // For full amount unshield undelegate permission
+    if (!instructionPlan.shouldRedelegate) {
+      const undelegatePermissionIxs = await undelegatePermissionIx({
+        user: params.user,
+        tokenMint: params.tokenMint,
+      });
+      preUndelegateTransaction.instructions.push({
+        label: "undelegatePermission",
+        ix: undelegatePermissionIxs.ix,
+      });
+      preUndelegateTransaction.checks.push(...undelegatePermissionIxs.ensure);
+    }
+
+    const undelegateDepositIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
@@ -190,12 +236,11 @@ export async function buildUnshieldTokensTransactionPlan(params: {
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID,
     });
-    preUndelegateTransaction = {
-      label: "unshield:undelegate",
-      cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
-      checks: undelegateIxs.ensure,
-    };
+    preUndelegateTransaction.instructions.push({
+      label: "undelegateDeposit",
+      ix: undelegateDepositIxs.ix,
+    });
+    preUndelegateTransaction.checks.push(...undelegateDepositIxs.ensure);
   }
 
   return {
