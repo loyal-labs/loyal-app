@@ -47,6 +47,8 @@ import type {
   DepositData,
   UsernameDepositData,
   InitializeDepositParams,
+  CloseDepositParams,
+  CloseUsernameDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
   GetKaminoShieldedBalanceQuoteParams,
@@ -102,6 +104,8 @@ import {
   estimatePlannedTransactionFees,
   type FeeEstimateTransactionPlan,
 } from "./fee-estimate";
+import { closeDepositIx } from "./instructions/closeDeposit";
+import { closeUsernameDepositIx } from "./instructions/closeUsernameDeposit";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -770,7 +774,7 @@ export class LoyalPrivateTransactionsClient {
 
           console.warn(
             `[${transactionPlan.label}] owner-change watcher did not observe expected owner (signature=${signature}); continuing`,
-            err,
+            err
           );
         }
       }
@@ -869,6 +873,59 @@ export class LoyalPrivateTransactionsClient {
       extraContext: {
         username: params.username,
         tokenMint: params.tokenMint,
+      },
+    });
+  }
+
+  async closeDeposit(params: CloseDepositParams): Promise<string> {
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await closeDepositIx(this.baseProgram, params);
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
+
+    const tx = new Transaction().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint,
+      },
+    });
+  }
+
+  async closeUsernameDeposit(
+    params: CloseUsernameDepositParams
+  ): Promise<string> {
+    const { username, tokenMint, authority, session } = params;
+    const { ix, ensure } = await closeUsernameDepositIx(
+      this.baseProgram,
+      params
+    );
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
+
+    const tx = new Transaction().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeUsernameDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username,
+        tokenMint,
+        authority,
+        session,
       },
     });
   }
@@ -1153,7 +1210,7 @@ export class LoyalPrivateTransactionsClient {
     } catch (err) {
       console.warn(
         `[delegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-        err,
+        err
       );
     }
 
@@ -1235,7 +1292,7 @@ export class LoyalPrivateTransactionsClient {
     } catch (err) {
       console.warn(
         `[delegateUsernameDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-        err,
+        err
       );
     }
 
