@@ -229,6 +229,23 @@ export interface InitializeUsernameDepositParams {
     payer: PublicKey;
     rpcOptions?: RpcOptions;
 }
+export interface CloseDepositParams {
+    user: PublicKey;
+    tokenMint: PublicKey;
+    rpcOptions?: RpcOptions;
+}
+export interface CloseUsernameDepositParams {
+    username: string;
+    tokenMint: PublicKey;
+    authority: PublicKey;
+    session: PublicKey;
+    rpcOptions?: RpcOptions;
+}
+export interface ClosePermissionParams {
+    user: PublicKey;
+    tokenMint: PublicKey;
+    rpcOptions?: RpcOptions;
+}
 /**
  * Parameters for modifying a deposit balance
  */
@@ -338,6 +355,11 @@ export interface UndelegateUsernameDepositParams {
     payer: PublicKey;
     magicProgram: PublicKey;
     magicContext: PublicKey;
+    rpcOptions?: RpcOptions;
+}
+export interface UndelegatePermissionParams {
+    user: PublicKey;
+    tokenMint: PublicKey;
     rpcOptions?: RpcOptions;
 }
 /**

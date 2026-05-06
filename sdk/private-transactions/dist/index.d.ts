@@ -33,7 +33,7 @@
 export { LoyalPrivateTransactionsClient, waitForAccountOwnerChange, } from "./src/LoyalPrivateTransactionsClient";
 export { shieldTokens } from "./src/actions/shieldTokens";
 export { unshieldTokens } from "./src/actions/unshieldTokens";
-export type { WalletSigner, WalletLike, RpcOptions, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, ExecuteShieldFlowTransactionPlanParams, ExecuteShieldTokensTransactionPlanParams, ExecuteUnshieldTokensTransactionPlanParams, ShieldFlowKind, FeeEstimateCluster, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowInstructionPlan, ShieldFlowOwnerChangeWait, ShieldFlowTransactionPlan, ShieldFlowPlan, InstructionCostEstimate, ShieldFlowTransactionFeeEstimate, ShieldFlowFeeEstimate, ShieldFlowTransactionExecutionResult, ShieldFlowExecutionResult, ShieldTokensClientParams, UnshieldTokensClientParams, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoTrackedBalanceCostBasis, KaminoPositionYieldInfo, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, DelegationRecord, DelegationStatusResult, DelegationStatusResponse, } from "./src/types";
+export type { WalletSigner, WalletLike, RpcOptions, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, CloseDepositParams, CloseUsernameDepositParams, ClosePermissionParams, ModifyBalanceParams, ModifyBalanceResult, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, ExecuteShieldFlowTransactionPlanParams, ExecuteShieldTokensTransactionPlanParams, ExecuteUnshieldTokensTransactionPlanParams, ShieldFlowKind, FeeEstimateCluster, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowInstructionPlan, ShieldFlowOwnerChangeWait, ShieldFlowTransactionPlan, ShieldFlowPlan, InstructionCostEstimate, ShieldFlowTransactionFeeEstimate, ShieldFlowFeeEstimate, ShieldFlowTransactionExecutionResult, ShieldFlowExecutionResult, ShieldTokensClientParams, UnshieldTokensClientParams, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoTrackedBalanceCostBasis, KaminoPositionYieldInfo, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, DelegationRecord, DelegationStatusResult, DelegationStatusResponse, } from "./src/types";
 export { isKeypair, isAnchorProvider, isWalletLike } from "./src/types";
 export { ER_VALIDATOR, ER_VALIDATOR_DEVNET, ER_VALIDATOR_MAINNET, getErValidatorForSolanaEnv, getErValidatorForRpcEndpoint, PROGRAM_ID, DELEGATION_PROGRAM_ID, PERMISSION_PROGRAM_ID, MAGIC_PROGRAM_ID, MAGIC_CONTEXT_ID, DEPOSIT_SEED, DEPOSIT_SEED_BYTES, USERNAME_DEPOSIT_SEED, USERNAME_DEPOSIT_SEED_BYTES, VAULT_SEED, VAULT_SEED_BYTES, PERMISSION_SEED, PERMISSION_SEED_BYTES, LAMPORTS_PER_SOL, solToLamports, lamportsToSol, } from "./src/constants";
 export { findDepositPda, findUsernameDepositPda, findVaultPda, findPermissionPda, findDelegationRecordPda, findDelegationMetadataPda, findBufferPda, } from "./src/pda";
@@ -96,6 +96,66 @@ export declare const IDL: {
             name: string;
             type: string;
         }[];
+    } | {
+        name: string;
+        docs: string[];
+        discriminator: number[];
+        accounts: ({
+            name: string;
+            writable: boolean;
+            signer: boolean;
+            relations: string[];
+            pda?: undefined;
+        } | {
+            name: string;
+            writable: boolean;
+            pda: {
+                seeds: ({
+                    kind: string;
+                    value: number[];
+                    path?: undefined;
+                } | {
+                    kind: string;
+                    path: string;
+                    value?: undefined;
+                })[];
+            };
+            signer?: undefined;
+            relations?: undefined;
+        } | {
+            name: string;
+            relations: string[];
+            writable?: undefined;
+            signer?: undefined;
+            pda?: undefined;
+        })[];
+        args: never[];
+    } | {
+        name: string;
+        docs: string[];
+        discriminator: number[];
+        accounts: ({
+            name: string;
+            writable: boolean;
+            signer: boolean;
+            relations?: undefined;
+        } | {
+            name: string;
+            writable: boolean;
+            signer?: undefined;
+            relations?: undefined;
+        } | {
+            name: string;
+            relations: string[];
+            writable?: undefined;
+            signer?: undefined;
+        } | {
+            name: string;
+            writable?: undefined;
+            signer?: undefined;
+            relations?: undefined;
+        })[];
+        args: never[];
     } | {
         name: string;
         docs: string[];

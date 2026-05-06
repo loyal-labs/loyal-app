@@ -103,6 +103,107 @@ var telegram_private_transfer_default = {
       ]
     },
     {
+      name: "close_deposit",
+      docs: [
+        "Closes an empty user deposit account and returns its rent to the deposit owner."
+      ],
+      discriminator: [
+        200,
+        19,
+        254,
+        192,
+        15,
+        110,
+        209,
+        179
+      ],
+      accounts: [
+        {
+          name: "user",
+          writable: true,
+          signer: true,
+          relations: [
+            "deposit"
+          ]
+        },
+        {
+          name: "deposit",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                kind: "account",
+                path: "user"
+              },
+              {
+                kind: "account",
+                path: "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          name: "token_mint",
+          relations: [
+            "deposit"
+          ]
+        }
+      ],
+      args: []
+    },
+    {
+      name: "close_username_deposit",
+      docs: [
+        "Closes an empty username deposit account after verified username ownership."
+      ],
+      discriminator: [
+        238,
+        181,
+        185,
+        209,
+        149,
+        161,
+        124,
+        79
+      ],
+      accounts: [
+        {
+          name: "authority",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "deposit",
+          writable: true
+        },
+        {
+          name: "token_mint",
+          relations: [
+            "deposit"
+          ]
+        },
+        {
+          name: "session"
+        }
+      ],
+      args: []
+    },
+    {
       name: "create_permission",
       docs: [
         "Creates a permission for a deposit account using the external permission program.",
@@ -814,10 +915,20 @@ var telegram_private_transfer_default = {
     {
       name: "modify_balance",
       docs: [
-        "Modifies the balance of a user's deposit account by transferring tokens in or out.",
+        "Modifies a user's deposit balance and the backing vault position for the given mint.",
         "",
-        "If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.",
-        "If false, tokens are transferred from the deposit account back to the user's token account."
+        "For non-USDC mints, this is a direct vault transfer: if `args.increase` is true, `args.amount`",
+        "is transferred from the user's token account to the vault token account and added to",
+        "`deposit.amount`. If false, `args.amount` is transferred from the vault token account back to",
+        "the user's token account and subtracted from `deposit.amount`.",
+        "",
+        "For USDC, liquidity is routed through Kamino Lending instead of being left idle in the vault.",
+        "If `args.increase` is true, `args.amount` USDC is transferred into the vault token account,",
+        "supplied to the configured Kamino reserve, and `deposit.amount` is increased by the Kamino",
+        "reserve collateral shares (kTokens) minted to the vault. If false, `args.amount` is",
+        "interpreted as the Kamino share amount to redeem; the reserve returns the corresponding USDC",
+        "at the current exchange rate, that USDC is transferred from the vault token account to the",
+        "user's token account, and `deposit.amount` is decreased by the burned share amount."
       ],
       discriminator: [
         148,
@@ -1654,6 +1765,11 @@ var telegram_private_transfer_default = {
       code: 6013,
       name: "InvalidAmount",
       msg: "Invalid amount"
+    },
+    {
+      code: 6014,
+      name: "NonZeroDeposit",
+      msg: "Deposit account must have zero amount before it can be closed"
     }
   ],
   types: [
@@ -2607,6 +2723,13 @@ function wrapSolToWsolIx({
     createSyncNativeInstruction(wsolAta)
   ];
 }
+function createWsolAta({
+  user,
+  payer
+}) {
+  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
+  return createAssociatedTokenAccountIdempotentInstruction(payer, wsolAta, user, NATIVE_MINT);
+}
 function closeWsolAta({
   user,
   destination
@@ -3365,6 +3488,79 @@ async function shieldTokens(params) {
 // src/actions/unshieldTokens.ts
 import { NATIVE_MINT as NATIVE_MINT3 } from "@solana/spl-token";
 import { Transaction as Transaction5 } from "@solana/web3.js";
+
+// src/instructions/closeDeposit.ts
+async function closeDepositIx(program, params) {
+  const { user, tokenMint } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const ix = await program.methods.closeDeposit().accountsPartial({
+    user,
+    deposit: depositPda,
+    tokenMint
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: false,
+        label: "closeDeposit-depositPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/closePermission.ts
+import {
+  createClosePermissionInstruction
+} from "@magicblock-labs/ephemeral-rollups-sdk";
+async function closePermissionIx(params) {
+  const { user, tokenMint } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
+  const ix = createClosePermissionInstruction({
+    payer: user,
+    authority: [user, true],
+    permissionedAccount: [depositPda, false]
+  });
+  return {
+    ix,
+    ensure: [
+      {
+        address: permissionPda,
+        delegated: false,
+        passNotExist: false,
+        label: "closePermission-permissionPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/undelegatePermission.ts
+import { createCommitAndUndelegatePermissionInstruction } from "@magicblock-labs/ephemeral-rollups-sdk";
+async function undelegatePermissionIx(params) {
+  const { user, tokenMint } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
+  const ix = createCommitAndUndelegatePermissionInstruction({
+    authority: [user, true],
+    permissionedAccount: [depositPda, false]
+  });
+  return {
+    ix,
+    ensure: [
+      {
+        address: permissionPda,
+        delegated: true,
+        passNotExist: false,
+        label: "undelegatePermission-permissionPda"
+      }
+    ]
+  };
+}
+
+// src/actions/unshieldTokens.ts
 async function buildUnshieldTokensInstructionPlan(params) {
   const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
   const baseConnection = baseProgram.provider.connection;
@@ -3397,11 +3593,9 @@ async function buildUnshieldTokensInstructionPlan(params) {
   const instructions = [];
   const checks = [];
   if (isNativeSol) {
-    instructions.push(...labelTransactionInstructions("ensureWsolAta", wrapSolToWsolIx({
-      user,
-      payer,
-      lamports: 0n
-    })));
+    instructions.push(...labelTransactionInstructions("ensureWsolAta", [
+      createWsolAta({ user, payer })
+    ]));
   }
   const modifyBalanceIxs = await modifyBalanceIx(baseProgram, {
     tokenMint,
@@ -3438,6 +3632,22 @@ async function buildUnshieldTokensInstructionPlan(params) {
       rentLamports: delegationRentLamports
     });
     checks.push(...delegateDepositIxs.ensure);
+  } else {
+    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+    instructions.push({
+      label: "closePermission",
+      ix: closePermissionIxs.ix
+    });
+    checks.push(...closePermissionIxs.ensure);
+    const closeDepositIxs = await closeDepositIx(baseProgram, {
+      user,
+      tokenMint
+    });
+    instructions.push({
+      label: "closeDeposit",
+      ix: closeDepositIxs.ix
+    });
+    checks.push(...closeDepositIxs.ensure);
   }
   return {
     instructions,
@@ -3456,7 +3666,24 @@ async function buildUnshieldTokensTransactionPlan(params) {
   const instructionPlan = await buildUnshieldTokensInstructionPlan(params);
   let preUndelegateTransaction = null;
   if (instructionPlan.needsUndelegate) {
-    const undelegateIxs = await undelegateDepositIx(params.perProgram, {
+    preUndelegateTransaction = {
+      label: "unshield:undelegate",
+      cluster: "ephemeral",
+      instructions: [],
+      checks: []
+    };
+    if (!instructionPlan.shouldRedelegate) {
+      const undelegatePermissionIxs = await undelegatePermissionIx({
+        user: params.user,
+        tokenMint: params.tokenMint
+      });
+      preUndelegateTransaction.instructions.push({
+        label: "undelegatePermission",
+        ix: undelegatePermissionIxs.ix
+      });
+      preUndelegateTransaction.checks.push(...undelegatePermissionIxs.ensure);
+    }
+    const undelegateDepositIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
@@ -3464,12 +3691,11 @@ async function buildUnshieldTokensTransactionPlan(params) {
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
-    preUndelegateTransaction = {
-      label: "unshield:undelegate",
-      cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
-      checks: undelegateIxs.ensure
-    };
+    preUndelegateTransaction.instructions.push({
+      label: "undelegateDeposit",
+      ix: undelegateDepositIxs.ix
+    });
+    preUndelegateTransaction.checks.push(...undelegateDepositIxs.ensure);
   }
   return {
     preUndelegateTransaction,
@@ -3641,6 +3867,30 @@ async function estimatePlannedTransactionFees(params) {
     instructions: instructionEstimates,
     totalFeeLamports: transactionEstimates.reduce((total, transaction) => total + transaction.feeLamports, 0),
     totalRentLamports: instructionEstimates.reduce((total, instruction) => total + instruction.rentLamports, 0)
+  };
+}
+
+// src/instructions/closeUsernameDeposit.ts
+async function closeUsernameDepositIx(program, params) {
+  const { username, tokenMint, authority, session } = params;
+  validateUsername(username);
+  const [depositPda] = await findUsernameDepositPda(username, tokenMint);
+  const ix = await program.methods.closeUsernameDeposit().accountsPartial({
+    authority,
+    deposit: depositPda,
+    tokenMint,
+    session
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: false,
+        label: "closeUsernameDeposit-depositPda"
+      }
+    ]
   };
 }
 
@@ -4101,6 +4351,40 @@ class LoyalPrivateTransactionsClient {
       extraContext: {
         username: params.username,
         tokenMint: params.tokenMint
+      }
+    });
+  }
+  async closeDeposit(params) {
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await closeDepositIx(this.baseProgram, params);
+    await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
+    const tx = new Transaction7().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint
+      }
+    });
+  }
+  async closeUsernameDeposit(params) {
+    const { username, tokenMint, authority, session } = params;
+    const { ix, ensure } = await closeUsernameDepositIx(this.baseProgram, params);
+    await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
+    const tx = new Transaction7().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeUsernameDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username,
+        tokenMint,
+        authority,
+        session
       }
     });
   }
