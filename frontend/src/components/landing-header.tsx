@@ -292,7 +292,8 @@ function HeaderContent({
       <div className="hidden lg:block">
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-          href="#get-started"
+          href="https://app.askloyal.com"
+          rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
           Get started
