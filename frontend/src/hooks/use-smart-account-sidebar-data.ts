@@ -1812,10 +1812,20 @@ export function useSmartAccountSidebarData(
           status: "executed",
         };
       } catch (err) {
-        const message =
+        const rawMessage =
           err instanceof Error ? err.message : "Vault transfer failed.";
+        const haystack = rawMessage.toLowerCase();
+        const isRentError =
+          haystack.includes("insufficient funds for rent") ||
+          haystack.includes("insufficient lamports") ||
+          haystack.includes(
+            "would result in account being unable to pay rent"
+          );
+        const friendly = isRentError
+          ? "Vault must keep a minimum SOL balance for rent. Try a smaller amount."
+          : rawMessage;
         console.error("[executeVaultTransfer] failed", err);
-        return { success: false, error: message };
+        return { success: false, error: friendly };
       }
     },
     [

@@ -388,33 +388,42 @@ function ApprovalRow({
           </div>
         </div>
 
-        {approval.status === "active" && (
-          <div
-            style={{
-              display: "flex",
-              gap: "8px",
-              paddingBottom: "11px",
-            }}
-          >
-            <span
-              className="workspace-approval-review-pill"
+        {(() => {
+          const pillLabel =
+            approval.status === "active"
+              ? "Review & Respond"
+              : approval.status === "approved" && approval.canExecute
+              ? "Execute"
+              : null;
+          if (!pillLabel) return null;
+          return (
+            <div
               style={{
-                background: "rgba(0, 0, 0, 0.04)",
-                borderRadius: "9999px",
-                color: "#000",
-                fontFamily: font,
-                fontSize: "14px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                padding: "6px 16px",
-                transition: "background 0.15s ease",
-                whiteSpace: "nowrap",
+                display: "flex",
+                gap: "8px",
+                paddingBottom: "11px",
               }}
             >
-              Review &amp; Respond
-            </span>
-          </div>
-        )}
+              <span
+                className="workspace-approval-review-pill"
+                style={{
+                  background: "rgba(0, 0, 0, 0.04)",
+                  borderRadius: "9999px",
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  padding: "6px 16px",
+                  transition: "background 0.15s ease",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {pillLabel}
+              </span>
+            </div>
+          );
+        })()}
       </div>
     </button>
   );

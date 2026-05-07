@@ -938,15 +938,19 @@ export function SendContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       let val = pct === 100 ? token.balance : token.balance * (pct / 100);
-      if (
-        token.symbol.toUpperCase() === "SOL" &&
-        token.balance - val < 0.00005
-      ) {
-        val = Math.max(0, token.balance - 0.00005);
+      if (token.symbol.toUpperCase() === "SOL") {
+        // Vault PDAs must keep a rent-exempt minimum (~0.00089 SOL for a
+        // bare system account); leave a slightly larger cushion so the
+        // multisig transfer doesn't fail with "insufficient funds for rent".
+        // For User-wallet sends only the per-tx fee needs to stay behind.
+        const reserve = vaultContext ? 0.001 : 0.00005;
+        if (token.balance - val < reserve) {
+          val = Math.max(0, token.balance - reserve);
+        }
       }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [token.balance, token.symbol]
+    [token.balance, token.symbol, vaultContext]
   );
 
   const handleConfirm = useCallback(async () => {
