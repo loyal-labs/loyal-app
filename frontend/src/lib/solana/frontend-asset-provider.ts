@@ -408,6 +408,43 @@ export function createFrontendAssetProvider(args: {
         fetchedAt: Date.now(),
       };
     },
+    resolveAssets: async (mints) => {
+      // Used by the wallet-data client to render shielded-only mints (no
+      // public ATA on chain). Without this, the placeholder descriptor
+      // collapses decimals to 0 and the row shows raw u64 lamports.
+      const uniqueMints = [...new Set(mints)];
+      const connection = getConnection();
+      const results = await Promise.all(
+        uniqueMints.map(async (mint) => {
+          try {
+            const mintPubkey = new PublicKey(mint);
+            // Read decimals from chain for both Token and Token-2022 mints.
+            const accountInfo = await connection.getAccountInfo(
+              mintPubkey,
+              args.commitment
+            );
+            if (!accountInfo) return null;
+            const isToken =
+              accountInfo.owner.equals(TOKEN_PROGRAM_ID) ||
+              accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
+            if (!isToken) return null;
+            // SPL mint layout: decimals at byte offset 44 (1 byte).
+            const decimals = accountInfo.data[44] ?? 0;
+            const metadata = await resolveTokenMetadata(mint, decimals);
+            return {
+              ...metadata.descriptor,
+              // On-chain decimals are authoritative; never let metadata override.
+              decimals,
+            } satisfies AssetDescriptor;
+          } catch {
+            return null;
+          }
+        })
+      );
+      return results.filter(
+        (descriptor): descriptor is AssetDescriptor => descriptor !== null
+      );
+    },
     subscribeAssetChanges: async (owner, onChange, options = {}) => {
       const connection = getWebsocketConnection();
       const debounceMs = options.debounceMs ?? DEFAULT_SUBSCRIPTION_DEBOUNCE_MS;
