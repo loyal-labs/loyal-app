@@ -1531,35 +1531,37 @@ export function PortfolioContent({
                       </div>
                     </div>
                   </div>
-                  {/* Review & Respond button */}
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      paddingBottom: "11px",
-                    }}
-                  >
-                    <button
-                      className="portfolio-review-btn"
-                      onClick={() => onReviewApproval(approval)}
+                  {/* Review & Respond — only meaningful while voting is open */}
+                  {approval.status === "active" && (
+                    <div
                       style={{
-                        padding: "6px 16px",
-                        borderRadius: "9999px",
-                        background: "rgba(0, 0, 0, 0.04)",
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: font,
-                        fontSize: "14px",
-                        fontWeight: 400,
-                        lineHeight: "20px",
-                        color: "#000",
-                        transition: "background 0.15s ease",
+                        display: "flex",
+                        gap: "8px",
+                        paddingBottom: "11px",
                       }}
-                      type="button"
                     >
-                      Review &amp; Respond
-                    </button>
-                  </div>
+                      <button
+                        className="portfolio-review-btn"
+                        onClick={() => onReviewApproval(approval)}
+                        style={{
+                          padding: "6px 16px",
+                          borderRadius: "9999px",
+                          background: "rgba(0, 0, 0, 0.04)",
+                          border: "none",
+                          cursor: "pointer",
+                          fontFamily: font,
+                          fontSize: "14px",
+                          fontWeight: 400,
+                          lineHeight: "20px",
+                          color: "#000",
+                          transition: "background 0.15s ease",
+                        }}
+                        type="button"
+                      >
+                        Review &amp; Respond
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
