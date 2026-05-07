@@ -87,6 +87,7 @@ import {
   PolicyGlyph,
 } from "./policies-pane";
 import { PolicyDetailsPane } from "./policy-details-pane";
+import { SettingsPane } from "./settings-pane";
 import { WorkflowBuilderPane } from "./workflow-builder-pane";
 import {
   WalletCommandMenu,
@@ -94,7 +95,7 @@ import {
 } from "./wallet-command-menu";
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
-type WorkspaceSection = "policies" | "wallet";
+type WorkspaceSection = "policies" | "settings" | "wallet";
 type DetailTab = "activity" | "tokens";
 type DetailPaneTransition = "back" | "close" | "forward" | "open" | "switch";
 type DetailSelection =
@@ -425,9 +426,9 @@ function WalletRail({
           />
           <RailNavButton
             icon={<Settings size={24} strokeWidth={1.8} />}
-            isPlaceholder
+            isActive={activeSection === "settings"}
             label="Settings"
-            tooltip="Settings will live here"
+            onClick={() => onSectionChange("settings")}
           />
         </nav>
       </div>
@@ -634,7 +635,11 @@ export function AppWalletWorkspace({
   const signInOpenedForConnectRef = useRef(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const routeSection: WorkspaceSection =
-    pathname === "/app/policies" ? "policies" : initialSection;
+    pathname === "/app/policies"
+      ? "policies"
+      : pathname === "/app/settings"
+        ? "settings"
+        : initialSection;
   const [activeSection, setActiveSection] =
     useState<WorkspaceSection>(routeSection);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
@@ -702,7 +707,13 @@ export function AppWalletWorkspace({
   const handleSectionChange = useCallback(
     (section: WorkspaceSection) => {
       setActiveSection(section);
-      router.push(section === "policies" ? "/app/policies" : "/app");
+      const targetPath =
+        section === "policies"
+          ? "/app/policies"
+          : section === "settings"
+            ? "/app/settings"
+            : "/app";
+      router.push(targetPath);
     },
     [router]
   );
@@ -722,7 +733,10 @@ export function AppWalletWorkspace({
   const isSmartAccountRateLimited =
     isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
   const showWorkspaceShell =
-    isAuthHydrated && (isSignedIn || activeSection === "policies");
+    isAuthHydrated &&
+    (isSignedIn ||
+      activeSection === "policies" ||
+      activeSection === "settings");
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
@@ -1903,6 +1917,9 @@ export function AppWalletWorkspace({
   ]);
 
   const renderDetailPane = () => {
+    if (activeSection === "settings") {
+      return <div className="wallet-workspace-detail-empty" />;
+    }
     if (activeSection === "policies") {
       if (isAuthResolving) {
         return <div className="wallet-workspace-auth-pending" />;
@@ -2635,7 +2652,10 @@ export function AppWalletWorkspace({
         open={isCommandMenuOpen}
       />
 
-      {showWorkspaceShell && (!isSmartAccountRateLimited || activeSection === "policies") ? (
+      {showWorkspaceShell &&
+      (!isSmartAccountRateLimited ||
+        activeSection === "policies" ||
+        activeSection === "settings") ? (
         <>
           <section className="wallet-workspace-pane wallet-workspace-account-pane">
             {activeSection === "policies" ? (
@@ -2645,6 +2665,8 @@ export function AppWalletWorkspace({
                 onSelectPolicy={setSelectedPolicyId}
                 selectedPolicyId={selectedPolicyId}
               />
+            ) : activeSection === "settings" ? (
+              <SettingsPane />
             ) : (
               <PortfolioContent
                 approvals={smartAccountData.approvals}
