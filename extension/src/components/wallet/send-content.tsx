@@ -5,6 +5,8 @@ import { useSend, usePrivateSend } from "@loyal-labs/wallet-core/hooks";
 
 import type { ActivityRow, SubView, SwapToken, TransactionDetail } from "@loyal-labs/wallet-core/types";
 
+import { getAnalyticsErrorProperties, track } from "~/src/lib/analytics";
+import { SEND_EVENTS, getSendMethod } from "./send-analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -302,7 +304,14 @@ function SendTransactionDetail({
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <button
                 className="send-tx-action-btn"
-                onClick={() => signature && window.open(`https://explorer.solana.com/tx/${signature}`, "_blank")}
+                onClick={() =>
+                  signature &&
+                  window.open(
+                    `https://explorer.solana.com/tx/${signature}`,
+                    "_blank",
+                    "noopener,noreferrer"
+                  )
+                }
                 style={{ width: "48px", height: "48px", borderRadius: "9999px", background: "rgba(249, 54, 60, 0.14)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: signature ? "pointer" : "default", opacity: signature ? 1 : 0.5, transition: "background-color 0.15s ease" }}
                 type="button"
               >
@@ -408,10 +417,13 @@ export function SendContent({
 
   const handlePercentage = useCallback(
     (pct: number) => {
-      const val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      let val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL" && token.balance - val < 0.00005) {
+        val = Math.max(0, token.balance - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [token.balance],
+    [token.balance, token.symbol],
   );
 
   const handleConfirm = useCallback(async () => {
@@ -450,6 +462,11 @@ export function SendContent({
     if (result.success) {
       setResultSignature(result.signature);
       setPhase("success");
+      track(SEND_EVENTS.sendFunds, {
+        method: getSendMethod(recipientTrimmed),
+        token_symbol: token.symbol,
+        amount: numericAmount,
+      });
       setAmount("");
       setRecipient("");
 
@@ -477,6 +494,11 @@ export function SendContent({
         addLocalActivity(syntheticRow, syntheticDetail);
       }
     } else {
+      track(SEND_EVENTS.sendFundsFailed, {
+        method: getSendMethod(recipientTrimmed),
+        token_symbol: token.symbol,
+        ...getAnalyticsErrorProperties(result.error),
+      });
       setErrorMessage(result.error);
       setPhase("error");
     }
@@ -664,14 +686,14 @@ export function SendContent({
           {/* Private Send card */}
           <div
             className="private-card"
-            onClick={() => setIsPrivate(!isPrivate)}
+            onClick={isTg ? undefined : () => setIsPrivate(!isPrivate)}
             style={{
               display: "flex",
               alignItems: "center",
               padding: "0 12px",
               borderRadius: "16px",
-              cursor: "pointer",
-              background: isPrivate ? "rgba(0, 0, 0, 0.04)" : "transparent",
+              cursor: isTg ? "default" : "pointer",
+              background: isPrivate || isTg ? "rgba(0, 0, 0, 0.04)" : "transparent",
               transition: "background 0.15s ease",
             }}
           >
@@ -679,38 +701,44 @@ export function SendContent({
               <img alt="Private" src="/hero-new/Shield_40.svg" style={{ width: "40px", height: "40px" }} />
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 0", minWidth: 0 }}>
-              <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>Private Send</span>
+              <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>
+                {isTg ? "Private Send Active" : "Private Send"}
+              </span>
               <span style={{ fontFamily: font, fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: secondary }}>
-                Prevents the recipient from seeing which wallet sent the funds
+                {isTg
+                  ? "Telegram transfers are always private"
+                  : "Prevents the recipient from seeing which wallet sent the funds"}
               </span>
             </div>
-            <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-              <div
-                style={{
-                  width: "51px",
-                  height: "31px",
-                  borderRadius: "100px",
-                  background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
-                  position: "relative",
-                  transition: "background 0.2s ease",
-                }}
-              >
+            {!isTg && (
+              <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                 <div
                   style={{
-                    position: "absolute",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    left: isPrivate ? "22px" : "2px",
-                    width: "27px",
-                    height: "27px",
+                    width: "51px",
+                    height: "31px",
                     borderRadius: "100px",
-                    background: "#fff",
-                    boxShadow: "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
-                    transition: "left 0.2s ease",
+                    background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
+                    position: "relative",
+                    transition: "background 0.2s ease",
                   }}
-                />
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      left: isPrivate ? "22px" : "2px",
+                      width: "27px",
+                      height: "27px",
+                      borderRadius: "100px",
+                      background: "#fff",
+                      boxShadow: "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
+                      transition: "left 0.2s ease",
+                    }}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 

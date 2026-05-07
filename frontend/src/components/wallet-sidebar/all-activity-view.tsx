@@ -23,7 +23,7 @@ export function AllActivityView({
   isBalanceHidden: boolean;
   onBack: () => void;
   onClose: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
 }) {
   const [search, setSearch] = useState("");
   const filtered = activities.filter(
@@ -51,6 +51,7 @@ export function AllActivityView({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           overflowX: "hidden",
           padding: "0 8px",

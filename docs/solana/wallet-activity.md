@@ -107,6 +107,28 @@ If a token does not come back with an image URL, we fall back to a small known-i
 - Update `app/src/lib/solana/token-holdings/constants.ts` (`KNOWN_TOKEN_ICONS`)
 - Add the image file under `app/public/tokens/`
 
+## Squads Smart-Account Activity (frontend)
+
+For frontend we route smart-account activity through the
+shared vault package:
+
+- `packages/smart-account-vaults` creates vault read models and delegates
+  portfolio/activity reads to `@loyal-labs/solana-wallet`.
+- `frontend/src/features/smart-accounts/server/read-model.ts` creates a
+  `SmartAccountVaultsClient` with the configured Solana RPC and wallet data
+  client.
+- `GET /api/smart-accounts/overview` loads the smart-account overview with
+  `activityLimit: 0` so the first sidebar render does not scan activity for
+  every vault.
+- `GET /api/smart-accounts/vault-activity?accountIndex=<n>` loads activity
+  lazily for the selected vault.
+- `frontend/src/hooks/use-smart-account-sidebar-data.ts` maps
+  `WalletActivity` entries into sidebar rows and transaction details.
+
+This flow also carries `program_action` activity rows from the wallet data
+package. Solana program logs are not persisted as a separate frontend log feed
+in this branch; they are used for error normalization when wallet sends fail.
+
 ## Caveats / Known Limitations
 
 - Multi-token transactions (e.g. swaps) can change multiple mints; we currently select the single mint with the largest absolute balance delta.

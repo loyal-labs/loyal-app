@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { usePopularTokens } from "@/hooks/usePopularTokens";
 import { useTelegramSafeArea } from "@/hooks/useTelegramSafeArea";
 import {
   NATIVE_SOL_MINT,
@@ -294,6 +295,27 @@ export default function SwapSheet({
     availableTokens.find(
       (token) => token.mint === NATIVE_SOL_MINT && token.isSecured !== true
     )?.balance ?? 0;
+
+  // Popular tokens for swap target selection
+  const { tokens: popularTokens, search: searchPopularTokens } =
+    usePopularTokens();
+  const availableToTokens = useMemo(() => {
+    const heldMints = new Set(
+      availableTokens.map((t) => t.mint).filter(Boolean),
+    );
+    const extras: Token[] = popularTokens
+      .filter((t) => t.mint && !heldMints.has(t.mint))
+      .map((t) => ({
+        symbol: t.symbol,
+        name: t.name,
+        icon: t.icon,
+        decimals: t.decimals,
+        balance: 0,
+        priceUsd: t.priceUsd,
+        mint: t.mint,
+      }));
+    return [...availableTokens, ...extras];
+  }, [availableTokens, popularTokens]);
 
   // Secure mode state
   const [secureToken, setSecureToken] = useState<Token>(
@@ -794,7 +816,7 @@ export default function SwapSheet({
   }, [searchQuery, availableTokens, toToken.mint]);
 
   const filteredToTokens = useMemo(() => {
-    let tokens = availableTokens.filter((t) => t.mint !== fromToken.mint);
+    let tokens = availableToTokens.filter((t) => t.mint !== fromToken.mint);
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       tokens = tokens.filter(
@@ -804,7 +826,60 @@ export default function SwapSheet({
       );
     }
     return tokens;
-  }, [searchQuery, availableTokens, fromToken.mint]);
+  }, [searchQuery, availableToTokens, fromToken.mint]);
+
+  // Remote search for "to" token selection
+  const [remoteToResults, setRemoteToResults] = useState<Token[]>([]);
+  const [_isRemoteSearching, setIsRemoteSearching] = useState(false);
+  const remoteSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (remoteSearchTimerRef.current)
+      clearTimeout(remoteSearchTimerRef.current);
+    if (!searchQuery || searchQuery.length < 2 || view !== "selectTo") {
+      setRemoteToResults([]);
+      setIsRemoteSearching(false);
+      return;
+    }
+    setIsRemoteSearching(true);
+    remoteSearchTimerRef.current = setTimeout(() => {
+      void searchPopularTokens(searchQuery)
+        .then((results) => {
+          const localMints = new Set(
+            availableToTokens.map((t) => t.mint).filter(Boolean),
+          );
+          setRemoteToResults(
+            results
+              .filter((t) => t.mint && !localMints.has(t.mint))
+              .map((t) => ({
+                symbol: t.symbol,
+                name: t.name,
+                icon: t.icon,
+                decimals: t.decimals,
+                balance: 0,
+                priceUsd: t.priceUsd,
+                mint: t.mint,
+              })),
+          );
+        })
+        .catch(() => setRemoteToResults([]))
+        .finally(() => setIsRemoteSearching(false));
+    }, 300);
+    return () => {
+      if (remoteSearchTimerRef.current)
+        clearTimeout(remoteSearchTimerRef.current);
+    };
+  }, [searchQuery, view, searchPopularTokens, availableToTokens]);
+
+  const allToTokens = useMemo(
+    () =>
+      searchQuery && searchQuery.length >= 2
+        ? [...filteredToTokens, ...remoteToResults]
+        : filteredToTokens,
+    [filteredToTokens, remoteToResults, searchQuery],
+  );
 
   // Sheet animation handlers
   const unmount = useCallback(() => {
@@ -1703,7 +1778,7 @@ export default function SwapSheet({
 
             {/* Token List */}
             <div className="flex-1 overflow-y-auto">
-              {filteredToTokens.map((token) => (
+              {allToTokens.map((token) => (
                 <button
                   key={`${token.mint ?? token.symbol}${
                     token.isSecured ? "-secured" : ""
@@ -1714,12 +1789,18 @@ export default function SwapSheet({
                   <div className="py-1.5 pr-3">
                     <div className="w-12 h-12 relative">
                       <div className="w-12 h-12 rounded-full overflow-hidden bg-[#f2f2f7]">
-                        <Image
-                          src={token.icon}
-                          alt={getTokenIconAlt(token)}
-                          width={48}
-                          height={48}
-                        />
+                        {token.icon ? (
+                          <Image
+                            src={token.icon}
+                            alt={getTokenIconAlt(token)}
+                            width={48}
+                            height={48}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-base font-semibold text-black/30">
+                            {token.symbol.slice(0, 2)}
+                          </div>
+                        )}
                       </div>
                       {token.isSecured && (
                         <div className="absolute -bottom-0.5 -right-0.5 w-[20px] h-[20px]">
@@ -1741,13 +1822,15 @@ export default function SwapSheet({
                       className="text-[15px] leading-5 text-left"
                       style={{ color: "rgba(60, 60, 67, 0.6)" }}
                     >
-                      $
-                      {token.priceUsd.toLocaleString("en-US", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {token.priceUsd > 0
+                        ? `$${token.priceUsd.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 6,
+                          })}`
+                        : ""}
                     </p>
                   </div>
+                  {token.balance > 0 && (
                   <div className="flex flex-col gap-0.5 items-end py-2.5 pl-3">
                     <p className="text-[17px] text-black leading-[22px] text-right">
                       {token.balance.toLocaleString("en-US", {
@@ -1768,6 +1851,7 @@ export default function SwapSheet({
                       )}
                     </p>
                   </div>
+                  )}
                 </button>
               ))}
             </div>

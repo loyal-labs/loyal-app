@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 
 import { errors as joseErrors, jwtVerify, SignJWT, type JWTPayload } from "jose";
+import {
+  WALLET_AUTH_CHALLENGE_TOKEN_TYPE,
+  walletChallengeTokenClaimsSchema,
+  type WalletChallengeTokenClaimsData,
+} from "@loyal-labs/auth-core";
 
 import { WalletAuthError } from "./wallet-errors";
 
-export type WalletChallengeTokenClaims = JWTPayload & {
-  tokenType: "wallet_challenge";
-  version: 1;
-  origin: string;
-  walletAddress: string;
-  message: string;
-};
+export type WalletChallengeTokenClaims = JWTPayload &
+  WalletChallengeTokenClaimsData;
 
 function createSecretKey(secret: string): Uint8Array {
   return createHash("sha256").update(secret).digest();
@@ -57,21 +57,15 @@ export async function verifyWalletChallengeToken(
     });
   }
 
-  if (payload.tokenType !== "wallet_challenge" || payload.version !== 1) {
+  const parsed = walletChallengeTokenClaimsSchema.safeParse(payload);
+  if (!parsed.success) {
     throw new WalletAuthError("Wallet challenge token is invalid.", {
       code: "invalid_wallet_challenge",
       status: 401,
     });
   }
 
-  if (
-    typeof payload.origin !== "string" ||
-    payload.origin.length === 0 ||
-    typeof payload.walletAddress !== "string" ||
-    payload.walletAddress.length === 0 ||
-    typeof payload.message !== "string" ||
-    payload.message.length === 0
-  ) {
+  if (parsed.data.tokenType !== WALLET_AUTH_CHALLENGE_TOKEN_TYPE) {
     throw new WalletAuthError("Wallet challenge token is invalid.", {
       code: "invalid_wallet_challenge",
       status: 401,

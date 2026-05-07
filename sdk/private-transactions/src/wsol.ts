@@ -37,6 +37,22 @@ export function wrapSolToWsolIx({
   ];
 }
 
+export function createWsolAta({
+  user,
+  payer,
+}: {
+  user: PublicKey;
+  payer: PublicKey;
+}): TransactionInstruction {
+  const wsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user);
+  return createAssociatedTokenAccountIdempotentInstruction(
+    payer,
+    wsolAta,
+    user,
+    NATIVE_MINT
+  );
+}
+
 export function closeWsolAta({
   user,
   destination,

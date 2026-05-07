@@ -1,0 +1,40 @@
+{
+  "name": "@loyal-labs/smart-account-vaults",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@loyal-labs/loyal-smart-accounts": "workspace:*",
+    "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
+    "@loyal-labs/solana-instruction-decoder": "workspace:*",
+    "@loyal-labs/solana-wallet": "workspace:*",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.98.0",
+    "bn.js": "^5.2.2",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.6",
+    "@types/bun": "latest",
+    "@types/node": "^24.0.15",
+    "typescript": "^5.7.3"
+  }
+}

@@ -258,7 +258,13 @@ export function TransactionDetailView({
             >
               <button
                 className="tx-action-btn"
-                onClick={() => window.open(`https://explorer.solana.com/tx/${detail.activity.id}`, "_blank")}
+                onClick={() =>
+                  window.open(
+                    `https://explorer.solana.com/tx/${detail.activity.id}`,
+                    "_blank",
+                    "noopener,noreferrer"
+                  )
+                }
                 style={{
                   width: "48px",
                   height: "48px",

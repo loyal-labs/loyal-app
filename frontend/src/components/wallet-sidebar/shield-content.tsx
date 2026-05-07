@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownUp, ChevronRight, X } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, ChevronRight, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -15,10 +15,12 @@ const red = "#F9363C";
 function SwapShieldTabs({
   mode,
   onModeChange,
+  onBack,
   onClose,
 }: {
   mode: SwapMode;
   onModeChange: (mode: SwapMode) => void;
+  onBack?: () => void;
   onClose: () => void;
 }) {
   return (
@@ -28,8 +30,37 @@ function SwapShieldTabs({
         alignItems: "center",
         justifyContent: "space-between",
         padding: "8px",
+        gap: "8px",
       }}
     >
+      <style jsx>{`
+        .swap-back:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+      `}</style>
+      {onBack && (
+        <button
+          className="swap-back"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+            flexShrink: 0,
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      )}
       <div
         style={{
           display: "flex",
@@ -124,9 +155,11 @@ export { SwapShieldTabs };
 function StatusHeader({
   title,
   onClose,
+  onBack,
 }: {
   title: string;
   onClose: () => void;
+  onBack?: () => void;
 }) {
   return (
     <div
@@ -135,14 +168,39 @@ function StatusHeader({
         alignItems: "center",
         justifyContent: "space-between",
         padding: "8px",
+        gap: "8px",
       }}
     >
+      {onBack && (
+        <button
+          className="shield-close"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+            flexShrink: 0,
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      )}
       <div
         style={{
           flex: 1,
-          paddingLeft: "12px",
+          paddingLeft: onBack ? "0" : "12px",
           paddingTop: "4px",
           paddingBottom: "4px",
+          textAlign: onBack ? "center" : undefined,
         }}
       >
         <span
@@ -172,6 +230,7 @@ function StatusHeader({
           cursor: "pointer",
           transition: "all 0.2s ease",
           color: "#3C3C43",
+          flexShrink: 0,
         }}
         type="button"
       >
@@ -418,6 +477,7 @@ export function ShieldContent({
   onClose,
   onDone,
   onNavigate,
+  onBack,
   token: tokenProp,
   onTokenChange,
   securedBalance,
@@ -426,10 +486,13 @@ export function ShieldContent({
   hideFormChrome,
   onFormActiveChange,
   onFormButtonChange,
+  initialDirection = "shield",
+  onDirectionChange,
 }: {
   onClose: () => void;
   onDone: () => void;
-  onNavigate: (view: SubView) => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
+  onBack?: () => void;
   token: SwapToken;
   onTokenChange: (t: SwapToken) => void;
   securedBalance: number;
@@ -438,9 +501,13 @@ export function ShieldContent({
   hideFormChrome?: boolean;
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
+  initialDirection?: "shield" | "unshield";
+  onDirectionChange?: (direction: "shield" | "unshield") => void;
 }) {
   const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield();
-  const [direction, setDirection] = useState<"shield" | "unshield">("shield");
+  const [direction, setDirection] = useState<"shield" | "unshield">(
+    initialDirection
+  );
   const [amount, setAmount] = useState("");
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
@@ -450,6 +517,10 @@ export function ShieldContent({
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
   }, [phase, onFormActiveChange]);
+
+  useEffect(() => {
+    setDirection(initialDirection);
+  }, [initialDirection]);
 
   const token = tokenProp;
   const numericAmount = Number.parseFloat(amount) || 0;
@@ -488,16 +559,23 @@ export function ShieldContent({
   const amountColor = insufficientFunds && hasAmount ? red : "#000";
 
   const handleToggleDirection = useCallback(() => {
-    setDirection((d) => (d === "shield" ? "unshield" : "shield"));
-  }, []);
+    setDirection((d) => {
+      const nextDirection = d === "shield" ? "unshield" : "shield";
+      onDirectionChange?.(nextDirection);
+      return nextDirection;
+    });
+  }, [onDirectionChange]);
 
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
-      const val = pct === 100 ? bal : bal * (pct / 100);
+      let val = pct === 100 ? bal : bal * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL" && bal - val < 0.00005) {
+        val = Math.max(0, bal - 0.00005);
+      }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [sourceBalance]
+    [sourceBalance, token.symbol]
   );
 
   const handleConfirm = useCallback(async () => {
@@ -565,7 +643,14 @@ export function ShieldContent({
       disabled: buttonDisabled,
       onClick: handleConfirm,
     });
-  });
+  }, [
+    hideFormChrome,
+    onFormButtonChange,
+    phase,
+    buttonLabel,
+    buttonDisabled,
+    handleConfirm,
+  ]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);
@@ -605,6 +690,7 @@ export function ShieldContent({
           `}</style>
 
           <StatusHeader
+            onBack={onBack}
             onClose={onClose}
             title={direction === "shield" ? "Shield" : "Unshield"}
           />
@@ -755,6 +841,7 @@ export function ShieldContent({
           `}</style>
 
           <StatusHeader
+            onBack={onBack}
             onClose={onClose}
             title={
               isSuccess
@@ -939,6 +1026,7 @@ export function ShieldContent({
           `}</style>
 
           <StatusHeader
+            onBack={onBack}
             onClose={onClose}
             title={direction === "shield" ? "Shielded" : "Unshielded"}
           />
@@ -946,10 +1034,12 @@ export function ShieldContent({
           <div
             style={{
               flex: 1,
+              minHeight: 0,
               display: "flex",
               flexDirection: "column",
               padding: "8px",
               overflowY: "auto",
+              overflowX: "hidden",
             }}
           >
             {/* Token icon with badge */}
@@ -1177,7 +1267,7 @@ export function ShieldContent({
             {/* From card */}
             <div
               style={{
-                background: "#fff",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
                 borderRadius: "16px",
                 padding: "10px 12px",
                 position: "relative",
@@ -1293,12 +1383,20 @@ export function ShieldContent({
                 />
                 {direction === "shield" ? (
                   <SelectableTokenPill
-                    onClick={() => onNavigate({ type: "shieldTokenSelect" })}
+                    onClick={() =>
+                      onNavigate({
+                        type: "shieldTokenSelect",
+                      })
+                    }
                     token={token}
                   />
                 ) : (
                   <ShieldedSelectableTokenPill
-                    onClick={() => onNavigate({ type: "shieldTokenSelect" })}
+                    onClick={() =>
+                      onNavigate({
+                        type: "shieldTokenSelect",
+                      })
+                    }
                     token={token}
                   />
                 )}

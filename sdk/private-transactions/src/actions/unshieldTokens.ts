@@ -20,7 +20,7 @@ import {
 import type { InstructionCheck, RpcOptions } from "../types";
 import { sendAndConfirmWithDiagnostics } from "../transaction-debug";
 import { waitForAccountOwnerChange } from "../utils";
-import { closeWsolAta, wrapSolToWsolIx } from "../wsol";
+import { closeWsolAta, createWsolAta, wrapSolToWsolIx } from "../wsol";
 import { undelegateDepositIx } from "../instructions/undelegateDeposit";
 import {
   labelTransactionInstructions,
@@ -107,14 +107,9 @@ export async function buildUnshieldTokensInstructionPlan(params: {
 
   if (isNativeSol) {
     instructions.push(
-      ...labelTransactionInstructions(
-        "ensureWsolAta",
-        wrapSolToWsolIx({
-          user,
-          payer,
-          lamports: 0n,
-        })
-      )
+      ...labelTransactionInstructions("ensureWsolAta", [
+        createWsolAta({ user, payer }),
+      ])
     );
   }
 

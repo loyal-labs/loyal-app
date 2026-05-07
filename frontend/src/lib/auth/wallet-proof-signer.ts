@@ -2,7 +2,9 @@
 
 import bs58 from "bs58";
 
-type SignMessageFn = ((message: Uint8Array) => Promise<Uint8Array>) | undefined;
+export type WalletProofSignMessage =
+  | ((message: Uint8Array) => Promise<Uint8Array>)
+  | undefined;
 
 export class WalletProofSignerError extends Error {
   readonly code: "wallet_signature_rejected" | "wallet_signing_unsupported";
@@ -31,7 +33,7 @@ function isRejectedSignatureError(error: unknown): boolean {
 }
 
 export async function signWalletProofMessage(args: {
-  signMessage: SignMessageFn;
+  signMessage: WalletProofSignMessage;
   message: string;
 }): Promise<string> {
   if (!args.signMessage) {

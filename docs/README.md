@@ -16,4 +16,6 @@ This folder contains internal repository and engineering documentation for contr
 - `miniapp/README.md`
 - `onboarding/README.md`
 - `solana/README.md`
+- `solana/smart-accounts-api-and-frontend.md`
+- `solana/smart-accounts-kamino-policy-flow.md`
 - `workers/README.md`

@@ -1,11 +1,12 @@
 import type { SolanaSignInInput } from "@solana/wallet-standard-features";
 import { NextResponse } from "next/server";
 
-import { verifySIWS } from "@/lib/solana/sign-in";
+import { verifySIWSForEnv } from "@/lib/solana/sign-in";
 import type {
   SerializedSolanaSignInOutput,
   SerializedWalletAccount,
 } from "@/lib/solana/types";
+import { getServerEnv } from "@/lib/core/config/server";
 
 export const dynamic = "force-dynamic";
 
@@ -121,7 +122,11 @@ export async function POST(req: Request) {
     }
 
     const { input, output } = body;
-    const verified = verifySIWS(input, output);
+    const verified = verifySIWSForEnv(
+      input,
+      output,
+      getServerEnv().solanaEnv
+    );
 
     return NextResponse.json({ verified });
   } catch (error) {

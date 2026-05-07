@@ -8,6 +8,7 @@ import type {
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { getCachedKaminoLendingApyBps } from "../lib/kamino-apy";
 import { getTokenIconUrl } from "../lib/token-icon";
 import type { ActivityRow, TokenRow, TransactionDetail } from "../types/wallet";
 
@@ -35,10 +36,16 @@ export type WalletDesktopData = {
 };
 
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
+const SOL_MINT = "So11111111111111111111111111111111111111112";
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const LOYL_ICON_URL =
 	"https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
+const SOL_ICON_URL =
+	"https://coin-images.coingecko.com/coins/images/21629/large/solana.jpg";
+const USDC_ICON_URL =
+	"https://coin-images.coingecko.com/coins/images/6319/large/usdc.png";
 
 // In-memory local activity store (no localStorage dependency)
 const localActivityStore = new Map<
@@ -69,6 +76,7 @@ function formatUsd(value: number | null | undefined): string {
 }
 
 function formatTokenBalance(balance: number): string {
+	if (balance === 0) return "0";
 	return balance.toLocaleString("en-US", {
 		minimumFractionDigits: balance >= 1 ? 0 : 2,
 		maximumFractionDigits: balance >= 1 ? 4 : 6,
@@ -593,41 +601,91 @@ export function useWalletData(params: {
 			}
 		}
 
-		const existingLoylIndex = rows.findIndex(
-			(r) => r.id === LOYL_MINT,
-		);
-		if (existingLoylIndex >= 0) {
-			if (existingLoylIndex !== 2) {
-				const [loylRow] = rows.splice(existingLoylIndex, 1);
-				rows.splice(Math.min(2, rows.length), 0, loylRow);
-			}
-		} else {
-			const loylPosition = positions.find(
-				(p) => p.asset.mint === LOYL_MINT,
-			);
-			// If LOYAL is held only as shielded, the secured row already
-			// represents it — don't add an empty public placeholder row.
-			const loylHasOnlyShielded =
-				loylPosition !== undefined &&
-				loylPosition.publicBalance === 0 &&
-				loylPosition.securedBalance > 0;
-			if (!loylHasOnlyShielded) {
-				const loylRow: TokenRow = loylPosition
-					? mapPositionToTokenRow(loylPosition)
+		// Ensure SOL, LOYAL, USDC are always present (in that order at the top)
+		const defaults: { mint: string; symbol: string; icon: string; price: number | null }[] = [
+			{ mint: SOL_MINT, symbol: "SOL", icon: SOL_ICON_URL, price: null },
+			{ mint: LOYL_MINT, symbol: "LOYAL", icon: LOYL_ICON_URL, price: loylPriceUsd },
+			{ mint: USDC_MINT, symbol: "USDC", icon: USDC_ICON_URL, price: 1 },
+		];
+
+		for (let i = defaults.length - 1; i >= 0; i--) {
+			const { mint, symbol, icon, price } = defaults[i];
+			const existingIndex = rows.findIndex((r) => r.id === mint);
+			if (existingIndex >= 0) {
+				// Move to correct position if not already there
+				if (existingIndex !== i) {
+					const [row] = rows.splice(existingIndex, 1);
+					rows.splice(Math.min(i, rows.length), 0, row);
+				}
+			} else {
+				const pos = positions.find((p) => p.asset.mint === mint);
+				if (
+					mint === LOYL_MINT &&
+					pos &&
+					pos.publicBalance === 0 &&
+					pos.securedBalance > 0
+				) {
+					continue;
+				}
+				const row: TokenRow = pos
+					? mapPositionToTokenRow(pos)
 					: {
-							id: LOYL_MINT,
-							symbol: "LOYAL",
-							price: formatUsd(loylPriceUsd),
+							id: mint,
+							symbol,
+							price: price !== null ? formatUsd(price) : "$0.00",
 							amount: "0",
 							value: "$0.00",
-							icon: LOYL_ICON_URL,
+							icon,
 						};
-				rows.splice(Math.min(2, rows.length), 0, loylRow);
+				rows.splice(Math.min(i, rows.length), 0, row);
 			}
 		}
 
 		return rows;
 	}, [positions, loylPriceUsd]);
+
+	// Enrich secured rows with Kamino APY
+	const [apyByMint, setApyByMint] = useState<
+		Record<string, number | null>
+	>({});
+	useEffect(() => {
+		const securedMints = allTokenRows
+			.filter((r) => r.isSecured && r.id)
+			.map((r) => r.id!.replace(/-secured$/, ""));
+		if (securedMints.length === 0) return;
+
+		let cancelled = false;
+		Promise.all(
+			securedMints.map(async (mint) => {
+				const apyBps = await getCachedKaminoLendingApyBps({
+					solanaEnv,
+					mint,
+				});
+				return [mint, apyBps] as const;
+			}),
+		).then((results) => {
+			if (cancelled) return;
+			const next: Record<string, number | null> = {};
+			for (const [mint, apyBps] of results) {
+				if (apyBps !== null) next[mint] = apyBps;
+			}
+			if (Object.keys(next).length > 0) setApyByMint(next);
+		});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [allTokenRows, solanaEnv]);
+
+	const enrichedTokenRows = useMemo(() => {
+		if (Object.keys(apyByMint).length === 0) return allTokenRows;
+		return allTokenRows.map((row) => {
+			if (!row.isSecured || !row.id) return row;
+			const mint = row.id.replace(/-secured$/, "");
+			const apyBps = apyByMint[mint];
+			return apyBps != null ? { ...row, apyBps } : row;
+		});
+	}, [allTokenRows, apyByMint]);
 
 	const activityData = useMemo(() => {
 		const details: Record<string, TransactionDetail> = {};
@@ -747,8 +805,8 @@ export function useWalletData(params: {
 						maximumFractionDigits: 5,
 					})} SOL`,
 		walletLabel,
-		tokenRows: allTokenRows.slice(0, 3),
-		allTokenRows,
+		tokenRows: enrichedTokenRows.slice(0, 3),
+		allTokenRows: enrichedTokenRows,
 		activityRows: mergedActivityData.rows.slice(0, 5),
 		allActivityRows: mergedActivityData.rows,
 		transactionDetails: mergedActivityData.details,

@@ -13,16 +13,13 @@ mock.module("@loyal-labs/shared/analytics-server", () => ({
   createMixpanelServerClient,
 }));
 
-mock.module("@/lib/core/config/server", () => ({
-  getServerEnv: () => ({
-    mixpanelToken: "frontend-server-token",
-  }),
-}));
-
 let analyticsServer: typeof import("../analytics-server");
 
 describe("frontend server analytics wrapper", () => {
   beforeAll(async () => {
+    process.env.PHALA_API_KEY = "test-key";
+    process.env.DATABASE_URL = "postgresql://localhost/test";
+    process.env.NEXT_PUBLIC_MIXPANEL_TOKEN = "frontend-server-token";
     analyticsServer = await import("../analytics-server");
   });
 
