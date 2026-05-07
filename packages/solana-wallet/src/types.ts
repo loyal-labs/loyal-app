@@ -161,6 +161,12 @@ export type GetActivityOptions = {
   limit?: number;
   before?: string;
   onlySystemTransfers?: boolean;
+  forceRefresh?: boolean;
+};
+
+export type InvalidateCachesOptions = {
+  portfolio?: AddressInput[];
+  activity?: AddressInput[];
 };
 
 export type SubscribeActivityOptions = {
@@ -287,4 +293,5 @@ export type SolanaWalletDataClient = {
     onActivity: (activity: WalletActivity) => void,
     options?: SubscribeActivityOptions
   ) => Promise<() => Promise<void>>;
+  invalidateCaches: (options?: InvalidateCachesOptions) => void;
 };

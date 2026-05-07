@@ -29,6 +29,7 @@ export type {
   CreateSolanaWalletDataClientConfig,
   GetActivityOptions,
   GetPortfolioOptions,
+  InvalidateCachesOptions,
   PortfolioHolding,
   PortfolioPosition,
   PortfolioSnapshot,
