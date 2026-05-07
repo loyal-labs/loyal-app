@@ -1891,6 +1891,11 @@ import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import {
   PublicKey as PublicKey2
 } from "@solana/web3.js";
+var DEPOSIT_ACCOUNT_SIZE = 80;
+var DEPOSIT_USER_OFFSET = 8;
+var DEPOSIT_MINT_OFFSET = 40;
+var DEPOSIT_AMOUNT_OFFSET = 72;
+
 class ReadOnlyWallet {
   publicKey;
   constructor(publicKey) {
@@ -1910,23 +1915,58 @@ function createReadOnlyDepositProgram(connection) {
   });
   return new Program(telegram_private_transfer_default, provider);
 }
+function readDepositAmount(data) {
+  let value = BigInt(0);
+  for (let i = 0;i < 8; i++) {
+    value += BigInt(data[DEPOSIT_AMOUNT_OFFSET + i] ?? 0) << BigInt(i * 8);
+  }
+  return value;
+}
+async function readDelegatedDepositsOnBase(baseConnection, user) {
+  const accounts = await baseConnection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
+    filters: [
+      { dataSize: DEPOSIT_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: DEPOSIT_USER_OFFSET,
+          bytes: user.toBase58()
+        }
+      }
+    ]
+  });
+  const result = [];
+  for (const { pubkey, account } of accounts) {
+    const data = account.data;
+    if (data.length < DEPOSIT_ACCOUNT_SIZE)
+      continue;
+    const tokenMint = new PublicKey2(data.subarray(DEPOSIT_MINT_OFFSET, DEPOSIT_MINT_OFFSET + 32));
+    result.push({
+      user,
+      tokenMint,
+      amount: readDepositAmount(data),
+      address: pubkey
+    });
+  }
+  return result;
+}
 async function enumerateDepositsByUser(args) {
   const userFilter = [
     {
       memcmp: {
-        offset: 8,
+        offset: DEPOSIT_USER_OFFSET,
         bytes: args.user.toBase58()
       }
     }
   ];
   const baseProgram = createReadOnlyDepositProgram(args.baseConnection);
   const ephemeralProgram = args.ephemeralConnection ? createReadOnlyDepositProgram(args.ephemeralConnection) : null;
-  const [baseResults, ephemeralResults] = await Promise.allSettled([
+  const [baseUndelegatedResult, baseDelegatedResult, ephemeralResult] = await Promise.allSettled([
     baseProgram.account.deposit.all(userFilter),
+    readDelegatedDepositsOnBase(args.baseConnection, args.user),
     ephemeralProgram ? ephemeralProgram.account.deposit.all(userFilter) : Promise.resolve([])
   ]);
   const byPda = new Map;
-  const ingest = (results, preferOverwrite) => {
+  const ingestAnchor = (results, preferOverwrite) => {
     for (const { publicKey, account } of results) {
       const key = publicKey.toBase58();
       if (!preferOverwrite && byPda.has(key))
@@ -1939,15 +1979,28 @@ async function enumerateDepositsByUser(args) {
       });
     }
   };
-  if (baseResults.status === "fulfilled") {
-    ingest(baseResults.value, false);
+  const ingestRaw = (results, preferOverwrite) => {
+    for (const data of results) {
+      const key = data.address.toBase58();
+      if (!preferOverwrite && byPda.has(key))
+        continue;
+      byPda.set(key, data);
+    }
+  };
+  if (baseUndelegatedResult.status === "fulfilled") {
+    ingestAnchor(baseUndelegatedResult.value, false);
   } else {
-    console.warn("[enumerateDepositsByUser] base program enumeration failed", baseResults.reason);
+    console.warn("[enumerateDepositsByUser] base undelegated enumeration failed", baseUndelegatedResult.reason);
   }
-  if (ephemeralResults.status === "fulfilled") {
-    ingest(ephemeralResults.value, true);
-  } else if (ephemeralProgram) {
-    console.warn("[enumerateDepositsByUser] ephemeral program enumeration failed", ephemeralResults.reason);
+  if (baseDelegatedResult.status === "fulfilled") {
+    ingestRaw(baseDelegatedResult.value, true);
+  } else {
+    console.warn("[enumerateDepositsByUser] base delegated enumeration failed", baseDelegatedResult.reason);
+  }
+  if (ephemeralResult.status === "fulfilled" && ephemeralProgram) {
+    ingestAnchor(ephemeralResult.value, true);
+  } else if (ephemeralProgram && ephemeralResult.status === "rejected") {
+    console.warn("[enumerateDepositsByUser] ephemeral enumeration failed", ephemeralResult.reason);
   }
   return Array.from(byPda.values());
 }
@@ -2326,7 +2379,7 @@ var U64_SIZE = 8;
 var U8_SIZE = 1;
 var BOOL_SIZE = 1;
 var VEC_PREFIX_SIZE = 4;
-var DEPOSIT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
+var DEPOSIT_ACCOUNT_SIZE2 = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
 var VAULT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + U8_SIZE;
 var PERMISSION_ACCOUNT_SIZE = 567;
 var DELEGATION_RECORD_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE * 3;
@@ -2359,7 +2412,7 @@ async function estimateDepositRentLamports(params) {
     accounts: [
       {
         address: params.depositPda,
-        space: DEPOSIT_ACCOUNT_SIZE,
+        space: DEPOSIT_ACCOUNT_SIZE2,
         forceCreate: params.forceCreate
       }
     ]
@@ -2672,6 +2725,13 @@ function wrapSolToWsolIx({
     }),
     createSyncNativeInstruction(wsolAta)
   ];
+}
+function createWsolAta({
+  user,
+  payer
+}) {
+  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
+  return createAssociatedTokenAccountIdempotentInstruction(payer, wsolAta, user, NATIVE_MINT);
 }
 function closeWsolAta({
   user,
@@ -3463,11 +3523,9 @@ async function buildUnshieldTokensInstructionPlan(params) {
   const instructions = [];
   const checks = [];
   if (isNativeSol) {
-    instructions.push(...labelTransactionInstructions("ensureWsolAta", wrapSolToWsolIx({
-      user,
-      payer,
-      lamports: 0n
-    })));
+    instructions.push(...labelTransactionInstructions("ensureWsolAta", [
+      createWsolAta({ user, payer })
+    ]));
   }
   const modifyBalanceIxs = await modifyBalanceIx(baseProgram, {
     tokenMint,
