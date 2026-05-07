@@ -90,6 +90,8 @@ export function WalletDetailView({
   accessTitle = "User Access",
   initialTab = "tokens",
   receiveLabel = "Receive",
+  onAccessLevelChange,
+  isAccessLevelPending = false,
 }: {
   address: string | null;
   label: string;
@@ -112,6 +114,8 @@ export function WalletDetailView({
   accessTitle?: string;
   initialTab?: "activity" | "tokens";
   receiveLabel?: string;
+  onAccessLevelChange?: (level: AccessLevel) => Promise<void>;
+  isAccessLevelPending?: boolean;
 }) {
   const [activeTab, setActiveTab] =
     useState<"activity" | "tokens">(initialTab);
@@ -566,12 +570,19 @@ export function WalletDetailView({
             >
               {ACCESS_OPTIONS.map((option) => {
                 const selected = displayAccessLevel === option.id;
+                const isPersisted = (accessLevel ?? "suggest") === option.id;
+                const showConfirm =
+                  selected && !isPersisted && Boolean(onAccessLevelChange);
+                const isReadOnly = !onAccessLevelChange;
 
                 return (
-                  <button
+                  <div
                     className="wallet-detail-access-row"
                     key={option.id}
-                    onClick={() => setDisplayAccessLevel(option.id)}
+                    onClick={() => {
+                      if (isReadOnly || isAccessLevelPending) return;
+                      setDisplayAccessLevel(option.id);
+                    }}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -579,12 +590,16 @@ export function WalletDetailView({
                       borderRadius: "16px",
                       background: "transparent",
                       border: "none",
-                      cursor: "pointer",
+                      cursor:
+                        isReadOnly || isAccessLevelPending
+                          ? "default"
+                          : "pointer",
                       width: "100%",
                       transition: "background 0.15s ease",
                       textAlign: "left",
                     }}
-                    type="button"
+                    role="button"
+                    tabIndex={isReadOnly ? -1 : 0}
                   >
                     <div
                       style={{
@@ -628,6 +643,39 @@ export function WalletDetailView({
                         {option.description}
                       </span>
                     </div>
+                    {showConfirm && (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!onAccessLevelChange || isAccessLevelPending) {
+                            return;
+                          }
+                          void onAccessLevelChange(option.id);
+                        }}
+                        disabled={isAccessLevelPending}
+                        style={{
+                          marginRight: "12px",
+                          padding: "6px 14px",
+                          borderRadius: "9999px",
+                          border: "none",
+                          background: "#000",
+                          color: "#fff",
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 500,
+                          lineHeight: "16px",
+                          cursor: isAccessLevelPending
+                            ? "default"
+                            : "pointer",
+                          opacity: isAccessLevelPending ? 0.5 : 1,
+                          transition: "opacity 0.15s ease",
+                          flexShrink: 0,
+                        }}
+                        type="button"
+                      >
+                        {isAccessLevelPending ? "Confirming…" : "Confirm"}
+                      </button>
+                    )}
                     <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                       <div
                         style={{
@@ -643,7 +691,7 @@ export function WalletDetailView({
                         }}
                       />
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

@@ -6,6 +6,7 @@ import {
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
   type SmartAccountProposalSnapshot,
+  type SmartAccountSignerPermission,
   type SmartAccountSignerSnapshot,
   type SmartAccountSpendingLimitSnapshot,
   type SmartAccountVaultSnapshot,
@@ -33,6 +34,8 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { getTokenIconUrl } from "@/lib/token-icon";
+
+import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 
 type SmartAccountRouteResponse = {
   overview: SmartAccountOverview;
@@ -106,6 +109,24 @@ type SmartAccountVaultActivityView = Pick<
   "activityRows" | "transactionDetails"
 >;
 
+export type SmartAccountSignerPortfolioView = {
+  tokenRows: TokenRow[];
+  activityRows: ActivityRow[];
+  transactionDetails: Record<string, TransactionDetail>;
+  isLoading: boolean;
+  hasLoadedActivity: boolean;
+  error: string | null;
+};
+
+const EMPTY_SIGNER_PORTFOLIO_VIEW: SmartAccountSignerPortfolioView = {
+  tokenRows: [],
+  activityRows: [],
+  transactionDetails: {},
+  isLoading: false,
+  hasLoadedActivity: false,
+  error: null,
+};
+
 export type VaultTransferRequest = {
   accountIndex: number;
   mint: string;
@@ -156,7 +177,33 @@ export type SmartAccountSidebarData = {
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
-  addInitiateSigner: (args: { signerAddress: string }) => Promise<void>;
+  addInitiateSigner: (args: {
+    signerAddress: string;
+    /**
+     * Permissions to grant the new signer in the spending-limit policy.
+     * Defaults to `["initiate"]` (the legacy "Suggest" tier). Pass
+     * richer sets for "Sign" or "Execute" tiers.
+     */
+    permissions?: SmartAccountSignerPermission[];
+  }) => Promise<void>;
+  /**
+   * Replace a root signer's permissions atomically (single settings change
+   * that emits RemoveSigner + AddSigner). The smart-account program rejects
+   * changes that would leave no signer with `execute`, so we let the program
+   * enforce that guardrail rather than re-implementing it client-side.
+   */
+  updateSignerPermissions: (args: {
+    signerAddress: string;
+    permissions: SmartAccountSignerPermission[];
+    /**
+     * When provided, the change goes through a PolicyUpdate against this
+     * spending-limit policy (covers Agent rows). When omitted, the change
+     * goes through RemoveSigner+AddSigner on the settings PDA top-level
+     * signer list (covers User + root Signer rows).
+     */
+    policyAddress?: string | null;
+    accountIndex?: number;
+  }) => Promise<void>;
   deleteSigner: (args: {
     accountIndex: number;
     policyAddress?: string | null;
@@ -203,6 +250,14 @@ export type SmartAccountSidebarData = {
   isActionPending: boolean;
   pendingProposalId: string | null;
   pendingSpendingLimitActionKey: string | null;
+  /**
+   * Per-signer (non-User) portfolio + activity. Populated lazily; call
+   * `loadSignerPortfolio(address)` on selection. Vault-only signers have
+   * their own wallet balance + history independent of the vault.
+   */
+  signerPortfolioByAddress: Record<string, SmartAccountSignerPortfolioView>;
+  loadSignerPortfolio: (signerAddress: string) => Promise<void>;
+  loadSignerActivity: (signerAddress: string) => Promise<void>;
 };
 
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
@@ -950,6 +1005,7 @@ export function useSmartAccountSidebarData(
   const { user } = useAuthSession();
   const { connection } = useConnection();
   const wallet = useWallet();
+  const walletDataClient = useSolanaWalletDataClient();
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -963,6 +1019,15 @@ export function useSmartAccountSidebarData(
   const [vaultActivityByAccountIndex, setVaultActivityByAccountIndex] =
     useState<Record<number, SmartAccountVaultActivityView>>({});
   const vaultActivityLoadPromisesRef = useRef<Map<number, Promise<void>>>(
+    new Map()
+  );
+  const [signerPortfolioByAddress, setSignerPortfolioByAddress] = useState<
+    Record<string, SmartAccountSignerPortfolioView>
+  >({});
+  const signerPortfolioLoadPromisesRef = useRef<Map<string, Promise<void>>>(
+    new Map()
+  );
+  const signerActivityLoadPromisesRef = useRef<Map<string, Promise<void>>>(
     new Map()
   );
 
@@ -1083,6 +1148,143 @@ export function useSmartAccountSidebarData(
       }
     },
     [overview?.vaults, user?.settingsPda]
+  );
+
+  const loadSignerPortfolio = useCallback(
+    async (signerAddress: string) => {
+      if (!signerAddress) {
+        return;
+      }
+
+      const existing = signerPortfolioLoadPromisesRef.current.get(signerAddress);
+      if (existing) {
+        return existing;
+      }
+
+      const promise = (async () => {
+        setSignerPortfolioByAddress((current) => ({
+          ...current,
+          [signerAddress]: {
+            ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+            isLoading: true,
+            error: null,
+          },
+        }));
+
+        try {
+          const publicKey = new PublicKey(signerAddress);
+          const portfolio = await walletDataClient.getPortfolio(publicKey);
+          const tokenRows = mapVaultToTokenRows(portfolio.positions);
+
+          setSignerPortfolioByAddress((current) => ({
+            ...current,
+            [signerAddress]: {
+              ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+              tokenRows,
+              isLoading: false,
+              error: null,
+            },
+          }));
+        } catch (err) {
+          setSignerPortfolioByAddress((current) => ({
+            ...current,
+            [signerAddress]: {
+              ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+              isLoading: false,
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Failed to load signer portfolio.",
+            },
+          }));
+          console.error(
+            "[smart-account] failed to load signer portfolio",
+            err
+          );
+        }
+      })();
+
+      signerPortfolioLoadPromisesRef.current.set(signerAddress, promise);
+
+      try {
+        await promise;
+      } finally {
+        signerPortfolioLoadPromisesRef.current.delete(signerAddress);
+      }
+    },
+    [walletDataClient]
+  );
+
+  const loadSignerActivity = useCallback(
+    async (signerAddress: string) => {
+      if (!signerAddress) {
+        return;
+      }
+
+      const existing = signerActivityLoadPromisesRef.current.get(signerAddress);
+      if (existing) {
+        return existing;
+      }
+
+      const promise = (async () => {
+        try {
+          const publicKey = new PublicKey(signerAddress);
+          const [portfolio, activityPage] = await Promise.all([
+            walletDataClient.getPortfolio(publicKey),
+            walletDataClient.getActivity(publicKey, { limit: 30 }),
+          ]);
+          const solPriceUsd = resolveSolPriceUsd({
+            effectiveSolPriceUsd: portfolio.totals.effectiveSolPriceUsd,
+            positions: portfolio.positions,
+          });
+          const { activityRows, transactionDetails } =
+            mapVaultActivityPageToView(
+              activityPage,
+              portfolio.positions,
+              solPriceUsd
+            );
+
+          setSignerPortfolioByAddress((current) => {
+            const previous =
+              current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW;
+            return {
+              ...current,
+              [signerAddress]: {
+                ...previous,
+                activityRows,
+                transactionDetails,
+                hasLoadedActivity: true,
+                error: null,
+              },
+            };
+          });
+        } catch (err) {
+          setSignerPortfolioByAddress((current) => ({
+            ...current,
+            [signerAddress]: {
+              ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Failed to load signer activity.",
+            },
+          }));
+          console.error(
+            "[smart-account] failed to load signer activity",
+            err
+          );
+        }
+      })();
+
+      signerActivityLoadPromisesRef.current.set(signerAddress, promise);
+
+      try {
+        await promise;
+      } finally {
+        signerActivityLoadPromisesRef.current.delete(signerAddress);
+      }
+    },
+    [walletDataClient]
   );
 
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
@@ -1393,19 +1595,29 @@ export function useSmartAccountSidebarData(
   );
 
   const addInitiateSigner = useCallback(
-    async (args: { signerAddress: string }) => {
+    async (args: {
+      signerAddress: string;
+      permissions?: SmartAccountSignerPermission[];
+    }) => {
       if (!overview || !wallet.publicKey) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
       const signer = new PublicKey(args.signerAddress);
+      const requestedPermissions = args.permissions ?? ["initiate"];
       const existingSigner = overview.policies
         .filter((policy) => policy.state === "SpendingLimit")
         .flatMap((policy) => policy.signers)
         .find((entry) => entry.address === signer.toBase58());
 
-      if (existingSigner?.canInitiate) {
-        return;
+      if (existingSigner) {
+        const existingMask = new Set(existingSigner.permissions);
+        const wantsAll = requestedPermissions.every((perm) =>
+          existingMask.has(perm)
+        );
+        if (wantsAll) {
+          return;
+        }
       }
 
       await runSpendingLimitAction({
@@ -1416,7 +1628,60 @@ export function useSmartAccountSidebarData(
             creator: wallet.publicKey!,
             feePayer: wallet.publicKey!,
             signer,
+            permissions: requestedPermissions,
           }),
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
+  const updateSignerPermissions = useCallback(
+    async (args: {
+      signerAddress: string;
+      permissions: SmartAccountSignerPermission[];
+      /**
+       * When set, the helper updates this signer's permissions inside a
+       * SpendingLimit policy (PolicyUpdate). When omitted, the helper
+       * updates the root signer entry on the settings PDA
+       * (RemoveSigner+AddSigner). Root + policy live in different lists,
+       * so the caller picks based on signer scope.
+       */
+      policyAddress?: string | null;
+      accountIndex?: number;
+    }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      if (args.permissions.length === 0) {
+        throw new Error("Signer must keep at least one permission.");
+      }
+
+      const signer = new PublicKey(args.signerAddress);
+      const isPolicyScoped = Boolean(args.policyAddress);
+
+      await runSpendingLimitAction({
+        actionKey: `update-signer-permissions:${signer.toBase58()}`,
+        prepare: (client) =>
+          isPolicyScoped
+            ? client.prepareUpdatePolicySignerPermissions({
+                settingsPda: new PublicKey(overview.settingsPda),
+                creator: wallet.publicKey!,
+                feePayer: wallet.publicKey!,
+                signer,
+                permissions: args.permissions,
+                policyPda: args.policyAddress
+                  ? new PublicKey(args.policyAddress)
+                  : null,
+                accountIndex: args.accountIndex,
+              })
+            : client.prepareUpdateSignerPermissions({
+                settingsPda: new PublicKey(overview.settingsPda),
+                creator: wallet.publicKey!,
+                feePayer: wallet.publicKey!,
+                signer,
+                permissions: args.permissions,
+              }),
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1852,6 +2117,7 @@ export function useSmartAccountSidebarData(
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),
     executeProposal: (proposal) => runProposalAction(proposal, "execute"),
     addInitiateSigner,
+    updateSignerPermissions,
     deleteSigner,
     setSignerSpendingLimitUsd,
     topUpSignerWithSpendingLimitUsd,
@@ -1861,5 +2127,8 @@ export function useSmartAccountSidebarData(
     isActionPending,
     pendingProposalId,
     pendingSpendingLimitActionKey,
+    signerPortfolioByAddress,
+    loadSignerPortfolio,
+    loadSignerActivity,
   };
 }

@@ -1063,6 +1063,22 @@ export function AppWalletWorkspace({
     }
   }, [isSignedIn]);
 
+  // Lazy-load the agent's own wallet portfolio when an agent (non-User
+  // signer) is selected. Skips the User row — that wallet is already
+  // covered by walletDesktopData.
+  const loadSignerPortfolio = smartAccountData.loadSignerPortfolio;
+  useEffect(() => {
+    if (
+      !selectedAgent ||
+      selectedAgent.label === "User" ||
+      activeDetailSelection !== "agent"
+    ) {
+      return;
+    }
+
+    void loadSignerPortfolio(selectedAgent.address).catch(() => undefined);
+  }, [selectedAgent, activeDetailSelection, loadSignerPortfolio]);
+
   useEffect(() => {
     if (
       hasRestoredSelectionRef.current ||
@@ -2049,6 +2065,38 @@ export function AppWalletWorkspace({
             selectedSignerId ? selectedAgent?.accessLevel : undefined
           }
           accessTitle="Access level"
+          onAccessLevelChange={
+            selectedSignerId && selectedAgent
+              ? async (level) => {
+                  await smartAccountData.updateSignerPermissions({
+                    signerAddress: selectedAgent.address,
+                    permissions:
+                      level === "suggest"
+                        ? ["initiate"]
+                        : level === "sign"
+                          ? ["initiate", "vote"]
+                          : ["initiate", "vote", "execute"],
+                    // Root signers (scope === "settings") live on the
+                    // settings PDA; agents live in their spending-limit
+                    // policy. Pass policy details only for the latter.
+                    policyAddress:
+                      selectedAgent.scope === "policy"
+                        ? selectedAgent.policyAddress
+                        : null,
+                    accountIndex:
+                      selectedAgent.scope === "policy"
+                        ? selectedVaultAccountIndex
+                        : undefined,
+                  });
+                }
+              : undefined
+          }
+          isAccessLevelPending={
+            selectedAgent
+              ? smartAccountData.pendingSpendingLimitActionKey ===
+                `update-signer-permissions:${selectedAgent.address}`
+              : false
+          }
           getTokenActions={getTokenActions}
           onActivityTabOpen={() => {
             void walletDesktopData.loadActivity();
@@ -2062,6 +2110,8 @@ export function AppWalletWorkspace({
     }
 
     if (detailSelection === "agent" && selectedAgent && selectedVault) {
+      const signerView =
+        smartAccountData.signerPortfolioByAddress[selectedAgent.address];
       return (
         <AgentPageView
           agentIcon={selectedAgent.icon}
@@ -2079,6 +2129,29 @@ export function AppWalletWorkspace({
           balanceWhole={selectedAgent.balanceWhole}
           canDeleteSigner={selectedAgent.scope === "policy"}
           initialAccessLevel={selectedAgent.accessLevel}
+          onAccessLevelChange={async (level) => {
+            await smartAccountData.updateSignerPermissions({
+              signerAddress: selectedAgent.address,
+              permissions:
+                level === "suggest"
+                  ? ["initiate"]
+                  : level === "sign"
+                    ? ["initiate", "vote"]
+                    : ["initiate", "vote", "execute"],
+              policyAddress:
+                selectedAgent.scope === "policy"
+                  ? selectedAgent.policyAddress
+                  : null,
+              accountIndex:
+                selectedAgent.scope === "policy"
+                  ? selectedVaultAccountIndex
+                  : undefined,
+            });
+          }}
+          isAccessLevelPending={
+            smartAccountData.pendingSpendingLimitActionKey ===
+            `update-signer-permissions:${selectedAgent.address}`
+          }
           isBalanceHidden={isBalanceHidden}
           isSignerDeletePending={
             smartAccountData.pendingSpendingLimitActionKey ===
@@ -2127,15 +2200,15 @@ export function AppWalletWorkspace({
           showSpendingLimit
           showTopUpAction={false}
           spendingLimit={selectedAgent.spendingLimit}
-          tokenRows={selectedVault.tokenRows}
-          transactionDetails={selectedVault.transactionDetails}
-          activityRows={selectedVault.activityRows}
+          tokenRows={signerView?.tokenRows ?? []}
+          transactionDetails={signerView?.transactionDetails ?? {}}
+          activityRows={signerView?.activityRows ?? []}
           vaultAccountIndex={selectedVaultAccountIndex}
           getTokenActions={getTokenActions}
           initialTab={detailInitialTab}
           onActivityTabOpen={() => {
             void smartAccountData
-              .loadVaultActivity(selectedVault.entry.accountIndex)
+              .loadSignerActivity(selectedAgent.address)
               .catch(() => undefined);
           }}
           onTokenDetail={handleTokenDetail}
@@ -2222,8 +2295,16 @@ export function AppWalletWorkspace({
         <AddSignerPane
           accountIndex={selectedVault.entry.accountIndex}
           existingSigners={selectedVault.entry.signers}
-          onAddSigner={(signerAddress) =>
-            smartAccountData.addInitiateSigner({ signerAddress })
+          onAddSigner={({ signerAddress, accessLevel }) =>
+            smartAccountData.addInitiateSigner({
+              signerAddress,
+              permissions:
+                accessLevel === "suggest"
+                  ? ["initiate"]
+                  : accessLevel === "sign"
+                    ? ["initiate", "vote"]
+                    : ["initiate", "vote", "execute"],
+            })
           }
           pendingActionKey={smartAccountData.pendingSpendingLimitActionKey}
           vaultAddress={selectedVault.entry.address}

@@ -117,7 +117,7 @@ type ActiveWorkflowLink = {
   title: string;
 };
 
-const ACCESS_OPTIONS: {
+export const ACCESS_OPTIONS: {
   id: AccessLevel;
   label: string;
   description: string;
@@ -142,7 +142,7 @@ const ACCESS_OPTIONS: {
   },
 ];
 
-const ACCESS_DISPLAY: Record<AccessLevel, string> = {
+export const ACCESS_DISPLAY: Record<AccessLevel, string> = {
   suggest: "Can suggest",
   sign: "Can sign",
   execute: "Can execute",
@@ -231,6 +231,8 @@ export function AgentPageView({
   showSpendingLimit = false,
   showTopUpAction = true,
   activeWorkflows = [],
+  onAccessLevelChange,
+  isAccessLevelPending = false,
 }: {
   label: string;
   agentIcon: string;
@@ -280,8 +282,19 @@ export function AgentPageView({
   showSpendingLimit?: boolean;
   showTopUpAction?: boolean;
   activeWorkflows?: ActiveWorkflowLink[];
+  /**
+   * Persist a new access level for this signer. Triggers a multisig
+   * settings change (1 sign at threshold-1, more for higher thresholds).
+   * When omitted, the radio is read-only.
+   */
+  onAccessLevelChange?: (level: AccessLevel) => Promise<void>;
+  isAccessLevelPending?: boolean;
 }) {
   const isWorkspace = variant === "workspace";
+  // `accessLevel` here is the *draft* level the user has picked in the
+  // radio. It only diverges from `initialAccessLevel` while the user is
+  // mid-edit. Successful save → parent re-renders with new
+  // `initialAccessLevel` → effect below resyncs the draft.
   const [accessLevel, setAccessLevel] =
     useState<AccessLevel>(initialAccessLevel);
   const [isAccessExpanded, setIsAccessExpanded] = useState(false);
@@ -1172,11 +1185,18 @@ export function AgentPageView({
           >
             {ACCESS_OPTIONS.map((option) => {
               const selected = accessLevel === option.id;
+              const isPersisted = initialAccessLevel === option.id;
+              const showConfirm =
+                selected && !isPersisted && Boolean(onAccessLevelChange);
+              const isReadOnly = !onAccessLevelChange;
               return (
-                <button
+                <div
                   className="agent-radio-row"
                   key={option.id}
-                  onClick={() => setAccessLevel(option.id)}
+                  onClick={() => {
+                    if (isReadOnly || isAccessLevelPending) return;
+                    setAccessLevel(option.id);
+                  }}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -1184,12 +1204,16 @@ export function AgentPageView({
                     borderRadius: "16px",
                     background: "transparent",
                     border: "none",
-                    cursor: "pointer",
+                    cursor:
+                      isReadOnly || isAccessLevelPending
+                        ? "default"
+                        : "pointer",
                     width: "100%",
                     transition: "background 0.15s ease",
                     textAlign: "left",
                   }}
-                  type="button"
+                  role="button"
+                  tabIndex={isReadOnly ? -1 : 0}
                 >
                   {/* Icon */}
                   <div
@@ -1235,6 +1259,39 @@ export function AgentPageView({
                       {option.description}
                     </span>
                   </div>
+                  {/* Confirm button (only on the row whose draft differs
+                      from persisted state) */}
+                  {showConfirm && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!onAccessLevelChange || isAccessLevelPending) {
+                          return;
+                        }
+                        void onAccessLevelChange(option.id);
+                      }}
+                      disabled={isAccessLevelPending}
+                      style={{
+                        marginRight: "12px",
+                        padding: "6px 14px",
+                        borderRadius: "9999px",
+                        border: "none",
+                        background: "#000",
+                        color: "#fff",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        cursor: isAccessLevelPending ? "default" : "pointer",
+                        opacity: isAccessLevelPending ? 0.5 : 1,
+                        transition: "opacity 0.15s ease",
+                        flexShrink: 0,
+                      }}
+                      type="button"
+                    >
+                      {isAccessLevelPending ? "Confirming…" : "Confirm"}
+                    </button>
+                  )}
                   {/* Radio */}
                   <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                     <div
@@ -1251,7 +1308,7 @@ export function AgentPageView({
                       }}
                     />
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
