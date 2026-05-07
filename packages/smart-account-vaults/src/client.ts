@@ -73,6 +73,7 @@ import type {
   SmartAccountSpendingLimitSnapshot,
   SmartAccountProposalSummary,
   SmartAccountRemoveSignerProposalInput,
+  SmartAccountUpdateSignerPermissionsInput,
   SmartAccountTokenTransferProposalInput,
   SmartAccountTransferProposalInput,
   SmartAccountUseSpendingLimitInput,
@@ -970,36 +971,51 @@ function createPolicySigner(signer: PublicKey): SmartAccountSigner {
   };
 }
 
-function createInitiatePolicySigner(signer: PublicKey): SmartAccountSigner {
-  return {
-    key: signer,
-    permissions: Permissions.fromPermissions([Permission.Initiate]),
-  };
+function toPermissionFlags(
+  permissions: SmartAccountSignerPermission[]
+): Permission[] {
+  const flags: Permission[] = [];
+  if (permissions.includes("initiate")) {
+    flags.push(Permission.Initiate);
+  }
+  if (permissions.includes("vote")) {
+    flags.push(Permission.Vote);
+  }
+  if (permissions.includes("execute")) {
+    flags.push(Permission.Execute);
+  }
+  return flags;
 }
 
-function withInitiatePolicySigner(
+function withPolicySignerPermissions(
   signers: SmartAccountSigner[],
-  signer: PublicKey
+  signer: PublicKey,
+  permissions: SmartAccountSignerPermission[]
 ): SmartAccountSigner[] {
+  const flags = toPermissionFlags(permissions);
+  if (flags.length === 0) {
+    throw new Error("Signer must keep at least one permission.");
+  }
+  const newMask = flags.reduce<number>(
+    (acc, flag) => acc | flag,
+    0
+  );
+
   const existingSigner = signers.find((entry) => entry.key.equals(signer));
   if (existingSigner) {
-    if (Permissions.has(existingSigner.permissions, Permission.Initiate)) {
-      throw new Error("Signer already has Initiate permission.");
+    const mergedMask = existingSigner.permissions.mask | newMask;
+    if (mergedMask === existingSigner.permissions.mask) {
+      throw new Error("Signer already has the requested permissions.");
     }
 
     return [
-      {
-        ...existingSigner,
-        permissions: {
-          mask: existingSigner.permissions.mask | Permission.Initiate,
-        },
-      },
+      { ...existingSigner, permissions: { mask: mergedMask } },
       ...signers.filter((entry) => !entry.key.equals(signer)),
     ];
   }
 
   return [
-    createInitiatePolicySigner(signer),
+    { key: signer, permissions: Permissions.fromPermissions(flags) },
     ...signers.filter((entry) => !entry.key.equals(signer)),
   ];
 }
@@ -2191,9 +2207,10 @@ export function createSmartAccountVaultsClient(
         {
           __kind: "PolicyUpdate",
           policy: policyEntry.address,
-          signers: withInitiatePolicySigner(
+          signers: withPolicySignerPermissions(
             policyEntry.policy.signers,
-            args.signer
+            args.signer,
+            args.permissions ?? ["initiate"]
           ),
           threshold: policyEntry.policy.threshold || 1,
           timeLock: policyEntry.policy.timeLock,
@@ -2211,6 +2228,114 @@ export function createSmartAccountVaultsClient(
       memo: args.memo,
       operation: "addInitiatePolicySigner",
       policies: [policyEntry.address],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareUpdatePolicySignerPermissions(
+    args: SmartAccountUpdateSignerPermissionsInput & {
+      policyPda?: PublicKey | null;
+      accountIndex?: number;
+    }
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const flags: Permission[] = [];
+    if (args.permissions.includes("initiate")) {
+      flags.push(Permission.Initiate);
+    }
+    if (args.permissions.includes("vote")) {
+      flags.push(Permission.Vote);
+    }
+    if (args.permissions.includes("execute")) {
+      flags.push(Permission.Execute);
+    }
+
+    if (flags.length === 0) {
+      throw new Error("Signer must keep at least one permission.");
+    }
+
+    const policyEntry = await resolveAgentPolicyForRemoval({
+      settingsPda: args.settingsPda,
+      creator: args.creator,
+      feePayer: args.feePayer,
+      signer: args.signer,
+      policyPda: args.policyPda ?? null,
+      accountIndex: args.accountIndex,
+      memo: args.memo,
+    });
+
+    const nextPermissions = Permissions.fromPermissions(flags);
+    const nextSigners = policyEntry.policy.signers.map((entry) =>
+      entry.key.equals(args.signer)
+        ? { ...entry, permissions: nextPermissions }
+        : entry
+    );
+
+    const policyCreationBase = toSpendingLimitPolicyCreationBase(
+      policyEntry.policy
+    );
+
+    return prepareSettingsChange({
+      actions: [
+        {
+          __kind: "PolicyUpdate",
+          policy: policyEntry.address,
+          signers: nextSigners,
+          threshold: policyEntry.policy.threshold || 1,
+          timeLock: policyEntry.policy.timeLock,
+          policyUpdatePayload: createSpendingLimitPolicyCreationPayload({
+            amount: toBigInt(
+              policyCreationBase.quantityConstraints.maxPerPeriod
+            ),
+            base: policyCreationBase,
+          }),
+          expirationArgs: null,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "updatePolicySignerPermissions",
+      policies: [policyEntry.address],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareUpdateSignerPermissions(
+    args: SmartAccountUpdateSignerPermissionsInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const flags: Permission[] = [];
+    if (args.permissions.includes("initiate")) {
+      flags.push(Permission.Initiate);
+    }
+    if (args.permissions.includes("vote")) {
+      flags.push(Permission.Vote);
+    }
+    if (args.permissions.includes("execute")) {
+      flags.push(Permission.Execute);
+    }
+
+    if (flags.length === 0) {
+      throw new Error("Signer must keep at least one permission.");
+    }
+
+    return prepareSettingsChange({
+      actions: [
+        { __kind: "RemoveSigner", oldSigner: args.signer },
+        {
+          __kind: "AddSigner",
+          newSigner: {
+            key: args.signer,
+            permissions: Permissions.fromPermissions(flags),
+          },
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "updateSignerPermissions",
+      policies: [],
       settingsPda: args.settingsPda,
       spendingLimits: [],
     });
@@ -2832,6 +2957,8 @@ export function createSmartAccountVaultsClient(
     preparePolicyCustomInstructionProposal,
     prepareAddInitiateSigner,
     prepareRemoveInitiateSigner,
+    prepareUpdateSignerPermissions,
+    prepareUpdatePolicySignerPermissions,
     prepareSetSpendingLimitPolicy,
     prepareSetSpendingLimitProposal: prepareSetSpendingLimitPolicy,
     prepareRemoveSpendingLimitPolicy,
