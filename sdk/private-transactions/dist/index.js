@@ -1,11 +1,11 @@
 // src/LoyalPrivateTransactionsClient.ts
 import {
   Connection as Connection3,
-  PublicKey as PublicKey6,
+  PublicKey as PublicKey7,
   SystemProgram as SystemProgram5,
   Transaction as Transaction7
 } from "@solana/web3.js";
-import { AnchorProvider, BN as BN2, Program } from "@coral-xyz/anchor";
+import { AnchorProvider as AnchorProvider2, BN as BN2, Program as Program2 } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4 } from "@solana/spl-token";
 import {
   verifyTeeIntegrity,
@@ -1886,6 +1886,72 @@ function lamportsToSol(lamports) {
   return lamports / LAMPORTS_PER_SOL;
 }
 
+// src/enumerate-deposits.ts
+import { AnchorProvider, Program } from "@coral-xyz/anchor";
+import {
+  PublicKey as PublicKey2
+} from "@solana/web3.js";
+class ReadOnlyWallet {
+  publicKey;
+  constructor(publicKey) {
+    this.publicKey = publicKey;
+  }
+  async signTransaction(_tx) {
+    throw new Error("ReadOnlyWallet cannot sign transactions; construct a real client for write paths.");
+  }
+  async signAllTransactions(_txs) {
+    throw new Error("ReadOnlyWallet cannot sign transactions; construct a real client for write paths.");
+  }
+}
+function createReadOnlyDepositProgram(connection) {
+  const wallet = new ReadOnlyWallet(PublicKey2.default);
+  const provider = new AnchorProvider(connection, wallet, {
+    commitment: connection.commitment ?? "confirmed"
+  });
+  return new Program(telegram_private_transfer_default, provider);
+}
+async function enumerateDepositsByUser(args) {
+  const userFilter = [
+    {
+      memcmp: {
+        offset: 8,
+        bytes: args.user.toBase58()
+      }
+    }
+  ];
+  const baseProgram = createReadOnlyDepositProgram(args.baseConnection);
+  const ephemeralProgram = args.ephemeralConnection ? createReadOnlyDepositProgram(args.ephemeralConnection) : null;
+  const [baseResults, ephemeralResults] = await Promise.allSettled([
+    baseProgram.account.deposit.all(userFilter),
+    ephemeralProgram ? ephemeralProgram.account.deposit.all(userFilter) : Promise.resolve([])
+  ]);
+  const byPda = new Map;
+  const ingest = (results, preferOverwrite) => {
+    for (const { publicKey, account } of results) {
+      const key = publicKey.toBase58();
+      if (!preferOverwrite && byPda.has(key))
+        continue;
+      byPda.set(key, {
+        user: account.user,
+        tokenMint: account.tokenMint,
+        amount: BigInt(account.amount.toString()),
+        address: publicKey
+      });
+    }
+  };
+  if (baseResults.status === "fulfilled") {
+    ingest(baseResults.value, false);
+  } else {
+    console.warn("[enumerateDepositsByUser] base program enumeration failed", baseResults.reason);
+  }
+  if (ephemeralResults.status === "fulfilled") {
+    ingest(ephemeralResults.value, true);
+  } else if (ephemeralProgram) {
+    console.warn("[enumerateDepositsByUser] ephemeral program enumeration failed", ephemeralResults.reason);
+  }
+  return Array.from(byPda.values());
+}
+
 // src/kamino.ts
 var KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
   43,
@@ -2016,13 +2082,13 @@ async function fetchKaminoReserveSnapshot(args) {
 }
 
 // src/pda.ts
-import { PublicKey as PublicKey3 } from "@solana/web3.js";
+import { PublicKey as PublicKey4 } from "@solana/web3.js";
 
 // src/utils.ts
-import { PublicKey as PublicKey2 } from "@solana/web3.js";
+import { PublicKey as PublicKey3 } from "@solana/web3.js";
 function prettyStringify(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
-    if (value instanceof PublicKey2)
+    if (value instanceof PublicKey3)
       return value.toBase58();
     if (typeof value === "bigint")
       return value.toString();
@@ -2084,30 +2150,30 @@ function validateUsername(username) {
 
 // src/pda.ts
 function findDepositPda(user, tokenMint, programId = PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([DEPOSIT_SEED_BYTES, user.toBuffer(), tokenMint.toBuffer()], programId);
+  return PublicKey4.findProgramAddressSync([DEPOSIT_SEED_BYTES, user.toBuffer(), tokenMint.toBuffer()], programId);
 }
 async function findUsernameDepositPda(username, tokenMint, programId = PROGRAM_ID) {
   const usernameHash = await sha256hash(username);
-  return PublicKey3.findProgramAddressSync([
+  return PublicKey4.findProgramAddressSync([
     USERNAME_DEPOSIT_SEED_BYTES,
     Buffer.from(usernameHash),
     tokenMint.toBuffer()
   ], programId);
 }
 function findVaultPda(tokenMint, programId = PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([VAULT_SEED_BYTES, tokenMint.toBuffer()], programId);
+  return PublicKey4.findProgramAddressSync([VAULT_SEED_BYTES, tokenMint.toBuffer()], programId);
 }
 function findPermissionPda(account, permissionProgramId = PERMISSION_PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([PERMISSION_SEED_BYTES, account.toBuffer()], permissionProgramId);
+  return PublicKey4.findProgramAddressSync([PERMISSION_SEED_BYTES, account.toBuffer()], permissionProgramId);
 }
 function findDelegationRecordPda(account, delegationProgramId = DELEGATION_PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([Buffer.from("delegation"), account.toBuffer()], delegationProgramId);
+  return PublicKey4.findProgramAddressSync([Buffer.from("delegation"), account.toBuffer()], delegationProgramId);
 }
 function findDelegationMetadataPda(account, delegationProgramId = DELEGATION_PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([Buffer.from("delegation-metadata"), account.toBuffer()], delegationProgramId);
+  return PublicKey4.findProgramAddressSync([Buffer.from("delegation-metadata"), account.toBuffer()], delegationProgramId);
 }
 function findBufferPda(account, ownerProgramId = PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([Buffer.from("buffer"), account.toBuffer()], ownerProgramId);
+  return PublicKey4.findProgramAddressSync([Buffer.from("buffer"), account.toBuffer()], ownerProgramId);
 }
 
 // src/wallet-adapter.ts
@@ -3650,7 +3716,7 @@ var KAMINO_MAINNET_ENV = "mainnet-beta";
 var KAMINO_DEVNET_ENV = "devnet";
 function prettyStringify2(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
-    if (value instanceof PublicKey6)
+    if (value instanceof PublicKey7)
       return value.toBase58();
     if (typeof value === "bigint")
       return value.toString();
@@ -3667,10 +3733,10 @@ function programFromRpc(signer, commitment, rpcEndpoint, wsEndpoint) {
     wsEndpoint,
     commitment
   });
-  const baseProvider = new AnchorProvider(baseConnection, adapter, {
+  const baseProvider = new AnchorProvider2(baseConnection, adapter, {
     commitment
   });
-  return new Program(telegram_private_transfer_default, baseProvider);
+  return new Program2(telegram_private_transfer_default, baseProvider);
 }
 function getKaminoApiEnv(accounts) {
   return accounts && isKaminoMainnetModifyBalanceAccounts(accounts) ? KAMINO_MAINNET_ENV : KAMINO_DEVNET_ENV;
@@ -4421,43 +4487,11 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async getAllDepositsByUser(user) {
-    const userFilter = [
-      {
-        memcmp: {
-          offset: 8,
-          bytes: user.toBase58()
-        }
-      }
-    ];
-    const [baseResults, ephemeralResults] = await Promise.allSettled([
-      this.baseProgram.account.deposit.all(userFilter),
-      this.ephemeralProgram.account.deposit.all(userFilter)
-    ]);
-    const byPda = new Map;
-    const ingest = (results, preferOverwrite) => {
-      for (const { publicKey, account } of results) {
-        const key = publicKey.toBase58();
-        if (!preferOverwrite && byPda.has(key))
-          continue;
-        byPda.set(key, {
-          user: account.user,
-          tokenMint: account.tokenMint,
-          amount: BigInt(account.amount.toString()),
-          address: publicKey
-        });
-      }
-    };
-    if (baseResults.status === "fulfilled") {
-      ingest(baseResults.value, false);
-    } else {
-      console.warn("[getAllDepositsByUser] base program enumeration failed", baseResults.reason);
-    }
-    if (ephemeralResults.status === "fulfilled") {
-      ingest(ephemeralResults.value, true);
-    } else {
-      console.warn("[getAllDepositsByUser] ephemeral program enumeration failed", ephemeralResults.reason);
-    }
-    return Array.from(byPda.values());
+    return enumerateDepositsByUser({
+      user,
+      baseConnection: this.baseProgram.provider.connection,
+      ephemeralConnection: this.ephemeralProgram.provider.connection
+    });
   }
   async getBaseUsernameDeposit(username, tokenMint) {
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
@@ -4697,6 +4731,7 @@ export {
   findDelegationRecordPda,
   findDelegationMetadataPda,
   findBufferPda,
+  enumerateDepositsByUser,
   VAULT_SEED_BYTES,
   VAULT_SEED,
   USERNAME_DEPOSIT_SEED_BYTES,

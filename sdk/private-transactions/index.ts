@@ -39,6 +39,7 @@ export {
 
 export { shieldTokens } from "./src/actions/shieldTokens";
 export { unshieldTokens } from "./src/actions/unshieldTokens";
+export { enumerateDepositsByUser } from "./src/enumerate-deposits";
 
 // Types
 export type {
