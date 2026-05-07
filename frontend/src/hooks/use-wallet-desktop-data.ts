@@ -811,13 +811,28 @@ export function useWalletDesktopData(): WalletDesktopData {
       }
     }
 
-    // Ensure LOYL appears at 3rd position (index 2) always
+    // Ensure LOYL appears at 3rd position (index 2) always — but never
+    // splice between a public/shielded pair of the same mint.
+    const findPairSafeInsertion = (desiredIndex: number): number => {
+      let index = Math.min(Math.max(desiredIndex, 0), rows.length);
+      while (
+        index > 0 &&
+        index < rows.length &&
+        rows[index - 1].isSecured !== true &&
+        rows[index].isSecured === true &&
+        rows[index].id?.replace(/-secured$/, "") === rows[index - 1].id
+      ) {
+        index += 1;
+      }
+      return index;
+    };
     const existingLoylIndex = rows.findIndex((r) => r.id === LOYL_MINT);
     if (existingLoylIndex >= 0) {
-      // Already in rows (has balance) — move to index 2 if not there
-      if (existingLoylIndex !== 2) {
+      // Already in rows (has balance) — move to a pair-safe placement near 2
+      const targetIndex = findPairSafeInsertion(2);
+      if (existingLoylIndex !== targetIndex) {
         const [loylRow] = rows.splice(existingLoylIndex, 1);
-        rows.splice(Math.min(2, rows.length), 0, loylRow);
+        rows.splice(findPairSafeInsertion(2), 0, loylRow);
       }
     } else {
       const loylPosition = positions.find((p) => p.asset.mint === LOYL_MINT);
@@ -839,7 +854,7 @@ export function useWalletDesktopData(): WalletDesktopData {
               value: "$0.00",
               icon: LOYL_ICON_URL,
             };
-        rows.splice(Math.min(2, rows.length), 0, loylRow);
+        rows.splice(findPairSafeInsertion(2), 0, loylRow);
       }
     }
 
