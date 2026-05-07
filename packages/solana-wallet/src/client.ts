@@ -76,14 +76,21 @@ function getActivityCacheKey(
   });
 }
 
-async function resolveShieldedOnlyDescriptors(args: {
+async function resolveShieldedOnlyAssets(args: {
   assetProvider: AssetProvider;
   assetSnapshot: AssetSnapshot;
   secureBalances: SecureBalanceMap;
   logger: WalletDataLogger;
-}): Promise<Map<string, AssetDescriptor>> {
+}): Promise<{
+  descriptors: Map<string, AssetDescriptor>;
+  prices: Map<string, number | null>;
+}> {
+  const empty = {
+    descriptors: new Map<string, AssetDescriptor>(),
+    prices: new Map<string, number | null>(),
+  };
   if (args.secureBalances.size === 0 || !args.assetProvider.resolveAssets) {
-    return new Map();
+    return empty;
   }
 
   const knownMints = new Set(
@@ -97,24 +104,24 @@ async function resolveShieldedOnlyDescriptors(args: {
   }
 
   if (shieldedOnlyMints.length === 0) {
-    return new Map();
+    return empty;
   }
 
   try {
-    const descriptors = await args.assetProvider.resolveAssets(
-      shieldedOnlyMints
-    );
-    const map = new Map<string, AssetDescriptor>();
-    for (const descriptor of descriptors) {
-      map.set(descriptor.mint, descriptor);
+    const entries = await args.assetProvider.resolveAssets(shieldedOnlyMints);
+    const descriptors = new Map<string, AssetDescriptor>();
+    const prices = new Map<string, number | null>();
+    for (const entry of entries) {
+      descriptors.set(entry.descriptor.mint, entry.descriptor);
+      prices.set(entry.descriptor.mint, entry.priceUsd);
     }
-    return map;
+    return { descriptors, prices };
   } catch (error) {
     args.logger.warn?.(
       "Failed to resolve shielded-only asset descriptors",
       error
     );
-    return new Map();
+    return empty;
   }
 }
 
@@ -235,7 +242,7 @@ export function createSolanaWalletDataClient(
           })
         : new Map<string, bigint>();
 
-      const shieldedOnlyDescriptors = await resolveShieldedOnlyDescriptors({
+      const shieldedOnly = await resolveShieldedOnlyAssets({
         assetProvider,
         assetSnapshot,
         secureBalances,
@@ -245,7 +252,8 @@ export function createSolanaWalletDataClient(
       const snapshot = buildPortfolioSnapshot({
         assetSnapshot,
         secureBalances,
-        shieldedOnlyDescriptors,
+        shieldedOnlyDescriptors: shieldedOnly.descriptors,
+        shieldedOnlyPrices: shieldedOnly.prices,
         fallbackSolPriceUsd: options.fallbackSolPriceUsd,
       });
 

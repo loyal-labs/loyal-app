@@ -27,6 +27,7 @@ function appendShieldedOnlyAssets(args: {
   assets: AssetBalance[];
   secureBalances: SecureBalanceMap;
   shieldedOnlyDescriptors: ReadonlyMap<string, AssetDescriptor>;
+  shieldedOnlyPrices: ReadonlyMap<string, number | null>;
 }): AssetBalance[] {
   if (args.secureBalances.size === 0) {
     return args.assets;
@@ -41,10 +42,11 @@ function appendShieldedOnlyAssets(args: {
     const descriptor =
       args.shieldedOnlyDescriptors.get(mint) ??
       buildShieldedOnlyPlaceholderDescriptor(mint);
+    const priceUsd = args.shieldedOnlyPrices.get(mint) ?? null;
     additions.push({
       asset: descriptor,
       balance: 0,
-      priceUsd: null,
+      priceUsd,
       valueUsd: null,
     });
   }
@@ -161,15 +163,23 @@ export function buildPortfolioSnapshot(args: {
    * placeholder so the row still renders with the raw mint pubkey.
    */
   shieldedOnlyDescriptors?: ReadonlyMap<string, AssetDescriptor>;
+  /**
+   * USD prices for shielded-only mints, keyed by mint pubkey. Used so the
+   * row's value/total reflects the underlying token price rather than $0.
+   */
+  shieldedOnlyPrices?: ReadonlyMap<string, number | null>;
   fallbackSolPriceUsd?: number | null;
 }): PortfolioSnapshot {
   const secureBalances = args.secureBalances ?? new Map<string, bigint>();
   const shieldedOnlyDescriptors =
     args.shieldedOnlyDescriptors ?? new Map<string, AssetDescriptor>();
+  const shieldedOnlyPrices =
+    args.shieldedOnlyPrices ?? new Map<string, number | null>();
   const augmentedAssets = appendShieldedOnlyAssets({
     assets: args.assetSnapshot.assets,
     secureBalances,
     shieldedOnlyDescriptors,
+    shieldedOnlyPrices,
   });
   const positions: PortfolioPosition[] = augmentedAssets.map(
     (assetBalance) => {

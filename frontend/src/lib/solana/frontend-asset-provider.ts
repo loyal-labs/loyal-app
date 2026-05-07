@@ -3,6 +3,7 @@ import type {
   AssetDescriptor,
   AssetProvider,
   AssetSnapshot,
+  ResolvedAssetEntry,
 } from "@loyal-labs/solana-wallet";
 import {
   NATIVE_SOL_DECIMALS,
@@ -432,17 +433,20 @@ export function createFrontendAssetProvider(args: {
             const decimals = accountInfo.data[44] ?? 0;
             const metadata = await resolveTokenMetadata(mint, decimals);
             return {
-              ...metadata.descriptor,
-              // On-chain decimals are authoritative; never let metadata override.
-              decimals,
-            } satisfies AssetDescriptor;
+              descriptor: {
+                ...metadata.descriptor,
+                // On-chain decimals are authoritative; never let metadata override.
+                decimals,
+              },
+              priceUsd: metadata.priceUsd,
+            } satisfies ResolvedAssetEntry;
           } catch {
             return null;
           }
         })
       );
       return results.filter(
-        (descriptor): descriptor is AssetDescriptor => descriptor !== null
+        (entry): entry is ResolvedAssetEntry => entry !== null
       );
     },
     subscribeAssetChanges: async (owner, onChange, options = {}) => {

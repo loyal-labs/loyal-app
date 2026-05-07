@@ -34,6 +34,7 @@ export type {
   PortfolioSnapshot,
   PortfolioTotals,
   ProgramActionType,
+  ResolvedAssetEntry,
   SecureBalanceMap,
   SecureBalanceProvider,
   SecureBalanceProviderArgs,

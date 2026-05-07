@@ -17,6 +17,7 @@ import type {
   AssetProvider,
   AssetSnapshot,
   CreateSolanaWalletDataClientConfig,
+  ResolvedAssetEntry,
 } from "../types";
 
 type HeliusAsset = {
@@ -342,15 +343,18 @@ export function createHeliusAssetProvider(args: {
             if (!asset) {
               return null;
             }
-            return resolveAssetDescriptor(asset);
+            return {
+              descriptor: resolveAssetDescriptor(asset),
+              priceUsd: asset.token_info?.price_info?.price_per_token ?? null,
+            } satisfies ResolvedAssetEntry;
           } catch {
             return null;
           }
         })
       );
 
-      return results.filter((descriptor): descriptor is AssetDescriptor =>
-        descriptor !== null
+      return results.filter(
+        (entry): entry is ResolvedAssetEntry => entry !== null
       );
     },
     subscribeAssetChanges: async (owner, onChange, options = {}) => {
