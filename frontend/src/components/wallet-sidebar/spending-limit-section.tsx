@@ -58,12 +58,12 @@ function getLimitResetLabel(
   }
 
   if (!spendingLimit.nextReset) {
-    return `left this ${spendingLimit.periodLabel}`;
+    return `resets next ${spendingLimit.periodLabel}`;
   }
 
-  return `left in ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
+  return `resets ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
     "en-US",
-    { month: "long" }
+    { month: "long", day: "numeric" }
   )}`;
 }
 
