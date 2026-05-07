@@ -442,6 +442,7 @@ export function ApprovalsPane({
   onExecute,
   onReview,
   onRetry,
+  actionError = null,
 }: {
   approvals: SmartAccountApprovalItem[];
   error: string | null;
@@ -455,6 +456,7 @@ export function ApprovalsPane({
   onExecute: (approval: SmartAccountApprovalItem) => void;
   onReview: (approval: SmartAccountApprovalItem) => void;
   onRetry?: () => void;
+  actionError?: string | null;
 }) {
   if (selectedApproval) {
     const isSelectedSubmitting =
@@ -463,6 +465,7 @@ export function ApprovalsPane({
     return (
       <ApprovalReviewContent
         approval={selectedApproval}
+        actionError={actionError}
         isSubmitting={isSelectedSubmitting}
         onApprove={() => onApprove(selectedApproval)}
         onBack={onBackToList}

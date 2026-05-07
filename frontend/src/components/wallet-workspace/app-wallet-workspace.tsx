@@ -1579,21 +1579,36 @@ export function AppWalletWorkspace({
     handleOpenAddSigner(selectedVault.entry.accountIndex);
   }, [handleOpenAddSigner, selectedVault]);
 
+  const [proposalActionError, setProposalActionError] = useState<string | null>(
+    null
+  );
+
   const handleReviewApproval = useCallback(
     (approval: SmartAccountApprovalItem) => {
       setSelectedApprovalId(approval.id);
+      setProposalActionError(null);
     },
     []
   );
 
   const runProposalAction = useCallback(async (action: () => Promise<void>) => {
+    setProposalActionError(null);
     try {
       await action();
     } catch (error) {
-      window.alert(
+      const raw =
         error instanceof Error
           ? error.message
-          : "Failed to submit smart-account action."
+          : "Failed to submit smart-account action.";
+      const haystack = raw.toLowerCase();
+      const isRentError =
+        haystack.includes("insufficient funds for rent") ||
+        haystack.includes("insufficient lamports") ||
+        haystack.includes("would result in account being unable to pay rent");
+      setProposalActionError(
+        isRentError
+          ? "Vault must keep a minimum SOL balance for rent. Try a smaller amount."
+          : raw
       );
     }
   }, []);
@@ -2656,6 +2671,7 @@ export function AppWalletWorkspace({
               <WorkspaceApprovalsSkeleton />
             ) : (
               <ApprovalsPane
+                actionError={proposalActionError}
                 approvals={smartAccountData.approvals}
                 error={smartAccountData.error}
                 isBalanceHidden={isBalanceHidden}
@@ -2665,7 +2681,10 @@ export function AppWalletWorkspace({
                     smartAccountData.approveProposal(approval.proposal)
                   )
                 }
-                onBackToList={() => setSelectedApprovalId(null)}
+                onBackToList={() => {
+                  setSelectedApprovalId(null);
+                  setProposalActionError(null);
+                }}
                 onDecline={(approval) =>
                   void runProposalAction(() =>
                     smartAccountData.rejectProposal(approval.proposal)
