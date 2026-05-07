@@ -13,6 +13,9 @@ import { createRpcActivityProvider } from "./providers/default-activity-provider
 import type {
   ActivityPage,
   AddressInput,
+  AssetDescriptor,
+  AssetProvider,
+  AssetSnapshot,
   CreateSolanaWalletDataClientConfig,
   GetActivityOptions,
   GetPortfolioOptions,
@@ -71,6 +74,48 @@ function getActivityCacheKey(
     before: options.before ?? null,
     onlySystemTransfers: options.onlySystemTransfers ?? false,
   });
+}
+
+async function resolveShieldedOnlyDescriptors(args: {
+  assetProvider: AssetProvider;
+  assetSnapshot: AssetSnapshot;
+  secureBalances: SecureBalanceMap;
+  logger: WalletDataLogger;
+}): Promise<Map<string, AssetDescriptor>> {
+  if (args.secureBalances.size === 0 || !args.assetProvider.resolveAssets) {
+    return new Map();
+  }
+
+  const knownMints = new Set(
+    args.assetSnapshot.assets.map((asset) => asset.asset.mint)
+  );
+  const shieldedOnlyMints: string[] = [];
+  for (const mint of args.secureBalances.keys()) {
+    if (!knownMints.has(mint)) {
+      shieldedOnlyMints.push(mint);
+    }
+  }
+
+  if (shieldedOnlyMints.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const descriptors = await args.assetProvider.resolveAssets(
+      shieldedOnlyMints
+    );
+    const map = new Map<string, AssetDescriptor>();
+    for (const descriptor of descriptors) {
+      map.set(descriptor.mint, descriptor);
+    }
+    return map;
+  } catch (error) {
+    args.logger.warn?.(
+      "Failed to resolve shielded-only asset descriptors",
+      error
+    );
+    return new Map();
+  }
 }
 
 export function createSolanaWalletDataClient(
@@ -190,9 +235,17 @@ export function createSolanaWalletDataClient(
           })
         : new Map<string, bigint>();
 
+      const shieldedOnlyDescriptors = await resolveShieldedOnlyDescriptors({
+        assetProvider,
+        assetSnapshot,
+        secureBalances,
+        logger,
+      });
+
       const snapshot = buildPortfolioSnapshot({
         assetSnapshot,
         secureBalances,
+        shieldedOnlyDescriptors,
         fallbackSolPriceUsd: options.fallbackSolPriceUsd,
       });
 
