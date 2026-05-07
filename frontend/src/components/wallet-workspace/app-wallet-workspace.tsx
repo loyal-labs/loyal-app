@@ -2689,6 +2689,8 @@ export function AppWalletWorkspace({
                 vaultEntries={smartAccountData.vaultEntries}
                 walletAddress={walletDesktopData.walletAddress}
                 walletLabel={walletDesktopData.walletLabel}
+                portfolioChange24h={walletDesktopData.portfolioChange24h}
+                earningsSummary={walletDesktopData.earningsSummary}
               />
             )}
           </section>

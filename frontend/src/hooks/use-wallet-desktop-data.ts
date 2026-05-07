@@ -37,6 +37,13 @@ export type WalletEarningsSummary = {
   changePercent: number;
 };
 
+export type WalletPortfolioChange24h = {
+  /** Net 24h change as a percentage of the prior portfolio value (e.g. -1.23). */
+  percent: number;
+  /** Net 24h USD change (current value minus value 24 hours ago). */
+  usdAmount: number;
+};
+
 export type WalletDesktopData = {
   walletAddress: string | null;
   isConnected: boolean;
@@ -54,6 +61,7 @@ export type WalletDesktopData = {
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
   earningsSummary: WalletEarningsSummary | null;
+  portfolioChange24h: WalletPortfolioChange24h | null;
   loadActivity: () => Promise<void>;
   refresh: () => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
@@ -830,6 +838,100 @@ export function useWalletDesktopData(): WalletDesktopData {
   };
   const kaminoUsdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
 
+  const valuedMintsSignature = useMemo(() => {
+    const mints = positions
+      .filter(
+        (position) =>
+          typeof position.totalValueUsd === "number" &&
+          position.totalValueUsd > 0
+      )
+      .map((position) => position.asset.mint);
+    return Array.from(new Set(mints)).sort().join(",");
+  }, [positions]);
+
+  const [priceChange24hByMint, setPriceChange24hByMint] = useState<
+    ReadonlyMap<string, number>
+  >(() => new Map());
+
+  useEffect(() => {
+    if (!valuedMintsSignature) {
+      setPriceChange24hByMint(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    const url = new URL("/api/tokens/markets", window.location.origin);
+    url.searchParams.set("mints", valuedMintsSignature);
+
+    void fetch(url.toString())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Markets request failed: ${response.status}`);
+        }
+        return response.json() as Promise<{
+          markets: { mint: string; priceChange24hPercent: number | null }[];
+        }>;
+      })
+      .then(({ markets }) => {
+        if (cancelled) return;
+        const next = new Map<string, number>();
+        for (const market of markets) {
+          if (
+            typeof market.priceChange24hPercent === "number" &&
+            Number.isFinite(market.priceChange24hPercent)
+          ) {
+            next.set(market.mint, market.priceChange24hPercent);
+          }
+        }
+        setPriceChange24hByMint(next);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[wallet-data] failed to fetch token markets", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [valuedMintsSignature]);
+
+  const portfolioChange24h = useMemo<WalletPortfolioChange24h | null>(() => {
+    if (priceChange24hByMint.size === 0) {
+      return null;
+    }
+
+    let totalChangeUsd = 0;
+    let totalPrevUsd = 0;
+    for (const position of positions) {
+      const valueUsd = position.totalValueUsd;
+      if (typeof valueUsd !== "number" || valueUsd <= 0) {
+        continue;
+      }
+      const pct = priceChange24hByMint.get(position.asset.mint);
+      if (typeof pct !== "number") {
+        // Treat unknown 24h change as flat — token still counts toward base.
+        totalPrevUsd += valueUsd;
+        continue;
+      }
+      const denom = 100 + pct;
+      if (denom === 0) {
+        continue;
+      }
+      const prev = (valueUsd * 100) / denom;
+      totalChangeUsd += valueUsd - prev;
+      totalPrevUsd += prev;
+    }
+
+    if (totalPrevUsd <= 0) {
+      return null;
+    }
+
+    return {
+      percent: (totalChangeUsd / totalPrevUsd) * 100,
+      usdAmount: totalChangeUsd,
+    };
+  }, [positions, priceChange24hByMint]);
+
   useEffect(() => {
     if (!kaminoUsdcMint) {
       setApyByMint({});
@@ -1064,6 +1166,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     positions,
     balanceHistory,
     earningsSummary,
+    portfolioChange24h,
     loadActivity,
     refresh,
     addLocalActivity,

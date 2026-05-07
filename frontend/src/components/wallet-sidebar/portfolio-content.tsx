@@ -21,6 +21,10 @@ import type {
   SmartAccountSignerEntry,
   SmartAccountVaultEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
+import type {
+  WalletEarningsSummary,
+  WalletPortfolioChange24h,
+} from "@/hooks/use-wallet-desktop-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { getVaultIcon } from "./vault-icon";
@@ -422,6 +426,8 @@ export function PortfolioContent({
   onSmartAccountRetry,
   walletAddress,
   walletLabel,
+  portfolioChange24h = null,
+  earningsSummary = null,
   selectedSignerId = null,
   selectedVaultIndex = null,
   isWalletSelected = false,
@@ -454,6 +460,8 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   walletAddress: string | null;
   walletLabel: string;
+  portfolioChange24h?: WalletPortfolioChange24h | null;
+  earningsSummary?: WalletEarningsSummary | null;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
   isWalletSelected?: boolean;
@@ -904,17 +912,59 @@ export function PortfolioContent({
             )}
           </button>
         </div>
-        <span
-          style={{
-            fontFamily: font,
-            fontSize: "14px",
-            fontWeight: 400,
-            lineHeight: "20px",
-            color: secondary,
-          }}
-        >
-          <span style={{ color: "#34C759" }}>+0.62% ($5.67)</span> · All time
-        </span>
+        {(() => {
+          const hasChange = portfolioChange24h !== null;
+          const earnedUsd = earningsSummary?.totalEarnedUsd ?? 0;
+          const hasEarned =
+            typeof earnedUsd === "number" &&
+            Number.isFinite(earnedUsd) &&
+            earnedUsd > 0;
+
+          if (!hasChange && !hasEarned) {
+            return null;
+          }
+
+          const changeColor = hasChange
+            ? portfolioChange24h.percent >= 0
+              ? "#34C759"
+              : "#F9363C"
+            : secondary;
+          const sign = (value: number) => (value >= 0 ? "+" : "");
+          const formatUsd = (value: number) => {
+            const abs = Math.abs(value).toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            });
+            return `${value < 0 ? "-" : ""}$${abs}`;
+          };
+
+          return (
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+              }}
+            >
+              {hasChange && (
+                <>
+                  <span style={{ color: changeColor }}>
+                    {`${sign(portfolioChange24h.percent)}${portfolioChange24h.percent.toFixed(2)}% (${sign(portfolioChange24h.usdAmount)}${formatUsd(portfolioChange24h.usdAmount)})`}
+                  </span>
+                  {" · 24h"}
+                </>
+              )}
+              {hasChange && hasEarned ? " · " : null}
+              {hasEarned && (
+                <span style={{ color: "#34C759" }}>
+                  {`+${formatUsd(earnedUsd)} earned`}
+                </span>
+              )}
+            </span>
+          );
+        })()}
       </div>
 
       {/* Action buttons: receive, send, swap + Shield pill */}
