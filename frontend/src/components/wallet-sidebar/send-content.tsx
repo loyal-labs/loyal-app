@@ -828,6 +828,11 @@ function SendTransactionDetail({
   );
 }
 
+export type SendContentVaultContext = {
+  /** Reason rendered on a disabled submit button when true. */
+  blockedReason: string;
+};
+
 export function SendContent({
   onBack,
   onClose,
@@ -836,6 +841,7 @@ export function SendContent({
   token,
   addLocalActivity,
   initialRecipient = "",
+  vaultContext,
 }: {
   onBack?: () => void;
   onClose: () => void;
@@ -844,6 +850,7 @@ export function SendContent({
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
   initialRecipient?: string;
+  vaultContext?: SendContentVaultContext;
 }) {
   const publicEnv = usePublicEnv();
   const { executeSend } = useSend();
@@ -882,7 +889,9 @@ export function SendContent({
     setRecipient(initialRecipient);
   }, [initialRecipient]);
 
-  const buttonLabel = !hasAmount
+  const buttonLabel = vaultContext
+    ? vaultContext.blockedReason
+    : !hasAmount
     ? "Enter Amount"
     : insufficientFunds
     ? "Insufficient Funds"
@@ -894,7 +903,11 @@ export function SendContent({
     ? "Only SOL for Telegram"
     : "Send";
   const buttonDisabled =
-    !hasAmount || insufficientFunds || !isValidRecipient || isTgNonSol;
+    Boolean(vaultContext) ||
+    !hasAmount ||
+    insufficientFunds ||
+    !isValidRecipient ||
+    isTgNonSol;
 
   const handlePercentage = useCallback(
     (pct: number) => {
@@ -911,6 +924,12 @@ export function SendContent({
   );
 
   const handleConfirm = useCallback(async () => {
+    if (vaultContext) {
+      // Hard guard: vault transfers must go through the multisig path,
+      // which isn't wired yet. Refuse to fall through to the User-wallet
+      // executeSend (which would silently drain the connected wallet).
+      return;
+    }
     const currentAmount = hasAmount ? String(numericAmount) : "0";
     const currentUsd = `$${
       hasAmount
@@ -1033,6 +1052,7 @@ export function SendContent({
     token.mint,
     token.price,
     token.symbol,
+    vaultContext,
   ]);
 
   // Cross-fade between phases

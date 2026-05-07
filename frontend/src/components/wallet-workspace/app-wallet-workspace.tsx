@@ -765,6 +765,15 @@ export function AppWalletWorkspace({
 
     return tokens;
   }, [walletDesktopData.positions]);
+  const vaultDerivedTokens = useMemo<SwapToken[]>(() => {
+    const vault = smartAccountData.overview?.vaults.find(
+      (entry) => entry.accountIndex === selectedVaultAccountIndex
+    );
+    const positions = vault?.portfolio.positions ?? [];
+    return positions
+      .filter((position) => position.publicBalance > 0)
+      .map(portfolioPositionToSwapToken);
+  }, [smartAccountData.overview?.vaults, selectedVaultAccountIndex]);
   const securedTokens = useMemo<SwapToken[]>(
     () =>
       walletDesktopData.positions
@@ -2205,14 +2214,22 @@ export function AppWalletWorkspace({
     }
 
     if (type === "sendTokenSelect") {
+      const sendingFromVault = actionReturnSelection === "vault";
+      const tokensForSelect = sendingFromVault
+        ? vaultDerivedTokens
+        : derivedTokens;
+      const currentTokenForSelect = sendingFromVault
+        ? vaultDerivedTokens.find((entry) => entry.mint === sendToken.mint) ??
+          vaultDerivedTokens[0] ?? { ...sendToken, balance: 0 }
+        : sendToken;
       return (
         <TokenSelectView
-          currentToken={sendToken}
+          currentToken={currentTokenForSelect}
           onBack={handleActionBack}
           onClose={closeActionView}
           onSelect={setSendToken}
           title="Send"
-          tokens={derivedTokens}
+          tokens={tokensForSelect}
         />
       );
     }
@@ -2250,6 +2267,11 @@ export function AppWalletWorkspace({
     }
 
     if (type === "sendPanel") {
+      const sendingFromVault = actionReturnSelection === "vault";
+      const effectiveSendToken = sendingFromVault
+        ? vaultDerivedTokens.find((entry) => entry.mint === sendToken.mint) ??
+          vaultDerivedTokens[0] ?? { ...sendToken, balance: 0 }
+        : sendToken;
       return (
         <SendContent
           addLocalActivity={walletDesktopData.addLocalActivity}
@@ -2257,7 +2279,15 @@ export function AppWalletWorkspace({
           onClose={closeActionView}
           onDone={closeActionView}
           onNavigate={pushView}
-          token={sendToken}
+          token={effectiveSendToken}
+          vaultContext={
+            sendingFromVault
+              ? {
+                  blockedReason:
+                    "Vault transfers via multisig — coming soon",
+                }
+              : undefined
+          }
         />
       );
     }
