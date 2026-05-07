@@ -180,6 +180,7 @@ function getWalletDataClientWithActivity(solanaEnv: SolanaEnv) {
 
 export async function fetchCurrentSmartAccountOverview(args: {
   settingsPda: string;
+  invalidateAddresses?: string[];
 }): Promise<SmartAccountOverview> {
   const serverEnv = getServerEnv();
   const settingsPda = new PublicKey(args.settingsPda);
@@ -191,14 +192,24 @@ export async function fetchCurrentSmartAccountOverview(args: {
     throw createRateLimitError(cacheKey, now);
   }
 
-  const existingLoad = overviewLoadPromisesByKey.get(cacheKey);
+  const walletDataClient = getWalletDataClient(serverEnv.solanaEnv);
+  if (args.invalidateAddresses && args.invalidateAddresses.length > 0) {
+    walletDataClient.invalidateCaches({
+      portfolio: args.invalidateAddresses,
+    });
+  }
+
+  const existingLoad =
+    args.invalidateAddresses && args.invalidateAddresses.length > 0
+      ? null
+      : overviewLoadPromisesByKey.get(cacheKey);
   if (existingLoad) {
     return existingLoad;
   }
 
   const client = createSmartAccountVaultsClient({
     connection: getConnection(serverEnv.solanaEnv),
-    walletDataClient: getWalletDataClient(serverEnv.solanaEnv),
+    walletDataClient,
     programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
   });
 
@@ -256,6 +267,7 @@ export async function fetchCurrentSmartAccountVaultActivity(args: {
   accountIndex: number;
   activityLimit?: number;
   settingsPda: string;
+  forceRefresh?: boolean;
 }): Promise<ActivityPage> {
   const serverEnv = getServerEnv();
   const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
@@ -277,6 +289,7 @@ export async function fetchCurrentSmartAccountVaultActivity(args: {
       serverEnv.solanaEnv
     ).getActivity(vaultAddress, {
       limit: args.activityLimit ?? 10,
+      forceRefresh: args.forceRefresh ?? false,
     });
     overviewRateLimitCooldownUntilByKey.delete(cacheKey);
     return activity;

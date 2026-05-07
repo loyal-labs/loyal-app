@@ -624,6 +624,7 @@ export function AppWalletWorkspace({
   const walletDesktopData = useWalletDesktopData();
   const smartAccountData = useSmartAccountSidebarData({
     authenticatedUserTotalUsd: walletDesktopData.totalUsd,
+    onAfterTx: walletDesktopData.refresh,
   });
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();

@@ -172,8 +172,13 @@ export type SmartAccountSidebarData = {
   setSelectedVaultIndex: (index: number) => void;
   selectedVault: SmartAccountVaultView | null;
   approvals: SmartAccountApprovalItem[];
-  loadVaultActivity: (accountIndex: number) => Promise<void>;
-  refresh: () => Promise<void>;
+  loadVaultActivity: (
+    accountIndex: number,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<void>;
+  refresh: (options?: {
+    invalidateAddresses?: string[];
+  }) => Promise<void>;
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
@@ -256,8 +261,14 @@ export type SmartAccountSidebarData = {
    * their own wallet balance + history independent of the vault.
    */
   signerPortfolioByAddress: Record<string, SmartAccountSignerPortfolioView>;
-  loadSignerPortfolio: (signerAddress: string) => Promise<void>;
-  loadSignerActivity: (signerAddress: string) => Promise<void>;
+  loadSignerPortfolio: (
+    signerAddress: string,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<void>;
+  loadSignerActivity: (
+    signerAddress: string,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<void>;
 };
 
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
@@ -999,9 +1010,16 @@ async function normalizeSpendingLimitError(
 }
 
 export function useSmartAccountSidebarData(
-  options: { authenticatedUserTotalUsd?: number | null } = {}
+  options: {
+    authenticatedUserTotalUsd?: number | null;
+    onAfterTx?: () => Promise<void> | void;
+  } = {}
 ): SmartAccountSidebarData {
-  const { authenticatedUserTotalUsd } = options;
+  const { authenticatedUserTotalUsd, onAfterTx } = options;
+  const onAfterTxRef = useRef(onAfterTx);
+  useEffect(() => {
+    onAfterTxRef.current = onAfterTx;
+  }, [onAfterTx]);
   const { user } = useAuthSession();
   const { connection } = useConnection();
   const wallet = useWallet();
@@ -1031,46 +1049,60 @@ export function useSmartAccountSidebarData(
     new Map()
   );
 
-  const refresh = useCallback(async () => {
-    if (!user?.settingsPda) {
-      setOverview(null);
-      setError(null);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/smart-accounts/overview", {
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        const errorPayload =
-          (await response.json().catch(() => null)) as
-            | SmartAccountRouteErrorResponse
-            | null;
-        const message =
-          errorPayload?.error?.message ?? "Failed to load smart-account overview.";
-
-        throw new Error(message);
+  const refresh = useCallback(
+    async (refreshOptions?: { invalidateAddresses?: string[] }) => {
+      if (!user?.settingsPda) {
+        setOverview(null);
+        setError(null);
+        return;
       }
 
-      const payload = (await response.json()) as SmartAccountRouteResponse;
-      setOverview(payload.overview);
-      setVaultActivityByAccountIndex({});
-      vaultActivityLoadPromisesRef.current.clear();
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Failed to load smart-account overview."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.settingsPda]);
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const url = new URL(
+          "/api/smart-accounts/overview",
+          window.location.origin
+        );
+        const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
+          (value) => value.length > 0
+        );
+        if (invalidateAddresses && invalidateAddresses.length > 0) {
+          url.searchParams.set("invalidate", invalidateAddresses.join(","));
+        }
+
+        const response = await fetch(url.toString(), {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const errorPayload =
+            (await response.json().catch(() => null)) as
+              | SmartAccountRouteErrorResponse
+              | null;
+          const message =
+            errorPayload?.error?.message ?? "Failed to load smart-account overview.";
+
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as SmartAccountRouteResponse;
+        setOverview(payload.overview);
+        setVaultActivityByAccountIndex({});
+        vaultActivityLoadPromisesRef.current.clear();
+      } catch (nextError) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "Failed to load smart-account overview."
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [user?.settingsPda]
+  );
 
   useEffect(() => {
     void refresh();
@@ -1083,24 +1115,33 @@ export function useSmartAccountSidebarData(
   }, [overview?.settingsPda]);
 
   const loadVaultActivity = useCallback(
-    async (accountIndex: number) => {
+    async (
+      accountIndex: number,
+      loadOptions?: { forceRefresh?: boolean }
+    ) => {
       if (!user?.settingsPda) {
         return;
       }
 
+      const forceRefresh = loadOptions?.forceRefresh ?? false;
       const existingPromise =
         vaultActivityLoadPromisesRef.current.get(accountIndex);
-      if (existingPromise) {
+      if (existingPromise && !forceRefresh) {
         return existingPromise;
       }
 
       const promise = (async () => {
-        const response = await fetch(
-          `/api/smart-accounts/vault-activity?accountIndex=${accountIndex}`,
-          {
-            credentials: "include",
-          }
+        const url = new URL(
+          "/api/smart-accounts/vault-activity",
+          window.location.origin
         );
+        url.searchParams.set("accountIndex", String(accountIndex));
+        if (forceRefresh) {
+          url.searchParams.set("forceRefresh", "1");
+        }
+        const response = await fetch(url.toString(), {
+          credentials: "include",
+        });
 
         if (!response.ok) {
           const errorPayload =
@@ -1151,13 +1192,17 @@ export function useSmartAccountSidebarData(
   );
 
   const loadSignerPortfolio = useCallback(
-    async (signerAddress: string) => {
+    async (
+      signerAddress: string,
+      loadOptions?: { forceRefresh?: boolean }
+    ) => {
       if (!signerAddress) {
         return;
       }
 
+      const forceRefresh = loadOptions?.forceRefresh ?? false;
       const existing = signerPortfolioLoadPromisesRef.current.get(signerAddress);
-      if (existing) {
+      if (existing && !forceRefresh) {
         return existing;
       }
 
@@ -1173,7 +1218,9 @@ export function useSmartAccountSidebarData(
 
         try {
           const publicKey = new PublicKey(signerAddress);
-          const portfolio = await walletDataClient.getPortfolio(publicKey);
+          const portfolio = await walletDataClient.getPortfolio(publicKey, {
+            forceRefresh,
+          });
           const tokenRows = mapVaultToTokenRows(portfolio.positions);
 
           setSignerPortfolioByAddress((current) => ({
@@ -1216,13 +1263,17 @@ export function useSmartAccountSidebarData(
   );
 
   const loadSignerActivity = useCallback(
-    async (signerAddress: string) => {
+    async (
+      signerAddress: string,
+      loadOptions?: { forceRefresh?: boolean }
+    ) => {
       if (!signerAddress) {
         return;
       }
 
+      const forceRefresh = loadOptions?.forceRefresh ?? false;
       const existing = signerActivityLoadPromisesRef.current.get(signerAddress);
-      if (existing) {
+      if (existing && !forceRefresh) {
         return existing;
       }
 
@@ -1230,8 +1281,11 @@ export function useSmartAccountSidebarData(
         try {
           const publicKey = new PublicKey(signerAddress);
           const [portfolio, activityPage] = await Promise.all([
-            walletDataClient.getPortfolio(publicKey),
-            walletDataClient.getActivity(publicKey, { limit: 30 }),
+            walletDataClient.getPortfolio(publicKey, { forceRefresh }),
+            walletDataClient.getActivity(publicKey, {
+              limit: 30,
+              forceRefresh,
+            }),
           ]);
           const solPriceUsd = resolveSolPriceUsd({
             effectiveSolPriceUsd: portfolio.totals.effectiveSolPriceUsd,
@@ -1285,6 +1339,96 @@ export function useSmartAccountSidebarData(
       }
     },
     [walletDataClient]
+  );
+
+  const refreshAfterTx = useCallback(
+    async (args: {
+      accountIndex?: number;
+      signerAddresses?: string[];
+    }): Promise<void> => {
+      const connectedWallet = wallet.publicKey?.toBase58() ?? null;
+      const vaultAddress =
+        args.accountIndex != null
+          ? overview?.vaults.find(
+              (entry) => entry.accountIndex === args.accountIndex
+            )?.address ?? null
+          : null;
+
+      const invalidateAddresses = Array.from(
+        new Set(
+          [
+            vaultAddress,
+            connectedWallet,
+            ...(args.signerAddresses ?? []),
+          ].filter((value): value is string => Boolean(value))
+        )
+      );
+
+      if (invalidateAddresses.length > 0) {
+        walletDataClient.invalidateCaches({
+          portfolio: invalidateAddresses,
+          activity: invalidateAddresses,
+        });
+      }
+
+      await refresh({ invalidateAddresses });
+
+      const tasks: Promise<unknown>[] = [];
+      if (args.accountIndex != null) {
+        tasks.push(
+          loadVaultActivity(args.accountIndex, { forceRefresh: true }).catch(
+            () => undefined
+          )
+        );
+      }
+
+      const cachedSigners = signerPortfolioByAddress;
+      const reloadCandidates = new Set<string>();
+      for (const address of args.signerAddresses ?? []) {
+        if (address) reloadCandidates.add(address);
+      }
+      if (connectedWallet) reloadCandidates.add(connectedWallet);
+
+      for (const address of reloadCandidates) {
+        const entry = cachedSigners[address];
+        if (!entry) continue;
+        tasks.push(
+          loadSignerPortfolio(address, { forceRefresh: true }).catch(
+            () => undefined
+          )
+        );
+        if (entry.hasLoadedActivity) {
+          tasks.push(
+            loadSignerActivity(address, { forceRefresh: true }).catch(
+              () => undefined
+            )
+          );
+        }
+      }
+
+      if (tasks.length > 0) {
+        await Promise.all(tasks);
+      }
+
+      const onAfter = onAfterTxRef.current;
+      if (onAfter) {
+        try {
+          await onAfter();
+        } catch (err) {
+          console.error("[smart-account] onAfterTx callback failed", err);
+        }
+      }
+    },
+    [
+      loadSignerActivity,
+      loadSignerPortfolio,
+      loadVaultActivity,
+      overview?.vaults,
+      refresh,
+      signerPortfolioByAddress,
+      wallet.publicKey,
+      walletDataClient,
+    ]
   );
 
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
@@ -1446,13 +1590,16 @@ export function useSmartAccountSidebarData(
           prepared,
           confirm: true,
         });
-        await refresh();
+        await refreshAfterTx({
+          accountIndex: proposal.accountIndex ?? undefined,
+          signerAddresses: proposal.creator ? [proposal.creator] : undefined,
+        });
       } finally {
         setIsActionPending(false);
         setPendingProposalId(null);
       }
     },
-    [connection, overview, refresh, user?.walletAddress, wallet]
+    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
   );
 
   const runSpendingLimitAction = useCallback(
@@ -1464,6 +1611,7 @@ export function useSmartAccountSidebarData(
         prepared: Parameters<typeof sendPreparedWithWallet>[0]["prepared"];
       }>;
       requireAuthenticatedWallet?: boolean;
+      affected?: { accountIndex?: number; signerAddresses?: string[] };
     }) => {
       if (!overview) {
         throw new Error("Smart-account overview is not loaded yet.");
@@ -1514,13 +1662,16 @@ export function useSmartAccountSidebarData(
         } catch (sendError) {
           throw await normalizeSpendingLimitError(sendError, connection);
         }
-        await refresh();
+        await refreshAfterTx({
+          accountIndex: args.affected?.accountIndex,
+          signerAddresses: args.affected?.signerAddresses,
+        });
       } finally {
         setIsActionPending(false);
         setPendingSpendingLimitActionKey(null);
       }
     },
-    [connection, overview, refresh, user?.walletAddress, wallet]
+    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
   );
 
   const setSignerSpendingLimitUsd = useCallback(
@@ -1589,6 +1740,10 @@ export function useSmartAccountSidebarData(
               ? new PublicKey(args.existingSpendingLimitAddress)
               : null,
           }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1630,6 +1785,7 @@ export function useSmartAccountSidebarData(
             signer,
             permissions: requestedPermissions,
           }),
+        affected: { signerAddresses: [signer.toBase58()] },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1682,6 +1838,10 @@ export function useSmartAccountSidebarData(
                 signer,
                 permissions: args.permissions,
               }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [signer.toBase58()],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1706,6 +1866,10 @@ export function useSmartAccountSidebarData(
             feePayer: wallet.publicKey!,
             spendingLimitPolicy: new PublicKey(args.spendingLimitAddress),
           }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1737,6 +1901,10 @@ export function useSmartAccountSidebarData(
             accountIndex: args.accountIndex,
             policyPda: new PublicKey(policyAddress),
           }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1814,6 +1982,10 @@ export function useSmartAccountSidebarData(
           }),
         }),
         requireAuthenticatedWallet: false,
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1994,7 +2166,10 @@ export function useSmartAccountSidebarData(
             prepared,
             confirm: true,
           });
-          await refresh();
+          await refreshAfterTx({
+            accountIndex: request.accountIndex,
+            signerAddresses: [request.recipientAddress],
+          });
           return { success: true, signature, status: "executed" };
         }
 
@@ -2028,7 +2203,10 @@ export function useSmartAccountSidebarData(
         });
 
         if (capability.threshold > 1) {
-          await refresh();
+          await refreshAfterTx({
+            accountIndex: request.accountIndex,
+            signerAddresses: [request.recipientAddress],
+          });
           return {
             success: true,
             signature: proposeSignature,
@@ -2070,7 +2248,10 @@ export function useSmartAccountSidebarData(
           confirm: true,
         });
 
-        await refresh();
+        await refreshAfterTx({
+          accountIndex: request.accountIndex,
+          signerAddresses: [request.recipientAddress],
+        });
         return {
           success: true,
           signature: executeSignature,
@@ -2097,7 +2278,7 @@ export function useSmartAccountSidebarData(
       connection,
       evaluateVaultTransferCapability,
       overview,
-      refresh,
+      refreshAfterTx,
       wallet,
     ]
   );

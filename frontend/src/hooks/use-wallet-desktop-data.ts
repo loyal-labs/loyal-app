@@ -55,6 +55,7 @@ export type WalletDesktopData = {
   balanceHistory: BalanceHistoryPoint[];
   earningsSummary: WalletEarningsSummary | null;
   loadActivity: () => Promise<void>;
+  refresh: () => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
@@ -550,6 +551,72 @@ export function useWalletDesktopData(): WalletDesktopData {
     return loadPromise;
   }, [client, ownerPublicKey]);
 
+  const refresh = useCallback(async () => {
+    if (!ownerPublicKey) {
+      return;
+    }
+
+    const publicKey = ownerPublicKey;
+    const address = publicKey.toBase58();
+
+    client.invalidateCaches({
+      portfolio: [publicKey],
+      activity: [publicKey],
+    });
+
+    const tasks: Promise<unknown>[] = [];
+
+    tasks.push(
+      client
+        .getPortfolio(publicKey, { forceRefresh: true })
+        .then(async (nextPortfolio) => {
+          const enriched = await applyEnrichment(nextPortfolio, address);
+          if (ownerAddressRef.current !== address) {
+            return;
+          }
+          setPortfolioSnapshot(enriched.snapshot);
+          setEarningsByMint(enriched.earningsByMint);
+          setEarningsSummary(
+            enriched.earningsTotals
+              ? {
+                  totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
+                  totalPrincipalUsd: enriched.earningsTotals.totalPrincipalUsd,
+                  changePercent:
+                    enriched.earningsTotals.totalPrincipalUsd > 0
+                      ? (enriched.earningsTotals.totalEarnedUsd /
+                          enriched.earningsTotals.totalPrincipalUsd) *
+                        100
+                      : 0,
+                }
+              : null
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to refresh wallet portfolio", error);
+        })
+    );
+
+    if (hasRequestedActivity) {
+      tasks.push(
+        client
+          .getActivity(publicKey, {
+            limit: WALLET_ACTIVITY_INITIAL_LIMIT,
+            forceRefresh: true,
+          })
+          .then((history) => {
+            if (ownerAddressRef.current === address) {
+              setActivities(history.activities);
+            }
+          })
+          .catch((error) => {
+            console.error("Failed to refresh wallet activity", error);
+          })
+      );
+    }
+
+    await Promise.all(tasks);
+  }, [applyEnrichment, client, hasRequestedActivity, ownerPublicKey]);
+
   useEffect(() => {
     ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
     setActivities([]);
@@ -998,6 +1065,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     balanceHistory,
     earningsSummary,
     loadActivity,
+    refresh,
     addLocalActivity,
   };
 }
