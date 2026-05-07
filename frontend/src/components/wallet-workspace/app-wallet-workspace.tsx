@@ -548,7 +548,9 @@ export function AppWalletWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const walletDesktopData = useWalletDesktopData();
-  const smartAccountData = useSmartAccountSidebarData();
+  const smartAccountData = useSmartAccountSidebarData({
+    authenticatedUserTotalUsd: walletDesktopData.totalUsd,
+  });
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();

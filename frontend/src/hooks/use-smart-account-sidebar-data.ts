@@ -354,6 +354,13 @@ function resolveSignerSpendingLimit(args: {
 function mapSignersToEntries(args: {
   signers: SmartAccountSignerSnapshot[];
   authenticatedWalletAddress: string | null | undefined;
+  /**
+   * Full portfolio total (USD) for the authenticated user — already includes
+   * SPL tokens + shielded balances. When provided, the "User" row in the
+   * sidebar shows this instead of just `signer.lamports * solPrice`, so the
+   * sidebar matches the wallet detail view.
+   */
+  authenticatedUserTotalUsd?: number | null;
   solPriceUsd: number;
   spendingLimits?: SmartAccountSpendingLimitSnapshot[];
 }): SmartAccountSignerEntry[] {
@@ -369,9 +376,13 @@ function mapSignersToEntries(args: {
       : signer.scope === "policy"
       ? `Agent ${++agentCount}`
       : `Signer ${++signerCount}`;
-    const balance = splitUsd(
-      lamportsToUsd(signer.lamports ?? 0, args.solPriceUsd)
-    );
+    const balanceUsd =
+      isAuthenticatedUser &&
+      typeof args.authenticatedUserTotalUsd === "number" &&
+      Number.isFinite(args.authenticatedUserTotalUsd)
+        ? args.authenticatedUserTotalUsd
+        : lamportsToUsd(signer.lamports ?? 0, args.solPriceUsd);
+    const balance = splitUsd(balanceUsd);
 
     return {
       id: `${signer.scope}:${signer.consensusAddress}:${signer.address}:${
@@ -875,7 +886,10 @@ async function normalizeSpendingLimitError(
   return error instanceof Error ? error : new Error(message);
 }
 
-export function useSmartAccountSidebarData(): SmartAccountSidebarData {
+export function useSmartAccountSidebarData(
+  options: { authenticatedUserTotalUsd?: number | null } = {}
+): SmartAccountSidebarData {
+  const { authenticatedUserTotalUsd } = options;
   const { user } = useAuthSession();
   const { connection } = useConnection();
   const wallet = useWallet();
@@ -1024,6 +1038,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       const signers = mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        authenticatedUserTotalUsd,
         solPriceUsd,
         spendingLimits: vault.spendingLimits ?? [],
       });
@@ -1037,7 +1052,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
         signers,
       };
     });
-  }, [overview?.vaults, user?.walletAddress]);
+  }, [overview?.vaults, user?.walletAddress, authenticatedUserTotalUsd]);
 
   const selectedVault = useMemo<SmartAccountVaultView | null>(() => {
     const vault =
@@ -1063,6 +1078,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
       signers: mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        authenticatedUserTotalUsd,
         solPriceUsd: resolveSolPriceUsd({
           effectiveSolPriceUsd: vault.portfolio.totals.effectiveSolPriceUsd,
           positions: vault.portfolio.positions,
@@ -1093,6 +1109,7 @@ export function useSmartAccountSidebarData(): SmartAccountSidebarData {
     overview?.vaults,
     selectedVaultIndex,
     user?.walletAddress,
+    authenticatedUserTotalUsd,
     vaultActivityByAccountIndex,
     vaultEntries,
   ]);

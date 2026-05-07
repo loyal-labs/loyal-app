@@ -41,6 +41,7 @@ export type WalletDesktopData = {
   walletAddress: string | null;
   isConnected: boolean;
   isLoading: boolean;
+  totalUsd: number;
   balanceWhole: string;
   balanceFraction: string;
   balanceSolLabel: string;
@@ -962,6 +963,7 @@ export function useWalletDesktopData(): WalletDesktopData {
         wallet.publicKey.toBase58() === walletAddress
     ),
     isLoading,
+    totalUsd: totals.totalUsd,
     balanceWhole: balanceParts[0] ?? "$0",
     balanceFraction: balanceParts[1] ? `.${balanceParts[1]}` : "",
     balanceSolLabel:
