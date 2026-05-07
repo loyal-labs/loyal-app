@@ -1,5 +1,7 @@
 import { NATIVE_SOL_MINT } from "../constants";
 import type {
+  AssetBalance,
+  AssetDescriptor,
   AssetSnapshot,
   PortfolioHolding,
   PortfolioPosition,
@@ -7,6 +9,52 @@ import type {
   PortfolioTotals,
   SecureBalanceMap,
 } from "../types";
+
+function buildShieldedOnlyPlaceholderDescriptor(mint: string): AssetDescriptor {
+  const short =
+    mint.length > 10 ? `${mint.slice(0, 4)}...${mint.slice(-4)}` : mint;
+  return {
+    mint,
+    symbol: short,
+    name: short,
+    decimals: 0,
+    imageUrl: null,
+    isNative: false,
+  };
+}
+
+function appendShieldedOnlyAssets(args: {
+  assets: AssetBalance[];
+  secureBalances: SecureBalanceMap;
+  shieldedOnlyDescriptors: ReadonlyMap<string, AssetDescriptor>;
+}): AssetBalance[] {
+  if (args.secureBalances.size === 0) {
+    return args.assets;
+  }
+
+  const knownMints = new Set(args.assets.map((a) => a.asset.mint));
+  const additions: AssetBalance[] = [];
+  for (const mint of args.secureBalances.keys()) {
+    if (knownMints.has(mint)) {
+      continue;
+    }
+    const descriptor =
+      args.shieldedOnlyDescriptors.get(mint) ??
+      buildShieldedOnlyPlaceholderDescriptor(mint);
+    additions.push({
+      asset: descriptor,
+      balance: 0,
+      priceUsd: null,
+      valueUsd: null,
+    });
+  }
+
+  if (additions.length === 0) {
+    return args.assets;
+  }
+
+  return [...args.assets, ...additions];
+}
 
 function floorToDecimals(value: number, decimals: number): number {
   if (!Number.isFinite(value)) {
@@ -107,10 +155,23 @@ export function computePortfolioTotals(
 export function buildPortfolioSnapshot(args: {
   assetSnapshot: AssetSnapshot;
   secureBalances?: SecureBalanceMap;
+  /**
+   * Descriptors for mints that exist only as shielded balances (no public
+   * balance in `assetSnapshot.assets`). Mints not present here fall back to a
+   * placeholder so the row still renders with the raw mint pubkey.
+   */
+  shieldedOnlyDescriptors?: ReadonlyMap<string, AssetDescriptor>;
   fallbackSolPriceUsd?: number | null;
 }): PortfolioSnapshot {
   const secureBalances = args.secureBalances ?? new Map<string, bigint>();
-  const positions: PortfolioPosition[] = args.assetSnapshot.assets.map(
+  const shieldedOnlyDescriptors =
+    args.shieldedOnlyDescriptors ?? new Map<string, AssetDescriptor>();
+  const augmentedAssets = appendShieldedOnlyAssets({
+    assets: args.assetSnapshot.assets,
+    secureBalances,
+    shieldedOnlyDescriptors,
+  });
+  const positions: PortfolioPosition[] = augmentedAssets.map(
     (assetBalance) => {
       const secureRaw = secureBalances.get(assetBalance.asset.mint) ?? BigInt(0);
       const securedBalance =

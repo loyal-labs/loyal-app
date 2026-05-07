@@ -54,6 +54,16 @@ export type AssetProviderSubscribeOptions = {
 export type AssetProvider = {
   getBalance: (owner: PublicKey) => Promise<number>;
   getAssetSnapshot: (owner: PublicKey) => Promise<AssetSnapshot>;
+  /**
+   * Resolve descriptors for arbitrary mints (typically those returned by a
+   * `secureBalanceProvider` that the public asset snapshot doesn't cover —
+   * e.g. a fully-shielded SPL mint with a closed/empty ATA).
+   *
+   * Implementations should return one descriptor per mint they could resolve;
+   * mints they could not resolve may simply be omitted (the SDK falls back to
+   * a placeholder so the row still renders).
+   */
+  resolveAssets?: (mints: string[]) => Promise<AssetDescriptor[]>;
   subscribeAssetChanges: (
     owner: PublicKey,
     onChange: () => void,

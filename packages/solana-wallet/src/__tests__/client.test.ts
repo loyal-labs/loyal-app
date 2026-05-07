@@ -77,6 +77,104 @@ describe("createSolanaWalletDataClient", () => {
     expect(second.totals.totalUsd).toBe(102.5);
   });
 
+  test("surfaces shielded-only mints by resolving descriptors via the asset provider", async () => {
+    let resolveAssetsCalls: string[][] = [];
+    const assetProvider: AssetProvider = {
+      getBalance: async () => 0,
+      getAssetSnapshot: async () => ({
+        owner: WALLET_ADDRESS,
+        nativeBalanceLamports: 1_000_000_000,
+        fetchedAt: Date.now(),
+        assets: [
+          {
+            asset: {
+              mint: "So11111111111111111111111111111111111111112",
+              symbol: "SOL",
+              name: "Solana",
+              decimals: 9,
+              imageUrl: null,
+              isNative: true,
+            },
+            balance: 1,
+            priceUsd: 100,
+            valueUsd: 100,
+          },
+        ],
+      }),
+      resolveAssets: async (mints) => {
+        resolveAssetsCalls.push(mints);
+        return mints
+          .filter((mint) => mint === USDC_MINT)
+          .map((mint) => ({
+            mint,
+            symbol: "USDC",
+            name: "USD Coin",
+            decimals: 6,
+            imageUrl: "https://cdn.example.com/usdc.png",
+            isNative: false,
+          }));
+      },
+      subscribeAssetChanges: async () => async () => undefined,
+    };
+    const activityProvider: ActivityProvider = {
+      getActivity: async () => ({ activities: [], nextCursor: undefined }),
+      subscribeActivity: async () => async () => undefined,
+    };
+
+    const client = createSolanaWalletDataClient({
+      env: "devnet",
+      assetProvider,
+      activityProvider,
+      secureBalanceProvider: async () =>
+        new Map([[USDC_MINT, BigInt(750_000)]]),
+    });
+
+    const snapshot = await client.getPortfolio(WALLET_ADDRESS);
+    const usdc = snapshot.positions.find((p) => p.asset.mint === USDC_MINT);
+
+    expect(resolveAssetsCalls).toEqual([[USDC_MINT]]);
+    expect(usdc).toMatchObject({
+      publicBalance: 0,
+      securedBalance: 0.75,
+      totalBalance: 0.75,
+      asset: { symbol: "USDC", decimals: 6 },
+    });
+  });
+
+  test("falls back to placeholder when asset provider has no resolveAssets", async () => {
+    const assetProvider: AssetProvider = {
+      getBalance: async () => 0,
+      getAssetSnapshot: async () => ({
+        owner: WALLET_ADDRESS,
+        nativeBalanceLamports: 0,
+        fetchedAt: Date.now(),
+        assets: [],
+      }),
+      subscribeAssetChanges: async () => async () => undefined,
+    };
+    const activityProvider: ActivityProvider = {
+      getActivity: async () => ({ activities: [], nextCursor: undefined }),
+      subscribeActivity: async () => async () => undefined,
+    };
+
+    const client = createSolanaWalletDataClient({
+      env: "devnet",
+      assetProvider,
+      activityProvider,
+      secureBalanceProvider: async () =>
+        new Map([[USDC_MINT, BigInt(42)]]),
+    });
+
+    const snapshot = await client.getPortfolio(WALLET_ADDRESS);
+    const usdc = snapshot.positions.find((p) => p.asset.mint === USDC_MINT);
+
+    expect(usdc).toBeDefined();
+    expect(usdc?.publicBalance).toBe(0);
+    // Placeholder descriptor uses decimals=0, so the raw balance shows through.
+    expect(usdc?.asset.decimals).toBe(0);
+    expect(usdc?.securedBalance).toBe(42);
+  });
+
   test("rejects invalid addresses", async () => {
     const client = createSolanaWalletDataClient({
       env: "devnet",

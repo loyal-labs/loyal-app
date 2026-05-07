@@ -23,6 +23,7 @@ import {
   getKaminoModifyBalanceAccountsForTokenMint,
   isKaminoMainnetModifyBalanceAccounts,
 } from "./constants";
+import { enumerateDepositsByUser } from "./enumerate-deposits";
 import {
   calculateKaminoShareAmountForLiquidityAmountRaw,
   calculateKaminoCollateralExchangeRateSfFromAmounts,
@@ -1460,65 +1461,11 @@ export class LoyalPrivateTransactionsClient {
    * an entry because ephemeral reflects the live balance.
    */
   async getAllDepositsByUser(user: PublicKey): Promise<DepositData[]> {
-    // Deposit layout after the 8-byte discriminator:
-    //   user: pubkey (32 bytes) @ offset 8
-    //   token_mint: pubkey (32 bytes) @ offset 40
-    //   amount: u64 (8 bytes) @ offset 72
-    const userFilter = [
-      {
-        memcmp: {
-          offset: 8,
-          bytes: user.toBase58(),
-        },
-      },
-    ];
-
-    const [baseResults, ephemeralResults] = await Promise.allSettled([
-      this.baseProgram.account.deposit.all(userFilter),
-      this.ephemeralProgram.account.deposit.all(userFilter),
-    ]);
-
-    const byPda = new Map<string, DepositData>();
-
-    const ingest = (
-      results: Array<{
-        publicKey: PublicKey;
-        account: { user: PublicKey; tokenMint: PublicKey; amount: BN };
-      }>,
-      preferOverwrite: boolean
-    ) => {
-      for (const { publicKey, account } of results) {
-        const key = publicKey.toBase58();
-        if (!preferOverwrite && byPda.has(key)) continue;
-        byPda.set(key, {
-          user: account.user,
-          tokenMint: account.tokenMint,
-          amount: BigInt(account.amount.toString()),
-          address: publicKey,
-        });
-      }
-    };
-
-    if (baseResults.status === "fulfilled") {
-      ingest(baseResults.value, /* preferOverwrite */ false);
-    } else {
-      console.warn(
-        "[getAllDepositsByUser] base program enumeration failed",
-        baseResults.reason
-      );
-    }
-
-    // Ephemeral state wins over base state for live balances.
-    if (ephemeralResults.status === "fulfilled") {
-      ingest(ephemeralResults.value, /* preferOverwrite */ true);
-    } else {
-      console.warn(
-        "[getAllDepositsByUser] ephemeral program enumeration failed",
-        ephemeralResults.reason
-      );
-    }
-
-    return Array.from(byPda.values());
+    return enumerateDepositsByUser({
+      user,
+      baseConnection: this.baseProgram.provider.connection,
+      ephemeralConnection: this.ephemeralProgram.provider.connection,
+    });
   }
 
   /**
