@@ -106,6 +106,42 @@ type SmartAccountVaultActivityView = Pick<
   "activityRows" | "transactionDetails"
 >;
 
+export type VaultTransferRequest = {
+  accountIndex: number;
+  mint: string;
+  symbol: string;
+  /** Human-readable token amount, e.g. 1.5 SOL or 100 USDC. */
+  amount: number;
+  /** Base58 wallet address of recipient. */
+  recipientAddress: string;
+};
+
+export type VaultTransferResult = {
+  success: boolean;
+  signature?: string;
+  error?: string;
+  /**
+   * "executed" — funds actually moved on chain (threshold-1 or spending-limit path).
+   * "proposed" — proposal was queued; funds move once threshold is reached.
+   */
+  status?: "executed" | "proposed";
+};
+
+export type VaultTransferCapability =
+  | { kind: "blocked"; reason: string }
+  | {
+      kind: "settings";
+      threshold: number;
+      /** Number of wallet signs the user will need to perform. */
+      expectedSigns: number;
+    }
+  | {
+      kind: "spending-limit";
+      spendingLimitAddress: string;
+      /** SOL only for now — SDK lacks an SPL spending-limit helper. */
+      mint: string;
+    };
+
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   isLoading: boolean;
@@ -143,6 +179,27 @@ export type SmartAccountSidebarData = {
     spendingLimitAddress: string;
     signerAddress: string;
   }) => Promise<void>;
+  /**
+   * Inspect what transfer paths the connected wallet can use for the
+   * given vault + mint + amount + destination. Returns the path that
+   * executeVaultTransfer would take. Used by the UI to render the
+   * correct button state and notice ahead of submit.
+   */
+  evaluateVaultTransferCapability: (args: {
+    accountIndex: number;
+    mint: string;
+    amountRaw: bigint;
+    recipientAddress?: string;
+  }) => VaultTransferCapability;
+  /**
+   * Send funds from a vault. Picks between:
+   *   - spending-limit (1 sign, SOL only)
+   *   - threshold-1 settings transfer (3 signs: propose, approve, execute)
+   *   - threshold-N settings transfer (1 sign: propose only — funds queue)
+   */
+  executeVaultTransfer: (
+    request: VaultTransferRequest
+  ) => Promise<VaultTransferResult>;
   isActionPending: boolean;
   pendingProposalId: string | null;
   pendingSpendingLimitActionKey: string | null;
@@ -1497,6 +1554,279 @@ export function useSmartAccountSidebarData(
     [overview, runSpendingLimitAction, wallet.publicKey]
   );
 
+  const evaluateVaultTransferCapability = useCallback(
+    (args: {
+      accountIndex: number;
+      mint: string;
+      amountRaw: bigint;
+      recipientAddress?: string;
+    }): VaultTransferCapability => {
+      if (!overview || !wallet.publicKey) {
+        return { kind: "blocked", reason: "Smart account not loaded yet" };
+      }
+
+      const connectedAddress = wallet.publicKey.toBase58();
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === args.accountIndex
+      );
+      if (!vault) {
+        return { kind: "blocked", reason: "Vault not found" };
+      }
+
+      const isSol = args.mint === NATIVE_SOL_MINT;
+      const spendingLimitMint = isSol ? SOL_SPENDING_LIMIT_MINT : args.mint;
+      const coveringSpendingLimit = vault.spendingLimits.find(
+        (limit) =>
+          !limit.isExpired &&
+          limit.mint === spendingLimitMint &&
+          limit.signers.includes(connectedAddress) &&
+          BigInt(limit.effectiveRemainingAmountRaw) >= args.amountRaw &&
+          (limit.destinations.length === 0 ||
+            (args.recipientAddress
+              ? limit.destinations.includes(args.recipientAddress)
+              : true))
+      );
+
+      if (coveringSpendingLimit) {
+        if (!isSol) {
+          return {
+            kind: "blocked",
+            reason:
+              "Agent SPL transfers via spending limit are not supported yet",
+          };
+        }
+        return {
+          kind: "spending-limit",
+          spendingLimitAddress: coveringSpendingLimit.address,
+          mint: args.mint,
+        };
+      }
+
+      const settingsSigner = overview.signers.find(
+        (signer) =>
+          signer.scope === "settings" &&
+          signer.address === connectedAddress &&
+          signer.canInitiate
+      );
+
+      if (settingsSigner) {
+        const threshold = overview.threshold ?? 1;
+        return {
+          kind: "settings",
+          threshold,
+          // threshold-1 needs propose+approve+execute; threshold>1 only proposes.
+          expectedSigns: threshold <= 1 ? 3 : 1,
+        };
+      }
+
+      return {
+        kind: "blocked",
+        reason:
+          "Connected wallet isn't authorized to send from this vault. Connect a vault signer or ask the owner to grant a spending limit.",
+      };
+    },
+    [overview, wallet.publicKey]
+  );
+
+  const executeVaultTransfer = useCallback(
+    async (request: VaultTransferRequest): Promise<VaultTransferResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === request.accountIndex
+      );
+      if (!vault) {
+        return { success: false, error: "Vault not found." };
+      }
+
+      const position = vault.portfolio.positions.find(
+        (entry) => entry.asset.mint === request.mint
+      );
+      if (!position || typeof position.asset.decimals !== "number") {
+        return {
+          success: false,
+          error: `Unknown token decimals for mint ${request.mint}. Refresh the wallet and retry.`,
+        };
+      }
+      const decimals = position.asset.decimals;
+
+      let recipientPubkey: PublicKey;
+      try {
+        recipientPubkey = new PublicKey(request.recipientAddress);
+      } catch {
+        return { success: false, error: "Invalid recipient wallet address." };
+      }
+
+      if (!Number.isFinite(request.amount) || request.amount <= 0) {
+        return {
+          success: false,
+          error: "Amount must be greater than 0.",
+        };
+      }
+
+      const amountRaw = BigInt(
+        Math.floor(request.amount * Math.pow(10, decimals))
+      );
+      if (amountRaw <= BigInt(0)) {
+        return {
+          success: false,
+          error: "Amount is too small for this token's precision.",
+        };
+      }
+
+      if (BigInt(Math.floor(position.publicBalance * Math.pow(10, decimals))) <
+        amountRaw) {
+        return {
+          success: false,
+          error: "Vault balance is insufficient for this transfer.",
+        };
+      }
+
+      const capability = evaluateVaultTransferCapability({
+        accountIndex: request.accountIndex,
+        mint: request.mint,
+        amountRaw,
+        recipientAddress: request.recipientAddress,
+      });
+
+      if (capability.kind === "blocked") {
+        return { success: false, error: capability.reason };
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+      const isSol = request.mint === NATIVE_SOL_MINT;
+
+      try {
+        if (capability.kind === "spending-limit") {
+          const prepared = await client.prepareUseSolSpendingLimitPolicy({
+            settingsPda,
+            feePayer: wallet.publicKey,
+            signer: wallet.publicKey,
+            spendingLimitPolicy: new PublicKey(
+              capability.spendingLimitAddress
+            ),
+            destination: recipientPubkey,
+            accountIndex: request.accountIndex,
+            amountLamports: amountRaw,
+          });
+          const signature = await sendPreparedWithWallet({
+            connection,
+            wallet: walletBridge,
+            prepared,
+            confirm: true,
+          });
+          await refresh();
+          return { success: true, signature, status: "executed" };
+        }
+
+        // capability.kind === "settings"
+        const proposeOp = isSol
+          ? await client.prepareSolTransferProposal({
+              settingsPda,
+              creator: wallet.publicKey,
+              feePayer: wallet.publicKey,
+              destination: recipientPubkey,
+              amountLamports: amountRaw,
+              accountIndex: request.accountIndex,
+            })
+          : await client.prepareSplTransferProposal({
+              settingsPda,
+              creator: wallet.publicKey,
+              feePayer: wallet.publicKey,
+              mint: new PublicKey(request.mint),
+              destinationOwner: recipientPubkey,
+              amount: amountRaw,
+              decimals,
+              accountIndex: request.accountIndex,
+              createDestinationAta: true,
+            });
+
+        const proposeSignature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: proposeOp,
+          confirm: true,
+        });
+
+        if (capability.threshold > 1) {
+          await refresh();
+          return {
+            success: true,
+            signature: proposeSignature,
+            status: "proposed",
+          };
+        }
+
+        // threshold-1: read settings to learn the proposal's transactionIndex,
+        // then approve + execute as separate signs.
+        const settingsAfterPropose =
+          await client.sdk.smartAccounts.queries.fetchSettings(settingsPda);
+        const transactionIndex = BigInt(
+          String(settingsAfterPropose.transactionIndex)
+        );
+
+        const approveOp = await client.prepareApproveProposal({
+          settingsPda,
+          transactionIndex,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+        });
+        await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: approveOp,
+          confirm: true,
+        });
+
+        const executeOp = await client.prepareExecuteProposal({
+          settingsPda,
+          transactionIndex,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+        });
+        const executeSignature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: executeOp,
+          confirm: true,
+        });
+
+        await refresh();
+        return {
+          success: true,
+          signature: executeSignature,
+          status: "executed",
+        };
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Vault transfer failed.";
+        console.error("[executeVaultTransfer] failed", err);
+        return { success: false, error: message };
+      }
+    },
+    [
+      connection,
+      evaluateVaultTransferCapability,
+      overview,
+      refresh,
+      wallet,
+    ]
+  );
+
   return {
     overview,
     isLoading,
@@ -1516,6 +1846,8 @@ export function useSmartAccountSidebarData(
     setSignerSpendingLimitUsd,
     topUpSignerWithSpendingLimitUsd,
     deleteSignerSpendingLimit,
+    evaluateVaultTransferCapability,
+    executeVaultTransfer,
     isActionPending,
     pendingProposalId,
     pendingSpendingLimitActionKey,

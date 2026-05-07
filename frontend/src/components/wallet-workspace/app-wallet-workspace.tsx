@@ -21,7 +21,10 @@ import {
   Wallet,
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
-import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
+import {
+  SOL_SPENDING_LIMIT_MINT,
+  type SmartAccountOverview,
+} from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
@@ -33,7 +36,10 @@ import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import { ConnectRequestContent } from "@/components/wallet-sidebar/connect-request-content";
 import { PortfolioContent } from "@/components/wallet-sidebar/portfolio-content";
 import { ReceiveContent } from "@/components/wallet-sidebar/receive-content";
-import { SendContent } from "@/components/wallet-sidebar/send-content";
+import {
+  SendContent,
+  type SendContentVaultContext,
+} from "@/components/wallet-sidebar/send-content";
 import {
   ShieldContent,
   SwapShieldTabs,
@@ -59,6 +65,7 @@ import {
 import { WalletDetailView } from "@/components/wallet-sidebar/wallet-detail-view";
 import type {
   SmartAccountApprovalItem,
+  SmartAccountSidebarData,
   SmartAccountSignerEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
@@ -257,6 +264,73 @@ function portfolioPositionToSwapToken(position: PortfolioPosition): SwapToken {
     mint: position.asset.mint,
     price: position.priceUsd ?? 0,
     symbol: position.asset.symbol,
+  };
+}
+
+function lookupVaultMintDecimals(
+  overview: SmartAccountOverview | null,
+  accountIndex: number,
+  mint: string | undefined
+): number | undefined {
+  if (!(overview && mint)) return undefined;
+  const vault = overview.vaults.find(
+    (entry) => entry.accountIndex === accountIndex
+  );
+  const position = vault?.portfolio.positions.find(
+    (entry) => entry.asset.mint === mint
+  );
+  return position?.asset.decimals;
+}
+
+function buildVaultSendContext(args: {
+  accountIndex: number;
+  evaluateCapability: SmartAccountSidebarData["evaluateVaultTransferCapability"];
+  executeTransfer: SmartAccountSidebarData["executeVaultTransfer"];
+  tokenMint: string | undefined;
+  tokenDecimals: number | undefined;
+}): SendContentVaultContext {
+  if (!args.tokenMint) {
+    return {
+      mode: "blocked",
+      reason: "Select a token held by the vault",
+    };
+  }
+  if (typeof args.tokenDecimals !== "number") {
+    return {
+      mode: "blocked",
+      reason: "Token metadata still loading — try again in a moment",
+    };
+  }
+  // Smallest non-zero raw amount for capability check (1 unit). Real amount
+  // is checked again inside executeVaultTransfer; this is enough to detect
+  // role / authorization issues up-front.
+  const probeAmount = BigInt(1);
+  const capability = args.evaluateCapability({
+    accountIndex: args.accountIndex,
+    mint: args.tokenMint,
+    amountRaw: probeAmount,
+  });
+  if (capability.kind === "blocked") {
+    return { mode: "blocked", reason: capability.reason };
+  }
+  const notice =
+    capability.kind === "settings"
+      ? capability.threshold > 1
+        ? `Submitting will queue a vault proposal — ${capability.threshold} approvals required before funds move.`
+        : "Submitting requires 3 wallet signs (propose, approve, execute)."
+      : "Sending via spending limit — single wallet sign.";
+  const mint = args.tokenMint;
+  return {
+    mode: "ready",
+    notice,
+    execute: async (request) =>
+      args.executeTransfer({
+        accountIndex: args.accountIndex,
+        mint,
+        symbol: request.symbol,
+        amount: request.amount,
+        recipientAddress: request.recipientAddress,
+      }),
   };
 }
 
@@ -2272,6 +2346,20 @@ export function AppWalletWorkspace({
         ? vaultDerivedTokens.find((entry) => entry.mint === sendToken.mint) ??
           vaultDerivedTokens[0] ?? { ...sendToken, balance: 0 }
         : sendToken;
+      const vaultContextProp = sendingFromVault
+        ? buildVaultSendContext({
+            accountIndex: selectedVaultAccountIndex,
+            evaluateCapability:
+              smartAccountData.evaluateVaultTransferCapability,
+            executeTransfer: smartAccountData.executeVaultTransfer,
+            tokenMint: effectiveSendToken.mint,
+            tokenDecimals: lookupVaultMintDecimals(
+              smartAccountData.overview,
+              selectedVaultAccountIndex,
+              effectiveSendToken.mint
+            ),
+          })
+        : undefined;
       return (
         <SendContent
           addLocalActivity={walletDesktopData.addLocalActivity}
@@ -2280,14 +2368,7 @@ export function AppWalletWorkspace({
           onDone={closeActionView}
           onNavigate={pushView}
           token={effectiveSendToken}
-          vaultContext={
-            sendingFromVault
-              ? {
-                  blockedReason:
-                    "Vault transfers via multisig — coming soon",
-                }
-              : undefined
-          }
+          vaultContext={vaultContextProp}
         />
       );
     }

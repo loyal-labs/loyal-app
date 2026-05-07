@@ -828,10 +828,29 @@ function SendTransactionDetail({
   );
 }
 
-export type SendContentVaultContext = {
-  /** Reason rendered on a disabled submit button when true. */
-  blockedReason: string;
+export type SendContentVaultExecuteResult = {
+  success: boolean;
+  signature?: string;
+  error?: string;
+  /** "executed" — funds actually moved; "proposed" — proposal queued. */
+  status?: "executed" | "proposed";
 };
+
+export type SendContentVaultExecutor = (request: {
+  mint: string;
+  symbol: string;
+  amount: number;
+  recipientAddress: string;
+}) => Promise<SendContentVaultExecuteResult>;
+
+export type SendContentVaultContext =
+  | { mode: "blocked"; reason: string }
+  | {
+      mode: "ready";
+      execute: SendContentVaultExecutor;
+      /** Optional notice rendered above the submit button (e.g. expected sign count). */
+      notice?: string;
+    };
 
 export function SendContent({
   onBack,
@@ -889,8 +908,12 @@ export function SendContent({
     setRecipient(initialRecipient);
   }, [initialRecipient]);
 
-  const buttonLabel = vaultContext
-    ? vaultContext.blockedReason
+  const isVaultBlocked = vaultContext?.mode === "blocked";
+  // Vault transfers go through multisig and don't support Telegram-username
+  // recipients (no agent flow on the receiving side). Force wallet-only.
+  const vaultRequiresWalletRecipient = vaultContext?.mode === "ready" && isTg;
+  const buttonLabel = isVaultBlocked
+    ? vaultContext.reason
     : !hasAmount
     ? "Enter Amount"
     : insufficientFunds
@@ -899,14 +922,17 @@ export function SendContent({
     ? "Enter Recipient"
     : !isValidRecipient
     ? "Invalid Address"
+    : vaultRequiresWalletRecipient
+    ? "Vault sends to wallet addresses only"
     : isTgNonSol
     ? "Only SOL for Telegram"
     : "Send";
   const buttonDisabled =
-    Boolean(vaultContext) ||
+    isVaultBlocked ||
     !hasAmount ||
     insufficientFunds ||
     !isValidRecipient ||
+    vaultRequiresWalletRecipient ||
     isTgNonSol;
 
   const handlePercentage = useCallback(
@@ -924,10 +950,8 @@ export function SendContent({
   );
 
   const handleConfirm = useCallback(async () => {
-    if (vaultContext) {
-      // Hard guard: vault transfers must go through the multisig path,
-      // which isn't wired yet. Refuse to fall through to the User-wallet
-      // executeSend (which would silently drain the connected wallet).
+    if (vaultContext?.mode === "blocked") {
+      // Defense-in-depth: button should already be disabled.
       return;
     }
     const currentAmount = hasAmount ? String(numericAmount) : "0";
@@ -965,7 +989,22 @@ export function SendContent({
 
     let result: { success: boolean; signature?: string; error?: string };
 
-    if (isPrivate || isTg) {
+    if (vaultContext?.mode === "ready") {
+      if (!token.mint) {
+        result = {
+          success: false,
+          error: "Vault transfers require a known token mint.",
+        };
+      } else {
+        const vaultResult = await vaultContext.execute({
+          mint: token.mint,
+          symbol: token.symbol,
+          amount: numericAmount,
+          recipientAddress: cleanRecipient,
+        });
+        result = vaultResult;
+      }
+    } else if (isPrivate || isTg) {
       result = await executePrivateSend({
         tokenSymbol: token.symbol,
         amount: numericAmount,
@@ -1664,6 +1703,22 @@ export function SendContent({
 
         {/* Bottom button */}
         <div style={{ padding: "16px 20px" }}>
+          {vaultContext?.mode === "ready" && vaultContext.notice ? (
+            <div
+              style={{
+                marginBottom: "8px",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                background: "rgba(60, 60, 67, 0.06)",
+                fontFamily: font,
+                fontSize: "12px",
+                lineHeight: "16px",
+                color: secondary,
+              }}
+            >
+              {vaultContext.notice}
+            </div>
+          ) : null}
           <button
             className="confirm-btn"
             disabled={buttonDisabled}
