@@ -1151,11 +1151,11 @@ export function useWalletDesktopData(): WalletDesktopData {
   const formattedBalance = formatUsd(totals.totalUsd);
   const balanceParts = formattedBalance.split(".");
   const walletLabel = walletAddress
-    ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)} · ${
+    ? `${
         { mainnet: "Mainnet", devnet: "Devnet", localnet: "Localnet" }[
           process.env.NEXT_PUBLIC_SOLANA_ENV ?? "mainnet"
         ] ?? "Mainnet"
-      }`
+      } · ${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
     : "No account";
 
   return {
