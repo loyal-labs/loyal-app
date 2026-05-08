@@ -120,3 +120,4 @@ docs/superpowers
 .superpowers
 
 .agents/**
+AGENTS.override.md
