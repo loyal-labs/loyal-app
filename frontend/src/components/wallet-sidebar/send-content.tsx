@@ -832,8 +832,12 @@ export type SendContentVaultExecuteResult = {
   success: boolean;
   signature?: string;
   error?: string;
-  /** "executed" — funds actually moved; "proposed" — proposal queued. */
-  status?: "executed" | "proposed";
+  /**
+   * "executed" — funds actually moved.
+   * "proposed" — proposal queued on chain.
+   * "draft" — local-only preview created in Approvals; no on-chain action yet.
+   */
+  status?: "executed" | "proposed" | "draft";
 };
 
 export type SendContentVaultExecutor = (request: {
@@ -996,7 +1000,12 @@ export function SendContent({
       is_private: isPrivate,
     });
 
-    let result: { success: boolean; signature?: string; error?: string };
+    let result: {
+      success: boolean;
+      signature?: string;
+      error?: string;
+      status?: SendContentVaultExecuteResult["status"];
+    };
 
     if (vaultContext?.mode === "ready") {
       if (!token.mint) {
@@ -1048,6 +1057,16 @@ export function SendContent({
     }
 
     if (result.success) {
+      // Multisig draft path: workspace already routed the user to the
+      // Approvals preview. Close the form silently — no success screen, no
+      // balance refresh (nothing moved on chain yet).
+      if (result.status === "draft") {
+        setAmount("");
+        setRecipient("");
+        onDone();
+        return;
+      }
+
       setResultSignature(result.signature);
       setPhase("success");
       setAmount("");
@@ -1106,6 +1125,7 @@ export function SendContent({
     isPrivate,
     isTg,
     numericAmount,
+    onDone,
     onSuccess,
     publicEnv,
     recipientTrimmed,

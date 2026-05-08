@@ -44,6 +44,7 @@ import {
   ShieldContent,
   SwapShieldTabs,
 } from "@/components/wallet-sidebar/shield-content";
+import type { DraftProposalView } from "@/components/wallet-sidebar/draft-preview-content";
 import { StashDetailView } from "@/components/wallet-sidebar/stash-detail-view";
 import { SwapContent } from "@/components/wallet-sidebar/swap-content";
 import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
@@ -67,6 +68,8 @@ import type {
   SmartAccountApprovalItem,
   SmartAccountSidebarData,
   SmartAccountSignerEntry,
+  VaultTransferCapability,
+  VaultTransferRequest,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -283,12 +286,28 @@ function lookupVaultMintDecimals(
   return position?.asset.decimals;
 }
 
+function shortAddressForLabel(address: string): string {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
+
+function formatAmountForDraft(amount: number): string {
+  return amount.toLocaleString("en-US", {
+    maximumFractionDigits: 9,
+    minimumFractionDigits: 0,
+  });
+}
+
 function buildVaultSendContext(args: {
   accountIndex: number;
   evaluateCapability: SmartAccountSidebarData["evaluateVaultTransferCapability"];
   executeTransfer: SmartAccountSidebarData["executeVaultTransfer"];
   tokenMint: string | undefined;
   tokenDecimals: number | undefined;
+  onCreateDraft: (input: {
+    request: VaultTransferRequest;
+    capability: Extract<VaultTransferCapability, { kind: "settings" }>;
+  }) => void;
 }): SendContentVaultContext {
   if (!args.tokenMint) {
     return {
@@ -316,22 +335,46 @@ function buildVaultSendContext(args: {
   }
   const notice =
     capability.kind === "settings"
-      ? capability.threshold > 1
-        ? `Submitting will queue a vault proposal — ${capability.threshold} approvals required before funds move.`
-        : "Submitting requires 3 wallet signs (propose, approve, execute)."
+      ? "Submitting will create a draft proposal you can review in Approvals before signing."
       : "Sending via spending limit — single wallet sign.";
   const mint = args.tokenMint;
+  const decimals = args.tokenDecimals;
   return {
     mode: "ready",
     notice,
-    execute: async (request) =>
-      args.executeTransfer({
+    execute: async (request) => {
+      // Re-evaluate capability with the user's actual recipient + amount so
+      // we route multisig (settings) sends to the draft preview path.
+      const amountRaw = BigInt(
+        Math.max(0, Math.floor(request.amount * Math.pow(10, decimals)))
+      );
+      const liveCapability = args.evaluateCapability({
+        accountIndex: args.accountIndex,
+        mint,
+        amountRaw: amountRaw > BigInt(0) ? amountRaw : BigInt(1),
+        recipientAddress: request.recipientAddress,
+      });
+      if (liveCapability.kind === "settings") {
+        args.onCreateDraft({
+          request: {
+            accountIndex: args.accountIndex,
+            mint,
+            symbol: request.symbol,
+            amount: request.amount,
+            recipientAddress: request.recipientAddress,
+          },
+          capability: liveCapability,
+        });
+        return { success: true, status: "draft" };
+      }
+      return args.executeTransfer({
         accountIndex: args.accountIndex,
         mint,
         symbol: request.symbol,
         amount: request.amount,
         recipientAddress: request.recipientAddress,
-      }),
+      });
+    },
   };
 }
 
@@ -701,6 +744,11 @@ export function AppWalletWorkspace({
   const [pendingOpenSignerAddress, setPendingOpenSignerAddress] = useState<
     string | null
   >(null);
+  const [draftProposal, setDraftProposal] = useState<DraftProposalView | null>(
+    null
+  );
+  const [isDraftSubmitting, setIsDraftSubmitting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
   const resizeStateRef = useRef<{
     startWidth: number;
     startX: number;
@@ -1069,11 +1117,12 @@ export function AppWalletWorkspace({
     const approvalStillExists = smartAccountData.approvals.some(
       (approval) => approval.id === selectedApprovalId
     );
+    const matchesDraft = draftProposal?.id === selectedApprovalId;
 
-    if (!approvalStillExists) {
+    if (!approvalStillExists && !matchesDraft) {
       setSelectedApprovalId(null);
     }
-  }, [selectedApprovalId, smartAccountData.approvals]);
+  }, [selectedApprovalId, smartAccountData.approvals, draftProposal]);
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -1680,6 +1729,68 @@ export function AppWalletWorkspace({
     },
     []
   );
+
+  const handleCreateDraftProposal = useCallback(
+    ({
+      request,
+      capability,
+    }: {
+      request: VaultTransferRequest;
+      capability: Extract<VaultTransferCapability, { kind: "settings" }>;
+    }) => {
+      const vault = smartAccountData.vaultEntries.find(
+        (entry) => entry.accountIndex === request.accountIndex
+      );
+      const draftId = `draft:${request.accountIndex}:${Date.now()}`;
+      setDraftError(null);
+      setProposalActionError(null);
+      setDraftProposal({
+        id: draftId,
+        request,
+        amountDisplay: formatAmountForDraft(request.amount),
+        symbol: request.symbol,
+        recipientAddress: request.recipientAddress,
+        destinationLabel: shortAddressForLabel(request.recipientAddress),
+        sourceAccountIndex: request.accountIndex,
+        sourceLabel: vault?.label ?? `Vault ${request.accountIndex}`,
+        threshold: capability.threshold,
+        expectedSigns: capability.expectedSigns,
+      });
+      setSelectedApprovalId(draftId);
+    },
+    [smartAccountData.vaultEntries]
+  );
+
+  const handleCancelDraftProposal = useCallback(() => {
+    setDraftProposal(null);
+    setSelectedApprovalId(null);
+    setDraftError(null);
+  }, []);
+
+  const handleSubmitDraftProposal = useCallback(async () => {
+    if (!draftProposal) return;
+    setIsDraftSubmitting(true);
+    setDraftError(null);
+    try {
+      const result = await smartAccountData.executeVaultTransfer(
+        draftProposal.request
+      );
+      if (!result.success) {
+        setDraftError(result.error ?? "Failed to submit proposal.");
+        return;
+      }
+      setDraftProposal(null);
+      setSelectedApprovalId(null);
+    } catch (error) {
+      const raw =
+        error instanceof Error
+          ? error.message
+          : "Failed to submit proposal.";
+      setDraftError(raw);
+    } finally {
+      setIsDraftSubmitting(false);
+    }
+  }, [draftProposal, smartAccountData]);
 
   const runProposalAction = useCallback(async (action: () => Promise<void>) => {
     setProposalActionError(null);
@@ -2534,6 +2645,7 @@ export function AppWalletWorkspace({
               selectedVaultAccountIndex,
               effectiveSendToken.mint
             ),
+            onCreateDraft: handleCreateDraftProposal,
           })
         : undefined;
       return (
@@ -2850,10 +2962,15 @@ export function AppWalletWorkspace({
                     smartAccountData.approveProposal(approval.proposal)
                   )
                 }
+                draft={draftProposal}
+                draftError={draftError}
+                isDraftSubmitting={isDraftSubmitting}
                 onBackToList={() => {
                   setSelectedApprovalId(null);
                   setProposalActionError(null);
+                  setDraftError(null);
                 }}
+                onCancelDraft={handleCancelDraftProposal}
                 onDecline={(approval) =>
                   void runProposalAction(() =>
                     smartAccountData.rejectProposal(approval.proposal)
@@ -2865,11 +2982,21 @@ export function AppWalletWorkspace({
                   )
                 }
                 onReview={handleReviewApproval}
+                onReviewDraft={(draft) => {
+                  setSelectedApprovalId(draft.id);
+                  setDraftError(null);
+                }}
                 onRetry={() => {
                   void smartAccountData.refresh();
                 }}
+                onSubmitDraft={() => void handleSubmitDraftProposal()}
                 pendingApprovalId={smartAccountData.pendingProposalId}
                 selectedApproval={selectedApproval}
+                selectedDraft={
+                  draftProposal && selectedApprovalId === draftProposal.id
+                    ? draftProposal
+                    : null
+                }
               />
             )}
           </section>
