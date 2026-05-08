@@ -15,6 +15,7 @@ export type FeeEstimateInstructionPlan = {
   label: string;
   ix: TransactionInstruction;
   rentLamports?: number;
+  nativeLamports?: number;
 };
 
 export type FeeEstimateTransactionPlan = {
@@ -61,6 +62,7 @@ export async function estimatePlannedTransactionFees(params: {
   instructions: InstructionCostEstimate[];
   totalFeeLamports: number;
   totalRentLamports: number;
+  totalNativeLamports: number;
 }> {
   const transactionEstimates = await Promise.all(
     params.transactions.map(async (transactionPlan, index) => {
@@ -91,10 +93,15 @@ export async function estimatePlannedTransactionFees(params: {
           label: instructionPlan.label,
           programId: instructionPlan.ix.programId,
           rentLamports: instructionPlan.rentLamports ?? 0,
+          nativeLamports: instructionPlan.nativeLamports ?? 0,
         })
       );
       const rentLamports = instructions.reduce(
         (total, instruction) => total + instruction.rentLamports,
+        0
+      );
+      const nativeLamports = instructions.reduce(
+        (total, instruction) => total + instruction.nativeLamports,
         0
       );
 
@@ -108,6 +115,8 @@ export async function estimatePlannedTransactionFees(params: {
         instructionCount: transactionPlan.instructions.length,
         feeLamports,
         rentLamports,
+        nativeLamports,
+        totalLamports: feeLamports + rentLamports + nativeLamports,
         instructions,
       };
     })
@@ -125,6 +134,10 @@ export async function estimatePlannedTransactionFees(params: {
     ),
     totalRentLamports: instructionEstimates.reduce(
       (total, instruction) => total + instruction.rentLamports,
+      0
+    ),
+    totalNativeLamports: instructionEstimates.reduce(
+      (total, instruction) => total + instruction.nativeLamports,
       0
     ),
   };

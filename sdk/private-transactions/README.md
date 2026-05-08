@@ -115,14 +115,24 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
 - `delegateDeposit` — delegate to TEE validator
 
 Fee estimates use Solana's `getFeeForMessage` on the planned transaction
-messages. Instruction rows report `rentLamports` for new accounts that the SDK
-expects to create; network fees are not attributed per instruction because
-Solana charges them at the transaction/message level. Build the plan once and
-pass the same plan into the estimator so the estimate is tied to the exact
-instructions your app is about to inspect or send. To execute that exact plan,
-pass it to the matching `execute*TransactionPlan` method; it will send any
-pre-undelegate transaction first, wait for the required owner transition when
-the plan includes one, then send the base transaction.
+messages. Instruction rows report net `rentLamports`: positive values are rent
+locked for newly created accounts, negative values are rent reclaimed by close
+or undelegate cleanup. Delegation rent credits are net of MagicBlock's
+undelegate session fee, so undelegation is not a full refund of every lamport
+held by delegation accounts. For native-SOL flows, instruction rows also report
+`nativeLamports` for the shielded/unshielded SOL principal; this is separate
+from protocol fees and rent, but it does affect the payer's SOL balance.
+`feeAndRentLamports` excludes native token principal, while `totalLamports`
+is a cost-style net SOL impact for the common payer=user flow: positive values
+are debits/costs and negative values are credits/gains. If payer differs from
+user, `nativeLamports` belongs to the token owner while fees/rent may belong to
+the payer. Network fees are not attributed per
+instruction because Solana charges them at the transaction/message level. Build
+the plan once and pass the same plan into the estimator so the estimate is tied
+to the exact instructions your app is about to inspect or send. To execute that
+exact plan, pass it to the matching `execute*TransactionPlan` method; it will
+send any pre-undelegate transaction first, wait for the required owner transition
+when the plan includes one, then send the base transaction.
 
 ```ts
 const shieldPlan = await client.buildShieldTokensTransactionPlan({
@@ -143,7 +153,9 @@ const unshieldEstimate = await client.estimateUnshieldTokensFee({
   plan: unshieldPlan,
 });
 
+console.log(shieldEstimate.feeAndRentLamports);
 console.log(shieldEstimate.totalLamports);
+console.log(unshieldEstimate.feeAndRentLamports);
 console.log(unshieldEstimate.totalLamports);
 
 const shieldResult = await client.executeShieldTokensTransactionPlan({

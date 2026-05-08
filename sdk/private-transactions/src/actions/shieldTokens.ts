@@ -19,6 +19,7 @@ import {
 import { findDepositPda, findPermissionPda } from "../pda";
 import {
   estimateDepositDelegationRentLamports,
+  estimateDepositDelegationRentCreditLamports,
   estimateDepositRentLamports,
   estimateModifyBalanceRentLamports,
   estimatePermissionRentLamports,
@@ -43,6 +44,7 @@ export type LabeledTransactionInstruction = {
   label: string;
   ix: TransactionInstruction;
   rentLamports?: number;
+  nativeLamports?: number;
 };
 
 export type LabeledTransactionPlan = {
@@ -151,16 +153,21 @@ export async function buildShieldTokensInstructionPlan(params: {
   const checks: InstructionCheck[] = [];
 
   if (isNativeSol) {
-    instructions.push(
-      ...labelTransactionInstructions(
-        "wrapSol",
-        wrapSolToWsolIx({
-          user,
-          payer,
-          lamports: amount,
-        })
-      )
+    const wrapSolInstructions = labelTransactionInstructions(
+      "wrapSol",
+      wrapSolToWsolIx({
+        user,
+        payer,
+        lamports: amount,
+      })
     );
+    const transferInstruction = wrapSolInstructions.find(
+      (instruction) => instruction.label === "wrapSol:transfer"
+    );
+    if (transferInstruction) {
+      transferInstruction.nativeLamports = Number(amount);
+    }
+    instructions.push(...wrapSolInstructions);
   }
 
   if (!depositAccountInfo) {
@@ -264,6 +271,11 @@ export async function buildShieldTokensTransactionPlan(params: {
   let preUndelegateTransaction: LabeledTransactionPlan | null = null;
 
   if (instructionPlan.needsUndelegate) {
+    const undelegateRentLamports =
+      await estimateDepositDelegationRentCreditLamports({
+        connection: params.baseProgram.provider.connection,
+        depositPda: instructionPlan.context.depositPda,
+      });
     const undelegateIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
@@ -275,7 +287,13 @@ export async function buildShieldTokensTransactionPlan(params: {
     preUndelegateTransaction = {
       label: "shield:preUndelegate",
       cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
+      instructions: [
+        {
+          label: "undelegateDeposit",
+          ix: undelegateIxs.ix,
+          rentLamports: undelegateRentLamports,
+        },
+      ],
       checks: undelegateIxs.ensure,
     };
   }
