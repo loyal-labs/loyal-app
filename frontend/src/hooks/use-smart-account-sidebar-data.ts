@@ -179,6 +179,15 @@ export type SmartAccountSidebarData = {
   refresh: (options?: {
     invalidateAddresses?: string[];
   }) => Promise<void>;
+  /**
+   * Invalidate caches and re-fetch portfolio + activity after an on-chain tx.
+   * Pass the affected vault/signer addresses to make sure their balances
+   * refresh on the next read; otherwise only the connected wallet refreshes.
+   */
+  refreshAfterTx: (args: {
+    accountIndex?: number;
+    signerAddresses?: string[];
+  }) => Promise<void>;
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
@@ -2294,6 +2303,7 @@ export function useSmartAccountSidebarData(
     approvals,
     loadVaultActivity,
     refresh,
+    refreshAfterTx,
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),
     executeProposal: (proposal) => runProposalAction(proposal, "execute"),

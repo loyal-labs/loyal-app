@@ -857,6 +857,7 @@ export function SendContent({
   onClose,
   onDone,
   onNavigate,
+  onSuccess,
   token,
   addLocalActivity,
   initialRecipient = "",
@@ -866,6 +867,10 @@ export function SendContent({
   onClose: () => void;
   onDone: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onSuccess?: (info: {
+    recipientAddress: string;
+    signature?: string;
+  }) => Promise<void> | void;
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
   initialRecipient?: string;
@@ -1048,6 +1053,17 @@ export function SendContent({
       setAmount("");
       setRecipient("");
 
+      if (onSuccess) {
+        void Promise.resolve(
+          onSuccess({
+            recipientAddress: cleanRecipient,
+            signature: result.signature,
+          })
+        ).catch((err) => {
+          console.error("[SendContent] onSuccess callback failed", err);
+        });
+      }
+
       if (isPrivate && addLocalActivity) {
         const now = new Date();
         const syntheticRow: ActivityRow = {
@@ -1090,6 +1106,7 @@ export function SendContent({
     isPrivate,
     isTg,
     numericAmount,
+    onSuccess,
     publicEnv,
     recipientTrimmed,
     token.mint,

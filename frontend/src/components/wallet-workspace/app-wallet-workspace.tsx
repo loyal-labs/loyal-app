@@ -1399,6 +1399,50 @@ export function AppWalletWorkspace({
     await Promise.allSettled([logout(), disconnect()]);
   }, [disconnect, logout]);
 
+  // After a regular send (not a vault multisig — that path triggers its own
+  // refresh inside executeVaultTransfer), classify the recipient against the
+  // smart-account overview so the right balance caches get invalidated:
+  //   - If recipient is a known vault → pass accountIndex so the vault's
+  //     portfolio cache is busted on the server side.
+  //   - If recipient is a known signer → pass signerAddresses so its cache
+  //     is invalidated.
+  //   - Otherwise → just refresh the connected wallet + overview totals.
+  const handleSendSuccess = useCallback(
+    async ({ recipientAddress }: { recipientAddress: string }) => {
+      const trimmed = recipientAddress.trim();
+      if (!trimmed) {
+        await smartAccountData.refreshAfterTx({});
+        return;
+      }
+
+      const matchedVault = smartAccountData.overview?.vaults.find(
+        (vault) => vault.address === trimmed
+      );
+      if (matchedVault) {
+        await smartAccountData.refreshAfterTx({
+          accountIndex: matchedVault.accountIndex,
+        });
+        return;
+      }
+
+      const overview = smartAccountData.overview;
+      const matchedSigner =
+        overview?.signers.find((signer) => signer.address === trimmed) ??
+        overview?.vaults
+          .flatMap((vault) => vault.signers ?? [])
+          .find((signer) => signer.address === trimmed);
+      if (matchedSigner) {
+        await smartAccountData.refreshAfterTx({
+          signerAddresses: [trimmed],
+        });
+        return;
+      }
+
+      await smartAccountData.refreshAfterTx({});
+    },
+    [smartAccountData]
+  );
+
   const handleRailAction = useCallback(
     (action: WorkspaceAction) => {
       const actionView =
@@ -2481,6 +2525,7 @@ export function AppWalletWorkspace({
           onClose={closeActionView}
           onDone={closeActionView}
           onNavigate={pushView}
+          onSuccess={handleSendSuccess}
           token={effectiveSendToken}
           vaultContext={vaultContextProp}
         />
