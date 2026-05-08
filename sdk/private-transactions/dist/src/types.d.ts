@@ -84,12 +84,30 @@ export interface InstructionCostEstimate {
     instructionIndex: number;
     label: string;
     programId: PublicKey;
+    /**
+     * Net rent impact for this instruction.
+     * Positive values are newly locked rent; negative values are reclaimed rent.
+     */
     rentLamports: number;
+    /**
+     * Net native-SOL value movement caused by token semantics, excluding fees and rent.
+     * Positive values debit the payer/user, negative values credit them.
+     */
+    nativeLamports: number;
 }
 export interface ShieldFlowInstructionPlan {
     label: string;
     ix: TransactionInstruction;
+    /**
+     * Net rent impact for this instruction.
+     * Positive values are newly locked rent; negative values are reclaimed rent.
+     */
     rentLamports?: number;
+    /**
+     * Net native-SOL value movement caused by token semantics, excluding fees and rent.
+     * Positive values debit the payer/user, negative values credit them.
+     */
+    nativeLamports?: number;
 }
 export interface ShieldFlowOwnerChangeWait {
     address: PublicKey;
@@ -121,6 +139,8 @@ export interface ShieldFlowTransactionFeeEstimate {
     instructionCount: number;
     feeLamports: number;
     rentLamports: number;
+    nativeLamports: number;
+    totalLamports: number;
     instructions: InstructionCostEstimate[];
 }
 export interface ShieldFlowFeeEstimate {
@@ -131,6 +151,8 @@ export interface ShieldFlowFeeEstimate {
     amount: bigint;
     totalFeeLamports: number;
     totalRentLamports: number;
+    totalNativeLamports: number;
+    feeAndRentLamports: number;
     totalLamports: number;
     transactions: ShieldFlowTransactionFeeEstimate[];
     instructions: InstructionCostEstimate[];

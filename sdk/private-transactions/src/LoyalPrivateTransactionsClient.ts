@@ -672,10 +672,15 @@ export class LoyalPrivateTransactionsClient {
       amount: params.plan.amount,
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
-      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalNativeLamports: estimate.totalNativeLamports,
+      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalLamports:
+        estimate.totalFeeLamports +
+        estimate.totalRentLamports +
+        estimate.totalNativeLamports,
       transactions: estimate.transactions,
       instructions: estimate.instructions,
-      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow.",
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose net rent changes (positive locks rent, negative reclaims rent) and nativeLamports for native-SOL token value movement. totalLamports is a cost-style net SOL impact for the common payer=user flow: positive values are debits/costs and negative values are credits/gains. feeAndRentLamports excludes native token principal. If payer differs from user, nativeLamports belongs to the token owner while fees/rent may belong to the payer.",
     };
   }
 

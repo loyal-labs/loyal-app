@@ -2495,6 +2495,7 @@ var U64_SIZE = 8;
 var U8_SIZE = 1;
 var BOOL_SIZE = 1;
 var VEC_PREFIX_SIZE = 4;
+var MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS = 300000;
 var DEPOSIT_ACCOUNT_SIZE2 = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
 var VAULT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + U8_SIZE;
 var PERMISSION_ACCOUNT_SIZE = 567;
@@ -2521,6 +2522,13 @@ async function estimateNewAccountRentLamports(params) {
     }
     return total + (rentBySpace.get(account.space) ?? 0);
   }, 0);
+}
+async function estimateExistingAccountLamports(params) {
+  if (params.accounts.length === 0) {
+    return 0;
+  }
+  const accountInfos = await params.connection.getMultipleAccountsInfo(params.accounts);
+  return accountInfos.reduce((total, accountInfo) => total + (accountInfo?.lamports ?? 0), 0);
 }
 async function estimateDepositRentLamports(params) {
   return estimateNewAccountRentLamports({
@@ -2585,6 +2593,16 @@ async function estimateDepositDelegationRentLamports(params) {
       }
     ]
   });
+}
+async function estimateDepositDelegationRentCreditLamports(params) {
+  const [delegationRecordPda] = findDelegationRecordPda(params.depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(params.depositPda);
+  const delegationAccountLamports = await estimateExistingAccountLamports({
+    connection: params.connection,
+    accounts: [delegationRecordPda, delegationMetadataPda]
+  });
+  const refundableLamports = Math.max(0, delegationAccountLamports - MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS);
+  return refundableLamports === 0 ? 0 : -refundableLamports;
 }
 
 // src/checks/enshureChecks.ts
@@ -3411,11 +3429,16 @@ async function buildShieldTokensInstructionPlan(params) {
   const instructions = [];
   const checks = [];
   if (isNativeSol) {
-    instructions.push(...labelTransactionInstructions("wrapSol", wrapSolToWsolIx({
+    const wrapSolInstructions = labelTransactionInstructions("wrapSol", wrapSolToWsolIx({
       user,
       payer,
       lamports: amount
-    })));
+    }));
+    const transferInstruction = wrapSolInstructions.find((instruction) => instruction.label === "wrapSol:transfer");
+    if (transferInstruction) {
+      transferInstruction.nativeLamports = Number(amount);
+    }
+    instructions.push(...wrapSolInstructions);
   }
   if (!depositAccountInfo) {
     const initializeDepositIxs = await initializeDepositIx(baseProgram, {
@@ -3498,6 +3521,10 @@ async function buildShieldTokensTransactionPlan(params) {
   const instructionPlan = await buildShieldTokensInstructionPlan(params);
   let preUndelegateTransaction = null;
   if (instructionPlan.needsUndelegate) {
+    const undelegateRentLamports = await estimateDepositDelegationRentCreditLamports({
+      connection: params.baseProgram.provider.connection,
+      depositPda: instructionPlan.context.depositPda
+    });
     const undelegateIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
@@ -3509,7 +3536,13 @@ async function buildShieldTokensTransactionPlan(params) {
     preUndelegateTransaction = {
       label: "shield:preUndelegate",
       cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
+      instructions: [
+        {
+          label: "undelegateDeposit",
+          ix: undelegateIxs.ix,
+          rentLamports: undelegateRentLamports
+        }
+      ],
       checks: undelegateIxs.ensure
     };
   }
@@ -3656,29 +3689,6 @@ async function closePermissionIx(params) {
   };
 }
 
-// src/instructions/undelegatePermission.ts
-import { createCommitAndUndelegatePermissionInstruction } from "@magicblock-labs/ephemeral-rollups-sdk";
-async function undelegatePermissionIx(params) {
-  const { user, tokenMint } = params;
-  const [depositPda] = findDepositPda(user, tokenMint);
-  const [permissionPda] = findPermissionPda(depositPda);
-  const ix = createCommitAndUndelegatePermissionInstruction({
-    authority: [user, true],
-    permissionedAccount: [depositPda, false]
-  });
-  return {
-    ix,
-    ensure: [
-      {
-        address: permissionPda,
-        delegated: true,
-        passNotExist: false,
-        label: "undelegatePermission-permissionPda"
-      }
-    ]
-  };
-}
-
 // src/actions/unshieldTokens.ts
 async function buildUnshieldTokensInstructionPlan(params) {
   const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
@@ -3687,18 +3697,25 @@ async function buildUnshieldTokensInstructionPlan(params) {
   const isNativeSol = tokenMint.equals(NATIVE_MINT3);
   const validator = params.validator ?? getErValidatorForRpcEndpoint(perRpcEndpoint);
   const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
   const depositAccountInfoPromise = baseConnection.getAccountInfo(depositPda);
+  const permissionAccountInfoPromise = baseConnection.getAccountInfo(permissionPda);
   const modifyBalanceRentLamportsPromise = estimateModifyBalanceRentLamports({
     connection: baseConnection,
     user,
     tokenMint,
     isNativeSol
   });
-  const depositAccountInfo = await depositAccountInfoPromise;
+  const [depositAccountInfo, permissionAccountInfo] = await Promise.all([
+    depositAccountInfoPromise,
+    permissionAccountInfoPromise
+  ]);
   const needsUndelegate = depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
   const currentDepositAccount = needsUndelegate ? await perProgram.account.deposit.fetchNullable(depositPda) : depositAccountInfo?.owner.equals(PROGRAM_ID) ? await baseProgram.account.deposit.fetchNullable(depositPda) : null;
   const currentDepositAmount = currentDepositAccount ? BigInt(currentDepositAccount.amount.toString()) : null;
   const shouldRedelegate = currentDepositAmount !== null && currentDepositAmount - amount > 0n;
+  const closePermissionRentLamports = shouldRedelegate ? 0 : -(permissionAccountInfo?.lamports ?? 0);
+  const closeDepositRentLamports = shouldRedelegate ? 0 : -(depositAccountInfo?.lamports ?? 0);
   const [modifyBalanceRentLamports, delegationRentLamports] = await Promise.all([
     modifyBalanceRentLamportsPromise,
     shouldRedelegate ? estimateDepositDelegationRentLamports({
@@ -3726,7 +3743,8 @@ async function buildUnshieldTokensInstructionPlan(params) {
   instructions.push({
     label: "modifyBalanceDecrease",
     ix: modifyBalanceIxs.ix,
-    rentLamports: modifyBalanceRentLamports
+    rentLamports: modifyBalanceRentLamports,
+    nativeLamports: isNativeSol ? -Number(amount) : undefined
   });
   checks.push(...modifyBalanceIxs.ensure);
   if (isNativeSol) {
@@ -3755,7 +3773,8 @@ async function buildUnshieldTokensInstructionPlan(params) {
     const closePermissionIxs = await closePermissionIx({ user, tokenMint });
     instructions.push({
       label: "closePermission",
-      ix: closePermissionIxs.ix
+      ix: closePermissionIxs.ix,
+      rentLamports: closePermissionRentLamports
     });
     checks.push(...closePermissionIxs.ensure);
     const closeDepositIxs = await closeDepositIx(baseProgram, {
@@ -3764,7 +3783,8 @@ async function buildUnshieldTokensInstructionPlan(params) {
     });
     instructions.push({
       label: "closeDeposit",
-      ix: closeDepositIxs.ix
+      ix: closeDepositIxs.ix,
+      rentLamports: closeDepositRentLamports
     });
     checks.push(...closeDepositIxs.ensure);
   }
@@ -3791,17 +3811,6 @@ async function buildUnshieldTokensTransactionPlan(params) {
       instructions: [],
       checks: []
     };
-    if (!instructionPlan.shouldRedelegate) {
-      const undelegatePermissionIxs = await undelegatePermissionIx({
-        user: params.user,
-        tokenMint: params.tokenMint
-      });
-      preUndelegateTransaction.instructions.push({
-        label: "undelegatePermission",
-        ix: undelegatePermissionIxs.ix
-      });
-      preUndelegateTransaction.checks.push(...undelegatePermissionIxs.ensure);
-    }
     const undelegateDepositIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
@@ -3810,9 +3819,14 @@ async function buildUnshieldTokensTransactionPlan(params) {
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
+    const undelegateRentLamports = await estimateDepositDelegationRentCreditLamports({
+      connection: params.baseProgram.provider.connection,
+      depositPda: instructionPlan.context.depositPda
+    });
     preUndelegateTransaction.instructions.push({
       label: "undelegateDeposit",
-      ix: undelegateDepositIxs.ix
+      ix: undelegateDepositIxs.ix,
+      rentLamports: undelegateRentLamports
     });
     preUndelegateTransaction.checks.push(...undelegateDepositIxs.ensure);
   }
@@ -3964,9 +3978,11 @@ async function estimatePlannedTransactionFees(params) {
       instructionIndex,
       label: instructionPlan.label,
       programId: instructionPlan.ix.programId,
-      rentLamports: instructionPlan.rentLamports ?? 0
+      rentLamports: instructionPlan.rentLamports ?? 0,
+      nativeLamports: instructionPlan.nativeLamports ?? 0
     }));
     const rentLamports = instructions.reduce((total, instruction) => total + instruction.rentLamports, 0);
+    const nativeLamports = instructions.reduce((total, instruction) => total + instruction.nativeLamports, 0);
     return {
       index,
       label: transactionPlan.label,
@@ -3977,6 +3993,8 @@ async function estimatePlannedTransactionFees(params) {
       instructionCount: transactionPlan.instructions.length,
       feeLamports,
       rentLamports,
+      nativeLamports,
+      totalLamports: feeLamports + rentLamports + nativeLamports,
       instructions
     };
   }));
@@ -3985,7 +4003,8 @@ async function estimatePlannedTransactionFees(params) {
     transactions: transactionEstimates,
     instructions: instructionEstimates,
     totalFeeLamports: transactionEstimates.reduce((total, transaction) => total + transaction.feeLamports, 0),
-    totalRentLamports: instructionEstimates.reduce((total, instruction) => total + instruction.rentLamports, 0)
+    totalRentLamports: instructionEstimates.reduce((total, instruction) => total + instruction.rentLamports, 0),
+    totalNativeLamports: instructionEstimates.reduce((total, instruction) => total + instruction.nativeLamports, 0)
   };
 }
 
@@ -4350,10 +4369,12 @@ class LoyalPrivateTransactionsClient {
       amount: params.plan.amount,
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
-      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalNativeLamports: estimate.totalNativeLamports,
+      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports + estimate.totalNativeLamports,
       transactions: estimate.transactions,
       instructions: estimate.instructions,
-      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow."
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose net rent changes (positive locks rent, negative reclaims rent) and nativeLamports for native-SOL token value movement. totalLamports is a cost-style net SOL impact for the common payer=user flow: positive values are debits/costs and negative values are credits/gains. feeAndRentLamports excludes native token principal. If payer differs from user, nativeLamports belongs to the token owner while fees/rent may belong to the payer."
     };
   }
   async estimateShieldTokensFee(params) {
