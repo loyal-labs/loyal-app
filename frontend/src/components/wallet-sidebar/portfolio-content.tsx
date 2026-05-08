@@ -760,6 +760,7 @@ export function PortfolioContent({
             )}
           </div>
         </div>
+        {/* Cmd+K command menu trigger temporarily hidden.
         {onOpenCommandMenu ? (
           <button
             className="portfolio-command-btn"
@@ -790,6 +791,7 @@ export function PortfolioContent({
             </KbdGroup>
           </button>
         ) : null}
+        */}
         {showHeaderControls && (
         <div
           style={{

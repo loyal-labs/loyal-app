@@ -2059,11 +2059,12 @@ export function AppWalletWorkspace({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setIsCommandMenuOpen((current) => !current);
-        return;
-      }
+      // Cmd+K command-menu shortcut temporarily disabled.
+      // if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      //   event.preventDefault();
+      //   setIsCommandMenuOpen((current) => !current);
+      //   return;
+      // }
 
       if (event.key !== "Escape") return;
       if (isCommandMenuOpen) return;
