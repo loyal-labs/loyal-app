@@ -8,7 +8,7 @@ import {
  * TEE ER Validators
  */
 export const ER_VALIDATOR_DEVNET = new PublicKey(
-  "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA"
+  "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"
 );
 export const ER_VALIDATOR_MAINNET = new PublicKey(
   "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo"

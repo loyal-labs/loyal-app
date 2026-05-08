@@ -1936,7 +1936,7 @@ import {
   LAMPORTS_PER_SOL,
   SYSVAR_INSTRUCTIONS_PUBKEY
 } from "@solana/web3.js";
-var ER_VALIDATOR_DEVNET = new PublicKey("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
+var ER_VALIDATOR_DEVNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR_MAINNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR = ER_VALIDATOR_DEVNET;
 function getErValidatorForSolanaEnv(env) {
