@@ -1,6 +1,6 @@
 # Loyal App
 
-Loyal App is a monorepo for Telegram-native Solana products.
+Loyal App is a monorepo for Solana products.
 It combines on-chain Anchor programs, a Telegram mini-app, an internal admin dashboard,
 the Loyal web frontend, shared packages/SDKs, and worker services.
 
