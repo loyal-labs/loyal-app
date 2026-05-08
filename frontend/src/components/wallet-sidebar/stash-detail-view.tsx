@@ -12,6 +12,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
+import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
 import { SpendingLimitSection } from "./spending-limit-section";
 import {
   getTokenPairConnection,
@@ -511,18 +512,11 @@ export function StashDetailView({
               ))}
 
             {activeTab === "tokens" && tokenRows.length === 0 && (
-              <div
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "14px",
-                  padding: "12px",
-                  textAlign: "left",
-                  width: "100%",
-                }}
-              >
-                No tokens yet
-              </div>
+              <TokenRowItem
+                isBalanceHidden={isBalanceHidden}
+                onDetail={onTokenDetail}
+                token={LOYAL_PLACEHOLDER_ROW}
+              />
             )}
 
             {activeTab === "activity" &&

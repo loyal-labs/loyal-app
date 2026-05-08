@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
+import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
@@ -1938,18 +1939,11 @@ export function AgentPageView({
                   />
                 ))}
               {workspaceTab === "tokens" && tokenRows.length === 0 && (
-                <div
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "14px",
-                    padding: "12px",
-                    textAlign: "left",
-                    width: "100%",
-                  }}
-                >
-                  No tokens yet
-                </div>
+                <TokenRowItem
+                  isBalanceHidden={isBalanceHidden}
+                  onDetail={onTokenDetail}
+                  token={LOYAL_PLACEHOLDER_ROW}
+                />
               )}
               {workspaceTab === "activity" &&
                 activityRows.map((activity) => (
@@ -1992,21 +1986,13 @@ export function AgentPageView({
               />
             ))
           )}
-          {!isWorkspace &&
-            tokenRows.length === 0 && (
-              <div
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "14px",
-                  padding: "12px",
-                  textAlign: "left",
-                  width: "100%",
-                }}
-              >
-                No tokens yet
-              </div>
-            )}
+          {!isWorkspace && tokenRows.length === 0 && (
+            <TokenRowItem
+              isBalanceHidden={isBalanceHidden}
+              onDetail={onTokenDetail}
+              token={LOYAL_PLACEHOLDER_ROW}
+            />
+          )}
         </div>
         {!isWorkspace && (
           <div

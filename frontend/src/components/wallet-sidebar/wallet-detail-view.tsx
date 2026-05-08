@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
+import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
 import {
   getTokenPairConnection,
   TokenRowItem,
@@ -773,18 +774,11 @@ export function WalletDetailView({
               ))}
 
             {activeTab === "tokens" && tokenRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px",
-                textAlign: "left",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-                width: "100%",
-              }}
-            >
-              No tokens yet
-            </div>
+              <TokenRowItem
+                isBalanceHidden={isBalanceHidden}
+                onDetail={onTokenDetail}
+                token={LOYAL_PLACEHOLDER_ROW}
+              />
             )}
 
             {activeTab === "activity" && activityRows.length === 0 && (
