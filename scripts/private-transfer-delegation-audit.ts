@@ -13,7 +13,7 @@ const PER_DEVNET = "https://tee.magicblock.app";
 const ROUTER_MAINNET = "https://router.magicblock.app";
 const ROUTER_DEVNET = "https://devnet-router.magicblock.app";
 const ER_VALIDATOR_MAINNET = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
-const ER_VALIDATOR_DEVNET = "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA";
+const ER_VALIDATOR_DEVNET = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
 const DEPOSIT_DISCRIMINATOR = Uint8Array.from([
   148, 146, 121, 66, 207, 173, 21, 227,
 ]);
