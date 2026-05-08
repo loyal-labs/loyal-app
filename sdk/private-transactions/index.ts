@@ -103,7 +103,12 @@ export {
   ER_VALIDATOR_MAINNET,
   getErValidatorForSolanaEnv,
   getErValidatorForRpcEndpoint,
+  getKaminoModifyBalanceAccountsForTokenMint,
+  isKaminoMainnetModifyBalanceAccounts,
+  KLEND_PROGRAM_ID,
   PROGRAM_ID,
+  USDC_MINT_DEVNET,
+  USDC_MINT_MAINNET,
   DELEGATION_PROGRAM_ID,
   PERMISSION_PROGRAM_ID,
   MAGIC_PROGRAM_ID,
@@ -120,6 +125,15 @@ export {
   solToLamports,
   lamportsToSol,
 } from "./src/constants";
+
+export {
+  calculateKaminoCollateralExchangeRateSfFromAmounts,
+  calculateKaminoCollateralValuation,
+  calculateKaminoRedeemableLiquidityAmountRaw,
+  calculateKaminoShareAmountForLiquidityAmountRaw,
+  fetchKaminoReserveSnapshot,
+  parseKaminoReserveSnapshotFromAccountData,
+} from "./src/kamino";
 
 // PDA helpers
 export {
