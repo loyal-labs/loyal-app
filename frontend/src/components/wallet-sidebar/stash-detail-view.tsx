@@ -1,7 +1,13 @@
 "use client";
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
-import { ArrowUpRight, Check, Copy, Plus } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  Copy,
+  RefreshCw,
+} from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
@@ -44,6 +50,7 @@ export function StashDetailView({
   onNavigate,
   onOpenSend,
   onOpenReceive,
+  onOpenSwap,
   spendingLimit,
   isSpendingLimitPending = false,
   onSetSpendingLimit,
@@ -65,6 +72,7 @@ export function StashDetailView({
   onNavigate: (view: Exclude<SubView, null>) => void;
   onOpenSend: () => void;
   onOpenReceive: () => void;
+  onOpenSwap: () => void;
   spendingLimit?: SmartAccountSpendingLimitSnapshot | null;
   isSpendingLimitPending?: boolean;
   onSetSpendingLimit?: (amountUsd: number) => Promise<void>;
@@ -111,11 +119,8 @@ export function StashDetailView({
         .stash-detail-view {
           container-type: inline-size;
         }
-        .stash-transfer-btn:hover {
+        .stash-action-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
-        }
-        .stash-topup-btn:hover {
-          background: #222 !important;
         }
         .stash-address-btn:hover {
           opacity: 0.72 !important;
@@ -298,22 +303,22 @@ export function StashDetailView({
 
         <div
           style={{
-            display: "flex",
-            gap: "16px",
-            alignItems: "start",
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "10px",
             padding: "8px 20px",
           }}
         >
           <button
-            className="stash-transfer-btn"
+            className="stash-action-btn"
             onClick={onOpenSend}
             style={{
-              flex: 1,
               display: "flex",
               gap: "6px",
               alignItems: "center",
               justifyContent: "center",
-              padding: "10px 16px 10px 8px",
+              minWidth: 0,
+              padding: "10px 8px",
               borderRadius: "9999px",
               background: "rgba(249, 54, 60, 0.14)",
               border: "none",
@@ -322,50 +327,82 @@ export function StashDetailView({
             }}
             type="button"
           >
-            <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <ArrowUpRight size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
               className="stash-action-label"
               style={{
                 fontFamily: font,
-                fontSize: "16px",
+                fontSize: "15px",
                 fontWeight: 400,
                 lineHeight: "20px",
                 color: "#000",
               }}
             >
-              Transfer
+              Send
             </span>
           </button>
           <button
-            className="stash-topup-btn"
+            className="stash-action-btn"
             onClick={onOpenReceive}
             style={{
-              flex: 1,
               display: "flex",
               gap: "6px",
               alignItems: "center",
               justifyContent: "center",
-              padding: "10px 16px 10px 8px",
+              minWidth: 0,
+              padding: "10px 8px",
               borderRadius: "9999px",
-              background: "#000",
+              background: "rgba(249, 54, 60, 0.14)",
               border: "none",
               cursor: "pointer",
               transition: "background 0.15s ease",
             }}
             type="button"
           >
-            <Plus size={24} style={{ color: "#fff" }} />
+            <ArrowDownLeft size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
               className="stash-action-label"
               style={{
                 fontFamily: font,
-                fontSize: "16px",
+                fontSize: "15px",
                 fontWeight: 400,
                 lineHeight: "20px",
-                color: "#fff",
+                color: "#000",
               }}
             >
-              Top Up
+              Receive
+            </span>
+          </button>
+          <button
+            className="stash-action-btn"
+            onClick={onOpenSwap}
+            style={{
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <RefreshCw size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span
+              className="stash-action-label"
+              style={{
+                fontFamily: font,
+                fontSize: "15px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#000",
+              }}
+            >
+              Swap
             </span>
           </button>
         </div>

@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Copy,
   Plus,
-  RefreshCw,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -81,7 +80,6 @@ export function WalletDetailView({
   onNavigate,
   onOpenSend,
   onOpenReceive,
-  onOpenSwap,
   onOpenShield,
   getTokenActions,
   onTokenDetail,
@@ -105,7 +103,6 @@ export function WalletDetailView({
   onNavigate: (view: Exclude<SubView, null>) => void;
   onOpenSend: () => void;
   onOpenReceive: () => void;
-  onOpenSwap: () => void;
   onOpenShield: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
@@ -354,7 +351,7 @@ export function WalletDetailView({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
             gap: "10px",
             padding: "8px 20px",
           }}
@@ -382,7 +379,7 @@ export function WalletDetailView({
               className="wallet-detail-action-label"
               style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
             >
-              Send
+              Transfer
             </span>
           </button>
           <button
@@ -420,32 +417,6 @@ export function WalletDetailView({
               }}
             >
               {receiveLabel}
-            </span>
-          </button>
-          <button
-            className="wallet-detail-action"
-            onClick={onOpenSwap}
-            style={{
-              display: "flex",
-              gap: "6px",
-              alignItems: "center",
-              justifyContent: "center",
-              minWidth: 0,
-              padding: "10px 8px",
-              borderRadius: "9999px",
-              background: "rgba(249, 54, 60, 0.14)",
-              border: "none",
-              cursor: "pointer",
-              transition: "background 0.15s ease",
-            }}
-            type="button"
-          >
-            <RefreshCw size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span
-              className="wallet-detail-action-label"
-              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
-            >
-              Swap
             </span>
           </button>
           <button

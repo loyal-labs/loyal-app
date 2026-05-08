@@ -412,7 +412,7 @@ function WalletRail({
             label="Wallet"
             onClick={() => onSectionChange("wallet")}
           />
-          <RailNavButton
+          {/* <RailNavButton
             icon={<Layers2 size={24} strokeWidth={1.8} />}
             isActive={activeSection === "policies"}
             label="Policies"
@@ -429,7 +429,7 @@ function WalletRail({
             isActive={activeSection === "settings"}
             label="Settings"
             onClick={() => onSectionChange("settings")}
-          />
+          /> */}
         </nav>
       </div>
 
@@ -1444,7 +1444,7 @@ export function AppWalletWorkspace({
     }
 
     if (activeDetailSelection === "vault") {
-      openActionView({ type: "receivePanel" }, "Top Up", "", "vault");
+      openActionView({ type: "receivePanel" }, "Receive", "", "vault");
     }
   }, [
     activeDetailSelection,
@@ -1455,11 +1455,11 @@ export function AppWalletWorkspace({
 
   const handleCommandSend = useCallback(() => {
     if (activeDetailSelection === "vault") {
-      openActionView({ type: "sendPanel" }, "Transfer", "", "vault");
+      openActionView({ type: "sendPanel" }, "Send", "", "vault");
       return;
     }
 
-    openActionView({ type: "sendPanel" }, "Send", "", "wallet");
+    openActionView({ type: "sendPanel" }, "Transfer", "", "wallet");
   }, [activeDetailSelection, openActionView]);
 
   const handleCommandSwap = useCallback(() => {
@@ -2060,7 +2060,7 @@ export function AppWalletWorkspace({
             openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
           }}
           onOpenSend={() =>
-            openActionView({ type: "sendPanel" }, "Send", "", "wallet")
+            openActionView({ type: "sendPanel" }, "Transfer", "", "wallet")
           }
           onOpenShield={() => {
             setShieldDirection("shield");
@@ -2071,14 +2071,6 @@ export function AppWalletWorkspace({
               "wallet"
             );
           }}
-          onOpenSwap={() =>
-            openActionView(
-              { type: "swapPanel", mode: "swap" },
-              "Swap",
-              "",
-              "wallet"
-            )
-          }
           accessLevel={
             selectedSignerId ? selectedAgent?.accessLevel : undefined
           }
@@ -2254,10 +2246,18 @@ export function AppWalletWorkspace({
             )
           }
           onOpenReceive={() =>
-            openActionView({ type: "receivePanel" }, "Top Up", "", "vault")
+            openActionView({ type: "receivePanel" }, "Receive", "", "vault")
           }
           onOpenSend={() =>
-            openActionView({ type: "sendPanel" }, "Transfer", "", "vault")
+            openActionView({ type: "sendPanel" }, "Send", "", "vault")
+          }
+          onOpenSwap={() =>
+            openActionView(
+              { type: "swapPanel", mode: "swap" },
+              "Swap",
+              "",
+              "vault"
+            )
           }
           spendingLimit={selectedVaultSpendingLimit}
           isSpendingLimitPending={

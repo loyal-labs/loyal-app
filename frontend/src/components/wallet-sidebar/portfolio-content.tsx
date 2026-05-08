@@ -643,6 +643,9 @@ export function PortfolioContent({
         .portfolio-command-btn:hover {
           background: rgba(0, 0, 0, 0.06) !important;
         }
+        .portfolio-address-btn:hover {
+          opacity: 0.72;
+        }
         .portfolio-scroll::-webkit-scrollbar {
           display: none;
         }
@@ -706,7 +709,43 @@ export function PortfolioContent({
             >
               My Wallet
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {walletAddress ? (
+              <button
+                aria-label={`Copy address ${walletAddress}`}
+                className="portfolio-address-btn"
+                onClick={handleCopyAddress}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  color: secondary,
+                  transition: "opacity 0.15s ease",
+                }}
+                title={walletAddress}
+                type="button"
+              >
+                <span>{walletLabel}</span>
+                <span
+                  style={{
+                    color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    transition: "color 0.15s ease",
+                    flexShrink: 0,
+                  }}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </span>
+              </button>
+            ) : (
               <span
                 style={{
                   fontFamily: font,
@@ -718,26 +757,7 @@ export function PortfolioContent({
               >
                 {walletLabel}
               </span>
-              {walletAddress && (
-                <button
-                  onClick={handleCopyAddress}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: "1px",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
-                    transition: "color 0.15s ease",
-                    flexShrink: 0,
-                  }}
-                  type="button"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              )}
-            </div>
+            )}
           </div>
         </div>
         {onOpenCommandMenu ? (
