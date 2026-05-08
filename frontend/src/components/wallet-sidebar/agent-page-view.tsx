@@ -1755,43 +1755,57 @@ export function AgentPageView({
                 ) : (
                   <div
                     style={{
-                      width: "100%",
+                      alignItems: "center",
                       background: "#F5F5F5",
                       borderRadius: "16px",
-                      padding: "0 12px 2px",
+                      display: "flex",
+                      padding: "10px 12px",
+                      width: "100%",
                     }}
                   >
                     <div
                       style={{
                         display: "flex",
+                        flex: 1,
                         flexDirection: "column",
                         gap: "2px",
-                        padding: "10px 0",
+                        minWidth: 0,
                       }}
                     >
                       <span
                         style={{
+                          color: "#000",
                           fontFamily: font,
                           fontSize: "16px",
                           fontWeight: 500,
-                          lineHeight: "20px",
-                          color: "#000",
                           letterSpacing: "-0.176px",
+                          lineHeight: "20px",
                         }}
                       >
-                        Limit is not set
+                        Spending limit is not set
+                      </span>
+                      <span
+                        style={{
+                          color: secondary,
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 400,
+                          lineHeight: "16px",
+                        }}
+                      >
+                        Entire balance is available
                       </span>
                     </div>
-                    <div style={{ paddingBottom: "11px" }}>
+                    <div style={{ display: "flex", paddingLeft: "12px" }}>
                       <button
                         className="agent-set-limit-btn"
                         disabled={isSpendingLimitPending}
                         onClick={startLimitEdit}
                         style={{
-                          padding: "6px 16px",
-                          borderRadius: "9999px",
                           background: "#000",
                           border: "none",
+                          borderRadius: "9999px",
+                          color: "#fff",
                           cursor: isSpendingLimitPending
                             ? "default"
                             : "pointer",
@@ -1799,9 +1813,10 @@ export function AgentPageView({
                           fontSize: "14px",
                           fontWeight: 400,
                           lineHeight: "20px",
-                          color: "#fff",
                           opacity: isSpendingLimitPending ? 0.6 : 1,
+                          padding: "8px 16px",
                           transition: "background 0.15s ease",
+                          whiteSpace: "nowrap",
                         }}
                         type="button"
                       >
