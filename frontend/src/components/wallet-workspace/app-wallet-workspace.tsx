@@ -27,7 +27,6 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion } from "motion/react";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -130,25 +129,6 @@ type PersistedWorkspaceSelection =
 const PANE_WIDTH_STORAGE_KEY = "loyal-wallet-workspace-pane-widths";
 const SELECTED_WORKSPACE_ITEM_STORAGE_KEY =
   "loyal-wallet-workspace-selected-item";
-const COMMAND_SUGGESTION_URL = "https://tally.so/r/ZjRpev";
-const GET_STARTED_URL = "/#get-started";
-const workspaceSocialLinks = [
-  {
-    href: "https://x.com/loyal_hq",
-    icon: "/landing/figma/footer-social-x.svg",
-    label: "X",
-  },
-  {
-    href: "https://t.me/loyal_tgchat",
-    icon: "/landing/figma/footer-social-telegram.svg",
-    label: "Telegram",
-  },
-  {
-    href: "https://discord.askloyal.com",
-    icon: "/landing/figma/footer-social-discord.svg",
-    label: "Discord",
-  },
-];
 const ACCOUNT_PANE_MIN_WIDTH = 360;
 const ACCOUNT_PANE_MAX_WIDTH = 520;
 const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
@@ -489,47 +469,6 @@ function WalletRail({
         >
           <LogOut size={20} strokeWidth={1.8} />
         </button>
-        <nav
-          aria-label="Workspace help links"
-          className="wallet-workspace-rail-links"
-        >
-          <a
-            className="wallet-workspace-rail-link"
-            href={COMMAND_SUGGESTION_URL}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Send feedback
-          </a>
-          <a
-            className="wallet-workspace-rail-link"
-            href={GET_STARTED_URL}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Get Loyal
-          </a>
-          <span className="wallet-workspace-rail-socials">
-            {workspaceSocialLinks.map((link) => (
-              <a
-                aria-label={link.label}
-                className="wallet-workspace-rail-social-link"
-                href={link.href}
-                key={link.label}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <Image
-                  alt=""
-                  aria-hidden="true"
-                  height={18}
-                  src={link.icon}
-                  width={18}
-                />
-              </a>
-            ))}
-          </span>
-        </nav>
       </div>
     </aside>
   );
@@ -3244,73 +3183,6 @@ export function AppWalletWorkspace({
           align-items: center;
           gap: 8px;
           width: max-content;
-        }
-
-        .wallet-workspace-rail-links {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .wallet-workspace-rail-link {
-          display: inline-flex;
-          height: 36px;
-          align-items: center;
-          justify-content: center;
-          border-radius: 9999px;
-          background: rgba(0, 0, 0, 0.04);
-          color: rgba(60, 60, 67, 0.58);
-          font-family: inherit;
-          font-size: 13px;
-          font-weight: 500;
-          line-height: 16px;
-          padding: 0 12px;
-          text-decoration: none;
-          white-space: nowrap;
-          transition: background 0.15s ease, color 0.15s ease,
-            transform 0.15s ease;
-        }
-
-        .wallet-workspace-rail-link:hover {
-          background: rgba(0, 0, 0, 0.08);
-          color: rgba(28, 28, 30, 0.78);
-          transform: translateY(-1px);
-        }
-
-        .wallet-workspace-rail-link:focus-visible {
-          outline: 2px solid rgba(249, 54, 60, 0.55);
-          outline-offset: 2px;
-        }
-
-        .wallet-workspace-rail-socials {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          margin-left: 4px;
-        }
-
-        .wallet-workspace-rail-social-link {
-          display: inline-flex;
-          width: 36px;
-          height: 36px;
-          align-items: center;
-          justify-content: center;
-          border-radius: 9999px;
-          background: rgba(0, 0, 0, 0.04);
-          opacity: 0.78;
-          transition: background 0.15s ease, opacity 0.15s ease,
-            transform 0.15s ease;
-        }
-
-        .wallet-workspace-rail-social-link:hover {
-          background: rgba(0, 0, 0, 0.08);
-          opacity: 1;
-          transform: translateY(-1px);
-        }
-
-        .wallet-workspace-rail-social-link:focus-visible {
-          outline: 2px solid rgba(249, 54, 60, 0.55);
-          outline-offset: 2px;
         }
 
         .wallet-workspace-pane {
