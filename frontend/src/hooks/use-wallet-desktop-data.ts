@@ -963,18 +963,30 @@ export function useWalletDesktopData(): WalletDesktopData {
 
   const allTokenRows = useMemo(() => {
     const rows: TokenRow[] = [];
+    const attachPriceChange = (row: TokenRow, mint: string) => {
+      const pct = priceChange24hByMint.get(mint);
+      if (typeof pct === "number") {
+        row.priceChange24h = pct;
+      }
+      return row;
+    };
     for (const position of positions) {
       const earnings = earningsByMint.get(position.asset.mint);
       if (position.publicBalance > 0) {
-        rows.push(mapPositionToTokenRow(position));
+        rows.push(
+          attachPriceChange(mapPositionToTokenRow(position), position.asset.mint)
+        );
       }
       // Add secured row right after the public one
       if (position.securedBalance > 0) {
         rows.push(
-          mapPositionToSecuredTokenRow(
-            position,
-            earnings,
-            apyByMint[position.asset.mint]
+          attachPriceChange(
+            mapPositionToSecuredTokenRow(
+              position,
+              earnings,
+              apyByMint[position.asset.mint]
+            ),
+            position.asset.mint
           )
         );
       }
@@ -1023,12 +1035,19 @@ export function useWalletDesktopData(): WalletDesktopData {
               value: "$0.00",
               icon: LOYL_ICON_URL,
             };
+        attachPriceChange(loylRow, LOYL_MINT);
         rows.splice(findPairSafeInsertion(2), 0, loylRow);
       }
     }
 
     return rows;
-  }, [positions, loylPriceUsd, earningsByMint, apyByMint]);
+  }, [
+    positions,
+    loylPriceUsd,
+    earningsByMint,
+    apyByMint,
+    priceChange24hByMint,
+  ]);
 
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
