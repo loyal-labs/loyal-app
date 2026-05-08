@@ -3824,8 +3824,6 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace-auth-cta {
-          position: relative;
-          isolation: isolate;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -3833,108 +3831,31 @@ export function AppWalletWorkspace({
           padding: 0 36px;
           border: 0;
           border-radius: 9999px;
-          background: #0a0a0a;
+          background: #000;
           color: #fff;
           cursor: pointer;
           font: inherit;
           font-size: 18px;
           font-weight: 500;
           letter-spacing: -0.1px;
-          box-shadow:
-            inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-            0 14px 30px -12px rgba(0, 0, 0, 0.55),
-            0 5px 12px -2px rgba(0, 0, 0, 0.28);
-          transition-property: transform, box-shadow, background-color;
-          transition-duration: 240ms;
-          transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-        }
-
-        .wallet-workspace-auth-cta::before {
-          content: "";
-          position: absolute;
-          inset: -10px;
-          z-index: -1;
-          border-radius: inherit;
-          background: radial-gradient(
-            closest-side,
-            rgba(0, 0, 0, 0.4),
-            rgba(0, 0, 0, 0) 72%
-          );
-          filter: blur(16px);
-          opacity: 0.5;
-          pointer-events: none;
-          animation: wallet-cta-breath 3.6s cubic-bezier(0.45, 0, 0.55, 1)
-            infinite;
-          will-change: transform, opacity;
-        }
-
-        .wallet-workspace-auth-cta::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          pointer-events: none;
-          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
-          animation: wallet-cta-halo 2.8s cubic-bezier(0.2, 0, 0, 1) infinite;
+          transition: background-color 0.15s ease;
         }
 
         .wallet-workspace-auth-cta-label {
           position: relative;
-          z-index: 1;
         }
 
         .wallet-workspace-auth-cta:hover {
-          background: #1a1a1a;
-          transform: translateY(-1px);
-          box-shadow:
-            inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-            0 20px 44px -12px rgba(0, 0, 0, 0.65),
-            0 7px 16px -2px rgba(0, 0, 0, 0.35);
+          background: #222;
         }
 
         .wallet-workspace-auth-cta:active {
-          transform: scale(0.96);
-          transition-duration: 90ms;
+          background: #1a1a1a;
         }
 
         .wallet-workspace-auth-cta:focus-visible {
-          outline: none;
-          box-shadow:
-            inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-            0 0 0 2px #fff,
-            0 0 0 4px #0a0a0a,
-            0 14px 30px -12px rgba(0, 0, 0, 0.55);
-        }
-
-        @keyframes wallet-cta-breath {
-          0%,
-          100% {
-            opacity: 0.4;
-            transform: scale(0.98);
-          }
-          50% {
-            opacity: 0.8;
-            transform: scale(1.08);
-          }
-        }
-
-        @keyframes wallet-cta-halo {
-          0% {
-            box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
-            opacity: 0.55;
-          }
-          80%,
-          100% {
-            box-shadow: 0 0 0 14px rgba(0, 0, 0, 0);
-            opacity: 0;
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .wallet-workspace-auth-cta::before,
-          .wallet-workspace-auth-cta::after {
-            animation: none;
-          }
+          outline: 2px solid #000;
+          outline-offset: 2px;
         }
 
         .wallet-workspace-review-empty {
