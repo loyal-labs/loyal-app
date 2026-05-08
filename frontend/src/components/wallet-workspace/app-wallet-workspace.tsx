@@ -698,6 +698,9 @@ export function AppWalletWorkspace({
   const [connectAgentAddress, setConnectAgentAddress] = useState<string | null>(
     null
   );
+  const [pendingOpenSignerAddress, setPendingOpenSignerAddress] = useState<
+    string | null
+  >(null);
   const resizeStateRef = useRef<{
     startWidth: number;
     startX: number;
@@ -1654,6 +1657,18 @@ export function AppWalletWorkspace({
     handleOpenAddSigner(selectedVault.entry.accountIndex);
   }, [handleOpenAddSigner, selectedVault]);
 
+  // After a signer is added, switch to that signer's detail screen as soon as
+  // the refreshed vault data exposes it.
+  useEffect(() => {
+    if (!pendingOpenSignerAddress || !selectedVault) return;
+    const newSigner = selectedVault.entry.signers.find(
+      (signer) => signer.address === pendingOpenSignerAddress
+    );
+    if (!newSigner) return;
+    setPendingOpenSignerAddress(null);
+    handleOpenAgent(newSigner);
+  }, [handleOpenAgent, pendingOpenSignerAddress, selectedVault]);
+
   const [proposalActionError, setProposalActionError] = useState<string | null>(
     null
   );
@@ -2367,6 +2382,9 @@ export function AppWalletWorkspace({
                     ? ["initiate", "vote"]
                     : ["initiate", "vote", "execute"],
             })
+          }
+          onAdded={({ signerAddress }) =>
+            setPendingOpenSignerAddress(signerAddress)
           }
           pendingActionKey={smartAccountData.pendingSpendingLimitActionKey}
           vaultAddress={selectedVault.entry.address}

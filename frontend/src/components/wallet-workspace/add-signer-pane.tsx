@@ -41,6 +41,7 @@ export function AddSignerPane({
   accountIndex,
   existingSigners,
   onAddSigner,
+  onAdded,
   pendingActionKey,
   vaultAddress,
   vaultLabel,
@@ -51,6 +52,7 @@ export function AddSignerPane({
     signerAddress: string;
     accessLevel: AccessLevel;
   }) => Promise<void>;
+  onAdded?: (args: { signerAddress: string }) => void;
   pendingActionKey: string | null;
   vaultAddress: string | null;
   vaultLabel: string;
@@ -107,6 +109,7 @@ export function AddSignerPane({
       setAddedAddress(normalizedAddress);
       setAddress("");
       setAccessLevel("suggest");
+      onAdded?.({ signerAddress: normalizedAddress });
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Failed to add signer."
