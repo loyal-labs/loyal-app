@@ -1131,6 +1131,16 @@ export function SendContent({
     }
   }, [phase]);
 
+  // Auto-close the form shortly after a successful send. Cancelled if the user
+  // jumps to the transaction-details view within the window.
+  useEffect(() => {
+    if (phase !== "success") return;
+    const t = setTimeout(() => {
+      onDone();
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [phase, onDone]);
+
   const renderPhaseContent = (p: SendPhase) => {
     if (p === "processing") {
       return <SendProcessing onClose={onClose} token={token} />;
