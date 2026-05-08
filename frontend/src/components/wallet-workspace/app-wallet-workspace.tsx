@@ -1541,7 +1541,7 @@ export function AppWalletWorkspace({
       smartAccountData.setSelectedVaultIndex(accountIndex);
       setDetailSelection("vault");
       setSelectedSignerId(null);
-      setSelectedDetail(`Vault ${accountIndex}`);
+      setSelectedDetail(`Stash ${accountIndex}`);
     },
     [markDetailPaneTransition, smartAccountData]
   );
@@ -1634,7 +1634,7 @@ export function AppWalletWorkspace({
       setDetailSelection("addSigner");
       setSelectedSignerId(null);
       smartAccountData.setSelectedVaultIndex(accountIndex);
-      setSelectedDetail(`Add signer to Vault ${accountIndex}`);
+      setSelectedDetail(`Add signer to Stash ${accountIndex}`);
     },
     [markDetailPaneTransition, smartAccountData]
   );
@@ -1691,7 +1691,7 @@ export function AppWalletWorkspace({
         recipientAddress: request.recipientAddress,
         destinationLabel: shortAddressForLabel(request.recipientAddress),
         sourceAccountIndex: request.accountIndex,
-        sourceLabel: vault?.label ?? `Vault ${request.accountIndex}`,
+        sourceLabel: vault?.label ?? `Stash ${request.accountIndex}`,
         threshold: capability.threshold,
         expectedSigns: capability.expectedSigns,
       });
@@ -1747,7 +1747,7 @@ export function AppWalletWorkspace({
         haystack.includes("would result in account being unable to pay rent");
       setProposalActionError(
         isRentError
-          ? "Vault must keep a minimum SOL balance for rent. Try a smaller amount."
+          ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
           : raw
       );
     }

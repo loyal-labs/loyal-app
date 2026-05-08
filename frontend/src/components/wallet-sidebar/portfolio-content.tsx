@@ -155,6 +155,46 @@ function SmartAccountInlineError({
   );
 }
 
+function RowCopyAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleClick = useCallback(
+    (e: React.MouseEvent | React.KeyboardEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      void navigator.clipboard.writeText(address).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    },
+    [address]
+  );
+  return (
+    <span
+      aria-label={`Copy address ${address}`}
+      onClick={handleClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          handleClick(event);
+        }
+      }}
+      role="button"
+      style={{
+        alignItems: "center",
+        color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
+        cursor: "pointer",
+        display: "inline-flex",
+        flexShrink: 0,
+        marginLeft: "4px",
+        transition: "color 0.15s ease",
+      }}
+      tabIndex={0}
+      title={address}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </span>
+  );
+}
+
 function SignerTreeRow({
   isFirst,
   isLast,
@@ -288,6 +328,7 @@ function SignerTreeRow({
           >
             {signer.label} · {signer.shortAddress}
           </span>
+          <RowCopyAddress address={signer.address} />
         </div>
       </div>
       <span
@@ -1228,22 +1269,35 @@ export function PortfolioContent({
                             </span>
                           </span>
                         </div>
-                        <span
+                        <div
                           style={{
-                            fontFamily: font,
-                            fontSize: "13px",
-                            fontWeight: 400,
-                            lineHeight: "16px",
-                            color: secondary,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            minWidth: 0,
                           }}
                         >
-                          {vaultAddressLabel
-                            ? `${vault.label} · ${vaultAddressLabel}`
-                            : vault.label}
-                        </span>
+                          <span
+                            style={{
+                              fontFamily: font,
+                              fontSize: "13px",
+                              fontWeight: 400,
+                              lineHeight: "16px",
+                              color: secondary,
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {vaultAddressLabel
+                              ? `${vault.label} · ${vaultAddressLabel}`
+                              : vault.label}
+                          </span>
+                          {vault.address ? (
+                            <RowCopyAddress address={vault.address} />
+                          ) : null}
+                        </div>
                       </div>
                     </button>
 

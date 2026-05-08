@@ -708,7 +708,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           <VaultAccountPageView
             currentVaultAccountIndex={selectedVault?.entry.accountIndex ?? 0}
             currentVaultAddress={selectedVault?.entry.address ?? null}
-            vaultLabel={selectedVault?.entry.label ?? "Vault"}
+            vaultLabel={selectedVault?.entry.label ?? "Stash"}
             balanceWhole={selectedVault?.entry.balanceWhole ?? "$0"}
             balanceFraction={selectedVault?.entry.balanceFraction ?? ".00"}
             isBalanceHidden={props.isBalanceHidden}

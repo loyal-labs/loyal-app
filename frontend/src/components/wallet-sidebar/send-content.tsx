@@ -932,7 +932,7 @@ export function SendContent({
     : !isValidRecipient
     ? "Invalid Address"
     : vaultRequiresWalletRecipient
-    ? "Vault sends to wallet addresses only"
+    ? "Stash sends to wallet addresses only"
     : isTgNonSol
     ? "Only SOL for Telegram"
     : "Send";
@@ -1011,7 +1011,7 @@ export function SendContent({
       if (!token.mint) {
         result = {
           success: false,
-          error: "Vault transfers require a known token mint.",
+          error: "Stash transfers require a known token mint.",
         };
       } else {
         const vaultResult = await vaultContext.execute({

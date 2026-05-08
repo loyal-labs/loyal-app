@@ -750,8 +750,8 @@ function mapProposalToApprovalItem(
     sourceAccountIndex,
     sourceLabel:
       sourceAccountIndex === null
-        ? "Unknown vault"
-        : `Vault ${sourceAccountIndex}`,
+        ? "Unknown stash"
+        : `Stash ${sourceAccountIndex}`,
     status: proposal.status,
     canExecute:
       proposal.payloadType === "transaction" ||
@@ -982,7 +982,7 @@ async function normalizeSpendingLimitError(
       combinedLogs.includes("Instruction: ExecuteTransactionSyncV2")
     ) {
       return new Error(
-        `Vault does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(
+        `Stash does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(
           currentLamports
         )} SOL, but it needs ${formatSolAmount(neededLamports)} SOL.`
       );
@@ -1457,7 +1457,7 @@ export function useSmartAccountSidebarData(
 
       return {
         accountIndex: vault.accountIndex,
-        label: `Vault ${vault.accountIndex}`,
+        label: `Stash ${vault.accountIndex}`,
         address: vault.address,
         balanceWhole: balance.whole,
         balanceFraction: balance.fraction,
@@ -1483,7 +1483,7 @@ export function useSmartAccountSidebarData(
       (candidate) => candidate.accountIndex === vault.accountIndex
     ) ?? {
       accountIndex: vault.accountIndex,
-      label: `Vault ${vault.accountIndex}`,
+      label: `Stash ${vault.accountIndex}`,
       address: vault.address,
       balanceWhole: fallbackBalance.whole,
       balanceFraction: fallbackBalance.fraction,
@@ -2016,7 +2016,7 @@ export function useSmartAccountSidebarData(
         (entry) => entry.accountIndex === args.accountIndex
       );
       if (!vault) {
-        return { kind: "blocked", reason: "Vault not found" };
+        return { kind: "blocked", reason: "Stash not found" };
       }
 
       const isSol = args.mint === NATIVE_SOL_MINT;
@@ -2092,7 +2092,7 @@ export function useSmartAccountSidebarData(
         (entry) => entry.accountIndex === request.accountIndex
       );
       if (!vault) {
-        return { success: false, error: "Vault not found." };
+        return { success: false, error: "Stash not found." };
       }
 
       const position = vault.portfolio.positions.find(
@@ -2134,7 +2134,7 @@ export function useSmartAccountSidebarData(
         amountRaw) {
         return {
           success: false,
-          error: "Vault balance is insufficient for this transfer.",
+          error: "Stash balance is insufficient for this transfer.",
         };
       }
 
@@ -2268,7 +2268,7 @@ export function useSmartAccountSidebarData(
         };
       } catch (err) {
         const rawMessage =
-          err instanceof Error ? err.message : "Vault transfer failed.";
+          err instanceof Error ? err.message : "Stash transfer failed.";
         const haystack = rawMessage.toLowerCase();
         const isRentError =
           haystack.includes("insufficient funds for rent") ||
@@ -2277,7 +2277,7 @@ export function useSmartAccountSidebarData(
             "would result in account being unable to pay rent"
           );
         const friendly = isRentError
-          ? "Vault must keep a minimum SOL balance for rent. Try a smaller amount."
+          ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
           : rawMessage;
         console.error("[executeVaultTransfer] failed", err);
         return { success: false, error: friendly };

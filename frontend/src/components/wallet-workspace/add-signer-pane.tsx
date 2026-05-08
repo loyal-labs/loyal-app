@@ -182,7 +182,7 @@ export function AddSignerPane({
             }}
             title={vaultAddress ?? undefined}
           >
-            {vaultLabel} · {vaultAddress ? formatAddressForDisplay(vaultAddress) : `Vault ${accountIndex}`}
+            {vaultLabel} · {vaultAddress ? formatAddressForDisplay(vaultAddress) : `Stash ${accountIndex}`}
           </span>
         </div>
       </div>
