@@ -9,6 +9,14 @@ import {
   DraftPreviewContent,
   type DraftProposalView,
 } from "@/components/wallet-sidebar/draft-preview-content";
+import {
+  PermissionPreviewContent,
+  type PermissionChangeDraft,
+} from "@/components/wallet-sidebar/permission-preview-content";
+import {
+  SpendingLimitPreviewContent,
+  type SpendingLimitDraft,
+} from "@/components/wallet-sidebar/spending-limit-preview-content";
 import { getVaultIcon } from "@/components/wallet-sidebar/vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -442,6 +450,16 @@ export function ApprovalsPane({
   isDraftSubmitting = false,
   isSubmitting,
   pendingApprovalId,
+  permissionDraft = null,
+  permissionDraftError = null,
+  isPermissionDraftSubmitting = false,
+  onCancelPermissionDraft,
+  onSubmitPermissionDraft,
+  spendingLimitDraft = null,
+  spendingLimitDraftError = null,
+  isSpendingLimitDraftSubmitting = false,
+  onCancelSpendingLimitDraft,
+  onSubmitSpendingLimitDraft,
   selectedApproval,
   selectedDraft = null,
   onApprove,
@@ -463,6 +481,16 @@ export function ApprovalsPane({
   isDraftSubmitting?: boolean;
   isSubmitting: boolean;
   pendingApprovalId: string | null;
+  permissionDraft?: PermissionChangeDraft | null;
+  permissionDraftError?: string | null;
+  isPermissionDraftSubmitting?: boolean;
+  onCancelPermissionDraft?: () => void;
+  onSubmitPermissionDraft?: () => void;
+  spendingLimitDraft?: SpendingLimitDraft | null;
+  spendingLimitDraftError?: string | null;
+  isSpendingLimitDraftSubmitting?: boolean;
+  onCancelSpendingLimitDraft?: () => void;
+  onSubmitSpendingLimitDraft?: () => void;
   selectedApproval: SmartAccountApprovalItem | null;
   selectedDraft?: DraftProposalView | null;
   onApprove: (approval: SmartAccountApprovalItem) => void;
@@ -476,6 +504,34 @@ export function ApprovalsPane({
   onSubmitDraft?: () => void;
   actionError?: string | null;
 }) {
+  if (spendingLimitDraft) {
+    return (
+      <SpendingLimitPreviewContent
+        actionError={spendingLimitDraftError}
+        draft={spendingLimitDraft}
+        isSubmitting={isSpendingLimitDraftSubmitting}
+        onBack={onCancelSpendingLimitDraft ?? onBackToList}
+        onCancel={onCancelSpendingLimitDraft ?? onBackToList}
+        onClose={onCancelSpendingLimitDraft ?? onBackToList}
+        onSubmit={onSubmitSpendingLimitDraft ?? onBackToList}
+      />
+    );
+  }
+
+  if (permissionDraft) {
+    return (
+      <PermissionPreviewContent
+        actionError={permissionDraftError}
+        draft={permissionDraft}
+        isSubmitting={isPermissionDraftSubmitting}
+        onBack={onCancelPermissionDraft ?? onBackToList}
+        onCancel={onCancelPermissionDraft ?? onBackToList}
+        onClose={onCancelPermissionDraft ?? onBackToList}
+        onSubmit={onSubmitPermissionDraft ?? onBackToList}
+      />
+    );
+  }
+
   if (selectedDraft) {
     return (
       <DraftPreviewContent

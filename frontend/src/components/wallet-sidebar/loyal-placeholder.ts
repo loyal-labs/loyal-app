@@ -12,6 +12,7 @@ const LOYL_ICON_URL =
 export const LOYAL_PLACEHOLDER_ROW: TokenRow = {
   id: LOYL_MINT,
   symbol: "LOYAL",
+  name: "Loyal",
   price: "$0.00",
   amount: "0",
   value: "$0.00",

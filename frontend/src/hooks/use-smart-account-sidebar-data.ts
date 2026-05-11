@@ -504,7 +504,7 @@ function mapSignersToEntries(args: {
       !!args.authenticatedWalletAddress &&
       signer.address === args.authenticatedWalletAddress;
     const label = isAuthenticatedUser
-      ? "User"
+      ? "Main Account"
       : signer.scope === "policy"
       ? `Agent ${++agentCount}`
       : `Signer ${++signerCount}`;
@@ -1457,7 +1457,7 @@ export function useSmartAccountSidebarData(
 
       return {
         accountIndex: vault.accountIndex,
-        label: `Stash ${vault.accountIndex}`,
+        label: "Stash",
         address: vault.address,
         balanceWhole: balance.whole,
         balanceFraction: balance.fraction,
@@ -1483,7 +1483,7 @@ export function useSmartAccountSidebarData(
       (candidate) => candidate.accountIndex === vault.accountIndex
     ) ?? {
       accountIndex: vault.accountIndex,
-      label: `Stash ${vault.accountIndex}`,
+      label: "Stash",
       address: vault.address,
       balanceWhole: fallbackBalance.whole,
       balanceFraction: fallbackBalance.fraction,

@@ -149,9 +149,6 @@ export function SpendingLimitSection({
   const requestLimitDelete = async () => {
     if (!spendingLimit) return;
 
-    const confirmed = window.confirm("Delete this spending limit?");
-    if (!confirmed) return;
-
     try {
       await onDelete(spendingLimit);
     } catch (error) {

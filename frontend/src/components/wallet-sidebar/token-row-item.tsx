@@ -220,9 +220,13 @@ export function TokenRowItem({
               lineHeight: "20px",
               color: "#000",
               letterSpacing: "-0.176px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
             }}
           >
-            {token.symbol}
+            {token.name ?? token.symbol}
           </span>
           {typeof token.apyBps === "number" && token.apyBps > 0 && (
             <span
@@ -340,7 +344,7 @@ export function TokenRowItem({
               userSelect: isBalanceHidden ? "none" : "auto",
             }}
           >
-            {token.amount}
+            {token.value}
           </span>
           <span
             style={{
@@ -354,7 +358,7 @@ export function TokenRowItem({
               userSelect: isBalanceHidden ? "none" : "auto",
             }}
           >
-            {token.value}
+            {token.amount} {token.symbol}
           </span>
         </div>
 

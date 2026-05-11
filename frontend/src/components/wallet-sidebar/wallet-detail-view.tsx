@@ -1,12 +1,12 @@
 "use client";
 
+import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
   ChevronRight,
   Copy,
-  Plus,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
 import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
+import { SpendingLimitSection } from "./spending-limit-section";
 import {
   getTokenPairConnection,
   TokenRowItem,
@@ -91,6 +92,10 @@ export function WalletDetailView({
   receiveLabel = "Receive",
   onAccessLevelChange,
   isAccessLevelPending = false,
+  spendingLimit,
+  isSpendingLimitPending = false,
+  onSetSpendingLimit,
+  onDeleteSpendingLimit,
 }: {
   address: string | null;
   label: string;
@@ -114,6 +119,12 @@ export function WalletDetailView({
   receiveLabel?: string;
   onAccessLevelChange?: (level: AccessLevel) => Promise<void>;
   isAccessLevelPending?: boolean;
+  spendingLimit?: SmartAccountSpendingLimitSnapshot | null;
+  isSpendingLimitPending?: boolean;
+  onSetSpendingLimit?: (amountUsd: number) => Promise<void>;
+  onDeleteSpendingLimit?: (
+    spendingLimit: SmartAccountSpendingLimitSnapshot
+  ) => Promise<void>;
 }) {
   const [activeTab, setActiveTab] =
     useState<"activity" | "tokens">(initialTab);
@@ -192,6 +203,13 @@ export function WalletDetailView({
         width="0"
       >
         <defs>
+          <filter id="stash-pixelate-sm" x="0" y="0" width="100%" height="100%">
+            <feFlood x="3" y="3" height="2" width="2" />
+            <feComposite width="8" height="8" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="4" />
+          </filter>
           <filter
             id="wallet-detail-pixelate"
             x="0"
@@ -401,14 +419,7 @@ export function WalletDetailView({
             }}
             type="button"
           >
-            {receiveLabel === "Top Up" ? (
-              <Plus size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            ) : (
-              <ArrowDownLeft
-                size={22}
-                style={{ color: "rgba(0, 0, 0, 0.6)" }}
-              />
-            )}
+            <ArrowDownLeft size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
               className="wallet-detail-action-label"
               style={{
@@ -668,6 +679,22 @@ export function WalletDetailView({
               })}
             </div>
           </div>
+        )}
+
+        {(onSetSpendingLimit || onDeleteSpendingLimit) && (
+          <SpendingLimitSection
+            isBalanceHidden={isBalanceHidden}
+            isPending={isSpendingLimitPending}
+            onDelete={async (nextSpendingLimit) => {
+              if (!onDeleteSpendingLimit) return;
+              await onDeleteSpendingLimit(nextSpendingLimit);
+            }}
+            onSet={async (amountUsd) => {
+              if (!onSetSpendingLimit) return;
+              await onSetSpendingLimit(amountUsd);
+            }}
+            spendingLimit={spendingLimit ?? null}
+          />
         )}
 
         <div

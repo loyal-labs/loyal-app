@@ -401,11 +401,6 @@ export function AgentPageView({
       return;
     }
 
-    const confirmed = window.confirm("Delete this spending limit?");
-    if (!confirmed) {
-      return;
-    }
-
     try {
       await onDeleteSpendingLimit({
         accountIndex: vaultAccountIndex,

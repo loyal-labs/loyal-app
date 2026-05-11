@@ -365,6 +365,7 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
   return {
     id: position.asset.mint,
     symbol: position.asset.symbol,
+    name: position.asset.name,
     price: formatUsd(position.priceUsd),
     amount: formatTokenBalance(position.publicBalance),
     value: formatUsd(position.publicValueUsd),
@@ -386,6 +387,7 @@ function mapPositionToSecuredTokenRow(
   const row: TokenRow = {
     id: `${position.asset.mint}-secured`,
     symbol: position.asset.symbol,
+    name: position.asset.name,
     price: formatUsd(position.priceUsd),
     amount: formatTokenBalance(position.securedBalance),
     value: formatUsd(position.securedValueUsd),
@@ -1030,6 +1032,7 @@ export function useWalletDesktopData(): WalletDesktopData {
           : {
               id: LOYL_MINT,
               symbol: "LOYAL",
+              name: "Loyal",
               price: formatUsd(loylPriceUsd),
               amount: "0",
               value: "$0.00",

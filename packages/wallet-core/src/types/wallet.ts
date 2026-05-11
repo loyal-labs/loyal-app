@@ -9,6 +9,7 @@ export type RightSidebarTab =
 export interface TokenRow {
   id?: string;
   symbol: string;
+  name?: string;
   price: string;
   amount: string;
   value: string;

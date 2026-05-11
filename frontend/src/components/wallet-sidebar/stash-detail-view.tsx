@@ -1,6 +1,5 @@
 "use client";
 
-import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -13,7 +12,6 @@ import { useEffect, useState } from "react";
 
 import { ActivityRowItem } from "./activity-row-item";
 import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
-import { SpendingLimitSection } from "./spending-limit-section";
 import {
   getTokenPairConnection,
   TokenRowItem,
@@ -52,10 +50,6 @@ export function StashDetailView({
   onOpenSend,
   onOpenReceive,
   onOpenSwap,
-  spendingLimit,
-  isSpendingLimitPending = false,
-  onSetSpendingLimit,
-  onDeleteSpendingLimit,
   getTokenActions,
   onTokenDetail,
   onActivityTabOpen,
@@ -74,12 +68,6 @@ export function StashDetailView({
   onOpenSend: () => void;
   onOpenReceive: () => void;
   onOpenSwap: () => void;
-  spendingLimit?: SmartAccountSpendingLimitSnapshot | null;
-  isSpendingLimitPending?: boolean;
-  onSetSpendingLimit?: (amountUsd: number) => Promise<void>;
-  onDeleteSpendingLimit?: (
-    spendingLimit: SmartAccountSpendingLimitSnapshot
-  ) => Promise<void>;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
   onActivityTabOpen?: () => void;
@@ -407,22 +395,6 @@ export function StashDetailView({
             </span>
           </button>
         </div>
-
-        {(onSetSpendingLimit || onDeleteSpendingLimit) && (
-          <SpendingLimitSection
-            isBalanceHidden={isBalanceHidden}
-            isPending={isSpendingLimitPending}
-            onDelete={async (nextSpendingLimit) => {
-              if (!onDeleteSpendingLimit) return;
-              await onDeleteSpendingLimit(nextSpendingLimit);
-            }}
-            onSet={async (amountUsd) => {
-              if (!onSetSpendingLimit) return;
-              await onSetSpendingLimit(amountUsd);
-            }}
-            spendingLimit={spendingLimit ?? null}
-          />
-        )}
 
         <div
           style={{

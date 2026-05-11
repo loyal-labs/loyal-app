@@ -26,7 +26,6 @@ import type {
   WalletPortfolioChange24h,
 } from "@/hooks/use-wallet-desktop-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
-import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -43,18 +42,6 @@ const skeletonBar = (width: string, height: string) => ({
 const COLLAPSED_SIGNER_COUNT = 3;
 const SIGNER_EXPAND_THRESHOLD = 5;
 const rowHoverBackground = "rgba(0, 0, 0, 0.04)";
-
-const accessColors: Record<AccessLevel, string> = {
-  execute: "rgba(249, 54, 60, 0.65)",
-  sign: "rgba(200, 160, 0, 0.75)",
-  suggest: "rgba(60, 60, 67, 0.6)",
-};
-
-const accessBorderColors: Record<AccessLevel, string> = {
-  execute: "rgba(249, 54, 60, 0.25)",
-  sign: "rgba(200, 160, 0, 0.3)",
-  suggest: "rgba(60, 60, 67, 0.2)",
-};
 
 function getSmartAccountErrorCopy(error: string | null | undefined) {
   const isRateLimited = error?.toLowerCase().includes("rate limited") ?? false;
@@ -210,9 +197,6 @@ function SignerTreeRow({
   onOpen: (signer: SmartAccountSignerEntry) => void;
   signer: SmartAccountSignerEntry;
 }) {
-  const accessColor = accessColors[signer.accessLevel];
-  const accessBorderColor = accessBorderColors[signer.accessLevel];
-
   return (
     <button
       className="portfolio-account-row"
@@ -331,31 +315,6 @@ function SignerTreeRow({
           <RowCopyAddress address={signer.address} />
         </div>
       </div>
-      <span
-        style={{
-          fontFamily: font,
-          fontSize: "11px",
-          fontWeight: 500,
-          lineHeight: "14px",
-          color: accessColor,
-          border: `1px solid ${accessBorderColor}`,
-          borderRadius: "9999px",
-          padding: "1px 8px 1px 4px",
-          whiteSpace: "nowrap",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "2px",
-          flexShrink: 0,
-          marginLeft: "12px",
-        }}
-      >
-        <AccessLevelIcon
-          color={accessColor}
-          level={signer.accessLevel}
-          size={14}
-        />
-        {signer.accessLabel}
-      </span>
     </button>
   );
 }

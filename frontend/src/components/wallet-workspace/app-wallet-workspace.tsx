@@ -44,6 +44,8 @@ import {
   SwapShieldTabs,
 } from "@/components/wallet-sidebar/shield-content";
 import type { DraftProposalView } from "@/components/wallet-sidebar/draft-preview-content";
+import type { PermissionChangeDraft } from "@/components/wallet-sidebar/permission-preview-content";
+import type { SpendingLimitDraft } from "@/components/wallet-sidebar/spending-limit-preview-content";
 import { StashDetailView } from "@/components/wallet-sidebar/stash-detail-view";
 import { SwapContent } from "@/components/wallet-sidebar/swap-content";
 import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
@@ -688,6 +690,18 @@ export function AppWalletWorkspace({
   );
   const [isDraftSubmitting, setIsDraftSubmitting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [permissionDraft, setPermissionDraft] =
+    useState<PermissionChangeDraft | null>(null);
+  const [isPermissionDraftSubmitting, setIsPermissionDraftSubmitting] =
+    useState(false);
+  const [permissionDraftError, setPermissionDraftError] =
+    useState<string | null>(null);
+  const [spendingLimitDraft, setSpendingLimitDraft] =
+    useState<SpendingLimitDraft | null>(null);
+  const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
+    useState(false);
+  const [spendingLimitDraftError, setSpendingLimitDraftError] =
+    useState<string | null>(null);
   const resizeStateRef = useRef<{
     startWidth: number;
     startX: number;
@@ -1069,14 +1083,14 @@ export function AppWalletWorkspace({
     }
   }, [isSignedIn]);
 
-  // Lazy-load the agent's own wallet portfolio when an agent (non-User
-  // signer) is selected. Skips the User row — that wallet is already
+  // Lazy-load the agent's own wallet portfolio when an agent (non-Main Account
+  // signer) is selected. Skips the Main Account row — that wallet is already
   // covered by walletDesktopData.
   const loadSignerPortfolio = smartAccountData.loadSignerPortfolio;
   useEffect(() => {
     if (
       !selectedAgent ||
-      selectedAgent.label === "User" ||
+      selectedAgent.label === "Main Account" ||
       activeDetailSelection !== "agent"
     ) {
       return;
@@ -1731,6 +1745,111 @@ export function AppWalletWorkspace({
     }
   }, [draftProposal, smartAccountData]);
 
+  const handleCreatePermissionDraft = useCallback(
+    (input: Omit<PermissionChangeDraft, "id">) => {
+      setPermissionDraftError(null);
+      setPermissionDraft({
+        id: `permission-draft:${input.signerAddress}:${Date.now()}`,
+        ...input,
+      });
+    },
+    []
+  );
+
+  const handleCancelPermissionDraft = useCallback(() => {
+    setPermissionDraft(null);
+    setPermissionDraftError(null);
+  }, []);
+
+  const handleSubmitPermissionDraft = useCallback(async () => {
+    if (!permissionDraft) return;
+    setIsPermissionDraftSubmitting(true);
+    setPermissionDraftError(null);
+    try {
+      await smartAccountData.updateSignerPermissions({
+        signerAddress: permissionDraft.signerAddress,
+        permissions: permissionDraft.permissions,
+        policyAddress: permissionDraft.policyAddress,
+        accountIndex: permissionDraft.accountIndex,
+      });
+      setPermissionDraft(null);
+    } catch (error) {
+      setPermissionDraftError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update signer permissions."
+      );
+    } finally {
+      setIsPermissionDraftSubmitting(false);
+    }
+  }, [permissionDraft, smartAccountData]);
+
+  const handleCreateSpendingLimitDraft = useCallback(
+    (
+      input: SpendingLimitDraft extends infer T
+        ? T extends { id: string }
+          ? Omit<T, "id">
+          : never
+        : never
+    ) => {
+      setSpendingLimitDraftError(null);
+      setSpendingLimitDraft({
+        id: `spending-limit-draft:${input.kind}:${input.signerAddress}:${Date.now()}`,
+        ...input,
+      } as SpendingLimitDraft);
+    },
+    []
+  );
+
+  const handleCancelSpendingLimitDraft = useCallback(() => {
+    setSpendingLimitDraft(null);
+    setSpendingLimitDraftError(null);
+  }, []);
+
+  const handleSubmitSpendingLimitDraft = useCallback(async () => {
+    if (!spendingLimitDraft) return;
+    setIsSpendingLimitDraftSubmitting(true);
+    setSpendingLimitDraftError(null);
+    try {
+      const wasSet = spendingLimitDraft.kind === "set";
+      if (spendingLimitDraft.kind === "set") {
+        await smartAccountData.setSignerSpendingLimitUsd({
+          accountIndex: spendingLimitDraft.accountIndex,
+          amountUsd: spendingLimitDraft.amountUsd,
+          existingSpendingLimitAddress:
+            spendingLimitDraft.existingSpendingLimitAddress,
+          signerAddress: spendingLimitDraft.signerAddress,
+        });
+      } else {
+        await smartAccountData.deleteSignerSpendingLimit({
+          accountIndex: spendingLimitDraft.accountIndex,
+          spendingLimitAddress: spendingLimitDraft.spendingLimitAddress,
+          signerAddress: spendingLimitDraft.signerAddress,
+        });
+      }
+      setSpendingLimitDraft(null);
+      // RPC getProgramAccounts can lag a beat behind a brand-new policy account
+      // at "confirmed" commitment. Re-fetch overview shortly after to make the
+      // new spending limit show up without a manual page reload.
+      if (wasSet) {
+        const delays = [800, 2000];
+        for (const delay of delays) {
+          window.setTimeout(() => {
+            void smartAccountData.refresh().catch(() => undefined);
+          }, delay);
+        }
+      }
+    } catch (error) {
+      setSpendingLimitDraftError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update spending limit."
+      );
+    } finally {
+      setIsSpendingLimitDraftSubmitting(false);
+    }
+  }, [spendingLimitDraft, smartAccountData]);
+
   const runProposalAction = useCallback(async (action: () => Promise<void>) => {
     setProposalActionError(null);
     try {
@@ -2147,7 +2266,7 @@ export function AppWalletWorkspace({
           icon={getWalletIcon()}
           initialTab={detailInitialTab}
           isBalanceHidden={isBalanceHidden}
-          label={selectedSignerId ? "User" : "My Wallet"}
+          label={selectedSignerId ? "Main Account" : "My Wallet"}
           onNavigate={(view) =>
             openWorkspaceActionView(
               view,
@@ -2157,16 +2276,6 @@ export function AppWalletWorkspace({
             )
           }
           onOpenReceive={() => {
-            if (selectedSignerId && selectedAgent) {
-              openActionView(
-                { type: "sendPanel" },
-                "Top Up",
-                selectedAgent.address,
-                "wallet"
-              );
-              return;
-            }
-
             openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
           }}
           onOpenSend={() =>
@@ -2188,17 +2297,17 @@ export function AppWalletWorkspace({
           onAccessLevelChange={
             selectedSignerId && selectedAgent
               ? async (level) => {
-                  await smartAccountData.updateSignerPermissions({
+                  handleCreatePermissionDraft({
                     signerAddress: selectedAgent.address,
+                    signerLabel: selectedAgent.label,
+                    previousLevel: selectedAgent.accessLevel,
+                    nextLevel: level,
                     permissions:
                       level === "suggest"
                         ? ["initiate"]
                         : level === "sign"
                           ? ["initiate", "vote"]
                           : ["initiate", "vote", "execute"],
-                    // Root signers (scope === "settings") live on the
-                    // settings PDA; agents live in their spending-limit
-                    // policy. Pass policy details only for the latter.
                     policyAddress:
                       selectedAgent.scope === "policy"
                         ? selectedAgent.policyAddress
@@ -2213,8 +2322,10 @@ export function AppWalletWorkspace({
           }
           isAccessLevelPending={
             selectedAgent
-              ? smartAccountData.pendingSpendingLimitActionKey ===
-                `update-signer-permissions:${selectedAgent.address}`
+              ? (permissionDraft?.signerAddress === selectedAgent.address &&
+                  isPermissionDraftSubmitting) ||
+                smartAccountData.pendingSpendingLimitActionKey ===
+                  `update-signer-permissions:${selectedAgent.address}`
               : false
           }
           getTokenActions={getTokenActions}
@@ -2224,7 +2335,60 @@ export function AppWalletWorkspace({
           onTokenDetail={handleTokenDetail}
           tokenRows={walletDesktopData.allTokenRows}
           transactionDetails={walletDesktopData.transactionDetails}
-          receiveLabel={selectedSignerId ? "Top Up" : "Receive"}
+          receiveLabel="Receive"
+          spendingLimit={
+            selectedSignerId ? selectedVaultSpendingLimit : undefined
+          }
+          isSpendingLimitPending={
+            selectedSignerId
+              ? smartAccountData.pendingSpendingLimitActionKey !== null &&
+                walletSpendingLimitActionKeys.has(
+                  smartAccountData.pendingSpendingLimitActionKey
+                )
+              : false
+          }
+          onSetSpendingLimit={
+            selectedSignerId
+              ? async (amountUsd) => {
+                  if (!walletDesktopData.walletAddress) {
+                    throw new Error(
+                      "Connect a wallet before setting a spending limit."
+                    );
+                  }
+
+                  handleCreateSpendingLimitDraft({
+                    kind: "set",
+                    signerAddress: walletDesktopData.walletAddress,
+                    signerLabel: "Main Account",
+                    accountIndex: selectedVaultAccountIndex,
+                    amountUsd,
+                    existingSpendingLimitAddress:
+                      selectedVaultSpendingLimit?.address ?? null,
+                    isPolicyScope: false,
+                  });
+                }
+              : undefined
+          }
+          onDeleteSpendingLimit={
+            selectedSignerId
+              ? async (spendingLimit) => {
+                  if (!walletDesktopData.walletAddress) {
+                    throw new Error(
+                      "Connect a wallet before deleting a spending limit."
+                    );
+                  }
+
+                  handleCreateSpendingLimitDraft({
+                    kind: "delete",
+                    signerAddress: walletDesktopData.walletAddress,
+                    signerLabel: "Main Account",
+                    accountIndex: selectedVaultAccountIndex,
+                    spendingLimitAddress: spendingLimit.address,
+                    isPolicyScope: false,
+                  });
+                }
+              : undefined
+          }
         />
       );
     }
@@ -2250,8 +2414,11 @@ export function AppWalletWorkspace({
           canDeleteSigner={selectedAgent.scope === "policy"}
           initialAccessLevel={selectedAgent.accessLevel}
           onAccessLevelChange={async (level) => {
-            await smartAccountData.updateSignerPermissions({
+            handleCreatePermissionDraft({
               signerAddress: selectedAgent.address,
+              signerLabel: selectedAgent.label,
+              previousLevel: selectedAgent.accessLevel,
+              nextLevel: level,
               permissions:
                 level === "suggest"
                   ? ["initiate"]
@@ -2269,8 +2436,10 @@ export function AppWalletWorkspace({
             });
           }}
           isAccessLevelPending={
+            (permissionDraft?.signerAddress === selectedAgent.address &&
+              isPermissionDraftSubmitting) ||
             smartAccountData.pendingSpendingLimitActionKey ===
-            `update-signer-permissions:${selectedAgent.address}`
+              `update-signer-permissions:${selectedAgent.address}`
           }
           isBalanceHidden={isBalanceHidden}
           isSignerDeletePending={
@@ -2295,7 +2464,16 @@ export function AppWalletWorkspace({
               policyAddress: selectedAgent.policyAddress ?? null,
             })
           }
-          onDeleteSpendingLimit={smartAccountData.deleteSignerSpendingLimit}
+          onDeleteSpendingLimit={async (args) => {
+            handleCreateSpendingLimitDraft({
+              kind: "delete",
+              signerAddress: args.signerAddress,
+              signerLabel: selectedAgent.label,
+              accountIndex: args.accountIndex,
+              spendingLimitAddress: args.spendingLimitAddress,
+              isPolicyScope: selectedAgent.scope === "policy",
+            });
+          }}
           onNavigate={(view) =>
             openWorkspaceActionView(
               view,
@@ -2304,7 +2482,18 @@ export function AppWalletWorkspace({
               "agent"
             )
           }
-          onSetSpendingLimit={smartAccountData.setSignerSpendingLimitUsd}
+          onSetSpendingLimit={async (args) => {
+            handleCreateSpendingLimitDraft({
+              kind: "set",
+              signerAddress: args.signerAddress,
+              signerLabel: selectedAgent.label,
+              accountIndex: args.accountIndex,
+              amountUsd: args.amountUsd,
+              existingSpendingLimitAddress:
+                args.existingSpendingLimitAddress ?? null,
+              isPolicyScope: selectedAgent.scope === "policy",
+            });
+          }}
           onTopUp={() =>
             openActionView(
               { type: "sendPanel" },
@@ -2369,41 +2558,6 @@ export function AppWalletWorkspace({
               "vault"
             )
           }
-          spendingLimit={selectedVaultSpendingLimit}
-          isSpendingLimitPending={
-            smartAccountData.pendingSpendingLimitActionKey !== null &&
-            walletSpendingLimitActionKeys.has(
-              smartAccountData.pendingSpendingLimitActionKey
-            )
-          }
-          onSetSpendingLimit={async (amountUsd) => {
-            if (!walletDesktopData.walletAddress) {
-              throw new Error(
-                "Connect a wallet before setting a spending limit."
-              );
-            }
-
-            await smartAccountData.setSignerSpendingLimitUsd({
-              accountIndex: selectedVault.entry.accountIndex,
-              amountUsd,
-              existingSpendingLimitAddress:
-                selectedVaultSpendingLimit?.address ?? null,
-              signerAddress: walletDesktopData.walletAddress,
-            });
-          }}
-          onDeleteSpendingLimit={async (spendingLimit) => {
-            if (!walletDesktopData.walletAddress) {
-              throw new Error(
-                "Connect a wallet before deleting a spending limit."
-              );
-            }
-
-            await smartAccountData.deleteSignerSpendingLimit({
-              accountIndex: selectedVault.entry.accountIndex,
-              spendingLimitAddress: spendingLimit.address,
-              signerAddress: walletDesktopData.walletAddress,
-            });
-          }}
           tokenRows={selectedVault.tokenRows}
           transactionDetails={selectedVault.transactionDetails}
           getTokenActions={getTokenActions}
@@ -2617,7 +2771,10 @@ export function AppWalletWorkspace({
     }
 
     if (type === "swapPanel") {
-      const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
+      const isVaultSwap = actionReturnSelection === "vault";
+      const showTabs =
+        !isVaultSwap &&
+        (swapMode === "swap" ? swapFormActive : shieldFormActive);
       const buttonProps =
         swapMode === "swap" ? swapButtonProps : shieldButtonProps;
 
@@ -2905,6 +3062,22 @@ export function AppWalletWorkspace({
                 draft={draftProposal}
                 draftError={draftError}
                 isDraftSubmitting={isDraftSubmitting}
+                permissionDraft={permissionDraft}
+                permissionDraftError={permissionDraftError}
+                isPermissionDraftSubmitting={isPermissionDraftSubmitting}
+                onCancelPermissionDraft={handleCancelPermissionDraft}
+                onSubmitPermissionDraft={() =>
+                  void handleSubmitPermissionDraft()
+                }
+                spendingLimitDraft={spendingLimitDraft}
+                spendingLimitDraftError={spendingLimitDraftError}
+                isSpendingLimitDraftSubmitting={
+                  isSpendingLimitDraftSubmitting
+                }
+                onCancelSpendingLimitDraft={handleCancelSpendingLimitDraft}
+                onSubmitSpendingLimitDraft={() =>
+                  void handleSubmitSpendingLimitDraft()
+                }
                 onBackToList={() => {
                   setSelectedApprovalId(null);
                   setProposalActionError(null);
