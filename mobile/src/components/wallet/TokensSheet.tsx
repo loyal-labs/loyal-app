@@ -2,7 +2,6 @@ import {
   BottomSheetBackdrop,
   BottomSheetFlatList,
   BottomSheetModal,
-  BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
@@ -24,6 +23,8 @@ import type { MobileTokenDetailResponse } from "@/services/api";
 import { Pressable, Text, View } from "@/tw";
 
 import { ApyPill } from "./TokensList";
+
+const shieldBadge = require("../../../assets/images/shield-badge.png");
 
 type TokensSheetProps = {
   holdings: TokenHolding[];
@@ -106,10 +107,18 @@ function TokenRow({
             paddingBottom: isPairTop ? 8 : 10,
           }}
         >
-          <RNImage
-            source={{ uri: icon }}
-            style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
-          />
+          <View style={{ position: "relative" }}>
+            <RNImage
+              source={{ uri: icon }}
+              style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#f2f2f7" }}
+            />
+            {holding.isSecured && (
+              <RNImage
+                source={shieldBadge}
+                style={{ position: "absolute", bottom: -2, right: 4, width: 24, height: 24 }}
+              />
+            )}
+          </View>
           <View className="ml-3 flex-1">
             <View className="flex-row items-center gap-1.5">
               <Text
@@ -201,15 +210,9 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
       [],
     );
 
-    return (
-      <BottomSheetModal
-        ref={ref}
-        snapPoints={snapPoints}
-        topInset={insets.top}
-        enableDynamicSizing={false}
-        backdropComponent={renderBackdrop}
-      >
-        <BottomSheetView className="px-4 pb-2">
+    const listHeader = useMemo(
+      () => (
+        <View className="px-4 pb-2 pt-1">
           <Text
             className="text-[17px] font-semibold text-black"
             style={{ lineHeight: 22 }}
@@ -223,11 +226,24 @@ export const TokensSheet = forwardRef<BottomSheetModal, TokensSheetProps>(
             {displayHoldings.length} token
             {displayHoldings.length !== 1 ? "s" : ""}
           </Text>
-        </BottomSheetView>
+        </View>
+      ),
+      [displayHoldings.length],
+    );
+
+    return (
+      <BottomSheetModal
+        ref={ref}
+        snapPoints={snapPoints}
+        topInset={insets.top}
+        enableDynamicSizing={false}
+        backdropComponent={renderBackdrop}
+      >
         <BottomSheetFlatList
           data={listData}
           renderItem={renderItem}
           keyExtractor={keyExtractor}
+          ListHeaderComponent={listHeader}
           contentContainerStyle={{ paddingBottom: 40 }}
         />
       </BottomSheetModal>
