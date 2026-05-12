@@ -8,10 +8,11 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { ActivityRowItem } from "./activity-row-item";
-import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
+import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import {
   getTokenPairConnection,
   TokenRowItem,
@@ -80,6 +81,12 @@ export function StashDetailView({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const loyalPriceUsd = useLoyalPriceUsd();
+  const loyalPlaceholderRow = useMemo(
+    () => buildLoyalPlaceholderRow(loyalPriceUsd),
+    [loyalPriceUsd]
+  );
 
   const copyAddress = async () => {
     if (!address) return;
@@ -487,7 +494,7 @@ export function StashDetailView({
               <TokenRowItem
                 isBalanceHidden={isBalanceHidden}
                 onDetail={onTokenDetail}
-                token={LOYAL_PLACEHOLDER_ROW}
+                token={loyalPlaceholderRow}
               />
             )}
 

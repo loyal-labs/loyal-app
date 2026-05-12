@@ -36,6 +36,7 @@ import { ConnectRequestContent } from "@/components/wallet-sidebar/connect-reque
 import { PortfolioContent } from "@/components/wallet-sidebar/portfolio-content";
 import { ReceiveContent } from "@/components/wallet-sidebar/receive-content";
 import {
+  type RecipientSuggestion,
   SendContent,
   type SendContentVaultContext,
 } from "@/components/wallet-sidebar/send-content";
@@ -51,6 +52,7 @@ import { SwapContent } from "@/components/wallet-sidebar/swap-content";
 import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
 import { TokenDetailView } from "@/components/wallet-sidebar/token-detail-view";
 import { TransactionDetailView } from "@/components/wallet-sidebar/transaction-detail-view";
+import { getVaultIcon } from "@/components/wallet-sidebar/vault-icon";
 import type { TokenRowActions } from "@/components/wallet-sidebar/token-row-item";
 import type {
   FormButtonProps,
@@ -143,7 +145,7 @@ function clampWidth(value: number, min: number, max: number) {
 }
 
 function getWalletIcon(): string {
-  return "/agents/Agent-03.svg";
+  return "/agents/Agent-01.svg";
 }
 
 function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
@@ -2742,14 +2744,59 @@ export function AppWalletWorkspace({
             onCreateDraft: handleCreateDraftProposal,
           })
         : undefined;
+      const ownAddress = walletDesktopData.walletAddress ?? null;
+      const recipientSuggestions: RecipientSuggestion[] | undefined = (() => {
+        if (sendingFromVault) {
+          if (!ownAddress) return undefined;
+          return [
+            {
+              id: `main:${ownAddress}`,
+              label: "Main Account",
+              address: ownAddress,
+              icon: "/agents/Agent-01.svg",
+              kind: "agent" as const,
+            },
+          ];
+        }
+        const suggestions: RecipientSuggestion[] = [];
+        const seen = new Set<string>();
+        for (const vault of smartAccountData.vaultEntries) {
+          if (vault.address && !seen.has(vault.address)) {
+            seen.add(vault.address);
+            suggestions.push({
+              id: `stash:${vault.address}`,
+              label: vault.label,
+              address: vault.address,
+              icon: getVaultIcon(vault.accountIndex),
+              kind: "stash",
+            });
+          }
+          for (const signer of vault.signers) {
+            if (signer.scope !== "policy") continue;
+            if (!signer.address || seen.has(signer.address)) continue;
+            if (ownAddress && signer.address === ownAddress) continue;
+            seen.add(signer.address);
+            suggestions.push({
+              id: `agent:${signer.address}`,
+              label: signer.label,
+              address: signer.address,
+              icon: signer.icon,
+              kind: "agent",
+            });
+          }
+        }
+        return suggestions.length > 0 ? suggestions : undefined;
+      })();
       return (
         <SendContent
           addLocalActivity={walletDesktopData.addLocalActivity}
+          allowPrivateSend={!sendingFromVault && !selectedSignerId}
           initialRecipient={sendInitialRecipient}
           onClose={closeActionView}
           onDone={closeActionView}
           onNavigate={pushView}
           onSuccess={handleSendSuccess}
+          recipientSuggestions={recipientSuggestions}
           token={effectiveSendToken}
           vaultContext={vaultContextProp}
         />
@@ -2849,7 +2896,6 @@ export function AppWalletWorkspace({
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
                 initialDirection={shieldDirection}
-                onDirectionChange={setShieldDirection}
                 onNavigate={pushView}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}

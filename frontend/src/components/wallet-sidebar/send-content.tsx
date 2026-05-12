@@ -856,6 +856,14 @@ export type SendContentVaultContext =
       notice?: string;
     };
 
+export type RecipientSuggestion = {
+  id: string;
+  label: string;
+  address: string;
+  icon?: string;
+  kind: "stash" | "agent";
+};
+
 export function SendContent({
   onBack,
   onClose,
@@ -866,6 +874,8 @@ export function SendContent({
   addLocalActivity,
   initialRecipient = "",
   vaultContext,
+  recipientSuggestions,
+  allowPrivateSend = false,
 }: {
   onBack?: () => void;
   onClose: () => void;
@@ -879,6 +889,8 @@ export function SendContent({
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
   initialRecipient?: string;
   vaultContext?: SendContentVaultContext;
+  recipientSuggestions?: RecipientSuggestion[];
+  allowPrivateSend?: boolean;
 }) {
   const publicEnv = usePublicEnv();
   const { executeSend } = useSend();
@@ -912,6 +924,13 @@ export function SendContent({
   const isValidRecipient = isTg || isWallet;
   const showInvalidHint = hasRecipient && !isValidRecipient && !startsWithAt;
   const isTgNonSol = isTg && token.symbol.toUpperCase() !== "SOL";
+  const recipientIsStash =
+    recipientSuggestions?.some(
+      (suggestion) =>
+        suggestion.kind === "stash" &&
+        suggestion.address === recipientTrimmed
+    ) ?? false;
+  const effectiveIsPrivate = isPrivate && !recipientIsStash;
 
   useEffect(() => {
     setRecipient(initialRecipient);
@@ -997,7 +1016,7 @@ export function SendContent({
       amount: currentAmount,
       usd_value: currentUsd,
       destination_type: destinationType,
-      is_private: isPrivate,
+      is_private: effectiveIsPrivate,
     });
 
     let result: {
@@ -1022,7 +1041,7 @@ export function SendContent({
         });
         result = vaultResult;
       }
-    } else if (isPrivate || isTg) {
+    } else if (effectiveIsPrivate || isTg) {
       result = await executePrivateSend({
         tokenSymbol: token.symbol,
         amount: numericAmount,
@@ -1035,7 +1054,7 @@ export function SendContent({
           amount: currentAmount,
           usd_value: currentUsd,
           destination_type: destinationType,
-          is_private: isPrivate || isTg,
+          is_private: effectiveIsPrivate || isTg,
         },
       });
     } else {
@@ -1083,7 +1102,7 @@ export function SendContent({
         });
       }
 
-      if (isPrivate && addLocalActivity) {
+      if (effectiveIsPrivate && addLocalActivity) {
         const now = new Date();
         const syntheticRow: ActivityRow = {
           id: result.signature ?? `private-${Date.now()}`,
@@ -1122,7 +1141,7 @@ export function SendContent({
     executePrivateSend,
     executeSend,
     hasAmount,
-    isPrivate,
+    effectiveIsPrivate,
     isTg,
     numericAmount,
     onDone,
@@ -1184,7 +1203,7 @@ export function SendContent({
       return (
         <SendTransactionDetail
           amount={resultAmount}
-          isPrivate={isPrivate}
+          isPrivate={effectiveIsPrivate}
           isTgRecipient={resultIsTg}
           onClose={onClose}
           onDone={onDone}
@@ -1650,106 +1669,195 @@ export function SendContent({
                 </span>
               </div>
             )}
-          </div>
-
-          {/* Private Send card */}
-          <div
-            className="private-card"
-            onClick={isTg ? undefined : () => setIsPrivate(!isPrivate)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "0 12px",
-              borderRadius: "16px",
-              cursor: isTg ? "default" : "pointer",
-              background:
-                isPrivate || isTg ? "rgba(0, 0, 0, 0.04)" : "transparent",
-              transition: "background 0.15s ease",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                paddingRight: "12px",
-                paddingTop: "4px",
-                paddingBottom: "4px",
-                flexShrink: 0,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt="Private"
-                src="/hero-new/Shield_40.svg"
-                style={{ width: "40px", height: "40px" }}
-              />
-            </div>
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                gap: "2px",
-                padding: "10px 0",
-                minWidth: 0,
-              }}
-            >
-              <span
+            {recipientSuggestions && recipientSuggestions.length > 0 && (
+              <div
                 style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: "#000",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  padding: "8px 12px 0",
                 }}
               >
-                {isTg ? "Private Send Active" : "Private Send"}
-              </span>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                }}
-              >
-                {isTg
-                  ? "Telegram transfers are always private"
-                  : "Prevents the recipient from seeing which wallet sent the funds"}
-              </span>
-            </div>
-            {!isTg && (
-              <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-                <div
-                  style={{
-                    width: "51px",
-                    height: "31px",
-                    borderRadius: "100px",
-                    background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
-                    position: "relative",
-                    transition: "background 0.2s ease",
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      left: isPrivate ? "22px" : "2px",
-                      width: "27px",
-                      height: "27px",
-                      borderRadius: "100px",
-                      background: "#fff",
-                      boxShadow:
-                        "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
-                      transition: "left 0.2s ease",
-                    }}
-                  />
-                </div>
+                {recipientSuggestions.map((suggestion) => {
+                  const isActive = recipientTrimmed === suggestion.address;
+                  return (
+                    <button
+                      key={suggestion.id}
+                      onClick={() => setRecipient(suggestion.address)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "4px 10px 4px 4px",
+                        borderRadius: "9999px",
+                        border: `1px solid ${
+                          isActive ? "#000" : "rgba(0, 0, 0, 0.08)"
+                        }`,
+                        background: isActive ? "rgba(0, 0, 0, 0.04)" : "#fff",
+                        cursor: "pointer",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        color: "#000",
+                        transition:
+                          "background 0.15s ease, border-color 0.15s ease",
+                      }}
+                      type="button"
+                    >
+                      {suggestion.icon ? (
+                        <span
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "9999px",
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            display: "flex",
+                          }}
+                        >
+                          <Image
+                            alt=""
+                            height={20}
+                            src={suggestion.icon}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                            width={20}
+                          />
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "9999px",
+                            background: "rgba(0, 0, 0, 0.06)",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span>{suggestion.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
+
+          {allowPrivateSend && (
+            <div
+              className="private-card"
+              onClick={
+                isTg || recipientIsStash
+                  ? undefined
+                  : () => setIsPrivate(!isPrivate)
+              }
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "0 12px",
+                borderRadius: "16px",
+                cursor:
+                  isTg || recipientIsStash ? "default" : "pointer",
+                background:
+                  effectiveIsPrivate || isTg
+                    ? "rgba(0, 0, 0, 0.04)"
+                    : "transparent",
+                opacity: recipientIsStash ? 0.55 : 1,
+                transition: "background 0.15s ease, opacity 0.15s ease",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  paddingRight: "12px",
+                  paddingTop: "4px",
+                  paddingBottom: "4px",
+                  flexShrink: 0,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Private"
+                  src="/hero-new/Shield_40.svg"
+                  style={{ width: "40px", height: "40px" }}
+                />
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                  padding: "10px 0",
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#000",
+                  }}
+                >
+                  {isTg ? "Private Send Active" : "Private Send"}
+                </span>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                    color: secondary,
+                  }}
+                >
+                  {recipientIsStash
+                    ? "Stash recipients can't receive private sends"
+                    : isTg
+                    ? "Telegram transfers are always private"
+                    : "Prevents the recipient from seeing which wallet sent the funds"}
+                </span>
+              </div>
+              {!isTg && (
+                <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
+                  <div
+                    style={{
+                      width: "51px",
+                      height: "31px",
+                      borderRadius: "100px",
+                      background: effectiveIsPrivate
+                        ? red
+                        : "rgba(0, 0, 0, 0.04)",
+                      position: "relative",
+                      transition: "background 0.2s ease",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        left: effectiveIsPrivate ? "22px" : "2px",
+                        width: "27px",
+                        height: "27px",
+                        borderRadius: "100px",
+                        background: "#fff",
+                        boxShadow:
+                          "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
+                        transition: "left 0.2s ease",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Bottom button */}

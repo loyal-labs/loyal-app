@@ -13,10 +13,17 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
+import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { ActivityRowItem } from "./activity-row-item";
-import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
+import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
@@ -323,6 +330,12 @@ export function AgentPageView({
   const isTopUpDisabled = onTopUp
     ? isSpendingLimitPending
     : !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending;
+
+  const loyalPriceUsd = useLoyalPriceUsd();
+  const loyalPlaceholderRow = useMemo(
+    () => buildLoyalPlaceholderRow(loyalPriceUsd),
+    [loyalPriceUsd]
+  );
 
   useEffect(() => {
     setAccessLevel(initialAccessLevel);
@@ -1952,7 +1965,7 @@ export function AgentPageView({
                 <TokenRowItem
                   isBalanceHidden={isBalanceHidden}
                   onDetail={onTokenDetail}
-                  token={LOYAL_PLACEHOLDER_ROW}
+                  token={loyalPlaceholderRow}
                 />
               )}
               {workspaceTab === "activity" &&
@@ -2000,7 +2013,7 @@ export function AgentPageView({
             <TokenRowItem
               isBalanceHidden={isBalanceHidden}
               onDetail={onTokenDetail}
-              token={LOYAL_PLACEHOLDER_ROW}
+              token={loyalPlaceholderRow}
             />
           )}
         </div>

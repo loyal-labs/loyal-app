@@ -822,6 +822,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       return (
         <SendContent
           addLocalActivity={props.walletDesktopData.addLocalActivity}
+          allowPrivateSend
           onBack={onBack}
           onClose={props.onClose}
           onDone={() => {
@@ -920,7 +921,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
                 initialDirection={shieldDirection}
-                onDirectionChange={setShieldDirection}
                 onNavigate={navigateFn}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
@@ -1250,6 +1250,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               {displayTab === "send" && (
                 <SendContent
                   addLocalActivity={props.walletDesktopData.addLocalActivity}
+                  allowPrivateSend
                   onClose={props.onClose}
                   onDone={() => props.onTabChange("portfolio")}
                   onNavigate={pushView}
@@ -1335,7 +1336,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onFormActiveChange={setShieldFormActive}
                         onFormButtonChange={setShieldButtonProps}
                         initialDirection={shieldDirection}
-                        onDirectionChange={setShieldDirection}
                         onNavigate={pushView}
                         onSwapModeChange={handleSwapModeChange}
                         onTokenChange={setShieldToken}

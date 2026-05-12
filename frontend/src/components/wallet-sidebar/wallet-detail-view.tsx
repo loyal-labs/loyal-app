@@ -9,11 +9,12 @@ import {
   Copy,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
-import { LOYAL_PLACEHOLDER_ROW } from "./loyal-placeholder";
+import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import { SpendingLimitSection } from "./spending-limit-section";
 import {
   getTokenPairConnection,
@@ -143,6 +144,12 @@ export function WalletDetailView({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const loyalPriceUsd = useLoyalPriceUsd();
+  const loyalPlaceholderRow = useMemo(
+    () => buildLoyalPlaceholderRow(loyalPriceUsd),
+    [loyalPriceUsd]
+  );
 
   const copyAddress = async () => {
     if (!address) return;
@@ -804,7 +811,7 @@ export function WalletDetailView({
               <TokenRowItem
                 isBalanceHidden={isBalanceHidden}
                 onDetail={onTokenDetail}
-                token={LOYAL_PLACEHOLDER_ROW}
+                token={loyalPlaceholderRow}
               />
             )}
 

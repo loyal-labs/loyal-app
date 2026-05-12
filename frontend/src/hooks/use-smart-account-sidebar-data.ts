@@ -428,7 +428,7 @@ function getSignerIcon(args: {
   isAuthenticatedUser: boolean;
 }): string {
   if (args.isAuthenticatedUser) {
-    return "/agents/Agent-03.svg";
+    return "/agents/Agent-01.svg";
   }
 
   const iconIndex = (hashAddress(args.address) % AGENT_ICON_COUNT) + 1;
