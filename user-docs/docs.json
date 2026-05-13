@@ -55,32 +55,6 @@
         ]
       },
       {
-        "tab": "Learn",
-        "groups": [
-          {
-            "group": "About Loyal",
-            "pages": [
-              "surveillance-crisis",
-              "Introduction/solution",
-              "Introduction/howitworks",
-              "Introduction/usecases"
-            ]
-          },
-          {
-            "group": "Architecture",
-            "pages": [
-              "architecture/network",
-              "architecture/payments",
-              "architecture/privacy"
-            ]
-          },
-          {
-            "group": "Launch",
-            "pages": ["launch/roadmap", "launch/token"]
-          }
-        ]
-      },
-      {
         "tab": "Transparency",
         "groups": [
           {
