@@ -2125,29 +2125,10 @@ export function createSmartAccountVaultsClient(
       };
     }
 
-    const policies = await listRawPolicies({ settingsPda: args.settingsPda });
-    const candidates = policies.filter(
-      (entry) =>
-        entry.policy.policyState.__kind === "SpendingLimit" &&
-        entry.policy.policyState.fields[0].sourceAccountIndex === accountIndex
-    );
-
-    if (candidates.length === 0) {
-      throw new Error(
-        "No spending-limit policy exists for this vault. Create a spending-limit policy before connecting the CLI."
-      );
-    }
-
-    return (
-      candidates.find(
-        (entry) =>
-          !entry.policy.signers.some(
-            (signer) =>
-              signer.key.equals(args.signer) &&
-              Permissions.has(signer.permissions, Permission.Initiate)
-          )
-      ) ?? candidates[0]
-    );
+    // Default behavior: each signer gets its own SpendingLimit policy so
+    // spending limits are independent per signer. Callers that want to
+    // append a signer to an existing policy must pass `policyPda` explicitly.
+    return null;
   }
 
   async function resolveAgentPolicyForRemoval(
@@ -2197,37 +2178,92 @@ export function createSmartAccountVaultsClient(
   async function prepareAddInitiateSigner(
     args: SmartAccountAddSignerProposalInput
   ): Promise<SmartAccountPreparedSettingsChange> {
+    const requestedPermissions = args.permissions ?? ["initiate"];
     const policyEntry = await resolveAgentPolicy(args);
-    const policyCreationBase = toSpendingLimitPolicyCreationBase(
-      policyEntry.policy
-    );
+
+    if (policyEntry) {
+      const policyCreationBase = toSpendingLimitPolicyCreationBase(
+        policyEntry.policy
+      );
+
+      return prepareSettingsChange({
+        actions: [
+          {
+            __kind: "PolicyUpdate",
+            policy: policyEntry.address,
+            signers: withPolicySignerPermissions(
+              policyEntry.policy.signers,
+              args.signer,
+              requestedPermissions
+            ),
+            threshold: policyEntry.policy.threshold || 1,
+            timeLock: policyEntry.policy.timeLock,
+            policyUpdatePayload: createSpendingLimitPolicyCreationPayload({
+              amount: toBigInt(
+                policyCreationBase.quantityConstraints.maxPerPeriod
+              ),
+              base: policyCreationBase,
+            }),
+            expirationArgs: null,
+          },
+        ],
+        creator: args.creator,
+        feePayer: args.feePayer,
+        memo: args.memo,
+        operation: "addInitiatePolicySigner",
+        policies: [policyEntry.address],
+        settingsPda: args.settingsPda,
+        spendingLimits: [],
+      });
+    }
+
+    // No SpendingLimit policy exists for this vault yet (fresh vault). Bundle a
+    // PolicyCreate with the new signer so they can be authorized before the
+    // owner configures actual spend limits. Defaults to a zero-amount monthly
+    // SOL policy that the owner can edit later via the spending-limit flow.
+    const flags = toPermissionFlags(requestedPermissions);
+    if (flags.length === 0) {
+      throw new Error("Signer must have at least one permission.");
+    }
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+    const policyCreationPayload = createSpendingLimitPolicyCreationPayload({
+      accountIndex,
+      amount: BigInt(0),
+    });
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const nextPolicySeed = resolveNextPolicySeed(settings);
+    const newPolicyPda = pda.getPolicyPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      policySeed: nextPolicySeed.number,
+    })[0];
 
     return prepareSettingsChange({
       actions: [
         {
-          __kind: "PolicyUpdate",
-          policy: policyEntry.address,
-          signers: withPolicySignerPermissions(
-            policyEntry.policy.signers,
-            args.signer,
-            args.permissions ?? ["initiate"]
-          ),
-          threshold: policyEntry.policy.threshold || 1,
-          timeLock: policyEntry.policy.timeLock,
-          policyUpdatePayload: createSpendingLimitPolicyCreationPayload({
-            amount: toBigInt(
-              policyCreationBase.quantityConstraints.maxPerPeriod
-            ),
-            base: policyCreationBase,
-          }),
+          __kind: "PolicyCreate",
+          seed: toBn(nextPolicySeed.bigint),
+          policyCreationPayload,
+          signers: [
+            {
+              key: args.signer,
+              permissions: Permissions.fromPermissions(flags),
+            },
+          ],
+          threshold: 1,
+          timeLock: 0,
+          startTimestamp: null,
           expirationArgs: null,
         },
       ],
       creator: args.creator,
       feePayer: args.feePayer,
       memo: args.memo,
-      operation: "addInitiatePolicySigner",
-      policies: [policyEntry.address],
+      operation: "createSpendingLimitPolicyForSigner",
+      policies: [newPolicyPda],
       settingsPda: args.settingsPda,
       spendingLimits: [],
     });
