@@ -1671,14 +1671,21 @@ export function useSmartAccountSidebarData(
         } catch (sendError) {
           throw await normalizeSpendingLimitError(sendError, connection);
         }
-        await refreshAfterTx({
-          accountIndex: args.affected?.accountIndex,
-          signerAddresses: args.affected?.signerAddresses,
-        });
       } finally {
         setIsActionPending(false);
         setPendingSpendingLimitActionKey(null);
       }
+
+      // Refresh runs in the background so the caller (and the preview panel)
+      // doesn't sit on "Submitting…" while the overview re-fetch and RPC
+      // index lag complete. Callers that need fresh state schedule their
+      // own follow-up refreshes (see app-wallet-workspace).
+      void refreshAfterTx({
+        accountIndex: args.affected?.accountIndex,
+        signerAddresses: args.affected?.signerAddresses,
+      }).catch((err) => {
+        console.warn("[smart-account] post-tx refresh failed", err);
+      });
     },
     [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
   );
