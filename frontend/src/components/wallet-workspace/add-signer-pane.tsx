@@ -4,6 +4,11 @@ import { PublicKey } from "@solana/web3.js";
 import { Check, Plus, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import {
+  ACCESS_OPTIONS,
+  AccessLevelIcon,
+  type AccessLevel,
+} from "@/components/wallet-sidebar/agent-page-view";
 import type { SmartAccountSignerEntry } from "@/hooks/use-smart-account-sidebar-data";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -36,13 +41,18 @@ export function AddSignerPane({
   accountIndex,
   existingSigners,
   onAddSigner,
+  onAdded,
   pendingActionKey,
   vaultAddress,
   vaultLabel,
 }: {
   accountIndex: number;
   existingSigners: SmartAccountSignerEntry[];
-  onAddSigner: (signerAddress: string) => Promise<void>;
+  onAddSigner: (args: {
+    signerAddress: string;
+    accessLevel: AccessLevel;
+  }) => Promise<void>;
+  onAdded?: (args: { signerAddress: string }) => void;
   pendingActionKey: string | null;
   vaultAddress: string | null;
   vaultLabel: string;
@@ -50,9 +60,11 @@ export function AddSignerPane({
   const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [addedAddress, setAddedAddress] = useState<string | null>(null);
+  const [accessLevel, setAccessLevel] = useState<AccessLevel>("suggest");
   const normalizedAddress = useMemo(() => normalizeAddress(address), [address]);
   const existingSigner = normalizedAddress
-    ? existingSigners.find((signer) => signer.address === normalizedAddress)
+    ? existingSigners.find((signer) => signer.address === normalizedAddress) ??
+      null
     : null;
   const isPending =
     normalizedAddress !== null &&
@@ -90,9 +102,14 @@ export function AddSignerPane({
     }
 
     try {
-      await onAddSigner(normalizedAddress);
+      await onAddSigner({
+        signerAddress: normalizedAddress,
+        accessLevel,
+      });
       setAddedAddress(normalizedAddress);
       setAddress("");
+      setAccessLevel("suggest");
+      onAdded?.({ signerAddress: normalizedAddress });
     } catch (nextError) {
       setError(
         nextError instanceof Error ? nextError.message : "Failed to add signer."
@@ -118,6 +135,9 @@ export function AddSignerPane({
           border-color: rgba(249, 54, 60, 0.45) !important;
           box-shadow: 0 0 0 3px rgba(249, 54, 60, 0.12);
           outline: none;
+        }
+        .add-signer-access-row:hover {
+          background: rgba(0, 0, 0, 0.04) !important;
         }
       `}</style>
 
@@ -162,7 +182,7 @@ export function AddSignerPane({
             }}
             title={vaultAddress ?? undefined}
           >
-            {vaultLabel} · {vaultAddress ? formatAddressForDisplay(vaultAddress) : `Vault ${accountIndex}`}
+            {vaultLabel} · {vaultAddress ? formatAddressForDisplay(vaultAddress) : `Stash ${accountIndex}`}
           </span>
         </div>
       </div>
@@ -214,17 +234,6 @@ export function AddSignerPane({
               }}
             >
               New signer
-            </span>
-            <span
-              style={{
-                color: secondary,
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "16px",
-              }}
-            >
-              Initial access: can suggest
             </span>
           </div>
         </div>
@@ -306,6 +315,112 @@ export function AddSignerPane({
               value={address}
             />
           </label>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              marginTop: "4px",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+              }}
+            >
+              Access level
+            </span>
+            {ACCESS_OPTIONS.map((option) => {
+              const selected = accessLevel === option.id;
+              return (
+                <div
+                  className="add-signer-access-row"
+                  key={option.id}
+                  onClick={() => {
+                    if (isPending) return;
+                    setAccessLevel(option.id);
+                  }}
+                  role="button"
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "16px",
+                    cursor: isPending ? "default" : "pointer",
+                    display: "flex",
+                    padding: "6px 12px",
+                    transition: "background 0.15s ease",
+                    width: "100%",
+                  }}
+                  tabIndex={0}
+                >
+                  <div
+                    style={{
+                      flexShrink: 0,
+                      padding: "10px 0",
+                      paddingRight: "12px",
+                    }}
+                  >
+                    <AccessLevelIcon level={option.id} />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flex: 1,
+                      flexDirection: "column",
+                      gap: "2px",
+                      padding: "10px 0",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "#000",
+                        fontFamily: font,
+                        fontSize: "16px",
+                        fontWeight: 500,
+                        letterSpacing: "-0.176px",
+                        lineHeight: "20px",
+                      }}
+                    >
+                      {option.label}
+                    </span>
+                    <span
+                      style={{
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                      }}
+                    >
+                      {option.description}
+                    </span>
+                  </div>
+                  <div style={{ flexShrink: 0, paddingLeft: "12px" }}>
+                    <div
+                      style={{
+                        background: "#fff",
+                        border: selected
+                          ? "7px solid #F9363C"
+                          : "2px solid rgba(60, 60, 67, 0.3)",
+                        borderRadius: "9999px",
+                        boxSizing: "border-box",
+                        height: "24px",
+                        transition: "border 0.15s ease",
+                        width: "24px",
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
           <button
             className="add-signer-submit"

@@ -23,6 +23,7 @@ export function ApprovalReviewContent({
   onApprove,
   onExecute,
   showClose = true,
+  actionError = null,
 }: {
   approval: SmartAccountApprovalItem | null;
   isSubmitting: boolean;
@@ -32,6 +33,7 @@ export function ApprovalReviewContent({
   onApprove: () => void;
   onExecute: () => void;
   showClose?: boolean;
+  actionError?: string | null;
 }) {
   const [isRawDataExpanded, setIsRawDataExpanded] = useState(false);
 
@@ -259,6 +261,22 @@ export function ApprovalReviewContent({
       </div>
 
       <div style={{ padding: "16px 20px" }}>
+        {actionError ? (
+          <div
+            style={{
+              marginBottom: "8px",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              background: "rgba(249, 54, 60, 0.10)",
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "18px",
+              color: "#9D1B1F",
+            }}
+          >
+            {actionError}
+          </div>
+        ) : null}
         {canVote ? (
           <div style={{ display: "flex", gap: "10px", width: "100%" }}>
             <button

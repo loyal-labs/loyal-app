@@ -21,9 +21,17 @@ export async function GET(request: Request) {
     );
   }
 
+  const url = new URL(request.url);
+  const invalidateAddresses = url.searchParams
+    .get("invalidate")
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
   try {
     const overview = await fetchCurrentSmartAccountOverview({
       settingsPda: principal.settingsPda,
+      invalidateAddresses,
     });
 
     return NextResponse.json({ overview });

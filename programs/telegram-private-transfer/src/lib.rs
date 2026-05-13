@@ -61,6 +61,16 @@ pub mod telegram_private_transfer {
         Ok(())
     }
 
+    /// Closes an empty user deposit account and returns its rent to the deposit owner.
+    pub fn close_deposit(_ctx: Context<CloseDeposit>) -> Result<()> {
+        Ok(())
+    }
+
+    /// Closes an empty username deposit account after verified username ownership.
+    pub fn close_username_deposit(_ctx: Context<CloseUsernameDeposit>) -> Result<()> {
+        Ok(())
+    }
+
     /// Modifies a user's deposit balance and the backing vault position for the given mint.
     ///
     /// For non-USDC mints, this is a direct vault transfer: if `args.increase` is true, `args.amount`
@@ -561,6 +571,49 @@ pub struct InitializeUsernameDeposit<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct CloseDeposit<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(
+        mut,
+        close = user,
+        seeds = [DEPOSIT_PDA_SEED, user.key().as_ref(), token_mint.key().as_ref()],
+        bump,
+        has_one = user,
+        has_one = token_mint,
+        constraint = deposit.amount == 0 @ ErrorCode::NonZeroDeposit,
+    )]
+    pub deposit: Account<'info, Deposit>,
+    pub token_mint: Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
+pub struct CloseUsernameDeposit<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        close = authority,
+        seeds = [
+            USERNAME_DEPOSIT_PDA_SEED,
+            &deposit.username_hash,
+            deposit.token_mint.as_ref()
+        ],
+        bump,
+        has_one = token_mint,
+        constraint = deposit.amount == 0 @ ErrorCode::NonZeroDeposit,
+    )]
+    pub deposit: Account<'info, UsernameDeposit>,
+    pub token_mint: Account<'info, Mint>,
+    #[account(
+        constraint = session.user_wallet == authority.key() @ ErrorCode::Unauthorized,
+        constraint = session.verified @ ErrorCode::NotVerified,
+        constraint = session.username_hash == deposit.username_hash @ ErrorCode::InvalidUsername,
+    )]
+    pub session: Account<'info, TelegramSession>,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct ModifyDepositArgs {
     pub amount: u64,
@@ -918,4 +971,6 @@ pub enum ErrorCode {
     InvalidKaminoAccounts,
     #[msg("Invalid amount")]
     InvalidAmount,
+    #[msg("Deposit account must have zero amount before it can be closed")]
+    NonZeroDeposit,
 }

@@ -163,7 +163,7 @@ export function VaultAccountPageView({
     () =>
       [
         currentVaultAddress
-          ? { label: "Vault address", value: currentVaultAddress }
+          ? { label: "Stash address", value: currentVaultAddress }
           : null,
         settingsPda ? { label: "Settings PDA", value: settingsPda } : null,
         userAddress ? { label: "User wallet", value: userAddress } : null,
@@ -570,7 +570,7 @@ export function VaultAccountPageView({
                 <button
                   className="vault-copy-btn"
                   onClick={() => {
-                    copyAddress(`Vault ${entry.accountIndex}`, entry.address);
+                    copyAddress(`Stash ${entry.accountIndex}`, entry.address);
                   }}
                   style={{
                     alignItems: "center",

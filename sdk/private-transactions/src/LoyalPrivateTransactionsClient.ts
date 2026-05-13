@@ -47,6 +47,8 @@ import type {
   DepositData,
   UsernameDepositData,
   InitializeDepositParams,
+  CloseDepositParams,
+  CloseUsernameDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
   GetKaminoShieldedBalanceQuoteParams,
@@ -102,6 +104,8 @@ import {
   estimatePlannedTransactionFees,
   type FeeEstimateTransactionPlan,
 } from "./fee-estimate";
+import { closeDepositIx } from "./instructions/closeDeposit";
+import { closeUsernameDepositIx } from "./instructions/closeUsernameDeposit";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -668,10 +672,15 @@ export class LoyalPrivateTransactionsClient {
       amount: params.plan.amount,
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
-      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalNativeLamports: estimate.totalNativeLamports,
+      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalLamports:
+        estimate.totalFeeLamports +
+        estimate.totalRentLamports +
+        estimate.totalNativeLamports,
       transactions: estimate.transactions,
       instructions: estimate.instructions,
-      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow.",
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose net rent changes (positive locks rent, negative reclaims rent) and nativeLamports for native-SOL token value movement. totalLamports is a cost-style net SOL impact for the common payer=user flow: positive values are debits/costs and negative values are credits/gains. feeAndRentLamports excludes native token principal. If payer differs from user, nativeLamports belongs to the token owner while fees/rent may belong to the payer.",
     };
   }
 
@@ -770,7 +779,7 @@ export class LoyalPrivateTransactionsClient {
 
           console.warn(
             `[${transactionPlan.label}] owner-change watcher did not observe expected owner (signature=${signature}); continuing`,
-            err,
+            err
           );
         }
       }
@@ -869,6 +878,59 @@ export class LoyalPrivateTransactionsClient {
       extraContext: {
         username: params.username,
         tokenMint: params.tokenMint,
+      },
+    });
+  }
+
+  async closeDeposit(params: CloseDepositParams): Promise<string> {
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await closeDepositIx(this.baseProgram, params);
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
+
+    const tx = new Transaction().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint,
+      },
+    });
+  }
+
+  async closeUsernameDeposit(
+    params: CloseUsernameDepositParams
+  ): Promise<string> {
+    const { username, tokenMint, authority, session } = params;
+    const { ix, ensure } = await closeUsernameDepositIx(
+      this.baseProgram,
+      params
+    );
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
+
+    const tx = new Transaction().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeUsernameDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username,
+        tokenMint,
+        authority,
+        session,
       },
     });
   }
@@ -1153,7 +1215,7 @@ export class LoyalPrivateTransactionsClient {
     } catch (err) {
       console.warn(
         `[delegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-        err,
+        err
       );
     }
 
@@ -1235,7 +1297,7 @@ export class LoyalPrivateTransactionsClient {
     } catch (err) {
       console.warn(
         `[delegateUsernameDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-        err,
+        err
       );
     }
 

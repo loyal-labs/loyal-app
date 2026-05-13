@@ -21,10 +21,12 @@ import {
   Wallet,
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
-import { SOL_SPENDING_LIMIT_MINT } from "@loyal-labs/smart-account-vaults";
+import {
+  SOL_SPENDING_LIMIT_MINT,
+  type SmartAccountOverview,
+} from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion } from "motion/react";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -33,16 +35,24 @@ import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import { ConnectRequestContent } from "@/components/wallet-sidebar/connect-request-content";
 import { PortfolioContent } from "@/components/wallet-sidebar/portfolio-content";
 import { ReceiveContent } from "@/components/wallet-sidebar/receive-content";
-import { SendContent } from "@/components/wallet-sidebar/send-content";
+import {
+  type RecipientSuggestion,
+  SendContent,
+  type SendContentVaultContext,
+} from "@/components/wallet-sidebar/send-content";
 import {
   ShieldContent,
   SwapShieldTabs,
 } from "@/components/wallet-sidebar/shield-content";
+import type { DraftProposalView } from "@/components/wallet-sidebar/draft-preview-content";
+import type { PermissionChangeDraft } from "@/components/wallet-sidebar/permission-preview-content";
+import type { SpendingLimitDraft } from "@/components/wallet-sidebar/spending-limit-preview-content";
 import { StashDetailView } from "@/components/wallet-sidebar/stash-detail-view";
 import { SwapContent } from "@/components/wallet-sidebar/swap-content";
 import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
 import { TokenDetailView } from "@/components/wallet-sidebar/token-detail-view";
 import { TransactionDetailView } from "@/components/wallet-sidebar/transaction-detail-view";
+import { getVaultIcon } from "@/components/wallet-sidebar/vault-icon";
 import type { TokenRowActions } from "@/components/wallet-sidebar/token-row-item";
 import type {
   FormButtonProps,
@@ -59,7 +69,10 @@ import {
 import { WalletDetailView } from "@/components/wallet-sidebar/wallet-detail-view";
 import type {
   SmartAccountApprovalItem,
+  SmartAccountSidebarData,
   SmartAccountSignerEntry,
+  VaultTransferCapability,
+  VaultTransferRequest,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -80,6 +93,7 @@ import {
   PolicyGlyph,
 } from "./policies-pane";
 import { PolicyDetailsPane } from "./policy-details-pane";
+import { SettingsPane } from "./settings-pane";
 import { WorkflowBuilderPane } from "./workflow-builder-pane";
 import {
   WalletCommandMenu,
@@ -87,7 +101,7 @@ import {
 } from "./wallet-command-menu";
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
-type WorkspaceSection = "policies" | "wallet";
+type WorkspaceSection = "policies" | "settings" | "wallet";
 type DetailTab = "activity" | "tokens";
 type DetailPaneTransition = "back" | "close" | "forward" | "open" | "switch";
 type DetailSelection =
@@ -119,25 +133,6 @@ type PersistedWorkspaceSelection =
 const PANE_WIDTH_STORAGE_KEY = "loyal-wallet-workspace-pane-widths";
 const SELECTED_WORKSPACE_ITEM_STORAGE_KEY =
   "loyal-wallet-workspace-selected-item";
-const COMMAND_SUGGESTION_URL = "https://tally.so/r/ZjRpev";
-const GET_STARTED_URL = "/#get-started";
-const workspaceSocialLinks = [
-  {
-    href: "https://x.com/loyal_hq",
-    icon: "/landing/figma/footer-social-x.svg",
-    label: "X",
-  },
-  {
-    href: "https://t.me/loyal_tgchat",
-    icon: "/landing/figma/footer-social-telegram.svg",
-    label: "Telegram",
-  },
-  {
-    href: "https://discord.askloyal.com",
-    icon: "/landing/figma/footer-social-discord.svg",
-    label: "Discord",
-  },
-];
 const ACCOUNT_PANE_MIN_WIDTH = 360;
 const ACCOUNT_PANE_MAX_WIDTH = 520;
 const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
@@ -150,7 +145,7 @@ function clampWidth(value: number, min: number, max: number) {
 }
 
 function getWalletIcon(): string {
-  return "/agents/Agent-03.svg";
+  return "/agents/Agent-01.svg";
 }
 
 function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
@@ -260,6 +255,113 @@ function portfolioPositionToSwapToken(position: PortfolioPosition): SwapToken {
   };
 }
 
+function lookupVaultMintDecimals(
+  overview: SmartAccountOverview | null,
+  accountIndex: number,
+  mint: string | undefined
+): number | undefined {
+  if (!(overview && mint)) return undefined;
+  const vault = overview.vaults.find(
+    (entry) => entry.accountIndex === accountIndex
+  );
+  const position = vault?.portfolio.positions.find(
+    (entry) => entry.asset.mint === mint
+  );
+  return position?.asset.decimals;
+}
+
+function shortAddressForLabel(address: string): string {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
+
+function formatAmountForDraft(amount: number): string {
+  return amount.toLocaleString("en-US", {
+    maximumFractionDigits: 9,
+    minimumFractionDigits: 0,
+  });
+}
+
+function buildVaultSendContext(args: {
+  accountIndex: number;
+  evaluateCapability: SmartAccountSidebarData["evaluateVaultTransferCapability"];
+  executeTransfer: SmartAccountSidebarData["executeVaultTransfer"];
+  tokenMint: string | undefined;
+  tokenDecimals: number | undefined;
+  onCreateDraft: (input: {
+    request: VaultTransferRequest;
+    capability: Extract<VaultTransferCapability, { kind: "settings" }>;
+  }) => void;
+}): SendContentVaultContext {
+  if (!args.tokenMint) {
+    return {
+      mode: "blocked",
+      reason: "Select a token held by the vault",
+    };
+  }
+  if (typeof args.tokenDecimals !== "number") {
+    return {
+      mode: "blocked",
+      reason: "Token metadata still loading — try again in a moment",
+    };
+  }
+  // Smallest non-zero raw amount for capability check (1 unit). Real amount
+  // is checked again inside executeVaultTransfer; this is enough to detect
+  // role / authorization issues up-front.
+  const probeAmount = BigInt(1);
+  const capability = args.evaluateCapability({
+    accountIndex: args.accountIndex,
+    mint: args.tokenMint,
+    amountRaw: probeAmount,
+  });
+  if (capability.kind === "blocked") {
+    return { mode: "blocked", reason: capability.reason };
+  }
+  const notice =
+    capability.kind === "settings"
+      ? "Submitting will create a draft proposal you can review in Approvals before signing."
+      : "Sending via spending limit — single wallet sign.";
+  const mint = args.tokenMint;
+  const decimals = args.tokenDecimals;
+  return {
+    mode: "ready",
+    notice,
+    execute: async (request) => {
+      // Re-evaluate capability with the user's actual recipient + amount so
+      // we route multisig (settings) sends to the draft preview path.
+      const amountRaw = BigInt(
+        Math.max(0, Math.floor(request.amount * Math.pow(10, decimals)))
+      );
+      const liveCapability = args.evaluateCapability({
+        accountIndex: args.accountIndex,
+        mint,
+        amountRaw: amountRaw > BigInt(0) ? amountRaw : BigInt(1),
+        recipientAddress: request.recipientAddress,
+      });
+      if (liveCapability.kind === "settings") {
+        args.onCreateDraft({
+          request: {
+            accountIndex: args.accountIndex,
+            mint,
+            symbol: request.symbol,
+            amount: request.amount,
+            recipientAddress: request.recipientAddress,
+          },
+          capability: liveCapability,
+        });
+        return { success: true, status: "draft" };
+      }
+      return args.executeTransfer({
+        accountIndex: args.accountIndex,
+        mint,
+        symbol: request.symbol,
+        amount: request.amount,
+        recipientAddress: request.recipientAddress,
+      });
+    },
+  };
+}
+
 function RailNavButton({
   icon,
   isActive = false,
@@ -337,7 +439,7 @@ function WalletRail({
             label="Wallet"
             onClick={() => onSectionChange("wallet")}
           />
-          <RailNavButton
+          {/* <RailNavButton
             icon={<Layers2 size={24} strokeWidth={1.8} />}
             isActive={activeSection === "policies"}
             label="Policies"
@@ -351,10 +453,10 @@ function WalletRail({
           />
           <RailNavButton
             icon={<Settings size={24} strokeWidth={1.8} />}
-            isPlaceholder
+            isActive={activeSection === "settings"}
             label="Settings"
-            tooltip="Settings will live here"
-          />
+            onClick={() => onSectionChange("settings")}
+          /> */}
         </nav>
       </div>
 
@@ -371,47 +473,6 @@ function WalletRail({
         >
           <LogOut size={20} strokeWidth={1.8} />
         </button>
-        <nav
-          aria-label="Workspace help links"
-          className="wallet-workspace-rail-links"
-        >
-          <a
-            className="wallet-workspace-rail-link"
-            href={COMMAND_SUGGESTION_URL}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Send feedback
-          </a>
-          <a
-            className="wallet-workspace-rail-link"
-            href={GET_STARTED_URL}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Get Loyal
-          </a>
-          <span className="wallet-workspace-rail-socials">
-            {workspaceSocialLinks.map((link) => (
-              <a
-                aria-label={link.label}
-                className="wallet-workspace-rail-social-link"
-                href={link.href}
-                key={link.label}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <Image
-                  alt=""
-                  aria-hidden="true"
-                  height={18}
-                  src={link.icon}
-                  width={18}
-                />
-              </a>
-            ))}
-          </span>
-        </nav>
       </div>
     </aside>
   );
@@ -550,6 +611,7 @@ export function AppWalletWorkspace({
   const walletDesktopData = useWalletDesktopData();
   const smartAccountData = useSmartAccountSidebarData({
     authenticatedUserTotalUsd: walletDesktopData.totalUsd,
+    onAfterTx: walletDesktopData.refresh,
   });
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
@@ -559,7 +621,11 @@ export function AppWalletWorkspace({
   const signInOpenedForConnectRef = useRef(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const routeSection: WorkspaceSection =
-    pathname === "/app/policies" ? "policies" : initialSection;
+    pathname === "/app/policies"
+      ? "policies"
+      : pathname === "/app/settings"
+        ? "settings"
+        : initialSection;
   const [activeSection, setActiveSection] =
     useState<WorkspaceSection>(routeSection);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
@@ -618,6 +684,26 @@ export function AppWalletWorkspace({
   const [connectAgentAddress, setConnectAgentAddress] = useState<string | null>(
     null
   );
+  const [pendingOpenSignerAddress, setPendingOpenSignerAddress] = useState<
+    string | null
+  >(null);
+  const [draftProposal, setDraftProposal] = useState<DraftProposalView | null>(
+    null
+  );
+  const [isDraftSubmitting, setIsDraftSubmitting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [permissionDraft, setPermissionDraft] =
+    useState<PermissionChangeDraft | null>(null);
+  const [isPermissionDraftSubmitting, setIsPermissionDraftSubmitting] =
+    useState(false);
+  const [permissionDraftError, setPermissionDraftError] =
+    useState<string | null>(null);
+  const [spendingLimitDraft, setSpendingLimitDraft] =
+    useState<SpendingLimitDraft | null>(null);
+  const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
+    useState(false);
+  const [spendingLimitDraftError, setSpendingLimitDraftError] =
+    useState<string | null>(null);
   const resizeStateRef = useRef<{
     startWidth: number;
     startX: number;
@@ -627,7 +713,13 @@ export function AppWalletWorkspace({
   const handleSectionChange = useCallback(
     (section: WorkspaceSection) => {
       setActiveSection(section);
-      router.push(section === "policies" ? "/app/policies" : "/app");
+      const targetPath =
+        section === "policies"
+          ? "/app/policies"
+          : section === "settings"
+            ? "/app/settings"
+            : "/app";
+      router.push(targetPath);
     },
     [router]
   );
@@ -647,7 +739,10 @@ export function AppWalletWorkspace({
   const isSmartAccountRateLimited =
     isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
   const showWorkspaceShell =
-    isAuthHydrated && (isSignedIn || activeSection === "policies");
+    isAuthHydrated &&
+    (isSignedIn ||
+      activeSection === "policies" ||
+      activeSection === "settings");
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
@@ -765,6 +860,15 @@ export function AppWalletWorkspace({
 
     return tokens;
   }, [walletDesktopData.positions]);
+  const vaultDerivedTokens = useMemo<SwapToken[]>(() => {
+    const vault = smartAccountData.overview?.vaults.find(
+      (entry) => entry.accountIndex === selectedVaultAccountIndex
+    );
+    const positions = vault?.portfolio.positions ?? [];
+    return positions
+      .filter((position) => position.publicBalance > 0)
+      .map(portfolioPositionToSwapToken);
+  }, [smartAccountData.overview?.vaults, selectedVaultAccountIndex]);
   const securedTokens = useMemo<SwapToken[]>(
     () =>
       walletDesktopData.positions
@@ -968,17 +1072,34 @@ export function AppWalletWorkspace({
     const approvalStillExists = smartAccountData.approvals.some(
       (approval) => approval.id === selectedApprovalId
     );
+    const matchesDraft = draftProposal?.id === selectedApprovalId;
 
-    if (!approvalStillExists) {
+    if (!approvalStillExists && !matchesDraft) {
       setSelectedApprovalId(null);
     }
-  }, [selectedApprovalId, smartAccountData.approvals]);
+  }, [selectedApprovalId, smartAccountData.approvals, draftProposal]);
 
   useEffect(() => {
     if (!isSignedIn) {
       hasRestoredSelectionRef.current = false;
     }
   }, [isSignedIn]);
+
+  // Lazy-load the agent's own wallet portfolio when an agent (non-Main Account
+  // signer) is selected. Skips the Main Account row — that wallet is already
+  // covered by walletDesktopData.
+  const loadSignerPortfolio = smartAccountData.loadSignerPortfolio;
+  useEffect(() => {
+    if (
+      !selectedAgent ||
+      selectedAgent.label === "Main Account" ||
+      activeDetailSelection !== "agent"
+    ) {
+      return;
+    }
+
+    void loadSignerPortfolio(selectedAgent.address).catch(() => undefined);
+  }, [selectedAgent, activeDetailSelection, loadSignerPortfolio]);
 
   useEffect(() => {
     if (
@@ -1285,6 +1406,50 @@ export function AppWalletWorkspace({
     await Promise.allSettled([logout(), disconnect()]);
   }, [disconnect, logout]);
 
+  // After a regular send (not a vault multisig — that path triggers its own
+  // refresh inside executeVaultTransfer), classify the recipient against the
+  // smart-account overview so the right balance caches get invalidated:
+  //   - If recipient is a known vault → pass accountIndex so the vault's
+  //     portfolio cache is busted on the server side.
+  //   - If recipient is a known signer → pass signerAddresses so its cache
+  //     is invalidated.
+  //   - Otherwise → just refresh the connected wallet + overview totals.
+  const handleSendSuccess = useCallback(
+    async ({ recipientAddress }: { recipientAddress: string }) => {
+      const trimmed = recipientAddress.trim();
+      if (!trimmed) {
+        await smartAccountData.refreshAfterTx({});
+        return;
+      }
+
+      const matchedVault = smartAccountData.overview?.vaults.find(
+        (vault) => vault.address === trimmed
+      );
+      if (matchedVault) {
+        await smartAccountData.refreshAfterTx({
+          accountIndex: matchedVault.accountIndex,
+        });
+        return;
+      }
+
+      const overview = smartAccountData.overview;
+      const matchedSigner =
+        overview?.signers.find((signer) => signer.address === trimmed) ??
+        overview?.vaults
+          .flatMap((vault) => vault.signers ?? [])
+          .find((signer) => signer.address === trimmed);
+      if (matchedSigner) {
+        await smartAccountData.refreshAfterTx({
+          signerAddresses: [trimmed],
+        });
+        return;
+      }
+
+      await smartAccountData.refreshAfterTx({});
+    },
+    [smartAccountData]
+  );
+
   const handleRailAction = useCallback(
     (action: WorkspaceAction) => {
       const actionView =
@@ -1330,7 +1495,7 @@ export function AppWalletWorkspace({
     }
 
     if (activeDetailSelection === "vault") {
-      openActionView({ type: "receivePanel" }, "Top Up", "", "vault");
+      openActionView({ type: "receivePanel" }, "Receive", "", "vault");
     }
   }, [
     activeDetailSelection,
@@ -1341,7 +1506,7 @@ export function AppWalletWorkspace({
 
   const handleCommandSend = useCallback(() => {
     if (activeDetailSelection === "vault") {
-      openActionView({ type: "sendPanel" }, "Transfer", "", "vault");
+      openActionView({ type: "sendPanel" }, "Send", "", "vault");
       return;
     }
 
@@ -1392,7 +1557,7 @@ export function AppWalletWorkspace({
       smartAccountData.setSelectedVaultIndex(accountIndex);
       setDetailSelection("vault");
       setSelectedSignerId(null);
-      setSelectedDetail(`Vault ${accountIndex}`);
+      setSelectedDetail(`Stash ${accountIndex}`);
     },
     [markDetailPaneTransition, smartAccountData]
   );
@@ -1443,12 +1608,6 @@ export function AppWalletWorkspace({
     [handleOpenAgent, router, smartAccountData]
   );
 
-  const handleOpenAutoswapPolicy = useCallback(() => {
-    setSelectedPolicyId("autoswap-primary");
-    setActiveSection("policies");
-    router.push("/app/policies");
-  }, [router]);
-
   const handleCommandSelectPolicy = useCallback(
     (policyId: string) => {
       setSelectedPolicyId(policyId);
@@ -1485,7 +1644,7 @@ export function AppWalletWorkspace({
       setDetailSelection("addSigner");
       setSelectedSignerId(null);
       smartAccountData.setSelectedVaultIndex(accountIndex);
-      setSelectedDetail(`Add signer to Vault ${accountIndex}`);
+      setSelectedDetail(`Add signer to Stash ${accountIndex}`);
     },
     [markDetailPaneTransition, smartAccountData]
   );
@@ -1496,21 +1655,215 @@ export function AppWalletWorkspace({
     handleOpenAddSigner(selectedVault.entry.accountIndex);
   }, [handleOpenAddSigner, selectedVault]);
 
+  // After a signer is added, switch to that signer's detail screen as soon as
+  // the refreshed vault data exposes it.
+  useEffect(() => {
+    if (!pendingOpenSignerAddress || !selectedVault) return;
+    const newSigner = selectedVault.entry.signers.find(
+      (signer) => signer.address === pendingOpenSignerAddress
+    );
+    if (!newSigner) return;
+    setPendingOpenSignerAddress(null);
+    handleOpenAgent(newSigner);
+  }, [handleOpenAgent, pendingOpenSignerAddress, selectedVault]);
+
+  const [proposalActionError, setProposalActionError] = useState<string | null>(
+    null
+  );
+
   const handleReviewApproval = useCallback(
     (approval: SmartAccountApprovalItem) => {
       setSelectedApprovalId(approval.id);
+      setProposalActionError(null);
     },
     []
   );
 
+  const handleCreateDraftProposal = useCallback(
+    ({
+      request,
+      capability,
+    }: {
+      request: VaultTransferRequest;
+      capability: Extract<VaultTransferCapability, { kind: "settings" }>;
+    }) => {
+      const vault = smartAccountData.vaultEntries.find(
+        (entry) => entry.accountIndex === request.accountIndex
+      );
+      const draftId = `draft:${request.accountIndex}:${Date.now()}`;
+      setDraftError(null);
+      setProposalActionError(null);
+      setDraftProposal({
+        id: draftId,
+        request,
+        amountDisplay: formatAmountForDraft(request.amount),
+        symbol: request.symbol,
+        recipientAddress: request.recipientAddress,
+        destinationLabel: shortAddressForLabel(request.recipientAddress),
+        sourceAccountIndex: request.accountIndex,
+        sourceLabel: vault?.label ?? `Stash ${request.accountIndex}`,
+        threshold: capability.threshold,
+        expectedSigns: capability.expectedSigns,
+      });
+      setSelectedApprovalId(draftId);
+    },
+    [smartAccountData.vaultEntries]
+  );
+
+  const handleCancelDraftProposal = useCallback(() => {
+    setDraftProposal(null);
+    setSelectedApprovalId(null);
+    setDraftError(null);
+  }, []);
+
+  const handleSubmitDraftProposal = useCallback(async () => {
+    if (!draftProposal) return;
+    setIsDraftSubmitting(true);
+    setDraftError(null);
+    try {
+      const result = await smartAccountData.executeVaultTransfer(
+        draftProposal.request
+      );
+      if (!result.success) {
+        setDraftError(result.error ?? "Failed to submit proposal.");
+        return;
+      }
+      setDraftProposal(null);
+      setSelectedApprovalId(null);
+    } catch (error) {
+      const raw =
+        error instanceof Error
+          ? error.message
+          : "Failed to submit proposal.";
+      setDraftError(raw);
+    } finally {
+      setIsDraftSubmitting(false);
+    }
+  }, [draftProposal, smartAccountData]);
+
+  const handleCreatePermissionDraft = useCallback(
+    (input: Omit<PermissionChangeDraft, "id">) => {
+      setPermissionDraftError(null);
+      setPermissionDraft({
+        id: `permission-draft:${input.signerAddress}:${Date.now()}`,
+        ...input,
+      });
+    },
+    []
+  );
+
+  const handleCancelPermissionDraft = useCallback(() => {
+    setPermissionDraft(null);
+    setPermissionDraftError(null);
+  }, []);
+
+  const handleSubmitPermissionDraft = useCallback(async () => {
+    if (!permissionDraft) return;
+    setIsPermissionDraftSubmitting(true);
+    setPermissionDraftError(null);
+    try {
+      await smartAccountData.updateSignerPermissions({
+        signerAddress: permissionDraft.signerAddress,
+        permissions: permissionDraft.permissions,
+        policyAddress: permissionDraft.policyAddress,
+        accountIndex: permissionDraft.accountIndex,
+      });
+      setPermissionDraft(null);
+    } catch (error) {
+      setPermissionDraftError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update signer permissions."
+      );
+    } finally {
+      setIsPermissionDraftSubmitting(false);
+    }
+  }, [permissionDraft, smartAccountData]);
+
+  const handleCreateSpendingLimitDraft = useCallback(
+    (
+      input: SpendingLimitDraft extends infer T
+        ? T extends { id: string }
+          ? Omit<T, "id">
+          : never
+        : never
+    ) => {
+      setSpendingLimitDraftError(null);
+      setSpendingLimitDraft({
+        id: `spending-limit-draft:${input.kind}:${input.signerAddress}:${Date.now()}`,
+        ...input,
+      } as SpendingLimitDraft);
+    },
+    []
+  );
+
+  const handleCancelSpendingLimitDraft = useCallback(() => {
+    setSpendingLimitDraft(null);
+    setSpendingLimitDraftError(null);
+  }, []);
+
+  const handleSubmitSpendingLimitDraft = useCallback(async () => {
+    if (!spendingLimitDraft) return;
+    setIsSpendingLimitDraftSubmitting(true);
+    setSpendingLimitDraftError(null);
+    try {
+      const wasSet = spendingLimitDraft.kind === "set";
+      if (spendingLimitDraft.kind === "set") {
+        await smartAccountData.setSignerSpendingLimitUsd({
+          accountIndex: spendingLimitDraft.accountIndex,
+          amountUsd: spendingLimitDraft.amountUsd,
+          existingSpendingLimitAddress:
+            spendingLimitDraft.existingSpendingLimitAddress,
+          signerAddress: spendingLimitDraft.signerAddress,
+        });
+      } else {
+        await smartAccountData.deleteSignerSpendingLimit({
+          accountIndex: spendingLimitDraft.accountIndex,
+          spendingLimitAddress: spendingLimitDraft.spendingLimitAddress,
+          signerAddress: spendingLimitDraft.signerAddress,
+        });
+      }
+      setSpendingLimitDraft(null);
+      // RPC getProgramAccounts can lag a beat behind a brand-new policy account
+      // at "confirmed" commitment. Re-fetch overview shortly after to make the
+      // new spending limit show up without a manual page reload.
+      if (wasSet) {
+        const delays = [800, 2000];
+        for (const delay of delays) {
+          window.setTimeout(() => {
+            void smartAccountData.refresh().catch(() => undefined);
+          }, delay);
+        }
+      }
+    } catch (error) {
+      setSpendingLimitDraftError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update spending limit."
+      );
+    } finally {
+      setIsSpendingLimitDraftSubmitting(false);
+    }
+  }, [spendingLimitDraft, smartAccountData]);
+
   const runProposalAction = useCallback(async (action: () => Promise<void>) => {
+    setProposalActionError(null);
     try {
       await action();
     } catch (error) {
-      window.alert(
+      const raw =
         error instanceof Error
           ? error.message
-          : "Failed to submit smart-account action."
+          : "Failed to submit smart-account action.";
+      const haystack = raw.toLowerCase();
+      const isRentError =
+        haystack.includes("insufficient funds for rent") ||
+        haystack.includes("insufficient lamports") ||
+        haystack.includes("would result in account being unable to pay rent");
+      setProposalActionError(
+        isRentError
+          ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
+          : raw
       );
     }
   }, []);
@@ -1595,11 +1948,11 @@ export function AppWalletWorkspace({
           onSelect: () => runOnWallet(handleCommandShieldUsdc),
         },
         {
-          description: isVaultActive ? "Move funds from vault" : "Send tokens",
+          description: "Send tokens",
           disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
           icon: <ArrowUpRight size={19} strokeWidth={1.9} />,
           id: "action:send",
-          label: isVaultActive ? "Transfer" : "Send",
+          label: "Send",
           onSelect: () => runOnWallet(handleCommandSend),
         },
         {
@@ -1760,11 +2113,12 @@ export function AppWalletWorkspace({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setIsCommandMenuOpen((current) => !current);
-        return;
-      }
+      // Cmd+K command-menu shortcut temporarily disabled.
+      // if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      //   event.preventDefault();
+      //   setIsCommandMenuOpen((current) => !current);
+      //   return;
+      // }
 
       if (event.key !== "Escape") return;
       if (isCommandMenuOpen) return;
@@ -1788,6 +2142,9 @@ export function AppWalletWorkspace({
   ]);
 
   const renderDetailPane = () => {
+    if (activeSection === "settings") {
+      return <div className="wallet-workspace-detail-empty" />;
+    }
     if (activeSection === "policies") {
       if (isAuthResolving) {
         return <div className="wallet-workspace-auth-pending" />;
@@ -1905,7 +2262,7 @@ export function AppWalletWorkspace({
           icon={getWalletIcon()}
           initialTab={detailInitialTab}
           isBalanceHidden={isBalanceHidden}
-          label={selectedSignerId ? "User" : "My Wallet"}
+          label={selectedSignerId ? "Main Account" : "My Wallet"}
           onNavigate={(view) =>
             openWorkspaceActionView(
               view,
@@ -1915,16 +2272,6 @@ export function AppWalletWorkspace({
             )
           }
           onOpenReceive={() => {
-            if (selectedSignerId && selectedAgent) {
-              openActionView(
-                { type: "sendPanel" },
-                "Top Up",
-                selectedAgent.address,
-                "wallet"
-              );
-              return;
-            }
-
             openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
           }}
           onOpenSend={() =>
@@ -1939,18 +2286,44 @@ export function AppWalletWorkspace({
               "wallet"
             );
           }}
-          onOpenSwap={() =>
-            openActionView(
-              { type: "swapPanel", mode: "swap" },
-              "Swap",
-              "",
-              "wallet"
-            )
-          }
           accessLevel={
             selectedSignerId ? selectedAgent?.accessLevel : undefined
           }
           accessTitle="Access level"
+          onAccessLevelChange={
+            selectedSignerId && selectedAgent
+              ? async (level) => {
+                  handleCreatePermissionDraft({
+                    signerAddress: selectedAgent.address,
+                    signerLabel: selectedAgent.label,
+                    previousLevel: selectedAgent.accessLevel,
+                    nextLevel: level,
+                    permissions:
+                      level === "suggest"
+                        ? ["initiate"]
+                        : level === "sign"
+                          ? ["initiate", "vote"]
+                          : ["initiate", "vote", "execute"],
+                    policyAddress:
+                      selectedAgent.scope === "policy"
+                        ? selectedAgent.policyAddress
+                        : null,
+                    accountIndex:
+                      selectedAgent.scope === "policy"
+                        ? selectedVaultAccountIndex
+                        : undefined,
+                  });
+                }
+              : undefined
+          }
+          isAccessLevelPending={
+            selectedAgent
+              ? (permissionDraft?.signerAddress === selectedAgent.address &&
+                  isPermissionDraftSubmitting) ||
+                smartAccountData.pendingSpendingLimitActionKey ===
+                  `update-signer-permissions:${selectedAgent.address}`
+              : false
+          }
           getTokenActions={getTokenActions}
           onActivityTabOpen={() => {
             void walletDesktopData.loadActivity();
@@ -1958,29 +2331,102 @@ export function AppWalletWorkspace({
           onTokenDetail={handleTokenDetail}
           tokenRows={walletDesktopData.allTokenRows}
           transactionDetails={walletDesktopData.transactionDetails}
-          receiveLabel={selectedSignerId ? "Top Up" : "Receive"}
+          receiveLabel="Receive"
+          spendingLimit={
+            selectedSignerId ? selectedVaultSpendingLimit : undefined
+          }
+          isSpendingLimitPending={
+            selectedSignerId
+              ? smartAccountData.pendingSpendingLimitActionKey !== null &&
+                walletSpendingLimitActionKeys.has(
+                  smartAccountData.pendingSpendingLimitActionKey
+                )
+              : false
+          }
+          onSetSpendingLimit={
+            selectedSignerId
+              ? async (amountUsd) => {
+                  if (!walletDesktopData.walletAddress) {
+                    throw new Error(
+                      "Connect a wallet before setting a spending limit."
+                    );
+                  }
+
+                  handleCreateSpendingLimitDraft({
+                    kind: "set",
+                    signerAddress: walletDesktopData.walletAddress,
+                    signerLabel: "Main Account",
+                    accountIndex: selectedVaultAccountIndex,
+                    amountUsd,
+                    existingSpendingLimitAddress:
+                      selectedVaultSpendingLimit?.address ?? null,
+                    isPolicyScope: false,
+                  });
+                }
+              : undefined
+          }
+          onDeleteSpendingLimit={
+            selectedSignerId
+              ? async (spendingLimit) => {
+                  if (!walletDesktopData.walletAddress) {
+                    throw new Error(
+                      "Connect a wallet before deleting a spending limit."
+                    );
+                  }
+
+                  handleCreateSpendingLimitDraft({
+                    kind: "delete",
+                    signerAddress: walletDesktopData.walletAddress,
+                    signerLabel: "Main Account",
+                    accountIndex: selectedVaultAccountIndex,
+                    spendingLimitAddress: spendingLimit.address,
+                    isPolicyScope: false,
+                  });
+                }
+              : undefined
+          }
         />
       );
     }
 
     if (detailSelection === "agent" && selectedAgent && selectedVault) {
+      const signerView =
+        smartAccountData.signerPortfolioByAddress[selectedAgent.address];
       return (
         <AgentPageView
           agentIcon={selectedAgent.icon}
-          activeWorkflows={[
-            {
-              description: "Autoswap policy",
-              href: "/app/policies",
-              id: "autoswap-primary",
-              onOpen: handleOpenAutoswapPolicy,
-              status: "Active",
-              title: "Autoswap",
-            },
-          ]}
           balanceFraction={selectedAgent.balanceFraction}
           balanceWhole={selectedAgent.balanceWhole}
           canDeleteSigner={selectedAgent.scope === "policy"}
           initialAccessLevel={selectedAgent.accessLevel}
+          onAccessLevelChange={async (level) => {
+            handleCreatePermissionDraft({
+              signerAddress: selectedAgent.address,
+              signerLabel: selectedAgent.label,
+              previousLevel: selectedAgent.accessLevel,
+              nextLevel: level,
+              permissions:
+                level === "suggest"
+                  ? ["initiate"]
+                  : level === "sign"
+                    ? ["initiate", "vote"]
+                    : ["initiate", "vote", "execute"],
+              policyAddress:
+                selectedAgent.scope === "policy"
+                  ? selectedAgent.policyAddress
+                  : null,
+              accountIndex:
+                selectedAgent.scope === "policy"
+                  ? selectedVaultAccountIndex
+                  : undefined,
+            });
+          }}
+          isAccessLevelPending={
+            (permissionDraft?.signerAddress === selectedAgent.address &&
+              isPermissionDraftSubmitting) ||
+            smartAccountData.pendingSpendingLimitActionKey ===
+              `update-signer-permissions:${selectedAgent.address}`
+          }
           isBalanceHidden={isBalanceHidden}
           isSignerDeletePending={
             smartAccountData.pendingSpendingLimitActionKey ===
@@ -2004,7 +2450,16 @@ export function AppWalletWorkspace({
               policyAddress: selectedAgent.policyAddress ?? null,
             })
           }
-          onDeleteSpendingLimit={smartAccountData.deleteSignerSpendingLimit}
+          onDeleteSpendingLimit={async (args) => {
+            handleCreateSpendingLimitDraft({
+              kind: "delete",
+              signerAddress: args.signerAddress,
+              signerLabel: selectedAgent.label,
+              accountIndex: args.accountIndex,
+              spendingLimitAddress: args.spendingLimitAddress,
+              isPolicyScope: selectedAgent.scope === "policy",
+            });
+          }}
           onNavigate={(view) =>
             openWorkspaceActionView(
               view,
@@ -2013,7 +2468,18 @@ export function AppWalletWorkspace({
               "agent"
             )
           }
-          onSetSpendingLimit={smartAccountData.setSignerSpendingLimitUsd}
+          onSetSpendingLimit={async (args) => {
+            handleCreateSpendingLimitDraft({
+              kind: "set",
+              signerAddress: args.signerAddress,
+              signerLabel: selectedAgent.label,
+              accountIndex: args.accountIndex,
+              amountUsd: args.amountUsd,
+              existingSpendingLimitAddress:
+                args.existingSpendingLimitAddress ?? null,
+              isPolicyScope: selectedAgent.scope === "policy",
+            });
+          }}
           onTopUp={() =>
             openActionView(
               { type: "sendPanel" },
@@ -2029,15 +2495,15 @@ export function AppWalletWorkspace({
           showSpendingLimit
           showTopUpAction={false}
           spendingLimit={selectedAgent.spendingLimit}
-          tokenRows={selectedVault.tokenRows}
-          transactionDetails={selectedVault.transactionDetails}
-          activityRows={selectedVault.activityRows}
+          tokenRows={signerView?.tokenRows ?? []}
+          transactionDetails={signerView?.transactionDetails ?? {}}
+          activityRows={signerView?.activityRows ?? []}
           vaultAccountIndex={selectedVaultAccountIndex}
           getTokenActions={getTokenActions}
           initialTab={detailInitialTab}
           onActivityTabOpen={() => {
             void smartAccountData
-              .loadVaultActivity(selectedVault.entry.accountIndex)
+              .loadSignerActivity(selectedAgent.address)
               .catch(() => undefined);
           }}
           onTokenDetail={handleTokenDetail}
@@ -2065,46 +2531,19 @@ export function AppWalletWorkspace({
             )
           }
           onOpenReceive={() =>
-            openActionView({ type: "receivePanel" }, "Top Up", "", "vault")
+            openActionView({ type: "receivePanel" }, "Receive", "", "vault")
           }
           onOpenSend={() =>
-            openActionView({ type: "sendPanel" }, "Transfer", "", "vault")
+            openActionView({ type: "sendPanel" }, "Send", "", "vault")
           }
-          spendingLimit={selectedVaultSpendingLimit}
-          isSpendingLimitPending={
-            smartAccountData.pendingSpendingLimitActionKey !== null &&
-            walletSpendingLimitActionKeys.has(
-              smartAccountData.pendingSpendingLimitActionKey
+          onOpenSwap={() =>
+            openActionView(
+              { type: "swapPanel", mode: "swap" },
+              "Swap",
+              "",
+              "vault"
             )
           }
-          onSetSpendingLimit={async (amountUsd) => {
-            if (!walletDesktopData.walletAddress) {
-              throw new Error(
-                "Connect a wallet before setting a spending limit."
-              );
-            }
-
-            await smartAccountData.setSignerSpendingLimitUsd({
-              accountIndex: selectedVault.entry.accountIndex,
-              amountUsd,
-              existingSpendingLimitAddress:
-                selectedVaultSpendingLimit?.address ?? null,
-              signerAddress: walletDesktopData.walletAddress,
-            });
-          }}
-          onDeleteSpendingLimit={async (spendingLimit) => {
-            if (!walletDesktopData.walletAddress) {
-              throw new Error(
-                "Connect a wallet before deleting a spending limit."
-              );
-            }
-
-            await smartAccountData.deleteSignerSpendingLimit({
-              accountIndex: selectedVault.entry.accountIndex,
-              spendingLimitAddress: spendingLimit.address,
-              signerAddress: walletDesktopData.walletAddress,
-            });
-          }}
           tokenRows={selectedVault.tokenRows}
           transactionDetails={selectedVault.transactionDetails}
           getTokenActions={getTokenActions}
@@ -2124,8 +2563,19 @@ export function AppWalletWorkspace({
         <AddSignerPane
           accountIndex={selectedVault.entry.accountIndex}
           existingSigners={selectedVault.entry.signers}
-          onAddSigner={(signerAddress) =>
-            smartAccountData.addInitiateSigner({ signerAddress })
+          onAddSigner={({ signerAddress, accessLevel }) =>
+            smartAccountData.addInitiateSigner({
+              signerAddress,
+              permissions:
+                accessLevel === "suggest"
+                  ? ["initiate"]
+                  : accessLevel === "sign"
+                    ? ["initiate", "vote"]
+                    : ["initiate", "vote", "execute"],
+            })
+          }
+          onAdded={({ signerAddress }) =>
+            setPendingOpenSignerAddress(signerAddress)
           }
           pendingActionKey={smartAccountData.pendingSpendingLimitActionKey}
           vaultAddress={selectedVault.entry.address}
@@ -2205,14 +2655,22 @@ export function AppWalletWorkspace({
     }
 
     if (type === "sendTokenSelect") {
+      const sendingFromVault = actionReturnSelection === "vault";
+      const tokensForSelect = sendingFromVault
+        ? vaultDerivedTokens
+        : derivedTokens;
+      const currentTokenForSelect = sendingFromVault
+        ? vaultDerivedTokens.find((entry) => entry.mint === sendToken.mint) ??
+          vaultDerivedTokens[0] ?? { ...sendToken, balance: 0 }
+        : sendToken;
       return (
         <TokenSelectView
-          currentToken={sendToken}
+          currentToken={currentTokenForSelect}
           onBack={handleActionBack}
           onClose={closeActionView}
           onSelect={setSendToken}
           title="Send"
-          tokens={derivedTokens}
+          tokens={tokensForSelect}
         />
       );
     }
@@ -2250,14 +2708,81 @@ export function AppWalletWorkspace({
     }
 
     if (type === "sendPanel") {
+      const sendingFromVault = actionReturnSelection === "vault";
+      const effectiveSendToken = sendingFromVault
+        ? vaultDerivedTokens.find((entry) => entry.mint === sendToken.mint) ??
+          vaultDerivedTokens[0] ?? { ...sendToken, balance: 0 }
+        : sendToken;
+      const vaultContextProp = sendingFromVault
+        ? buildVaultSendContext({
+            accountIndex: selectedVaultAccountIndex,
+            evaluateCapability:
+              smartAccountData.evaluateVaultTransferCapability,
+            executeTransfer: smartAccountData.executeVaultTransfer,
+            tokenMint: effectiveSendToken.mint,
+            tokenDecimals: lookupVaultMintDecimals(
+              smartAccountData.overview,
+              selectedVaultAccountIndex,
+              effectiveSendToken.mint
+            ),
+            onCreateDraft: handleCreateDraftProposal,
+          })
+        : undefined;
+      const ownAddress = walletDesktopData.walletAddress ?? null;
+      const recipientSuggestions: RecipientSuggestion[] | undefined = (() => {
+        if (sendingFromVault) {
+          if (!ownAddress) return undefined;
+          return [
+            {
+              id: `main:${ownAddress}`,
+              label: "Main Account",
+              address: ownAddress,
+              icon: "/agents/Agent-01.svg",
+              kind: "agent" as const,
+            },
+          ];
+        }
+        const suggestions: RecipientSuggestion[] = [];
+        const seen = new Set<string>();
+        for (const vault of smartAccountData.vaultEntries) {
+          if (vault.address && !seen.has(vault.address)) {
+            seen.add(vault.address);
+            suggestions.push({
+              id: `stash:${vault.address}`,
+              label: vault.label,
+              address: vault.address,
+              icon: getVaultIcon(vault.accountIndex),
+              kind: "stash",
+            });
+          }
+          for (const signer of vault.signers) {
+            if (signer.scope !== "policy") continue;
+            if (!signer.address || seen.has(signer.address)) continue;
+            if (ownAddress && signer.address === ownAddress) continue;
+            seen.add(signer.address);
+            suggestions.push({
+              id: `agent:${signer.address}`,
+              label: signer.label,
+              address: signer.address,
+              icon: signer.icon,
+              kind: "agent",
+            });
+          }
+        }
+        return suggestions.length > 0 ? suggestions : undefined;
+      })();
       return (
         <SendContent
           addLocalActivity={walletDesktopData.addLocalActivity}
+          allowPrivateSend={!sendingFromVault && !selectedSignerId}
           initialRecipient={sendInitialRecipient}
           onClose={closeActionView}
           onDone={closeActionView}
           onNavigate={pushView}
-          token={sendToken}
+          onSuccess={handleSendSuccess}
+          recipientSuggestions={recipientSuggestions}
+          token={effectiveSendToken}
+          vaultContext={vaultContextProp}
         />
       );
     }
@@ -2277,7 +2802,10 @@ export function AppWalletWorkspace({
     }
 
     if (type === "swapPanel") {
-      const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
+      const isVaultSwap = actionReturnSelection === "vault";
+      const showTabs =
+        !isVaultSwap &&
+        (swapMode === "swap" ? swapFormActive : shieldFormActive);
       const buttonProps =
         swapMode === "swap" ? swapButtonProps : shieldButtonProps;
 
@@ -2352,7 +2880,6 @@ export function AppWalletWorkspace({
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
                 initialDirection={shieldDirection}
-                onDirectionChange={setShieldDirection}
                 onNavigate={pushView}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
@@ -2427,7 +2954,10 @@ export function AppWalletWorkspace({
         open={isCommandMenuOpen}
       />
 
-      {showWorkspaceShell && (!isSmartAccountRateLimited || activeSection === "policies") ? (
+      {showWorkspaceShell &&
+      (!isSmartAccountRateLimited ||
+        activeSection === "policies" ||
+        activeSection === "settings") ? (
         <>
           <section className="wallet-workspace-pane wallet-workspace-account-pane">
             {activeSection === "policies" ? (
@@ -2437,6 +2967,8 @@ export function AppWalletWorkspace({
                 onSelectPolicy={setSelectedPolicyId}
                 selectedPolicyId={selectedPolicyId}
               />
+            ) : activeSection === "settings" ? (
+              <SettingsPane />
             ) : (
               <PortfolioContent
                 approvals={smartAccountData.approvals}
@@ -2481,6 +3013,8 @@ export function AppWalletWorkspace({
                 vaultEntries={smartAccountData.vaultEntries}
                 walletAddress={walletDesktopData.walletAddress}
                 walletLabel={walletDesktopData.walletLabel}
+                portfolioChange24h={walletDesktopData.portfolioChange24h}
+                earningsSummary={walletDesktopData.earningsSummary}
               />
             )}
           </section>
@@ -2545,6 +3079,7 @@ export function AppWalletWorkspace({
               <WorkspaceApprovalsSkeleton />
             ) : (
               <ApprovalsPane
+                actionError={proposalActionError}
                 approvals={smartAccountData.approvals}
                 error={smartAccountData.error}
                 isBalanceHidden={isBalanceHidden}
@@ -2554,7 +3089,31 @@ export function AppWalletWorkspace({
                     smartAccountData.approveProposal(approval.proposal)
                   )
                 }
-                onBackToList={() => setSelectedApprovalId(null)}
+                draft={draftProposal}
+                draftError={draftError}
+                isDraftSubmitting={isDraftSubmitting}
+                permissionDraft={permissionDraft}
+                permissionDraftError={permissionDraftError}
+                isPermissionDraftSubmitting={isPermissionDraftSubmitting}
+                onCancelPermissionDraft={handleCancelPermissionDraft}
+                onSubmitPermissionDraft={() =>
+                  void handleSubmitPermissionDraft()
+                }
+                spendingLimitDraft={spendingLimitDraft}
+                spendingLimitDraftError={spendingLimitDraftError}
+                isSpendingLimitDraftSubmitting={
+                  isSpendingLimitDraftSubmitting
+                }
+                onCancelSpendingLimitDraft={handleCancelSpendingLimitDraft}
+                onSubmitSpendingLimitDraft={() =>
+                  void handleSubmitSpendingLimitDraft()
+                }
+                onBackToList={() => {
+                  setSelectedApprovalId(null);
+                  setProposalActionError(null);
+                  setDraftError(null);
+                }}
+                onCancelDraft={handleCancelDraftProposal}
                 onDecline={(approval) =>
                   void runProposalAction(() =>
                     smartAccountData.rejectProposal(approval.proposal)
@@ -2566,11 +3125,21 @@ export function AppWalletWorkspace({
                   )
                 }
                 onReview={handleReviewApproval}
+                onReviewDraft={(draft) => {
+                  setSelectedApprovalId(draft.id);
+                  setDraftError(null);
+                }}
                 onRetry={() => {
                   void smartAccountData.refresh();
                 }}
+                onSubmitDraft={() => void handleSubmitDraftProposal()}
                 pendingApprovalId={smartAccountData.pendingProposalId}
                 selectedApproval={selectedApproval}
+                selectedDraft={
+                  draftProposal && selectedApprovalId === draftProposal.id
+                    ? draftProposal
+                    : null
+                }
               />
             )}
           </section>
@@ -2817,73 +3386,6 @@ export function AppWalletWorkspace({
           align-items: center;
           gap: 8px;
           width: max-content;
-        }
-
-        .wallet-workspace-rail-links {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .wallet-workspace-rail-link {
-          display: inline-flex;
-          height: 36px;
-          align-items: center;
-          justify-content: center;
-          border-radius: 9999px;
-          background: rgba(0, 0, 0, 0.04);
-          color: rgba(60, 60, 67, 0.58);
-          font-family: inherit;
-          font-size: 13px;
-          font-weight: 500;
-          line-height: 16px;
-          padding: 0 12px;
-          text-decoration: none;
-          white-space: nowrap;
-          transition: background 0.15s ease, color 0.15s ease,
-            transform 0.15s ease;
-        }
-
-        .wallet-workspace-rail-link:hover {
-          background: rgba(0, 0, 0, 0.08);
-          color: rgba(28, 28, 30, 0.78);
-          transform: translateY(-1px);
-        }
-
-        .wallet-workspace-rail-link:focus-visible {
-          outline: 2px solid rgba(249, 54, 60, 0.55);
-          outline-offset: 2px;
-        }
-
-        .wallet-workspace-rail-socials {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          margin-left: 4px;
-        }
-
-        .wallet-workspace-rail-social-link {
-          display: inline-flex;
-          width: 36px;
-          height: 36px;
-          align-items: center;
-          justify-content: center;
-          border-radius: 9999px;
-          background: rgba(0, 0, 0, 0.04);
-          opacity: 0.78;
-          transition: background 0.15s ease, opacity 0.15s ease,
-            transform 0.15s ease;
-        }
-
-        .wallet-workspace-rail-social-link:hover {
-          background: rgba(0, 0, 0, 0.08);
-          opacity: 1;
-          transform: translateY(-1px);
-        }
-
-        .wallet-workspace-rail-social-link:focus-visible {
-          outline: 2px solid rgba(249, 54, 60, 0.55);
-          outline-offset: 2px;
         }
 
         .wallet-workspace-pane {
@@ -3397,8 +3899,6 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace-auth-cta {
-          position: relative;
-          isolation: isolate;
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -3406,108 +3906,31 @@ export function AppWalletWorkspace({
           padding: 0 36px;
           border: 0;
           border-radius: 9999px;
-          background: #0a0a0a;
+          background: #000;
           color: #fff;
           cursor: pointer;
           font: inherit;
           font-size: 18px;
           font-weight: 500;
           letter-spacing: -0.1px;
-          box-shadow:
-            inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-            0 14px 30px -12px rgba(0, 0, 0, 0.55),
-            0 5px 12px -2px rgba(0, 0, 0, 0.28);
-          transition-property: transform, box-shadow, background-color;
-          transition-duration: 240ms;
-          transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-        }
-
-        .wallet-workspace-auth-cta::before {
-          content: "";
-          position: absolute;
-          inset: -10px;
-          z-index: -1;
-          border-radius: inherit;
-          background: radial-gradient(
-            closest-side,
-            rgba(0, 0, 0, 0.4),
-            rgba(0, 0, 0, 0) 72%
-          );
-          filter: blur(16px);
-          opacity: 0.5;
-          pointer-events: none;
-          animation: wallet-cta-breath 3.6s cubic-bezier(0.45, 0, 0.55, 1)
-            infinite;
-          will-change: transform, opacity;
-        }
-
-        .wallet-workspace-auth-cta::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          pointer-events: none;
-          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
-          animation: wallet-cta-halo 2.8s cubic-bezier(0.2, 0, 0, 1) infinite;
+          transition: background-color 0.15s ease;
         }
 
         .wallet-workspace-auth-cta-label {
           position: relative;
-          z-index: 1;
         }
 
         .wallet-workspace-auth-cta:hover {
-          background: #1a1a1a;
-          transform: translateY(-1px);
-          box-shadow:
-            inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-            0 20px 44px -12px rgba(0, 0, 0, 0.65),
-            0 7px 16px -2px rgba(0, 0, 0, 0.35);
+          background: #222;
         }
 
         .wallet-workspace-auth-cta:active {
-          transform: scale(0.96);
-          transition-duration: 90ms;
+          background: #1a1a1a;
         }
 
         .wallet-workspace-auth-cta:focus-visible {
-          outline: none;
-          box-shadow:
-            inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-            0 0 0 2px #fff,
-            0 0 0 4px #0a0a0a,
-            0 14px 30px -12px rgba(0, 0, 0, 0.55);
-        }
-
-        @keyframes wallet-cta-breath {
-          0%,
-          100% {
-            opacity: 0.4;
-            transform: scale(0.98);
-          }
-          50% {
-            opacity: 0.8;
-            transform: scale(1.08);
-          }
-        }
-
-        @keyframes wallet-cta-halo {
-          0% {
-            box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
-            opacity: 0.55;
-          }
-          80%,
-          100% {
-            box-shadow: 0 0 0 14px rgba(0, 0, 0, 0);
-            opacity: 0;
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .wallet-workspace-auth-cta::before,
-          .wallet-workspace-auth-cta::after {
-            animation: none;
-          }
+          outline: 2px solid #000;
+          outline-offset: 2px;
         }
 
         .wallet-workspace-review-empty {

@@ -58,12 +58,12 @@ function getLimitResetLabel(
   }
 
   if (!spendingLimit.nextReset) {
-    return `left this ${spendingLimit.periodLabel}`;
+    return `resets next ${spendingLimit.periodLabel}`;
   }
 
-  return `left in ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
+  return `resets ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
     "en-US",
-    { month: "long" }
+    { month: "long", day: "numeric" }
   )}`;
 }
 
@@ -149,9 +149,6 @@ export function SpendingLimitSection({
   const requestLimitDelete = async () => {
     if (!spendingLimit) return;
 
-    const confirmed = window.confirm("Delete this spending limit?");
-    if (!confirmed) return;
-
     try {
       await onDelete(spendingLimit);
     } catch (error) {
@@ -188,30 +185,32 @@ export function SpendingLimitSection({
           box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04) !important;
         }
       `}</style>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          width: "100%",
-          borderRadius: "16px",
-          padding: "14px 12px",
-        }}
-      >
-        <span
+      {(isEditing || spendingLimit) && (
+        <div
           style={{
-            flex: 1,
-            fontFamily: font,
-            fontSize: "16px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            color: "#000",
-            letterSpacing: "-0.176px",
-            textAlign: "left",
+            display: "flex",
+            alignItems: "center",
+            width: "100%",
+            borderRadius: "16px",
+            padding: "14px 12px",
           }}
         >
-          Spending Limit
-        </span>
-      </div>
+          <span
+            style={{
+              flex: 1,
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#000",
+              letterSpacing: "-0.176px",
+              textAlign: "left",
+            }}
+          >
+            Spending Limit
+          </span>
+        </div>
+      )}
 
       {isEditing ? (
         <div
@@ -536,51 +535,66 @@ export function SpendingLimitSection({
       ) : (
         <div
           style={{
-            width: "100%",
+            alignItems: "center",
             background: "#F5F5F5",
             borderRadius: "16px",
-            padding: "0 12px 2px",
+            display: "flex",
+            padding: "10px 12px",
+            width: "100%",
           }}
         >
           <div
             style={{
               display: "flex",
+              flex: 1,
               flexDirection: "column",
               gap: "2px",
-              padding: "10px 0",
+              minWidth: 0,
             }}
           >
             <span
               style={{
+                color: "#000",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
                 letterSpacing: "-0.176px",
+                lineHeight: "20px",
               }}
             >
-              Limit is not set
+              Spending limit is not set
+            </span>
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+              }}
+            >
+              Entire balance is available
             </span>
           </div>
-          <div style={{ paddingBottom: "11px" }}>
+          <div style={{ display: "flex", paddingLeft: "12px" }}>
             <button
               className="spending-limit-btn"
               disabled={isPending}
               onClick={startLimitEdit}
               style={{
-                padding: "6px 16px",
-                borderRadius: "9999px",
                 background: "#000",
                 border: "none",
+                borderRadius: "9999px",
+                color: "#fff",
                 cursor: isPending ? "default" : "pointer",
                 fontFamily: font,
                 fontSize: "14px",
                 fontWeight: 400,
                 lineHeight: "20px",
-                color: "#fff",
                 opacity: isPending ? 0.6 : 1,
+                padding: "8px 16px",
                 transition: "background 0.15s ease",
+                whiteSpace: "nowrap",
               }}
               type="button"
             >

@@ -21,8 +21,11 @@ import type {
   SmartAccountSignerEntry,
   SmartAccountVaultEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
+import type {
+  WalletEarningsSummary,
+  WalletPortfolioChange24h,
+} from "@/hooks/use-wallet-desktop-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
-import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -39,18 +42,6 @@ const skeletonBar = (width: string, height: string) => ({
 const COLLAPSED_SIGNER_COUNT = 3;
 const SIGNER_EXPAND_THRESHOLD = 5;
 const rowHoverBackground = "rgba(0, 0, 0, 0.04)";
-
-const accessColors: Record<AccessLevel, string> = {
-  execute: "rgba(249, 54, 60, 0.65)",
-  sign: "rgba(200, 160, 0, 0.75)",
-  suggest: "rgba(60, 60, 67, 0.6)",
-};
-
-const accessBorderColors: Record<AccessLevel, string> = {
-  execute: "rgba(249, 54, 60, 0.25)",
-  sign: "rgba(200, 160, 0, 0.3)",
-  suggest: "rgba(60, 60, 67, 0.2)",
-};
 
 function getSmartAccountErrorCopy(error: string | null | undefined) {
   const isRateLimited = error?.toLowerCase().includes("rate limited") ?? false;
@@ -151,6 +142,46 @@ function SmartAccountInlineError({
   );
 }
 
+function RowCopyAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleClick = useCallback(
+    (e: React.MouseEvent | React.KeyboardEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      void navigator.clipboard.writeText(address).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    },
+    [address]
+  );
+  return (
+    <span
+      aria-label={`Copy address ${address}`}
+      onClick={handleClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          handleClick(event);
+        }
+      }}
+      role="button"
+      style={{
+        alignItems: "center",
+        color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
+        cursor: "pointer",
+        display: "inline-flex",
+        flexShrink: 0,
+        marginLeft: "4px",
+        transition: "color 0.15s ease",
+      }}
+      tabIndex={0}
+      title={address}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </span>
+  );
+}
+
 function SignerTreeRow({
   isFirst,
   isLast,
@@ -166,9 +197,6 @@ function SignerTreeRow({
   onOpen: (signer: SmartAccountSignerEntry) => void;
   signer: SmartAccountSignerEntry;
 }) {
-  const accessColor = accessColors[signer.accessLevel];
-  const accessBorderColor = accessBorderColors[signer.accessLevel];
-
   return (
     <button
       className="portfolio-account-row"
@@ -284,33 +312,9 @@ function SignerTreeRow({
           >
             {signer.label} · {signer.shortAddress}
           </span>
+          <RowCopyAddress address={signer.address} />
         </div>
       </div>
-      <span
-        style={{
-          fontFamily: font,
-          fontSize: "11px",
-          fontWeight: 500,
-          lineHeight: "14px",
-          color: accessColor,
-          border: `1px solid ${accessBorderColor}`,
-          borderRadius: "9999px",
-          padding: "1px 8px 1px 4px",
-          whiteSpace: "nowrap",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "2px",
-          flexShrink: 0,
-          marginLeft: "12px",
-        }}
-      >
-        <AccessLevelIcon
-          color={accessColor}
-          level={signer.accessLevel}
-          size={14}
-        />
-        {signer.accessLabel}
-      </span>
     </button>
   );
 }
@@ -422,6 +426,8 @@ export function PortfolioContent({
   onSmartAccountRetry,
   walletAddress,
   walletLabel,
+  portfolioChange24h = null,
+  earningsSummary = null,
   selectedSignerId = null,
   selectedVaultIndex = null,
   isWalletSelected = false,
@@ -454,6 +460,8 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   walletAddress: string | null;
   walletLabel: string;
+  portfolioChange24h?: WalletPortfolioChange24h | null;
+  earningsSummary?: WalletEarningsSummary | null;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
   isWalletSelected?: boolean;
@@ -635,6 +643,9 @@ export function PortfolioContent({
         .portfolio-command-btn:hover {
           background: rgba(0, 0, 0, 0.06) !important;
         }
+        .portfolio-address-btn:hover {
+          opacity: 0.72;
+        }
         .portfolio-scroll::-webkit-scrollbar {
           display: none;
         }
@@ -698,7 +709,43 @@ export function PortfolioContent({
             >
               My Wallet
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {walletAddress ? (
+              <button
+                aria-label={`Copy address ${walletAddress}`}
+                className="portfolio-address-btn"
+                onClick={handleCopyAddress}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  color: secondary,
+                  transition: "opacity 0.15s ease",
+                }}
+                title={walletAddress}
+                type="button"
+              >
+                <span>{walletLabel}</span>
+                <span
+                  style={{
+                    color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    transition: "color 0.15s ease",
+                    flexShrink: 0,
+                  }}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </span>
+              </button>
+            ) : (
               <span
                 style={{
                   fontFamily: font,
@@ -710,28 +757,10 @@ export function PortfolioContent({
               >
                 {walletLabel}
               </span>
-              {walletAddress && (
-                <button
-                  onClick={handleCopyAddress}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: "1px",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
-                    transition: "color 0.15s ease",
-                    flexShrink: 0,
-                  }}
-                  type="button"
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              )}
-            </div>
+            )}
           </div>
         </div>
+        {/* Cmd+K command menu trigger temporarily hidden.
         {onOpenCommandMenu ? (
           <button
             className="portfolio-command-btn"
@@ -762,6 +791,7 @@ export function PortfolioContent({
             </KbdGroup>
           </button>
         ) : null}
+        */}
         {showHeaderControls && (
         <div
           style={{
@@ -904,17 +934,59 @@ export function PortfolioContent({
             )}
           </button>
         </div>
-        <span
-          style={{
-            fontFamily: font,
-            fontSize: "14px",
-            fontWeight: 400,
-            lineHeight: "20px",
-            color: secondary,
-          }}
-        >
-          <span style={{ color: "#34C759" }}>+0.62% ($5.67)</span> · All time
-        </span>
+        {(() => {
+          const hasChange = portfolioChange24h !== null;
+          const earnedUsd = earningsSummary?.totalEarnedUsd ?? 0;
+          const hasEarned =
+            typeof earnedUsd === "number" &&
+            Number.isFinite(earnedUsd) &&
+            earnedUsd > 0;
+
+          if (!hasChange && !hasEarned) {
+            return null;
+          }
+
+          const changeColor = hasChange
+            ? portfolioChange24h.percent >= 0
+              ? "#34C759"
+              : "#F9363C"
+            : secondary;
+          const sign = (value: number) => (value >= 0 ? "+" : "");
+          const formatUsd = (value: number) => {
+            const abs = Math.abs(value).toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            });
+            return `${value < 0 ? "-" : ""}$${abs}`;
+          };
+
+          return (
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+              }}
+            >
+              {hasChange && (
+                <>
+                  <span style={{ color: changeColor }}>
+                    {`${sign(portfolioChange24h.percent)}${portfolioChange24h.percent.toFixed(2)}% (${sign(portfolioChange24h.usdAmount)}${formatUsd(portfolioChange24h.usdAmount)})`}
+                  </span>
+                  {" · 24h"}
+                </>
+              )}
+              {hasChange && hasEarned ? " · " : null}
+              {hasEarned && (
+                <span style={{ color: "#34C759" }}>
+                  {`+${formatUsd(earnedUsd)} earned`}
+                </span>
+              )}
+            </span>
+          );
+        })()}
       </div>
 
       {/* Action buttons: receive, send, swap + Shield pill */}
@@ -1156,22 +1228,35 @@ export function PortfolioContent({
                             </span>
                           </span>
                         </div>
-                        <span
+                        <div
                           style={{
-                            fontFamily: font,
-                            fontSize: "13px",
-                            fontWeight: 400,
-                            lineHeight: "16px",
-                            color: secondary,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            minWidth: 0,
                           }}
                         >
-                          {vaultAddressLabel
-                            ? `${vault.label} · ${vaultAddressLabel}`
-                            : vault.label}
-                        </span>
+                          <span
+                            style={{
+                              fontFamily: font,
+                              fontSize: "13px",
+                              fontWeight: 400,
+                              lineHeight: "16px",
+                              color: secondary,
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {vaultAddressLabel
+                              ? `${vault.label} · ${vaultAddressLabel}`
+                              : vault.label}
+                          </span>
+                          {vault.address ? (
+                            <RowCopyAddress address={vault.address} />
+                          ) : null}
+                        </div>
                       </div>
                     </button>
 
@@ -1531,35 +1616,46 @@ export function PortfolioContent({
                       </div>
                     </div>
                   </div>
-                  {/* Review & Respond button */}
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      paddingBottom: "11px",
-                    }}
-                  >
-                    <button
-                      className="portfolio-review-btn"
-                      onClick={() => onReviewApproval(approval)}
-                      style={{
-                        padding: "6px 16px",
-                        borderRadius: "9999px",
-                        background: "rgba(0, 0, 0, 0.04)",
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: font,
-                        fontSize: "14px",
-                        fontWeight: 400,
-                        lineHeight: "20px",
-                        color: "#000",
-                        transition: "background 0.15s ease",
-                      }}
-                      type="button"
-                    >
-                      Review &amp; Respond
-                    </button>
-                  </div>
+                  {(() => {
+                    const pillLabel =
+                      approval.status === "active"
+                        ? "Review & Respond"
+                        : approval.status === "approved" &&
+                          approval.canExecute
+                        ? "Execute"
+                        : null;
+                    if (!pillLabel) return null;
+                    return (
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "8px",
+                          paddingBottom: "11px",
+                        }}
+                      >
+                        <button
+                          className="portfolio-review-btn"
+                          onClick={() => onReviewApproval(approval)}
+                          style={{
+                            padding: "6px 16px",
+                            borderRadius: "9999px",
+                            background: "rgba(0, 0, 0, 0.04)",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: font,
+                            fontSize: "14px",
+                            fontWeight: 400,
+                            lineHeight: "20px",
+                            color: "#000",
+                            transition: "background 0.15s ease",
+                          }}
+                          type="button"
+                        >
+                          {pillLabel}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ))}

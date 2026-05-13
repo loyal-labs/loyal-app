@@ -828,22 +828,69 @@ function SendTransactionDetail({
   );
 }
 
+export type SendContentVaultExecuteResult = {
+  success: boolean;
+  signature?: string;
+  error?: string;
+  /**
+   * "executed" — funds actually moved.
+   * "proposed" — proposal queued on chain.
+   * "draft" — local-only preview created in Approvals; no on-chain action yet.
+   */
+  status?: "executed" | "proposed" | "draft";
+};
+
+export type SendContentVaultExecutor = (request: {
+  mint: string;
+  symbol: string;
+  amount: number;
+  recipientAddress: string;
+}) => Promise<SendContentVaultExecuteResult>;
+
+export type SendContentVaultContext =
+  | { mode: "blocked"; reason: string }
+  | {
+      mode: "ready";
+      execute: SendContentVaultExecutor;
+      /** Optional notice rendered above the submit button (e.g. expected sign count). */
+      notice?: string;
+    };
+
+export type RecipientSuggestion = {
+  id: string;
+  label: string;
+  address: string;
+  icon?: string;
+  kind: "stash" | "agent";
+};
+
 export function SendContent({
   onBack,
   onClose,
   onDone,
   onNavigate,
+  onSuccess,
   token,
   addLocalActivity,
   initialRecipient = "",
+  vaultContext,
+  recipientSuggestions,
+  allowPrivateSend = false,
 }: {
   onBack?: () => void;
   onClose: () => void;
   onDone: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onSuccess?: (info: {
+    recipientAddress: string;
+    signature?: string;
+  }) => Promise<void> | void;
   token: SwapToken;
   addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
   initialRecipient?: string;
+  vaultContext?: SendContentVaultContext;
+  recipientSuggestions?: RecipientSuggestion[];
+  allowPrivateSend?: boolean;
 }) {
   const publicEnv = usePublicEnv();
   const { executeSend } = useSend();
@@ -877,12 +924,25 @@ export function SendContent({
   const isValidRecipient = isTg || isWallet;
   const showInvalidHint = hasRecipient && !isValidRecipient && !startsWithAt;
   const isTgNonSol = isTg && token.symbol.toUpperCase() !== "SOL";
+  const recipientIsStash =
+    recipientSuggestions?.some(
+      (suggestion) =>
+        suggestion.kind === "stash" &&
+        suggestion.address === recipientTrimmed
+    ) ?? false;
+  const effectiveIsPrivate = isPrivate && !recipientIsStash;
 
   useEffect(() => {
     setRecipient(initialRecipient);
   }, [initialRecipient]);
 
-  const buttonLabel = !hasAmount
+  const isVaultBlocked = vaultContext?.mode === "blocked";
+  // Vault transfers go through multisig and don't support Telegram-username
+  // recipients (no agent flow on the receiving side). Force wallet-only.
+  const vaultRequiresWalletRecipient = vaultContext?.mode === "ready" && isTg;
+  const buttonLabel = isVaultBlocked
+    ? vaultContext.reason
+    : !hasAmount
     ? "Enter Amount"
     : insufficientFunds
     ? "Insufficient Funds"
@@ -890,27 +950,42 @@ export function SendContent({
     ? "Enter Recipient"
     : !isValidRecipient
     ? "Invalid Address"
+    : vaultRequiresWalletRecipient
+    ? "Stash sends to wallet addresses only"
     : isTgNonSol
     ? "Only SOL for Telegram"
     : "Send";
   const buttonDisabled =
-    !hasAmount || insufficientFunds || !isValidRecipient || isTgNonSol;
+    isVaultBlocked ||
+    !hasAmount ||
+    insufficientFunds ||
+    !isValidRecipient ||
+    vaultRequiresWalletRecipient ||
+    isTgNonSol;
 
   const handlePercentage = useCallback(
     (pct: number) => {
       let val = pct === 100 ? token.balance : token.balance * (pct / 100);
-      if (
-        token.symbol.toUpperCase() === "SOL" &&
-        token.balance - val < 0.00005
-      ) {
-        val = Math.max(0, token.balance - 0.00005);
+      if (token.symbol.toUpperCase() === "SOL") {
+        // Vault PDAs must keep a rent-exempt minimum (~0.00089 SOL for a
+        // bare system account); leave a slightly larger cushion so the
+        // multisig transfer doesn't fail with "insufficient funds for rent".
+        // For User-wallet sends only the per-tx fee needs to stay behind.
+        const reserve = vaultContext ? 0.001 : 0.00005;
+        if (token.balance - val < reserve) {
+          val = Math.max(0, token.balance - reserve);
+        }
       }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [token.balance, token.symbol]
+    [token.balance, token.symbol, vaultContext]
   );
 
   const handleConfirm = useCallback(async () => {
+    if (vaultContext?.mode === "blocked") {
+      // Defense-in-depth: button should already be disabled.
+      return;
+    }
     const currentAmount = hasAmount ? String(numericAmount) : "0";
     const currentUsd = `$${
       hasAmount
@@ -941,12 +1016,32 @@ export function SendContent({
       amount: currentAmount,
       usd_value: currentUsd,
       destination_type: destinationType,
-      is_private: isPrivate,
+      is_private: effectiveIsPrivate,
     });
 
-    let result: { success: boolean; signature?: string; error?: string };
+    let result: {
+      success: boolean;
+      signature?: string;
+      error?: string;
+      status?: SendContentVaultExecuteResult["status"];
+    };
 
-    if (isPrivate || isTg) {
+    if (vaultContext?.mode === "ready") {
+      if (!token.mint) {
+        result = {
+          success: false,
+          error: "Stash transfers require a known token mint.",
+        };
+      } else {
+        const vaultResult = await vaultContext.execute({
+          mint: token.mint,
+          symbol: token.symbol,
+          amount: numericAmount,
+          recipientAddress: cleanRecipient,
+        });
+        result = vaultResult;
+      }
+    } else if (effectiveIsPrivate || isTg) {
       result = await executePrivateSend({
         tokenSymbol: token.symbol,
         amount: numericAmount,
@@ -959,7 +1054,7 @@ export function SendContent({
           amount: currentAmount,
           usd_value: currentUsd,
           destination_type: destinationType,
-          is_private: isPrivate || isTg,
+          is_private: effectiveIsPrivate || isTg,
         },
       });
     } else {
@@ -981,12 +1076,33 @@ export function SendContent({
     }
 
     if (result.success) {
+      // Multisig draft path: workspace already routed the user to the
+      // Approvals preview. Close the form silently — no success screen, no
+      // balance refresh (nothing moved on chain yet).
+      if (result.status === "draft") {
+        setAmount("");
+        setRecipient("");
+        onDone();
+        return;
+      }
+
       setResultSignature(result.signature);
       setPhase("success");
       setAmount("");
       setRecipient("");
 
-      if (isPrivate && addLocalActivity) {
+      if (onSuccess) {
+        void Promise.resolve(
+          onSuccess({
+            recipientAddress: cleanRecipient,
+            signature: result.signature,
+          })
+        ).catch((err) => {
+          console.error("[SendContent] onSuccess callback failed", err);
+        });
+      }
+
+      if (effectiveIsPrivate && addLocalActivity) {
         const now = new Date();
         const syntheticRow: ActivityRow = {
           id: result.signature ?? `private-${Date.now()}`,
@@ -1025,14 +1141,17 @@ export function SendContent({
     executePrivateSend,
     executeSend,
     hasAmount,
-    isPrivate,
+    effectiveIsPrivate,
     isTg,
     numericAmount,
+    onDone,
+    onSuccess,
     publicEnv,
     recipientTrimmed,
     token.mint,
     token.price,
     token.symbol,
+    vaultContext,
   ]);
 
   // Cross-fade between phases
@@ -1050,6 +1169,16 @@ export function SendContent({
       return () => clearTimeout(t);
     }
   }, [phase]);
+
+  // Auto-close the form shortly after a successful send. Cancelled if the user
+  // jumps to the transaction-details view within the window.
+  useEffect(() => {
+    if (phase !== "success") return;
+    const t = setTimeout(() => {
+      onDone();
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [phase, onDone]);
 
   const renderPhaseContent = (p: SendPhase) => {
     if (p === "processing") {
@@ -1074,7 +1203,7 @@ export function SendContent({
       return (
         <SendTransactionDetail
           amount={resultAmount}
-          isPrivate={isPrivate}
+          isPrivate={effectiveIsPrivate}
           isTgRecipient={resultIsTg}
           onClose={onClose}
           onDone={onDone}
@@ -1540,110 +1669,215 @@ export function SendContent({
                 </span>
               </div>
             )}
-          </div>
-
-          {/* Private Send card */}
-          <div
-            className="private-card"
-            onClick={isTg ? undefined : () => setIsPrivate(!isPrivate)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "0 12px",
-              borderRadius: "16px",
-              cursor: isTg ? "default" : "pointer",
-              background:
-                isPrivate || isTg ? "rgba(0, 0, 0, 0.04)" : "transparent",
-              transition: "background 0.15s ease",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                paddingRight: "12px",
-                paddingTop: "4px",
-                paddingBottom: "4px",
-                flexShrink: 0,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt="Private"
-                src="/hero-new/Shield_40.svg"
-                style={{ width: "40px", height: "40px" }}
-              />
-            </div>
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                gap: "2px",
-                padding: "10px 0",
-                minWidth: 0,
-              }}
-            >
-              <span
+            {recipientSuggestions && recipientSuggestions.length > 0 && (
+              <div
                 style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: "#000",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  padding: "8px 12px 0",
                 }}
               >
-                {isTg ? "Private Send Active" : "Private Send"}
-              </span>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                }}
-              >
-                {isTg
-                  ? "Telegram transfers are always private"
-                  : "Prevents the recipient from seeing which wallet sent the funds"}
-              </span>
-            </div>
-            {!isTg && (
-              <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-                <div
-                  style={{
-                    width: "51px",
-                    height: "31px",
-                    borderRadius: "100px",
-                    background: isPrivate ? red : "rgba(0, 0, 0, 0.04)",
-                    position: "relative",
-                    transition: "background 0.2s ease",
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      left: isPrivate ? "22px" : "2px",
-                      width: "27px",
-                      height: "27px",
-                      borderRadius: "100px",
-                      background: "#fff",
-                      boxShadow:
-                        "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
-                      transition: "left 0.2s ease",
-                    }}
-                  />
-                </div>
+                {recipientSuggestions.map((suggestion) => {
+                  const isActive = recipientTrimmed === suggestion.address;
+                  return (
+                    <button
+                      key={suggestion.id}
+                      onClick={() => setRecipient(suggestion.address)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "4px 10px 4px 4px",
+                        borderRadius: "9999px",
+                        border: `1px solid ${
+                          isActive ? "#000" : "rgba(0, 0, 0, 0.08)"
+                        }`,
+                        background: isActive ? "rgba(0, 0, 0, 0.04)" : "#fff",
+                        cursor: "pointer",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        color: "#000",
+                        transition:
+                          "background 0.15s ease, border-color 0.15s ease",
+                      }}
+                      type="button"
+                    >
+                      {suggestion.icon ? (
+                        <span
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "9999px",
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            display: "flex",
+                          }}
+                        >
+                          <Image
+                            alt=""
+                            height={20}
+                            src={suggestion.icon}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                            width={20}
+                          />
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "9999px",
+                            background: "rgba(0, 0, 0, 0.06)",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span>{suggestion.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
+
+          {allowPrivateSend && (
+            <div
+              className="private-card"
+              onClick={
+                isTg || recipientIsStash
+                  ? undefined
+                  : () => setIsPrivate(!isPrivate)
+              }
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "0 12px",
+                borderRadius: "16px",
+                cursor:
+                  isTg || recipientIsStash ? "default" : "pointer",
+                background:
+                  effectiveIsPrivate || isTg
+                    ? "rgba(0, 0, 0, 0.04)"
+                    : "transparent",
+                opacity: recipientIsStash ? 0.55 : 1,
+                transition: "background 0.15s ease, opacity 0.15s ease",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  paddingRight: "12px",
+                  paddingTop: "4px",
+                  paddingBottom: "4px",
+                  flexShrink: 0,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Private"
+                  src="/hero-new/Shield_40.svg"
+                  style={{ width: "40px", height: "40px" }}
+                />
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                  padding: "10px 0",
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#000",
+                  }}
+                >
+                  {isTg ? "Private Send Active" : "Private Send"}
+                </span>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                    color: secondary,
+                  }}
+                >
+                  {recipientIsStash
+                    ? "Stash recipients can't receive private sends"
+                    : isTg
+                    ? "Telegram transfers are always private"
+                    : "Prevents the recipient from seeing which wallet sent the funds"}
+                </span>
+              </div>
+              {!isTg && (
+                <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
+                  <div
+                    style={{
+                      width: "51px",
+                      height: "31px",
+                      borderRadius: "100px",
+                      background: effectiveIsPrivate
+                        ? red
+                        : "rgba(0, 0, 0, 0.04)",
+                      position: "relative",
+                      transition: "background 0.2s ease",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        left: effectiveIsPrivate ? "22px" : "2px",
+                        width: "27px",
+                        height: "27px",
+                        borderRadius: "100px",
+                        background: "#fff",
+                        boxShadow:
+                          "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
+                        transition: "left 0.2s ease",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Bottom button */}
         <div style={{ padding: "16px 20px" }}>
+          {vaultContext?.mode === "ready" && vaultContext.notice ? (
+            <div
+              style={{
+                marginBottom: "8px",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                background: "rgba(60, 60, 67, 0.06)",
+                fontFamily: font,
+                fontSize: "12px",
+                lineHeight: "16px",
+                color: secondary,
+              }}
+            >
+              {vaultContext.notice}
+            </div>
+          ) : null}
           <button
             className="confirm-btn"
             disabled={buttonDisabled}

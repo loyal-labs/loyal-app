@@ -3,6 +3,7 @@ import type {
   AssetDescriptor,
   AssetProvider,
   AssetSnapshot,
+  ResolvedAssetEntry,
 } from "@loyal-labs/solana-wallet";
 import {
   NATIVE_SOL_DECIMALS,
@@ -22,9 +23,6 @@ const TOKEN_PROGRAM_ID = new PublicKey(
 );
 const TOKEN_2022_PROGRAM_ID = new PublicKey(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-);
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const SOLANA_NETWORK = "solana";
@@ -408,6 +406,46 @@ export function createFrontendAssetProvider(args: {
         fetchedAt: Date.now(),
       };
     },
+    resolveAssets: async (mints) => {
+      // Used by the wallet-data client to render shielded-only mints (no
+      // public ATA on chain). Without this, the placeholder descriptor
+      // collapses decimals to 0 and the row shows raw u64 lamports.
+      const uniqueMints = [...new Set(mints)];
+      const connection = getConnection();
+      const results = await Promise.all(
+        uniqueMints.map(async (mint) => {
+          try {
+            const mintPubkey = new PublicKey(mint);
+            // Read decimals from chain for both Token and Token-2022 mints.
+            const accountInfo = await connection.getAccountInfo(
+              mintPubkey,
+              args.commitment
+            );
+            if (!accountInfo) return null;
+            const isToken =
+              accountInfo.owner.equals(TOKEN_PROGRAM_ID) ||
+              accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
+            if (!isToken) return null;
+            // SPL mint layout: decimals at byte offset 44 (1 byte).
+            const decimals = accountInfo.data[44] ?? 0;
+            const metadata = await resolveTokenMetadata(mint, decimals);
+            return {
+              descriptor: {
+                ...metadata.descriptor,
+                // On-chain decimals are authoritative; never let metadata override.
+                decimals,
+              },
+              priceUsd: metadata.priceUsd,
+            } satisfies ResolvedAssetEntry;
+          } catch {
+            return null;
+          }
+        })
+      );
+      return results.filter(
+        (entry): entry is ResolvedAssetEntry => entry !== null
+      );
+    },
     subscribeAssetChanges: async (owner, onChange, options = {}) => {
       const connection = getWebsocketConnection();
       const debounceMs = options.debounceMs ?? DEFAULT_SUBSCRIPTION_DEBOUNCE_MS;
@@ -458,13 +496,12 @@ export function createFrontendAssetProvider(args: {
         subCommitment,
         [ownerFilter]
       );
+      // Native SOL transfers change the owner's lamports directly — they
+      // don't touch the Associated Token Program — so we listen on the
+      // owner pubkey itself. Without this, sending SOL from another wallet
+      // (e.g. the extension) doesn't refresh the frontend balance.
       const nativeSubId = includeNative
-        ? await connection.onProgramAccountChange(
-            ASSOCIATED_TOKEN_PROGRAM_ID,
-            emit,
-            subCommitment,
-            [ownerFilter]
-          )
+        ? await connection.onAccountChange(owner, emit, subCommitment)
         : null;
 
       return async () => {
@@ -479,7 +516,7 @@ export function createFrontendAssetProvider(args: {
           connection.removeProgramAccountChangeListener(token2022SubId),
           nativeSubId === null
             ? Promise.resolve()
-            : connection.removeProgramAccountChangeListener(nativeSubId),
+            : connection.removeAccountChangeListener(nativeSubId),
         ]);
       };
     },

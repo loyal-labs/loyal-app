@@ -1,19 +1,21 @@
 "use client";
 
+import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
   ChevronRight,
   Copy,
-  Plus,
-  RefreshCw,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { ActivityRowItem } from "./activity-row-item";
+import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
+import { SpendingLimitSection } from "./spending-limit-section";
 import {
   getTokenPairConnection,
   TokenRowItem,
@@ -81,7 +83,6 @@ export function WalletDetailView({
   onNavigate,
   onOpenSend,
   onOpenReceive,
-  onOpenSwap,
   onOpenShield,
   getTokenActions,
   onTokenDetail,
@@ -90,6 +91,12 @@ export function WalletDetailView({
   accessTitle = "User Access",
   initialTab = "tokens",
   receiveLabel = "Receive",
+  onAccessLevelChange,
+  isAccessLevelPending = false,
+  spendingLimit,
+  isSpendingLimitPending = false,
+  onSetSpendingLimit,
+  onDeleteSpendingLimit,
 }: {
   address: string | null;
   label: string;
@@ -103,7 +110,6 @@ export function WalletDetailView({
   onNavigate: (view: Exclude<SubView, null>) => void;
   onOpenSend: () => void;
   onOpenReceive: () => void;
-  onOpenSwap: () => void;
   onOpenShield: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
@@ -112,6 +118,14 @@ export function WalletDetailView({
   accessTitle?: string;
   initialTab?: "activity" | "tokens";
   receiveLabel?: string;
+  onAccessLevelChange?: (level: AccessLevel) => Promise<void>;
+  isAccessLevelPending?: boolean;
+  spendingLimit?: SmartAccountSpendingLimitSnapshot | null;
+  isSpendingLimitPending?: boolean;
+  onSetSpendingLimit?: (amountUsd: number) => Promise<void>;
+  onDeleteSpendingLimit?: (
+    spendingLimit: SmartAccountSpendingLimitSnapshot
+  ) => Promise<void>;
 }) {
   const [activeTab, setActiveTab] =
     useState<"activity" | "tokens">(initialTab);
@@ -130,6 +144,12 @@ export function WalletDetailView({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const loyalPriceUsd = useLoyalPriceUsd();
+  const loyalPlaceholderRow = useMemo(
+    () => buildLoyalPlaceholderRow(loyalPriceUsd),
+    [loyalPriceUsd]
+  );
 
   const copyAddress = async () => {
     if (!address) return;
@@ -190,6 +210,13 @@ export function WalletDetailView({
         width="0"
       >
         <defs>
+          <filter id="stash-pixelate-sm" x="0" y="0" width="100%" height="100%">
+            <feFlood x="3" y="3" height="2" width="2" />
+            <feComposite width="8" height="8" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="4" />
+          </filter>
           <filter
             id="wallet-detail-pixelate"
             x="0"
@@ -350,7 +377,7 @@ export function WalletDetailView({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
             gap: "10px",
             padding: "8px 20px",
           }}
@@ -378,7 +405,7 @@ export function WalletDetailView({
               className="wallet-detail-action-label"
               style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
             >
-              Send
+              Transfer
             </span>
           </button>
           <button
@@ -399,14 +426,7 @@ export function WalletDetailView({
             }}
             type="button"
           >
-            {receiveLabel === "Top Up" ? (
-              <Plus size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            ) : (
-              <ArrowDownLeft
-                size={22}
-                style={{ color: "rgba(0, 0, 0, 0.6)" }}
-              />
-            )}
+            <ArrowDownLeft size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
               className="wallet-detail-action-label"
               style={{
@@ -416,32 +436,6 @@ export function WalletDetailView({
               }}
             >
               {receiveLabel}
-            </span>
-          </button>
-          <button
-            className="wallet-detail-action"
-            onClick={onOpenSwap}
-            style={{
-              display: "flex",
-              gap: "6px",
-              alignItems: "center",
-              justifyContent: "center",
-              minWidth: 0,
-              padding: "10px 8px",
-              borderRadius: "9999px",
-              background: "rgba(249, 54, 60, 0.14)",
-              border: "none",
-              cursor: "pointer",
-              transition: "background 0.15s ease",
-            }}
-            type="button"
-          >
-            <RefreshCw size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span
-              className="wallet-detail-action-label"
-              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
-            >
-              Swap
             </span>
           </button>
           <button
@@ -566,12 +560,19 @@ export function WalletDetailView({
             >
               {ACCESS_OPTIONS.map((option) => {
                 const selected = displayAccessLevel === option.id;
+                const isPersisted = (accessLevel ?? "suggest") === option.id;
+                const showConfirm =
+                  selected && !isPersisted && Boolean(onAccessLevelChange);
+                const isReadOnly = !onAccessLevelChange;
 
                 return (
-                  <button
+                  <div
                     className="wallet-detail-access-row"
                     key={option.id}
-                    onClick={() => setDisplayAccessLevel(option.id)}
+                    onClick={() => {
+                      if (isReadOnly || isAccessLevelPending) return;
+                      setDisplayAccessLevel(option.id);
+                    }}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -579,12 +580,16 @@ export function WalletDetailView({
                       borderRadius: "16px",
                       background: "transparent",
                       border: "none",
-                      cursor: "pointer",
+                      cursor:
+                        isReadOnly || isAccessLevelPending
+                          ? "default"
+                          : "pointer",
                       width: "100%",
                       transition: "background 0.15s ease",
                       textAlign: "left",
                     }}
-                    type="button"
+                    role="button"
+                    tabIndex={isReadOnly ? -1 : 0}
                   >
                     <div
                       style={{
@@ -628,6 +633,39 @@ export function WalletDetailView({
                         {option.description}
                       </span>
                     </div>
+                    {showConfirm && (
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!onAccessLevelChange || isAccessLevelPending) {
+                            return;
+                          }
+                          void onAccessLevelChange(option.id);
+                        }}
+                        disabled={isAccessLevelPending}
+                        style={{
+                          marginRight: "12px",
+                          padding: "6px 14px",
+                          borderRadius: "9999px",
+                          border: "none",
+                          background: "#000",
+                          color: "#fff",
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 500,
+                          lineHeight: "16px",
+                          cursor: isAccessLevelPending
+                            ? "default"
+                            : "pointer",
+                          opacity: isAccessLevelPending ? 0.5 : 1,
+                          transition: "opacity 0.15s ease",
+                          flexShrink: 0,
+                        }}
+                        type="button"
+                      >
+                        {isAccessLevelPending ? "Confirming…" : "Confirm"}
+                      </button>
+                    )}
                     <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                       <div
                         style={{
@@ -643,11 +681,27 @@ export function WalletDetailView({
                         }}
                       />
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
           </div>
+        )}
+
+        {(onSetSpendingLimit || onDeleteSpendingLimit) && (
+          <SpendingLimitSection
+            isBalanceHidden={isBalanceHidden}
+            isPending={isSpendingLimitPending}
+            onDelete={async (nextSpendingLimit) => {
+              if (!onDeleteSpendingLimit) return;
+              await onDeleteSpendingLimit(nextSpendingLimit);
+            }}
+            onSet={async (amountUsd) => {
+              if (!onSetSpendingLimit) return;
+              await onSetSpendingLimit(amountUsd);
+            }}
+            spendingLimit={spendingLimit ?? null}
+          />
         )}
 
         <div
@@ -754,18 +808,11 @@ export function WalletDetailView({
               ))}
 
             {activeTab === "tokens" && tokenRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px",
-                textAlign: "left",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-                width: "100%",
-              }}
-            >
-              No tokens yet
-            </div>
+              <TokenRowItem
+                isBalanceHidden={isBalanceHidden}
+                onDetail={onTokenDetail}
+                token={loyalPlaceholderRow}
+              />
             )}
 
             {activeTab === "activity" && activityRows.length === 0 && (

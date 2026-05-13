@@ -117,27 +117,15 @@ export function SignInModal() {
   const publicEnv = usePublicEnv();
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const turnstileMode = publicEnv.turnstile.mode;
-  const turnstileVerificationToken =
-    turnstileMode === "bypass"
-      ? publicEnv.turnstile.verificationToken
-      : null;
 
-  // Auto-resolve captcha for bypass (local dev) and misconfigured environments
-  const needsCaptchaWidget = turnstileMode === "widget";
+  // Auto-resolve only for misconfigured environments. In bypass (local dev)
+  // mode we keep the widget visible so the developer can click the bypass
+  // button — it confirms the captcha is wired into the login flow.
   useEffect(() => {
-    if (!needsCaptchaWidget && captchaToken === null) {
-      setCaptchaToken(
-        turnstileMode === "bypass"
-          ? turnstileVerificationToken
-          : "captcha-skipped"
-      );
+    if (turnstileMode === "misconfigured" && captchaToken === null) {
+      setCaptchaToken("captcha-skipped");
     }
-  }, [
-    captchaToken,
-    needsCaptchaWidget,
-    turnstileMode,
-    turnstileVerificationToken,
-  ]);
+  }, [captchaToken, turnstileMode]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {

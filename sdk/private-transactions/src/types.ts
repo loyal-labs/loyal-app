@@ -119,13 +119,31 @@ export interface InstructionCostEstimate {
   instructionIndex: number;
   label: string;
   programId: PublicKey;
+  /**
+   * Net rent impact for this instruction.
+   * Positive values are newly locked rent; negative values are reclaimed rent.
+   */
   rentLamports: number;
+  /**
+   * Net native-SOL value movement caused by token semantics, excluding fees and rent.
+   * Positive values debit the payer/user, negative values credit them.
+   */
+  nativeLamports: number;
 }
 
 export interface ShieldFlowInstructionPlan {
   label: string;
   ix: TransactionInstruction;
+  /**
+   * Net rent impact for this instruction.
+   * Positive values are newly locked rent; negative values are reclaimed rent.
+   */
   rentLamports?: number;
+  /**
+   * Net native-SOL value movement caused by token semantics, excluding fees and rent.
+   * Positive values debit the payer/user, negative values credit them.
+   */
+  nativeLamports?: number;
 }
 
 export interface ShieldFlowOwnerChangeWait {
@@ -161,6 +179,8 @@ export interface ShieldFlowTransactionFeeEstimate {
   instructionCount: number;
   feeLamports: number;
   rentLamports: number;
+  nativeLamports: number;
+  totalLamports: number;
   instructions: InstructionCostEstimate[];
 }
 
@@ -172,6 +192,8 @@ export interface ShieldFlowFeeEstimate {
   amount: bigint;
   totalFeeLamports: number;
   totalRentLamports: number;
+  totalNativeLamports: number;
+  feeAndRentLamports: number;
   totalLamports: number;
   transactions: ShieldFlowTransactionFeeEstimate[];
   instructions: InstructionCostEstimate[];
@@ -279,6 +301,26 @@ export interface InitializeUsernameDepositParams {
   username: string;
   tokenMint: PublicKey;
   payer: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+export interface CloseDepositParams {
+  user: PublicKey;
+  tokenMint: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+export interface CloseUsernameDepositParams {
+  username: string;
+  tokenMint: PublicKey;
+  authority: PublicKey;
+  session: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+export interface ClosePermissionParams {
+  user: PublicKey;
+  tokenMint: PublicKey;
   rpcOptions?: RpcOptions;
 }
 
@@ -403,6 +445,12 @@ export interface UndelegateUsernameDepositParams {
   payer: PublicKey;
   magicProgram: PublicKey;
   magicContext: PublicKey;
+  rpcOptions?: RpcOptions;
+}
+
+export interface UndelegatePermissionParams {
+  user: PublicKey;
+  tokenMint: PublicKey;
   rpcOptions?: RpcOptions;
 }
 

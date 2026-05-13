@@ -1245,77 +1245,6 @@
   gap: 8px;
 }
 
-.wallet-workspace-rail-links {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.wallet-workspace-rail-link {
-  display: inline-flex;
-  height: 36px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
-  border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(60, 60, 67, 0.58);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 16px;
-  text-decoration: none;
-  white-space: nowrap;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    transform 0.15s ease;
-}
-
-.wallet-workspace-rail-link:hover {
-  background: rgba(0, 0, 0, 0.08);
-  color: rgba(28, 28, 30, 0.78);
-  transform: translateY(-1px);
-}
-
-.wallet-workspace-rail-link:focus-visible {
-  outline: 2px solid rgba(249, 54, 60, 0.55);
-  outline-offset: 2px;
-}
-
-.wallet-workspace-rail-socials {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 4px;
-}
-
-.wallet-workspace-rail-social-link {
-  display: inline-flex;
-  width: 36px;
-  height: 36px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.04);
-  opacity: 0.78;
-  transition:
-    background 0.15s ease,
-    opacity 0.15s ease,
-    transform 0.15s ease;
-}
-
-.wallet-workspace-rail-social-link:hover {
-  background: rgba(0, 0, 0, 0.08);
-  opacity: 1;
-  transform: translateY(-1px);
-}
-
-.wallet-workspace-rail-social-link:focus-visible {
-  outline: 2px solid rgba(249, 54, 60, 0.55);
-  outline-offset: 2px;
-}
-
 .wallet-workspace-pane {
   height: 100%;
   min-height: 0;
@@ -1543,8 +1472,6 @@
 }
 
 .wallet-workspace-auth-cta {
-  position: relative;
-  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1552,107 +1479,31 @@
   padding: 0 32px;
   border: 0;
   border-radius: 9999px;
-  background: #0a0a0a;
+  background: #000;
   color: #fff;
   cursor: pointer;
   font: inherit;
   font-size: 17px;
   font-weight: 500;
   letter-spacing: -0.1px;
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-    0 12px 28px -12px rgba(0, 0, 0, 0.55),
-    0 4px 10px -2px rgba(0, 0, 0, 0.28);
-  transition-property: transform, box-shadow, background-color;
-  transition-duration: 240ms;
-  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-}
-
-.wallet-workspace-auth-cta::before {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(
-    closest-side,
-    rgba(0, 0, 0, 0.4),
-    rgba(0, 0, 0, 0) 72%
-  );
-  filter: blur(14px);
-  opacity: 0.5;
-  pointer-events: none;
-  animation: wallet-cta-breath 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-  will-change: transform, opacity;
-}
-
-.wallet-workspace-auth-cta::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
-  animation: wallet-cta-halo 2.8s cubic-bezier(0.2, 0, 0, 1) infinite;
+  transition: background-color 0.15s ease;
 }
 
 .wallet-workspace-auth-cta-label {
   position: relative;
-  z-index: 1;
 }
 
 .wallet-workspace-auth-cta:hover {
-  background: #1a1a1a;
-  transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-    0 18px 40px -12px rgba(0, 0, 0, 0.65),
-    0 6px 14px -2px rgba(0, 0, 0, 0.35);
+  background: #222;
 }
 
 .wallet-workspace-auth-cta:active {
-  transform: scale(0.96);
-  transition-duration: 90ms;
+  background: #1a1a1a;
 }
 
 .wallet-workspace-auth-cta:focus-visible {
-  outline: none;
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-    0 0 0 2px #fff,
-    0 0 0 4px #0a0a0a,
-    0 12px 28px -12px rgba(0, 0, 0, 0.55);
-}
-
-@keyframes wallet-cta-breath {
-  0%,
-  100% {
-    opacity: 0.4;
-    transform: scale(0.98);
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.08);
-  }
-}
-
-@keyframes wallet-cta-halo {
-  0% {
-    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22);
-    opacity: 0.55;
-  }
-  80%,
-  100% {
-    box-shadow: 0 0 0 14px rgba(0, 0, 0, 0);
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wallet-workspace-auth-cta::before,
-  .wallet-workspace-auth-cta::after {
-    animation: none;
-  }
+  outline: 2px solid #000;
+  outline-offset: 2px;
 }
 
 @keyframes wallet-workspace-spin {

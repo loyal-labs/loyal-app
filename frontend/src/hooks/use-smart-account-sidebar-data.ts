@@ -6,6 +6,7 @@ import {
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
   type SmartAccountProposalSnapshot,
+  type SmartAccountSignerPermission,
   type SmartAccountSignerSnapshot,
   type SmartAccountSpendingLimitSnapshot,
   type SmartAccountVaultSnapshot,
@@ -33,6 +34,8 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { getTokenIconUrl } from "@/lib/token-icon";
+
+import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 
 type SmartAccountRouteResponse = {
   overview: SmartAccountOverview;
@@ -106,6 +109,60 @@ type SmartAccountVaultActivityView = Pick<
   "activityRows" | "transactionDetails"
 >;
 
+export type SmartAccountSignerPortfolioView = {
+  tokenRows: TokenRow[];
+  activityRows: ActivityRow[];
+  transactionDetails: Record<string, TransactionDetail>;
+  isLoading: boolean;
+  hasLoadedActivity: boolean;
+  error: string | null;
+};
+
+const EMPTY_SIGNER_PORTFOLIO_VIEW: SmartAccountSignerPortfolioView = {
+  tokenRows: [],
+  activityRows: [],
+  transactionDetails: {},
+  isLoading: false,
+  hasLoadedActivity: false,
+  error: null,
+};
+
+export type VaultTransferRequest = {
+  accountIndex: number;
+  mint: string;
+  symbol: string;
+  /** Human-readable token amount, e.g. 1.5 SOL or 100 USDC. */
+  amount: number;
+  /** Base58 wallet address of recipient. */
+  recipientAddress: string;
+};
+
+export type VaultTransferResult = {
+  success: boolean;
+  signature?: string;
+  error?: string;
+  /**
+   * "executed" — funds actually moved on chain (threshold-1 or spending-limit path).
+   * "proposed" — proposal was queued; funds move once threshold is reached.
+   */
+  status?: "executed" | "proposed";
+};
+
+export type VaultTransferCapability =
+  | { kind: "blocked"; reason: string }
+  | {
+      kind: "settings";
+      threshold: number;
+      /** Number of wallet signs the user will need to perform. */
+      expectedSigns: number;
+    }
+  | {
+      kind: "spending-limit";
+      spendingLimitAddress: string;
+      /** SOL only for now — SDK lacks an SPL spending-limit helper. */
+      mint: string;
+    };
+
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   isLoading: boolean;
@@ -115,12 +172,52 @@ export type SmartAccountSidebarData = {
   setSelectedVaultIndex: (index: number) => void;
   selectedVault: SmartAccountVaultView | null;
   approvals: SmartAccountApprovalItem[];
-  loadVaultActivity: (accountIndex: number) => Promise<void>;
-  refresh: () => Promise<void>;
+  loadVaultActivity: (
+    accountIndex: number,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<void>;
+  refresh: (options?: {
+    invalidateAddresses?: string[];
+  }) => Promise<void>;
+  /**
+   * Invalidate caches and re-fetch portfolio + activity after an on-chain tx.
+   * Pass the affected vault/signer addresses to make sure their balances
+   * refresh on the next read; otherwise only the connected wallet refreshes.
+   */
+  refreshAfterTx: (args: {
+    accountIndex?: number;
+    signerAddresses?: string[];
+  }) => Promise<void>;
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   rejectProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
   executeProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
-  addInitiateSigner: (args: { signerAddress: string }) => Promise<void>;
+  addInitiateSigner: (args: {
+    signerAddress: string;
+    /**
+     * Permissions to grant the new signer in the spending-limit policy.
+     * Defaults to `["initiate"]` (the legacy "Suggest" tier). Pass
+     * richer sets for "Sign" or "Execute" tiers.
+     */
+    permissions?: SmartAccountSignerPermission[];
+  }) => Promise<void>;
+  /**
+   * Replace a root signer's permissions atomically (single settings change
+   * that emits RemoveSigner + AddSigner). The smart-account program rejects
+   * changes that would leave no signer with `execute`, so we let the program
+   * enforce that guardrail rather than re-implementing it client-side.
+   */
+  updateSignerPermissions: (args: {
+    signerAddress: string;
+    permissions: SmartAccountSignerPermission[];
+    /**
+     * When provided, the change goes through a PolicyUpdate against this
+     * spending-limit policy (covers Agent rows). When omitted, the change
+     * goes through RemoveSigner+AddSigner on the settings PDA top-level
+     * signer list (covers User + root Signer rows).
+     */
+    policyAddress?: string | null;
+    accountIndex?: number;
+  }) => Promise<void>;
   deleteSigner: (args: {
     accountIndex: number;
     policyAddress?: string | null;
@@ -143,9 +240,44 @@ export type SmartAccountSidebarData = {
     spendingLimitAddress: string;
     signerAddress: string;
   }) => Promise<void>;
+  /**
+   * Inspect what transfer paths the connected wallet can use for the
+   * given vault + mint + amount + destination. Returns the path that
+   * executeVaultTransfer would take. Used by the UI to render the
+   * correct button state and notice ahead of submit.
+   */
+  evaluateVaultTransferCapability: (args: {
+    accountIndex: number;
+    mint: string;
+    amountRaw: bigint;
+    recipientAddress?: string;
+  }) => VaultTransferCapability;
+  /**
+   * Send funds from a vault. Picks between:
+   *   - spending-limit (1 sign, SOL only)
+   *   - threshold-1 settings transfer (3 signs: propose, approve, execute)
+   *   - threshold-N settings transfer (1 sign: propose only — funds queue)
+   */
+  executeVaultTransfer: (
+    request: VaultTransferRequest
+  ) => Promise<VaultTransferResult>;
   isActionPending: boolean;
   pendingProposalId: string | null;
   pendingSpendingLimitActionKey: string | null;
+  /**
+   * Per-signer (non-User) portfolio + activity. Populated lazily; call
+   * `loadSignerPortfolio(address)` on selection. Vault-only signers have
+   * their own wallet balance + history independent of the vault.
+   */
+  signerPortfolioByAddress: Record<string, SmartAccountSignerPortfolioView>;
+  loadSignerPortfolio: (
+    signerAddress: string,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<void>;
+  loadSignerActivity: (
+    signerAddress: string,
+    options?: { forceRefresh?: boolean }
+  ) => Promise<void>;
 };
 
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
@@ -296,7 +428,7 @@ function getSignerIcon(args: {
   isAuthenticatedUser: boolean;
 }): string {
   if (args.isAuthenticatedUser) {
-    return "/agents/Agent-03.svg";
+    return "/agents/Agent-01.svg";
   }
 
   const iconIndex = (hashAddress(args.address) % AGENT_ICON_COUNT) + 1;
@@ -372,7 +504,7 @@ function mapSignersToEntries(args: {
       !!args.authenticatedWalletAddress &&
       signer.address === args.authenticatedWalletAddress;
     const label = isAuthenticatedUser
-      ? "User"
+      ? "Main Account"
       : signer.scope === "policy"
       ? `Agent ${++agentCount}`
       : `Signer ${++signerCount}`;
@@ -618,8 +750,8 @@ function mapProposalToApprovalItem(
     sourceAccountIndex,
     sourceLabel:
       sourceAccountIndex === null
-        ? "Unknown vault"
-        : `Vault ${sourceAccountIndex}`,
+        ? "Unknown stash"
+        : `Stash ${sourceAccountIndex}`,
     status: proposal.status,
     canExecute:
       proposal.payloadType === "transaction" ||
@@ -850,7 +982,7 @@ async function normalizeSpendingLimitError(
       combinedLogs.includes("Instruction: ExecuteTransactionSyncV2")
     ) {
       return new Error(
-        `Vault does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(
+        `Stash does not have enough SOL for this top-up. Available balance in this transfer step is ${formatSolAmount(
           currentLamports
         )} SOL, but it needs ${formatSolAmount(neededLamports)} SOL.`
       );
@@ -887,12 +1019,20 @@ async function normalizeSpendingLimitError(
 }
 
 export function useSmartAccountSidebarData(
-  options: { authenticatedUserTotalUsd?: number | null } = {}
+  options: {
+    authenticatedUserTotalUsd?: number | null;
+    onAfterTx?: () => Promise<void> | void;
+  } = {}
 ): SmartAccountSidebarData {
-  const { authenticatedUserTotalUsd } = options;
+  const { authenticatedUserTotalUsd, onAfterTx } = options;
+  const onAfterTxRef = useRef(onAfterTx);
+  useEffect(() => {
+    onAfterTxRef.current = onAfterTx;
+  }, [onAfterTx]);
   const { user } = useAuthSession();
   const { connection } = useConnection();
   const wallet = useWallet();
+  const walletDataClient = useSolanaWalletDataClient();
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -908,47 +1048,70 @@ export function useSmartAccountSidebarData(
   const vaultActivityLoadPromisesRef = useRef<Map<number, Promise<void>>>(
     new Map()
   );
+  const [signerPortfolioByAddress, setSignerPortfolioByAddress] = useState<
+    Record<string, SmartAccountSignerPortfolioView>
+  >({});
+  const signerPortfolioLoadPromisesRef = useRef<Map<string, Promise<void>>>(
+    new Map()
+  );
+  const signerActivityLoadPromisesRef = useRef<Map<string, Promise<void>>>(
+    new Map()
+  );
 
-  const refresh = useCallback(async () => {
-    if (!user?.settingsPda) {
-      setOverview(null);
-      setError(null);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/smart-accounts/overview", {
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        const errorPayload =
-          (await response.json().catch(() => null)) as
-            | SmartAccountRouteErrorResponse
-            | null;
-        const message =
-          errorPayload?.error?.message ?? "Failed to load smart-account overview.";
-
-        throw new Error(message);
+  const refresh = useCallback(
+    async (refreshOptions?: { invalidateAddresses?: string[] }) => {
+      if (!user?.settingsPda) {
+        setOverview(null);
+        setError(null);
+        return;
       }
 
-      const payload = (await response.json()) as SmartAccountRouteResponse;
-      setOverview(payload.overview);
-      setVaultActivityByAccountIndex({});
-      vaultActivityLoadPromisesRef.current.clear();
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Failed to load smart-account overview."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user?.settingsPda]);
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const url = new URL(
+          "/api/smart-accounts/overview",
+          window.location.origin
+        );
+        const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
+          (value) => value.length > 0
+        );
+        if (invalidateAddresses && invalidateAddresses.length > 0) {
+          url.searchParams.set("invalidate", invalidateAddresses.join(","));
+        }
+
+        const response = await fetch(url.toString(), {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const errorPayload =
+            (await response.json().catch(() => null)) as
+              | SmartAccountRouteErrorResponse
+              | null;
+          const message =
+            errorPayload?.error?.message ?? "Failed to load smart-account overview.";
+
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as SmartAccountRouteResponse;
+        setOverview(payload.overview);
+        setVaultActivityByAccountIndex({});
+        vaultActivityLoadPromisesRef.current.clear();
+      } catch (nextError) {
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "Failed to load smart-account overview."
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [user?.settingsPda]
+  );
 
   useEffect(() => {
     void refresh();
@@ -961,24 +1124,33 @@ export function useSmartAccountSidebarData(
   }, [overview?.settingsPda]);
 
   const loadVaultActivity = useCallback(
-    async (accountIndex: number) => {
+    async (
+      accountIndex: number,
+      loadOptions?: { forceRefresh?: boolean }
+    ) => {
       if (!user?.settingsPda) {
         return;
       }
 
+      const forceRefresh = loadOptions?.forceRefresh ?? false;
       const existingPromise =
         vaultActivityLoadPromisesRef.current.get(accountIndex);
-      if (existingPromise) {
+      if (existingPromise && !forceRefresh) {
         return existingPromise;
       }
 
       const promise = (async () => {
-        const response = await fetch(
-          `/api/smart-accounts/vault-activity?accountIndex=${accountIndex}`,
-          {
-            credentials: "include",
-          }
+        const url = new URL(
+          "/api/smart-accounts/vault-activity",
+          window.location.origin
         );
+        url.searchParams.set("accountIndex", String(accountIndex));
+        if (forceRefresh) {
+          url.searchParams.set("forceRefresh", "1");
+        }
+        const response = await fetch(url.toString(), {
+          credentials: "include",
+        });
 
         if (!response.ok) {
           const errorPayload =
@@ -1028,6 +1200,246 @@ export function useSmartAccountSidebarData(
     [overview?.vaults, user?.settingsPda]
   );
 
+  const loadSignerPortfolio = useCallback(
+    async (
+      signerAddress: string,
+      loadOptions?: { forceRefresh?: boolean }
+    ) => {
+      if (!signerAddress) {
+        return;
+      }
+
+      const forceRefresh = loadOptions?.forceRefresh ?? false;
+      const existing = signerPortfolioLoadPromisesRef.current.get(signerAddress);
+      if (existing && !forceRefresh) {
+        return existing;
+      }
+
+      const promise = (async () => {
+        setSignerPortfolioByAddress((current) => ({
+          ...current,
+          [signerAddress]: {
+            ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+            isLoading: true,
+            error: null,
+          },
+        }));
+
+        try {
+          const publicKey = new PublicKey(signerAddress);
+          const portfolio = await walletDataClient.getPortfolio(publicKey, {
+            forceRefresh,
+          });
+          const tokenRows = mapVaultToTokenRows(portfolio.positions);
+
+          setSignerPortfolioByAddress((current) => ({
+            ...current,
+            [signerAddress]: {
+              ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+              tokenRows,
+              isLoading: false,
+              error: null,
+            },
+          }));
+        } catch (err) {
+          setSignerPortfolioByAddress((current) => ({
+            ...current,
+            [signerAddress]: {
+              ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+              isLoading: false,
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Failed to load signer portfolio.",
+            },
+          }));
+          console.error(
+            "[smart-account] failed to load signer portfolio",
+            err
+          );
+        }
+      })();
+
+      signerPortfolioLoadPromisesRef.current.set(signerAddress, promise);
+
+      try {
+        await promise;
+      } finally {
+        signerPortfolioLoadPromisesRef.current.delete(signerAddress);
+      }
+    },
+    [walletDataClient]
+  );
+
+  const loadSignerActivity = useCallback(
+    async (
+      signerAddress: string,
+      loadOptions?: { forceRefresh?: boolean }
+    ) => {
+      if (!signerAddress) {
+        return;
+      }
+
+      const forceRefresh = loadOptions?.forceRefresh ?? false;
+      const existing = signerActivityLoadPromisesRef.current.get(signerAddress);
+      if (existing && !forceRefresh) {
+        return existing;
+      }
+
+      const promise = (async () => {
+        try {
+          const publicKey = new PublicKey(signerAddress);
+          const [portfolio, activityPage] = await Promise.all([
+            walletDataClient.getPortfolio(publicKey, { forceRefresh }),
+            walletDataClient.getActivity(publicKey, {
+              limit: 30,
+              forceRefresh,
+            }),
+          ]);
+          const solPriceUsd = resolveSolPriceUsd({
+            effectiveSolPriceUsd: portfolio.totals.effectiveSolPriceUsd,
+            positions: portfolio.positions,
+          });
+          const { activityRows, transactionDetails } =
+            mapVaultActivityPageToView(
+              activityPage,
+              portfolio.positions,
+              solPriceUsd
+            );
+
+          setSignerPortfolioByAddress((current) => {
+            const previous =
+              current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW;
+            return {
+              ...current,
+              [signerAddress]: {
+                ...previous,
+                activityRows,
+                transactionDetails,
+                hasLoadedActivity: true,
+                error: null,
+              },
+            };
+          });
+        } catch (err) {
+          setSignerPortfolioByAddress((current) => ({
+            ...current,
+            [signerAddress]: {
+              ...(current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW),
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Failed to load signer activity.",
+            },
+          }));
+          console.error(
+            "[smart-account] failed to load signer activity",
+            err
+          );
+        }
+      })();
+
+      signerActivityLoadPromisesRef.current.set(signerAddress, promise);
+
+      try {
+        await promise;
+      } finally {
+        signerActivityLoadPromisesRef.current.delete(signerAddress);
+      }
+    },
+    [walletDataClient]
+  );
+
+  const refreshAfterTx = useCallback(
+    async (args: {
+      accountIndex?: number;
+      signerAddresses?: string[];
+    }): Promise<void> => {
+      const connectedWallet = wallet.publicKey?.toBase58() ?? null;
+      const vaultAddress =
+        args.accountIndex != null
+          ? overview?.vaults.find(
+              (entry) => entry.accountIndex === args.accountIndex
+            )?.address ?? null
+          : null;
+
+      const invalidateAddresses = Array.from(
+        new Set(
+          [
+            vaultAddress,
+            connectedWallet,
+            ...(args.signerAddresses ?? []),
+          ].filter((value): value is string => Boolean(value))
+        )
+      );
+
+      if (invalidateAddresses.length > 0) {
+        walletDataClient.invalidateCaches({
+          portfolio: invalidateAddresses,
+          activity: invalidateAddresses,
+        });
+      }
+
+      await refresh({ invalidateAddresses });
+
+      const tasks: Promise<unknown>[] = [];
+      if (args.accountIndex != null) {
+        tasks.push(
+          loadVaultActivity(args.accountIndex, { forceRefresh: true }).catch(
+            () => undefined
+          )
+        );
+      }
+
+      const cachedSigners = signerPortfolioByAddress;
+      const reloadCandidates = new Set<string>();
+      for (const address of args.signerAddresses ?? []) {
+        if (address) reloadCandidates.add(address);
+      }
+      if (connectedWallet) reloadCandidates.add(connectedWallet);
+
+      for (const address of reloadCandidates) {
+        const entry = cachedSigners[address];
+        if (!entry) continue;
+        tasks.push(
+          loadSignerPortfolio(address, { forceRefresh: true }).catch(
+            () => undefined
+          )
+        );
+        if (entry.hasLoadedActivity) {
+          tasks.push(
+            loadSignerActivity(address, { forceRefresh: true }).catch(
+              () => undefined
+            )
+          );
+        }
+      }
+
+      if (tasks.length > 0) {
+        await Promise.all(tasks);
+      }
+
+      const onAfter = onAfterTxRef.current;
+      if (onAfter) {
+        try {
+          await onAfter();
+        } catch (err) {
+          console.error("[smart-account] onAfterTx callback failed", err);
+        }
+      }
+    },
+    [
+      loadSignerActivity,
+      loadSignerPortfolio,
+      loadVaultActivity,
+      overview?.vaults,
+      refresh,
+      signerPortfolioByAddress,
+      wallet.publicKey,
+      walletDataClient,
+    ]
+  );
+
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
     return (overview?.vaults ?? []).map((vault) => {
       const balance = splitUsd(vault.portfolio.totals.totalUsd);
@@ -1045,7 +1457,7 @@ export function useSmartAccountSidebarData(
 
       return {
         accountIndex: vault.accountIndex,
-        label: `Vault ${vault.accountIndex}`,
+        label: "Stash",
         address: vault.address,
         balanceWhole: balance.whole,
         balanceFraction: balance.fraction,
@@ -1071,7 +1483,7 @@ export function useSmartAccountSidebarData(
       (candidate) => candidate.accountIndex === vault.accountIndex
     ) ?? {
       accountIndex: vault.accountIndex,
-      label: `Vault ${vault.accountIndex}`,
+      label: "Stash",
       address: vault.address,
       balanceWhole: fallbackBalance.whole,
       balanceFraction: fallbackBalance.fraction,
@@ -1187,13 +1599,16 @@ export function useSmartAccountSidebarData(
           prepared,
           confirm: true,
         });
-        await refresh();
+        await refreshAfterTx({
+          accountIndex: proposal.accountIndex ?? undefined,
+          signerAddresses: proposal.creator ? [proposal.creator] : undefined,
+        });
       } finally {
         setIsActionPending(false);
         setPendingProposalId(null);
       }
     },
-    [connection, overview, refresh, user?.walletAddress, wallet]
+    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
   );
 
   const runSpendingLimitAction = useCallback(
@@ -1205,6 +1620,7 @@ export function useSmartAccountSidebarData(
         prepared: Parameters<typeof sendPreparedWithWallet>[0]["prepared"];
       }>;
       requireAuthenticatedWallet?: boolean;
+      affected?: { accountIndex?: number; signerAddresses?: string[] };
     }) => {
       if (!overview) {
         throw new Error("Smart-account overview is not loaded yet.");
@@ -1255,13 +1671,23 @@ export function useSmartAccountSidebarData(
         } catch (sendError) {
           throw await normalizeSpendingLimitError(sendError, connection);
         }
-        await refresh();
       } finally {
         setIsActionPending(false);
         setPendingSpendingLimitActionKey(null);
       }
+
+      // Refresh runs in the background so the caller (and the preview panel)
+      // doesn't sit on "Submitting…" while the overview re-fetch and RPC
+      // index lag complete. Callers that need fresh state schedule their
+      // own follow-up refreshes (see app-wallet-workspace).
+      void refreshAfterTx({
+        accountIndex: args.affected?.accountIndex,
+        signerAddresses: args.affected?.signerAddresses,
+      }).catch((err) => {
+        console.warn("[smart-account] post-tx refresh failed", err);
+      });
     },
-    [connection, overview, refresh, user?.walletAddress, wallet]
+    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
   );
 
   const setSignerSpendingLimitUsd = useCallback(
@@ -1330,25 +1756,39 @@ export function useSmartAccountSidebarData(
               ? new PublicKey(args.existingSpendingLimitAddress)
               : null,
           }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
   );
 
   const addInitiateSigner = useCallback(
-    async (args: { signerAddress: string }) => {
+    async (args: {
+      signerAddress: string;
+      permissions?: SmartAccountSignerPermission[];
+    }) => {
       if (!overview || !wallet.publicKey) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
       const signer = new PublicKey(args.signerAddress);
+      const requestedPermissions = args.permissions ?? ["initiate"];
       const existingSigner = overview.policies
         .filter((policy) => policy.state === "SpendingLimit")
         .flatMap((policy) => policy.signers)
         .find((entry) => entry.address === signer.toBase58());
 
-      if (existingSigner?.canInitiate) {
-        return;
+      if (existingSigner) {
+        const existingMask = new Set(existingSigner.permissions);
+        const wantsAll = requestedPermissions.every((perm) =>
+          existingMask.has(perm)
+        );
+        if (wantsAll) {
+          return;
+        }
       }
 
       await runSpendingLimitAction({
@@ -1359,7 +1799,65 @@ export function useSmartAccountSidebarData(
             creator: wallet.publicKey!,
             feePayer: wallet.publicKey!,
             signer,
+            permissions: requestedPermissions,
           }),
+        affected: { signerAddresses: [signer.toBase58()] },
+      });
+    },
+    [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
+  const updateSignerPermissions = useCallback(
+    async (args: {
+      signerAddress: string;
+      permissions: SmartAccountSignerPermission[];
+      /**
+       * When set, the helper updates this signer's permissions inside a
+       * SpendingLimit policy (PolicyUpdate). When omitted, the helper
+       * updates the root signer entry on the settings PDA
+       * (RemoveSigner+AddSigner). Root + policy live in different lists,
+       * so the caller picks based on signer scope.
+       */
+      policyAddress?: string | null;
+      accountIndex?: number;
+    }) => {
+      if (!overview || !wallet.publicKey) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+
+      if (args.permissions.length === 0) {
+        throw new Error("Signer must keep at least one permission.");
+      }
+
+      const signer = new PublicKey(args.signerAddress);
+      const isPolicyScoped = Boolean(args.policyAddress);
+
+      await runSpendingLimitAction({
+        actionKey: `update-signer-permissions:${signer.toBase58()}`,
+        prepare: (client) =>
+          isPolicyScoped
+            ? client.prepareUpdatePolicySignerPermissions({
+                settingsPda: new PublicKey(overview.settingsPda),
+                creator: wallet.publicKey!,
+                feePayer: wallet.publicKey!,
+                signer,
+                permissions: args.permissions,
+                policyPda: args.policyAddress
+                  ? new PublicKey(args.policyAddress)
+                  : null,
+                accountIndex: args.accountIndex,
+              })
+            : client.prepareUpdateSignerPermissions({
+                settingsPda: new PublicKey(overview.settingsPda),
+                creator: wallet.publicKey!,
+                feePayer: wallet.publicKey!,
+                signer,
+                permissions: args.permissions,
+              }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [signer.toBase58()],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1384,6 +1882,10 @@ export function useSmartAccountSidebarData(
             feePayer: wallet.publicKey!,
             spendingLimitPolicy: new PublicKey(args.spendingLimitAddress),
           }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1415,6 +1917,10 @@ export function useSmartAccountSidebarData(
             accountIndex: args.accountIndex,
             policyPda: new PublicKey(policyAddress),
           }),
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
@@ -1492,9 +1998,305 @@ export function useSmartAccountSidebarData(
           }),
         }),
         requireAuthenticatedWallet: false,
+        affected: {
+          accountIndex: args.accountIndex,
+          signerAddresses: [args.signerAddress],
+        },
       });
     },
     [overview, runSpendingLimitAction, wallet.publicKey]
+  );
+
+  const evaluateVaultTransferCapability = useCallback(
+    (args: {
+      accountIndex: number;
+      mint: string;
+      amountRaw: bigint;
+      recipientAddress?: string;
+    }): VaultTransferCapability => {
+      if (!overview || !wallet.publicKey) {
+        return { kind: "blocked", reason: "Smart account not loaded yet" };
+      }
+
+      const connectedAddress = wallet.publicKey.toBase58();
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === args.accountIndex
+      );
+      if (!vault) {
+        return { kind: "blocked", reason: "Stash not found" };
+      }
+
+      const isSol = args.mint === NATIVE_SOL_MINT;
+      const spendingLimitMint = isSol ? SOL_SPENDING_LIMIT_MINT : args.mint;
+      const coveringSpendingLimit = vault.spendingLimits.find(
+        (limit) =>
+          !limit.isExpired &&
+          limit.mint === spendingLimitMint &&
+          limit.signers.includes(connectedAddress) &&
+          BigInt(limit.effectiveRemainingAmountRaw) >= args.amountRaw &&
+          (limit.destinations.length === 0 ||
+            (args.recipientAddress
+              ? limit.destinations.includes(args.recipientAddress)
+              : true))
+      );
+
+      if (coveringSpendingLimit) {
+        if (!isSol) {
+          return {
+            kind: "blocked",
+            reason:
+              "Agent SPL transfers via spending limit are not supported yet",
+          };
+        }
+        return {
+          kind: "spending-limit",
+          spendingLimitAddress: coveringSpendingLimit.address,
+          mint: args.mint,
+        };
+      }
+
+      const settingsSigner = overview.signers.find(
+        (signer) =>
+          signer.scope === "settings" &&
+          signer.address === connectedAddress &&
+          signer.canInitiate
+      );
+
+      if (settingsSigner) {
+        const threshold = overview.threshold ?? 1;
+        return {
+          kind: "settings",
+          threshold,
+          // threshold-1 needs propose+approve+execute; threshold>1 only proposes.
+          expectedSigns: threshold <= 1 ? 3 : 1,
+        };
+      }
+
+      return {
+        kind: "blocked",
+        reason:
+          "Connected wallet isn't authorized to send from this vault. Connect a vault signer or ask the owner to grant a spending limit.",
+      };
+    },
+    [overview, wallet.publicKey]
+  );
+
+  const executeVaultTransfer = useCallback(
+    async (request: VaultTransferRequest): Promise<VaultTransferResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === request.accountIndex
+      );
+      if (!vault) {
+        return { success: false, error: "Stash not found." };
+      }
+
+      const position = vault.portfolio.positions.find(
+        (entry) => entry.asset.mint === request.mint
+      );
+      if (!position || typeof position.asset.decimals !== "number") {
+        return {
+          success: false,
+          error: `Unknown token decimals for mint ${request.mint}. Refresh the wallet and retry.`,
+        };
+      }
+      const decimals = position.asset.decimals;
+
+      let recipientPubkey: PublicKey;
+      try {
+        recipientPubkey = new PublicKey(request.recipientAddress);
+      } catch {
+        return { success: false, error: "Invalid recipient wallet address." };
+      }
+
+      if (!Number.isFinite(request.amount) || request.amount <= 0) {
+        return {
+          success: false,
+          error: "Amount must be greater than 0.",
+        };
+      }
+
+      const amountRaw = BigInt(
+        Math.floor(request.amount * Math.pow(10, decimals))
+      );
+      if (amountRaw <= BigInt(0)) {
+        return {
+          success: false,
+          error: "Amount is too small for this token's precision.",
+        };
+      }
+
+      if (BigInt(Math.floor(position.publicBalance * Math.pow(10, decimals))) <
+        amountRaw) {
+        return {
+          success: false,
+          error: "Stash balance is insufficient for this transfer.",
+        };
+      }
+
+      const capability = evaluateVaultTransferCapability({
+        accountIndex: request.accountIndex,
+        mint: request.mint,
+        amountRaw,
+        recipientAddress: request.recipientAddress,
+      });
+
+      if (capability.kind === "blocked") {
+        return { success: false, error: capability.reason };
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+      const isSol = request.mint === NATIVE_SOL_MINT;
+
+      try {
+        if (capability.kind === "spending-limit") {
+          const prepared = await client.prepareUseSolSpendingLimitPolicy({
+            settingsPda,
+            feePayer: wallet.publicKey,
+            signer: wallet.publicKey,
+            spendingLimitPolicy: new PublicKey(
+              capability.spendingLimitAddress
+            ),
+            destination: recipientPubkey,
+            accountIndex: request.accountIndex,
+            amountLamports: amountRaw,
+          });
+          const signature = await sendPreparedWithWallet({
+            connection,
+            wallet: walletBridge,
+            prepared,
+            confirm: true,
+          });
+          await refreshAfterTx({
+            accountIndex: request.accountIndex,
+            signerAddresses: [request.recipientAddress],
+          });
+          return { success: true, signature, status: "executed" };
+        }
+
+        // capability.kind === "settings"
+        const proposeOp = isSol
+          ? await client.prepareSolTransferProposal({
+              settingsPda,
+              creator: wallet.publicKey,
+              feePayer: wallet.publicKey,
+              destination: recipientPubkey,
+              amountLamports: amountRaw,
+              accountIndex: request.accountIndex,
+            })
+          : await client.prepareSplTransferProposal({
+              settingsPda,
+              creator: wallet.publicKey,
+              feePayer: wallet.publicKey,
+              mint: new PublicKey(request.mint),
+              destinationOwner: recipientPubkey,
+              amount: amountRaw,
+              decimals,
+              accountIndex: request.accountIndex,
+              createDestinationAta: true,
+            });
+
+        const proposeSignature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: proposeOp,
+          confirm: true,
+        });
+
+        if (capability.threshold > 1) {
+          await refreshAfterTx({
+            accountIndex: request.accountIndex,
+            signerAddresses: [request.recipientAddress],
+          });
+          return {
+            success: true,
+            signature: proposeSignature,
+            status: "proposed",
+          };
+        }
+
+        // threshold-1: read settings to learn the proposal's transactionIndex,
+        // then approve + execute as separate signs.
+        const settingsAfterPropose =
+          await client.sdk.smartAccounts.queries.fetchSettings(settingsPda);
+        const transactionIndex = BigInt(
+          String(settingsAfterPropose.transactionIndex)
+        );
+
+        const approveOp = await client.prepareApproveProposal({
+          settingsPda,
+          transactionIndex,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+        });
+        await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: approveOp,
+          confirm: true,
+        });
+
+        const executeOp = await client.prepareExecuteProposal({
+          settingsPda,
+          transactionIndex,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+        });
+        const executeSignature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: executeOp,
+          confirm: true,
+        });
+
+        await refreshAfterTx({
+          accountIndex: request.accountIndex,
+          signerAddresses: [request.recipientAddress],
+        });
+        return {
+          success: true,
+          signature: executeSignature,
+          status: "executed",
+        };
+      } catch (err) {
+        const rawMessage =
+          err instanceof Error ? err.message : "Stash transfer failed.";
+        const haystack = rawMessage.toLowerCase();
+        const isRentError =
+          haystack.includes("insufficient funds for rent") ||
+          haystack.includes("insufficient lamports") ||
+          haystack.includes(
+            "would result in account being unable to pay rent"
+          );
+        const friendly = isRentError
+          ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
+          : rawMessage;
+        console.error("[executeVaultTransfer] failed", err);
+        return { success: false, error: friendly };
+      }
+    },
+    [
+      connection,
+      evaluateVaultTransferCapability,
+      overview,
+      refreshAfterTx,
+      wallet,
+    ]
   );
 
   return {
@@ -1508,16 +2310,23 @@ export function useSmartAccountSidebarData(
     approvals,
     loadVaultActivity,
     refresh,
+    refreshAfterTx,
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),
     executeProposal: (proposal) => runProposalAction(proposal, "execute"),
     addInitiateSigner,
+    updateSignerPermissions,
     deleteSigner,
     setSignerSpendingLimitUsd,
     topUpSignerWithSpendingLimitUsd,
     deleteSignerSpendingLimit,
+    evaluateVaultTransferCapability,
+    executeVaultTransfer,
     isActionPending,
     pendingProposalId,
     pendingSpendingLimitActionKey,
+    signerPortfolioByAddress,
+    loadSignerPortfolio,
+    loadSignerActivity,
   };
 }

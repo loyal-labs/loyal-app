@@ -810,8 +810,7 @@ fn label_known_account(pubkey: &Pubkey) -> &'static str {
         "11111111111111111111111111111111" => "System Program",
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" => "Token Program",
         "So11111111111111111111111111111111111111112" => "wSOL Mint",
-        "FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA" => "PER Validator (devnet)",
-        "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo" => "PER Validator (mainnet)",
+        "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo" => "PER Validator",
         _ => "",
     }
 }

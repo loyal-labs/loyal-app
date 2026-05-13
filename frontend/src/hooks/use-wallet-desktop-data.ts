@@ -37,6 +37,13 @@ export type WalletEarningsSummary = {
   changePercent: number;
 };
 
+export type WalletPortfolioChange24h = {
+  /** Net 24h change as a percentage of the prior portfolio value (e.g. -1.23). */
+  percent: number;
+  /** Net 24h USD change (current value minus value 24 hours ago). */
+  usdAmount: number;
+};
+
 export type WalletDesktopData = {
   walletAddress: string | null;
   isConnected: boolean;
@@ -54,7 +61,9 @@ export type WalletDesktopData = {
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
   earningsSummary: WalletEarningsSummary | null;
+  portfolioChange24h: WalletPortfolioChange24h | null;
   loadActivity: () => Promise<void>;
+  refresh: () => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
@@ -352,10 +361,20 @@ function formatSignedUsd(value: number): string {
   })}`;
 }
 
+// Values below 1 cent are treated as dust and hidden from the token list to
+// avoid duplicate-looking rows after a Max-unshield leaves a few residual
+// lamports in the vault. When USD value is unknown we err on the side of
+// showing the row.
+const DUST_VALUE_USD_THRESHOLD = 0.01;
+function isDustValueUsd(valueUsd: number | null | undefined): boolean {
+  return typeof valueUsd === "number" && valueUsd < DUST_VALUE_USD_THRESHOLD;
+}
+
 function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
   return {
     id: position.asset.mint,
     symbol: position.asset.symbol,
+    name: position.asset.name,
     price: formatUsd(position.priceUsd),
     amount: formatTokenBalance(position.publicBalance),
     value: formatUsd(position.publicValueUsd),
@@ -377,6 +396,7 @@ function mapPositionToSecuredTokenRow(
   const row: TokenRow = {
     id: `${position.asset.mint}-secured`,
     symbol: position.asset.symbol,
+    name: position.asset.name,
     price: formatUsd(position.priceUsd),
     amount: formatTokenBalance(position.securedBalance),
     value: formatUsd(position.securedValueUsd),
@@ -549,6 +569,72 @@ export function useWalletDesktopData(): WalletDesktopData {
     activityLoadPromiseRef.current = loadPromise;
     return loadPromise;
   }, [client, ownerPublicKey]);
+
+  const refresh = useCallback(async () => {
+    if (!ownerPublicKey) {
+      return;
+    }
+
+    const publicKey = ownerPublicKey;
+    const address = publicKey.toBase58();
+
+    client.invalidateCaches({
+      portfolio: [publicKey],
+      activity: [publicKey],
+    });
+
+    const tasks: Promise<unknown>[] = [];
+
+    tasks.push(
+      client
+        .getPortfolio(publicKey, { forceRefresh: true })
+        .then(async (nextPortfolio) => {
+          const enriched = await applyEnrichment(nextPortfolio, address);
+          if (ownerAddressRef.current !== address) {
+            return;
+          }
+          setPortfolioSnapshot(enriched.snapshot);
+          setEarningsByMint(enriched.earningsByMint);
+          setEarningsSummary(
+            enriched.earningsTotals
+              ? {
+                  totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
+                  totalPrincipalUsd: enriched.earningsTotals.totalPrincipalUsd,
+                  changePercent:
+                    enriched.earningsTotals.totalPrincipalUsd > 0
+                      ? (enriched.earningsTotals.totalEarnedUsd /
+                          enriched.earningsTotals.totalPrincipalUsd) *
+                        100
+                      : 0,
+                }
+              : null
+          );
+        })
+        .catch((error) => {
+          console.error("Failed to refresh wallet portfolio", error);
+        })
+    );
+
+    if (hasRequestedActivity) {
+      tasks.push(
+        client
+          .getActivity(publicKey, {
+            limit: WALLET_ACTIVITY_INITIAL_LIMIT,
+            forceRefresh: true,
+          })
+          .then((history) => {
+            if (ownerAddressRef.current === address) {
+              setActivities(history.activities);
+            }
+          })
+          .catch((error) => {
+            console.error("Failed to refresh wallet activity", error);
+          })
+      );
+    }
+
+    await Promise.all(tasks);
+  }, [applyEnrichment, client, hasRequestedActivity, ownerPublicKey]);
 
   useEffect(() => {
     ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
@@ -763,6 +849,100 @@ export function useWalletDesktopData(): WalletDesktopData {
   };
   const kaminoUsdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
 
+  const valuedMintsSignature = useMemo(() => {
+    const mints = positions
+      .filter(
+        (position) =>
+          typeof position.totalValueUsd === "number" &&
+          position.totalValueUsd > 0
+      )
+      .map((position) => position.asset.mint);
+    return Array.from(new Set(mints)).sort().join(",");
+  }, [positions]);
+
+  const [priceChange24hByMint, setPriceChange24hByMint] = useState<
+    ReadonlyMap<string, number>
+  >(() => new Map());
+
+  useEffect(() => {
+    if (!valuedMintsSignature) {
+      setPriceChange24hByMint(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    const url = new URL("/api/tokens/markets", window.location.origin);
+    url.searchParams.set("mints", valuedMintsSignature);
+
+    void fetch(url.toString())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Markets request failed: ${response.status}`);
+        }
+        return response.json() as Promise<{
+          markets: { mint: string; priceChange24hPercent: number | null }[];
+        }>;
+      })
+      .then(({ markets }) => {
+        if (cancelled) return;
+        const next = new Map<string, number>();
+        for (const market of markets) {
+          if (
+            typeof market.priceChange24hPercent === "number" &&
+            Number.isFinite(market.priceChange24hPercent)
+          ) {
+            next.set(market.mint, market.priceChange24hPercent);
+          }
+        }
+        setPriceChange24hByMint(next);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[wallet-data] failed to fetch token markets", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [valuedMintsSignature]);
+
+  const portfolioChange24h = useMemo<WalletPortfolioChange24h | null>(() => {
+    if (priceChange24hByMint.size === 0) {
+      return null;
+    }
+
+    let totalChangeUsd = 0;
+    let totalPrevUsd = 0;
+    for (const position of positions) {
+      const valueUsd = position.totalValueUsd;
+      if (typeof valueUsd !== "number" || valueUsd <= 0) {
+        continue;
+      }
+      const pct = priceChange24hByMint.get(position.asset.mint);
+      if (typeof pct !== "number") {
+        // Treat unknown 24h change as flat — token still counts toward base.
+        totalPrevUsd += valueUsd;
+        continue;
+      }
+      const denom = 100 + pct;
+      if (denom === 0) {
+        continue;
+      }
+      const prev = (valueUsd * 100) / denom;
+      totalChangeUsd += valueUsd - prev;
+      totalPrevUsd += prev;
+    }
+
+    if (totalPrevUsd <= 0) {
+      return null;
+    }
+
+    return {
+      percent: (totalChangeUsd / totalPrevUsd) * 100,
+      usdAmount: totalChangeUsd,
+    };
+  }, [positions, priceChange24hByMint]);
+
   useEffect(() => {
     if (!kaminoUsdcMint) {
       setApyByMint({});
@@ -794,39 +974,75 @@ export function useWalletDesktopData(): WalletDesktopData {
 
   const allTokenRows = useMemo(() => {
     const rows: TokenRow[] = [];
+    const attachPriceChange = (row: TokenRow, mint: string) => {
+      const pct = priceChange24hByMint.get(mint);
+      if (typeof pct === "number") {
+        row.priceChange24h = pct;
+      }
+      return row;
+    };
     for (const position of positions) {
       const earnings = earningsByMint.get(position.asset.mint);
       if (position.publicBalance > 0) {
-        rows.push(mapPositionToTokenRow(position));
-      }
-      // Add secured row right after the public one
-      if (position.securedBalance > 0) {
         rows.push(
-          mapPositionToSecuredTokenRow(
-            position,
-            earnings,
-            apyByMint[position.asset.mint]
+          attachPriceChange(mapPositionToTokenRow(position), position.asset.mint)
+        );
+      }
+      // Add secured row right after the public one. Skip dust amounts that
+      // can linger in the vault after a Max-unshield (a few lamports of
+      // rounding or residual rent-reserve), since they render as a confusing
+      // near-empty duplicate row.
+      if (
+        position.securedBalance > 0 &&
+        !isDustValueUsd(position.securedValueUsd)
+      ) {
+        rows.push(
+          attachPriceChange(
+            mapPositionToSecuredTokenRow(
+              position,
+              earnings,
+              apyByMint[position.asset.mint]
+            ),
+            position.asset.mint
           )
         );
       }
     }
 
-    // Ensure LOYL appears at 3rd position (index 2) always
+    // Ensure LOYL appears at 3rd position (index 2) always — but never
+    // splice between a public/shielded pair of the same mint.
+    const findPairSafeInsertion = (desiredIndex: number): number => {
+      let index = Math.min(Math.max(desiredIndex, 0), rows.length);
+      while (
+        index > 0 &&
+        index < rows.length &&
+        rows[index - 1].isSecured !== true &&
+        rows[index].isSecured === true &&
+        rows[index].id?.replace(/-secured$/, "") === rows[index - 1].id
+      ) {
+        index += 1;
+      }
+      return index;
+    };
     const existingLoylIndex = rows.findIndex((r) => r.id === LOYL_MINT);
     if (existingLoylIndex >= 0) {
-      // Already in rows (has balance) — move to index 2 if not there
-      if (existingLoylIndex !== 2) {
+      // Already in rows (has balance) — move to a pair-safe placement near 2
+      const targetIndex = findPairSafeInsertion(2);
+      if (existingLoylIndex !== targetIndex) {
         const [loylRow] = rows.splice(existingLoylIndex, 1);
-        rows.splice(Math.min(2, rows.length), 0, loylRow);
+        rows.splice(findPairSafeInsertion(2), 0, loylRow);
       }
     } else {
       const loylPosition = positions.find((p) => p.asset.mint === LOYL_MINT);
       // If LOYAL is held only as shielded, the secured row already
-      // represents it — don't add an empty public placeholder row.
+      // represents it — don't add an empty public placeholder row. Treat a
+      // dust-only shielded position as if it didn't exist (matches the
+      // dust filter applied when building secured rows above).
       const loylHasOnlyShielded =
         loylPosition !== undefined &&
         loylPosition.publicBalance === 0 &&
-        loylPosition.securedBalance > 0;
+        loylPosition.securedBalance > 0 &&
+        !isDustValueUsd(loylPosition.securedValueUsd);
       if (!loylHasOnlyShielded) {
         // Not in rows — create placeholder with Jupiter price
         const loylRow: TokenRow = loylPosition
@@ -834,17 +1050,25 @@ export function useWalletDesktopData(): WalletDesktopData {
           : {
               id: LOYL_MINT,
               symbol: "LOYAL",
+              name: "Loyal",
               price: formatUsd(loylPriceUsd),
               amount: "0",
               value: "$0.00",
               icon: LOYL_ICON_URL,
             };
-        rows.splice(Math.min(2, rows.length), 0, loylRow);
+        attachPriceChange(loylRow, LOYL_MINT);
+        rows.splice(findPairSafeInsertion(2), 0, loylRow);
       }
     }
 
     return rows;
-  }, [positions, loylPriceUsd, earningsByMint, apyByMint]);
+  }, [
+    positions,
+    loylPriceUsd,
+    earningsByMint,
+    apyByMint,
+    priceChange24hByMint,
+  ]);
 
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
@@ -948,11 +1172,11 @@ export function useWalletDesktopData(): WalletDesktopData {
   const formattedBalance = formatUsd(totals.totalUsd);
   const balanceParts = formattedBalance.split(".");
   const walletLabel = walletAddress
-    ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)} · ${
+    ? `${
         { mainnet: "Mainnet", devnet: "Devnet", localnet: "Localnet" }[
           process.env.NEXT_PUBLIC_SOLANA_ENV ?? "mainnet"
         ] ?? "Mainnet"
-      }`
+      } · ${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
     : "No account";
 
   return {
@@ -982,7 +1206,9 @@ export function useWalletDesktopData(): WalletDesktopData {
     positions,
     balanceHistory,
     earningsSummary,
+    portfolioChange24h,
     loadActivity,
+    refresh,
     addLocalActivity,
   };
 }

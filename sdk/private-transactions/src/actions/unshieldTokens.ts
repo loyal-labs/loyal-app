@@ -10,24 +10,28 @@ import {
 } from "../constants";
 import { processEnsureChecks } from "../checks/enshureChecks";
 import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
+import { closeDepositIx } from "../instructions/closeDeposit";
+import { closePermissionIx } from "../instructions/closePermission";
 import { delegateDepositIx } from "../instructions/delegateDeposit";
 import { modifyBalanceIx } from "../instructions/modifyBalance";
-import { findDepositPda } from "../pda";
+import { undelegateDepositIx } from "../instructions/undelegateDeposit";
+import { findDepositPda, findPermissionPda } from "../pda";
 import {
   estimateDepositDelegationRentLamports,
+  estimateDepositDelegationRentCreditLamports,
   estimateModifyBalanceRentLamports,
 } from "../rent-estimate";
 import type { InstructionCheck, RpcOptions } from "../types";
 import { sendAndConfirmWithDiagnostics } from "../transaction-debug";
 import { waitForAccountOwnerChange } from "../utils";
 import { closeWsolAta, createWsolAta, wrapSolToWsolIx } from "../wsol";
-import { undelegateDepositIx } from "../instructions/undelegateDeposit";
 import {
   labelTransactionInstructions,
   type LabeledTransactionInstruction,
   type LabeledTransactionPlan,
 } from "./shieldTokens";
 import { sendPlannedUndelegateDepositTransaction } from "./undelegateDeposit";
+import { undelegatePermissionIx } from "../instructions/undelegatePermission";
 
 export type UnshieldTokensInstructionPlan = {
   instructions: LabeledTransactionInstruction[];
@@ -67,14 +71,20 @@ export async function buildUnshieldTokensInstructionPlan(params: {
   const validator =
     params.validator ?? getErValidatorForRpcEndpoint(perRpcEndpoint);
   const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
   const depositAccountInfoPromise = baseConnection.getAccountInfo(depositPda);
+  const permissionAccountInfoPromise =
+    baseConnection.getAccountInfo(permissionPda);
   const modifyBalanceRentLamportsPromise = estimateModifyBalanceRentLamports({
     connection: baseConnection,
     user,
     tokenMint,
     isNativeSol,
   });
-  const depositAccountInfo = await depositAccountInfoPromise;
+  const [depositAccountInfo, permissionAccountInfo] = await Promise.all([
+    depositAccountInfoPromise,
+    permissionAccountInfoPromise,
+  ]);
   const needsUndelegate =
     depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
   const currentDepositAccount = needsUndelegate
@@ -85,8 +95,15 @@ export async function buildUnshieldTokensInstructionPlan(params: {
   const currentDepositAmount = currentDepositAccount
     ? BigInt(currentDepositAccount.amount.toString())
     : null;
+  // If we do partial unshield then we should redelegate remaining deposit
   const shouldRedelegate =
     currentDepositAmount !== null && currentDepositAmount - amount > 0n;
+  const closePermissionRentLamports = shouldRedelegate
+    ? 0
+    : -(permissionAccountInfo?.lamports ?? 0);
+  const closeDepositRentLamports = shouldRedelegate
+    ? 0
+    : -(depositAccountInfo?.lamports ?? 0);
   const [modifyBalanceRentLamports, delegationRentLamports] = await Promise.all(
     [
       modifyBalanceRentLamportsPromise,
@@ -124,6 +141,7 @@ export async function buildUnshieldTokensInstructionPlan(params: {
     label: "modifyBalanceDecrease",
     ix: modifyBalanceIxs.ix,
     rentLamports: modifyBalanceRentLamports,
+    nativeLamports: isNativeSol ? -Number(amount) : undefined,
   });
   checks.push(...modifyBalanceIxs.ensure);
 
@@ -150,6 +168,28 @@ export async function buildUnshieldTokensInstructionPlan(params: {
       rentLamports: delegationRentLamports,
     });
     checks.push(...delegateDepositIxs.ensure);
+  } else {
+    // Unshield of full amount - do cleanup
+
+    // Close permissions
+    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+    instructions.push({
+      label: "closePermission",
+      ix: closePermissionIxs.ix,
+      rentLamports: closePermissionRentLamports,
+    });
+    checks.push(...closePermissionIxs.ensure);
+
+    const closeDepositIxs = await closeDepositIx(baseProgram, {
+      user,
+      tokenMint,
+    });
+    instructions.push({
+      label: "closeDeposit",
+      ix: closeDepositIxs.ix,
+      rentLamports: closeDepositRentLamports,
+    });
+    checks.push(...closeDepositIxs.ensure);
   }
 
   return {
@@ -182,7 +222,27 @@ export async function buildUnshieldTokensTransactionPlan(params: {
   let preUndelegateTransaction: LabeledTransactionPlan | null = null;
 
   if (instructionPlan.needsUndelegate) {
-    const undelegateIxs = await undelegateDepositIx(params.perProgram, {
+    preUndelegateTransaction = {
+      label: "unshield:undelegate",
+      cluster: "ephemeral",
+      instructions: [],
+      checks: [],
+    };
+
+    // For full amount unshield undelegate permission
+    // if (!instructionPlan.shouldRedelegate) {
+    //   const undelegatePermissionIxs = await undelegatePermissionIx({
+    //     user: params.user,
+    //     tokenMint: params.tokenMint,
+    //   });
+    //   preUndelegateTransaction.instructions.push({
+    //     label: "undelegatePermission",
+    //     ix: undelegatePermissionIxs.ix,
+    //   });
+    //   preUndelegateTransaction.checks.push(...undelegatePermissionIxs.ensure);
+    // }
+
+    const undelegateDepositIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
@@ -190,12 +250,17 @@ export async function buildUnshieldTokensTransactionPlan(params: {
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID,
     });
-    preUndelegateTransaction = {
-      label: "unshield:undelegate",
-      cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
-      checks: undelegateIxs.ensure,
-    };
+    const undelegateRentLamports =
+      await estimateDepositDelegationRentCreditLamports({
+        connection: params.baseProgram.provider.connection,
+        depositPda: instructionPlan.context.depositPda,
+      });
+    preUndelegateTransaction.instructions.push({
+      label: "undelegateDeposit",
+      ix: undelegateDepositIxs.ix,
+      rentLamports: undelegateRentLamports,
+    });
+    preUndelegateTransaction.checks.push(...undelegateDepositIxs.ensure);
   }
 
   return {

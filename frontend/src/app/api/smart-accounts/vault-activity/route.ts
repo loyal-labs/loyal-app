@@ -44,11 +44,14 @@ export async function GET(request: Request) {
     );
   }
 
+  const forceRefresh = url.searchParams.get("forceRefresh") === "1";
+
   try {
     const activity = await fetchCurrentSmartAccountVaultActivity({
       accountIndex,
       activityLimit: ACTIVITY_LIMIT,
       settingsPda: principal.settingsPda,
+      forceRefresh,
     });
 
     return NextResponse.json({ accountIndex, activity });

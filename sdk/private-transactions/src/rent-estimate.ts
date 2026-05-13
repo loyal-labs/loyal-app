@@ -13,6 +13,7 @@ const U64_SIZE = 8;
 const U8_SIZE = 1;
 const BOOL_SIZE = 1;
 const VEC_PREFIX_SIZE = 4;
+export const MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS = 300_000;
 
 export const DEPOSIT_ACCOUNT_SIZE =
   DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
@@ -72,6 +73,24 @@ export async function estimateNewAccountRentLamports(params: {
 
     return total + (rentBySpace.get(account.space) ?? 0);
   }, 0);
+}
+
+export async function estimateExistingAccountLamports(params: {
+  connection: Connection;
+  accounts: PublicKey[];
+}): Promise<number> {
+  if (params.accounts.length === 0) {
+    return 0;
+  }
+
+  const accountInfos = await params.connection.getMultipleAccountsInfo(
+    params.accounts
+  );
+
+  return accountInfos.reduce(
+    (total, accountInfo) => total + (accountInfo?.lamports ?? 0),
+    0
+  );
 }
 
 export async function estimateDepositRentLamports(params: {
@@ -169,4 +188,24 @@ export async function estimateDepositDelegationRentLamports(params: {
       },
     ],
   });
+}
+
+export async function estimateDepositDelegationRentCreditLamports(params: {
+  connection: Connection;
+  depositPda: PublicKey;
+}): Promise<number> {
+  const [delegationRecordPda] = findDelegationRecordPda(params.depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(params.depositPda);
+  const delegationAccountLamports = await estimateExistingAccountLamports({
+    connection: params.connection,
+    accounts: [delegationRecordPda, delegationMetadataPda],
+  });
+  // Public MagicBlock ER nodes retain the session fee at undelegation, so the
+  // user receives a net credit instead of the full delegation account lamports.
+  const refundableLamports = Math.max(
+    0,
+    delegationAccountLamports - MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS
+  );
+
+  return refundableLamports === 0 ? 0 : -refundableLamports;
 }

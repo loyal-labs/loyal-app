@@ -8,14 +8,15 @@ import {
   Copy,
   Eye,
   EyeOff,
-  Layers2,
   Plus,
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { ActivityRowItem } from "./activity-row-item";
+import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import { TokenRowItem, type TokenRowActions } from "./token-row-item";
 import type {
   ActivityRow,
@@ -86,12 +87,12 @@ function getLimitResetLabel(
   }
 
   if (!spendingLimit.nextReset) {
-    return `left this ${spendingLimit.periodLabel}`;
+    return `resets next ${spendingLimit.periodLabel}`;
   }
 
-  return `left in ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
+  return `resets ${new Date(spendingLimit.nextReset * 1000).toLocaleDateString(
     "en-US",
-    { month: "long" }
+    { month: "long", day: "numeric" }
   )}`;
 }
 
@@ -108,16 +109,7 @@ function getLimitProgress(spendingLimit: SmartAccountSpendingLimitSnapshot) {
 
 export type AccessLevel = "suggest" | "sign" | "execute";
 
-type ActiveWorkflowLink = {
-  description: string;
-  href: string;
-  id: string;
-  onOpen?: () => void;
-  status: string;
-  title: string;
-};
-
-const ACCESS_OPTIONS: {
+export const ACCESS_OPTIONS: {
   id: AccessLevel;
   label: string;
   description: string;
@@ -142,7 +134,7 @@ const ACCESS_OPTIONS: {
   },
 ];
 
-const ACCESS_DISPLAY: Record<AccessLevel, string> = {
+export const ACCESS_DISPLAY: Record<AccessLevel, string> = {
   suggest: "Can suggest",
   sign: "Can sign",
   execute: "Can execute",
@@ -230,7 +222,8 @@ export function AgentPageView({
   variant = "sidebar",
   showSpendingLimit = false,
   showTopUpAction = true,
-  activeWorkflows = [],
+  onAccessLevelChange,
+  isAccessLevelPending = false,
 }: {
   label: string;
   agentIcon: string;
@@ -279,9 +272,19 @@ export function AgentPageView({
   variant?: "sidebar" | "workspace";
   showSpendingLimit?: boolean;
   showTopUpAction?: boolean;
-  activeWorkflows?: ActiveWorkflowLink[];
+  /**
+   * Persist a new access level for this signer. Triggers a multisig
+   * settings change (1 sign at threshold-1, more for higher thresholds).
+   * When omitted, the radio is read-only.
+   */
+  onAccessLevelChange?: (level: AccessLevel) => Promise<void>;
+  isAccessLevelPending?: boolean;
 }) {
   const isWorkspace = variant === "workspace";
+  // `accessLevel` here is the *draft* level the user has picked in the
+  // radio. It only diverges from `initialAccessLevel` while the user is
+  // mid-edit. Successful save → parent re-renders with new
+  // `initialAccessLevel` → effect below resyncs the draft.
   const [accessLevel, setAccessLevel] =
     useState<AccessLevel>(initialAccessLevel);
   const [isAccessExpanded, setIsAccessExpanded] = useState(false);
@@ -309,6 +312,12 @@ export function AgentPageView({
   const isTopUpDisabled = onTopUp
     ? isSpendingLimitPending
     : !spendingLimit || spendingLimit.isExpired || isSpendingLimitPending;
+
+  const loyalPriceUsd = useLoyalPriceUsd();
+  const loyalPlaceholderRow = useMemo(
+    () => buildLoyalPlaceholderRow(loyalPriceUsd),
+    [loyalPriceUsd]
+  );
 
   useEffect(() => {
     setAccessLevel(initialAccessLevel);
@@ -387,11 +396,6 @@ export function AgentPageView({
       return;
     }
 
-    const confirmed = window.confirm("Delete this spending limit?");
-    if (!confirmed) {
-      return;
-    }
-
     try {
       await onDeleteSpendingLimit({
         accountIndex: vaultAccountIndex,
@@ -466,18 +470,6 @@ export function AgentPageView({
         error instanceof Error ? error.message : "Failed to top up."
       );
     }
-  };
-
-  const openWorkflow = (
-    event: MouseEvent<HTMLAnchorElement>,
-    workflow: ActiveWorkflowLink
-  ) => {
-    if (!workflow.onOpen) {
-      return;
-    }
-
-    event.preventDefault();
-    workflow.onOpen();
   };
 
   return (
@@ -941,157 +933,6 @@ export function AgentPageView({
           </div>
         )}
 
-        {activeWorkflows.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-              alignItems: "center",
-              padding: "8px",
-              width: "100%",
-            }}
-          >
-            <div
-              style={{
-                width: "100%",
-                padding: "12px 12px 0",
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  color: "#000",
-                  letterSpacing: "-0.176px",
-                }}
-              >
-                Active workflows
-              </span>
-            </div>
-
-            {activeWorkflows.map((workflow) => (
-              <a
-                className="agent-workflow-link"
-                href={workflow.href}
-                key={workflow.id}
-                onClick={(event) => openWorkflow(event, workflow)}
-                style={{
-                  display: "flex",
-                  width: "100%",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "12px",
-                  borderRadius: "16px",
-                  background: "rgba(0, 0, 0, 0.04)",
-                  color: "inherit",
-                  textDecoration: "none",
-                  transition: "background 0.15s ease",
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-flex",
-                    width: "36px",
-                    height: "36px",
-                    flex: "0 0 auto",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: "10px",
-                    background: "rgba(249, 54, 60, 0.12)",
-                    color: "#F9363C",
-                  }}
-                >
-                  <Layers2 size={19} strokeWidth={1.9} />
-                </span>
-                <span
-                  style={{
-                    display: "flex",
-                    minWidth: 0,
-                    flex: 1,
-                    flexDirection: "column",
-                    gap: "2px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      minWidth: 0,
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        fontFamily: font,
-                        fontSize: "16px",
-                        fontWeight: 500,
-                        lineHeight: "20px",
-                        color: "#000",
-                      }}
-                    >
-                      {workflow.title}
-                    </span>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        flex: "0 0 auto",
-                        alignItems: "center",
-                        gap: "4px",
-                        padding: "2px 6px",
-                        borderRadius: "9999px",
-                        background: "rgba(50, 182, 124, 0.12)",
-                        color: "#198F5B",
-                        fontFamily: font,
-                        fontSize: "12px",
-                        fontWeight: 500,
-                        lineHeight: "16px",
-                      }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          width: "5px",
-                          height: "5px",
-                          borderRadius: "9999px",
-                          background: "#32B67C",
-                        }}
-                      />
-                      {workflow.status}
-                    </span>
-                  </span>
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    {workflow.description}
-                  </span>
-                </span>
-                <ChevronRight
-                  aria-hidden="true"
-                  size={16}
-                  style={{ color: "rgba(60, 60, 67, 0.3)", flexShrink: 0 }}
-                />
-              </a>
-            ))}
-          </div>
-        )}
-
         {/* Agent Access section — collapsible */}
         <div
           style={{
@@ -1172,11 +1013,18 @@ export function AgentPageView({
           >
             {ACCESS_OPTIONS.map((option) => {
               const selected = accessLevel === option.id;
+              const isPersisted = initialAccessLevel === option.id;
+              const showConfirm =
+                selected && !isPersisted && Boolean(onAccessLevelChange);
+              const isReadOnly = !onAccessLevelChange;
               return (
-                <button
+                <div
                   className="agent-radio-row"
                   key={option.id}
-                  onClick={() => setAccessLevel(option.id)}
+                  onClick={() => {
+                    if (isReadOnly || isAccessLevelPending) return;
+                    setAccessLevel(option.id);
+                  }}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -1184,12 +1032,16 @@ export function AgentPageView({
                     borderRadius: "16px",
                     background: "transparent",
                     border: "none",
-                    cursor: "pointer",
+                    cursor:
+                      isReadOnly || isAccessLevelPending
+                        ? "default"
+                        : "pointer",
                     width: "100%",
                     transition: "background 0.15s ease",
                     textAlign: "left",
                   }}
-                  type="button"
+                  role="button"
+                  tabIndex={isReadOnly ? -1 : 0}
                 >
                   {/* Icon */}
                   <div
@@ -1235,6 +1087,39 @@ export function AgentPageView({
                       {option.description}
                     </span>
                   </div>
+                  {/* Confirm button (only on the row whose draft differs
+                      from persisted state) */}
+                  {showConfirm && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!onAccessLevelChange || isAccessLevelPending) {
+                          return;
+                        }
+                        void onAccessLevelChange(option.id);
+                      }}
+                      disabled={isAccessLevelPending}
+                      style={{
+                        marginRight: "12px",
+                        padding: "6px 14px",
+                        borderRadius: "9999px",
+                        border: "none",
+                        background: "#000",
+                        color: "#fff",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        cursor: isAccessLevelPending ? "default" : "pointer",
+                        opacity: isAccessLevelPending ? 0.5 : 1,
+                        transition: "opacity 0.15s ease",
+                        flexShrink: 0,
+                      }}
+                      type="button"
+                    >
+                      {isAccessLevelPending ? "Confirming…" : "Confirm"}
+                    </button>
+                  )}
                   {/* Radio */}
                   <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
                     <div
@@ -1251,7 +1136,7 @@ export function AgentPageView({
                       }}
                     />
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -1697,43 +1582,57 @@ export function AgentPageView({
                 ) : (
                   <div
                     style={{
-                      width: "100%",
+                      alignItems: "center",
                       background: "#F5F5F5",
                       borderRadius: "16px",
-                      padding: "0 12px 2px",
+                      display: "flex",
+                      padding: "10px 12px",
+                      width: "100%",
                     }}
                   >
                     <div
                       style={{
                         display: "flex",
+                        flex: 1,
                         flexDirection: "column",
                         gap: "2px",
-                        padding: "10px 0",
+                        minWidth: 0,
                       }}
                     >
                       <span
                         style={{
+                          color: "#000",
                           fontFamily: font,
                           fontSize: "16px",
                           fontWeight: 500,
-                          lineHeight: "20px",
-                          color: "#000",
                           letterSpacing: "-0.176px",
+                          lineHeight: "20px",
                         }}
                       >
-                        Limit is not set
+                        Spending limit is not set
+                      </span>
+                      <span
+                        style={{
+                          color: secondary,
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 400,
+                          lineHeight: "16px",
+                        }}
+                      >
+                        Entire balance is available
                       </span>
                     </div>
-                    <div style={{ paddingBottom: "11px" }}>
+                    <div style={{ display: "flex", paddingLeft: "12px" }}>
                       <button
                         className="agent-set-limit-btn"
                         disabled={isSpendingLimitPending}
                         onClick={startLimitEdit}
                         style={{
-                          padding: "6px 16px",
-                          borderRadius: "9999px",
                           background: "#000",
                           border: "none",
+                          borderRadius: "9999px",
+                          color: "#fff",
                           cursor: isSpendingLimitPending
                             ? "default"
                             : "pointer",
@@ -1741,9 +1640,10 @@ export function AgentPageView({
                           fontSize: "14px",
                           fontWeight: 400,
                           lineHeight: "20px",
-                          color: "#fff",
                           opacity: isSpendingLimitPending ? 0.6 : 1,
+                          padding: "8px 16px",
                           transition: "background 0.15s ease",
+                          whiteSpace: "nowrap",
                         }}
                         type="button"
                       >
@@ -1881,18 +1781,11 @@ export function AgentPageView({
                   />
                 ))}
               {workspaceTab === "tokens" && tokenRows.length === 0 && (
-                <div
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "14px",
-                    padding: "12px",
-                    textAlign: "left",
-                    width: "100%",
-                  }}
-                >
-                  No tokens yet
-                </div>
+                <TokenRowItem
+                  isBalanceHidden={isBalanceHidden}
+                  onDetail={onTokenDetail}
+                  token={loyalPlaceholderRow}
+                />
               )}
               {workspaceTab === "activity" &&
                 activityRows.map((activity) => (
@@ -1935,21 +1828,13 @@ export function AgentPageView({
               />
             ))
           )}
-          {!isWorkspace &&
-            tokenRows.length === 0 && (
-              <div
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "14px",
-                  padding: "12px",
-                  textAlign: "left",
-                  width: "100%",
-                }}
-              >
-                No tokens yet
-              </div>
-            )}
+          {!isWorkspace && tokenRows.length === 0 && (
+            <TokenRowItem
+              isBalanceHidden={isBalanceHidden}
+              onDetail={onTokenDetail}
+              token={loyalPlaceholderRow}
+            />
+          )}
         </div>
         {!isWorkspace && (
           <div

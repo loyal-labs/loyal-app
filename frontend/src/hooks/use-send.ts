@@ -178,7 +178,10 @@ export function useSend() {
           mint: tokenMint,
         });
 
-        // Get associated token accounts
+        // Get associated token accounts.
+        // Recipient may be a PDA (e.g. a smart-account vault), which is off
+        // the ed25519 curve. Without allowOwnerOffCurve=true the SPL helper
+        // throws TokenOwnerOffCurveError before we can build a transfer.
         const fromTokenAccount = await getAssociatedTokenAddress(
           mintPubkey,
           publicKey
@@ -186,7 +189,8 @@ export function useSend() {
 
         const toTokenAccount = await getAssociatedTokenAddress(
           mintPubkey,
-          recipientPubkey
+          recipientPubkey,
+          true
         );
 
         console.log("Token accounts:", {

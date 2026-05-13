@@ -83,23 +83,15 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   // Turnstile captcha gate for sign-in tab
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const turnstileMode = publicEnv.turnstile.mode;
-  const needsCaptchaWidget = turnstileMode === "widget";
 
-  // Auto-resolve captcha for bypass (local dev) and misconfigured environments
+  // Auto-resolve only for misconfigured environments. In bypass (local dev)
+  // mode we keep the widget visible so the developer can click the bypass
+  // button — it confirms the captcha is wired into the login flow.
   useEffect(() => {
-    if (!needsCaptchaWidget && captchaToken === null) {
-      setCaptchaToken(
-        turnstileMode === "bypass"
-          ? (
-              publicEnv.turnstile as {
-                mode: "bypass";
-                verificationToken: string;
-              }
-            ).verificationToken
-          : "captcha-skipped"
-      );
+    if (turnstileMode === "misconfigured" && captchaToken === null) {
+      setCaptchaToken("captcha-skipped");
     }
-  }, [captchaToken, needsCaptchaWidget, publicEnv.turnstile, turnstileMode]);
+  }, [captchaToken, turnstileMode]);
 
   // Reset captcha when sidebar closes
   useEffect(() => {
@@ -708,7 +700,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           <VaultAccountPageView
             currentVaultAccountIndex={selectedVault?.entry.accountIndex ?? 0}
             currentVaultAddress={selectedVault?.entry.address ?? null}
-            vaultLabel={selectedVault?.entry.label ?? "Vault"}
+            vaultLabel={selectedVault?.entry.label ?? "Stash"}
             balanceWhole={selectedVault?.entry.balanceWhole ?? "$0"}
             balanceFraction={selectedVault?.entry.balanceFraction ?? ".00"}
             isBalanceHidden={props.isBalanceHidden}
@@ -830,6 +822,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       return (
         <SendContent
           addLocalActivity={props.walletDesktopData.addLocalActivity}
+          allowPrivateSend
           onBack={onBack}
           onClose={props.onClose}
           onDone={() => {
@@ -928,7 +921,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 onFormActiveChange={setShieldFormActive}
                 onFormButtonChange={setShieldButtonProps}
                 initialDirection={shieldDirection}
-                onDirectionChange={setShieldDirection}
                 onNavigate={navigateFn}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
@@ -1258,6 +1250,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               {displayTab === "send" && (
                 <SendContent
                   addLocalActivity={props.walletDesktopData.addLocalActivity}
+                  allowPrivateSend
                   onClose={props.onClose}
                   onDone={() => props.onTabChange("portfolio")}
                   onNavigate={pushView}
@@ -1343,7 +1336,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onFormActiveChange={setShieldFormActive}
                         onFormButtonChange={setShieldButtonProps}
                         initialDirection={shieldDirection}
-                        onDirectionChange={setShieldDirection}
                         onNavigate={pushView}
                         onSwapModeChange={handleSwapModeChange}
                         onTokenChange={setShieldToken}

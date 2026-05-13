@@ -224,6 +224,13 @@ export type SmartAccountAddSignerProposalInput = {
   policyPda?: PublicKey | null;
   accountIndex?: number;
   memo?: string;
+  /**
+   * Permissions to grant the new policy signer. Defaults to
+   * `["initiate"]` (the legacy behavior). Pass a richer set to add a
+   * signer that can also vote or execute within the spending-limit
+   * policy.
+   */
+  permissions?: SmartAccountSignerPermission[];
 };
 
 export type SmartAccountRemoveSignerProposalInput = {
@@ -233,6 +240,20 @@ export type SmartAccountRemoveSignerProposalInput = {
   signer: PublicKey;
   policyPda?: PublicKey | null;
   accountIndex?: number;
+  memo?: string;
+};
+
+export type SmartAccountUpdateSignerPermissionsInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  /**
+   * Final permission set for the signer. Must be non-empty. The helper
+   * emits a single settings change combining `RemoveSigner` + `AddSigner`
+   * with the new permissions.
+   */
+  permissions: SmartAccountSignerPermission[];
   memo?: string;
 };
 

@@ -101,6 +101,7 @@ describe("portfolio domain helpers", () => {
           },
         ],
       ]),
+      shieldedOnlyPrices: new Map([[USDC_MINT, 0.9988]]),
     });
 
     const usdcPosition = snapshot.positions.find(
@@ -110,8 +111,10 @@ describe("portfolio domain helpers", () => {
       publicBalance: 0,
       securedBalance: 2.5,
       totalBalance: 2.5,
+      priceUsd: 0.9988,
       asset: { symbol: "USDC", decimals: 6 },
     });
+    expect(usdcPosition?.securedValueUsd).toBeCloseTo(2.497, 3);
   });
 
   test("falls back to placeholder descriptor when no metadata is provided", () => {

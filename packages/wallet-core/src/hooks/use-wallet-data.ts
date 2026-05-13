@@ -370,6 +370,7 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
 	return {
 		id: position.asset.mint,
 		symbol: position.asset.symbol,
+		name: position.asset.name,
 		price: formatUsd(position.priceUsd),
 		amount: formatTokenBalance(position.publicBalance),
 		value: formatUsd(position.publicValueUsd),
@@ -383,6 +384,7 @@ function mapPositionToSecuredTokenRow(
 	return {
 		id: `${position.asset.mint}-secured`,
 		symbol: position.asset.symbol,
+		name: position.asset.name,
 		price: formatUsd(position.priceUsd),
 		amount: formatTokenBalance(position.securedBalance),
 		value: formatUsd(position.securedValueUsd),
@@ -602,14 +604,20 @@ export function useWalletData(params: {
 		}
 
 		// Ensure SOL, LOYAL, USDC are always present (in that order at the top)
-		const defaults: { mint: string; symbol: string; icon: string; price: number | null }[] = [
-			{ mint: SOL_MINT, symbol: "SOL", icon: SOL_ICON_URL, price: null },
-			{ mint: LOYL_MINT, symbol: "LOYAL", icon: LOYL_ICON_URL, price: loylPriceUsd },
-			{ mint: USDC_MINT, symbol: "USDC", icon: USDC_ICON_URL, price: 1 },
+		const defaults: {
+			mint: string;
+			symbol: string;
+			name: string;
+			icon: string;
+			price: number | null;
+		}[] = [
+			{ mint: SOL_MINT, symbol: "SOL", name: "Solana", icon: SOL_ICON_URL, price: null },
+			{ mint: LOYL_MINT, symbol: "LOYAL", name: "Loyal", icon: LOYL_ICON_URL, price: loylPriceUsd },
+			{ mint: USDC_MINT, symbol: "USDC", name: "USD Coin", icon: USDC_ICON_URL, price: 1 },
 		];
 
 		for (let i = defaults.length - 1; i >= 0; i--) {
-			const { mint, symbol, icon, price } = defaults[i];
+			const { mint, symbol, name, icon, price } = defaults[i];
 			const existingIndex = rows.findIndex((r) => r.id === mint);
 			if (existingIndex >= 0) {
 				// Move to correct position if not already there
@@ -632,6 +640,7 @@ export function useWalletData(params: {
 					: {
 							id: mint,
 							symbol,
+							name,
 							price: price !== null ? formatUsd(price) : "$0.00",
 							amount: "0",
 							value: "$0.00",

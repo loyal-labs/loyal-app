@@ -106,12 +106,15 @@ describe("createSolanaWalletDataClient", () => {
         return mints
           .filter((mint) => mint === USDC_MINT)
           .map((mint) => ({
-            mint,
-            symbol: "USDC",
-            name: "USD Coin",
-            decimals: 6,
-            imageUrl: "https://cdn.example.com/usdc.png",
-            isNative: false,
+            descriptor: {
+              mint,
+              symbol: "USDC",
+              name: "USD Coin",
+              decimals: 6,
+              imageUrl: "https://cdn.example.com/usdc.png",
+              isNative: false,
+            },
+            priceUsd: 0.9988,
           }));
       },
       subscribeAssetChanges: async () => async () => undefined,
@@ -137,8 +140,11 @@ describe("createSolanaWalletDataClient", () => {
       publicBalance: 0,
       securedBalance: 0.75,
       totalBalance: 0.75,
+      priceUsd: 0.9988,
       asset: { symbol: "USDC", decimals: 6 },
     });
+    // Secured value should reflect resolved price, not stay null/0.
+    expect(usdc?.securedValueUsd).toBeCloseTo(0.7491, 4);
   });
 
   test("falls back to placeholder when asset provider has no resolveAssets", async () => {

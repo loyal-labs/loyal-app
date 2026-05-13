@@ -9,6 +9,7 @@ export type RightSidebarTab =
 export interface TokenRow {
   id?: string;
   symbol: string;
+  name?: string;
   price: string;
   amount: string;
   value: string;
@@ -97,7 +98,7 @@ export type SubView =
       balanceWhole: string;
       balanceFraction: string;
     }
-  | { type: "sendPanel" }
+  | { type: "sendPanel"; source?: "main" | "vault"; mint?: string }
   | { type: "receivePanel" }
   | { type: "swapPanel"; mode?: "swap" | "shield" }
   | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
