@@ -24,9 +24,6 @@ const TOKEN_PROGRAM_ID = new PublicKey(
 const TOKEN_2022_PROGRAM_ID = new PublicKey(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
-const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-);
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const SOLANA_NETWORK = "solana";
 const DEFAULT_SUBSCRIPTION_DEBOUNCE_MS = 750;
@@ -499,13 +496,12 @@ export function createFrontendAssetProvider(args: {
         subCommitment,
         [ownerFilter]
       );
+      // Native SOL transfers change the owner's lamports directly — they
+      // don't touch the Associated Token Program — so we listen on the
+      // owner pubkey itself. Without this, sending SOL from another wallet
+      // (e.g. the extension) doesn't refresh the frontend balance.
       const nativeSubId = includeNative
-        ? await connection.onProgramAccountChange(
-            ASSOCIATED_TOKEN_PROGRAM_ID,
-            emit,
-            subCommitment,
-            [ownerFilter]
-          )
+        ? await connection.onAccountChange(owner, emit, subCommitment)
         : null;
 
       return async () => {
@@ -520,7 +516,7 @@ export function createFrontendAssetProvider(args: {
           connection.removeProgramAccountChangeListener(token2022SubId),
           nativeSubId === null
             ? Promise.resolve()
-            : connection.removeProgramAccountChangeListener(nativeSubId),
+            : connection.removeAccountChangeListener(nativeSubId),
         ]);
       };
     },
