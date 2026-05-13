@@ -1510,7 +1510,7 @@ export function AppWalletWorkspace({
       return;
     }
 
-    openActionView({ type: "sendPanel" }, "Transfer", "", "wallet");
+    openActionView({ type: "sendPanel" }, "Send", "", "wallet");
   }, [activeDetailSelection, openActionView]);
 
   const handleCommandSwap = useCallback(() => {
@@ -1948,11 +1948,11 @@ export function AppWalletWorkspace({
           onSelect: () => runOnWallet(handleCommandShieldUsdc),
         },
         {
-          description: isVaultActive ? "Move funds from vault" : "Send tokens",
+          description: "Send tokens",
           disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
           icon: <ArrowUpRight size={19} strokeWidth={1.9} />,
           id: "action:send",
-          label: isVaultActive ? "Transfer" : "Send",
+          label: "Send",
           onSelect: () => runOnWallet(handleCommandSend),
         },
         {
@@ -2275,7 +2275,7 @@ export function AppWalletWorkspace({
             openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
           }}
           onOpenSend={() =>
-            openActionView({ type: "sendPanel" }, "Transfer", "", "wallet")
+            openActionView({ type: "sendPanel" }, "Send", "", "wallet")
           }
           onOpenShield={() => {
             setShieldDirection("shield");
