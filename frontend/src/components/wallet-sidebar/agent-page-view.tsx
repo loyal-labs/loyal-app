@@ -8,18 +8,11 @@ import {
   Copy,
   Eye,
   EyeOff,
-  Layers2,
   Plus,
   Trash2,
   X,
 } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { ActivityRowItem } from "./activity-row-item";
@@ -115,15 +108,6 @@ function getLimitProgress(spendingLimit: SmartAccountSpendingLimitSnapshot) {
 }
 
 export type AccessLevel = "suggest" | "sign" | "execute";
-
-type ActiveWorkflowLink = {
-  description: string;
-  href: string;
-  id: string;
-  onOpen?: () => void;
-  status: string;
-  title: string;
-};
 
 export const ACCESS_OPTIONS: {
   id: AccessLevel;
@@ -238,7 +222,6 @@ export function AgentPageView({
   variant = "sidebar",
   showSpendingLimit = false,
   showTopUpAction = true,
-  activeWorkflows = [],
   onAccessLevelChange,
   isAccessLevelPending = false,
 }: {
@@ -289,7 +272,6 @@ export function AgentPageView({
   variant?: "sidebar" | "workspace";
   showSpendingLimit?: boolean;
   showTopUpAction?: boolean;
-  activeWorkflows?: ActiveWorkflowLink[];
   /**
    * Persist a new access level for this signer. Triggers a multisig
    * settings change (1 sign at threshold-1, more for higher thresholds).
@@ -488,18 +470,6 @@ export function AgentPageView({
         error instanceof Error ? error.message : "Failed to top up."
       );
     }
-  };
-
-  const openWorkflow = (
-    event: MouseEvent<HTMLAnchorElement>,
-    workflow: ActiveWorkflowLink
-  ) => {
-    if (!workflow.onOpen) {
-      return;
-    }
-
-    event.preventDefault();
-    workflow.onOpen();
   };
 
   return (
@@ -960,157 +930,6 @@ export function AgentPageView({
                 {isSpendingLimitPending ? "Saving" : "Top Up"}
               </span>
             </button>
-          </div>
-        )}
-
-        {activeWorkflows.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-              alignItems: "center",
-              padding: "8px",
-              width: "100%",
-            }}
-          >
-            <div
-              style={{
-                width: "100%",
-                padding: "12px 12px 0",
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  color: "#000",
-                  letterSpacing: "-0.176px",
-                }}
-              >
-                Active workflows
-              </span>
-            </div>
-
-            {activeWorkflows.map((workflow) => (
-              <a
-                className="agent-workflow-link"
-                href={workflow.href}
-                key={workflow.id}
-                onClick={(event) => openWorkflow(event, workflow)}
-                style={{
-                  display: "flex",
-                  width: "100%",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "12px",
-                  borderRadius: "16px",
-                  background: "rgba(0, 0, 0, 0.04)",
-                  color: "inherit",
-                  textDecoration: "none",
-                  transition: "background 0.15s ease",
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: "inline-flex",
-                    width: "36px",
-                    height: "36px",
-                    flex: "0 0 auto",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: "10px",
-                    background: "rgba(249, 54, 60, 0.12)",
-                    color: "#F9363C",
-                  }}
-                >
-                  <Layers2 size={19} strokeWidth={1.9} />
-                </span>
-                <span
-                  style={{
-                    display: "flex",
-                    minWidth: 0,
-                    flex: 1,
-                    flexDirection: "column",
-                    gap: "2px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      minWidth: 0,
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        fontFamily: font,
-                        fontSize: "16px",
-                        fontWeight: 500,
-                        lineHeight: "20px",
-                        color: "#000",
-                      }}
-                    >
-                      {workflow.title}
-                    </span>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        flex: "0 0 auto",
-                        alignItems: "center",
-                        gap: "4px",
-                        padding: "2px 6px",
-                        borderRadius: "9999px",
-                        background: "rgba(50, 182, 124, 0.12)",
-                        color: "#198F5B",
-                        fontFamily: font,
-                        fontSize: "12px",
-                        fontWeight: 500,
-                        lineHeight: "16px",
-                      }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        style={{
-                          width: "5px",
-                          height: "5px",
-                          borderRadius: "9999px",
-                          background: "#32B67C",
-                        }}
-                      />
-                      {workflow.status}
-                    </span>
-                  </span>
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                      color: secondary,
-                    }}
-                  >
-                    {workflow.description}
-                  </span>
-                </span>
-                <ChevronRight
-                  aria-hidden="true"
-                  size={16}
-                  style={{ color: "rgba(60, 60, 67, 0.3)", flexShrink: 0 }}
-                />
-              </a>
-            ))}
           </div>
         )}
 

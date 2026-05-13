@@ -1608,12 +1608,6 @@ export function AppWalletWorkspace({
     [handleOpenAgent, router, smartAccountData]
   );
 
-  const handleOpenAutoswapPolicy = useCallback(() => {
-    setSelectedPolicyId("autoswap-primary");
-    setActiveSection("policies");
-    router.push("/app/policies");
-  }, [router]);
-
   const handleCommandSelectPolicy = useCallback(
     (policyId: string) => {
       setSelectedPolicyId(policyId);
@@ -2401,16 +2395,6 @@ export function AppWalletWorkspace({
       return (
         <AgentPageView
           agentIcon={selectedAgent.icon}
-          activeWorkflows={[
-            {
-              description: "Autoswap policy",
-              href: "/app/policies",
-              id: "autoswap-primary",
-              onOpen: handleOpenAutoswapPolicy,
-              status: "Active",
-              title: "Autoswap",
-            },
-          ]}
           balanceFraction={selectedAgent.balanceFraction}
           balanceWhole={selectedAgent.balanceWhole}
           canDeleteSigner={selectedAgent.scope === "policy"}
