@@ -493,12 +493,19 @@ export function ShieldContent({
     (pct: number) => {
       const bal = sourceBalance;
       let val = pct === 100 ? bal : bal * (pct / 100);
-      if (token.symbol.toUpperCase() === "SOL" && bal - val < 0.00005) {
+      // Reserve a small SOL buffer for gas only when shielding (public → vault).
+      // Unshield drains the vault and pays fees from the public wallet, so
+      // reserving here would leave dust in the vault.
+      if (
+        direction === "shield" &&
+        token.symbol.toUpperCase() === "SOL" &&
+        bal - val < 0.00005
+      ) {
         val = Math.max(0, bal - 0.00005);
       }
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [sourceBalance, token.symbol]
+    [direction, sourceBalance, token.symbol]
   );
 
   const handleConfirm = useCallback(async () => {

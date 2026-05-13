@@ -361,6 +361,15 @@ function formatSignedUsd(value: number): string {
   })}`;
 }
 
+// Values below 1 cent are treated as dust and hidden from the token list to
+// avoid duplicate-looking rows after a Max-unshield leaves a few residual
+// lamports in the vault. When USD value is unknown we err on the side of
+// showing the row.
+const DUST_VALUE_USD_THRESHOLD = 0.01;
+function isDustValueUsd(valueUsd: number | null | undefined): boolean {
+  return typeof valueUsd === "number" && valueUsd < DUST_VALUE_USD_THRESHOLD;
+}
+
 function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
   return {
     id: position.asset.mint,
@@ -979,8 +988,14 @@ export function useWalletDesktopData(): WalletDesktopData {
           attachPriceChange(mapPositionToTokenRow(position), position.asset.mint)
         );
       }
-      // Add secured row right after the public one
-      if (position.securedBalance > 0) {
+      // Add secured row right after the public one. Skip dust amounts that
+      // can linger in the vault after a Max-unshield (a few lamports of
+      // rounding or residual rent-reserve), since they render as a confusing
+      // near-empty duplicate row.
+      if (
+        position.securedBalance > 0 &&
+        !isDustValueUsd(position.securedValueUsd)
+      ) {
         rows.push(
           attachPriceChange(
             mapPositionToSecuredTokenRow(
@@ -1020,11 +1035,14 @@ export function useWalletDesktopData(): WalletDesktopData {
     } else {
       const loylPosition = positions.find((p) => p.asset.mint === LOYL_MINT);
       // If LOYAL is held only as shielded, the secured row already
-      // represents it — don't add an empty public placeholder row.
+      // represents it — don't add an empty public placeholder row. Treat a
+      // dust-only shielded position as if it didn't exist (matches the
+      // dust filter applied when building secured rows above).
       const loylHasOnlyShielded =
         loylPosition !== undefined &&
         loylPosition.publicBalance === 0 &&
-        loylPosition.securedBalance > 0;
+        loylPosition.securedBalance > 0 &&
+        !isDustValueUsd(loylPosition.securedValueUsd);
       if (!loylHasOnlyShielded) {
         // Not in rows — create placeholder with Jupiter price
         const loylRow: TokenRow = loylPosition
