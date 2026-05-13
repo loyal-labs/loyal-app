@@ -1,7 +1,5 @@
 import {
-  DELEGATION_PROGRAM_ID,
-  findDepositPda,
-  getErValidatorForSolanaEnv,
+  type ShieldFlowExecutionResult,
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
@@ -9,15 +7,7 @@ import {
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
-import {
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
-import {
-  useConnection,
-  useWallet,
-} from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
@@ -29,7 +19,6 @@ import {
   resolveTrackedKaminoUsdcMint,
 } from "@/lib/kamino/kamino-usdc-position";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
-import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
 
 function cleanSolanaErrorMessage(message: string): string {
   const logsIndex = message.indexOf("Logs:");
@@ -39,67 +28,85 @@ function cleanSolanaErrorMessage(message: string): string {
   return message;
 }
 
+function getLastSignature(
+  result: ShieldFlowExecutionResult
+): string | undefined {
+  return result.signatures.at(-1)?.signature;
+}
+
+async function getDepositAmount(params: {
+  client: LoyalPrivateTransactionsClient;
+  tokenMint: PublicKey;
+  user: PublicKey;
+}): Promise<bigint> {
+  const { client, tokenMint, user } = params;
+  const [ephemeralDeposit, baseDeposit] = await Promise.all([
+    client.getEphemeralDeposit(user, tokenMint).catch(() => null),
+    client.getBaseDeposit(user, tokenMint).catch(() => null),
+  ]);
+
+  return ephemeralDeposit?.amount ?? baseDeposit?.amount ?? BigInt(0);
+}
+
 export type ShieldResult = {
   signature?: string;
   success: boolean;
   error?: string;
 };
 
-async function waitForAccount(
-  connection: ReturnType<typeof useConnection>["connection"],
-  pda: PublicKey,
-  maxAttempts = 30,
-): Promise<void> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const info = await connection.getAccountInfo(pda);
-    if (info) return;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
-
 export function useShield() {
-  const { connection } = useConnection();
   const wallet = useWallet();
   const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<LoyalPrivateTransactionsClient | null>(null);
 
-  const getClient = useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
-    if (clientRef.current) return clientRef.current;
+  const getClient =
+    useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
+      if (clientRef.current) return clientRef.current;
 
-    if (
-      !wallet.publicKey ||
-      !wallet.signTransaction ||
-      !wallet.signAllTransactions ||
-      !wallet.signMessage
-    ) {
-      throw new Error("Wallet must support signTransaction, signAllTransactions, and signMessage");
-    }
+      if (
+        !wallet.publicKey ||
+        !wallet.signTransaction ||
+        !wallet.signAllTransactions ||
+        !wallet.signMessage
+      ) {
+        throw new Error(
+          "Wallet must support signTransaction, signAllTransactions, and signMessage"
+        );
+      }
 
-    const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
-      publicEnv.solanaEnv
-    );
-    const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
+      const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
+        publicEnv.solanaEnv
+      );
+      const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(
+        publicEnv.solanaEnv
+      );
 
-    const signer = {
-      publicKey: wallet.publicKey,
-      signTransaction: wallet.signTransaction,
-      signAllTransactions: wallet.signAllTransactions,
-      signMessage: wallet.signMessage,
-    } as unknown as import("@loyal-labs/private-transactions").WalletLike;
+      const signer = {
+        publicKey: wallet.publicKey,
+        signTransaction: wallet.signTransaction,
+        signAllTransactions: wallet.signAllTransactions,
+        signMessage: wallet.signMessage,
+      } as unknown as import("@loyal-labs/private-transactions").WalletLike;
 
-    const client = await LoyalPrivateTransactionsClient.fromConfig({
-      signer,
-      baseRpcEndpoint: rpcEndpoint,
-      baseWsEndpoint: websocketEndpoint,
-      ephemeralRpcEndpoint: perRpcEndpoint,
-      ephemeralWsEndpoint: perWsEndpoint,
-    });
+      const client = await LoyalPrivateTransactionsClient.fromConfig({
+        signer,
+        baseRpcEndpoint: rpcEndpoint,
+        baseWsEndpoint: websocketEndpoint,
+        ephemeralRpcEndpoint: perRpcEndpoint,
+        ephemeralWsEndpoint: perWsEndpoint,
+      });
 
-    clientRef.current = client;
-    return client;
-  }, [wallet.publicKey, wallet.signTransaction, wallet.signAllTransactions, wallet.signMessage, publicEnv.solanaEnv]);
+      clientRef.current = client;
+      return client;
+    }, [
+      wallet.publicKey,
+      wallet.signTransaction,
+      wallet.signAllTransactions,
+      wallet.signMessage,
+      publicEnv.solanaEnv,
+    ]);
 
   // Reset client when wallet changes
   const prevPubkey = useRef(wallet.publicKey?.toBase58());
@@ -116,7 +123,10 @@ export function useShield() {
       successTrackingProperties?: AnalyticsProperties;
     }): Promise<ShieldResult> => {
       if (!(wallet.connected && wallet.publicKey && wallet.signTransaction)) {
-        return { success: false, error: "Wallet not connected or missing signing capability" };
+        return {
+          success: false,
+          error: "Wallet not connected or missing signing capability",
+        };
       }
 
       setLoading(true);
@@ -124,7 +134,8 @@ export function useShield() {
 
       try {
         const client = await getClient();
-        const resolvedMint = params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
+        const resolvedMint =
+          params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
         if (!resolvedMint) {
           throw new Error(`Unknown token: ${params.tokenSymbol}`);
         }
@@ -132,63 +143,36 @@ export function useShield() {
         const decimals = TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = wallet.publicKey;
-        const validator = getErValidatorForSolanaEnv(publicEnv.solanaEnv);
-        const isNativeSol = tokenMint.equals(NATIVE_MINT);
+        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(
+          publicEnv.solanaEnv
+        );
+        const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
+        const collateralSharesBefore = isTrackedKaminoToken
+          ? await getDepositAmount({ client, tokenMint, user })
+          : BigInt(0);
 
-        // Init deposit if needed
-        const baseDeposit = await client.getBaseDeposit(user, tokenMint);
-        if (!baseDeposit) {
-          await client.initializeDeposit({ tokenMint, user, payer: user });
-          const [depositPda] = findDepositPda(user, tokenMint);
-          await waitForAccount(connection, depositPda);
-        }
-
-        // Wrap SOL → wSOL if native
-        const walletSigner = {
-          publicKey: user,
-          signTransaction: wallet.signTransaction,
-        };
-        let createdAta = false;
-        if (isNativeSol) {
-          const result = await wrapSolToWSol({ connection, wallet: walletSigner, lamports: rawAmount });
-          createdAta = result.createdAta;
-        }
-
-        const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
-
-        // Undelegate if currently delegated
-        const [depositPda] = findDepositPda(user, tokenMint);
-        const depositInfo = await connection.getAccountInfo(depositPda);
-        if (depositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-          await client.undelegateDeposit({
-            tokenMint,
-            user,
-            payer: user,
-            magicProgram: MAGIC_PROGRAM_ID,
-            magicContext: MAGIC_CONTEXT_ID,
-          });
-        }
-
-        // Read the shares balance before modifyBalance so we can compute the
-        // collateral-shares delta for Kamino position tracking.
-        const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
-
-        // Move tokens into deposit vault (increase balance)
-        const { deposit: depositAfterModify } = await client.modifyBalance({
+        const plan = await client.buildShieldTokensTransactionPlan({
           tokenMint,
-          amount: rawAmount,
-          increase: true,
+          amount: BigInt(rawAmount),
           user,
           payer: user,
         });
+        const executionResult = await client.executeShieldTokensTransactionPlan(
+          {
+            plan,
+          }
+        );
 
         // Persist Kamino principal basis for tracked USDC so the "earned"
         // split on the portfolio can be computed without manual seeding.
-        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
-        if (trackedKaminoMint === tokenMint.toBase58()) {
-          const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+        if (isTrackedKaminoToken) {
+          const collateralSharesAfter = await getDepositAmount({
+            client,
+            tokenMint,
+            user,
+          });
           const addedCollateralSharesAmountRaw =
-            depositAfterModify.amount - beforeShares;
+            collateralSharesAfter - collateralSharesBefore;
 
           if (addedCollateralSharesAmountRaw > BigInt(0)) {
             try {
@@ -207,30 +191,14 @@ export function useShield() {
           }
         }
 
-        // Close wSOL ATA if we created it
-        if (isNativeSol && createdAta) {
-          await closeWsolAta({ connection, wallet: walletSigner, wsolAta: userTokenAccount });
-        }
-
-        // Create permission (may already exist)
-        try {
-          await client.createPermission({ tokenMint, user, payer: user });
-        } catch {
-          // Permission may already exist
-        }
-
-        // Delegate deposit
-        try {
-          await client.delegateDeposit({ tokenMint, user, payer: user, validator });
-        } catch {
-          // May already be delegated
-        }
-
         setLoading(false);
         if (params.successTrackingProperties) {
-          trackWalletShieldCompleted(publicEnv, params.successTrackingProperties);
+          trackWalletShieldCompleted(
+            publicEnv,
+            params.successTrackingProperties
+          );
         }
-        return { success: true };
+        return { success: true, signature: getLastSignature(executionResult) };
       } catch (err) {
         let errorMessage = "Shield failed";
         if (err instanceof Error) {
@@ -243,7 +211,13 @@ export function useShield() {
         return { success: false, error: errorMessage };
       }
     },
-    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv],
+    [
+      wallet.connected,
+      wallet.publicKey,
+      wallet.signTransaction,
+      getClient,
+      publicEnv,
+    ]
   );
 
   const executeUnshield = useCallback(
@@ -253,7 +227,10 @@ export function useShield() {
       tokenMint?: string;
     }): Promise<ShieldResult> => {
       if (!(wallet.connected && wallet.publicKey && wallet.signTransaction)) {
-        return { success: false, error: "Wallet not connected or missing signing capability" };
+        return {
+          success: false,
+          error: "Wallet not connected or missing signing capability",
+        };
       }
 
       setLoading(true);
@@ -261,7 +238,8 @@ export function useShield() {
 
       try {
         const client = await getClient();
-        const resolvedMint = params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
+        const resolvedMint =
+          params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
         if (!resolvedMint) {
           throw new Error(`Unknown token: ${params.tokenSymbol}`);
         }
@@ -269,34 +247,20 @@ export function useShield() {
         const decimals = TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = wallet.publicKey;
-        const isNativeSol = tokenMint.equals(NATIVE_MINT);
-
-        const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
-
-        // Undelegate if currently delegated
-        const [depositPda] = findDepositPda(user, tokenMint);
-        const depositInfo = await connection.getAccountInfo(depositPda);
-        if (depositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-          await client.undelegateDeposit({
-            tokenMint,
-            user,
-            payer: user,
-            magicProgram: MAGIC_PROGRAM_ID,
-            magicContext: MAGIC_CONTEXT_ID,
-          });
-        }
-
         // For tracked Kamino positions, the vault stores collateral shares and
-        // modifyBalance(decrease) expects an amount denominated in shares. The
-        // user supplies a liquidity amount (USDC), so convert via the Kamino
-        // reserve exchange rate and clamp to the current shares balance.
-        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
-        const isTrackedKaminoToken =
-          trackedKaminoMint === tokenMint.toBase58();
+        // the SDK plan amount for unshield is denominated in shares. The user
+        // supplies a liquidity amount (USDC), so convert via the Kamino reserve
+        // exchange rate and clamp to the current shares balance.
+        const trackedKaminoMint = resolveTrackedKaminoUsdcMint(
+          publicEnv.solanaEnv
+        );
+        const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
 
-        const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
+        const collateralSharesBefore = isTrackedKaminoToken
+          ? await getDepositAmount({ client, tokenMint, user })
+          : BigInt(0);
 
-        let modifyAmount: bigint = BigInt(rawAmount);
+        let planAmount: bigint = BigInt(rawAmount);
         if (isTrackedKaminoToken) {
           const quotedShares =
             await client.getKaminoCollateralSharesForLiquidityAmount({
@@ -304,28 +268,38 @@ export function useShield() {
               liquidityAmountRaw: BigInt(rawAmount),
             });
           if (quotedShares !== null) {
-            modifyAmount = quotedShares;
+            planAmount = quotedShares;
           }
 
-          const currentShares = depositBeforeModify?.amount ?? BigInt(0);
-          if (currentShares > BigInt(0) && modifyAmount > currentShares) {
-            modifyAmount = currentShares;
+          if (
+            collateralSharesBefore > BigInt(0) &&
+            planAmount > collateralSharesBefore
+          ) {
+            planAmount = collateralSharesBefore;
           }
         }
 
-        // Move tokens out of deposit vault (decrease balance)
-        const { deposit: depositAfterModify } = await client.modifyBalance({
+        const plan = await client.buildUnshieldTokensTransactionPlan({
           tokenMint,
-          amount: modifyAmount,
-          increase: false,
+          amount: planAmount,
           user,
           payer: user,
+          magicProgram: MAGIC_PROGRAM_ID,
+          magicContext: MAGIC_CONTEXT_ID,
         });
+        const executionResult =
+          await client.executeUnshieldTokensTransactionPlan({
+            plan,
+          });
 
         if (isTrackedKaminoToken) {
-          const beforeShares = depositBeforeModify?.amount ?? BigInt(0);
+          const collateralSharesAfter = await getDepositAmount({
+            client,
+            tokenMint,
+            user,
+          });
           const burnedCollateralSharesAmountRaw =
-            beforeShares - depositAfterModify.amount;
+            collateralSharesBefore - collateralSharesAfter;
 
           if (burnedCollateralSharesAmountRaw > BigInt(0)) {
             try {
@@ -343,25 +317,8 @@ export function useShield() {
           }
         }
 
-        // Unwrap wSOL if native SOL
-        if (isNativeSol) {
-          const walletSigner = {
-            publicKey: user,
-            signTransaction: wallet.signTransaction,
-          };
-          await closeWsolAta({ connection, wallet: walletSigner, wsolAta: userTokenAccount });
-        }
-
-        // Re-delegate deposit
-        try {
-          const validator = getErValidatorForSolanaEnv(publicEnv.solanaEnv);
-          await client.delegateDeposit({ tokenMint, user, payer: user, validator });
-        } catch {
-          // May already be delegated or deposit empty
-        }
-
         setLoading(false);
-        return { success: true };
+        return { success: true, signature: getLastSignature(executionResult) };
       } catch (err) {
         let errorMessage = "Unshield failed";
         if (err instanceof Error) {
@@ -374,7 +331,13 @@ export function useShield() {
         return { success: false, error: errorMessage };
       }
     },
-    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv],
+    [
+      wallet.connected,
+      wallet.publicKey,
+      wallet.signTransaction,
+      getClient,
+      publicEnv,
+    ]
   );
 
   return {
