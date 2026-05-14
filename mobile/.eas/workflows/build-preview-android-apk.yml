@@ -1,0 +1,20 @@
+name: Build Preview Android APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - mobile/**
+
+concurrency:
+  group: ${{ workflow.filename }}-${{ github.ref }}
+  cancel_in_progress: true
+
+jobs:
+  build_android_preview:
+    name: Build Android preview APK
+    type: build
+    params:
+      platform: android
+      profile: preview
