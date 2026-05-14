@@ -74,6 +74,27 @@ const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 const LOYL_ICON_URL =
   "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
 
+type TokenMarketPosition = {
+  asset: {
+    mint: string;
+  };
+  totalValueUsd?: number | null;
+};
+
+export function createTokenMarketMintsSignature(
+  positions: TokenMarketPosition[]
+): string {
+  const mints = positions
+    .filter(
+      (position) =>
+        typeof position.totalValueUsd === "number" &&
+        position.totalValueUsd > 0
+    )
+    .map((position) => position.asset.mint);
+  mints.push(LOYL_MINT);
+  return Array.from(new Set(mints)).sort().join(",");
+}
+
 function resolveTokenIcon(position: PortfolioPosition): string {
   if (position.asset.imageUrl) {
     return position.asset.imageUrl;
@@ -850,14 +871,7 @@ export function useWalletDesktopData(): WalletDesktopData {
   const kaminoUsdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
 
   const valuedMintsSignature = useMemo(() => {
-    const mints = positions
-      .filter(
-        (position) =>
-          typeof position.totalValueUsd === "number" &&
-          position.totalValueUsd > 0
-      )
-      .map((position) => position.asset.mint);
-    return Array.from(new Set(mints)).sort().join(",");
+    return createTokenMarketMintsSignature(positions);
   }, [positions]);
 
   const [priceChange24hByMint, setPriceChange24hByMint] = useState<
