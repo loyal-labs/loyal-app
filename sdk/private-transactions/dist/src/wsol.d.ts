@@ -4,6 +4,10 @@ export declare function wrapSolToWsolIx({ user, payer, lamports, }: {
     payer: PublicKey;
     lamports: bigint;
 }): TransactionInstruction[];
+export declare function createWsolAta({ user, payer, }: {
+    user: PublicKey;
+    payer: PublicKey;
+}): TransactionInstruction;
 export declare function closeWsolAta({ user, destination, }: {
     user: PublicKey;
     destination: PublicKey;

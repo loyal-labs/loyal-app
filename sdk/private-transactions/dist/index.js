@@ -1,11 +1,11 @@
 // src/LoyalPrivateTransactionsClient.ts
 import {
   Connection as Connection3,
-  PublicKey as PublicKey6,
+  PublicKey as PublicKey7,
   SystemProgram as SystemProgram5,
   Transaction as Transaction7
 } from "@solana/web3.js";
-import { AnchorProvider, BN as BN2, Program } from "@coral-xyz/anchor";
+import { AnchorProvider as AnchorProvider2, BN as BN2, Program as Program2 } from "@coral-xyz/anchor";
 import { TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID4 } from "@solana/spl-token";
 import {
   verifyTeeIntegrity,
@@ -101,6 +101,107 @@ var telegram_private_transfer_default = {
           type: "u64"
         }
       ]
+    },
+    {
+      name: "close_deposit",
+      docs: [
+        "Closes an empty user deposit account and returns its rent to the deposit owner."
+      ],
+      discriminator: [
+        200,
+        19,
+        254,
+        192,
+        15,
+        110,
+        209,
+        179
+      ],
+      accounts: [
+        {
+          name: "user",
+          writable: true,
+          signer: true,
+          relations: [
+            "deposit"
+          ]
+        },
+        {
+          name: "deposit",
+          writable: true,
+          pda: {
+            seeds: [
+              {
+                kind: "const",
+                value: [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                kind: "account",
+                path: "user"
+              },
+              {
+                kind: "account",
+                path: "token_mint"
+              }
+            ]
+          }
+        },
+        {
+          name: "token_mint",
+          relations: [
+            "deposit"
+          ]
+        }
+      ],
+      args: []
+    },
+    {
+      name: "close_username_deposit",
+      docs: [
+        "Closes an empty username deposit account after verified username ownership."
+      ],
+      discriminator: [
+        238,
+        181,
+        185,
+        209,
+        149,
+        161,
+        124,
+        79
+      ],
+      accounts: [
+        {
+          name: "authority",
+          writable: true,
+          signer: true
+        },
+        {
+          name: "deposit",
+          writable: true
+        },
+        {
+          name: "token_mint",
+          relations: [
+            "deposit"
+          ]
+        },
+        {
+          name: "session"
+        }
+      ],
+      args: []
     },
     {
       name: "create_permission",
@@ -814,10 +915,20 @@ var telegram_private_transfer_default = {
     {
       name: "modify_balance",
       docs: [
-        "Modifies the balance of a user's deposit account by transferring tokens in or out.",
+        "Modifies a user's deposit balance and the backing vault position for the given mint.",
         "",
-        "If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.",
-        "If false, tokens are transferred from the deposit account back to the user's token account."
+        "For non-USDC mints, this is a direct vault transfer: if `args.increase` is true, `args.amount`",
+        "is transferred from the user's token account to the vault token account and added to",
+        "`deposit.amount`. If false, `args.amount` is transferred from the vault token account back to",
+        "the user's token account and subtracted from `deposit.amount`.",
+        "",
+        "For USDC, liquidity is routed through Kamino Lending instead of being left idle in the vault.",
+        "If `args.increase` is true, `args.amount` USDC is transferred into the vault token account,",
+        "supplied to the configured Kamino reserve, and `deposit.amount` is increased by the Kamino",
+        "reserve collateral shares (kTokens) minted to the vault. If false, `args.amount` is",
+        "interpreted as the Kamino share amount to redeem; the reserve returns the corresponding USDC",
+        "at the current exchange rate, that USDC is transferred from the vault token account to the",
+        "user's token account, and `deposit.amount` is decreased by the burned share amount."
       ],
       discriminator: [
         148,
@@ -1654,6 +1765,11 @@ var telegram_private_transfer_default = {
       code: 6013,
       name: "InvalidAmount",
       msg: "Invalid amount"
+    },
+    {
+      code: 6014,
+      name: "NonZeroDeposit",
+      msg: "Deposit account must have zero amount before it can be closed"
     }
   ],
   types: [
@@ -1820,7 +1936,7 @@ import {
   LAMPORTS_PER_SOL,
   SYSVAR_INSTRUCTIONS_PUBKEY
 } from "@solana/web3.js";
-var ER_VALIDATOR_DEVNET = new PublicKey("FnE6VJT5QNZdedZPnCoLsARgBwoE6DeJNjBs2H1gySXA");
+var ER_VALIDATOR_DEVNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR_MAINNET = new PublicKey("MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo");
 var ER_VALIDATOR = ER_VALIDATOR_DEVNET;
 function getErValidatorForSolanaEnv(env) {
@@ -1884,6 +2000,125 @@ function solToLamports(sol) {
 }
 function lamportsToSol(lamports) {
   return lamports / LAMPORTS_PER_SOL;
+}
+
+// src/enumerate-deposits.ts
+import { AnchorProvider, Program } from "@coral-xyz/anchor";
+import {
+  PublicKey as PublicKey2
+} from "@solana/web3.js";
+var DEPOSIT_ACCOUNT_SIZE = 80;
+var DEPOSIT_USER_OFFSET = 8;
+var DEPOSIT_MINT_OFFSET = 40;
+var DEPOSIT_AMOUNT_OFFSET = 72;
+
+class ReadOnlyWallet {
+  publicKey;
+  constructor(publicKey) {
+    this.publicKey = publicKey;
+  }
+  async signTransaction(_tx) {
+    throw new Error("ReadOnlyWallet cannot sign transactions; construct a real client for write paths.");
+  }
+  async signAllTransactions(_txs) {
+    throw new Error("ReadOnlyWallet cannot sign transactions; construct a real client for write paths.");
+  }
+}
+function createReadOnlyDepositProgram(connection) {
+  const wallet = new ReadOnlyWallet(PublicKey2.default);
+  const provider = new AnchorProvider(connection, wallet, {
+    commitment: connection.commitment ?? "confirmed"
+  });
+  return new Program(telegram_private_transfer_default, provider);
+}
+function readDepositAmount(data) {
+  let value = BigInt(0);
+  for (let i = 0;i < 8; i++) {
+    value += BigInt(data[DEPOSIT_AMOUNT_OFFSET + i] ?? 0) << BigInt(i * 8);
+  }
+  return value;
+}
+async function readDelegatedDepositsOnBase(baseConnection, user) {
+  const accounts = await baseConnection.getProgramAccounts(DELEGATION_PROGRAM_ID, {
+    filters: [
+      { dataSize: DEPOSIT_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: DEPOSIT_USER_OFFSET,
+          bytes: user.toBase58()
+        }
+      }
+    ]
+  });
+  const result = [];
+  for (const { pubkey, account } of accounts) {
+    const data = account.data;
+    if (data.length < DEPOSIT_ACCOUNT_SIZE)
+      continue;
+    const tokenMint = new PublicKey2(data.subarray(DEPOSIT_MINT_OFFSET, DEPOSIT_MINT_OFFSET + 32));
+    result.push({
+      user,
+      tokenMint,
+      amount: readDepositAmount(data),
+      address: pubkey
+    });
+  }
+  return result;
+}
+async function enumerateDepositsByUser(args) {
+  const userFilter = [
+    {
+      memcmp: {
+        offset: DEPOSIT_USER_OFFSET,
+        bytes: args.user.toBase58()
+      }
+    }
+  ];
+  const baseProgram = createReadOnlyDepositProgram(args.baseConnection);
+  const ephemeralProgram = args.ephemeralConnection ? createReadOnlyDepositProgram(args.ephemeralConnection) : null;
+  const [baseUndelegatedResult, baseDelegatedResult, ephemeralResult] = await Promise.allSettled([
+    baseProgram.account.deposit.all(userFilter),
+    readDelegatedDepositsOnBase(args.baseConnection, args.user),
+    ephemeralProgram ? ephemeralProgram.account.deposit.all(userFilter) : Promise.resolve([])
+  ]);
+  const byPda = new Map;
+  const ingestAnchor = (results, preferOverwrite) => {
+    for (const { publicKey, account } of results) {
+      const key = publicKey.toBase58();
+      if (!preferOverwrite && byPda.has(key))
+        continue;
+      byPda.set(key, {
+        user: account.user,
+        tokenMint: account.tokenMint,
+        amount: BigInt(account.amount.toString()),
+        address: publicKey
+      });
+    }
+  };
+  const ingestRaw = (results, preferOverwrite) => {
+    for (const data of results) {
+      const key = data.address.toBase58();
+      if (!preferOverwrite && byPda.has(key))
+        continue;
+      byPda.set(key, data);
+    }
+  };
+  if (baseUndelegatedResult.status === "fulfilled") {
+    ingestAnchor(baseUndelegatedResult.value, false);
+  } else {
+    console.warn("[enumerateDepositsByUser] base undelegated enumeration failed", baseUndelegatedResult.reason);
+  }
+  if (baseDelegatedResult.status === "fulfilled") {
+    ingestRaw(baseDelegatedResult.value, true);
+  } else {
+    console.warn("[enumerateDepositsByUser] base delegated enumeration failed", baseDelegatedResult.reason);
+  }
+  if (ephemeralResult.status === "fulfilled" && ephemeralProgram) {
+    ingestAnchor(ephemeralResult.value, true);
+  } else if (ephemeralProgram && ephemeralResult.status === "rejected") {
+    console.warn("[enumerateDepositsByUser] ephemeral enumeration failed", ephemeralResult.reason);
+  }
+  return Array.from(byPda.values());
 }
 
 // src/kamino.ts
@@ -2026,13 +2261,13 @@ async function fetchKaminoReserveSnapshot(args) {
 }
 
 // src/pda.ts
-import { PublicKey as PublicKey3 } from "@solana/web3.js";
+import { PublicKey as PublicKey4 } from "@solana/web3.js";
 
 // src/utils.ts
-import { PublicKey as PublicKey2 } from "@solana/web3.js";
+import { PublicKey as PublicKey3 } from "@solana/web3.js";
 function prettyStringify(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
-    if (value instanceof PublicKey2)
+    if (value instanceof PublicKey3)
       return value.toBase58();
     if (typeof value === "bigint")
       return value.toString();
@@ -2094,30 +2329,30 @@ function validateUsername(username) {
 
 // src/pda.ts
 function findDepositPda(user, tokenMint, programId = PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([DEPOSIT_SEED_BYTES, user.toBuffer(), tokenMint.toBuffer()], programId);
+  return PublicKey4.findProgramAddressSync([DEPOSIT_SEED_BYTES, user.toBuffer(), tokenMint.toBuffer()], programId);
 }
 async function findUsernameDepositPda(username, tokenMint, programId = PROGRAM_ID) {
   const usernameHash = await sha256hash(username);
-  return PublicKey3.findProgramAddressSync([
+  return PublicKey4.findProgramAddressSync([
     USERNAME_DEPOSIT_SEED_BYTES,
     Buffer.from(usernameHash),
     tokenMint.toBuffer()
   ], programId);
 }
 function findVaultPda(tokenMint, programId = PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([VAULT_SEED_BYTES, tokenMint.toBuffer()], programId);
+  return PublicKey4.findProgramAddressSync([VAULT_SEED_BYTES, tokenMint.toBuffer()], programId);
 }
 function findPermissionPda(account, permissionProgramId = PERMISSION_PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([PERMISSION_SEED_BYTES, account.toBuffer()], permissionProgramId);
+  return PublicKey4.findProgramAddressSync([PERMISSION_SEED_BYTES, account.toBuffer()], permissionProgramId);
 }
 function findDelegationRecordPda(account, delegationProgramId = DELEGATION_PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([Buffer.from("delegation"), account.toBuffer()], delegationProgramId);
+  return PublicKey4.findProgramAddressSync([Buffer.from("delegation"), account.toBuffer()], delegationProgramId);
 }
 function findDelegationMetadataPda(account, delegationProgramId = DELEGATION_PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([Buffer.from("delegation-metadata"), account.toBuffer()], delegationProgramId);
+  return PublicKey4.findProgramAddressSync([Buffer.from("delegation-metadata"), account.toBuffer()], delegationProgramId);
 }
 function findBufferPda(account, ownerProgramId = PROGRAM_ID) {
-  return PublicKey3.findProgramAddressSync([Buffer.from("buffer"), account.toBuffer()], ownerProgramId);
+  return PublicKey4.findProgramAddressSync([Buffer.from("buffer"), account.toBuffer()], ownerProgramId);
 }
 
 // src/wallet-adapter.ts
@@ -2270,7 +2505,8 @@ var U64_SIZE = 8;
 var U8_SIZE = 1;
 var BOOL_SIZE = 1;
 var VEC_PREFIX_SIZE = 4;
-var DEPOSIT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
+var MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS = 300000;
+var DEPOSIT_ACCOUNT_SIZE2 = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE;
 var VAULT_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + U8_SIZE;
 var PERMISSION_ACCOUNT_SIZE = 567;
 var DELEGATION_RECORD_ACCOUNT_SIZE = DISCRIMINATOR_SIZE + PUBLIC_KEY_SIZE + PUBLIC_KEY_SIZE + U64_SIZE * 3;
@@ -2297,13 +2533,20 @@ async function estimateNewAccountRentLamports(params) {
     return total + (rentBySpace.get(account.space) ?? 0);
   }, 0);
 }
+async function estimateExistingAccountLamports(params) {
+  if (params.accounts.length === 0) {
+    return 0;
+  }
+  const accountInfos = await params.connection.getMultipleAccountsInfo(params.accounts);
+  return accountInfos.reduce((total, accountInfo) => total + (accountInfo?.lamports ?? 0), 0);
+}
 async function estimateDepositRentLamports(params) {
   return estimateNewAccountRentLamports({
     connection: params.connection,
     accounts: [
       {
         address: params.depositPda,
-        space: DEPOSIT_ACCOUNT_SIZE,
+        space: DEPOSIT_ACCOUNT_SIZE2,
         forceCreate: params.forceCreate
       }
     ]
@@ -2360,6 +2603,16 @@ async function estimateDepositDelegationRentLamports(params) {
       }
     ]
   });
+}
+async function estimateDepositDelegationRentCreditLamports(params) {
+  const [delegationRecordPda] = findDelegationRecordPda(params.depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(params.depositPda);
+  const delegationAccountLamports = await estimateExistingAccountLamports({
+    connection: params.connection,
+    accounts: [delegationRecordPda, delegationMetadataPda]
+  });
+  const refundableLamports = Math.max(0, delegationAccountLamports - MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS);
+  return refundableLamports === 0 ? 0 : -refundableLamports;
 }
 
 // src/checks/enshureChecks.ts
@@ -2616,6 +2869,13 @@ function wrapSolToWsolIx({
     }),
     createSyncNativeInstruction(wsolAta)
   ];
+}
+function createWsolAta({
+  user,
+  payer
+}) {
+  const wsolAta = getAssociatedTokenAddressSync2(NATIVE_MINT, user);
+  return createAssociatedTokenAccountIdempotentInstruction(payer, wsolAta, user, NATIVE_MINT);
 }
 function closeWsolAta({
   user,
@@ -3179,11 +3439,16 @@ async function buildShieldTokensInstructionPlan(params) {
   const instructions = [];
   const checks = [];
   if (isNativeSol) {
-    instructions.push(...labelTransactionInstructions("wrapSol", wrapSolToWsolIx({
+    const wrapSolInstructions = labelTransactionInstructions("wrapSol", wrapSolToWsolIx({
       user,
       payer,
       lamports: amount
-    })));
+    }));
+    const transferInstruction = wrapSolInstructions.find((instruction) => instruction.label === "wrapSol:transfer");
+    if (transferInstruction) {
+      transferInstruction.nativeLamports = Number(amount);
+    }
+    instructions.push(...wrapSolInstructions);
   }
   if (!depositAccountInfo) {
     const initializeDepositIxs = await initializeDepositIx(baseProgram, {
@@ -3266,6 +3531,10 @@ async function buildShieldTokensTransactionPlan(params) {
   const instructionPlan = await buildShieldTokensInstructionPlan(params);
   let preUndelegateTransaction = null;
   if (instructionPlan.needsUndelegate) {
+    const undelegateRentLamports = await estimateDepositDelegationRentCreditLamports({
+      connection: params.baseProgram.provider.connection,
+      depositPda: instructionPlan.context.depositPda
+    });
     const undelegateIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
@@ -3277,7 +3546,13 @@ async function buildShieldTokensTransactionPlan(params) {
     preUndelegateTransaction = {
       label: "shield:preUndelegate",
       cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
+      instructions: [
+        {
+          label: "undelegateDeposit",
+          ix: undelegateIxs.ix,
+          rentLamports: undelegateRentLamports
+        }
+      ],
       checks: undelegateIxs.ensure
     };
   }
@@ -3375,6 +3650,56 @@ async function shieldTokens(params) {
 // src/actions/unshieldTokens.ts
 import { NATIVE_MINT as NATIVE_MINT3 } from "@solana/spl-token";
 import { Transaction as Transaction5 } from "@solana/web3.js";
+
+// src/instructions/closeDeposit.ts
+async function closeDepositIx(program, params) {
+  const { user, tokenMint } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const ix = await program.methods.closeDeposit().accountsPartial({
+    user,
+    deposit: depositPda,
+    tokenMint
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: false,
+        label: "closeDeposit-depositPda"
+      }
+    ]
+  };
+}
+
+// src/instructions/closePermission.ts
+import {
+  createClosePermissionInstruction
+} from "@magicblock-labs/ephemeral-rollups-sdk";
+async function closePermissionIx(params) {
+  const { user, tokenMint } = params;
+  const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
+  const ix = createClosePermissionInstruction({
+    payer: user,
+    authority: [user, true],
+    permissionedAccount: [depositPda, false]
+  });
+  return {
+    ix,
+    ensure: [
+      {
+        address: permissionPda,
+        delegated: false,
+        passNotExist: false,
+        label: "closePermission-permissionPda"
+      }
+    ]
+  };
+}
+
+// src/actions/unshieldTokens.ts
 async function buildUnshieldTokensInstructionPlan(params) {
   const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
   const baseConnection = baseProgram.provider.connection;
@@ -3382,18 +3707,25 @@ async function buildUnshieldTokensInstructionPlan(params) {
   const isNativeSol = tokenMint.equals(NATIVE_MINT3);
   const validator = params.validator ?? getErValidatorForRpcEndpoint(perRpcEndpoint);
   const [depositPda] = findDepositPda(user, tokenMint);
+  const [permissionPda] = findPermissionPda(depositPda);
   const depositAccountInfoPromise = baseConnection.getAccountInfo(depositPda);
+  const permissionAccountInfoPromise = baseConnection.getAccountInfo(permissionPda);
   const modifyBalanceRentLamportsPromise = estimateModifyBalanceRentLamports({
     connection: baseConnection,
     user,
     tokenMint,
     isNativeSol
   });
-  const depositAccountInfo = await depositAccountInfoPromise;
+  const [depositAccountInfo, permissionAccountInfo] = await Promise.all([
+    depositAccountInfoPromise,
+    permissionAccountInfoPromise
+  ]);
   const needsUndelegate = depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
   const currentDepositAccount = needsUndelegate ? await perProgram.account.deposit.fetchNullable(depositPda) : depositAccountInfo?.owner.equals(PROGRAM_ID) ? await baseProgram.account.deposit.fetchNullable(depositPda) : null;
   const currentDepositAmount = currentDepositAccount ? BigInt(currentDepositAccount.amount.toString()) : null;
   const shouldRedelegate = currentDepositAmount !== null && currentDepositAmount - amount > 0n;
+  const closePermissionRentLamports = shouldRedelegate ? 0 : -(permissionAccountInfo?.lamports ?? 0);
+  const closeDepositRentLamports = shouldRedelegate ? 0 : -(depositAccountInfo?.lamports ?? 0);
   const [modifyBalanceRentLamports, delegationRentLamports] = await Promise.all([
     modifyBalanceRentLamportsPromise,
     shouldRedelegate ? estimateDepositDelegationRentLamports({
@@ -3407,11 +3739,9 @@ async function buildUnshieldTokensInstructionPlan(params) {
   const instructions = [];
   const checks = [];
   if (isNativeSol) {
-    instructions.push(...labelTransactionInstructions("ensureWsolAta", wrapSolToWsolIx({
-      user,
-      payer,
-      lamports: 0n
-    })));
+    instructions.push(...labelTransactionInstructions("ensureWsolAta", [
+      createWsolAta({ user, payer })
+    ]));
   }
   const modifyBalanceIxs = await modifyBalanceIx(baseProgram, {
     tokenMint,
@@ -3423,7 +3753,8 @@ async function buildUnshieldTokensInstructionPlan(params) {
   instructions.push({
     label: "modifyBalanceDecrease",
     ix: modifyBalanceIxs.ix,
-    rentLamports: modifyBalanceRentLamports
+    rentLamports: modifyBalanceRentLamports,
+    nativeLamports: isNativeSol ? -Number(amount) : undefined
   });
   checks.push(...modifyBalanceIxs.ensure);
   if (isNativeSol) {
@@ -3448,6 +3779,24 @@ async function buildUnshieldTokensInstructionPlan(params) {
       rentLamports: delegationRentLamports
     });
     checks.push(...delegateDepositIxs.ensure);
+  } else {
+    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+    instructions.push({
+      label: "closePermission",
+      ix: closePermissionIxs.ix,
+      rentLamports: closePermissionRentLamports
+    });
+    checks.push(...closePermissionIxs.ensure);
+    const closeDepositIxs = await closeDepositIx(baseProgram, {
+      user,
+      tokenMint
+    });
+    instructions.push({
+      label: "closeDeposit",
+      ix: closeDepositIxs.ix,
+      rentLamports: closeDepositRentLamports
+    });
+    checks.push(...closeDepositIxs.ensure);
   }
   return {
     instructions,
@@ -3466,7 +3815,13 @@ async function buildUnshieldTokensTransactionPlan(params) {
   const instructionPlan = await buildUnshieldTokensInstructionPlan(params);
   let preUndelegateTransaction = null;
   if (instructionPlan.needsUndelegate) {
-    const undelegateIxs = await undelegateDepositIx(params.perProgram, {
+    preUndelegateTransaction = {
+      label: "unshield:undelegate",
+      cluster: "ephemeral",
+      instructions: [],
+      checks: []
+    };
+    const undelegateDepositIxs = await undelegateDepositIx(params.perProgram, {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
@@ -3474,12 +3829,16 @@ async function buildUnshieldTokensTransactionPlan(params) {
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
-    preUndelegateTransaction = {
-      label: "unshield:undelegate",
-      cluster: "ephemeral",
-      instructions: [{ label: "undelegateDeposit", ix: undelegateIxs.ix }],
-      checks: undelegateIxs.ensure
-    };
+    const undelegateRentLamports = await estimateDepositDelegationRentCreditLamports({
+      connection: params.baseProgram.provider.connection,
+      depositPda: instructionPlan.context.depositPda
+    });
+    preUndelegateTransaction.instructions.push({
+      label: "undelegateDeposit",
+      ix: undelegateDepositIxs.ix,
+      rentLamports: undelegateRentLamports
+    });
+    preUndelegateTransaction.checks.push(...undelegateDepositIxs.ensure);
   }
   return {
     preUndelegateTransaction,
@@ -3629,9 +3988,11 @@ async function estimatePlannedTransactionFees(params) {
       instructionIndex,
       label: instructionPlan.label,
       programId: instructionPlan.ix.programId,
-      rentLamports: instructionPlan.rentLamports ?? 0
+      rentLamports: instructionPlan.rentLamports ?? 0,
+      nativeLamports: instructionPlan.nativeLamports ?? 0
     }));
     const rentLamports = instructions.reduce((total, instruction) => total + instruction.rentLamports, 0);
+    const nativeLamports = instructions.reduce((total, instruction) => total + instruction.nativeLamports, 0);
     return {
       index,
       label: transactionPlan.label,
@@ -3642,6 +4003,8 @@ async function estimatePlannedTransactionFees(params) {
       instructionCount: transactionPlan.instructions.length,
       feeLamports,
       rentLamports,
+      nativeLamports,
+      totalLamports: feeLamports + rentLamports + nativeLamports,
       instructions
     };
   }));
@@ -3650,7 +4013,32 @@ async function estimatePlannedTransactionFees(params) {
     transactions: transactionEstimates,
     instructions: instructionEstimates,
     totalFeeLamports: transactionEstimates.reduce((total, transaction) => total + transaction.feeLamports, 0),
-    totalRentLamports: instructionEstimates.reduce((total, instruction) => total + instruction.rentLamports, 0)
+    totalRentLamports: instructionEstimates.reduce((total, instruction) => total + instruction.rentLamports, 0),
+    totalNativeLamports: instructionEstimates.reduce((total, instruction) => total + instruction.nativeLamports, 0)
+  };
+}
+
+// src/instructions/closeUsernameDeposit.ts
+async function closeUsernameDepositIx(program, params) {
+  const { username, tokenMint, authority, session } = params;
+  validateUsername(username);
+  const [depositPda] = await findUsernameDepositPda(username, tokenMint);
+  const ix = await program.methods.closeUsernameDeposit().accountsPartial({
+    authority,
+    deposit: depositPda,
+    tokenMint,
+    session
+  }).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: false,
+        label: "closeUsernameDeposit-depositPda"
+      }
+    ]
   };
 }
 
@@ -3660,7 +4048,7 @@ var KAMINO_MAINNET_ENV = "mainnet-beta";
 var KAMINO_DEVNET_ENV = "devnet";
 function prettyStringify2(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
-    if (value instanceof PublicKey6)
+    if (value instanceof PublicKey7)
       return value.toBase58();
     if (typeof value === "bigint")
       return value.toString();
@@ -3677,10 +4065,10 @@ function programFromRpc(signer, commitment, rpcEndpoint, wsEndpoint) {
     wsEndpoint,
     commitment
   });
-  const baseProvider = new AnchorProvider(baseConnection, adapter, {
+  const baseProvider = new AnchorProvider2(baseConnection, adapter, {
     commitment
   });
-  return new Program(telegram_private_transfer_default, baseProvider);
+  return new Program2(telegram_private_transfer_default, baseProvider);
 }
 function getKaminoApiEnv(accounts) {
   return accounts && isKaminoMainnetModifyBalanceAccounts(accounts) ? KAMINO_MAINNET_ENV : KAMINO_DEVNET_ENV;
@@ -3698,7 +4086,9 @@ function toShieldFlowTransactionPlan(plan) {
   return {
     label: plan.label,
     cluster: plan.cluster,
-    instructions: plan.instructions
+    instructions: plan.instructions,
+    checks: plan.checks,
+    postSendOwnerChange: plan.postSendOwnerChange
   };
 }
 async function fetchKaminoReserveMetrics(args) {
@@ -3896,9 +4286,23 @@ class LoyalPrivateTransactionsClient {
         magicContext
       });
       if (shieldPlan.preUndelegateTransaction) {
-        transactions.push(toShieldFlowTransactionPlan(shieldPlan.preUndelegateTransaction));
+        transactions.push(toShieldFlowTransactionPlan({
+          ...shieldPlan.preUndelegateTransaction,
+          postSendOwnerChange: {
+            address: shieldPlan.context.depositPda,
+            owner: PROGRAM_ID,
+            bestEffort: true
+          }
+        }));
       }
-      transactions.push(toShieldFlowTransactionPlan(shieldPlan.baseTransaction));
+      transactions.push(toShieldFlowTransactionPlan({
+        ...shieldPlan.baseTransaction,
+        postSendOwnerChange: {
+          address: shieldPlan.context.depositPda,
+          owner: DELEGATION_PROGRAM_ID,
+          bestEffort: true
+        }
+      }));
     } else {
       const unshieldPlan = await buildUnshieldTokensTransactionPlan({
         user: params.user,
@@ -3913,9 +4317,23 @@ class LoyalPrivateTransactionsClient {
         magicContext
       });
       if (unshieldPlan.preUndelegateTransaction) {
-        transactions.push(toShieldFlowTransactionPlan(unshieldPlan.preUndelegateTransaction));
+        transactions.push(toShieldFlowTransactionPlan({
+          ...unshieldPlan.preUndelegateTransaction,
+          postSendOwnerChange: {
+            address: unshieldPlan.context.depositPda,
+            owner: PROGRAM_ID,
+            bestEffort: true
+          }
+        }));
       }
-      transactions.push(toShieldFlowTransactionPlan(unshieldPlan.baseTransaction));
+      transactions.push(toShieldFlowTransactionPlan({
+        ...unshieldPlan.baseTransaction,
+        postSendOwnerChange: unshieldPlan.shouldRedelegate ? {
+          address: unshieldPlan.context.depositPda,
+          owner: DELEGATION_PROGRAM_ID,
+          bestEffort: true
+        } : undefined
+      }));
     }
     return {
       kind: params.kind,
@@ -3961,10 +4379,12 @@ class LoyalPrivateTransactionsClient {
       amount: params.plan.amount,
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
-      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalNativeLamports: estimate.totalNativeLamports,
+      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports + estimate.totalNativeLamports,
       transactions: estimate.transactions,
       instructions: estimate.instructions,
-      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow."
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose net rent changes (positive locks rent, negative reclaims rent) and nativeLamports for native-SOL token value movement. totalLamports is a cost-style net SOL impact for the common payer=user flow: positive values are debits/costs and negative values are credits/gains. feeAndRentLamports excludes native token principal. If payer differs from user, nativeLamports belongs to the token owner while fees/rent may belong to the payer."
     };
   }
   async estimateShieldTokensFee(params) {
@@ -3978,6 +4398,81 @@ class LoyalPrivateTransactionsClient {
       throw new Error("estimateUnshieldTokensFee expected an unshield plan");
     }
     return this.estimateShieldFlowFee(params);
+  }
+  async executeShieldFlowTransactionPlan(params) {
+    if (params.plan.transactions.length === 0) {
+      throw new Error("Cannot execute an empty shield flow plan");
+    }
+    const signatures = [];
+    for (let transactionIndex = 0;transactionIndex < params.plan.transactions.length; transactionIndex += 1) {
+      const transactionPlan = params.plan.transactions[transactionIndex];
+      if (transactionPlan.instructions.length === 0) {
+        throw new Error(`Cannot execute empty transaction plan: ${transactionPlan.label}`);
+      }
+      await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, transactionPlan.checks ?? []);
+      const ownerChangeWatcher = transactionPlan.postSendOwnerChange ? waitForAccountOwnerChange2(this.baseProgram.provider.connection, transactionPlan.postSendOwnerChange.address, transactionPlan.postSendOwnerChange.owner) : null;
+      const provider = transactionPlan.cluster === "base" ? this.baseProgram.provider : this.ephemeralProgram.provider;
+      const tx = new Transaction7().add(...transactionPlan.instructions.map(({ ix }) => ix));
+      let signature;
+      try {
+        signature = await sendAndConfirmWithDiagnostics({
+          label: transactionPlan.label,
+          provider,
+          tx,
+          rpcOptions: params.rpcOptions,
+          extraContext: {
+            kind: params.plan.kind,
+            user: params.plan.user,
+            payer: params.plan.payer,
+            tokenMint: params.plan.tokenMint,
+            amount: params.plan.amount,
+            transactionIndex,
+            cluster: transactionPlan.cluster,
+            postSendOwnerChange: transactionPlan.postSendOwnerChange
+          }
+        });
+      } catch (e) {
+        await ownerChangeWatcher?.cancel();
+        throw e;
+      }
+      if (ownerChangeWatcher) {
+        try {
+          await ownerChangeWatcher.wait();
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        } catch (err) {
+          if (!transactionPlan.postSendOwnerChange?.bestEffort) {
+            throw err;
+          }
+          console.warn(`[${transactionPlan.label}] owner-change watcher did not observe expected owner (signature=${signature}); continuing`, err);
+        }
+      }
+      signatures.push({
+        index: transactionIndex,
+        label: transactionPlan.label,
+        cluster: transactionPlan.cluster,
+        signature
+      });
+    }
+    return {
+      kind: params.plan.kind,
+      user: params.plan.user,
+      payer: params.plan.payer,
+      tokenMint: params.plan.tokenMint,
+      amount: params.plan.amount,
+      signatures
+    };
+  }
+  async executeShieldTokensTransactionPlan(params) {
+    if (params.plan.kind !== "shield") {
+      throw new Error("executeShieldTokensTransactionPlan expected a shield plan");
+    }
+    return this.executeShieldFlowTransactionPlan(params);
+  }
+  async executeUnshieldTokensTransactionPlan(params) {
+    if (params.plan.kind !== "unshield") {
+      throw new Error("executeUnshieldTokensTransactionPlan expected an unshield plan");
+    }
+    return this.executeShieldFlowTransactionPlan(params);
   }
   async initializeDeposit(params) {
     const { ix, ensure } = await initializeDepositIx(this.baseProgram, params);
@@ -4006,6 +4501,40 @@ class LoyalPrivateTransactionsClient {
       extraContext: {
         username: params.username,
         tokenMint: params.tokenMint
+      }
+    });
+  }
+  async closeDeposit(params) {
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await closeDepositIx(this.baseProgram, params);
+    await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
+    const tx = new Transaction7().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint
+      }
+    });
+  }
+  async closeUsernameDeposit(params) {
+    const { username, tokenMint, authority, session } = params;
+    const { ix, ensure } = await closeUsernameDepositIx(this.baseProgram, params);
+    await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
+    const tx = new Transaction7().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeUsernameDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username,
+        tokenMint,
+        authority,
+        session
       }
     });
   }
@@ -4326,43 +4855,11 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async getAllDepositsByUser(user) {
-    const userFilter = [
-      {
-        memcmp: {
-          offset: 8,
-          bytes: user.toBase58()
-        }
-      }
-    ];
-    const [baseResults, ephemeralResults] = await Promise.allSettled([
-      this.baseProgram.account.deposit.all(userFilter),
-      this.ephemeralProgram.account.deposit.all(userFilter)
-    ]);
-    const byPda = new Map;
-    const ingest = (results, preferOverwrite) => {
-      for (const { publicKey, account } of results) {
-        const key = publicKey.toBase58();
-        if (!preferOverwrite && byPda.has(key))
-          continue;
-        byPda.set(key, {
-          user: account.user,
-          tokenMint: account.tokenMint,
-          amount: BigInt(account.amount.toString()),
-          address: publicKey
-        });
-      }
-    };
-    if (baseResults.status === "fulfilled") {
-      ingest(baseResults.value, false);
-    } else {
-      console.warn("[getAllDepositsByUser] base program enumeration failed", baseResults.reason);
-    }
-    if (ephemeralResults.status === "fulfilled") {
-      ingest(ephemeralResults.value, true);
-    } else {
-      console.warn("[getAllDepositsByUser] ephemeral program enumeration failed", ephemeralResults.reason);
-    }
-    return Array.from(byPda.values());
+    return enumerateDepositsByUser({
+      user,
+      baseConnection: this.baseProgram.provider.connection,
+      ephemeralConnection: this.ephemeralProgram.provider.connection
+    });
   }
   async getBaseUsernameDeposit(username, tokenMint) {
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
@@ -4589,10 +5086,13 @@ export {
   unshieldTokens,
   solToLamports,
   shieldTokens,
+  parseKaminoReserveSnapshotFromAccountData,
   lamportsToSol,
   isWalletLike,
   isKeypair,
+  isKaminoMainnetModifyBalanceAccounts,
   isAnchorProvider,
+  getKaminoModifyBalanceAccountsForTokenMint,
   getErValidatorForSolanaEnv,
   getErValidatorForRpcEndpoint,
   findVaultPda,
@@ -4602,10 +5102,18 @@ export {
   findDelegationRecordPda,
   findDelegationMetadataPda,
   findBufferPda,
+  fetchKaminoReserveSnapshot,
+  enumerateDepositsByUser,
+  calculateKaminoShareAmountForLiquidityAmountRaw,
+  calculateKaminoRedeemableLiquidityAmountRaw,
+  calculateKaminoCollateralValuation,
+  calculateKaminoCollateralExchangeRateSfFromAmounts,
   VAULT_SEED_BYTES,
   VAULT_SEED,
   USERNAME_DEPOSIT_SEED_BYTES,
   USERNAME_DEPOSIT_SEED,
+  USDC_MINT_MAINNET,
+  USDC_MINT_DEVNET,
   PROGRAM_ID,
   PERMISSION_SEED_BYTES,
   PERMISSION_SEED,
@@ -4614,6 +5122,7 @@ export {
   MAGIC_CONTEXT_ID,
   LoyalPrivateTransactionsClient,
   LAMPORTS_PER_SOL,
+  KLEND_PROGRAM_ID,
   IDL,
   ER_VALIDATOR_MAINNET,
   ER_VALIDATOR_DEVNET,

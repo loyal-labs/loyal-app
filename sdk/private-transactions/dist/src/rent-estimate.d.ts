@@ -1,4 +1,5 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
+export declare const MAGICBLOCK_UNDELEGATE_SESSION_FEE_LAMPORTS = 300000;
 export declare const DEPOSIT_ACCOUNT_SIZE: number;
 export declare const VAULT_ACCOUNT_SIZE: number;
 export declare const PERMISSION_ACCOUNT_SIZE = 567;
@@ -11,6 +12,10 @@ export type RentAccountEstimate = {
 export declare function estimateNewAccountRentLamports(params: {
     connection: Connection;
     accounts: RentAccountEstimate[];
+}): Promise<number>;
+export declare function estimateExistingAccountLamports(params: {
+    connection: Connection;
+    accounts: PublicKey[];
 }): Promise<number>;
 export declare function estimateDepositRentLamports(params: {
     connection: Connection;
@@ -34,4 +39,8 @@ export declare function estimateDepositDelegationRentLamports(params: {
     tokenMint: PublicKey;
     depositPda: PublicKey;
     forceCreate?: boolean;
+}): Promise<number>;
+export declare function estimateDepositDelegationRentCreditLamports(params: {
+    connection: Connection;
+    depositPda: PublicKey;
 }): Promise<number>;

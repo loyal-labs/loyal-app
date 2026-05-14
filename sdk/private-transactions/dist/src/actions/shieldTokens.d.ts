@@ -6,6 +6,7 @@ export type LabeledTransactionInstruction = {
     label: string;
     ix: TransactionInstruction;
     rentLamports?: number;
+    nativeLamports?: number;
 };
 export type LabeledTransactionPlan = {
     label: string;

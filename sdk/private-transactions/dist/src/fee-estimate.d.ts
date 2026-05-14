@@ -4,6 +4,7 @@ export type FeeEstimateInstructionPlan = {
     label: string;
     ix: TransactionInstruction;
     rentLamports?: number;
+    nativeLamports?: number;
 };
 export type FeeEstimateTransactionPlan = {
     label: string;
@@ -20,4 +21,5 @@ export declare function estimatePlannedTransactionFees(params: {
     instructions: InstructionCostEstimate[];
     totalFeeLamports: number;
     totalRentLamports: number;
+    totalNativeLamports: number;
 }>;

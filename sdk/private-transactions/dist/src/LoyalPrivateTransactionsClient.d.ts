@@ -1,7 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { Program } from "@coral-xyz/anchor";
 import type { TelegramPrivateTransfer } from "./idl/telegram_private_transfer.ts";
-import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, ModifyBalanceParams, ModifyBalanceResult, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoShieldedBalanceQuote, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowFeeEstimate, ShieldFlowPlan, ShieldTokensClientParams, UnshieldTokensClientParams, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
+import type { WalletLike, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, CloseDepositParams, CloseUsernameDepositParams, ModifyBalanceParams, ModifyBalanceResult, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoShieldedBalanceQuote, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, ExecuteShieldFlowTransactionPlanParams, ExecuteShieldTokensTransactionPlanParams, ExecuteUnshieldTokensTransactionPlanParams, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowExecutionResult, ShieldFlowFeeEstimate, ShieldFlowPlan, ShieldTokensClientParams, UnshieldTokensClientParams, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, InitializeUsernameDepositParams, ClaimUsernameDepositToDepositParams, DelegationStatusResponse } from "./types";
 export declare function waitForAccountOwnerChange(connection: Connection, account: PublicKey, expectedOwner: PublicKey, timeoutMs?: number, intervalMs?: number): {
     wait: () => Promise<void>;
     cancel: () => Promise<void>;
@@ -52,11 +52,16 @@ export declare class LoyalPrivateTransactionsClient {
     estimateShieldFlowFee(params: EstimateShieldFlowFeeParams): Promise<ShieldFlowFeeEstimate>;
     estimateShieldTokensFee(params: EstimateShieldTokensFeeParams): Promise<ShieldFlowFeeEstimate>;
     estimateUnshieldTokensFee(params: EstimateUnshieldTokensFeeParams): Promise<ShieldFlowFeeEstimate>;
+    executeShieldFlowTransactionPlan(params: ExecuteShieldFlowTransactionPlanParams): Promise<ShieldFlowExecutionResult>;
+    executeShieldTokensTransactionPlan(params: ExecuteShieldTokensTransactionPlanParams): Promise<ShieldFlowExecutionResult>;
+    executeUnshieldTokensTransactionPlan(params: ExecuteUnshieldTokensTransactionPlanParams): Promise<ShieldFlowExecutionResult>;
     /**
      * Initialize a deposit account for a user and token mint
      */
     initializeDeposit(params: InitializeDepositParams): Promise<string>;
     initializeUsernameDeposit(params: InitializeUsernameDepositParams): Promise<string>;
+    closeDeposit(params: CloseDepositParams): Promise<string>;
+    closeUsernameDeposit(params: CloseUsernameDepositParams): Promise<string>;
     /**
      * Modify the balance of a user's deposit account
      */
