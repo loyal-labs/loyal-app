@@ -743,6 +743,7 @@ export const getAccountTransactionHistory = async (
   const signatures = await connection.getSignaturesForAddress(publicKey, {
     limit: options.limit ?? 10,
     before: options.before,
+    until: options.until,
   });
 
   if (signatures.length === 0) {

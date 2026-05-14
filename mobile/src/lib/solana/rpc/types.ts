@@ -48,5 +48,6 @@ export type WalletTransfer = {
 export type GetAccountTransactionHistoryOptions = {
   limit?: number;
   before?: string;
+  until?: string;
   onlySystemTransfers?: boolean;
 };

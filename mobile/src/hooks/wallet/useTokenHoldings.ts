@@ -7,6 +7,7 @@ import {
   fetchTokenHoldings,
 } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
+import { HOLDINGS_REFRESH_DEBOUNCE_MS } from "@/lib/solana/wallet-cache";
 
 // Lazy import — `@solana/spl-token` touches `Buffer` at top level and
 // breaks fast refresh if eagerly imported from a hook file.
@@ -32,6 +33,9 @@ export function useTokenHoldings(
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [isHoldingsLoading, setIsHoldingsLoading] = useState(false);
   const fetchIdRef = useRef(0);
+  const ataRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const onAtaBalanceChangeRef = useRef(onAtaBalanceChange);
   onAtaBalanceChangeRef.current = onAtaBalanceChange;
 
@@ -82,6 +86,19 @@ export function useTokenHoldings(
     let cancelled = false;
     let unsubscribe: (() => Promise<void>) | null = null;
 
+    const scheduleAtaRefresh = () => {
+      clearHoldingsCache();
+      if (ataRefreshTimerRef.current) {
+        clearTimeout(ataRefreshTimerRef.current);
+      }
+      ataRefreshTimerRef.current = setTimeout(() => {
+        ataRefreshTimerRef.current = null;
+        if (cancelled) return;
+        void refreshTokenHoldings(true);
+        onAtaBalanceChangeRef.current?.();
+      }, HOLDINGS_REFRESH_DEBOUNCE_MS);
+    };
+
     void (async () => {
       try {
         const owner = new PublicKey(walletAddress);
@@ -121,9 +138,7 @@ export function useTokenHoldings(
 
         unsubscribe = await subscribeToAtaChanges(atas, () => {
           if (cancelled) return;
-          clearHoldingsCache();
-          void refreshTokenHoldings(true);
-          onAtaBalanceChangeRef.current?.();
+          scheduleAtaRefresh();
         });
       } catch (error) {
         console.error("[ws/ata] Failed to set up ATA subscriptions", error);
@@ -132,6 +147,10 @@ export function useTokenHoldings(
 
     return () => {
       cancelled = true;
+      if (ataRefreshTimerRef.current) {
+        clearTimeout(ataRefreshTimerRef.current);
+        ataRefreshTimerRef.current = null;
+      }
       if (unsubscribe) void unsubscribe();
     };
   }, [walletAddress, atasKey, refreshTokenHoldings]);
