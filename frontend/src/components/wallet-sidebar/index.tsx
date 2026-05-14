@@ -13,6 +13,7 @@ import { TurnstileWidget } from "@/components/auth/turnstile-widget";
 import { WalletTab } from "@/components/auth/wallet-tab";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
+import type { SwapExecutionContext } from "@/hooks/use-swap";
 import type {
   SmartAccountApprovalItem,
   SmartAccountSidebarData,
@@ -32,6 +33,7 @@ import { PortfolioContent } from "./portfolio-content";
 import { ReceiveContent } from "./receive-content";
 import { SendContent } from "./send-content";
 import { ShieldContent, SwapShieldTabs } from "./shield-content";
+import { createSwapTokensFromPositions } from "./swap-account-context";
 import { SwapContent } from "./swap-content";
 import { TokenSelectView } from "./token-select-view";
 import { AccountPageView } from "./account-page-view";
@@ -240,7 +242,42 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     );
     return [...derivedTokens, ...extras];
   }, [derivedTokens, popularTokens]);
-
+  const selectedVaultSwapTokens = useMemo<SwapToken[]>(
+    () =>
+      selectedVault
+        ? createSwapTokensFromPositions(selectedVault.positions, {
+            balance: "total",
+            getTokenIconUrl,
+          })
+        : [],
+    [selectedVault]
+  );
+  const vaultSwapTargetTokens = useMemo<SwapToken[]>(() => {
+    const heldMints = new Set(
+      selectedVaultSwapTokens.map((token) => token.mint).filter(Boolean)
+    );
+    const extras = popularTokens.filter(
+      (token) => token.mint && !heldMints.has(token.mint)
+    );
+    return [...selectedVaultSwapTokens, ...extras];
+  }, [popularTokens, selectedVaultSwapTokens]);
+  const executeVaultSwap = props.smartAccountData.executeVaultSwap;
+  const selectedVaultSwapExecutionContext = useMemo<
+    SwapExecutionContext | undefined
+  >(
+    () =>
+      selectedVault
+        ? {
+            executeTransaction: (transaction) =>
+              executeVaultSwap({
+                accountIndex: selectedVault.entry.accountIndex,
+                transaction,
+              }),
+            userPublicKey: selectedVault.entry.address,
+          }
+        : undefined,
+    [executeVaultSwap, selectedVault]
+  );
   // Cross-fade when switching tabs: fade out → swap content → fade in
   const [crossFadeOpacity, setCrossFadeOpacity] = useState(1);
   const [displayTab, setDisplayTab] = useState(props.activeTab);
@@ -281,6 +318,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     derivedTokens[0] ?? fallbackSwapTokens[0]
   );
   const [swapToToken, setSwapToToken] = useState<SwapToken>(LOYL_TOKEN);
+  const mainSwapFromToken =
+    derivedTokens.find(
+      (token) => token.mint && token.mint === swapFromToken.mint
+    ) ?? swapFromToken;
 
   // Swap/Shield mode
   const [swapMode, setSwapMode] = useState<SwapMode>("swap");
@@ -577,25 +618,34 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       const detail = (
         view as { type: "transaction"; detail: TransactionDetail; from: string }
       ).detail;
-      return (
-        <TransactionDetailView
-          detail={detail}
-          onBack={onBack}
-        />
-      );
+      return <TransactionDetailView detail={detail} onBack={onBack} />;
     }
     if (type === "tokenSelect") {
       const field = (view as { type: "tokenSelect"; field: "from" | "to" })
         .field;
+      const sourceTokens =
+        isVaultSubview && selectedVaultSwapTokens.length > 0
+          ? selectedVaultSwapTokens
+          : derivedTokens;
+      const targetTokens =
+        isVaultSubview && selectedVaultSwapTokens.length > 0
+          ? vaultSwapTargetTokens
+          : swapTargetTokens;
+      const currentFromToken =
+        sourceTokens.length > 0
+          ? sourceTokens.find(
+              (token) => token.mint && token.mint === swapFromToken.mint
+            ) ?? sourceTokens[0]
+          : swapFromToken;
       return (
         <TokenSelectView
-          currentToken={field === "from" ? swapFromToken : swapToToken}
+          currentToken={field === "from" ? currentFromToken : swapToToken}
           onBack={onBack}
           onClose={props.onClose}
           onSearch={field === "to" ? searchTokens : undefined}
           onSelect={handleTokenSelect}
           title={field === "from" ? "You Swap" : "You Receive"}
-          tokens={field === "to" ? swapTargetTokens : derivedTokens}
+          tokens={field === "to" ? targetTokens : sourceTokens}
         />
       );
     }
@@ -844,6 +894,15 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     }
     if (type === "swapPanel") {
       const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
+      const effectiveSwapFromToken =
+        isVaultSubview && selectedVaultSwapTokens.length > 0
+          ? selectedVaultSwapTokens.find(
+              (token) => token.mint && token.mint === swapFromToken.mint
+            ) ?? selectedVaultSwapTokens[0]
+          : mainSwapFromToken;
+      const vaultSwapExecutionContext = isVaultSubview
+        ? selectedVaultSwapExecutionContext
+        : undefined;
       return (
         <div
           style={{
@@ -882,7 +941,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               }}
             >
               <SwapContent
-                fromToken={swapFromToken}
+                fromToken={effectiveSwapFromToken}
                 hideFormChrome
                 onBack={onBack}
                 onClose={props.onClose}
@@ -895,6 +954,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 onNavigate={navigateFn}
                 onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
+                executionContext={vaultSwapExecutionContext}
                 swapMode={swapMode}
                 toToken={swapToToken}
               />
@@ -1300,7 +1360,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                       }}
                     >
                       <SwapContent
-                        fromToken={swapFromToken}
+                        fromToken={mainSwapFromToken}
                         hideFormChrome
                         onClose={props.onClose}
                         onDone={() => props.onTabChange("portfolio")}
