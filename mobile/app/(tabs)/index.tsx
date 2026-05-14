@@ -1,6 +1,12 @@
 import { BottomSheetModal } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { ArrowDown, ArrowLeftRight, ArrowUp, Shield } from "lucide-react-native";
+import {
+  ArrowDown,
+  ArrowLeftRight,
+  ArrowUp,
+  Shield,
+  ShieldOff,
+} from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import {
@@ -54,6 +60,7 @@ import {
   resetWalletBalanceSubscription,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
+import type { ShieldDirection } from "@/lib/solana/shielding";
 import {
   DEFAULT_BALANCE_BACKGROUND_ID,
   findBalanceBackground,
@@ -215,6 +222,8 @@ export default function WalletScreen() {
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
+  const [shieldDirection, setShieldDirection] =
+    useState<ShieldDirection>("shield");
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
   const [balanceBg, setBalanceBg] = useState<string | null>(() => {
     const cached = getCachedBalanceBg();
@@ -297,6 +306,11 @@ export default function WalletScreen() {
 
   const handleShowAllActivity = useCallback(() => {
     activitySheetRef.current?.present();
+  }, []);
+
+  const handleOpenShield = useCallback((direction: ShieldDirection) => {
+    setShieldDirection(direction);
+    setIsShieldOpen(true);
   }, []);
 
   const handleBgSelect = useCallback((bg: string | null) => {
@@ -423,7 +437,15 @@ export default function WalletScreen() {
             label="Shield"
             onPress={() => {
               track(PORTFOLIO_EVENTS.openShield);
-              setIsShieldOpen(true);
+              handleOpenShield("shield");
+            }}
+          />
+          <ActionButton
+            icon={<ShieldOff size={28} color="#000" strokeWidth={1.5} />}
+            label="Unshield"
+            onPress={() => {
+              track(PORTFOLIO_EVENTS.openUnshield);
+              handleOpenShield("unshield");
             }}
           />
         </View>
@@ -433,7 +455,7 @@ export default function WalletScreen() {
           <BannerCarousel
             onShield={() => {
               track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
-              setIsShieldOpen(true);
+              handleOpenShield("shield");
             }}
           />
         </View>
@@ -495,6 +517,7 @@ export default function WalletScreen() {
         tokenHoldings={tokenHoldings}
         tokenDetailsByMint={tokenDetailsByMint}
         onShieldComplete={handleShieldComplete}
+        initialDirection={shieldDirection}
       />
 
       <BalanceBackgroundPicker

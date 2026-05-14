@@ -5,6 +5,7 @@ import {
   computeUnshieldModifyAmount,
   getShieldDirection,
   getShieldTokenDecimals,
+  resolveInitialShieldAssetKey,
 } from "../shielding";
 
 describe("buildShieldAssets", () => {
@@ -75,6 +76,71 @@ describe("getShieldDirection", () => {
     expect(getShieldDirection({ isSecured: false })).toBe("shield");
     expect(getShieldDirection({ isSecured: true })).toBe("unshield");
     expect(getShieldDirection(null)).toBe("shield");
+  });
+});
+
+describe("resolveInitialShieldAssetKey", () => {
+  const assets = buildShieldAssets([
+    {
+      mint: "mint-sol",
+      symbol: "SOL",
+      name: "Solana",
+      balance: 1,
+      decimals: 9,
+      priceUsd: 150,
+      valueUsd: 150,
+      imageUrl: null,
+      isSecured: false,
+    },
+    {
+      mint: "mint-usdc",
+      symbol: "USDC",
+      name: "USD Coin",
+      balance: 2,
+      decimals: 6,
+      priceUsd: 1,
+      valueUsd: 2,
+      imageUrl: null,
+      isSecured: false,
+    },
+    {
+      mint: "mint-usdc",
+      symbol: "USDC",
+      name: "USD Coin",
+      balance: 0.5,
+      decimals: 6,
+      priceUsd: 1,
+      valueUsd: 0.5,
+      imageUrl: null,
+      isSecured: true,
+    },
+  ]);
+
+  it("selects the public balance when shield is requested", () => {
+    expect(
+      resolveInitialShieldAssetKey(assets, {
+        initialMint: "mint-usdc",
+        initialDirection: "shield",
+      }),
+    ).toBe(buildShieldAssetKey("mint-usdc", false));
+  });
+
+  it("selects the shielded balance when unshield is requested", () => {
+    expect(
+      resolveInitialShieldAssetKey(assets, {
+        initialMint: "mint-usdc",
+        initialDirection: "unshield",
+      }),
+    ).toBe(buildShieldAssetKey("mint-usdc", true));
+  });
+
+  it("returns null when no balance matches the requested direction", () => {
+    expect(
+      resolveInitialShieldAssetKey(assets, {
+        initialMint: "mint-sol",
+        initialDirection: "unshield",
+      }),
+    ).toBeNull();
   });
 });
 

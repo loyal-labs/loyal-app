@@ -3,9 +3,5 @@ export const PORTFOLIO_EVENTS = {
   openReceive: 'Open "Receive"',
   openSwap: 'Open "Swap"',
   openShield: 'Open "Shield"',
-  toggleBalanceVisibility: "Toggle Balance Visibility",
-  copyAddress: "Copy Address",
-  viewAllTokens: "View All Tokens",
-  viewAllActivity: "View All Activity",
-  viewTransactionDetails: "View Transaction Details",
+  openUnshield: 'Open "Unshield"',
 } as const;

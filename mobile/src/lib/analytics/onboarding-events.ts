@@ -1,6 +1,5 @@
 export const ONBOARDING_EVENTS = {
   started: "Onboarding Started",
-  slideViewed: "Onboarding Slide Viewed",
   ended: "Onboarding Ended",
 } as const;
 

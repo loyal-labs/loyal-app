@@ -39,6 +39,7 @@ import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
+import type { ShieldDirection } from "@/lib/solana/shielding";
 import { formatUsdSpotPrice } from "@/lib/solana/token-holdings/format-usd-price";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { Pressable, ScrollView, Text, View } from "@/tw";
@@ -372,6 +373,7 @@ function ActionRailButton({
       className="items-center gap-2"
       onPress={disabled ? undefined : handlePress}
       style={{ opacity: disabled || muted ? 0.45 : 1 }}
+      accessibilityState={{ disabled }}
     >
       <View
         className="h-[52px] w-[52px] items-center justify-center rounded-full"
@@ -735,12 +737,12 @@ function TokenDetailBody({
   showUnavailable,
   showEmptyPosition,
   marketRows,
-  shieldActionLabel,
   shieldedApyBps,
   onReceive,
   onReload,
   onSend,
   onShield,
+  onUnshield,
   onSwap,
 }: {
   tokenMint: string;
@@ -755,12 +757,12 @@ function TokenDetailBody({
   showUnavailable: boolean;
   showEmptyPosition: boolean;
   marketRows: { label: string; value: string }[];
-  shieldActionLabel: string;
   shieldedApyBps: number | null;
   onReceive: () => void;
   onReload: () => void;
   onSend: () => void;
   onShield: () => void;
+  onUnshield: () => void;
   onSwap: () => void;
 }) {
   return (
@@ -855,7 +857,7 @@ function TokenDetailBody({
         </View>
       ) : null}
 
-      <View className="mt-6 flex-row justify-center gap-8 px-2">
+      <View className="mt-6 flex-row flex-wrap justify-center gap-6 px-2">
         <ActionRailButton
           icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
           label="Send"
@@ -873,8 +875,15 @@ function TokenDetailBody({
         />
         <ActionRailButton
           icon={<Shield size={28} color="#000" strokeWidth={1.5} />}
-          label={shieldActionLabel}
+          label="Shield"
           onPress={onShield}
+          disabled={!viewModel.canShield}
+        />
+        <ActionRailButton
+          icon={<ShieldOff size={28} color="#000" strokeWidth={1.5} />}
+          label="Unshield"
+          onPress={onUnshield}
+          disabled={!viewModel.canUnshield}
         />
       </View>
 
@@ -1004,6 +1013,8 @@ export default function TokenDetailScreen() {
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
+  const [shieldDirection, setShieldDirection] =
+    useState<ShieldDirection>("shield");
   const [activeChartPointIndex, setActiveChartPointIndex] = useState<number | null>(null);
   const [isChartInteracting, setIsChartInteracting] = useState(false);
 
@@ -1073,8 +1084,11 @@ export default function TokenDetailScreen() {
   const marketRows = buildMarketRows(viewModel.market);
   const initialSwapFromMint = viewModel.position.publicBalance > 0 ? viewModel.mint : undefined;
   const initialSwapToMint = viewModel.position.publicBalance > 0 ? undefined : viewModel.mint;
-  const shieldActionLabel =
-    !viewModel.canShield && viewModel.canUnshield ? "Unshield" : "Shield";
+
+  const handleOpenShield = useCallback((direction: ShieldDirection) => {
+    setShieldDirection(direction);
+    setIsShieldOpen(true);
+  }, []);
 
   const handleBackPress = useCallback(() => {
     router.back();
@@ -1130,12 +1144,12 @@ export default function TokenDetailScreen() {
             showUnavailable={showUnavailable}
             showEmptyPosition={showEmptyPosition}
             marketRows={marketRows}
-            shieldActionLabel={shieldActionLabel}
             shieldedApyBps={shieldedApyBps}
             onReceive={() => setIsReceiveOpen(true)}
             onReload={() => void reload()}
             onSend={() => setIsSendOpen(true)}
-            onShield={() => setIsShieldOpen(true)}
+            onShield={() => handleOpenShield("shield")}
+            onUnshield={() => handleOpenShield("unshield")}
             onSwap={() => setIsSwapOpen(true)}
           />
         </View>
@@ -1177,6 +1191,7 @@ export default function TokenDetailScreen() {
         tokenDetailsByMint={tokenDetailsByMint}
         onShieldComplete={handleShieldComplete}
         initialMint={viewModel.mint}
+        initialDirection={shieldDirection}
       />
     </View>
   );
