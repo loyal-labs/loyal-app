@@ -142,7 +142,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setNetworkState(net);
       setBalanceHidden(hidden);
 
-      // Auto-unlock from in-memory session keypair held by background
+      // Auto-unlock from the current unlocked browser session keypair
       if (sessionResponse?.secretKey) {
         try {
           const keypair = Keypair.fromSecretKey(
@@ -229,7 +229,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setState("unlocked");
       void isWalletUnlockedStorage.setValue(true);
       void lastActivityAtStorage.setValue(Date.now());
-      // Send keypair to background — held in memory only, never persisted to storage
+      // Send keypair to background for the current unlocked browser session.
       void browser.runtime.sendMessage({
         type: "STORE_SESSION_KEYPAIR",
         secretKey: JSON.stringify(Array.from(keypair.secretKey)),
