@@ -3,6 +3,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -176,21 +177,52 @@ function generateMirror(mirror: MirrorConfig, destinationRoot: string): void {
   writeMirrorSource(mirror, destinationRoot);
 }
 
-function rgMatches(pattern: string, directory: string): string {
-  const result = Bun.spawnSync(["rg", "-n", pattern, directory], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+function findTextMatches(pattern: string, directory: string): string {
+  const matcher = new RegExp(pattern);
+  const matches: string[] = [];
+  const ignoredDirectories = new Set([
+    ".git",
+    ".next",
+    ".turbo",
+    "build",
+    "dist",
+    "node_modules",
+  ]);
 
-  if (result.exitCode === 1) {
-    return "";
+  function walk(currentDirectory: string): void {
+    for (const entry of readdirSync(currentDirectory, {
+      withFileTypes: true,
+    })) {
+      const entryPath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        if (!ignoredDirectories.has(entry.name)) {
+          walk(entryPath);
+        }
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const contents = readFileSync(entryPath);
+      if (contents.includes(0)) {
+        continue;
+      }
+
+      const lines = contents.toString("utf8").split(/\r?\n/);
+      lines.forEach((line, index) => {
+        if (matcher.test(line)) {
+          matches.push(
+            `${path.relative(directory, entryPath)}:${index + 1}:${line}`
+          );
+        }
+      });
+    }
   }
 
-  if (result.exitCode !== 0) {
-    throw new Error(new TextDecoder().decode(result.stderr).trim());
-  }
-
-  return new TextDecoder().decode(result.stdout).trim();
+  walk(directory);
+  return matches.join("\n");
 }
 
 function assertGeneratedSafety(
@@ -198,7 +230,10 @@ function assertGeneratedSafety(
   destinationRoot: string
 ): void {
   if (isGeneratedAppMirror(mirror)) {
-    const forbidden = rgMatches(appMirrorForbiddenPattern, destinationRoot);
+    const forbidden = findTextMatches(
+      appMirrorForbiddenPattern,
+      destinationRoot
+    );
     if (forbidden) {
       throw new Error(
         `${mirror.repo} generated forbidden monorepo references:\n${forbidden}`
@@ -219,7 +254,7 @@ function assertGeneratedSafety(
       );
     }
 
-    const loyalAppReleaseTarget = rgMatches(
+    const loyalAppReleaseTarget = findTextMatches(
       "loyal-labs/loyal-app/releases",
       destinationRoot
     );

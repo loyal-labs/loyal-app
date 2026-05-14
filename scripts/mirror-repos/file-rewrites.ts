@@ -149,6 +149,7 @@ function rewriteTelegramApp(root: string, versions: Map<string, string>): void {
 function rewriteMobile(root: string, versions: Map<string, string>): void {
   rewritePackageJsonDependencies(path.join(root, "package.json"), versions);
   removeExternalTsconfigPaths(path.join(root, "tsconfig.json"));
+  removeIfExists(path.join(root, "CLAUDE.md"));
 
   const metroConfig = `// mobile/metro.config.js
 const fs = require("fs");
