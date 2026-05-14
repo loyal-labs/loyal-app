@@ -164,24 +164,21 @@ describe("frontend analytics adapter", () => {
       authMethod: "wallet",
       subjectAddress: "subject-address",
       displayAddress: "display-address",
-      gridUserId: "grid-user-1",
-      provider: "privy",
-      email: "user@example.com",
+      provider: "solana",
       walletAddress: "wallet-address",
       smartAccountAddress: "smart-account-address",
+      settingsPda: "settings-pda",
     });
 
     expect(identifyCalls).toEqual(["wallet:wallet-address"]);
     expect(setUserProfileCalls).toEqual([
       {
         auth_method: "wallet",
-        grid_user_id: "grid-user-1",
-        provider: "privy",
-        email: "user@example.com",
-        $email: "user@example.com",
+        provider: "solana",
         display_address: "display-address",
         wallet_address: "wallet-address",
         smart_account_address: "smart-account-address",
+        settings_pda: "settings-pda",
       },
       {
         last_workspace: "website",
@@ -206,7 +203,6 @@ describe("frontend analytics adapter", () => {
       authMethod: "wallet",
       subjectAddress: "subject-address",
       displayAddress: "display-address",
-      gridUserId: "grid-user-1",
     });
 
     expect(identifyCalls).toHaveLength(0);
@@ -218,23 +214,20 @@ describe("frontend analytics adapter", () => {
       authMethod: "wallet",
       subjectAddress: "subject-address",
       displayAddress: "display-address",
-      gridUserId: "grid-user-1",
       walletAddress: "wallet-address",
     });
     analytics.identifyAuthenticatedUser(publicEnv, {
       authMethod: "wallet",
       subjectAddress: "subject-address",
       displayAddress: "display-address",
-      gridUserId: "grid-user-1",
       walletAddress: "wallet-address",
-      email: "user@example.com",
+      settingsPda: "settings-pda",
     });
 
     expect(identifyCalls).toEqual(["wallet:wallet-address"]);
     expect(setUserProfileCalls).toHaveLength(3);
     expect(setUserProfileCalls[2]).toMatchObject({
-      email: "user@example.com",
-      $email: "user@example.com",
+      settings_pda: "settings-pda",
     });
   });
 
@@ -243,8 +236,8 @@ describe("frontend analytics adapter", () => {
       authMethod: "wallet",
       subjectAddress: "subject-address",
       displayAddress: "display-address",
-      gridUserId: "grid-user-1",
       walletAddress: "wallet-address",
+      settingsPda: "settings-pda",
     });
     analytics.resetAuthenticatedUser();
 
@@ -255,8 +248,8 @@ describe("frontend analytics adapter", () => {
           workspace: "website",
           path: "/wallet",
           auth_method: "wallet",
-          grid_user_id: "grid-user-1",
           wallet_address: "wallet-address",
+          settings_pda: "settings-pda",
         },
       },
     ]);

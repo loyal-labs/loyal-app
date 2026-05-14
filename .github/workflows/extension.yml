@@ -17,6 +17,11 @@ jobs:
       - run: cd packages/wallet-core && bun run typecheck && bun run build
       - id: version
         run: echo "v=$(jq -r .version extension/package.json)" >> "$GITHUB_OUTPUT"
+      - name: Write extension .env
+        env:
+          VITE_COINGECKO_API_KEY: ${{ secrets.VITE_COINGECKO_API_KEY }}
+          VITE_MIXPANEL_TOKEN: ${{ secrets.VITE_MIXPANEL_TOKEN }}
+        run: printf 'VITE_COINGECKO_API_KEY=%s\nVITE_MIXPANEL_TOKEN=%s\n' "$VITE_COINGECKO_API_KEY" "$VITE_MIXPANEL_TOKEN" > extension/.env
       - run: cd extension && bun run build
       - uses: actions/upload-artifact@v4
         with:

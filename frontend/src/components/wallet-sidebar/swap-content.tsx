@@ -1,15 +1,19 @@
 "use client";
 
-import { ArrowDownUp, ArrowLeft, ChevronRight, Globe, Share, X } from "lucide-react";
+import {
+  ArrowDownUp,
+  ArrowLeft,
+  ChevronRight,
+  Globe,
+  Share,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { useSwap } from "@/hooks/use-swap";
-import {
-  openTrackedLink,
-  trackWalletSwapPressed,
-} from "@/lib/core/analytics";
+import { useSwap, type SwapExecutionContext } from "@/hooks/use-swap";
+import { openTrackedLink, trackWalletSwapPressed } from "@/lib/core/analytics";
 
 import { SwapShieldTabs } from "./shield-content";
 import type { FormButtonProps, SubView, SwapMode, SwapToken } from "./types";
@@ -594,11 +598,13 @@ function SwapTransactionDetail({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           padding: "8px",
           overflowY: "auto",
+          overflowX: "hidden",
         }}
       >
         {/* Amount hero */}
@@ -897,6 +903,7 @@ export function SwapContent({
   hideFormChrome,
   onFormActiveChange,
   onFormButtonChange,
+  executionContext,
 }: {
   onClose: () => void;
   onDone: () => void;
@@ -911,6 +918,7 @@ export function SwapContent({
   hideFormChrome?: boolean;
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
+  executionContext?: SwapExecutionContext;
 }) {
   const publicEnv = usePublicEnv();
   const {
@@ -1023,7 +1031,9 @@ export function SwapContent({
 
   const handleConfirm = useCallback(async () => {
     if (!quote) return;
-    const completedAmount = hasAmount ? Number(toAmount.toFixed(6)).toString() : "0";
+    const completedAmount = hasAmount
+      ? Number(toAmount.toFixed(6)).toString()
+      : "0";
     const completedUsd = `$${
       hasAmount
         ? (toAmount * toToken.price).toLocaleString(undefined, {
@@ -1051,15 +1061,18 @@ export function SwapContent({
     setErrorMessage(undefined);
     setPhase("processing");
 
-    const result = await executeSwap({
-      from_symbol: fromToken.symbol,
-      from_mint: fromToken.mint,
-      to_symbol: toToken.symbol,
-      to_mint: toToken.mint,
-      from_amount: fromAmount,
-      to_amount: completedAmount,
-      usd_value: completedUsd,
-    });
+    const result = await executeSwap(
+      {
+        from_symbol: fromToken.symbol,
+        from_mint: fromToken.mint,
+        to_symbol: toToken.symbol,
+        to_mint: toToken.mint,
+        from_amount: fromAmount,
+        to_amount: completedAmount,
+        usd_value: completedUsd,
+      },
+      executionContext
+    );
 
     if (result.success) {
       setResultSignature(result.signature);
@@ -1070,7 +1083,21 @@ export function SwapContent({
       setErrorMessage(result.error);
       setPhase("error");
     }
-  }, [executeSwap, fromAmount, fromToken.mint, fromToken.symbol, hasAmount, publicEnv, quote, resetQuote, toAmount, toToken.mint, toToken.price, toToken.symbol]);
+  }, [
+    executeSwap,
+    executionContext,
+    fromAmount,
+    fromToken.mint,
+    fromToken.symbol,
+    hasAmount,
+    publicEnv,
+    quote,
+    resetQuote,
+    toAmount,
+    toToken.mint,
+    toToken.price,
+    toToken.symbol,
+  ]);
 
   // Report form button props to parent when chrome is managed externally
   useEffect(() => {
@@ -1084,7 +1111,14 @@ export function SwapContent({
       disabled: buttonDisabled,
       onClick: handleConfirm,
     });
-  }, [hideFormChrome, onFormButtonChange, phase, buttonLabel, buttonDisabled, handleConfirm]);
+  }, [
+    hideFormChrome,
+    onFormButtonChange,
+    phase,
+    buttonLabel,
+    buttonDisabled,
+    handleConfirm,
+  ]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);
@@ -1106,7 +1140,10 @@ export function SwapContent({
     (pct: number) => {
       let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
-      if (fromToken.symbol.toUpperCase() === "SOL" && fromToken.balance - val < 0.00005) {
+      if (
+        fromToken.symbol.toUpperCase() === "SOL" &&
+        fromToken.balance - val < 0.00005
+      ) {
         val = Math.max(0, fromToken.balance - 0.00005);
       }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");

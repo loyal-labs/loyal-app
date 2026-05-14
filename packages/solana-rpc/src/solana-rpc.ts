@@ -24,8 +24,7 @@ const MAINNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
 };
 const DEVNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
   rpcEndpoint: "https://aurora-o23cd4-fast-devnet.helius-rpc.com",
-  // Keep the public Solana websocket endpoint until Helius devnet WSS is reliable.
-  websocketEndpoint: "wss://api.devnet.solana.com",
+  websocketEndpoint: "wss://aurora-o23cd4-fast-devnet.helius-rpc.com",
 };
 const TESTNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
   rpcEndpoint: "https://api.testnet.solana.com",

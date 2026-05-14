@@ -153,7 +153,13 @@ function isSigner(value: unknown): value is Signer {
 }
 
 function isPublicKey(value: unknown): value is PublicKey {
-  return value instanceof Object && value?.constructor?.name === "PublicKey";
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      (value.constructor?.name === "PublicKey" ||
+        (typeof (value as { toBase58?: unknown }).toBase58 === "function" &&
+          typeof (value as { toBytes?: unknown }).toBytes === "function"))
+  );
 }
 
 function normalizePreparedInstruction(

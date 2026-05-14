@@ -23,6 +23,7 @@ import {
   getKaminoModifyBalanceAccountsForTokenMint,
   isKaminoMainnetModifyBalanceAccounts,
 } from "./constants";
+import { enumerateDepositsByUser } from "./enumerate-deposits";
 import {
   calculateKaminoShareAmountForLiquidityAmountRaw,
   calculateKaminoCollateralExchangeRateSfFromAmounts,
@@ -46,6 +47,8 @@ import type {
   DepositData,
   UsernameDepositData,
   InitializeDepositParams,
+  CloseDepositParams,
+  CloseUsernameDepositParams,
   ModifyBalanceParams,
   ModifyBalanceResult,
   GetKaminoShieldedBalanceQuoteParams,
@@ -55,9 +58,13 @@ import type {
   BuildShieldFlowTransactionPlanParams,
   BuildShieldTokensTransactionPlanParams,
   BuildUnshieldTokensTransactionPlanParams,
+  ExecuteShieldFlowTransactionPlanParams,
+  ExecuteShieldTokensTransactionPlanParams,
+  ExecuteUnshieldTokensTransactionPlanParams,
   EstimateShieldFlowFeeParams,
   EstimateShieldTokensFeeParams,
   EstimateUnshieldTokensFeeParams,
+  ShieldFlowExecutionResult,
   ShieldFlowFeeEstimate,
   ShieldFlowPlan,
   ShieldFlowTransactionPlan,
@@ -92,11 +99,13 @@ import { modifyBalanceIx } from "./instructions/modifyBalance";
 import { createPermissionIx } from "./instructions/createPermission";
 import { delegateDepositIx } from "./instructions/delegateDeposit";
 import { undelegateDeposit } from "./actions/undelegateDeposit";
+import { sendAndConfirmWithDiagnostics } from "./transaction-debug";
 import {
   estimatePlannedTransactionFees,
   type FeeEstimateTransactionPlan,
 } from "./fee-estimate";
-import { sendAndConfirmWithDiagnostics } from "./transaction-debug";
+import { closeDepositIx } from "./instructions/closeDeposit";
+import { closeUsernameDepositIx } from "./instructions/closeUsernameDeposit";
 
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
@@ -167,11 +176,15 @@ function toShieldFlowTransactionPlan(plan: {
   label: ShieldFlowTransactionPlan["label"];
   cluster: ShieldFlowTransactionPlan["cluster"];
   instructions: ShieldFlowTransactionPlan["instructions"];
+  checks?: ShieldFlowTransactionPlan["checks"];
+  postSendOwnerChange?: ShieldFlowTransactionPlan["postSendOwnerChange"];
 }): ShieldFlowTransactionPlan {
   return {
     label: plan.label,
     cluster: plan.cluster,
     instructions: plan.instructions,
+    checks: plan.checks,
+    postSendOwnerChange: plan.postSendOwnerChange,
   };
 }
 
@@ -539,11 +552,25 @@ export class LoyalPrivateTransactionsClient {
 
       if (shieldPlan.preUndelegateTransaction) {
         transactions.push(
-          toShieldFlowTransactionPlan(shieldPlan.preUndelegateTransaction)
+          toShieldFlowTransactionPlan({
+            ...shieldPlan.preUndelegateTransaction,
+            postSendOwnerChange: {
+              address: shieldPlan.context.depositPda,
+              owner: PROGRAM_ID,
+              bestEffort: true,
+            },
+          })
         );
       }
       transactions.push(
-        toShieldFlowTransactionPlan(shieldPlan.baseTransaction)
+        toShieldFlowTransactionPlan({
+          ...shieldPlan.baseTransaction,
+          postSendOwnerChange: {
+            address: shieldPlan.context.depositPda,
+            owner: DELEGATION_PROGRAM_ID,
+            bestEffort: true,
+          },
+        })
       );
     } else {
       const unshieldPlan = await buildUnshieldTokensTransactionPlan({
@@ -561,11 +588,27 @@ export class LoyalPrivateTransactionsClient {
 
       if (unshieldPlan.preUndelegateTransaction) {
         transactions.push(
-          toShieldFlowTransactionPlan(unshieldPlan.preUndelegateTransaction)
+          toShieldFlowTransactionPlan({
+            ...unshieldPlan.preUndelegateTransaction,
+            postSendOwnerChange: {
+              address: unshieldPlan.context.depositPda,
+              owner: PROGRAM_ID,
+              bestEffort: true,
+            },
+          })
         );
       }
       transactions.push(
-        toShieldFlowTransactionPlan(unshieldPlan.baseTransaction)
+        toShieldFlowTransactionPlan({
+          ...unshieldPlan.baseTransaction,
+          postSendOwnerChange: unshieldPlan.shouldRedelegate
+            ? {
+                address: unshieldPlan.context.depositPda,
+                owner: DELEGATION_PROGRAM_ID,
+                bestEffort: true,
+              }
+            : undefined,
+        })
       );
     }
 
@@ -629,10 +672,15 @@ export class LoyalPrivateTransactionsClient {
       amount: params.plan.amount,
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
-      totalLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalNativeLamports: estimate.totalNativeLamports,
+      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      totalLamports:
+        estimate.totalFeeLamports +
+        estimate.totalRentLamports +
+        estimate.totalNativeLamports,
       transactions: estimate.transactions,
       instructions: estimate.instructions,
-      note: "Solana charges protocol fees per transaction message. Instruction rows expose attributable rent for newly created accounts; totalFeeLamports is the expected network fee for the planned SDK transaction flow.",
+      note: "Solana charges protocol fees per transaction message. Instruction rows expose net rent changes (positive locks rent, negative reclaims rent) and nativeLamports for native-SOL token value movement. totalLamports is a cost-style net SOL impact for the common payer=user flow: positive values are debits/costs and negative values are credits/gains. feeAndRentLamports excludes native token principal. If payer differs from user, nativeLamports belongs to the token owner while fees/rent may belong to the payer.",
     };
   }
 
@@ -654,6 +702,128 @@ export class LoyalPrivateTransactionsClient {
     }
 
     return this.estimateShieldFlowFee(params);
+  }
+
+  async executeShieldFlowTransactionPlan(
+    params: ExecuteShieldFlowTransactionPlanParams
+  ): Promise<ShieldFlowExecutionResult> {
+    if (params.plan.transactions.length === 0) {
+      throw new Error("Cannot execute an empty shield flow plan");
+    }
+
+    const signatures: ShieldFlowExecutionResult["signatures"] = [];
+    for (
+      let transactionIndex = 0;
+      transactionIndex < params.plan.transactions.length;
+      transactionIndex += 1
+    ) {
+      const transactionPlan = params.plan.transactions[transactionIndex]!;
+      if (transactionPlan.instructions.length === 0) {
+        throw new Error(
+          `Cannot execute empty transaction plan: ${transactionPlan.label}`
+        );
+      }
+
+      await processEnsureChecks(
+        this.baseProgram.provider.connection,
+        this.ephemeralProgram.provider.connection,
+        transactionPlan.checks ?? []
+      );
+
+      const ownerChangeWatcher = transactionPlan.postSendOwnerChange
+        ? waitForAccountOwnerChange(
+            this.baseProgram.provider.connection,
+            transactionPlan.postSendOwnerChange.address,
+            transactionPlan.postSendOwnerChange.owner
+          )
+        : null;
+      const provider =
+        transactionPlan.cluster === "base"
+          ? this.baseProgram.provider
+          : this.ephemeralProgram.provider;
+      const tx = new Transaction().add(
+        ...transactionPlan.instructions.map(({ ix }) => ix)
+      );
+
+      let signature: string;
+      try {
+        signature = await sendAndConfirmWithDiagnostics({
+          label: transactionPlan.label,
+          provider,
+          tx,
+          rpcOptions: params.rpcOptions,
+          extraContext: {
+            kind: params.plan.kind,
+            user: params.plan.user,
+            payer: params.plan.payer,
+            tokenMint: params.plan.tokenMint,
+            amount: params.plan.amount,
+            transactionIndex,
+            cluster: transactionPlan.cluster,
+            postSendOwnerChange: transactionPlan.postSendOwnerChange,
+          },
+        });
+      } catch (e) {
+        await ownerChangeWatcher?.cancel();
+        throw e;
+      }
+
+      if (ownerChangeWatcher) {
+        try {
+          await ownerChangeWatcher.wait();
+          await new Promise((resolve) => setTimeout(resolve, 3_000));
+        } catch (err) {
+          if (!transactionPlan.postSendOwnerChange?.bestEffort) {
+            throw err;
+          }
+
+          console.warn(
+            `[${transactionPlan.label}] owner-change watcher did not observe expected owner (signature=${signature}); continuing`,
+            err
+          );
+        }
+      }
+
+      signatures.push({
+        index: transactionIndex,
+        label: transactionPlan.label,
+        cluster: transactionPlan.cluster,
+        signature,
+      });
+    }
+
+    return {
+      kind: params.plan.kind,
+      user: params.plan.user,
+      payer: params.plan.payer,
+      tokenMint: params.plan.tokenMint,
+      amount: params.plan.amount,
+      signatures,
+    };
+  }
+
+  async executeShieldTokensTransactionPlan(
+    params: ExecuteShieldTokensTransactionPlanParams
+  ): Promise<ShieldFlowExecutionResult> {
+    if (params.plan.kind !== "shield") {
+      throw new Error(
+        "executeShieldTokensTransactionPlan expected a shield plan"
+      );
+    }
+
+    return this.executeShieldFlowTransactionPlan(params);
+  }
+
+  async executeUnshieldTokensTransactionPlan(
+    params: ExecuteUnshieldTokensTransactionPlanParams
+  ): Promise<ShieldFlowExecutionResult> {
+    if (params.plan.kind !== "unshield") {
+      throw new Error(
+        "executeUnshieldTokensTransactionPlan expected an unshield plan"
+      );
+    }
+
+    return this.executeShieldFlowTransactionPlan(params);
   }
 
   // ============================================================
@@ -708,6 +878,59 @@ export class LoyalPrivateTransactionsClient {
       extraContext: {
         username: params.username,
         tokenMint: params.tokenMint,
+      },
+    });
+  }
+
+  async closeDeposit(params: CloseDepositParams): Promise<string> {
+    const { user, tokenMint } = params;
+    const { ix, ensure } = await closeDepositIx(this.baseProgram, params);
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
+
+    const tx = new Transaction().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        user,
+        tokenMint,
+      },
+    });
+  }
+
+  async closeUsernameDeposit(
+    params: CloseUsernameDepositParams
+  ): Promise<string> {
+    const { username, tokenMint, authority, session } = params;
+    const { ix, ensure } = await closeUsernameDepositIx(
+      this.baseProgram,
+      params
+    );
+
+    await processEnsureChecks(
+      this.baseProgram.provider.connection,
+      this.ephemeralProgram.provider.connection,
+      ensure
+    );
+
+    const tx = new Transaction().add(ix);
+    return await sendAndConfirmWithDiagnostics({
+      label: "closeUsernameDeposit",
+      provider: this.baseProgram.provider,
+      tx,
+      rpcOptions: params.rpcOptions,
+      extraContext: {
+        username,
+        tokenMint,
+        authority,
+        session,
       },
     });
   }
@@ -992,7 +1215,7 @@ export class LoyalPrivateTransactionsClient {
     } catch (err) {
       console.warn(
         `[delegateDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-        err,
+        err
       );
     }
 
@@ -1074,7 +1297,7 @@ export class LoyalPrivateTransactionsClient {
     } catch (err) {
       console.warn(
         `[delegateUsernameDeposit] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-        err,
+        err
       );
     }
 
@@ -1300,65 +1523,11 @@ export class LoyalPrivateTransactionsClient {
    * an entry because ephemeral reflects the live balance.
    */
   async getAllDepositsByUser(user: PublicKey): Promise<DepositData[]> {
-    // Deposit layout after the 8-byte discriminator:
-    //   user: pubkey (32 bytes) @ offset 8
-    //   token_mint: pubkey (32 bytes) @ offset 40
-    //   amount: u64 (8 bytes) @ offset 72
-    const userFilter = [
-      {
-        memcmp: {
-          offset: 8,
-          bytes: user.toBase58(),
-        },
-      },
-    ];
-
-    const [baseResults, ephemeralResults] = await Promise.allSettled([
-      this.baseProgram.account.deposit.all(userFilter),
-      this.ephemeralProgram.account.deposit.all(userFilter),
-    ]);
-
-    const byPda = new Map<string, DepositData>();
-
-    const ingest = (
-      results: Array<{
-        publicKey: PublicKey;
-        account: { user: PublicKey; tokenMint: PublicKey; amount: BN };
-      }>,
-      preferOverwrite: boolean
-    ) => {
-      for (const { publicKey, account } of results) {
-        const key = publicKey.toBase58();
-        if (!preferOverwrite && byPda.has(key)) continue;
-        byPda.set(key, {
-          user: account.user,
-          tokenMint: account.tokenMint,
-          amount: BigInt(account.amount.toString()),
-          address: publicKey,
-        });
-      }
-    };
-
-    if (baseResults.status === "fulfilled") {
-      ingest(baseResults.value, /* preferOverwrite */ false);
-    } else {
-      console.warn(
-        "[getAllDepositsByUser] base program enumeration failed",
-        baseResults.reason
-      );
-    }
-
-    // Ephemeral state wins over base state for live balances.
-    if (ephemeralResults.status === "fulfilled") {
-      ingest(ephemeralResults.value, /* preferOverwrite */ true);
-    } else {
-      console.warn(
-        "[getAllDepositsByUser] ephemeral program enumeration failed",
-        ephemeralResults.reason
-      );
-    }
-
-    return Array.from(byPda.values());
+    return enumerateDepositsByUser({
+      user,
+      baseConnection: this.baseProgram.provider.connection,
+      ephemeralConnection: this.ephemeralProgram.provider.connection,
+    });
   }
 
   /**

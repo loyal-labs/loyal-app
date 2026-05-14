@@ -31,7 +31,15 @@ export function ReceiveContent({
   const address = walletAddress ?? "";
 
   return (
-    <>
+    <div
+      style={{
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+      }}
+    >
       <style jsx>{`
         .receive-back:hover, .receive-close:hover {
           background: rgba(0, 0, 0, 0.08) !important;
@@ -120,10 +128,12 @@ export function ReceiveContent({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          padding: "0 24px",
+          justifyContent: "center",
+          padding: "24px",
           overflow: "auto",
         }}
       >
@@ -133,8 +143,8 @@ export function ReceiveContent({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            gap: "16px",
-            marginTop: "60px",
+            gap: "18px",
+            width: "100%",
           }}
         >
           <p
@@ -229,7 +239,7 @@ export function ReceiveContent({
       </div>
 
       {/* Copy Address button */}
-      <div style={{ padding: "16px 20px" }}>
+      <div style={{ flexShrink: 0, padding: "16px 20px" }}>
         <button
           className="receive-copy-btn"
           disabled={!address}
@@ -268,6 +278,6 @@ export function ReceiveContent({
           </span>
         </button>
       </div>
-    </>
+    </div>
   );
 }

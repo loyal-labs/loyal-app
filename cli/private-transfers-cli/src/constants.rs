@@ -1,0 +1,30 @@
+pub const PROGRAM_ID_STR: &str = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV";
+pub const DELEGATION_PROGRAM_ID_STR: &str = "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh";
+pub const PERMISSION_PROGRAM_ID_STR: &str = "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1";
+pub const MAGIC_PROGRAM_ID_STR: &str = "Magic11111111111111111111111111111111111111";
+pub const MAGIC_CONTEXT_ID_STR: &str = "MagicContext1111111111111111111111111111111";
+pub const ER_VALIDATOR_DEVNET_STR: &str = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
+pub const ER_VALIDATOR_MAINNET_STR: &str = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
+pub const NATIVE_MINT_STR: &str = "So11111111111111111111111111111111111111112";
+
+pub const DEFAULT_PER_RPC_MAINNET: &str = "https://mainnet-tee.magicblock.app";
+pub const DEFAULT_PER_RPC_DEVNET: &str = "https://tee.magicblock.app";
+pub const DEFAULT_ROUTER_RPC_MAINNET: &str = "https://router.magicblock.app";
+pub const DEFAULT_ROUTER_RPC_DEVNET: &str = "https://devnet-router.magicblock.app";
+pub const DEFAULT_OWNER_WAIT_TIMEOUT_SECONDS: u64 = 60;
+pub const DEFAULT_OWNER_WAIT_INTERVAL_SECONDS: u64 = 1;
+pub const USERNAME_INIT_WAIT_ATTEMPTS: u64 = 30;
+pub const USERNAME_INIT_WAIT_INTERVAL_MS: u64 = 500;
+
+pub const IX_INITIALIZE_DEPOSIT: [u8; 8] = [171, 65, 93, 225, 61, 109, 31, 227];
+pub const IX_INITIALIZE_USERNAME_DEPOSIT: [u8; 8] = [125, 255, 77, 198, 75, 226, 85, 91];
+pub const IX_MODIFY_BALANCE: [u8; 8] = [148, 232, 7, 240, 55, 51, 121, 115];
+pub const IX_CREATE_PERMISSION: [u8; 8] = [190, 182, 26, 164, 156, 221, 8, 0];
+pub const IX_DELEGATE: [u8; 8] = [90, 147, 75, 178, 85, 88, 4, 137];
+pub const IX_DELEGATE_USERNAME_DEPOSIT: [u8; 8] = [26, 82, 4, 176, 221, 64, 84, 178];
+pub const IX_UNDELEGATE: [u8; 8] = [131, 148, 180, 198, 91, 104, 42, 238];
+pub const IX_UNDELEGATE_USERNAME_DEPOSIT: [u8; 8] = [169, 131, 184, 97, 218, 190, 134, 4];
+pub const IX_TRANSFER_TO_USERNAME_DEPOSIT: [u8; 8] = [224, 228, 188, 234, 232, 153, 75, 96];
+
+pub const DEPOSIT_DISCRIMINATOR: [u8; 8] = [148, 146, 121, 66, 207, 173, 21, 227];
+pub const USERNAME_DEPOSIT_DISCRIMINATOR: [u8; 8] = [242, 23, 53, 35, 55, 192, 177, 246];

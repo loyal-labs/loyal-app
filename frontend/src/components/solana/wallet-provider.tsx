@@ -1,16 +1,17 @@
 "use client";
 
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import {
   ConnectionProvider,
   WalletProvider,
 } from "@solana/wallet-adapter-react";
-import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { WalletConnectWalletAdapter } from "@walletconnect/solana-adapter";
 import type { FC, ReactNode } from "react";
 import { useMemo } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 
 const WALLETCONNECT_PROJECT_ID = "9d9f57c5553496b42ac1b9977066559d";
 
@@ -29,8 +30,22 @@ type WalletConnectionProviderProps = {
 export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
   children,
 }) => {
-  const { solanaRpcEndpoint, solanaEnv } = usePublicEnv();
+  const publicEnv = usePublicEnv();
+  const { solanaRpcEndpoint, solanaEnv } = publicEnv;
   const endpoint = useMemo(() => solanaRpcEndpoint, [solanaRpcEndpoint]);
+  const rpcFetch = useMemo(
+    () => getFrontendSolanaRpcFetch(globalThis.fetch),
+    []
+  );
+  const connectionConfig = useMemo(
+    () => ({
+      commitment: "confirmed" as const,
+      confirmTransactionInitialTimeout: 60_000,
+      disableRetryOnRateLimit: true,
+      fetch: rpcFetch,
+    }),
+    [rpcFetch]
+  );
 
   const wallets = useMemo(
     () => [
@@ -46,7 +61,7 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
 
   return (
     <ConnectionProvider
-      config={{ commitment: "confirmed", confirmTransactionInitialTimeout: 60_000 }}
+      config={connectionConfig}
       endpoint={endpoint}
     >
       <WalletProvider autoConnect wallets={wallets}>

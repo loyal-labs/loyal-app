@@ -24,13 +24,17 @@ import type {
   TokenRow,
 } from "@loyal-labs/wallet-core/types";
 import { LOYL_TOKEN } from "@loyal-labs/wallet-core/types";
+import bs58 from "bs58";
 import { Keypair } from "@solana/web3.js";
-import { generateKeypair, getPinLockoutRemaining, PinLockedError } from "~/src/lib/keypair-storage";
+import {
+  generateKeypair,
+  getPinLockoutRemaining,
+  PinLockedError,
+} from "~/src/lib/keypair-storage";
 import { credentialVersion as credentialVersionStorage } from "~/src/lib/storage";
 import { useWalletContext, WalletProvider } from "./wallet-provider";
-import { DogMascot } from "./dog-mascot";
-import type { DogMood } from "./dog-mascot";
-import { MIN_PASSWORD_LENGTH, PasswordInput, getPasswordStrength } from "./shared";
+import { FourDogsMark } from "./four-dogs-mark";
+import { MIN_PASSWORD_LENGTH, PasswordInput } from "./shared";
 
 import { PortfolioContent } from "./portfolio-content";
 import type { TokenRowActions } from "./token-row-item";
@@ -41,6 +45,7 @@ import { ShieldContent, SwapShieldTabs } from "./shield-content";
 
 import { AllTokensView } from "./all-tokens-view";
 import { AllActivityView } from "./all-activity-view";
+import { TokenDetailView } from "./token-detail-view";
 import { TokenSelectView } from "./token-select-view";
 import { TransactionDetailView } from "./transaction-detail-view";
 import { Settings } from "./settings";
@@ -48,12 +53,11 @@ import { DappApprovalView } from "./dapp-approval-view";
 import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
-import {
-  pendingDappApproval,
-  onboardingCompleted,
-} from "~/src/lib/storage";
+import { fetchPriceChanges } from "~/src/lib/coingecko";
+import { pendingDappApproval, onboardingCompleted, confettiShown } from "~/src/lib/storage";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
+  flushInstallEvent,
   initAnalytics,
   identifyWallet,
   track,
@@ -180,39 +184,6 @@ function ConfettiOverlay({ onComplete }: { onComplete?: () => void }) {
   );
 }
 
-function Logotype() {
-  return (
-    <svg
-      width="49"
-      height="20"
-      viewBox="0 0 49 20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M41.8672 0H44.8439V13.3023C44.8439 13.8837 45.1695 14.2093 45.7509 14.2093H46.6811V16.5116H44.9835C43.123 16.5116 41.8672 15.3488 41.8672 13.4186V0Z"
-        fill="black"
-      />
-      <path
-        d="M28.7366 7.95325C29.225 5.37185 31.2018 3.90674 34.2483 3.90674C37.8064 3.90674 39.6669 5.74395 39.6669 9.20906V13.4416C39.6669 14.1393 39.9692 14.3486 40.4343 14.3486H40.9227V16.5114L40.225 16.5346C39.2715 16.5579 37.318 16.5812 37.0855 14.6277C36.5041 15.8602 35.1087 16.7905 32.9692 16.7905C30.4808 16.7905 28.5273 15.4649 28.5273 13.2788C28.5273 10.9067 30.318 10.0928 33.225 9.53464L36.6669 8.86023C36.6669 6.95325 35.8529 6.04627 34.2483 6.04627C32.9227 6.04627 32.0622 6.7672 31.7832 8.11604L28.7366 7.95325ZM31.6204 13.1858C31.6204 14.023 32.3413 14.6974 33.7832 14.6974C35.4576 14.6974 36.7366 13.4649 36.7366 11.0463V10.8835L34.3878 11.3021C32.8297 11.5812 31.6204 11.7905 31.6204 13.1858Z"
-        fill="black"
-      />
-      <path
-        d="M16.6719 4.18604H19.5556L22.8579 13.3953L26.044 4.18604H28.9277L24.0207 17.8139C23.4858 19.3256 22.4858 20 20.8347 20H18.8114V17.7209H20.323C21.044 17.7209 21.3928 17.4884 21.6486 16.907L21.9975 16H21.137L16.6719 4.18604Z"
-        fill="black"
-      />
-      <path
-        d="M11.1553 16.7905C7.45767 16.7905 5.03906 14.2556 5.03906 10.3486C5.03906 6.44162 7.45767 3.90674 11.1553 3.90674C14.8298 3.90674 17.2484 6.44162 17.2484 10.3486C17.2484 14.2556 14.8298 16.7905 11.1553 16.7905ZM8.13208 10.3486C8.13208 12.8835 9.22511 14.3719 11.1553 14.3719C13.0623 14.3719 14.1786 12.8835 14.1786 10.3486C14.1786 7.81371 13.0623 6.32534 11.1553 6.32534C9.22511 6.32534 8.13208 7.81371 8.13208 10.3486Z"
-        fill="black"
-      />
-      <path
-        d="M0 0H2.97674V13.3023C2.97674 13.8837 3.30232 14.2093 3.88372 14.2093H4.81395V16.5116H3.11628C1.25581 16.5116 0 15.3488 0 13.4186V0Z"
-        fill="black"
-      />
-    </svg>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Create / Import wallet screen
 // ---------------------------------------------------------------------------
@@ -230,19 +201,9 @@ function CreateWalletScreen({
   const [showImportKey, setShowImportKey] = useState(false);
   const [mode, setMode] = useState<"create" | "import">(initialMode);
   const [error, setError] = useState<string | null>(null);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
-
-  // Dog mood derived from password strength on enter step
-  const createDogMood: DogMood | undefined = (() => {
-    if (step === "confirm") return undefined; // idle/main with normal behavior
-    const pw = password;
-    if (pw.length === 0) return undefined;
-    const { level } = getPasswordStrength(pw);
-    if (level === "weak") return "cry";
-    if (level === "fair") return "main";
-    return "excited"; // strong
-  })();
   const [copied, setCopied] = useState(false);
 
   const secretKeyHex = pendingKeypair
@@ -316,12 +277,23 @@ function CreateWalletScreen({
 
   const handleImport = async () => {
     try {
-      const hex = secretKeyInput.trim().replace(/^0x/, "");
-      if (!hex) throw new Error("Private key cannot be empty");
-      const pairs = hex.match(/.{1,2}/g);
-      if (!pairs) throw new Error("Invalid hex format");
-      const bytes = new Uint8Array(pairs.map((b) => parseInt(b, 16)));
-      setError(null);
+      const trimmed = secretKeyInput.trim();
+      if (!trimmed) throw new Error("Private key cannot be empty");
+
+      let bytes: Uint8Array;
+      const hex = trimmed.replace(/^0x/, "");
+      if (/^[0-9a-fA-F]+$/.test(hex)) {
+        const pairs = hex.match(/.{1,2}/g)!;
+        bytes = new Uint8Array(pairs.map((b) => parseInt(b, 16)));
+      } else {
+        try {
+          bytes = bs58.decode(trimmed);
+        } catch {
+          throw new Error("Invalid private key format");
+        }
+      }
+
+      setKeyError(null);
       setLoading(true);
       await importWallet(bytes, password);
       await credentialVersionStorage.setValue(2);
@@ -329,7 +301,7 @@ function CreateWalletScreen({
       identifyWallet(importedKeypair.publicKey.toBase58(), "imported");
       track(WALLET_SETUP_EVENTS.walletImported);
     } catch (e) {
-      setError(
+      setKeyError(
         e instanceof Error ? e.message : "Invalid secret key or import failed"
       );
     } finally {
@@ -342,6 +314,7 @@ function CreateWalletScreen({
     setConfirmPassword("");
     setPassword("");
     setError(null);
+    setKeyError(null);
   }, []);
 
   const showImportField =
@@ -371,17 +344,8 @@ function CreateWalletScreen({
         }}
       >
         {/* Branding cluster */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "4px",
-            marginBottom: "32px",
-          }}
-        >
-          <DogMascot size={160} triggerMood={createDogMood} />
-          <Logotype />
+        <div style={{ marginBottom: "32px" }}>
+          <FourDogsMark size={320} />
         </div>
 
         {/* Tab toggle */}
@@ -461,7 +425,9 @@ function CreateWalletScreen({
           error={!!error}
           errorMessage={error ?? undefined}
           showStrength={step === "enter"}
-          placeholder={step === "enter" ? "Create a password" : "Confirm your password"}
+          placeholder={
+            step === "enter" ? "Create a password" : "Confirm your password"
+          }
           autoFocus
         />
 
@@ -473,7 +439,10 @@ function CreateWalletScreen({
               const val = step === "enter" ? password : confirmPassword;
               if (val.length > 0) handlePasswordSubmit(val);
             }}
-            disabled={loading || (step === "enter" ? password : confirmPassword).length === 0}
+            disabled={
+              loading ||
+              (step === "enter" ? password : confirmPassword).length === 0
+            }
             style={{
               width: "100%",
               display: "flex",
@@ -483,8 +452,14 @@ function CreateWalletScreen({
               marginTop: "16px",
               borderRadius: "9999px",
               border: "none",
-              cursor: (step === "enter" ? password : confirmPassword).length === 0 ? "default" : "pointer",
-              background: (step === "enter" ? password : confirmPassword).length === 0 ? "#CCCDCD" : "#000",
+              cursor:
+                (step === "enter" ? password : confirmPassword).length === 0
+                  ? "default"
+                  : "pointer",
+              background:
+                (step === "enter" ? password : confirmPassword).length === 0
+                  ? "#CCCDCD"
+                  : "#000",
               fontFamily: "var(--font-geist-sans), sans-serif",
               fontSize: "16px",
               fontWeight: 400,
@@ -526,7 +501,7 @@ function CreateWalletScreen({
           style={{
             width: "100%",
             overflow: "hidden",
-            maxHeight: showImportField ? "300px" : "0px",
+            maxHeight: showImportField ? "350px" : "0px",
             opacity: showImportField ? 1 : 0,
             transition:
               "max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
@@ -535,14 +510,19 @@ function CreateWalletScreen({
           <div style={{ width: "100%", marginTop: "16px" }}>
             <div style={{ position: "relative", width: "100%" }}>
               <textarea
-                placeholder="Private key (hex)"
+                placeholder="Private key"
                 value={secretKeyInput}
-                onChange={(e) => setSecretKeyInput(e.target.value)}
+                onChange={(e) => {
+                  setSecretKeyInput(e.target.value);
+                  if (keyError) setKeyError(null);
+                }}
                 rows={4}
                 style={{
                   width: "100%",
                   background: "#fff",
-                  border: "none",
+                  border: keyError
+                    ? "2px solid #FF3B30"
+                    : "2px solid transparent",
                   borderRadius: "16px",
                   padding: "12px 40px 12px 16px",
                   fontFamily: showImportKey
@@ -556,6 +536,7 @@ function CreateWalletScreen({
                   resize: "none",
                   boxSizing: "border-box",
                   wordBreak: "break-all",
+                  transition: "border-color 0.15s ease",
                   ...(showImportKey
                     ? {}
                     : { WebkitTextSecurity: "disc" as never }),
@@ -580,6 +561,19 @@ function CreateWalletScreen({
                 {showImportKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+            {keyError && (
+              <p
+                style={{
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "13px",
+                  lineHeight: "16px",
+                  color: "#FF3B30",
+                  margin: "8px 0 0",
+                }}
+              >
+                {keyError}
+              </p>
+            )}
           </div>
 
           {/* Import button */}
@@ -615,7 +609,6 @@ function CreateWalletScreen({
             );
           })()}
         </div>
-
       </div>
 
       {/* Backup key screen — slides in from right */}
@@ -805,7 +798,8 @@ function formatLockoutRemaining(ms: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  if (minutes < 60) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  if (minutes < 60)
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
@@ -817,16 +811,7 @@ function UnlockScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lockoutRemaining, setLockoutRemaining] = useState(0);
-  const [resetAction, setResetAction] = useState<"create" | "import" | null>(
-    null
-  );
-  const [dogMood, setDogMood] = useState<DogMood | undefined>(undefined);
-  const dogMoodTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const triggerDogMood = useCallback((mood: DogMood) => {
-    if (dogMoodTimerRef.current) clearTimeout(dogMoodTimerRef.current);
-    setDogMood(mood);
-    dogMoodTimerRef.current = setTimeout(() => setDogMood(undefined), 2000);
-  }, []);
+  const [showForgot, setShowForgot] = useState(false);
 
   // Check lockout on mount and tick countdown
   useEffect(() => {
@@ -848,7 +833,9 @@ function UnlockScreen() {
       }
     });
 
-    return () => { if (timer) clearInterval(timer); };
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, []);
 
   function startLockoutCountdown(ms: number) {
@@ -876,15 +863,11 @@ function UnlockScreen() {
       } catch (err) {
         if (err instanceof PinLockedError) {
           startLockoutCountdown(err.remainingMs);
-          triggerDogMood("scared");
           setError(null);
         } else {
           const remaining = await getPinLockoutRemaining();
           if (remaining > 0) {
             startLockoutCountdown(remaining);
-            triggerDogMood("scared");
-          } else {
-            triggerDogMood("cry");
           }
           setError("Wrong password");
         }
@@ -903,6 +886,7 @@ function UnlockScreen() {
   return (
     <div
       style={{
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -910,6 +894,7 @@ function UnlockScreen() {
         height: "100%",
         padding: "0 20px",
         paddingBottom: "80px",
+        overflow: "hidden",
       }}
     >
       {/* Branding cluster */}
@@ -918,12 +903,11 @@ function UnlockScreen() {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "4px",
+          gap: "14px",
           marginBottom: "24px",
         }}
       >
-        <DogMascot size={160} triggerMood={dogMood} />
-        <Logotype />
+        <FourDogsMark size={320} />
         {truncatedKey && (
           <span
             style={{
@@ -931,7 +915,6 @@ function UnlockScreen() {
               fontSize: "13px",
               lineHeight: "16px",
               color: "rgba(60, 60, 67, 0.6)",
-              marginTop: "4px",
             }}
           >
             {truncatedKey}
@@ -947,14 +930,20 @@ function UnlockScreen() {
         error={!!error}
         errorMessage={error ?? undefined}
         disabled={loading || lockoutRemaining > 0}
-        label={lockoutRemaining > 0 ? `Try again in ${formatLockoutRemaining(lockoutRemaining)}` : undefined}
+        label={
+          lockoutRemaining > 0
+            ? `Try again in ${formatLockoutRemaining(lockoutRemaining)}`
+            : undefined
+        }
         placeholder="Enter your password or PIN"
         autoFocus
       />
 
       <button
         type="button"
-        onClick={() => { if (password.length > 0) void handleUnlock(password); }}
+        onClick={() => {
+          if (password.length > 0) void handleUnlock(password);
+        }}
         disabled={loading || lockoutRemaining > 0 || password.length === 0}
         style={{
           width: "100%",
@@ -965,8 +954,14 @@ function UnlockScreen() {
           marginTop: "16px",
           borderRadius: "9999px",
           border: "none",
-          cursor: loading || lockoutRemaining > 0 || password.length === 0 ? "default" : "pointer",
-          background: loading || lockoutRemaining > 0 || password.length === 0 ? "#CCCDCD" : "#000",
+          cursor:
+            loading || lockoutRemaining > 0 || password.length === 0
+              ? "default"
+              : "pointer",
+          background:
+            loading || lockoutRemaining > 0 || password.length === 0
+              ? "#CCCDCD"
+              : "#000",
           fontFamily: "var(--font-geist-sans), sans-serif",
           fontSize: "16px",
           fontWeight: 400,
@@ -978,155 +973,161 @@ function UnlockScreen() {
         {loading ? "Unlocking..." : "Unlock"}
       </button>
 
-      {/* Reset wallet options */}
-      <div
+      {/* Forgot password link */}
+      <button
+        type="button"
+        onClick={() => setShowForgot(true)}
         style={{
-          display: "flex",
-          gap: "8px",
-          width: "100%",
           marginTop: "24px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "var(--font-geist-sans), sans-serif",
+          fontSize: "13px",
+          fontWeight: 500,
+          lineHeight: "16px",
+          color: "rgba(60, 60, 67, 0.6)",
+          padding: "4px 8px",
         }}
       >
-        <button
-          type="button"
-          onClick={() => setResetAction("create")}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 0",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            background: "rgba(255, 59, 48, 0.08)",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            fontWeight: 500,
-            lineHeight: "16px",
-            color: "#FF3B30",
-            transition: "background 0.15s ease",
-          }}
-        >
-          Create New Wallet
-        </button>
-        <button
-          type="button"
-          onClick={() => setResetAction("import")}
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 0",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            background: "rgba(255, 59, 48, 0.08)",
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            fontWeight: 500,
-            lineHeight: "16px",
-            color: "#FF3B30",
-            transition: "background 0.15s ease",
-          }}
-        >
-          Import Wallet
-        </button>
-      </div>
+        Forgot password?
+      </button>
 
-      {/* Confirmation card */}
+      {/* Forgot password overlay */}
       <div
         style={{
-          width: "100%",
-          maxHeight: resetAction ? "200px" : "0",
-          opacity: resetAction ? 1 : 0,
-          overflow: "hidden",
-          transition:
-            "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-          marginTop: resetAction ? "12px" : "0",
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 20px",
+          background: "#F5F5F5",
+          opacity: showForgot ? 1 : 0,
+          transform: showForgot ? "translateX(0)" : "translateX(20px)",
+          pointerEvents: showForgot ? "auto" : "none",
+          transition: "opacity 0.25s ease, transform 0.25s ease",
         }}
       >
         <div
           style={{
-            background: "#fff",
-            borderRadius: "16px",
-            border: "1px solid rgba(255, 59, 48, 0.2)",
-            padding: "16px",
             display: "flex",
             flexDirection: "column",
+            alignItems: "center",
             gap: "12px",
+            maxWidth: "320px",
           }}
         >
-          <span
+          <TriangleAlert
+            size={48}
+            style={{ color: "rgba(60, 60, 67, 0.3)" }}
+          />
+          <h2
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "22px",
+              fontWeight: 600,
+              lineHeight: "28px",
+              color: "#000",
+              margin: 0,
+              textAlign: "center",
+            }}
+          >
+            Forgot password
+          </h2>
+          <p
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "14px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "rgba(60, 60, 67, 0.6)",
+              margin: 0,
+              textAlign: "center",
+            }}
+          >
+            To reset your password, you will need to reset your wallet. Loyal
+            cannot recover your password for you.
+          </p>
+          <p
             style={{
               fontFamily: "var(--font-geist-sans), sans-serif",
               fontSize: "13px",
               fontWeight: 500,
               lineHeight: "18px",
               color: "#FF3B30",
+              margin: "4px 0 0",
               textAlign: "center",
             }}
           >
-            Your current wallet will be erased. Without an exported key you will
-            lose access forever.
-          </span>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={() => {
-                const action = resetAction;
-                setResetAction(null);
-                track(WALLET_SETUP_EVENTS.walletReset, {
-                  new_mode: action === "import" ? "import" : "create",
-                });
-                resetAnalytics();
-                void resetWallet(action === "import" ? "import" : "create");
-              }}
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "8px 0",
-                border: "none",
-                borderRadius: "10px",
-                cursor: "pointer",
-                background: "rgba(255, 59, 48, 0.12)",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "13px",
-                fontWeight: 500,
-                lineHeight: "16px",
-                color: "#FF3B30",
-                transition: "background 0.15s ease",
-              }}
-            >
-              I'm 100% sure
-            </button>
-            <button
-              type="button"
-              onClick={() => setResetAction(null)}
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "8px 0",
-                border: "none",
-                borderRadius: "10px",
-                cursor: "pointer",
-                background: "rgba(0, 0, 0, 0.04)",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "13px",
-                fontWeight: 500,
-                lineHeight: "16px",
-                color: "#000",
-                transition: "background 0.15s ease",
-              }}
-            >
-              Nevermind
-            </button>
-          </div>
+            Make sure you have your private key before proceeding. Without it,
+            you will lose access to this wallet forever.
+          </p>
+        </div>
+
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            marginTop: "32px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setShowForgot(false);
+              track(WALLET_SETUP_EVENTS.walletReset, {
+                new_mode: "import",
+              });
+              resetAnalytics();
+              void resetWallet("import");
+            }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              border: "none",
+              cursor: "pointer",
+              background: "#FF3B30",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#fff",
+              transition: "background 0.15s ease",
+            }}
+          >
+            Reset wallet
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowForgot(false)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              border: "none",
+              cursor: "pointer",
+              background: "transparent",
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "rgba(60, 60, 67, 0.6)",
+              transition: "background 0.15s ease",
+            }}
+          >
+            Go back
+          </button>
         </div>
       </div>
     </div>
@@ -1261,6 +1262,9 @@ function WalletInterface() {
         if (current.from === "allTokens") return "allTokens";
         return null;
       }
+      if (typeof current === "object" && current.type === "tokenDetail") {
+        return current.from === "allTokens" ? "allTokens" : null;
+      }
       return null;
     });
   }, []);
@@ -1296,11 +1300,37 @@ function WalletInterface() {
     addLocalActivity,
   } = walletData;
 
-  const shieldSecuredBalance = useMemo(() => {
-    if (!shieldToken.mint) return 0;
-    const position = positions.find((p) => p.asset.mint === shieldToken.mint);
-    return position?.securedBalance ?? 0;
-  }, [shieldToken.mint, positions]);
+  // Enrich token rows with 24h price change from CoinGecko
+  const [priceChanges, setPriceChanges] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const mints = allTokenRows.map((t) => t.id).filter((id): id is string => !!id);
+    if (mints.length === 0) return;
+    let cancelled = false;
+    void fetchPriceChanges(mints).then((changes) => {
+      if (!cancelled) setPriceChanges(changes);
+    });
+    return () => { cancelled = true; };
+  }, [allTokenRows]);
+
+  const enrichedTokenRows = useMemo(() => {
+    if (Object.keys(priceChanges).length === 0) return allTokenRows;
+    return allTokenRows.map((row) => {
+      if (!row.id) return row;
+      const mint = row.id.replace(/-secured$/, "");
+      const change = priceChanges[mint];
+      return change !== undefined ? { ...row, priceChange24h: change } : row;
+    });
+  }, [allTokenRows, priceChanges]);
+
+  const enrichedPortfolioRows = useMemo(() => {
+    if (Object.keys(priceChanges).length === 0) return tokenRows;
+    return tokenRows.map((row) => {
+      if (!row.id) return row;
+      const mint = row.id.replace(/-secured$/, "");
+      const change = priceChanges[mint];
+      return change !== undefined ? { ...row, priceChange24h: change } : row;
+    });
+  }, [tokenRows, priceChanges]);
 
   // Convert allTokenRows to SwapToken[] for token-select views
   const swapTokens: SwapToken[] = positions.map((p) => ({
@@ -1311,11 +1341,36 @@ function WalletInterface() {
     balance: p.totalBalance,
   }));
 
+  // Shield token list — one entry per balance variant (liquid + shielded).
+  // Direction is derived from the selected token's `isSecured` flag.
+  const shieldTokens = useMemo<SwapToken[]>(
+    () =>
+      positions.flatMap((p) => {
+        const base = {
+          mint: p.asset.mint,
+          symbol: p.asset.symbol,
+          icon: p.asset.imageUrl || getTokenIconUrl(p.asset.symbol),
+          price: p.priceUsd ?? 0,
+        };
+        const entries: SwapToken[] = [];
+        if (p.publicBalance > 0 || p.securedBalance <= 0) {
+          entries.push({ ...base, balance: p.publicBalance, isSecured: false });
+        }
+        if (p.securedBalance > 0) {
+          entries.push({ ...base, balance: p.securedBalance, isSecured: true });
+        }
+        return entries;
+      }),
+    [positions]
+  );
+
   // Merge user's held tokens with popular tokens for swap target selection
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(swapTokens.map((t) => t.mint).filter(Boolean));
-    const extras = popularTokens.filter((t) => t.mint && !heldMints.has(t.mint));
+    const extras = popularTokens.filter(
+      (t) => t.mint && !heldMints.has(t.mint)
+    );
     return [...swapTokens, ...extras];
   }, [swapTokens, popularTokens]);
 
@@ -1324,7 +1379,9 @@ function WalletInterface() {
     if (swapTokens.length > 0 && swapTokens[0].mint) {
       setFromToken(swapTokens[0]);
       setSendToken(swapTokens[0]);
-      setShieldToken(swapTokens[0]);
+      if (shieldTokens.length > 0) {
+        setShieldToken(shieldTokens[0]);
+      }
       setToToken(
         swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
       );
@@ -1336,17 +1393,35 @@ function WalletInterface() {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
       const isSecured = token.isSecured === true;
 
+      const pickShieldTokenVariant = (wantSecured: boolean) => {
+        const match = shieldTokens.find(
+          (t) => t.mint === token.id && t.isSecured === wantSecured
+        );
+        if (match) setShieldToken(match);
+      };
+
       if (isSecured) {
         return {
           onSend: () => handleTabChange("send"),
-          onUnshield: () => { setSwapMode("shield"); handleTabChange("shield"); },
+          onUnshield: () => {
+            pickShieldTokenVariant(true);
+            setSwapMode("shield");
+            handleTabChange("shield");
+          },
         };
       }
 
       const actions: TokenRowActions = {
         onSend: () => handleTabChange("send"),
-        onSwap: () => { setSwapMode("swap"); handleTabChange("swap"); },
-        onShield: () => { setSwapMode("shield"); handleTabChange("shield"); },
+        onSwap: () => {
+          setSwapMode("swap");
+          handleTabChange("swap");
+        },
+        onShield: () => {
+          pickShieldTokenVariant(false);
+          setSwapMode("shield");
+          handleTabChange("shield");
+        },
       };
 
       if (isLoyal) {
@@ -1361,7 +1436,7 @@ function WalletInterface() {
 
       return actions;
     },
-    [handleTabChange, setSwapMode],
+    [handleTabChange, setSwapMode, shieldTokens]
   );
 
   // Tab content with real components (uses displayTab for cross-fade)
@@ -1389,11 +1464,22 @@ function WalletInterface() {
               handleTabChange("shield");
             }}
             onSettings={() => setShowSettings(true)}
-            tokenRows={tokenRows}
+            tokenRows={enrichedPortfolioRows}
             transactionDetails={transactionDetails}
             walletAddress={walletAddress}
             walletLabel={walletLabel}
             getTokenActions={getTokenActions}
+            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "portfolio" })}
+            onShieldUsdc={() => {
+              const usdc = shieldTokens.find(
+                (t) => t.symbol === "USDC" && !t.isSecured
+              );
+              if (usdc) setShieldToken(usdc);
+              setSwapMode("shield");
+              handleTabChange("shield");
+            }}
+            totalTokenCount={enrichedTokenRows.length}
+            totalActivityCount={allActivityRows.length}
           />
         );
       case "send":
@@ -1428,11 +1514,9 @@ function WalletInterface() {
         return (
           <ShieldContent
             token={shieldToken}
-            onTokenChange={setShieldToken}
             onClose={handleClose}
             onNavigate={handleNavigate}
             onDone={handleDone}
-            securedBalance={shieldSecuredBalance}
             swapMode={swapMode}
             onSwapModeChange={handleSwapModeChange}
           />
@@ -1448,11 +1532,12 @@ function WalletInterface() {
       if (subView === "allTokens") {
         return (
           <AllTokensView
-            tokens={allTokenRows}
+            tokens={enrichedTokenRows}
             isBalanceHidden={balanceHidden}
             onBack={goBack}
             onClose={handleClose}
             getTokenActions={getTokenActions}
+            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "allTokens" })}
           />
         );
       }
@@ -1469,6 +1554,45 @@ function WalletInterface() {
         );
       }
       return null;
+    }
+
+    if (subView.type === "tokenDetail") {
+      const t = subView.token;
+      const actions = getTokenActions(t);
+      const asSwapToken: SwapToken = swapTokens.find((s) => s.mint === t.id) ?? {
+        mint: t.id,
+        symbol: t.symbol,
+        icon: t.icon,
+        price: parseFloat(t.price) || 0,
+        balance: parseFloat(t.amount) || 0,
+        isSecured: t.isSecured,
+      };
+      return (
+        <TokenDetailView
+          token={t}
+          onBack={goBack}
+          onClose={handleClose}
+          onSend={() => {
+            setSendToken(asSwapToken);
+            handleTabChange("send");
+            setSubView(null);
+          }}
+          onReceive={() => {
+            handleTabChange("receive");
+            setSubView(null);
+          }}
+          onSwap={() => {
+            setFromToken(asSwapToken);
+            setSwapMode("swap");
+            handleTabChange("swap");
+            setSubView(null);
+          }}
+          onShield={(actions?.onShield || actions?.onUnshield) ? () => {
+            actions.onShield?.(t) ?? actions.onUnshield?.(t);
+            setSubView(null);
+          } : undefined}
+        />
+      );
     }
 
     if (subView.type === "tokenSelect") {
@@ -1511,7 +1635,7 @@ function WalletInterface() {
     if (subView.type === "shieldTokenSelect") {
       return (
         <TokenSelectView
-          title="Shield token"
+          title="Select token"
           currentToken={shieldToken}
           onSelect={(token) => {
             setShieldToken(token);
@@ -1519,7 +1643,7 @@ function WalletInterface() {
           }}
           onBack={goBack}
           onClose={handleClose}
-          tokens={swapTokens}
+          tokens={shieldTokens}
         />
       );
     }
@@ -1719,7 +1843,9 @@ function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
           await credentialVersionStorage.setValue(2);
           onComplete();
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Failed to update password");
+          setError(
+            e instanceof Error ? e.message : "Failed to update password"
+          );
         } finally {
           setLoading(false);
         }
@@ -1789,13 +1915,17 @@ function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
         error={!!error}
         errorMessage={error ?? undefined}
         showStrength={step === "enter"}
-        placeholder={step === "enter" ? "Enter new password" : "Re-enter your password"}
+        placeholder={
+          step === "enter" ? "Enter new password" : "Re-enter your password"
+        }
         autoFocus
       />
 
       <button
         type="button"
-        onClick={() => { if (currentValue.length > 0) void handleSubmit(currentValue); }}
+        onClick={() => {
+          if (currentValue.length > 0) void handleSubmit(currentValue);
+        }}
         disabled={loading || currentValue.length === 0}
         style={{
           width: "100%",
@@ -1816,7 +1946,11 @@ function PasswordUpgradeScreen({ onComplete }: { onComplete: () => void }) {
           transition: "background 0.15s ease",
         }}
       >
-        {loading ? "Updating..." : step === "enter" ? "Continue" : "Set Password"}
+        {loading
+          ? "Updating..."
+          : step === "enter"
+          ? "Continue"
+          : "Set Password"}
       </button>
 
       {step === "confirm" && (
@@ -1861,7 +1995,7 @@ function WalletAppInner() {
   const [showPasswordUpgrade, setShowPasswordUpgrade] = useState(false);
 
   useEffect(() => {
-    void initAnalytics();
+    void initAnalytics().then(() => flushInstallEvent());
   }, []);
 
   // Check onboarding flag on mount
@@ -1879,18 +2013,23 @@ function WalletAppInner() {
     if (state === "unlocked" && (prev === "locked" || prev === "noWallet")) {
       setTransitioning(true);
 
-      // Check if legacy PIN user needs password upgrade before showing confetti
-      const upgradeCheck = prev === "locked"
-        ? credentialVersionStorage.getValue()
-        : Promise.resolve(2 as number | null);
+      // Check if legacy PIN user needs password upgrade
+      const upgradeCheck =
+        prev === "locked"
+          ? credentialVersionStorage.getValue()
+          : Promise.resolve(2 as number | null);
 
-      void upgradeCheck.then((version) => {
+      void upgradeCheck.then(async (version) => {
         const needsUpgrade = version === null;
         if (needsUpgrade) setShowPasswordUpgrade(true);
+        const alreadyShown = await confettiShown.getValue();
         setTimeout(() => {
           setDisplayState(state);
           setTransitioning(false);
-          if (!needsUpgrade) setShowConfetti(true);
+          if (!needsUpgrade && !alreadyShown) {
+            setShowConfetti(true);
+            void confettiShown.setValue(true);
+          }
         }, 250);
       });
 
@@ -1934,10 +2073,17 @@ function WalletAppInner() {
     ) : displayState === "locked" ? (
       <UnlockScreen />
     ) : showPasswordUpgrade ? (
-      <PasswordUpgradeScreen onComplete={() => {
-        setShowPasswordUpgrade(false);
-        setShowConfetti(true);
-      }} />
+      <PasswordUpgradeScreen
+        onComplete={() => {
+          setShowPasswordUpgrade(false);
+          void confettiShown.getValue().then((already) => {
+            if (!already) {
+              setShowConfetti(true);
+              void confettiShown.setValue(true);
+            }
+          });
+        }}
+      />
     ) : (
       <WalletInterface />
     );

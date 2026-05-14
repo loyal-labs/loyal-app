@@ -1,35 +1,44 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
-mod auth;
 mod cli;
 mod commands;
-mod constants;
-mod context;
-mod pda;
-mod solana_ops;
-mod types;
+mod config;
+mod identity;
+mod squads;
+mod transaction_diagnostics;
+mod transfers;
 
 use cli::{Cli, Command};
-use commands::{
-    cmd_delegate, cmd_display, cmd_shield, cmd_transfer_username, cmd_undelegate, cmd_unshield,
-    cmd_wait_state,
-};
-use context::{build_context, init_logging};
+use config::resolve_config;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    init_logging(&cli);
-    let mut ctx = build_context(&cli)?;
+    init_logging(cli.debug);
 
-    match &cli.command {
-        Command::Display(args) => cmd_display(&ctx, args),
-        Command::Delegate(args) => cmd_delegate(&mut ctx, args),
-        Command::Undelegate(args) => cmd_undelegate(&mut ctx, args),
-        Command::WaitDelegate(args) => cmd_wait_state(&ctx, args, true),
-        Command::WaitUndelegate(args) => cmd_wait_state(&ctx, args, false),
-        Command::Shield(args) => cmd_shield(&mut ctx, args),
-        Command::Unshield(args) => cmd_unshield(&mut ctx, args),
-        Command::TransferUsername(args) => cmd_transfer_username(&mut ctx, args),
+    let Some(command) = &cli.command else {
+        Cli::command().print_help()?;
+        println!();
+        return Ok(());
+    };
+
+    let config = resolve_config(&cli)?;
+
+    match command {
+        Command::Auth(args) => commands::cmd_auth(&config, cli.output, args),
+        Command::Pubkey => commands::cmd_pubkey(&config, cli.output),
+        Command::Show => commands::cmd_show(&config, cli.output),
+        Command::Propose(args) => commands::cmd_propose(&config, cli.output, args),
     }
+}
+
+fn init_logging(debug: bool) {
+    if debug && std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "debug");
+    }
+
+    let env = env_logger::Env::default().filter_or("RUST_LOG", "warn");
+    let _ = env_logger::Builder::from_env(env)
+        .format_timestamp_millis()
+        .try_init();
 }

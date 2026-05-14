@@ -12,6 +12,32 @@ import { unstable_cache } from "next/cache";
 import { getDatabase } from "@/lib/core/database";
 import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 
+const SOLANA_MAINNET_RPC_URL =
+  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
+const USDC_MINT_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const KAMINO_USDC_RESERVE = "9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu";
+const KAMINO_USDC_COLLATERAL_MINT =
+  "DKaVQFXD6Qz4USTkRWyPun3oU6r1RfYsWJ8YqLpnSnN5";
+// findVaultPda(["vault", USDC_MINT_MAINNET], telegram-private-transfer program)
+const PRIVATE_TRANSFER_USDC_VAULT =
+  "5KhwG5iTyQB1PietJKBV7reqBejSteRazuRLu2VnhFK2";
+const USDC_DECIMALS = 6;
+const USDC_PRICE_USD = 1;
+const USDC_SYMBOL = "USDC";
+const KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
+  43, 242, 204, 202, 26, 247, 59, 127,
+]);
+const KAMINO_FRACTION_BITS = BigInt(60);
+const KAMINO_FRACTION_SCALE = BigInt(1) << KAMINO_FRACTION_BITS;
+const KAMINO_RESERVE_LAYOUT_OFFSETS = {
+  collateralMintTotalSupply: 2584,
+  liquidityAccumulatedProtocolFeesSf: 336,
+  liquidityAccumulatedReferrerFeesSf: 352,
+  liquidityAvailableAmount: 216,
+  liquidityBorrowedAmountSf: 224,
+  liquidityPendingReferrerFeesSf: 368,
+} as const;
+
 export type ShieldDayPoint = {
   date: string;
   shielded: number;
@@ -51,6 +77,48 @@ type HoldingsRow = {
   priceUsd: string | null;
   symbol: string | null;
   tokenMint: string;
+};
+
+type RpcResponse<T> = {
+  error?: { message?: string };
+  result?: T;
+};
+
+type ParsedTokenAccountsResult = {
+  value?: Array<{
+    account?: {
+      data?: {
+        parsed?: {
+          info?: {
+            mint?: string;
+            owner?: string;
+            tokenAmount?: {
+              amount?: string;
+            };
+          };
+        };
+      };
+    };
+  }>;
+};
+
+type AccountInfoResult = {
+  value?: {
+    data?: [string, string];
+  } | null;
+};
+
+type AssetAccumulator = {
+  amountRaw: bigint;
+  decimals: number | null;
+  priceUsd: number | null;
+  symbol: string;
+  tokenMint: string;
+};
+
+type KaminoReserveSnapshot = {
+  collateralSupplyRaw: bigint;
+  totalLiquiditySupplyScaled: bigint;
 };
 
 function getWindowBoundsUtc() {
@@ -106,65 +174,327 @@ const gaslessDayExpression = sql<string>`
   to_char((date_trunc('day', ${gaslessClaimTransactions.occurredAt} AT TIME ZONE 'UTC'))::date, 'YYYY-MM-DD')
 `;
 
+async function callSolanaMainnetRpc<T>(
+  method: string,
+  params: unknown[]
+): Promise<T> {
+  const response = await fetch(SOLANA_MAINNET_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: method,
+      method,
+      params,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Solana RPC ${method} failed with ${response.status}`);
+  }
+
+  const payload = (await response.json()) as RpcResponse<T>;
+  if (payload.error) {
+    throw new Error(
+      payload.error.message ?? `Solana RPC ${method} returned an error`
+    );
+  }
+  if (payload.result === undefined) {
+    throw new Error(`Solana RPC ${method} returned no result`);
+  }
+
+  return payload.result;
+}
+
+function readUint64LE(data: Buffer, offset: number): bigint {
+  return data.readBigUInt64LE(offset);
+}
+
+function readUint128LE(data: Buffer, offset: number): bigint {
+  const low = data.readBigUInt64LE(offset);
+  const high = data.readBigUInt64LE(offset + 8);
+  return low + (high << BigInt(64));
+}
+
+// TODO: remove duplication with SDK
+function parseKaminoReserveSnapshot(data: Buffer): KaminoReserveSnapshot {
+  if (
+    data.length < 8 ||
+    !data.subarray(0, 8).equals(KAMINO_RESERVE_DISCRIMINATOR)
+  ) {
+    throw new Error("Kamino USDC reserve has an invalid discriminator");
+  }
+
+  const accountData = data.subarray(8);
+  const liquidityAvailableAmount = readUint64LE(
+    accountData,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAvailableAmount
+  );
+  const liquidityBorrowedAmountSf = readUint128LE(
+    accountData,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityBorrowedAmountSf
+  );
+  const liquidityAccumulatedProtocolFeesSf = readUint128LE(
+    accountData,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedProtocolFeesSf
+  );
+  const liquidityAccumulatedReferrerFeesSf = readUint128LE(
+    accountData,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedReferrerFeesSf
+  );
+  const liquidityPendingReferrerFeesSf = readUint128LE(
+    accountData,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityPendingReferrerFeesSf
+  );
+  const collateralSupplyRaw = readUint64LE(
+    accountData,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply
+  );
+
+  const grossLiquiditySupplyScaled =
+    (liquidityAvailableAmount << KAMINO_FRACTION_BITS) +
+    liquidityBorrowedAmountSf;
+  const totalFeeAmountScaled =
+    liquidityAccumulatedProtocolFeesSf +
+    liquidityAccumulatedReferrerFeesSf +
+    liquidityPendingReferrerFeesSf;
+
+  return {
+    collateralSupplyRaw,
+    totalLiquiditySupplyScaled:
+      grossLiquiditySupplyScaled > totalFeeAmountScaled
+        ? grossLiquiditySupplyScaled - totalFeeAmountScaled
+        : BigInt(0),
+  };
+}
+
+function calculateKaminoRedeemableLiquidityAmountRaw(
+  snapshot: KaminoReserveSnapshot,
+  collateralSharesAmountRaw: bigint
+): bigint {
+  if (collateralSharesAmountRaw <= BigInt(0)) {
+    return BigInt(0);
+  }
+
+  if (
+    snapshot.collateralSupplyRaw === BigInt(0) ||
+    snapshot.totalLiquiditySupplyScaled === BigInt(0)
+  ) {
+    return collateralSharesAmountRaw;
+  }
+
+  return (
+    (collateralSharesAmountRaw * snapshot.totalLiquiditySupplyScaled) /
+    (snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE)
+  );
+}
+
+function getParsedTokenAmountRaw(
+  account: NonNullable<ParsedTokenAccountsResult["value"]>[number],
+  mint: string
+): bigint {
+  const info = account.account?.data?.parsed?.info;
+  if (info?.mint !== mint || info.owner !== PRIVATE_TRANSFER_USDC_VAULT) {
+    return BigInt(0);
+  }
+
+  return BigInt(info.tokenAmount?.amount ?? "0");
+}
+
+async function getVaultTokenAmountRaw(mint: string): Promise<bigint> {
+  const result = await callSolanaMainnetRpc<ParsedTokenAccountsResult>(
+    "getTokenAccountsByOwner",
+    [
+      PRIVATE_TRANSFER_USDC_VAULT,
+      { mint },
+      { commitment: "confirmed", encoding: "jsonParsed" },
+    ]
+  );
+
+  return (result.value ?? []).reduce(
+    (sum, account) => sum + getParsedTokenAmountRaw(account, mint),
+    BigInt(0)
+  );
+}
+
+async function loadKaminoVaultUsdcAmountRaw(): Promise<bigint | null> {
+  const [liquidityAmountRaw, collateralSharesAmountRaw, reserveResult] =
+    await Promise.all([
+      getVaultTokenAmountRaw(USDC_MINT_MAINNET),
+      getVaultTokenAmountRaw(KAMINO_USDC_COLLATERAL_MINT),
+      callSolanaMainnetRpc<AccountInfoResult>("getAccountInfo", [
+        KAMINO_USDC_RESERVE,
+        { commitment: "confirmed", encoding: "base64" },
+      ]),
+    ]);
+
+  const reserveData = reserveResult.value?.data?.[0];
+  if (!reserveData) {
+    return null;
+  }
+
+  const snapshot = parseKaminoReserveSnapshot(
+    Buffer.from(reserveData, "base64")
+  );
+
+  return (
+    liquidityAmountRaw +
+    calculateKaminoRedeemableLiquidityAmountRaw(
+      snapshot,
+      collateralSharesAmountRaw
+    )
+  );
+}
+
+function addAssetAmount(
+  assetsByMint: Map<string, AssetAccumulator>,
+  row: {
+    amountRaw: bigint;
+    decimals: number | null;
+    priceUsd: number | null;
+    symbol: string | null;
+    tokenMint: string;
+  }
+) {
+  const existing = assetsByMint.get(row.tokenMint);
+  if (!existing) {
+    assetsByMint.set(row.tokenMint, {
+      amountRaw: row.amountRaw,
+      decimals: row.decimals,
+      priceUsd: row.priceUsd,
+      symbol: row.symbol?.trim() || "TOKEN",
+      tokenMint: row.tokenMint,
+    });
+    return;
+  }
+
+  existing.amountRaw += row.amountRaw;
+  existing.decimals ??= row.decimals;
+  existing.priceUsd ??= row.priceUsd;
+  if (existing.symbol === "TOKEN" && row.symbol?.trim()) {
+    existing.symbol = row.symbol.trim();
+  }
+}
+
+function buildShieldedAssets(args: {
+  holdingsRows: HoldingsRow[];
+  kaminoVaultUsdcAmountRaw: bigint | null;
+  userCountByMint: Map<string, string>;
+}): ShieldedAsset[] {
+  const assetsByMint = new Map<string, AssetAccumulator>();
+  const hasLiveKaminoUsdc = args.kaminoVaultUsdcAmountRaw !== null;
+
+  for (const row of args.holdingsRows) {
+    if (
+      hasLiveKaminoUsdc &&
+      (row.tokenMint === USDC_MINT_MAINNET ||
+        row.tokenMint === KAMINO_USDC_COLLATERAL_MINT)
+    ) {
+      continue;
+    }
+
+    addAssetAmount(assetsByMint, {
+      amountRaw: BigInt(row.amountRaw),
+      decimals: row.decimals,
+      priceUsd: toNumber(row.priceUsd),
+      symbol: row.symbol,
+      tokenMint: row.tokenMint,
+    });
+  }
+
+  if (args.kaminoVaultUsdcAmountRaw !== null) {
+    const usdcCatalogRow = args.holdingsRows.find(
+      (row) => row.tokenMint === USDC_MINT_MAINNET
+    );
+    addAssetAmount(assetsByMint, {
+      amountRaw: args.kaminoVaultUsdcAmountRaw,
+      decimals: usdcCatalogRow?.decimals ?? USDC_DECIMALS,
+      priceUsd: toNumber(usdcCatalogRow?.priceUsd) ?? USDC_PRICE_USD,
+      symbol: usdcCatalogRow?.symbol ?? USDC_SYMBOL,
+      tokenMint: USDC_MINT_MAINNET,
+    });
+  }
+
+  return Array.from(assetsByMint.values()).map((asset) => {
+    const totalAmount = amountRawToUi(
+      asset.amountRaw.toString(),
+      asset.decimals
+    );
+    const totalValueUsd =
+      asset.priceUsd === null ? null : totalAmount * asset.priceUsd;
+
+    return {
+      priceUsd: asset.priceUsd,
+      symbol: asset.symbol,
+      tokenMint: asset.tokenMint,
+      totalAmount,
+      totalValueUsd:
+        totalValueUsd === null ? null : Number(totalValueUsd.toFixed(2)),
+      userCount: args.userCountByMint.get(asset.tokenMint) ?? "0",
+    };
+  });
+}
+
 async function loadTransfersData(): Promise<TransfersData> {
   const db = getDatabase();
   const { startInclusive, endExclusive } = getWindowBoundsUtc();
   const dayKeys = getDayKeys(startInclusive, 30);
 
-  const [holdingsRows, flowRows, userCountRows] = await Promise.all([
-    db
-      .select({
-        amountRaw: privateTransferVaultHoldings.amountRaw,
-        decimals: privateTransferTokenCatalog.decimals,
-        priceUsd: privateTransferTokenCatalog.lastPriceUsd,
-        symbol: privateTransferTokenCatalog.symbol,
-        tokenMint: privateTransferVaultHoldings.tokenMint,
-      })
-      .from(privateTransferVaultHoldings)
-      .leftJoin(
-        privateTransferTokenCatalog,
-        eq(
-          privateTransferTokenCatalog.tokenMint,
-          privateTransferVaultHoldings.tokenMint
-        )
-      ),
-    db
-      .select({
-        day: flowDayExpression,
-        shielded: sql<string>`coalesce(sum(
+  const [holdingsRows, flowRows, userCountRows, kaminoVaultUsdcAmountRaw] =
+    await Promise.all([
+      db
+        .select({
+          amountRaw: privateTransferVaultHoldings.amountRaw,
+          decimals: privateTransferTokenCatalog.decimals,
+          priceUsd: privateTransferTokenCatalog.lastPriceUsd,
+          symbol: privateTransferTokenCatalog.symbol,
+          tokenMint: privateTransferVaultHoldings.tokenMint,
+        })
+        .from(privateTransferVaultHoldings)
+        .leftJoin(
+          privateTransferTokenCatalog,
+          eq(
+            privateTransferTokenCatalog.tokenMint,
+            privateTransferVaultHoldings.tokenMint
+          )
+        ),
+      db
+        .select({
+          day: flowDayExpression,
+          shielded: sql<string>`coalesce(sum(
           case when ${privateTransferModifyBalanceEvents.flow} = 'shield'
           then (${privateTransferModifyBalanceEvents.amountRaw}::numeric / power(10, coalesce(${privateTransferTokenCatalog.decimals}, 0))) * coalesce(${privateTransferTokenCatalog.lastPriceUsd}::numeric, 0)
           else 0 end
         ), 0)`,
-        unshielded: sql<string>`coalesce(sum(
+          unshielded: sql<string>`coalesce(sum(
           case when ${privateTransferModifyBalanceEvents.flow} = 'unshield'
           then (${privateTransferModifyBalanceEvents.amountRaw}::numeric / power(10, coalesce(${privateTransferTokenCatalog.decimals}, 0))) * coalesce(${privateTransferTokenCatalog.lastPriceUsd}::numeric, 0)
           else 0 end
         ), 0)`,
-      })
-      .from(privateTransferModifyBalanceEvents)
-      .leftJoin(
-        privateTransferTokenCatalog,
-        eq(
-          privateTransferTokenCatalog.tokenMint,
-          privateTransferModifyBalanceEvents.tokenMint
+        })
+        .from(privateTransferModifyBalanceEvents)
+        .leftJoin(
+          privateTransferTokenCatalog,
+          eq(
+            privateTransferTokenCatalog.tokenMint,
+            privateTransferModifyBalanceEvents.tokenMint
+          )
         )
-      )
-      .where(
-        and(
-          gte(privateTransferModifyBalanceEvents.occurredAt, startInclusive),
-          lt(privateTransferModifyBalanceEvents.occurredAt, endExclusive)
+        .where(
+          and(
+            gte(privateTransferModifyBalanceEvents.occurredAt, startInclusive),
+            lt(privateTransferModifyBalanceEvents.occurredAt, endExclusive)
+          )
         )
-      )
-      .groupBy(flowDayExpression),
-    // Count users with net positive balance per token (shield - unshield > 0)
-    db
-      .select({
-        tokenMint: sql<string>`token_mint`,
-        userCount: sql<string>`count(*)::text`,
-      })
-      .from(
-        sql`(
+        .groupBy(flowDayExpression),
+      // Count users with net positive balance per token (shield - unshield > 0)
+      db
+        .select({
+          tokenMint: sql<string>`token_mint`,
+          userCount: sql<string>`count(*)::text`,
+        })
+        .from(
+          sql`(
           SELECT
             ${privateTransferModifyBalanceEvents.tokenMint} AS token_mint,
             ${privateTransferModifyBalanceEvents.userAddress} AS user_address,
@@ -176,28 +506,25 @@ async function loadTransfersData(): Promise<TransfersData> {
             SUM(CASE WHEN ${privateTransferModifyBalanceEvents.flow} = 'shield' THEN ${privateTransferModifyBalanceEvents.amountRaw}::numeric ELSE 0 END)
             - SUM(CASE WHEN ${privateTransferModifyBalanceEvents.flow} = 'unshield' THEN ${privateTransferModifyBalanceEvents.amountRaw}::numeric ELSE 0 END) > 0
         ) AS active_users`
-      )
-      .groupBy(sql`token_mint`),
-  ]);
+        )
+        .groupBy(sql`token_mint`),
+      loadKaminoVaultUsdcAmountRaw().catch((error) => {
+        console.error(
+          "[transfers-data] Failed to load Kamino USDC vault balance",
+          error
+        );
+        return null;
+      }),
+    ]);
 
   const userCountByMint = new Map(
     userCountRows.map((row) => [row.tokenMint, row.userCount])
   );
 
-  const assets: ShieldedAsset[] = holdingsRows.map((row: HoldingsRow) => {
-    const totalAmount = amountRawToUi(row.amountRaw, row.decimals);
-    const priceUsd = toNumber(row.priceUsd);
-    const totalValueUsd = priceUsd === null ? null : totalAmount * priceUsd;
-
-    return {
-      priceUsd,
-      symbol: row.symbol?.trim() || "TOKEN",
-      tokenMint: row.tokenMint,
-      totalAmount,
-      totalValueUsd:
-        totalValueUsd === null ? null : Number(totalValueUsd.toFixed(2)),
-      userCount: userCountByMint.get(row.tokenMint) ?? "0",
-    };
+  const assets = buildShieldedAssets({
+    holdingsRows,
+    kaminoVaultUsdcAmountRaw,
+    userCountByMint,
   });
 
   const flowByDay = new Map(
@@ -300,9 +627,6 @@ export async function getGaslessClaimsData(): Promise<GaslessClaimsData> {
 
   return getCachedGaslessClaimsData();
 }
-
-const SOLANA_MAINNET_RPC_URL =
-  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
 
 async function loadFaucetBalance(): Promise<number | null> {
   const publicKey = process.env.DEPLOYMENT_PUBLIC_KEY;

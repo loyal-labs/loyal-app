@@ -1,70 +1,142 @@
 "use client";
 
-import { ArrowRight, ArrowUpRight, Eye, EyeOff, Plus } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  Copy,
+  RefreshCw,
+} from "lucide-react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 
+import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { ActivityRowItem } from "./activity-row-item";
-import { TokenRowItem, type TokenRowActions } from "./token-row-item";
+import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
+import {
+  getTokenPairConnection,
+  TokenRowItem,
+  type TokenRowActions,
+} from "./token-row-item";
 import type {
   ActivityRow,
   SubView,
   TokenRow,
   TransactionDetail,
 } from "./types";
+import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
+function formatAddressForDisplay(address: string): string {
+  if (address.length <= 12) {
+    return address;
+  }
+
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
 export function StashDetailView({
+  accountIndex,
+  address,
   label,
   balanceWhole,
   balanceFraction,
   isBalanceHidden,
-  onBalanceHiddenChange,
   tokenRows,
   activityRows,
   transactionDetails,
-  onBack,
   onNavigate,
   onOpenSend,
   onOpenReceive,
+  onOpenSwap,
   getTokenActions,
+  onTokenDetail,
+  onActivityTabOpen,
+  initialTab = "tokens",
 }: {
+  accountIndex: number;
+  address: string | null;
   label: string;
   balanceWhole: string;
   balanceFraction: string;
   isBalanceHidden: boolean;
-  onBalanceHiddenChange: (hidden: boolean) => void;
   tokenRows: TokenRow[];
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
-  onBack: () => void;
   onNavigate: (view: Exclude<SubView, null>) => void;
   onOpenSend: () => void;
   onOpenReceive: () => void;
+  onOpenSwap: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
+  onActivityTabOpen?: () => void;
+  initialTab?: "activity" | "tokens";
 }) {
+  const [activeTab, setActiveTab] =
+    useState<"activity" | "tokens">(initialTab);
+  const [isAddressCopied, setIsAddressCopied] = useState(false);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  const loyalPriceUsd = useLoyalPriceUsd();
+  const loyalPlaceholderRow = useMemo(
+    () => buildLoyalPlaceholderRow(loyalPriceUsd),
+    [loyalPriceUsd]
+  );
+
+  const copyAddress = async () => {
+    if (!address) return;
+
+    try {
+      await navigator.clipboard.writeText(address);
+      setIsAddressCopied(true);
+      window.setTimeout(() => setIsAddressCopied(false), 1400);
+    } catch {
+      window.alert("Failed to copy address.");
+    }
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      className="stash-detail-view"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        background: "#fff",
+      }}
+    >
       <style jsx>{`
-        .stash-back-btn:hover {
-          background: rgba(0, 0, 0, 0.08) !important;
+        .stash-detail-view {
+          container-type: inline-size;
         }
-        .stash-transfer-btn:hover {
+        .stash-action-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
-        .stash-topup-btn:hover {
-          background: #222 !important;
+        .stash-address-btn:hover {
+          opacity: 0.72 !important;
         }
-        .stash-link-btn:hover {
-          opacity: 0.7 !important;
+        @container (max-width: 440px) {
+          .stash-action-label {
+            display: none;
+          }
         }
       `}</style>
 
-      {/* SVG pixelation filters */}
       <svg
         aria-hidden="true"
         height="0"
-        style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+        style={{
+          position: "absolute",
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+        }}
         width="0"
       >
         <defs>
@@ -85,61 +157,123 @@ export function StashDetailView({
         </defs>
       </svg>
 
-      {/* Header: back (arrow right) */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "flex-start",
+          justifyContent: "space-between",
           padding: "8px",
+          flexShrink: 0,
         }}
       >
-        <button
-          className="stash-back-btn"
-          onClick={onBack}
+        <div
           style={{
-            width: "36px",
-            height: "36px",
             display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "9999px",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            color: "#3C3C43",
+            flexDirection: "column",
+            minWidth: 0,
+            padding: "0 12px",
           }}
-          type="button"
         >
-          <ArrowRight size={24} />
-        </button>
-      </div>
-
-      {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-        {/* Label + balance */}
-        <div style={{ padding: "8px 20px" }}>
           <span
             style={{
+              color: "#000",
               fontFamily: font,
-              fontSize: "15px",
-              fontWeight: 400,
+              fontSize: "16px",
+              fontWeight: 600,
               lineHeight: "20px",
-              color: secondary,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {label}
           </span>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {address && (
+            <button
+              aria-label={`Copy address ${address}`}
+              className="stash-address-btn"
+              onClick={copyAddress}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                maxWidth: "100%",
+                padding: 0,
+                background: "transparent",
+                border: "none",
+                color: secondary,
+                cursor: "pointer",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                transition: "opacity 0.15s ease",
+              }}
+              title={address}
+              type="button"
+            >
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {formatAddressForDisplay(address)}
+              </span>
+              {isAddressCopied ? (
+                <Check size={12} strokeWidth={1.8} />
+              ) : (
+                <Copy size={12} strokeWidth={1.8} />
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{ display: "flex", alignItems: "center", padding: "8px 20px" }}
+        >
+          <Image
+            alt={label}
+            height={64}
+            src={getVaultIcon(accountIndex)}
+            style={{
+              width: "64px",
+              height: "64px",
+              borderRadius: "16px",
+              flexShrink: 0,
+              marginRight: "12px",
+            }}
+            width={64}
+          />
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: 0,
+              padding: "9px 0",
+            }}
+          >
             <div style={{ borderRadius: "8px", overflow: "hidden" }}>
               <span
                 style={{
                   fontFamily: font,
-                  fontSize: "32px",
+                  fontSize: "40px",
                   fontWeight: 600,
-                  lineHeight: "40px",
-                  letterSpacing: "-0.352px",
+                  lineHeight: "48px",
+                  letterSpacing: "-0.44px",
                   color: isBalanceHidden ? "#BBBBC0" : "#000",
                   filter: isBalanceHidden ? "url(#stash-pixelate)" : "none",
                   transition: "filter 0.15s ease, color 0.15s ease",
@@ -150,7 +284,9 @@ export function StashDetailView({
                 {balanceWhole}
                 <span
                   style={{
-                    color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
                     transition: "color 0.15s ease",
                   }}
                 >
@@ -158,47 +294,27 @@ export function StashDetailView({
                 </span>
               </span>
             </div>
-            <button
-              onClick={() => onBalanceHiddenChange(!isBalanceHidden)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
-                display: "flex",
-                alignItems: "center",
-                flexShrink: 0,
-              }}
-              type="button"
-            >
-              {isBalanceHidden ? (
-                <EyeOff size={22} strokeWidth={1.5} style={{ color: "rgba(60, 60, 67, 0.5)" }} />
-              ) : (
-                <Eye size={22} strokeWidth={1.5} style={{ color: "rgba(60, 60, 67, 0.5)" }} />
-              )}
-            </button>
           </div>
         </div>
 
-        {/* Action buttons: Transfer + Top Up */}
         <div
           style={{
-            display: "flex",
-            gap: "16px",
-            alignItems: "start",
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "10px",
             padding: "8px 20px",
           }}
         >
           <button
-            className="stash-transfer-btn"
+            className="stash-action-btn"
             onClick={onOpenSend}
             style={{
-              flex: 1,
               display: "flex",
               gap: "6px",
               alignItems: "center",
               justifyContent: "center",
-              padding: "10px 16px 10px 8px",
+              minWidth: 0,
+              padding: "10px 8px",
               borderRadius: "9999px",
               background: "rgba(249, 54, 60, 0.14)",
               border: "none",
@@ -207,58 +323,93 @@ export function StashDetailView({
             }}
             type="button"
           >
-            <ArrowUpRight size={24} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <ArrowUpRight size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
+              className="stash-action-label"
               style={{
                 fontFamily: font,
-                fontSize: "16px",
+                fontSize: "15px",
                 fontWeight: 400,
                 lineHeight: "20px",
                 color: "#000",
               }}
             >
-              Transfer
+              Send
             </span>
           </button>
           <button
-            className="stash-topup-btn"
+            className="stash-action-btn"
             onClick={onOpenReceive}
             style={{
-              flex: 1,
               display: "flex",
               gap: "6px",
               alignItems: "center",
               justifyContent: "center",
-              padding: "10px 16px 10px 8px",
+              minWidth: 0,
+              padding: "10px 8px",
               borderRadius: "9999px",
-              background: "#000",
+              background: "rgba(249, 54, 60, 0.14)",
               border: "none",
               cursor: "pointer",
               transition: "background 0.15s ease",
             }}
             type="button"
           >
-            <Plus size={24} style={{ color: "#fff" }} />
+            <ArrowDownLeft size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
+              className="stash-action-label"
               style={{
                 fontFamily: font,
-                fontSize: "16px",
+                fontSize: "15px",
                 fontWeight: 400,
                 lineHeight: "20px",
-                color: "#fff",
+                color: "#000",
               }}
             >
-              Top Up
+              Receive
+            </span>
+          </button>
+          <button
+            className="stash-action-btn"
+            onClick={onOpenSwap}
+            style={{
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <RefreshCw size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <span
+              className="stash-action-label"
+              style={{
+                fontFamily: font,
+                fontSize: "15px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#000",
+              }}
+            >
+              Swap
             </span>
           </button>
         </div>
 
-        {/* Tokens section */}
         <div
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
+            flex: 1,
+            minHeight: 0,
             padding: "8px",
             width: "100%",
           }}
@@ -269,129 +420,115 @@ export function StashDetailView({
               padding: "12px 12px 8px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
+              justifyContent: "flex-start",
+              gap: "24px",
             }}
           >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-              }}
-            >
-              Tokens
-            </span>
-            <button
-              className="stash-link-btn"
-              onClick={() => onNavigate("allTokens")}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-                transition: "opacity 0.15s ease",
-              }}
-              type="button"
-            >
-              See All
-            </button>
-          </div>
-          {tokenRows.map((token) => (
-            <TokenRowItem
-              actions={getTokenActions?.(token)}
-              isBalanceHidden={isBalanceHidden}
-              key={token.id ?? token.symbol}
-              token={token}
-            />
-          ))}
-        </div>
+            {(["tokens", "activity"] as const).map((tab) => {
+              const isSelected = activeTab === tab;
 
-        {/* Activity section */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "8px",
-            width: "100%",
-          }}
-        >
+              return (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    if (tab === "activity") {
+                      onActivityTabOpen?.();
+                    }
+                    setActiveTab(tab);
+                  }}
+                  style={{
+                    position: "relative",
+                    background: "transparent",
+                    border: "none",
+                    padding: "12px 0 8px",
+                    cursor: "pointer",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    lineHeight: "20px",
+                    color: isSelected ? "#000" : "rgba(0, 0, 0, 0.4)",
+                    letterSpacing: "-0.176px",
+                  }}
+                  type="button"
+                >
+                  {tab === "tokens" ? "Tokens" : "Activity"}
+                  {isSelected && (
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        bottom: "5px",
+                        height: "1px",
+                        background: "#000",
+                      }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
           <div
             style={{
+              flex: 1,
+              minHeight: 0,
+              overflowX: "hidden",
+              overflowY: "auto",
               width: "100%",
-              padding: "12px 12px 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
             }}
           >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-              }}
-            >
-              Activity
-            </span>
-            <button
-              className="stash-link-btn"
-              onClick={() => onNavigate("allActivity")}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-                transition: "opacity 0.15s ease",
-              }}
-              type="button"
-            >
-              See All
-            </button>
+            {activeTab === "tokens" &&
+              tokenRows.map((token, index) => (
+                <TokenRowItem
+                  actions={getTokenActions?.(token)}
+                  isBalanceHidden={isBalanceHidden}
+                  key={token.id ?? token.symbol}
+                  onDetail={onTokenDetail}
+                  pairConnection={getTokenPairConnection(tokenRows, index)}
+                  token={token}
+                />
+              ))}
+
+            {activeTab === "tokens" && tokenRows.length === 0 && (
+              <TokenRowItem
+                isBalanceHidden={isBalanceHidden}
+                onDetail={onTokenDetail}
+                token={loyalPlaceholderRow}
+              />
+            )}
+
+            {activeTab === "activity" &&
+              activityRows.map((activity) => (
+                <ActivityRowItem
+                  activity={activity}
+                  isBalanceHidden={isBalanceHidden}
+                  key={activity.id}
+                  onClick={() =>
+                    onNavigate({
+                      type: "transaction",
+                      detail: transactionDetails[activity.id],
+                      from: "portfolio",
+                    })
+                  }
+                />
+              ))}
+
+            {activeTab === "activity" && activityRows.length === 0 && (
+              <div
+                style={{
+                  padding: "12px",
+                  textAlign: "left",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  color: secondary,
+                  width: "100%",
+                }}
+              >
+                No activity yet
+              </div>
+            )}
           </div>
-          {activityRows.map((activity) => (
-            <ActivityRowItem
-              activity={activity}
-              isBalanceHidden={isBalanceHidden}
-              key={activity.id}
-              onClick={() =>
-                onNavigate({
-                  type: "transaction",
-                  detail: transactionDetails[activity.id],
-                  from: "portfolio",
-                })
-              }
-            />
-          ))}
-          {activityRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-              }}
-            >
-              No activity yet
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -37,10 +37,10 @@ describe("getSolanaEndpoints", () => {
     });
   });
 
-  test("returns the current devnet split endpoints", () => {
+  test("returns the devnet helius endpoints", () => {
     expect(getSolanaEndpoints("devnet")).toEqual({
       rpcEndpoint: "https://aurora-o23cd4-fast-devnet.helius-rpc.com",
-      websocketEndpoint: "wss://api.devnet.solana.com",
+      websocketEndpoint: "wss://aurora-o23cd4-fast-devnet.helius-rpc.com",
     });
   });
 

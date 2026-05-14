@@ -2,6 +2,8 @@
 
 This file provides guidance to coding agents when working with code in this repository.
 
+!! Never run build on frontend locally for testing purposes !!
+
 ## Project Overview
 
 Solana Telegram Transactions enables users to deposit SOL for any Telegram username, which can later be claimed by the verified account owner. It integrates Solana smart contracts with a Telegram mini-app interface.

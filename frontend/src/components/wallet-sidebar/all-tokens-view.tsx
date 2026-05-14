@@ -12,16 +12,18 @@ export function AllTokensView({
   onBack,
   onClose,
   getTokenActions,
+  onTokenDetail,
 }: {
   tokens: TokenRow[];
   isBalanceHidden: boolean;
   onBack: () => void;
   onClose: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
 }) {
   const [search, setSearch] = useState("");
   const filtered = tokens.filter((t) =>
-    t.symbol.toLowerCase().includes(search.toLowerCase()),
+    t.symbol.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -31,6 +33,7 @@ export function AllTokensView({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           overflowX: "hidden",
           padding: "0 8px",
@@ -41,6 +44,7 @@ export function AllTokensView({
             actions={getTokenActions?.(token)}
             isBalanceHidden={isBalanceHidden}
             key={token.id ?? `${token.symbol}-${i}`}
+            onDetail={onTokenDetail}
             token={token}
           />
         ))}

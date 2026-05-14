@@ -47,22 +47,16 @@ describe("public config", () => {
     });
   });
 
-  test("returns trimmed grid auth base url when set", () => {
-    const env = createPublicEnv({
-      NEXT_PUBLIC_GRID_AUTH_BASE_URL: "  https://auth.askloyal.com  ",
-    });
-
-    expect(env.gridAuthBaseUrl).toBe("https://auth.askloyal.com");
-  });
-
   test("returns trimmed mixpanel config when set", () => {
     const env = createPublicEnv({
       NEXT_PUBLIC_MIXPANEL_TOKEN: "  token  ",
       NEXT_PUBLIC_MIXPANEL_PROXY_PATH: " ingest-custom ",
+      NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID: " usercentrics-id ",
     });
 
     expect(env.mixpanelToken).toBe("token");
     expect(env.mixpanelProxyPath).toBe("/ingest-custom");
+    expect(env.usercentricsSettingsId).toBe("usercentrics-id");
   });
 
   test("defaults mixpanel proxy path and git metadata when unset", () => {

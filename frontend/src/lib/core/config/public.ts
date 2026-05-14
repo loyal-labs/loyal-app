@@ -1,8 +1,8 @@
 import {
-  getSolanaEndpoints,
   resolveSolanaEnv,
   type SolanaEnv,
 } from "@loyal-labs/solana-rpc";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
   getOptionalEnv,
   isStrictTrue,
@@ -22,6 +22,8 @@ const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
+const USERCENTRICS_SETTINGS_ID_ENV_NAME =
+  "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
 export type TurnstileConfig =
   | { mode: "bypass"; verificationToken: string }
@@ -44,6 +46,7 @@ export type PublicEnv = {
   demoRecipeEnabled: boolean;
   mixpanelToken: string | undefined;
   mixpanelProxyPath: string;
+  usercentricsSettingsId: string | undefined;
   gitBranch: string;
   gitCommitHash: string;
 };
@@ -102,7 +105,7 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
     gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
     flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
     solanaEnv,
-    solanaRpcEndpoint: getSolanaEndpoints(solanaEnv).rpcEndpoint,
+    solanaRpcEndpoint: getFrontendSolanaEndpoints(solanaEnv).rpcEndpoint,
     swap: resolveSwapConfig(env),
     skillsEnabled: isStrictTrue(
       getOptionalEnv(env, SKILLS_ENABLED_ENV_NAME) ?? "true"
@@ -117,6 +120,10 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
 
       return value.startsWith("/") ? value : `/${value}`;
     })(),
+    usercentricsSettingsId: getOptionalEnv(
+      env,
+      USERCENTRICS_SETTINGS_ID_ENV_NAME
+    ),
     gitBranch: getOptionalEnv(env, "NEXT_PUBLIC_GIT_BRANCH") ?? "unknown",
     gitCommitHash: getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
   };

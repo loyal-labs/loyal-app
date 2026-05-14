@@ -13,9 +13,13 @@ import { createRpcActivityProvider } from "./providers/default-activity-provider
 import type {
   ActivityPage,
   AddressInput,
+  AssetDescriptor,
+  AssetProvider,
+  AssetSnapshot,
   CreateSolanaWalletDataClientConfig,
   GetActivityOptions,
   GetPortfolioOptions,
+  InvalidateCachesOptions,
   PortfolioSnapshot,
   SecureBalanceMap,
   SolanaWalletDataClient,
@@ -71,6 +75,55 @@ function getActivityCacheKey(
     before: options.before ?? null,
     onlySystemTransfers: options.onlySystemTransfers ?? false,
   });
+}
+
+async function resolveShieldedOnlyAssets(args: {
+  assetProvider: AssetProvider;
+  assetSnapshot: AssetSnapshot;
+  secureBalances: SecureBalanceMap;
+  logger: WalletDataLogger;
+}): Promise<{
+  descriptors: Map<string, AssetDescriptor>;
+  prices: Map<string, number | null>;
+}> {
+  const empty = {
+    descriptors: new Map<string, AssetDescriptor>(),
+    prices: new Map<string, number | null>(),
+  };
+  if (args.secureBalances.size === 0 || !args.assetProvider.resolveAssets) {
+    return empty;
+  }
+
+  const knownMints = new Set(
+    args.assetSnapshot.assets.map((asset) => asset.asset.mint)
+  );
+  const shieldedOnlyMints: string[] = [];
+  for (const mint of args.secureBalances.keys()) {
+    if (!knownMints.has(mint)) {
+      shieldedOnlyMints.push(mint);
+    }
+  }
+
+  if (shieldedOnlyMints.length === 0) {
+    return empty;
+  }
+
+  try {
+    const entries = await args.assetProvider.resolveAssets(shieldedOnlyMints);
+    const descriptors = new Map<string, AssetDescriptor>();
+    const prices = new Map<string, number | null>();
+    for (const entry of entries) {
+      descriptors.set(entry.descriptor.mint, entry.descriptor);
+      prices.set(entry.descriptor.mint, entry.priceUsd);
+    }
+    return { descriptors, prices };
+  } catch (error) {
+    args.logger.warn?.(
+      "Failed to resolve shielded-only asset descriptors",
+      error
+    );
+    return empty;
+  }
 }
 
 export function createSolanaWalletDataClient(
@@ -190,9 +243,18 @@ export function createSolanaWalletDataClient(
           })
         : new Map<string, bigint>();
 
+      const shieldedOnly = await resolveShieldedOnlyAssets({
+        assetProvider,
+        assetSnapshot,
+        secureBalances,
+        logger,
+      });
+
       const snapshot = buildPortfolioSnapshot({
         assetSnapshot,
         secureBalances,
+        shieldedOnlyDescriptors: shieldedOnly.descriptors,
+        shieldedOnlyPrices: shieldedOnly.prices,
         fallbackSolPriceUsd: options.fallbackSolPriceUsd,
       });
 
@@ -329,8 +391,10 @@ export function createSolanaWalletDataClient(
     const owner = parsePublicKey(publicKey);
     const cacheKey = getActivityCacheKey(owner.toBase58(), options);
     const cached = activityCache.get(cacheKey);
+    const forceRefresh = options.forceRefresh ?? false;
 
     if (
+      !forceRefresh &&
       !options.before &&
       cached &&
       isCacheValid(cached.fetchedAt, DEFAULT_ACTIVITY_CACHE_TTL_MS)
@@ -339,7 +403,7 @@ export function createSolanaWalletDataClient(
     }
 
     const inflight = inflightActivityRequests.get(cacheKey);
-    if (inflight) {
+    if (inflight && !forceRefresh) {
       return inflight;
     }
 
@@ -445,6 +509,31 @@ export function createSolanaWalletDataClient(
     };
   };
 
+  const invalidateCaches = (options: InvalidateCachesOptions = {}): void => {
+    if (options.portfolio) {
+      for (const address of options.portfolio) {
+        const ownerKey = parsePublicKey(address).toBase58();
+        portfolioCache.delete(ownerKey);
+      }
+    }
+
+    if (options.activity) {
+      const ownerKeys = new Set(
+        options.activity.map((address) => parsePublicKey(address).toBase58())
+      );
+      for (const cacheKey of activityCache.keys()) {
+        try {
+          const parsed = JSON.parse(cacheKey) as { owner?: string };
+          if (parsed.owner && ownerKeys.has(parsed.owner)) {
+            activityCache.delete(cacheKey);
+          }
+        } catch {
+          // Ignore unparseable keys; they aren't owned by this code path.
+        }
+      }
+    }
+  };
+
   return {
     env,
     rpcEndpoint,
@@ -454,5 +543,6 @@ export function createSolanaWalletDataClient(
     subscribePortfolio,
     getActivity,
     subscribeActivity,
+    invalidateCaches,
   };
 }

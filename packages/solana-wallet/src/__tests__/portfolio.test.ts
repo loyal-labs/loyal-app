@@ -65,6 +65,79 @@ describe("portfolio domain helpers", () => {
     });
   });
 
+  test("surfaces shielded-only mints as zero-publicBalance positions", () => {
+    const snapshot = buildPortfolioSnapshot({
+      assetSnapshot: {
+        owner: WALLET_ADDRESS,
+        nativeBalanceLamports: 0,
+        fetchedAt: 1,
+        assets: [
+          {
+            asset: {
+              mint: "So11111111111111111111111111111111111111112",
+              symbol: "SOL",
+              name: "Solana",
+              decimals: 9,
+              imageUrl: null,
+              isNative: true,
+            },
+            balance: 1,
+            priceUsd: 100,
+            valueUsd: 100,
+          },
+        ],
+      },
+      secureBalances: new Map([[USDC_MINT, BigInt(2_500_000)]]),
+      shieldedOnlyDescriptors: new Map([
+        [
+          USDC_MINT,
+          {
+            mint: USDC_MINT,
+            symbol: "USDC",
+            name: "USD Coin",
+            decimals: 6,
+            imageUrl: "https://cdn.example.com/usdc.png",
+            isNative: false,
+          },
+        ],
+      ]),
+      shieldedOnlyPrices: new Map([[USDC_MINT, 0.9988]]),
+    });
+
+    const usdcPosition = snapshot.positions.find(
+      (position) => position.asset.mint === USDC_MINT
+    );
+    expect(usdcPosition).toMatchObject({
+      publicBalance: 0,
+      securedBalance: 2.5,
+      totalBalance: 2.5,
+      priceUsd: 0.9988,
+      asset: { symbol: "USDC", decimals: 6 },
+    });
+    expect(usdcPosition?.securedValueUsd).toBeCloseTo(2.497, 3);
+  });
+
+  test("falls back to placeholder descriptor when no metadata is provided", () => {
+    const snapshot = buildPortfolioSnapshot({
+      assetSnapshot: {
+        owner: WALLET_ADDRESS,
+        nativeBalanceLamports: 0,
+        fetchedAt: 1,
+        assets: [],
+      },
+      secureBalances: new Map([[USDC_MINT, BigInt(1_000_000)]]),
+    });
+
+    const usdcPosition = snapshot.positions.find(
+      (position) => position.asset.mint === USDC_MINT
+    );
+    expect(usdcPosition).toBeDefined();
+    expect(usdcPosition?.asset.decimals).toBe(0);
+    // With decimals=0 the raw amount is shown verbatim.
+    expect(usdcPosition?.securedBalance).toBe(1_000_000);
+    expect(usdcPosition?.asset.symbol).toBe(`${USDC_MINT.slice(0, 4)}...${USDC_MINT.slice(-4)}`);
+  });
+
   test("computes totals with fallback sol price when native price is missing", () => {
     const totals = computePortfolioTotals(
       [

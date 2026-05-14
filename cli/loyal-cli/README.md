@@ -1,6 +1,6 @@
 # loyal-cli
 
-Rust CLI for `programs/telegram-private-transfer`.
+Agent CLI for Loyal Squads Vault automation.
 
 ## Build
 
@@ -14,72 +14,71 @@ Binary:
 target/debug/loyal
 ```
 
-## Solana Config
+## Key Storage
 
-By default this reads your Solana CLI config:
+By default this CLI stores its dedicated agent signer at:
 
-- `~/.config/solana/cli/config.yml`
-- or `$SOLANA_CONFIG`
+```bash
+~/.config/loyal/id.json
+```
 
-Global flags mirror Solana CLI style:
+This key is separate from `~/.config/solana/id.json`.
 
-- `-C, --config`
-- `-u, --url`
-- `--ws`
-- `-k, --keypair`
-- `--commitment`
+## Configuration
 
-## MagicBlock PER
+The CLI reads a Solana-style YAML config from:
 
-Defaults (auto-detected from Solana config / `--url`):
+```bash
+~/.config/loyal/cli/config.yml
+```
 
-- `--per-rpc https://mainnet-tee.magicblock.app` (mainnet) or `https://tee.magicblock.app` (devnet)
-- `--router-url https://devnet-router.magicblock.app`
+Global flags:
 
-When `--per-rpc` contains `tee` and no `token=` is present, the CLI:
+```bash
+loyal --config <PATH> --url <FRONTEND_URL> --rpc-url <RPC_URL> --keypair <PATH> --commitment confirmed --smart-accounts-program-id <PROGRAM_ID> <COMMAND>
+```
 
-1. probes `GET /quote?challenge=...` (TEE probe), and
-2. fetches an auth token via:
-   - `GET /auth/challenge?pubkey=...`
-   - `POST /auth/login` with signed challenge.
+Environment overrides:
 
-Pass `--per-auth-token` to skip token fetch.
+- `LOYAL_URL` or `LOYAL_BASE_URL`
+- `LOYAL_RPC_URL` or `RPC_URL`
+- `LOYAL_WS_URL`
+- `LOYAL_KEYPAIR`
+- `LOYAL_SMART_ACCOUNTS_PROGRAM_ID`
+- `LOYAL_SETTINGS_PDA`
+- `LOYAL_POLICY_PDA`
 
 ## Commands
 
 ```bash
-loyal display [--mint <MINT>] [--user <PUBKEY> | --username <USERNAME>]
-
-loyal delegate [--mint <MINT>] [--user <PUBKEY> | --username <USERNAME>]
-loyal undelegate [--mint <MINT>] [--user <PUBKEY>]
-loyal undelegate [--mint <MINT>] --username <USERNAME> --session <TG_SESSION_PDA>
-
-loyal wait-delegate [--mint <MINT>] [--user <PUBKEY> | --username <USERNAME>]
-loyal wait-undelegate [--mint <MINT>] [--user <PUBKEY> | --username <USERNAME>]
-
-loyal shield [--mint <MINT>] --amount <RAW_AMOUNT>
-loyal unshield [--mint <MINT>] --amount <RAW_AMOUNT>
-
-loyal transfer-username [--mint <MINT>] --username <USERNAME> --amount <RAW_AMOUNT>
+loyal auth
+loyal pubkey
+loyal show
+loyal propose raw <ENCODED_TRANSACTION>
+loyal propose transfer sol <RECIPIENT_ADDRESS> <AMOUNT>
+loyal propose transfer token <TOKEN_MINT_ADDRESS> <TOKEN_AMOUNT> <RECIPIENT_ADDRESS>
 ```
 
-`--amount` is raw token units.
-`--mint` defaults to native SOL mint (`So11111111111111111111111111111111111111112`).
+`loyal auth` opens `<FRONTEND_URL>?connect=<CLI_PUBLIC_KEY>` and subscribes to
+Squads policy accounts until the CLI public key is added to `Policy.signers[]`
+with the Initiate permission.
 
-## Debug Logging
+`loyal propose raw` accepts a base64, URL-safe base64, or base58 serialized
+Solana transaction.
 
-Use either:
+`loyal propose transfer sol` mirrors `solana transfer` for vault SOL transfers:
+the amount is in SOL and may be `ALL`; `--allow-unfunded-recipient`,
+`--from`, `--with-compute-unit-price`, `--with-memo`, and `--no-wait` are
+supported. `--from` must match the resolved policy vault.
 
-```bash
-RUST_LOG=debug loyal display
-```
+`loyal propose transfer token` mirrors `spl-token transfer` for vault SPL token
+transfers. By default it sends from the vault associated token account to the
+recipient associated token account. Supported transfer flags include `--from`,
+`--owner`, `--fund-recipient`, `--allow-unfunded-recipient`,
+`--allow-non-system-account-recipient`, `--token-program-id`, `--program-2022`,
+`--mint-decimals`, `--transfer-hook-account`, `--with-compute-unit-limit`,
+`--with-compute-unit-price`, `--with-memo`, and `--no-wait`. `--owner` must
+match the resolved policy vault.
 
-or:
-
-```bash
-loyal --debug display
-```
-
-Debug output includes resolved config, RPC/HTTP request details, and raw router delegation responses.
-
-Use `--output json` or `--output json-compact` for machine-readable output.
+All `propose` forms create a Squads policy transaction and proposal directly
+on-chain, then sign and submit it with `~/.config/loyal/id.json`.

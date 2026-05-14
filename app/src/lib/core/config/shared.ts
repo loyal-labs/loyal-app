@@ -1,3 +1,13 @@
+export type AppEnvironment = "local" | "dev" | "prod";
+
+const APP_ENVIRONMENT_VALUES: readonly AppEnvironment[] = [
+  "local",
+  "dev",
+  "prod",
+];
+
+export const DEFAULT_APP_ENVIRONMENT: AppEnvironment = "prod";
+
 export function normalizeOptionalValue(value: string | undefined): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -21,4 +31,17 @@ export function getRequiredEnv(name: string): string {
 
 export function isStrictTrue(value: string | undefined): boolean {
   return value === "true";
+}
+
+export function isAppEnvironment(value: string): value is AppEnvironment {
+  return APP_ENVIRONMENT_VALUES.includes(value as AppEnvironment);
+}
+
+export function resolveAppEnvironment(
+  value: string | undefined
+): AppEnvironment {
+  const normalized = normalizeOptionalValue(value);
+  return normalized && isAppEnvironment(normalized)
+    ? normalized
+    : DEFAULT_APP_ENVIRONMENT;
 }

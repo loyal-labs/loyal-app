@@ -44,25 +44,18 @@ Open [http://localhost:3000](http://localhost:3000) to view the app.
 
 Create a `.env.local` file with required API keys (see `.env.example`).
 
-For Grid auth integrations, set `NEXT_PUBLIC_GRID_AUTH_BASE_URL` to the shared
-passkey domain, typically `https://auth.askloyal.com`.
+Wallet auth and wallet session refresh are fully owned by this frontend. The
+local auth surface is:
 
-## Grid auth integration
+- `POST /api/auth/wallet/challenge`
+- `POST /api/auth/wallet/complete`
+- `GET /api/auth/session`
+- `POST /api/auth/session/refresh`
+- `POST /api/auth/logout`
 
-This frontend treats Grid auth as a shared cookie-backed auth session.
-
-- Email sign-in and passkey sign-in both hydrate the same auth session model.
-- Passkey sign-in is implemented in the sign-in modal without duplicating
-  WebAuthn logic in this workspace.
-- The modal starts passkey sign-in against `NEXT_PUBLIC_GRID_AUTH_BASE_URL`,
-  loads the returned `/continue` URL in an iframe, and refreshes the shared
-  auth session when the auth domain posts `authz_complete`.
-
-Implementation note:
-
-- browser passkey orchestration stays in the `passkey` workspace
-- reusable contracts and auth-client helpers live in `packages/grid-core`
-- this workspace owns only the modal UI state and session refresh behavior
+Wallet sign-in provisions or reconciles the sponsored smart account before the
+session cookie is issued. The HttpOnly wallet session cookie uses a 7 day TTL
+and refreshes locally once it is at least 24 hours old.
 
 ## Development
 

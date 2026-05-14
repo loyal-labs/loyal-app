@@ -4,17 +4,10 @@ import {
   findUsernameDepositPda,
   getErValidatorForSolanaEnv,
   LoyalPrivateTransactionsClient,
-  MAGIC_CONTEXT_ID,
-  MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
-import { getPerEndpoints, getSolanaEndpoints } from "@loyal-labs/solana-rpc";
+import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
-import {
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
 import {
   useConnection,
   useWallet,
@@ -24,7 +17,7 @@ import { useCallback, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { trackWalletSendCompleted } from "@/lib/core/analytics";
-import { closeWsolAta, wrapSolToWSol } from "@/lib/solana/wsol-adapter";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 
 export type PrivateSendResult = {
   signature?: string;
@@ -64,7 +57,9 @@ export function usePrivateSend() {
       throw new Error("Wallet must support signTransaction, signAllTransactions, and signMessage for private send");
     }
 
-    const { rpcEndpoint, websocketEndpoint } = getSolanaEndpoints(publicEnv.solanaEnv);
+    const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
+      publicEnv.solanaEnv
+    );
     const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
 
     // The SDK internally checks for signMessage on the signer at runtime
@@ -122,7 +117,6 @@ export function usePrivateSend() {
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = wallet.publicKey;
         const validator = getErValidatorForSolanaEnv(publicEnv.solanaEnv);
-        const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
         // 1. Check ephemeral balance — skip shield if sufficient
         const existingDeposit = await client.getEphemeralDeposit(user, tokenMint);
@@ -130,69 +124,13 @@ export function usePrivateSend() {
         const needsShield = existingBalance < BigInt(rawAmount);
 
         if (needsShield) {
-          // Shield flow: init deposit → wrap wSOL → undelegate → modifyBalance → permission → delegate
-
-          // Init deposit if needed
-          const baseDeposit = await client.getBaseDeposit(user, tokenMint);
-          if (!baseDeposit) {
-            await client.initializeDeposit({ tokenMint, user, payer: user });
-            const [depositPda] = findDepositPda(user, tokenMint);
-            await waitForAccount(connection, depositPda);
-          }
-
-          // Wrap SOL → wSOL if native
-          const walletSigner = {
-            publicKey: user,
-            signTransaction: wallet.signTransaction,
-          };
-          let createdAta = false;
-          if (isNativeSol) {
-            const result = await wrapSolToWSol({ connection, wallet: walletSigner, lamports: rawAmount });
-            createdAta = result.createdAta;
-          }
-
-          const userTokenAccount = getAssociatedTokenAddressSync(tokenMint, user, false, TOKEN_PROGRAM_ID);
-
-          // Undelegate if currently delegated
-          const [depositPda] = findDepositPda(user, tokenMint);
-          const depositInfo = await connection.getAccountInfo(depositPda);
-          if (depositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-            await client.undelegateDeposit({
-              tokenMint,
-              user,
-              payer: user,
-              magicProgram: MAGIC_PROGRAM_ID,
-              magicContext: MAGIC_CONTEXT_ID,
-            });
-          }
-
-          // Move tokens into deposit vault
-          await client.modifyBalance({
+          const shieldPlan = await client.buildShieldTokensTransactionPlan({
             tokenMint,
-            amount: rawAmount,
-            increase: true,
+            amount: BigInt(rawAmount),
             user,
             payer: user,
           });
-
-          // Close wSOL ATA if we created it
-          if (isNativeSol && createdAta) {
-            await closeWsolAta({ connection, wallet: walletSigner, wsolAta: userTokenAccount });
-          }
-
-          // Create permission (may already exist)
-          try {
-            await client.createPermission({ tokenMint, user, payer: user });
-          } catch {
-            // Permission may already exist
-          }
-
-          // Delegate deposit
-          try {
-            await client.delegateDeposit({ tokenMint, user, payer: user, validator });
-          } catch {
-            // May already be delegated
-          }
+          await client.executeShieldTokensTransactionPlan({ plan: shieldPlan });
         }
 
         // 2. Transfer

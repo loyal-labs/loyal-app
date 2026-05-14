@@ -51,9 +51,26 @@ export type AssetProviderSubscribeOptions = {
   includeNative?: boolean;
 };
 
+export type ResolvedAssetEntry = {
+  descriptor: AssetDescriptor;
+  /** USD price per whole token, when known. */
+  priceUsd: number | null;
+};
+
 export type AssetProvider = {
   getBalance: (owner: PublicKey) => Promise<number>;
   getAssetSnapshot: (owner: PublicKey) => Promise<AssetSnapshot>;
+  /**
+   * Resolve descriptors and pricing for arbitrary mints (typically those
+   * returned by a `secureBalanceProvider` that the public asset snapshot
+   * doesn't cover — e.g. a fully-shielded SPL mint with a closed/empty ATA).
+   *
+   * Implementations should return one entry per mint they could resolve;
+   * mints they could not resolve may simply be omitted (the SDK falls back to
+   * a placeholder so the row still renders). `priceUsd` may be null if the
+   * provider could resolve the descriptor but not the price.
+   */
+  resolveAssets?: (mints: string[]) => Promise<ResolvedAssetEntry[]>;
   subscribeAssetChanges: (
     owner: PublicKey,
     onChange: () => void,
@@ -144,6 +161,12 @@ export type GetActivityOptions = {
   limit?: number;
   before?: string;
   onlySystemTransfers?: boolean;
+  forceRefresh?: boolean;
+};
+
+export type InvalidateCachesOptions = {
+  portfolio?: AddressInput[];
+  activity?: AddressInput[];
 };
 
 export type SubscribeActivityOptions = {
@@ -270,4 +293,5 @@ export type SolanaWalletDataClient = {
     onActivity: (activity: WalletActivity) => void,
     options?: SubscribeActivityOptions
   ) => Promise<() => Promise<void>>;
+  invalidateCaches: (options?: InvalidateCachesOptions) => void;
 };

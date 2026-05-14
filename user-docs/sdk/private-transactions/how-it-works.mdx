@@ -3,14 +3,14 @@ title: "How It Works"
 description: "How private transfers move between base Solana state and MagicBlock PER"
 ---
 
-<img 
+<img
   className="block dark:hidden"
   src="/resources/private-txn/how-it-works-light.png"
 />
 
-<img 
-  className="hidden dark:block" 
-  src="/resources/private-txn/how-it-works-dark.png" 
+<img
+  className="hidden dark:block"
+  src="/resources/private-txn/how-it-works-dark.png"
 />
 
 Private transfers in Loyal use the `telegram-private-transfer` Solana program (`97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV`) combined with [MagicBlock Private Ephemeral Rollups (PER)](https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/introduction/authorization) — an ephemeral runtime that runs inside a [Trusted Execution Environment (Intel TDX)](https://www.magicblock.xyz/blog/institutional-grade-privacy) for privacy-preserving execution.

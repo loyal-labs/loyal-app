@@ -21,6 +21,7 @@ import type {
 import { track } from "~/src/lib/analytics";
 import { ActivityRowItem } from "~/src/components/wallet/activity-row-item";
 import { TokenRowItem, type TokenRowActions } from "~/src/components/wallet/token-row-item";
+import { BannerCarousel } from "./banner-carousel";
 import { PORTFOLIO_EVENTS } from "./portfolio-analytics";
 
 const skeletonBar = (width: string, height: string) => ({
@@ -126,6 +127,10 @@ export function PortfolioContent({
   walletAddress,
   walletLabel,
   getTokenActions,
+  onTokenDetail,
+  onShieldUsdc,
+  totalTokenCount,
+  totalActivityCount,
 }: {
   activityRows: ActivityRow[];
   balanceFraction: string;
@@ -146,6 +151,10 @@ export function PortfolioContent({
   walletAddress: string | null;
   walletLabel: string;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
+  onTokenDetail?: (token: TokenRow) => void;
+  onShieldUsdc?: () => void;
+  totalTokenCount?: number;
+  totalActivityCount?: number;
 }) {
   const [copied, setCopied] = useState(false);
   const handleCopyAddress = useCallback(
@@ -593,6 +602,13 @@ export function PortfolioContent({
           overflowX: "hidden",
         }}
       >
+        {/* Banners */}
+        {onShieldUsdc && (
+          <div style={{ padding: "4px 0 8px" }}>
+            <BannerCarousel onShieldUsdc={onShieldUsdc} />
+          </div>
+        )}
+
         {/* Tokens section */}
         <div
           style={{
@@ -624,32 +640,34 @@ export function PortfolioContent({
             >
               Tokens
             </span>
-            <button
-              onClick={() => {
-                track(PORTFOLIO_EVENTS.viewAllTokens);
-                onNavigate("allTokens");
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.7";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-              }}
-              type="button"
-            >
-              See All
-            </button>
+            {(totalTokenCount ?? tokenRows.length) > 3 && (
+              <button
+                onClick={() => {
+                  track(PORTFOLIO_EVENTS.viewAllTokens);
+                  onNavigate("allTokens");
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = "0.7";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = "1";
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#F9363C",
+                }}
+                type="button"
+              >
+                See All
+              </button>
+            )}
           </div>
 
           {tokenRows.map((token) => (
@@ -658,6 +676,7 @@ export function PortfolioContent({
               isBalanceHidden={isBalanceHidden}
               key={token.id ?? token.symbol}
               token={token}
+              onDetail={onTokenDetail}
             />
           ))}
         </div>
@@ -693,32 +712,34 @@ export function PortfolioContent({
             >
               Activity
             </span>
-            <button
-              onClick={() => {
-                track(PORTFOLIO_EVENTS.viewAllActivity);
-                onNavigate("allActivity");
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.7";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: "#F9363C",
-              }}
-              type="button"
-            >
-              See All
-            </button>
+            {(totalActivityCount ?? activityRows.length) > 7 && (
+              <button
+                onClick={() => {
+                  track(PORTFOLIO_EVENTS.viewAllActivity);
+                  onNavigate("allActivity");
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = "0.7";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = "1";
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-geist-sans), sans-serif",
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#F9363C",
+                }}
+                type="button"
+              >
+                See All
+              </button>
+            )}
           </div>
 
           {activityRows.map((activity) => (
@@ -742,8 +763,9 @@ export function PortfolioContent({
           {!isLoading && activityRows.length === 0 && (
             <div
               style={{
-                padding: "12px 20px",
-                textAlign: "center",
+                padding: "4px 12px 12px",
+                width: "100%",
+                boxSizing: "border-box",
                 fontFamily: "var(--font-geist-sans), sans-serif",
                 fontSize: "14px",
                 color: "rgba(60, 60, 67, 0.6)",

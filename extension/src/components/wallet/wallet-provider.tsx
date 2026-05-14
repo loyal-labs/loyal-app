@@ -24,6 +24,7 @@ import {
   LOCK_METHODS,
 } from "~/src/components/wallet/wallet-setup-analytics";
 import {
+  confettiShown,
   isBalanceHidden as isBalanceHiddenStorage,
   isWalletUnlocked as isWalletUnlockedStorage,
   lastActivityAt as lastActivityAtStorage,
@@ -291,6 +292,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setResetMode(initialMode);
       await clearStoredKeypair();
       await isWalletUnlockedStorage.setValue(false);
+      await confettiShown.setValue(false);
       void browser.runtime.sendMessage({ type: "CLEAR_SESSION_KEYPAIR" });
       setState("noWallet");
     },

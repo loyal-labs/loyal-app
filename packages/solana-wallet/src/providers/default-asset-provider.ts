@@ -17,6 +17,7 @@ import type {
   AssetProvider,
   AssetSnapshot,
   CreateSolanaWalletDataClientConfig,
+  ResolvedAssetEntry,
 } from "../types";
 
 type HeliusAsset = {
@@ -54,6 +55,12 @@ type HeliusResponse = {
     items: HeliusAsset[];
     nativeBalance?: HeliusNativeBalance;
   };
+};
+
+type HeliusGetAssetResponse = {
+  jsonrpc: "2.0";
+  id: string;
+  result: HeliusAsset | null;
 };
 
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
@@ -308,6 +315,47 @@ export function createHeliusAssetProvider(args: {
         assets: enrichedAssets,
         fetchedAt: Date.now(),
       };
+    },
+    resolveAssets: async (mints) => {
+      if (args.env === "localnet" || mints.length === 0) {
+        return [];
+      }
+
+      const uniqueMints = [...new Set(mints)];
+      const results = await Promise.all(
+        uniqueMints.map(async (mint) => {
+          try {
+            const response = await fetchJson<HeliusGetAssetResponse>(
+              args.fetchImpl,
+              args.rpcEndpoint,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: "wallet-resolve-asset",
+                  method: "getAsset",
+                  params: { id: mint },
+                }),
+              }
+            );
+            const asset = response.result;
+            if (!asset) {
+              return null;
+            }
+            return {
+              descriptor: resolveAssetDescriptor(asset),
+              priceUsd: asset.token_info?.price_info?.price_per_token ?? null,
+            } satisfies ResolvedAssetEntry;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      return results.filter(
+        (entry): entry is ResolvedAssetEntry => entry !== null
+      );
     },
     subscribeAssetChanges: async (owner, onChange, options = {}) => {
       const connection = getWebsocketConnection();

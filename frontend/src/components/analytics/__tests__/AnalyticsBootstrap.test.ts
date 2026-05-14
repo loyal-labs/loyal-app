@@ -4,6 +4,14 @@ import {
   shouldTrackAuthSignInSuccess,
   shouldTrackFrontendPageView,
 } from "../AnalyticsBootstrap";
+import {
+  buildUsercentricsDecisions,
+  getAnalyticsConsentFromServices,
+  getChoicesFromServices,
+  getServiceConsentCategory,
+  type ConsentService,
+} from "../landing-cookie-consent";
+import { getLandingAnchorClickProperties } from "../LandingAnalyticsBootstrap";
 import { getFrontendPageViewEventName } from "@/lib/core/analytics";
 
 describe("frontend analytics bootstrap helpers", () => {
@@ -70,5 +78,114 @@ describe("frontend analytics bootstrap helpers", () => {
         },
       })
     ).toBe(false);
+  });
+
+  test("builds tracked landing anchor click properties", () => {
+    expect(
+      getLandingAnchorClickProperties({
+        currentOrigin: "https://askloyal.com",
+        currentPathname: "/",
+        href: "#get-started",
+        linkText: "Get started",
+      })
+    ).toEqual({
+      anchor: "#get-started",
+      hostname: "askloyal.com",
+      link_text: "Get started",
+      path: "/",
+      source: "anchor_link",
+      url: "https://askloyal.com/#get-started",
+    });
+  });
+
+  test("ignores non-anchor landing links", () => {
+    expect(
+      getLandingAnchorClickProperties({
+        currentOrigin: "https://askloyal.com",
+        currentPathname: "/",
+        href: "https://docs.askloyal.com",
+        linkText: "Docs",
+      })
+    ).toBeNull();
+  });
+
+  test("maps Usercentrics services into landing consent categories", () => {
+    expect(
+      getServiceConsentCategory({
+        categorySlug: "analytics",
+        name: "Mixpanel",
+      })
+    ).toBe("analytics");
+
+    expect(
+      getServiceConsentCategory({
+        categorySlug: "marketing",
+        name: "Ads",
+      })
+    ).toBe("marketing");
+  });
+
+  test("reads analytics consent from Usercentrics services", () => {
+    const services: ConsentService[] = [
+      {
+        categorySlug: "essential",
+        consent: { status: true },
+        description: "",
+        id: "essential-service",
+        isEssential: true,
+        isHidden: false,
+        name: "Essential",
+      },
+      {
+        categorySlug: "analytics",
+        consent: { status: true },
+        description: "",
+        id: "analytics-service",
+        isEssential: false,
+        isHidden: false,
+        name: "Mixpanel",
+      },
+    ];
+
+    expect(getAnalyticsConsentFromServices(services)).toBe(true);
+    expect(getChoicesFromServices(services)).toEqual({
+      analytics: true,
+      marketing: false,
+      personalization: false,
+    });
+  });
+
+  test("keeps essential services accepted when building Usercentrics decisions", () => {
+    const services: ConsentService[] = [
+      {
+        categorySlug: "essential",
+        consent: { status: true },
+        description: "",
+        id: "essential-service",
+        isEssential: true,
+        isHidden: false,
+        name: "Essential",
+      },
+      {
+        categorySlug: "analytics",
+        consent: { status: false },
+        description: "",
+        id: "analytics-service",
+        isEssential: false,
+        isHidden: false,
+        name: "Mixpanel",
+      },
+    ];
+
+    expect(
+      buildUsercentricsDecisions(services, {
+        analytics: false,
+        marketing: false,
+        personalization: false,
+      })
+    ).toEqual([
+      { serviceId: "essential-service", status: true },
+      { serviceId: "analytics-service", status: false },
+    ]);
   });
 });

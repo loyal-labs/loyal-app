@@ -38,6 +38,33 @@ export function isStrictTrue(value: string | undefined): boolean {
   return value === "true";
 }
 
+export function parseAuthCookieParentDomains(
+  raw: string | undefined
+): readonly string[] {
+  if (typeof raw !== "string") {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const domains: string[] = [];
+
+  for (const entry of raw.split(",")) {
+    const normalized = entry.trim().replace(/\.$/, "").toLowerCase();
+    if (normalized.length === 0 || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    domains.push(normalized);
+  }
+
+  return domains;
+}
+
+export function isVercelPreviewEnv(env: EnvSource): boolean {
+  return env.VERCEL_ENV === "preview";
+}
+
 export function isAppEnvironment(value: string): value is AppEnvironment {
   return APP_ENVIRONMENT_VALUES.includes(value as AppEnvironment);
 }

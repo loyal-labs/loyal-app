@@ -182,7 +182,7 @@ function useMorphPath(paths: Record<DogMood, string>, mood: DogMood) {
   return current;
 }
 
-function DogWithMood({
+export function DogWithMood({
   squint,
   cry,
   nice,

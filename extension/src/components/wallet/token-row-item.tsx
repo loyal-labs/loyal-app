@@ -1,9 +1,7 @@
-import { ArrowUpRight, DollarSign, RefreshCw, Shield, ShieldOff } from "lucide-react";
+import { ArrowUpRight, DollarSign, RefreshCw, Shield, ShieldOff, Zap } from "lucide-react";
 import { useState } from "react";
 
 import type { TokenRow } from "@loyal-labs/wallet-core/types";
-
-const LOYAL_JUP_URL = "https://jup.ag/tokens/LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 
 export type TokenRowActions = {
   onSend?: (token: TokenRow) => void;
@@ -55,28 +53,20 @@ export function TokenRowItem({
   token,
   isBalanceHidden,
   actions,
+  onDetail,
 }: {
   token: TokenRow;
   isBalanceHidden: boolean;
   actions?: TokenRowActions;
+  onDetail?: (token: TokenRow) => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const isLoyal = token.symbol === "LOYAL";
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={
-        isLoyal
-          ? () =>
-              globalThis.open(
-                LOYAL_JUP_URL,
-                "_blank",
-                "noopener,noreferrer"
-              )
-          : undefined
-      }
+      onClick={() => onDetail?.(token)}
       style={{
         display: "flex",
         alignItems: "center",
@@ -86,7 +76,7 @@ export function TokenRowItem({
         overflow: "hidden",
         background: hovered ? "rgba(0, 0, 0, 0.04)" : "transparent",
         transition: "background-color 0.15s ease",
-        cursor: isLoyal ? "pointer" : "default",
+        cursor: onDetail ? "pointer" : "default",
       }}
     >
       <div
@@ -137,29 +127,100 @@ export function TokenRowItem({
           minWidth: 0,
         }}
       >
-        <span
+        <div
           style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "16px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            color: "#000",
-            letterSpacing: "-0.176px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
           }}
         >
-          {token.symbol}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-geist-sans), sans-serif",
-            fontSize: "13px",
-            fontWeight: 400,
-            lineHeight: "16px",
-            color: "rgba(60, 60, 67, 0.6)",
-          }}
-        >
-          {token.price}
-        </span>
+          <span
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "16px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              color: "#000",
+              letterSpacing: "-0.176px",
+            }}
+          >
+            {token.symbol}
+          </span>
+          {typeof token.apyBps === "number" && token.apyBps > 0 && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "2px",
+                padding: "2px 6px",
+                borderRadius: "9999px",
+                background: "rgba(52, 199, 89, 0.12)",
+                color: "#2EA043",
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "11px",
+                fontWeight: 600,
+                lineHeight: "14px",
+                letterSpacing: "-0.1px",
+                flexShrink: 0,
+              }}
+            >
+              <Zap
+                size={10}
+                strokeWidth={2.5}
+                fill="currentColor"
+                style={{ display: "block" }}
+              />
+              {(token.apyBps / 100).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+              % APY
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span
+            style={{
+              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: "rgba(60, 60, 67, 0.6)",
+            }}
+          >
+            {token.price}
+          </span>
+          {typeof token.priceChange24h === "number" && (
+            <span
+              style={{
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "11px",
+                fontWeight: 500,
+                lineHeight: "14px",
+                color:
+                  token.priceChange24h > 0
+                    ? "#34C759"
+                    : token.priceChange24h < 0
+                      ? "#FF3B30"
+                      : "rgba(60, 60, 67, 0.6)",
+                border: `1px solid ${
+                  token.priceChange24h > 0
+                    ? "rgba(52, 199, 89, 0.2)"
+                    : token.priceChange24h < 0
+                      ? "rgba(255, 59, 48, 0.2)"
+                      : "rgba(60, 60, 67, 0.12)"
+                }`,
+                borderRadius: "9999px",
+                padding: "1px 6px",
+                flexShrink: 0,
+              }}
+            >
+              {token.priceChange24h >= 0 ? "+" : ""}
+              {token.priceChange24h.toFixed(2)}%
+            </span>
+          )}
+        </div>
       </div>
       {/* Right side: balance (default) or action icons (on hover) */}
       <div
