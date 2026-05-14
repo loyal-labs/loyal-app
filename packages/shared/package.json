@@ -1,7 +1,6 @@
 {
   "name": "@loyal-labs/shared",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -38,5 +37,14 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/loyal-labs/loyal-app.git",
+    "directory": "packages/shared"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
