@@ -8,10 +8,8 @@ import { useEffect, useRef, useState } from "react";
 type Segment = "Extension" | "Mobile" | "Web";
 
 const appUrl = "https://app.askloyal.com";
-// Temporarily points at the GitHub release zip while v0.5.5 is being
-// re-submitted to the Chrome Web Store.
 const chromeWebStoreUrl =
-  "https://github.com/loyal-labs/loyal-app/releases/download/ext-v0.5.5/loyal-ext-universal-v0.5.5.zip";
+  "https://chromewebstore.google.com/detail/loyal-%E2%80%94-private-solana-wa/cdienfadefhlaknmedckgifkjdbioack?authuser=1&hl=en";
 const telegramMiniAppUrl =
   "https://t.me/askloyal_tgbot/app?startapp=askloyalcom";
 const seekerDappStoreUrl = "solanadappstore://details?id=com.loyal.app";
