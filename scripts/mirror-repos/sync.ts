@@ -11,7 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { blockedMirrorRepos, mirrors, type MirrorConfig } from "./config";
+import { blockedMirrorRepos, mirrors } from "./config";
+import type { MirrorConfig } from "./config";
 import { applyMirrorRewrites, isGeneratedAppMirror } from "./file-rewrites";
 import {
   assertGitDirectory,
@@ -29,12 +30,14 @@ import {
   readJsonFile,
   writeJsonFile,
 } from "./package-rewrites";
+import { selectMirrorsForChangedPaths } from "./selection";
 
 type SyncOptions = {
   dryRun: boolean;
   createRepos: boolean;
   skipRepoCheck: boolean;
   skipIfPackagesUnpublished: boolean;
+  changedOnly: boolean;
 };
 
 const appMirrorForbiddenPattern =
@@ -47,6 +50,7 @@ function parseOptions(): SyncOptions {
     createRepos: args.has("--create-repos"),
     skipRepoCheck: args.has("--skip-repo-check"),
     skipIfPackagesUnpublished: args.has("--skip-if-packages-unpublished"),
+    changedOnly: args.has("--changed-only"),
   };
 }
 
@@ -335,6 +339,18 @@ function findUnpublishedInternalPackages(
     .map(([packageName, version]) => `${packageName}@${version}`);
 }
 
+function getChangedPathsSinceFirstParent(): string[] {
+  const revisionLine = runGit(["rev-list", "--parents", "-n", "1", "HEAD"]);
+  const [, firstParent] = revisionLine.split(/\s+/);
+
+  if (!firstParent) {
+    return [];
+  }
+
+  const output = runGit(["diff", "--name-only", firstParent, "HEAD"]);
+  return output ? output.split("\n").filter(Boolean) : [];
+}
+
 function copyGeneratedToClone(generatedRoot: string, cloneRoot: string): void {
   assertGitDirectory(cloneRoot);
   removeDirectoryContentsExceptGit(cloneRoot);
@@ -387,6 +403,24 @@ function main(): void {
     ? path.resolve(".context/mirror-dry-run")
     : path.join(tmpdir(), `loyal-mirror-output-${Date.now()}`);
   const token = process.env.MIRROR_SYNC_TOKEN;
+  const mirrorsToSync = options.changedOnly
+    ? selectMirrorsForChangedPaths(getChangedPathsSinceFirstParent())
+    : [...mirrors];
+
+  if (options.changedOnly) {
+    console.log(
+      mirrorsToSync.length > 0
+        ? `Selected mirrors: ${mirrorsToSync
+            .map((mirror) => mirror.repo)
+            .join(", ")}`
+        : "No mirror source paths changed; skipping mirror sync."
+    );
+  }
+
+  if (mirrorsToSync.length === 0) {
+    return;
+  }
+
   const internalPackageVersions = getInternalPackageVersions();
 
   if (!options.dryRun && options.skipIfPackagesUnpublished) {
@@ -411,7 +445,7 @@ function main(): void {
   rmSync(outputRoot, { recursive: true, force: true });
   mkdirSync(outputRoot, { recursive: true });
 
-  for (const mirror of mirrors) {
+  for (const mirror of mirrorsToSync) {
     verifyRepoConfig(mirror, options, token);
 
     const generatedRoot = path.join(outputRoot, repoName(mirror.repo));

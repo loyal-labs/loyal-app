@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -33,6 +34,10 @@ jobs:
             echo "MIRROR_SYNC_TOKEN is required to push generated mirrors."
             exit 1
           fi
-          bun run scripts/mirror-repos/sync.ts --skip-if-packages-unpublished
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            bun run scripts/mirror-repos/sync.ts --skip-if-packages-unpublished
+          else
+            bun run scripts/mirror-repos/sync.ts --skip-if-packages-unpublished --changed-only
+          fi
         env:
           MIRROR_SYNC_TOKEN: ${{ secrets.MIRROR_SYNC_TOKEN }}
