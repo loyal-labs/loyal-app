@@ -11,6 +11,7 @@ import { unstable_cache } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
 import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
+import { fetchTokenPricesByMints } from "@/lib/market/token-prices.server";
 
 const SOLANA_MAINNET_RPC_URL =
   "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
@@ -376,9 +377,32 @@ function addAssetAmount(
   }
 }
 
+function getMintsWithMissingPrices(holdingsRows: HoldingsRow[]): string[] {
+  return Array.from(
+    new Set(
+      holdingsRows
+        .filter((row) => toNumber(row.priceUsd) === null)
+        .map((row) => row.tokenMint)
+        .filter(Boolean)
+    )
+  );
+}
+
+async function loadLivePricesForMissingCatalogRows(
+  holdingsRows: HoldingsRow[]
+): Promise<Map<string, number>> {
+  const missingPriceMints = getMintsWithMissingPrices(holdingsRows);
+  if (missingPriceMints.length === 0) {
+    return new Map();
+  }
+
+  return fetchTokenPricesByMints(missingPriceMints);
+}
+
 function buildShieldedAssets(args: {
   holdingsRows: HoldingsRow[];
   kaminoVaultUsdcAmountRaw: bigint | null;
+  livePriceByMint: Map<string, number>;
   userCountByMint: Map<string, string>;
 }): ShieldedAsset[] {
   const assetsByMint = new Map<string, AssetAccumulator>();
@@ -396,7 +420,10 @@ function buildShieldedAssets(args: {
     addAssetAmount(assetsByMint, {
       amountRaw: BigInt(row.amountRaw),
       decimals: row.decimals,
-      priceUsd: toNumber(row.priceUsd),
+      priceUsd:
+        toNumber(row.priceUsd) ??
+        args.livePriceByMint.get(row.tokenMint) ??
+        null,
       symbol: row.symbol,
       tokenMint: row.tokenMint,
     });
@@ -520,10 +547,20 @@ async function loadTransfersData(): Promise<TransfersData> {
   const userCountByMint = new Map(
     userCountRows.map((row) => [row.tokenMint, row.userCount])
   );
+  const livePriceByMint = await loadLivePricesForMissingCatalogRows(
+    holdingsRows
+  ).catch((error) => {
+    console.error(
+      "[transfers-data] Failed to load CoinGecko token prices",
+      error
+    );
+    return new Map<string, number>();
+  });
 
   const assets = buildShieldedAssets({
     holdingsRows,
     kaminoVaultUsdcAmountRaw,
+    livePriceByMint,
     userCountByMint,
   });
 
