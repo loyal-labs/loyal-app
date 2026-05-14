@@ -215,7 +215,7 @@ function main(): void {
     }
 
     const tempPackageDir = copyPackageForPublish(info, versionsByName);
-    const publishArgs = ["publish", "--access", "public"];
+    const publishArgs = ["publish", "--access", "public", "--ignore-scripts"];
     if (process.env.GITHUB_ACTIONS === "true") {
       publishArgs.push("--provenance");
     }
