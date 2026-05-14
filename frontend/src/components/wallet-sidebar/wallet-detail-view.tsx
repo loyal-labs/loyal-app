@@ -405,7 +405,7 @@ export function WalletDetailView({
               className="wallet-detail-action-label"
               style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
             >
-              Transfer
+              Send
             </span>
           </button>
           <button

@@ -1,14 +1,20 @@
 import "@/global.css";
 
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+
+import { DatadogInit } from "@/components/DatadogInit";
+import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
+import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
+import { initAnalytics } from "@/lib/analytics/analytics";
+import { SignApprovalProvider } from "@/lib/wallet/sign-approval";
+import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
-  addNotificationResponseListener,
-  registerForPushNotifications,
-  registerPushToken,
+  // addNotificationResponseListener, // Summaries — kept for reinstatement
   setupNotificationHandler,
 } from "@/services/notifications";
 import { useFonts } from "expo-font";
-import { Stack, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
@@ -17,7 +23,6 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const router = useRouter();
   const [showSplash, setShowSplash] = useState(true);
 
   const [fontsLoaded] = useFonts({
@@ -34,31 +39,33 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
-  // Register for push notifications on boot
+  // One-time display config (Android channel, handler). Per-wallet token
+  // registration happens inside <PushTokenRegistrar /> below.
   useEffect(() => {
-    (async () => {
-      await setupNotificationHandler();
-      const token = await registerForPushNotifications();
-      if (token) {
-        await registerPushToken(token);
-      }
-    })();
+    void setupNotificationHandler();
+  }, []);
+
+  // Initialize Mixpanel as early as possible so identify/track from wallet
+  // boot are not lost.
+  useEffect(() => {
+    void initAnalytics();
   }, []);
 
   // Handle notification tap while app is running
-  useEffect(() => {
-    let cleanup: (() => void) | null = null;
-
-    addNotificationResponseListener((data) => {
-      if (data?.screen === "summaries") {
-        router.push("/");
-      }
-    }).then((remove) => {
-      cleanup = remove;
-    });
-
-    return () => cleanup?.();
-  }, [router]);
+  // Summaries navigation commented out — kept for potential reinstatement
+  // useEffect(() => {
+  //   let cleanup: (() => void) | null = null;
+  //
+  //   addNotificationResponseListener((data) => {
+  //     if (data?.screen === "summaries") {
+  //       router.push("/");
+  //     }
+  //   }).then((remove) => {
+  //     cleanup = remove;
+  //   });
+  //
+  //   return () => cleanup?.();
+  // }, [router]);
 
   const handleSplashFinish = useCallback(() => {
     setShowSplash(false);
@@ -70,23 +77,41 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="auto" />
-      <Stack
-        screenOptions={{
-          headerBackButtonDisplayMode: "minimal",
-        }}
-      >
-        <Stack.Screen
-          name="(tabs)"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="login"
-          options={{ headerShown: false, presentation: "modal" }}
-        />
-        <Stack.Screen name="summaries/[groupChatId]" />
-      </Stack>
-      {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
+      <BottomSheetModalProvider>
+        <WalletProvider>
+          <SignApprovalProvider>
+            <DatadogInit />
+            <PushTokenRegistrar />
+            <StatusBar style="auto" />
+            <WalletAuthGate />
+            <Stack
+              screenOptions={{
+                headerBackButtonDisplayMode: "minimal",
+              }}
+            >
+              <Stack.Screen
+                name="(tabs)"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="token/[mint]"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="browser/site"
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen
+                name="login"
+                options={{ headerShown: false, presentation: "modal" }}
+              />
+              {/* Summaries detail screen commented out — kept for potential reinstatement */}
+              {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
+            </Stack>
+          </SignApprovalProvider>
+        </WalletProvider>
+        {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
+      </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
 }

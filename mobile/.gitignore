@@ -13,10 +13,18 @@ expo-env.d.ts
 .kotlin/
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+credentials.json
+
+# Firebase service account keys — never commit. Note: google-services.json
+# is safe to commit (contents are baked into every distributable APK anyway).
+loyal-app-*.json
+*-firebase-adminsdk-*.json
+!google-services.json
 
 # Metro
 .metro-health-check*
@@ -43,3 +51,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# graphify output (graph, cache, report)
+graphify-out/

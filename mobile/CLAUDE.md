@@ -103,7 +103,7 @@ EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
 ### Build Configuration
 
 - **EAS project**: `loyal-labs/loyal-app` (ID: `7ecfef22-fa74-4fc9-b2f1-bf80acb81401`)
-- **App variant**: `APP_VARIANT=development` gives separate bundle ID (`com.loyallabs.app.dev`) and name ("Loyal (Dev)")
+- **App variant**: `APP_VARIANT=development` gives separate bundle ID (`com.loyal.app.dev`) and name ("Loyal (Dev)")
 - **New Architecture**: Enabled (`newArchEnabled: true`)
 - **React Compiler**: Enabled (`experiments.reactCompiler: true`)
 - **Typed Routes**: Enabled (`experiments.typedRoutes: true`)
@@ -119,3 +119,12 @@ EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
   - generic shared types go in `@loyal-labs/shared`
   - Grid runtime helpers go in `@loyal-labs/grid-core`
   - WebAuthn/passkey browser flow logic stays in `passkey`
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

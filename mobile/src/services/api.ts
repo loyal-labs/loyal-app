@@ -12,6 +12,48 @@ export type GroupChat = {
   photoMimeType?: string;
 };
 
+export type MobileTokenDetailResponse = {
+  mint: string;
+  token: {
+    decimals: number | null;
+    logoUrl: string | null;
+    name: string | null;
+    symbol: string | null;
+  };
+  links: {
+    website: string | null;
+    twitter: string | null;
+    explorer: string | null;
+    discord: string | null;
+    telegram: string | null;
+  };
+  market: {
+    fdvUsd: number | null;
+    holderCount: number | null;
+    liquidityUsd: number | null;
+    marketCapUsd: number | null;
+    priceChange24hPercent: number | null;
+    priceUsd: number | null;
+    updatedAt: string | null;
+    volume24hUsd: number | null;
+  };
+  info: {
+    description: string | null;
+    gtScore: number | null;
+    gtVerified: boolean;
+    mintAuthority: string | null;
+    freezeAuthority: string | null;
+    holderDistribution: {
+      top10: string;
+      rest: string;
+    } | null;
+  };
+  chart: Array<{
+    timestamp: number;
+    priceUsd: number;
+  }>;
+};
+
 /**
  * Fetch all summaries from the API.
  */
@@ -38,6 +80,79 @@ export async function fetchSummariesByGroup(
   }
   const data: SummariesApiResponse = await response.json();
   return data.summaries;
+}
+
+export async function fetchTokenDetailMarket(
+  mint: string,
+): Promise<MobileTokenDetailResponse> {
+  const response = await fetch(
+    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch token detail: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export type RemoteTrustedDapp = {
+  id: string;
+  origin: string;
+  name: string;
+  startUrl: string;
+  category: string | null;
+  displayOrder: number;
+};
+
+export type TrustedDappsResponse = {
+  dapps: RemoteTrustedDapp[];
+};
+
+export async function fetchTrustedDapps(): Promise<RemoteTrustedDapp[]> {
+  const response = await fetch(`${env.apiBaseUrl}/api/mobile/dapps`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trusted dapps: ${response.status}`);
+  }
+
+  const data = (await response.json()) as TrustedDappsResponse;
+  return data.dapps;
+}
+
+export type RemoteLibraryArticle = {
+  id: string;
+  sectionId: string;
+  title: string;
+  coverImageUrl: string;
+  contentMarkdown: string;
+  readTime: string;
+  excerpt: string | null;
+  isFeatured: boolean;
+  displayOrder: number;
+  publishedAt: string | null;
+};
+
+export type RemoteLibrarySection = {
+  id: string;
+  title: string;
+  displayOrder: number;
+  articles: RemoteLibraryArticle[];
+};
+
+export type LibraryResponse = {
+  featured: RemoteLibraryArticle[];
+  sections: RemoteLibrarySection[];
+};
+
+export async function fetchLibrary(): Promise<LibraryResponse> {
+  const response = await fetch(`${env.apiBaseUrl}/api/mobile/library`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch library: ${response.status}`);
+  }
+
+  return (await response.json()) as LibraryResponse;
 }
 
 /**

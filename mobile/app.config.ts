@@ -1,29 +1,38 @@
 import type { ExpoConfig } from "expo/config";
 
 const IS_DEV = process.env.APP_VARIANT === "development";
+const IS_DAPP_STORE = process.env.DAPP_STORE_BUILD === "true";
 
 const config: ExpoConfig = {
   name: IS_DEV ? "Loyal (Dev)" : "Loyal",
   slug: "loyal-app",
   scheme: IS_DEV ? "loyal-dev" : "loyal",
-  version: "0.1.0",
+  version: "0.1.2",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   userInterfaceStyle: "light",
   newArchEnabled: true,
+  runtimeVersion: { policy: "appVersion" },
+  updates: {
+    url: "https://u.expo.dev/7ecfef22-fa74-4fc9-b2f1-bf80acb81401",
+  },
   ios: {
     supportsTablet: false,
-    bundleIdentifier: IS_DEV ? "com.loyallabs.app.dev" : "com.loyallabs.app",
+    bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
   },
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/images/android-icon-foreground.png",
       monochromeImage: "./assets/images/android-icon-monochrome.png",
-      backgroundColor: "#000000",
+      backgroundColor: "#F9363C",
     },
-    package: IS_DEV ? "com.loyallabs.app.dev" : "com.loyallabs.app",
+    package: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
+    // google-services.json is only registered for `com.loyal.app` (prod).
+    // Dev/simulator builds don't need FCM, so skip the file there —
+    // supplying it with a non-matching package name would fail prebuild.
+    ...(IS_DEV ? {} : { googleServicesFile: "./google-services.json" }),
     edgeToEdgeEnabled: true,
-    softwareKeyboardLayoutMode: "pan",
+    softwareKeyboardLayoutMode: "resize",
   },
   web: {
     output: "static" as const,
@@ -31,22 +40,45 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-local-authentication",
+    [
+      "expo-camera",
+      {
+        cameraPermission: "Allow Loyal to scan wallet QR codes",
+      },
+    ],
     [
       "expo-splash-screen",
       {
-        image: "./assets/images/splash-icon.png",
-        imageWidth: 200,
+        image: "./assets/images/android-icon-foreground.png",
+        imageWidth: 260,
         resizeMode: "contain",
-        backgroundColor: "#ffffff",
+        backgroundColor: "#F9363C",
       },
     ],
     [
       "expo-notifications",
       {
-        icon: "./assets/images/notification-icon.png",
-        color: "#ffffff",
+        // Android requires a transparent PNG with a white silhouette for the
+        // small icon — any non-alpha pixels are stripped. The monochrome
+        // adaptive icon fits that shape already; notification-icon.png was
+        // flat RGB and got ignored by the platform.
+        icon: "./assets/images/android-icon-monochrome.png",
+        color: "#F9363C",
       },
     ],
+    ...(IS_DAPP_STORE
+      ? [
+          [
+            "expo-build-properties",
+            {
+              android: {
+                buildArchs: ["arm64-v8a"],
+              },
+            },
+          ] satisfies [string, Record<string, unknown>],
+        ]
+      : []),
   ],
   experiments: {
     typedRoutes: true,

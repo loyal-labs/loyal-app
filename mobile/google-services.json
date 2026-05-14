@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "690779618113",
+    "project_id": "loyal-app-96fcf",
+    "storage_bucket": "loyal-app-96fcf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:690779618113:android:cbe8956844cdcc4117bfc0",
+        "android_client_info": {
+          "package_name": "com.loyal.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_s2JfrxPC2aE3akep0C5CAzdLtAsNHdE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

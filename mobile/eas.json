@@ -5,37 +5,64 @@
   },
   "build": {
     "preview": {
+      "autoIncrement": true,
       "distribution": "internal",
+      "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_HELIUS_API_KEY": "497b1891-685f-41bd-a958-7e642072a1bb"
       },
       "android": {
         "buildType": "apk"
       }
     },
     "development": {
+      "autoIncrement": true,
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "env": {
         "APP_VARIANT": "development",
-        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "devnet"
       }
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_HELIUS_API_KEY": "497b1891-685f-41bd-a958-7e642072a1bb"
       },
       "ios": {
         "resourceClass": "m-medium"
       }
     },
+    "dapp-store": {
+      "autoIncrement": true,
+      "channel": "dapp-store",
+      "env": {
+        "DAPP_STORE_BUILD": "true",
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_HELIUS_API_KEY": "497b1891-685f-41bd-a958-7e642072a1bb"
+      },
+      "android": {
+        "buildType": "apk",
+        "credentialsSource": "local"
+      }
+    },
     "development-simulator": {
+      "autoIncrement": true,
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "env": {
         "APP_VARIANT": "development",
-        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "devnet"
       },
       "ios": {
         "simulator": true

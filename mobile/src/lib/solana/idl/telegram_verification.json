@@ -1,0 +1,194 @@
+{
+  "address": "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz",
+  "metadata": {
+    "name": "telegram_verification",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "store",
+      "discriminator": [
+        220,
+        28,
+        207,
+        235,
+        0,
+        234,
+        193,
+        246
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  103,
+                  95,
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "validation_bytes",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "verify_telegram_init_data",
+      "discriminator": [
+        209,
+        162,
+        185,
+        176,
+        5,
+        219,
+        142,
+        219
+      ],
+      "accounts": [
+        {
+          "name": "session",
+          "writable": true
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "TelegramSession",
+      "discriminator": [
+        166,
+        166,
+        101,
+        241,
+        97,
+        253,
+        72,
+        138
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidValidationBytesLength",
+      "msg": "Invalid validation string length"
+    },
+    {
+      "code": 6001,
+      "name": "NotVerified",
+      "msg": "Not Verified"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidEd25519",
+      "msg": "Invalid Ed25519"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidTelegramPK",
+      "msg": "Invalid Telegram PK"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidTelegramMessage",
+      "msg": "Invalid Telegram message"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidTelegramSignature",
+      "msg": "Invalid Telegram signature"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidTelegramPublicKey",
+      "msg": "Invalid Telegram public key"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidTelegramUsername",
+      "msg": "Invalid Telegram username"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidTelegramAuthDate",
+      "msg": "Invalid Telegram auth date"
+    }
+  ],
+  "types": [
+    {
+      "name": "TelegramSession",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "username",
+            "type": "string"
+          },
+          {
+            "name": "validation_bytes",
+            "type": "bytes"
+          },
+          {
+            "name": "verified",
+            "type": "bool"
+          },
+          {
+            "name": "auth_at",
+            "type": "u64"
+          },
+          {
+            "name": "verified_at",
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

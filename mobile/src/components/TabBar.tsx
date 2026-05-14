@@ -1,7 +1,8 @@
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
-import { MessageCircleMore, User } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { Globe, GraduationCap, Settings, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet } from "react-native";
 import Animated, {
@@ -11,19 +12,45 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
+const TAB_ORDER = ["index", "browser", "library", "profile"] as const;
+
 const TAB_ICONS = {
-  index: MessageCircleMore,
-  profile: User,
+  index: Wallet,
+  browser: Globe,
+  library: GraduationCap,
+  profile: Settings,
 } as const;
 
 const SPRING_CONFIG = { damping: 18, stiffness: 220, mass: 0.8 };
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
+  const wallet = useWallet();
   const insets = useSafeAreaInsets();
-  const tabCount = state.routes.length;
-  const indicatorPosition = useSharedValue(state.index);
+
+  // Filter to only tabs that have icons (excludes hidden summaries tab)
+  const visibleRoutes = useMemo(
+    () =>
+      state.routes
+        .map((route, index) => ({ route, index }))
+        .filter(({ route }) => route.name in TAB_ICONS)
+        .sort(
+          (left, right) =>
+            TAB_ORDER.indexOf(left.route.name as (typeof TAB_ORDER)[number]) -
+            TAB_ORDER.indexOf(right.route.name as (typeof TAB_ORDER)[number]),
+        ),
+    [state.routes],
+  );
+  const tabCount = visibleRoutes.length;
+
+  const visibleIndex = useMemo(
+    () => visibleRoutes.findIndex(({ index }) => index === state.index),
+    [visibleRoutes, state.index],
+  );
+
+  const indicatorPosition = useSharedValue(Math.max(visibleIndex, 0));
 
   const wrapperStyle = useMemo(
     () => [styles.wrapper, { paddingBottom: Math.max(insets.bottom, 12) }],
@@ -31,28 +58,34 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   );
 
   useEffect(() => {
-    indicatorPosition.value = withSpring(state.index, SPRING_CONFIG);
-  }, [state.index]);
+    if (visibleIndex >= 0) {
+      indicatorPosition.value = withSpring(visibleIndex, SPRING_CONFIG);
+    }
+  }, [visibleIndex]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
-    left: `${(indicatorPosition.value / tabCount) * 100}%`,
-    width: `${100 / tabCount}%`,
+    left: `${(indicatorPosition.value / Math.max(tabCount, 1)) * 100}%`,
+    width: `${100 / Math.max(tabCount, 1)}%`,
   }));
 
   const handlePress = useCallback(
-    (routeName: string, index: number) => {
+    (routeName: string, originalIndex: number) => {
       const event = navigation.emit({
         type: "tabPress",
-        target: state.routes[index].key,
+        target: state.routes[originalIndex].key,
         canPreventDefault: true,
       });
 
-      if (!event.defaultPrevented && state.index !== index) {
+      if (!event.defaultPrevented && state.index !== originalIndex) {
+        void Haptics.selectionAsync();
         navigation.navigate(routeName);
       }
     },
     [navigation, state],
   );
+
+  // Hide tab bar when wallet is not unlocked (onboarding, lock screen)
+  if (!isWalletUnlocked(wallet.state)) return null;
 
   return (
     <View style={wrapperStyle}>
@@ -61,16 +94,15 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         <Animated.View style={[styles.indicator, indicatorStyle]} />
 
         {/* Tab items */}
-        {state.routes.map((route, index) => {
-          const isFocused = state.index === index;
+        {visibleRoutes.map(({ route, index: originalIndex }) => {
+          const isFocused = state.index === originalIndex;
           const Icon = TAB_ICONS[route.name as keyof typeof TAB_ICONS];
-          if (!Icon) return null;
 
           return (
             <Pressable
               key={route.key}
               style={styles.tab}
-              onPress={() => handlePress(route.name, index)}
+              onPress={() => handlePress(route.name, originalIndex)}
               accessibilityRole="tab"
               accessibilityState={isFocused ? { selected: true } : {}}
             >
@@ -100,7 +132,7 @@ const styles = StyleSheet.create({
   blur: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(242, 242, 247, 0.7)",
+    backgroundColor: "rgba(242, 242, 247, 0.94)",
     borderRadius: 9999,
     padding: 4,
     overflow: "hidden",
