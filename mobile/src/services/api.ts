@@ -126,7 +126,6 @@ export type RemoteLibraryArticle = {
   title: string;
   coverImageUrl: string;
   contentMarkdown: string;
-  readTime: string;
   excerpt: string | null;
   isFeatured: boolean;
   displayOrder: number;

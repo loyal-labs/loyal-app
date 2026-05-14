@@ -3,6 +3,7 @@ import "@/global.css";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { DatadogInit } from "@/components/DatadogInit";
+import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
@@ -108,6 +109,7 @@ export default function RootLayout() {
               {/* Summaries detail screen commented out — kept for potential reinstatement */}
               {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
             </Stack>
+            <OtaUpdateBanner />
           </SignApprovalProvider>
         </WalletProvider>
         {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}

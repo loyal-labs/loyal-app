@@ -1,13 +1,11 @@
 import {
-  DELEGATION_PROGRAM_ID,
-  findDepositPda,
-  getErValidatorForSolanaEnv,
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  type LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType,
+  type ShieldFlowExecutionResult,
   shieldTokens,
 } from "@loyal-labs/private-transactions";
-import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useMemo, useRef, useState } from "react";
 
@@ -18,7 +16,6 @@ import {
 } from "@/lib/solana/deposits/kamino-usdc-position";
 import { mmkv } from "@/lib/storage";
 import {
-  getConnection,
   getEndpoints,
   getPerEndpoints,
   getSolanaEnv,
@@ -33,10 +30,6 @@ import {
   type ConfirmLabels,
 } from "@/lib/wallet/sign-approval";
 import { useWallet } from "@/lib/wallet/wallet-provider";
-// Lazy-loaded alongside the SDK to avoid top-level Buffer usage
-async function getWsolAdapter() {
-  return await import("@/lib/solana/wsol-adapter");
-}
 
 type PerAuthToken = {
   token: string;
@@ -109,8 +102,24 @@ function encodeBase58(bytes: Uint8Array): string {
   return encoded || "1";
 }
 
-async function getSplToken() {
-  return await import("@solana/spl-token");
+function getLastSignature(
+  result: ShieldFlowExecutionResult,
+): string | undefined {
+  return result.signatures.at(-1)?.signature;
+}
+
+async function getDepositAmount(params: {
+  client: LoyalPrivateTransactionsClientType;
+  tokenMint: PublicKey;
+  user: PublicKey;
+}): Promise<bigint> {
+  const { client, tokenMint, user } = params;
+  const [ephemeralDeposit, baseDeposit] = await Promise.all([
+    client.getEphemeralDeposit(user, tokenMint).catch(() => null),
+    client.getBaseDeposit(user, tokenMint).catch(() => null),
+  ]);
+
+  return ephemeralDeposit?.amount ?? baseDeposit?.amount ?? BigInt(0);
 }
 
 const TOKEN_MINTS: Record<string, string> = {
@@ -151,6 +160,7 @@ export type EstimateShieldFeeParams = {
   amount: number;
   tokenMint?: string;
   tokenDecimals?: number;
+  isMax?: boolean;
 };
 
 export function useShield(): {
@@ -179,8 +189,6 @@ export function useShield(): {
   const labelsRef = useRef<ConfirmLabels | undefined>(undefined);
 
   const solanaEnv = getSolanaEnv();
-  const connection = getConnection();
-
   // Stable wrapped signer: labels resolve per-op via `labelsRef`, so the
   // SDK client (built against this signer) can be cached across shield /
   // unshield calls without baking in stale titles.
@@ -488,9 +496,6 @@ export function useShield(): {
 
       try {
         const client = await getClient();
-        const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
-          await getSplToken();
-        const { closeWsolAta } = await getWsolAdapter();
 
         const resolvedMint =
           params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
@@ -501,27 +506,6 @@ export function useShield(): {
         const decimals = getShieldTokenDecimals(params);
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = signer.publicKey;
-        const isNativeSol = tokenMint.equals(NATIVE_MINT);
-
-        const userTokenAccount = getAssociatedTokenAddressSync(
-          tokenMint,
-          user,
-          false,
-          TOKEN_PROGRAM_ID,
-        );
-
-        // Undelegate if currently delegated
-        const [depositPda] = findDepositPda(user, tokenMint);
-        const depositInfo = await connection.getAccountInfo(depositPda);
-        if (depositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-          await client.undelegateDeposit({
-            tokenMint,
-            user,
-            payer: user,
-            magicProgram: MAGIC_PROGRAM_ID,
-            magicContext: MAGIC_CONTEXT_ID,
-          });
-        }
 
         // For tracked Kamino USDC the deposit stores collateral shares,
         // so a user-specified USDC liquidity amount must be quoted into
@@ -532,8 +516,11 @@ export function useShield(): {
           trackedKaminoMint === tokenMint.toBase58();
         const wantsMax = params.isMax === true;
 
-        const depositBeforeModify = await client.getBaseDeposit(user, tokenMint);
-        const currentDepositRaw = depositBeforeModify?.amount ?? BigInt(0);
+        const currentDepositRaw = await getDepositAmount({
+          client,
+          tokenMint,
+          user,
+        });
 
         let kaminoQuotedShares: bigint | null = null;
         if (!wantsMax && isTrackedKaminoToken) {
@@ -552,18 +539,25 @@ export function useShield(): {
           kaminoQuotedShares,
         });
 
-        // Move tokens out of deposit vault (decrease balance)
-        const { deposit: depositAfterModify } = await client.modifyBalance({
+        const plan = await client.buildUnshieldTokensTransactionPlan({
           tokenMint,
           amount: modifyAmount,
-          increase: false,
           user,
           payer: user,
+          magicProgram: MAGIC_PROGRAM_ID,
+          magicContext: MAGIC_CONTEXT_ID,
         });
+        const executionResult =
+          await client.executeUnshieldTokensTransactionPlan({ plan });
 
         if (isTrackedKaminoToken) {
+          const depositAfterModify = await getDepositAmount({
+            client,
+            tokenMint,
+            user,
+          });
           const burnedCollateralSharesAmountRaw =
-            currentDepositRaw - depositAfterModify.amount;
+            currentDepositRaw - depositAfterModify;
           if (burnedCollateralSharesAmountRaw > BigInt(0)) {
             try {
               await recordKaminoUsdcUnshield({
@@ -580,48 +574,9 @@ export function useShield(): {
           }
         }
 
-        // Unwrap wSOL if native SOL. Best-effort: the deposit already
-        // drained via modifyBalance above, so a failure here must not be
-        // surfaced as "Unshield Failed" (ASK-1134). If it fails, the user
-        // may have residual WSOL in their ATA that they can unwrap later.
-        if (isNativeSol) {
-          // Cleanup: skip the preview sheet. Users already approved the
-          // unshield intent; closing the wrapped-SOL account is a
-          // housekeeping step that should feel like part of the same op.
-          try {
-            await closeWsolAta({
-              connection,
-              signer,
-              wsolAta: userTokenAccount,
-            });
-          } catch (err) {
-            console.warn(
-              "[useShield] closeWsolAta failed after unshield — WSOL may remain in the user's ATA",
-              err,
-            );
-          }
-        }
-
-        // Re-delegate deposit. Best-effort: may already be delegated or
-        // the deposit may be empty after a full unshield.
-        try {
-          const validator = getErValidatorForSolanaEnv(solanaEnv);
-          await client.delegateDeposit({
-            tokenMint,
-            user,
-            payer: user,
-            validator,
-          });
-        } catch (err) {
-          console.warn(
-            "[useShield] re-delegateDeposit failed (often benign: already delegated or empty deposit)",
-            err,
-          );
-        }
-
         setLoading(false);
         labelsRef.current = undefined;
-        return { success: true };
+        return { success: true, signature: getLastSignature(executionResult) };
       } catch (err) {
         console.error("[useShield] executeUnshield failed", err);
         let errorMessage = "Unshield failed";
@@ -636,7 +591,7 @@ export function useShield(): {
         return { success: false, error: errorMessage };
       }
     },
-    [signer, confirmingSigner, connection, getClient, solanaEnv],
+    [signer, confirmingSigner, getClient, solanaEnv],
   );
 
   const estimateFee = useCallback(
@@ -650,8 +605,10 @@ export function useShield(): {
       if (!resolvedMint) return null;
 
       const decimals = getShieldTokenDecimals(params);
-      const rawAmount = BigInt(Math.floor(params.amount * 10 ** decimals));
-      if (rawAmount <= BigInt(0)) return null;
+      const requestedRawAmount = BigInt(
+        Math.floor(params.amount * 10 ** decimals),
+      );
+      if (requestedRawAmount <= BigInt(0)) return null;
 
       try {
         // Use the estimate-only client to avoid triggering PER auth.
@@ -661,18 +618,33 @@ export function useShield(): {
         const client = await getEstimateClient();
         const user = signer.publicKey;
         const tokenMint = new PublicKey(resolvedMint);
+        let planAmount = requestedRawAmount;
+
+        if (params.direction === "unshield" && params.isMax) {
+          const currentDepositRaw = await getDepositAmount({
+            client,
+            tokenMint,
+            user,
+          });
+          planAmount =
+            currentDepositRaw > BigInt(0)
+              ? currentDepositRaw
+              : requestedRawAmount;
+        }
 
         const plan =
           params.direction === "shield"
             ? await client.buildShieldTokensTransactionPlan({
                 user,
                 tokenMint,
-                amount: rawAmount,
+                amount: requestedRawAmount,
               })
             : await client.buildUnshieldTokensTransactionPlan({
                 user,
                 tokenMint,
-                amount: rawAmount,
+                amount: planAmount,
+                magicProgram: MAGIC_PROGRAM_ID,
+                magicContext: MAGIC_CONTEXT_ID,
               });
 
         const estimate =
