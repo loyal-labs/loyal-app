@@ -45,8 +45,6 @@ jobs:
     if: ${{ github.label == 'release-mobile-apk' || inputs.create_release }}
     type: custom
     environment: preview
-    env:
-      GH_RELEASE_TOKEN: ${{ env.GH_RELEASE_TOKEN }}
     outputs:
       release_url: ${{ steps.publish_release.outputs.release_url }}
     steps:

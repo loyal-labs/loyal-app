@@ -11,16 +11,13 @@ import { ActivityIndicator, Keyboard } from "react-native";
 
 import { useShield, type ShieldFeeEstimate } from "@/hooks/wallet/useShield";
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
-import {
-  getAnalyticsErrorProperties,
-  track,
-} from "@/lib/analytics/analytics";
+import { track } from "@/lib/analytics/analytics";
 import { SHIELD_EVENTS } from "@/lib/analytics/shield-events";
 import { NATIVE_SOL_MINT } from "@/lib/solana/constants";
 import {
-  buildShieldAssetKey,
   buildShieldAssets,
   getShieldDirection,
+  resolveInitialShieldAssetKey,
   type ShieldAsset,
   type ShieldDirection,
 } from "@/lib/solana/shielding";
@@ -41,6 +38,7 @@ type ShieldSheetProps = {
   tokenDetailsByMint?: TokenDetailsByMint;
   onShieldComplete?: () => void;
   initialMint?: string;
+  initialDirection?: ShieldDirection;
 };
 
 function getFriendlyError(raw: string): string {
@@ -85,30 +83,6 @@ function getOperationLabel(direction: ShieldDirection): string {
   return direction === "shield" ? "Shield" : "Unshield";
 }
 
-function resolveInitialShieldAssetKey(
-  shieldAssets: ShieldAsset[],
-  initialMint?: string,
-): string | null {
-  if (shieldAssets.length === 0) {
-    return null;
-  }
-
-  if (!initialMint) {
-    return shieldAssets[0]?.key ?? null;
-  }
-
-  return (
-    shieldAssets.find(
-      (asset) => asset.key === buildShieldAssetKey(initialMint, false),
-    )?.key ??
-    shieldAssets.find(
-      (asset) => asset.key === buildShieldAssetKey(initialMint, true),
-    )?.key ??
-    shieldAssets[0]?.key ??
-    null
-  );
-}
-
 export function ShieldSheet({
   open,
   onClose,
@@ -117,6 +91,7 @@ export function ShieldSheet({
   tokenDetailsByMint,
   onShieldComplete,
   initialMint,
+  initialDirection,
 }: ShieldSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const [step, setStep] = useState<ShieldStep>("form");
@@ -140,15 +115,27 @@ export function ShieldSheet({
     [tokenHoldings],
   );
 
-  const selectedAsset = useMemo(
+  const selectableShieldAssets = useMemo(
     () =>
-      shieldAssets.find((asset) => asset.key === selectedAssetKey) ??
-      shieldAssets[0] ??
-      null,
-    [selectedAssetKey, shieldAssets],
+      initialDirection
+        ? shieldAssets.filter(
+            (asset) => getShieldDirection(asset) === initialDirection,
+          )
+        : shieldAssets,
+    [initialDirection, shieldAssets],
   );
 
-  const direction = getShieldDirection(selectedAsset);
+  const selectedAsset = useMemo(
+    () =>
+      selectableShieldAssets.find((asset) => asset.key === selectedAssetKey) ??
+      selectableShieldAssets[0] ??
+      null,
+    [selectedAssetKey, selectableShieldAssets],
+  );
+
+  const direction = selectedAsset
+    ? getShieldDirection(selectedAsset)
+    : initialDirection ?? "shield";
   const selectedAssetMint = selectedAsset?.mint ?? NATIVE_SOL_MINT;
   const selectedAssetIcon = resolveTokenIcon({
     mint: selectedAssetMint,
@@ -169,7 +156,12 @@ export function ShieldSheet({
       bottomSheetRef.current?.present();
       setStep("form");
       setShowTokenPicker(false);
-      setSelectedAssetKey(resolveInitialShieldAssetKey(shieldAssets, initialMint));
+      setSelectedAssetKey(
+        resolveInitialShieldAssetKey(shieldAssets, {
+          initialMint,
+          initialDirection,
+        }),
+      );
       setAmountStr("");
       setIsMaxSelected(false);
       setResultError(null);
@@ -236,10 +228,25 @@ export function ShieldSheet({
 
   useEffect(() => {
     if (!open) return;
-    if (!selectedAssetKey || !shieldAssets.some((asset) => asset.key === selectedAssetKey)) {
-      setSelectedAssetKey(resolveInitialShieldAssetKey(shieldAssets, initialMint));
+    if (
+      !selectedAssetKey ||
+      !selectableShieldAssets.some((asset) => asset.key === selectedAssetKey)
+    ) {
+      setSelectedAssetKey(
+        resolveInitialShieldAssetKey(shieldAssets, {
+          initialMint,
+          initialDirection,
+        }),
+      );
     }
-  }, [initialMint, open, selectedAssetKey, shieldAssets]);
+  }, [
+    initialDirection,
+    initialMint,
+    open,
+    selectableShieldAssets,
+    selectedAssetKey,
+    shieldAssets,
+  ]);
 
   const handleConfirm = useCallback(async () => {
     if (!isFormValid || isProcessing || !walletAddress || !selectedAsset) return;
@@ -271,11 +278,6 @@ export function ShieldSheet({
           direction === "shield"
             ? SHIELD_EVENTS.shieldTokens
             : SHIELD_EVENTS.unshieldTokens,
-          {
-            token_symbol: selectedAsset.symbol,
-            token_mint: selectedAsset.mint,
-            amount: amountNum,
-          },
         );
         onShieldComplete?.();
       } else {
@@ -285,13 +287,6 @@ export function ShieldSheet({
           direction === "shield"
             ? SHIELD_EVENTS.shieldTokensFailed
             : SHIELD_EVENTS.unshieldTokensFailed,
-          {
-            token_symbol: selectedAsset.symbol,
-            token_mint: selectedAsset.mint,
-            amount: amountNum,
-            error_name: "ShieldOperationFailed",
-            error_message: result.error ?? "Transaction failed",
-          },
         );
       }
     } catch (error) {
@@ -303,12 +298,6 @@ export function ShieldSheet({
         direction === "shield"
           ? SHIELD_EVENTS.shieldTokensFailed
           : SHIELD_EVENTS.unshieldTokensFailed,
-        {
-          token_symbol: selectedAsset.symbol,
-          token_mint: selectedAsset.mint,
-          amount: amountNum,
-          ...getAnalyticsErrorProperties(error),
-        },
       );
     } finally {
       setIsProcessing(false);
@@ -426,7 +415,7 @@ export function ShieldSheet({
 
           {showTokenPicker ? (
             <TokenPicker
-              assets={shieldAssets}
+              assets={selectableShieldAssets}
               tokenDetailsByMint={tokenDetailsByMint}
               onSelect={handleSelectAsset}
             />
@@ -515,7 +504,9 @@ function FormStep({
   if (!selectedAsset) {
     return (
       <Text className="mt-2 text-[13px] text-neutral-500">
-        No token balances are available to shield right now.
+        {direction === "shield"
+          ? "No public token balances are available to shield right now."
+          : "No shielded token balances are available to unshield right now."}
       </Text>
     );
   }

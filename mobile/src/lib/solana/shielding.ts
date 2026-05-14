@@ -53,6 +53,44 @@ export function getShieldDirection(
   return asset?.isSecured ? "unshield" : "shield";
 }
 
+export function resolveInitialShieldAssetKey(
+  shieldAssets: ShieldAsset[],
+  {
+    initialMint,
+    initialDirection,
+  }: {
+    initialMint?: string;
+    initialDirection?: ShieldDirection;
+  } = {},
+): string | null {
+  const candidates = initialDirection
+    ? shieldAssets.filter((asset) => getShieldDirection(asset) === initialDirection)
+    : shieldAssets;
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  if (!initialMint) {
+    return candidates[0]?.key ?? null;
+  }
+
+  if (initialDirection) {
+    return candidates.find((asset) => asset.mint === initialMint)?.key ?? null;
+  }
+
+  return (
+    candidates.find(
+      (asset) => asset.key === buildShieldAssetKey(initialMint, false),
+    )?.key ??
+    candidates.find(
+      (asset) => asset.key === buildShieldAssetKey(initialMint, true),
+    )?.key ??
+    candidates[0]?.key ??
+    null
+  );
+}
+
 export function getShieldTokenDecimals(params: {
   tokenSymbol: string;
   tokenDecimals?: number | null;

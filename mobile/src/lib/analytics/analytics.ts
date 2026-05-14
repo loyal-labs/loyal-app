@@ -57,13 +57,18 @@ export async function initAnalytics(): Promise<void> {
   await getClient();
 }
 
+export function getWorkspaceEventName(event: string): string {
+  const prefix = `[${WORKSPACE}] `;
+  return event.startsWith(prefix) ? event : `${prefix}${event}`;
+}
+
 export function track(event: string, properties?: AnalyticsProperties): void {
   if (!canTrack()) return;
   void (async () => {
     const c = await getClient();
     if (!c) return;
     try {
-      c.track(event, properties);
+      c.track(getWorkspaceEventName(event), properties);
     } catch (error) {
       console.warn("[analytics] track failed", event, error);
     }
@@ -160,22 +165,6 @@ export function resetAnalytics(): void {
       console.warn("[analytics] reset failed", error);
     }
   })();
-}
-
-export function getAnalyticsErrorProperties(error: unknown): {
-  error_name: string;
-  error_message: string;
-} {
-  if (error instanceof Error) {
-    return {
-      error_name: error.name || "Error",
-      error_message: error.message || "Unknown error",
-    };
-  }
-  return {
-    error_name: "UnknownError",
-    error_message: typeof error === "string" ? error : "Unknown error",
-  };
 }
 
 export type { AnalyticsPrimitive, AnalyticsProperties };

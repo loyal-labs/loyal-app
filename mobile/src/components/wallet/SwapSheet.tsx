@@ -21,10 +21,7 @@ import { ActivityIndicator, Keyboard } from "react-native";
 import type { PopularToken } from "@/hooks/wallet/usePopularTokens";
 import { usePopularTokens } from "@/hooks/wallet/usePopularTokens";
 import { useShield } from "@/hooks/wallet/useShield";
-import {
-  getAnalyticsErrorProperties,
-  track,
-} from "@/lib/analytics/analytics";
+import { track } from "@/lib/analytics/analytics";
 import { SWAP_EVENTS } from "@/lib/analytics/swap-events";
 import {
   NATIVE_SOL_MINT,
@@ -382,11 +379,6 @@ export function SwapSheet({
       setTxSignature(sig);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       track(SWAP_EVENTS.swapTokens, {
-        from_symbol: fromHolding.symbol,
-        from_mint: fromHolding.mint,
-        to_symbol: toHolding?.symbol,
-        to_mint: toHolding?.mint,
-        amount: amountNum,
         from_shielded: fromIsSecured,
       });
       onSwapComplete?.();
@@ -402,14 +394,7 @@ export function SwapSheet({
       setSwapError(recovery);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       track(SWAP_EVENTS.swapTokensFailed, {
-        from_symbol: fromHolding?.symbol,
-        from_mint: fromHolding?.mint,
-        to_symbol: toHolding?.symbol,
-        to_mint: toHolding?.mint,
-        amount: amountNum,
         from_shielded: fromIsSecured,
-        stage: swapStage,
-        ...getAnalyticsErrorProperties(error),
       });
     } finally {
       setIsSwapping(false);
@@ -426,7 +411,6 @@ export function SwapSheet({
     executeUnshield,
     onSwapComplete,
     swapStage,
-    toHolding?.mint,
     toHolding?.symbol,
     signer,
     signApproval,

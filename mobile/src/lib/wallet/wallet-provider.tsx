@@ -18,11 +18,7 @@ import {
   resetAnalytics,
   track,
 } from "@/lib/analytics/analytics";
-import {
-  LOCK_METHODS,
-  type LockMethod,
-  WALLET_SETUP_EVENTS,
-} from "@/lib/analytics/wallet-setup-events";
+import { WALLET_SETUP_EVENTS } from "@/lib/analytics/wallet-setup-events";
 import {
   clearWalletSignerCache,
   setWalletSigner,
@@ -153,18 +149,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // so there is no in-memory secret to protect.
   const backgroundedAt = useRef<number | null>(null);
   const AUTO_LOCK_GRACE_MS = 30_000;
-  const lockInternal = useCallback(
-    (method: LockMethod) => {
-      if (state === "vault-unlocked") return; // no-op for vault
-      setSigner(null);
-      clearWalletSignerCache();
-      setState("locked");
-      track(WALLET_SETUP_EVENTS.walletLocked, { method });
-    },
-    [state],
-  );
+  const lockInternal = useCallback(() => {
+    if (state === "vault-unlocked") return; // no-op for vault
+    setSigner(null);
+    clearWalletSignerCache();
+    setState("locked");
+  }, [state]);
   const lock = useCallback(() => {
-    lockInternal(LOCK_METHODS.manual);
+    lockInternal();
   }, [lockInternal]);
 
   useEffect(() => {
@@ -180,7 +172,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const elapsed = Date.now() - backgroundedAt.current;
         backgroundedAt.current = null;
         if (elapsed > AUTO_LOCK_GRACE_MS) {
-          lockInternal(LOCK_METHODS.autoTimeout);
+          lockInternal();
         }
       }
     });
@@ -223,6 +215,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         source === "imported"
           ? WALLET_SETUP_EVENTS.walletImported
           : WALLET_SETUP_EVENTS.walletCreated,
+        { source },
       );
     },
     [],
@@ -259,7 +252,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWalletSigner(next);
     setState("unlocked");
     identifyWallet(pk, "imported");
-    track(WALLET_SETUP_EVENTS.walletUnlocked, { method: "pin" });
   }, []);
 
   const unlockWithBiometrics = useCallback(async () => {
@@ -275,7 +267,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setWalletSigner(next);
       setState("unlocked");
       identifyWallet(pk, "imported");
-      track(WALLET_SETUP_EVENTS.walletUnlocked, { method: "biometrics" });
       return true;
     } catch {
       return false;
