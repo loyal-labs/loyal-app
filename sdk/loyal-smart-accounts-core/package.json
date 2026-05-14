@@ -1,6 +1,6 @@
 {
   "name": "@loyal-labs/loyal-smart-accounts-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Core artifacts and low-level builders for the Loyal smart accounts SDK",
   "type": "module",
   "main": "./dist/index.js",

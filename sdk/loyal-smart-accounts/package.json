@@ -1,6 +1,6 @@
 {
   "name": "@loyal-labs/loyal-smart-accounts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Universal TypeScript SDK for the Squads Smart Account program",
   "type": "module",
   "main": "./dist/index.js",
