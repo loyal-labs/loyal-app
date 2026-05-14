@@ -208,6 +208,7 @@ export function ShieldSheet({
         amount: amountNum,
         tokenMint: selectedAsset.mint,
         tokenDecimals: selectedAsset.decimals,
+        isMax: isMaxSelected,
       })
         .then((estimate) => {
           if (feeRequestId.current !== requestId) return;
@@ -230,6 +231,7 @@ export function ShieldSheet({
     amountNum,
     direction,
     estimateFee,
+    isMaxSelected,
   ]);
 
   useEffect(() => {

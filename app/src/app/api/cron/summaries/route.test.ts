@@ -3,6 +3,45 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "
 import type { SendSummaryResult } from "@/lib/telegram/bot-api/types";
 
 mock.module("server-only", () => ({}));
+mock.module("next/server", () => ({
+  NextResponse: {
+    json: (body: unknown, init?: ResponseInit) =>
+      new Response(JSON.stringify(body), {
+        ...init,
+        headers: {
+          "content-type": "application/json",
+          ...init?.headers,
+        },
+      }),
+  },
+}));
+mock.module("@loyal-labs/db-core/schema", () => ({
+  communities: {
+    isActive: "communities.isActive",
+  },
+  pushTokens: "pushTokens",
+}));
+mock.module("@loyal-labs/llm-core", () => ({
+  LlmRetryExhaustedError: class LlmRetryExhaustedError extends Error {
+    failureReasons: string[] = [];
+  },
+}));
+mock.module("drizzle-orm", () => ({
+  eq: (...args: unknown[]) => ({ op: "eq", args }),
+}));
+mock.module("@/lib/core/config/server", () => ({
+  serverEnv: {
+    get cronSecret() {
+      if (!process.env.CRON_SECRET) {
+        throw new Error("CRON_SECRET is not set");
+      }
+      return process.env.CRON_SECRET;
+    },
+  },
+}));
+mock.module("@/lib/telegram/utils", () => ({
+  SUMMARY_INTERVAL_MS: 24 * 60 * 60 * 1000,
+}));
 
 const TEST_ENV_KEYS = ["CRON_SECRET"] as const;
 
@@ -26,6 +65,9 @@ function createDeliveredSummaryResult(
   };
 }
 
+const pushTokenRows: { token: string }[] = [];
+const sendExpoPushNotificationsCalls: unknown[][] = [];
+
 mock.module("@/lib/core/database", () => ({
   getDatabase: () => ({
     query: {
@@ -33,12 +75,32 @@ mock.module("@/lib/core/database", () => ({
         findMany: async () => [],
       },
     },
+    select: () => ({
+      from: async () => pushTokenRows,
+    }),
   }),
+}));
+
+mock.module("@/lib/push-notifications/send", () => ({
+  sendExpoPushNotifications: async (...args: unknown[]) => {
+    sendExpoPushNotificationsCalls.push(args);
+  },
 }));
 
 mock.module("@/lib/telegram/bot-api/bot", () => ({
   getBot: async () => ({
     api: {},
+  }),
+}));
+
+mock.module("@/lib/telegram/bot-api/summaries", () => ({
+  generateOrGetSummaryForRun: async () => ({
+    status: "not_enough_messages",
+    messageCount: 0,
+  }),
+  sendSummaryById: async () => ({
+    sent: false as const,
+    reason: "notifications_disabled" as const,
   }),
 }));
 
@@ -56,10 +118,14 @@ describe("cron summaries route", () => {
 
   beforeEach(() => {
     clearTestEnv();
+    pushTokenRows.length = 0;
+    sendExpoPushNotificationsCalls.length = 0;
   });
 
   afterEach(() => {
     clearTestEnv();
+    pushTokenRows.length = 0;
+    sendExpoPushNotificationsCalls.length = 0;
   });
 
   test("returns 500 when CRON_SECRET is missing", async () => {
@@ -106,6 +172,20 @@ describe("cron summaries route", () => {
     expect(payload.ok).toBe(true);
     expect(payload.run).toBeDefined();
     expect(payload.stats).toBeDefined();
+  });
+
+  test("does not send mobile push notifications for daily summaries", async () => {
+    process.env.CRON_SECRET = "expected-secret";
+    pushTokenRows.push({ token: "ExponentPushToken[test]" });
+    const request = new Request("http://localhost/api/cron/summaries", {
+      method: "POST",
+      headers: { authorization: "Bearer expected-secret" },
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(sendExpoPushNotificationsCalls).toEqual([]);
   });
 
   test("builds a stable UTC daily run context", () => {

@@ -1,10 +1,9 @@
-import { communities, pushTokens } from "@loyal-labs/db-core/schema";
+import { communities } from "@loyal-labs/db-core/schema";
 import { LlmRetryExhaustedError } from "@loyal-labs/llm-core";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { getDatabase } from "@/lib/core/database";
-import { sendExpoPushNotifications } from "@/lib/push-notifications/send";
 import { getBot } from "@/lib/telegram/bot-api/bot";
 import {
   generateOrGetSummaryForRun,
@@ -127,23 +126,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         run,
       }),
   });
-
-  // Send push notifications to mobile app users
-  try {
-    const tokens = await db.select().from(pushTokens);
-    if (tokens.length > 0) {
-      const messages = tokens.map((t) => ({
-        to: t.token,
-        title: "New Chat Highlights",
-        body: "Your daily summaries are ready",
-        data: { screen: "summaries" },
-        sound: "default" as const,
-      }));
-      await sendExpoPushNotifications(messages);
-    }
-  } catch (error) {
-    console.error("[cron/summaries] Failed to send push notifications:", error);
-  }
 
   const hasErrors = result.stats.errors > 0;
   return NextResponse.json(
