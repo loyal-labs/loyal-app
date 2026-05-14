@@ -46,6 +46,10 @@
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "commitlint:head": "commitlint --from HEAD~1 --to HEAD --verbose",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release-packages": "bun run scripts/release-packages.ts",
+    "sync:mirror-repos": "bun run scripts/mirror-repos/sync.ts",
     "build:db-packages": "bun run --cwd packages/db-core build && bun run --cwd packages/db-adapter-neon build",
     "build:llm-packages": "bun run --cwd packages/llm-core build && bun run --cwd packages/llm-server build",
     "typecheck:db-packages": "bun run --cwd packages/db-core typecheck && bun run --cwd packages/db-adapter-neon typecheck",
@@ -65,6 +69,7 @@
     "lightningcss": "^1.30.2"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
     "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
