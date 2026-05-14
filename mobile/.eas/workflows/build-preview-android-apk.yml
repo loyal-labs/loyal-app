@@ -1,11 +1,21 @@
 name: Build Preview Android APK
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - mobile/**
+  pull_request_labeled:
+    labels:
+      - build-mobile-apk
+      - release-mobile-apk
+  workflow_dispatch:
+    inputs:
+      create_release:
+        type: boolean
+        required: false
+        default: false
+        description: Create a GitHub prerelease and upload the APK
+      release_tag:
+        type: string
+        required: false
+        description: Optional GitHub release tag override
 
 concurrency:
   group: ${{ workflow.filename }}-${{ github.ref }}
@@ -18,3 +28,119 @@ jobs:
     params:
       platform: android
       profile: preview
+
+  comment_on_pr:
+    name: Post APK link to PR
+    needs: [build_android_preview]
+    if: ${{ github.event_name == 'pull_request' }}
+    type: github-comment
+    params:
+      message: Android preview APK build is ready.
+      build_ids:
+        - ${{ needs.build_android_preview.outputs.build_id }}
+
+  create_github_release:
+    name: Create GitHub APK prerelease
+    needs: [build_android_preview]
+    if: ${{ github.label == 'release-mobile-apk' || inputs.create_release }}
+    type: custom
+    environment: preview
+    env:
+      GH_RELEASE_TOKEN: ${{ env.GH_RELEASE_TOKEN }}
+    outputs:
+      release_url: ${{ steps.publish_release.outputs.release_url }}
+    steps:
+      - uses: eas/download_build
+        id: download_apk
+        with:
+          build_id: ${{ needs.build_android_preview.outputs.build_id }}
+          extensions:
+            - apk
+      - name: Create GitHub release and upload APK
+        id: publish_release
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_RELEASE_TOKEN:-}" ]; then
+            echo "GH_RELEASE_TOKEN is required to create GitHub releases."
+            exit 1
+          fi
+
+          APK_PATH="${{ steps.download_apk.outputs.artifact_path }}"
+          BUILD_ID="${{ needs.build_android_preview.outputs.build_id }}"
+          APP_VERSION="${{ needs.build_android_preview.outputs.app_version }}"
+          APP_BUILD_VERSION="${{ needs.build_android_preview.outputs.app_build_version }}"
+          GIT_SHA="${{ github.sha }}"
+          RELEASE_TAG="${{ inputs.release_tag }}"
+
+          SHORT_SHA="$(printf "%s" "$GIT_SHA" | cut -c1-7)"
+          if [ -z "$SHORT_SHA" ]; then
+            SHORT_SHA="manual"
+          fi
+          BUILD_SHORT_ID="$(printf "%s" "$BUILD_ID" | cut -c1-8)"
+          SAFE_APP_VERSION="${APP_VERSION:-preview}"
+          SAFE_APP_BUILD_VERSION="${APP_BUILD_VERSION:-build}"
+
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="mobile-apk-${SAFE_APP_VERSION}-${SAFE_APP_BUILD_VERSION}-${SHORT_SHA}-${BUILD_SHORT_ID}"
+          fi
+
+          ASSET_NAME="loyal-mobile-preview-${SAFE_APP_VERSION}-${SAFE_APP_BUILD_VERSION}-${SHORT_SHA}.apk"
+          RELEASE_NAME="Mobile preview APK ${SAFE_APP_VERSION} (${SAFE_APP_BUILD_VERSION})"
+          TARGET_COMMITISH="$GIT_SHA"
+          if [ -z "$TARGET_COMMITISH" ]; then
+            TARGET_COMMITISH="main"
+          fi
+          export RELEASE_TAG TARGET_COMMITISH RELEASE_NAME BUILD_ID
+
+          RELEASE_PAYLOAD="$(node - <<'NODE'
+          const payload = {
+            tag_name: process.env.RELEASE_TAG,
+            target_commitish: process.env.TARGET_COMMITISH,
+            name: process.env.RELEASE_NAME,
+            body: [
+              'Android preview APK built by EAS Workflows.',
+              '',
+              `EAS build ID: ${process.env.BUILD_ID}`,
+              `Commit: ${process.env.TARGET_COMMITISH}`,
+            ].join('\n'),
+            draft: false,
+            prerelease: true,
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          )"
+
+          RELEASE_RESPONSE="$(curl -fsSL \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_RELEASE_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/loyal-labs/loyal-app/releases \
+            -d "$RELEASE_PAYLOAD")"
+
+          UPLOAD_URL="$(node -e 'const release = JSON.parse(process.argv[1]); process.stdout.write(release.upload_url.split("{")[0]);' "$RELEASE_RESPONSE")"
+          RELEASE_URL="$(node -e 'const release = JSON.parse(process.argv[1]); process.stdout.write(release.html_url);' "$RELEASE_RESPONSE")"
+
+          curl -fsSL \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_RELEASE_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            --data-binary "@${APK_PATH}" \
+            "${UPLOAD_URL}?name=${ASSET_NAME}"
+
+          echo "Created GitHub release: ${RELEASE_URL}"
+          set-output release_url "${RELEASE_URL}"
+
+  comment_release_on_pr:
+    name: Post APK release to PR
+    needs: [create_github_release]
+    if: ${{ github.event_name == 'pull_request' }}
+    type: github-comment
+    params:
+      payload: |
+        Android preview APK GitHub prerelease is ready:
+
+        ${{ needs.create_github_release.outputs.release_url }}
