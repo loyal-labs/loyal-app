@@ -282,7 +282,7 @@
     },
     "packages/auth-core": {
       "name": "@loyal-labs/auth-core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/grid-core": "workspace:*",
         "@sqds/grid": "^3.1.2",
@@ -295,7 +295,7 @@
     },
     "packages/db-adapter-neon": {
       "name": "@loyal-labs/db-adapter-neon",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/db-core": "workspace:*",
       },
@@ -309,7 +309,7 @@
     },
     "packages/db-core": {
       "name": "@loyal-labs/db-core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@neondatabase/serverless": "^1.0.2",
         "drizzle-orm": "^0.45.1",
@@ -321,7 +321,7 @@
     },
     "packages/flags": {
       "name": "@loyal-labs/flags",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5",
@@ -329,7 +329,7 @@
     },
     "packages/grid-core": {
       "name": "@loyal-labs/grid-core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@sqds/grid": "^3.1.2",
         "zod": "^4.0.17",
@@ -341,7 +341,7 @@
     },
     "packages/llm-core": {
       "name": "@loyal-labs/llm-core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5",
@@ -349,7 +349,7 @@
     },
     "packages/llm-server": {
       "name": "@loyal-labs/llm-server",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@ax-llm/ax": "^14.0.32",
         "@loyal-labs/llm-core": "workspace:*",
@@ -360,7 +360,7 @@
     },
     "packages/shared": {
       "name": "@loyal-labs/shared",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "mixpanel": "^0.20.0",
         "mixpanel-browser": "^2.74.0",
@@ -372,7 +372,7 @@
     },
     "packages/smart-account-vaults": {
       "name": "@loyal-labs/smart-account-vaults",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/loyal-smart-accounts": "workspace:*",
         "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
@@ -392,7 +392,7 @@
     },
     "packages/solana-instruction-decoder": {
       "name": "@loyal-labs/solana-instruction-decoder",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@solana/spl-token": "^0.4.13",
         "@solana/web3.js": "^1.98.0",
@@ -405,7 +405,7 @@
     },
     "packages/solana-rpc": {
       "name": "@loyal-labs/solana-rpc",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@solana/web3.js": "^1.98.0",
       },
@@ -416,7 +416,7 @@
     },
     "packages/solana-wallet": {
       "name": "@loyal-labs/solana-wallet",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/shared": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
@@ -430,7 +430,7 @@
     },
     "packages/wallet-core": {
       "name": "@loyal-labs/wallet-core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/private-transactions": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
@@ -475,7 +475,7 @@
     },
     "sdk/loyal-smart-accounts": {
       "name": "@loyal-labs/loyal-smart-accounts",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
       },
@@ -490,7 +490,7 @@
     },
     "sdk/loyal-smart-accounts-core": {
       "name": "@loyal-labs/loyal-smart-accounts-core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@loyal-labs/solana-rpc": "workspace:*",
         "@metaplex-foundation/beet": "0.7.1",
@@ -515,7 +515,7 @@
     },
     "sdk/private-transactions": {
       "name": "@loyal-labs/private-transactions",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "devDependencies": {
         "@coral-xyz/anchor": "^0.32.1",
         "@solana/web3.js": "^1.95.0",

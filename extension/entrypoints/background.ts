@@ -22,9 +22,10 @@ import {
   viewMode,
 } from "~/src/lib/storage";
 
-// In-memory session keypair — never persisted to storage.
-// Lost when service worker restarts; wallet falls back to locked state.
+// In-memory session keypair cache. Chrome MV3 can suspend the background
+// service worker between requests, so mirror it to browser.storage.session.
 let sessionSecretKey: string | null = null;
+const SESSION_SECRET_KEY_STORAGE_KEY = "walletSessionSecretKey";
 
 // Track the connect tab so we can route signing requests to it
 let connectTabId: number | null = null;
@@ -49,6 +50,45 @@ const pendingDappRequests = new Map<string, PendingDappRequest>();
 
 const LOCK_ALARM = "auto-lock-check";
 
+async function storeSessionSecretKey(secretKey: string): Promise<void> {
+  sessionSecretKey = secretKey;
+  try {
+    await browser.storage.session.set({
+      [SESSION_SECRET_KEY_STORAGE_KEY]: secretKey,
+    });
+  } catch {
+    // Firefox MV2 has no storage.session; the background page keeps memory.
+  }
+}
+
+async function clearSessionSecretKey(): Promise<void> {
+  sessionSecretKey = null;
+  try {
+    await browser.storage.session.remove(SESSION_SECRET_KEY_STORAGE_KEY);
+  } catch {
+    // Firefox MV2 has no storage.session; clearing memory is enough there.
+  }
+}
+
+async function readSessionSecretKey(): Promise<string | null> {
+  if (sessionSecretKey) return sessionSecretKey;
+
+  try {
+    const stored = await browser.storage.session.get<{
+      walletSessionSecretKey?: unknown;
+    }>(SESSION_SECRET_KEY_STORAGE_KEY);
+    const secretKey = stored.walletSessionSecretKey;
+    if (typeof secretKey === "string") {
+      sessionSecretKey = secretKey;
+      return secretKey;
+    }
+  } catch {
+    // Firefox MV2 has no storage.session; fall back to the memory cache.
+  }
+
+  return null;
+}
+
 async function checkAutoLock() {
   const [unlocked, timeout, lastActive] = await Promise.all([
     isWalletUnlocked.getValue(),
@@ -59,8 +99,19 @@ async function checkAutoLock() {
   const elapsed = Date.now() - lastActive;
   if (elapsed >= timeout * 60_000) {
     await isWalletUnlocked.setValue(false);
-    sessionSecretKey = null;
+    await clearSessionSecretKey();
   }
+}
+
+async function readActiveSessionSecretKey(): Promise<string | null> {
+  await checkAutoLock();
+
+  if (!(await isWalletUnlocked.getValue())) {
+    await clearSessionSecretKey();
+    return null;
+  }
+
+  return readSessionSecretKey();
 }
 
 const hasSidePanel = typeof browser.sidePanel !== "undefined";
@@ -206,7 +257,7 @@ export default defineBackground(() => {
   browser.idle.onStateChanged.addListener((state) => {
     if (state === "locked") {
       void isWalletUnlocked.setValue(false);
-      sessionSecretKey = null;
+      void clearSessionSecretKey();
     } else if (state === "idle") {
       void checkAutoLock();
     }
@@ -219,25 +270,31 @@ export default defineBackground(() => {
       return;
     }
 
-    // --- Session keypair: kept in memory only, never persisted ---
+    // --- Session keypair: kept only for the current unlocked browser session ---
     if (message.type === "STORE_SESSION_KEYPAIR") {
       if (!isTrustedExtensionPageSender(sender)) return;
       if (typeof message.secretKey !== "string") return;
-      sessionSecretKey = message.secretKey;
-      return;
+      void storeSessionSecretKey(message.secretKey).then(() => {
+        sendResponse({ ok: true });
+      });
+      return true;
     }
     if (message.type === "GET_SESSION_KEYPAIR") {
       if (!isTrustedExtensionPageSender(sender)) {
         sendResponse({ secretKey: null, error: "Unauthorized sender." });
         return;
       }
-      sendResponse({ secretKey: sessionSecretKey });
-      return;
+      void readActiveSessionSecretKey().then((secretKey) => {
+        sendResponse({ secretKey });
+      });
+      return true;
     }
     if (message.type === "CLEAR_SESSION_KEYPAIR") {
       if (!isTrustedExtensionPageSender(sender)) return;
-      sessionSecretKey = null;
-      return;
+      void clearSessionSecretKey().then(() => {
+        sendResponse({ ok: true });
+      });
+      return true;
     }
   });
 
@@ -657,13 +714,14 @@ export default defineBackground(() => {
                 publicKey,
               } satisfies DappConnectResponse);
             } else {
-              // User approved — sign with in-memory session keypair
-              if (!sessionSecretKey) throw new Error("Wallet is locked.");
+              // User approved — sign with the current unlocked session keypair
+              const secretKey = await readActiveSessionSecretKey();
+              if (!secretKey) throw new Error("Wallet is locked.");
 
               const { Keypair, Transaction, VersionedTransaction } =
                 await import("@solana/web3.js");
               const keypair = Keypair.fromSecretKey(
-                new Uint8Array(JSON.parse(sessionSecretKey))
+                new Uint8Array(JSON.parse(secretKey))
               );
 
               if (pending.kind === "signTransaction" && pending.transaction) {
