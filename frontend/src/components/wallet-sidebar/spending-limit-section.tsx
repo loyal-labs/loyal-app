@@ -386,7 +386,8 @@ export function SpendingLimitSection({
               <div
                 style={{
                   display: "flex",
-                  alignItems: "baseline",
+                  alignItems: "center",
+                  gap: "10px",
                   overflow: "hidden",
                   borderRadius: "6px",
                 }}
@@ -440,6 +441,27 @@ export function SpendingLimitSection({
                     limitAmounts?.total
                   )}
                 </span>
+                <button
+                  disabled
+                  style={{
+                    background: "#000",
+                    border: "none",
+                    borderRadius: "9999px",
+                    color: "#fff",
+                    cursor: "default",
+                    flexShrink: 0,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    lineHeight: "16px",
+                    opacity: 1,
+                    padding: "7px 12px",
+                    whiteSpace: "nowrap",
+                  }}
+                  type="button"
+                >
+                  Use spending limit
+                </button>
               </div>
               <span
                 style={{
