@@ -48,14 +48,6 @@ async function getDepositAmount(params: {
   return ephemeralDeposit?.amount ?? baseDeposit?.amount ?? BigInt(0);
 }
 
-function cleanSolanaErrorMessage(message: string): string {
-  const logsIndex = message.indexOf("Logs:");
-  if (logsIndex !== -1) {
-    return message.slice(0, logsIndex).trim();
-  }
-  return message;
-}
-
 export type ShieldResult = {
   signature?: string;
   success: boolean;
