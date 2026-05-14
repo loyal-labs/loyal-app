@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { getSolanaEnv } from "@/lib/solana/rpc/connection";
 import {
   getAccountTransactionHistory,
   listenForAccountTransactions,
@@ -12,12 +13,21 @@ import type { Transaction } from "@/types/wallet";
 const TX_HISTORY_SIGNATURES_PER_PAGE = 25;
 const TX_HISTORY_TARGET_TRANSFERS = 60;
 const TX_HISTORY_MAX_PAGES = 6;
+const TX_HISTORY_CACHE_TTL_MS = 30_000;
+
+type TransactionCacheMeta = {
+  fetchedAt: number;
+};
+
+const walletTransactionsCacheMeta = new Map<string, TransactionCacheMeta>();
+const walletTransactionsInflight = new Map<string, Promise<Transaction[]>>();
 
 type FetchTransfersPage = (
   publicKey: PublicKey,
   options: {
     limit: number;
     before?: string;
+    until?: string;
     onlySystemTransfers: boolean;
   },
 ) => Promise<{ transfers: WalletTransfer[]; nextCursor?: string }>;
@@ -25,15 +35,24 @@ type FetchTransfersPage = (
 export async function fetchWalletTransfersWithPagination(
   publicKey: PublicKey,
   fetchPage: FetchTransfersPage = getAccountTransactionHistory,
+  options: {
+    until?: string;
+    maxPages?: number;
+    targetTransfers?: number;
+  } = {},
 ): Promise<WalletTransfer[]> {
   const collected: WalletTransfer[] = [];
   const seenSignatures = new Set<string>();
 
   let before: string | undefined;
-  for (let page = 0; page < TX_HISTORY_MAX_PAGES; page++) {
+  const maxPages = options.maxPages ?? TX_HISTORY_MAX_PAGES;
+  const targetTransfers = options.targetTransfers ?? TX_HISTORY_TARGET_TRANSFERS;
+
+  for (let page = 0; page < maxPages; page++) {
     const { transfers, nextCursor } = await fetchPage(publicKey, {
       limit: TX_HISTORY_SIGNATURES_PER_PAGE,
       before,
+      until: options.until,
       onlySystemTransfers: false,
     });
 
@@ -44,12 +63,60 @@ export async function fetchWalletTransfersWithPagination(
       }
     }
 
-    if (collected.length >= TX_HISTORY_TARGET_TRANSFERS) break;
+    if (collected.length >= targetTransfers) break;
     if (!nextCursor || nextCursor === before) break;
     before = nextCursor;
   }
 
   return collected;
+}
+
+function getTransactionsCacheKey(walletAddress: string): string {
+  return `${getSolanaEnv()}:${walletAddress}`;
+}
+
+function isTransactionsCacheFresh(cacheKey: string): boolean {
+  const meta = walletTransactionsCacheMeta.get(cacheKey);
+  if (!meta) return false;
+  return Date.now() - meta.fetchedAt < TX_HISTORY_CACHE_TTL_MS;
+}
+
+function getLatestSignature(transactions: Transaction[]): string | undefined {
+  return transactions.find((tx) => tx.signature)?.signature;
+}
+
+function mergeTransactions(
+  currentTransactions: Transaction[],
+  incomingTransactions: Transaction[],
+): Transaction[] {
+  const pending = currentTransactions.filter(
+    (tx) => tx.type === "pending" && !tx.signature,
+  );
+  const bySignature = new Map<string, Transaction>();
+
+  for (const tx of currentTransactions) {
+    if (tx.signature) {
+      bySignature.set(tx.signature, tx);
+    }
+  }
+
+  for (const tx of incomingTransactions) {
+    if (!tx.signature) continue;
+    const existing = bySignature.get(tx.signature);
+    if (!existing) {
+      bySignature.set(tx.signature, tx);
+      continue;
+    }
+    if (existing.transferType === "swap" && tx.transferType !== "swap") {
+      bySignature.set(tx.signature, { ...tx, ...existing });
+    } else {
+      bySignature.set(tx.signature, { ...existing, ...tx });
+    }
+  }
+
+  return [...pending, ...bySignature.values()].sort(
+    (a, b) => b.timestamp - a.timestamp,
+  );
 }
 
 type UseWalletTransactionsOptions = {
@@ -71,7 +138,8 @@ export function useWalletTransactions(
   const [walletTransactions, setWalletTransactions] = useState<Transaction[]>(
     () =>
       walletAddress
-        ? walletTransactionsCache.get(walletAddress) ?? []
+        ? (walletTransactionsCache.get(getTransactionsCacheKey(walletAddress)) ??
+          [])
         : [],
   );
   const [isFetchingTransactions, setIsFetchingTransactions] = useState(false);
@@ -118,59 +186,62 @@ export function useWalletTransactions(
     async ({ force = false }: { force?: boolean } = {}) => {
       if (!walletAddress) return;
 
-      const cached = walletTransactionsCache.get(walletAddress);
+      const cacheKey = getTransactionsCacheKey(walletAddress);
+      const cached = walletTransactionsCache.get(cacheKey);
 
       if (!force && cached) {
         setWalletTransactions(cached);
-        if (cached.length >= TX_HISTORY_TARGET_TRANSFERS) {
+        if (isTransactionsCacheFresh(cacheKey)) {
           return;
         }
+      }
+
+      const inflight = walletTransactionsInflight.get(cacheKey);
+      if (inflight) {
+        try {
+          const transactions = await inflight;
+          setWalletTransactions(transactions);
+        } catch (error) {
+          console.error("Failed to fetch wallet transactions", error);
+        }
+        return;
       }
 
       if (!cached) {
         setIsFetchingTransactions(true);
       }
-      try {
+
+      const latestSignature = cached ? getLatestSignature(cached) : undefined;
+      const fetchPromise = (async () => {
         const transfers = await fetchWalletTransfersWithPagination(
           new PublicKey(walletAddress),
+          getAccountTransactionHistory,
+          latestSignature ? { until: latestSignature } : {},
         );
 
         const mappedTransactions: Transaction[] = transfers.map(
           mapTransferToTransaction,
         );
 
-        setWalletTransactions((prev) => {
-          const pending = prev.filter(
-            (tx) => tx.type === "pending" && !tx.signature,
-          );
-          const existingBySignature = new Map(
-            prev
-              .filter((tx) => tx.signature)
-              .map((tx) => [tx.signature as string, tx]),
-          );
+        const mergedTransactions = mergeTransactions(
+          walletTransactionsCache.get(cacheKey) ?? [],
+          mappedTransactions,
+        );
+        walletTransactionsCache.set(cacheKey, mergedTransactions);
+        walletTransactionsCacheMeta.set(cacheKey, { fetchedAt: Date.now() });
+        return mergedTransactions;
+      })();
 
-          const merged = mappedTransactions.map((tx) => {
-            if (!tx.signature) return tx;
-            const existing = existingBySignature.get(tx.signature);
-            if (!existing) return tx;
-            if (
-              existing.transferType === "swap" &&
-              tx.transferType !== "swap"
-            ) {
-              return { ...tx, ...existing };
-            }
-            return { ...existing, ...tx };
-          });
-
-          const combined = [...pending, ...merged].sort(
-            (a, b) => b.timestamp - a.timestamp,
-          );
-          walletTransactionsCache.set(walletAddress, combined);
-          return combined;
-        });
+      walletTransactionsInflight.set(cacheKey, fetchPromise);
+      try {
+        const transactions = await fetchPromise;
+        setWalletTransactions((prev) => mergeTransactions(prev, transactions));
       } catch (error) {
         console.error("Failed to fetch wallet transactions", error);
       } finally {
+        if (walletTransactionsInflight.get(cacheKey) === fetchPromise) {
+          walletTransactionsInflight.delete(cacheKey);
+        }
         setIsFetchingTransactions(false);
       }
     },
@@ -192,6 +263,7 @@ export function useWalletTransactions(
 
     void (async () => {
       try {
+        const cacheKey = getTransactionsCacheKey(walletAddress);
         unsubscribe = await listenForAccountTransactions(
           new PublicKey(walletAddress),
           (transfer) => {
@@ -219,7 +291,7 @@ export function useWalletTransactions(
               }
 
               const sorted = next.sort((a, b) => b.timestamp - a.timestamp);
-              walletTransactionsCache.set(walletAddress, sorted);
+              walletTransactionsCache.set(cacheKey, sorted);
               return sorted;
             });
             onWsTransactionRef.current?.();

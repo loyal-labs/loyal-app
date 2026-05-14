@@ -3,6 +3,14 @@ import { PublicKey } from "@solana/web3.js";
 import type { WalletTransfer } from "@/lib/solana/rpc/types";
 import { fetchWalletTransfersWithPagination } from "../useWalletTransactions";
 
+jest.mock("@/lib/solana/rpc/connection", () => ({
+  getSolanaEnv: jest.fn(() => "devnet"),
+}));
+
+jest.mock("@/lib/solana/wallet-cache", () => ({
+  walletTransactionsCache: new Map(),
+}));
+
 const TEST_WALLET = new PublicKey("So11111111111111111111111111111111111111112");
 
 function makeTransfer(signature: string): WalletTransfer {
@@ -84,5 +92,25 @@ describe("fetchWalletTransfersWithPagination", () => {
     expect(result[0].signature).toBe("sig-1");
     expect(result[result.length - 1].signature).toBe("sig-60");
   });
-});
 
+  it("passes the cached head signature as an until cursor", async () => {
+    const fetchPage = jest.fn().mockResolvedValueOnce({
+      transfers: [makeTransfer("sig-new")],
+      nextCursor: undefined,
+    });
+
+    const result = await fetchWalletTransfersWithPagination(
+      TEST_WALLET,
+      fetchPage,
+      { until: "sig-cached-head" },
+    );
+
+    expect(fetchPage).toHaveBeenCalledWith(TEST_WALLET, {
+      before: undefined,
+      limit: 25,
+      onlySystemTransfers: false,
+      until: "sig-cached-head",
+    });
+    expect(result.map((t) => t.signature)).toEqual(["sig-new"]);
+  });
+});

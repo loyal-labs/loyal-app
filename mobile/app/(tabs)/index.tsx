@@ -100,11 +100,23 @@ export default function WalletScreen() {
     useKaminoEarnings();
 
   const doFullRefresh = useCallback(
-    async (_reason: WalletRefreshReason) => {
+    async (reason: WalletRefreshReason) => {
+      const forceOnChainState =
+        reason === "manual" ||
+        reason === "mutation" ||
+        reason === "network-switch";
+      const shouldRefreshHoldings = reason !== "ws-ata";
+      const shouldForceTransactions =
+        forceOnChainState || reason === "ws-ata";
+
       await Promise.allSettled([
-        refreshBalance(true),
-        refreshTokenHoldings(true),
-        loadWalletTransactions({ force: true }),
+        refreshBalance(forceOnChainState),
+        shouldRefreshHoldings
+          ? refreshTokenHoldings(
+              forceOnChainState || reason === "ws-transaction",
+            )
+          : Promise.resolve(),
+        loadWalletTransactions({ force: shouldForceTransactions }),
       ]);
     },
     [refreshBalance, refreshTokenHoldings, loadWalletTransactions],
