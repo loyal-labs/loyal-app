@@ -17,9 +17,9 @@ const geistSans = GeistSans;
 const geistMono = GeistMono;
 
 export const metadata: Metadata = {
-  title: "Loyal: Private Wallets for Agentic Finance",
+  title: "Loyal — Solana Wallet with Agent Guardrails",
   description:
-    "Keep funds private, authorize agent workflows, and run one smart account across wallets.",
+    "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
   metadataBase: new URL("https://askloyal.com"),
   alternates: {
     canonical: "/",
@@ -31,28 +31,28 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    url: "https://askloyal.com/",
-    title: "Loyal: Private Wallets for Agentic Finance",
+    url: "https://askloyal.com",
+    title: "Loyal — Solana Wallet with Agent Guardrails",
     description:
-      "Keep funds private, authorize agent workflows, and run one smart account across wallets.",
+      "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
     images: [
       {
-        url: "/og-image.png",
+        url: "https://askloyal.com/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Loyal network visual",
+        alt: "Loyal — Solana wallet for AI agents and Telegram payments",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Loyal: Private Wallets for Agentic Finance",
+    title: "Loyal — Solana Wallet with Agent Guardrails",
     description:
-      "Keep funds private, authorize agent workflows, and run one smart account across wallets.",
+      "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
     images: [
       {
-        url: "/og-image.png",
-        alt: "Loyal private intelligence preview",
+        url: "https://askloyal.com/og-image.png",
+        alt: "Loyal — Solana wallet for AI agents and Telegram payments",
       },
     ],
   },
