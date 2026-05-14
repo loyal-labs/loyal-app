@@ -39,6 +39,15 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Validate release GitHub token
+        run: |
+          if [ -z "$RELEASE_GITHUB_TOKEN" ]; then
+            echo "RELEASE_GITHUB_TOKEN is required to create and auto-merge the Changesets release PR."
+            exit 1
+          fi
+        env:
+          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+
       - name: Create release PR or publish packages
         id: changesets
         uses: changesets/action@v1
@@ -48,11 +57,11 @@ jobs:
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Enable auto-merge for release PR
         if: steps.changesets.outputs.pullRequestNumber != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
         run: gh pr merge "${{ steps.changesets.outputs.pullRequestNumber }}" --auto --squash
