@@ -42,6 +42,7 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
+import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
 
 type SmartAccountRouteResponse = {
   overview: SmartAccountOverview;
@@ -681,23 +682,33 @@ function mapVaultActivity(
   };
 }
 
-function mapVaultToTokenRows(positions: PortfolioPosition[]): TokenRow[] {
+function mapVaultToTokenRows(
+  positions: PortfolioPosition[],
+  priceChange24hByMint?: ReadonlyMap<string, number>
+): TokenRow[] {
   return positions
     .filter((position) => position.totalBalance > 0)
-    .map((position) => ({
-      id: position.asset.mint,
-      symbol: position.asset.symbol,
-      price: formatUsd(position.priceUsd),
-      amount: formatTokenBalance(position.totalBalance),
-      value: formatUsd(position.totalValueUsd),
-      icon: resolveTokenIcon(position),
-      totalAmountDisplay: formatTokenBalance(position.totalBalance),
-      totalValueDisplay: formatUsd(position.totalValueUsd),
-      publicAmountDisplay: formatTokenBalance(position.publicBalance),
-      publicValueDisplay: formatUsd(position.publicValueUsd),
-      securedAmountDisplay: formatTokenBalance(position.securedBalance),
-      securedValueDisplay: formatUsd(position.securedValueUsd),
-    }));
+    .map((position) => {
+      const row: TokenRow = {
+        id: position.asset.mint,
+        symbol: position.asset.symbol,
+        price: formatUsd(position.priceUsd),
+        amount: formatTokenBalance(position.totalBalance),
+        value: formatUsd(position.totalValueUsd),
+        icon: resolveTokenIcon(position),
+        totalAmountDisplay: formatTokenBalance(position.totalBalance),
+        totalValueDisplay: formatUsd(position.totalValueUsd),
+        publicAmountDisplay: formatTokenBalance(position.publicBalance),
+        publicValueDisplay: formatUsd(position.publicValueUsd),
+        securedAmountDisplay: formatTokenBalance(position.securedBalance),
+        securedValueDisplay: formatUsd(position.securedValueUsd),
+      };
+      const pct = priceChange24hByMint?.get(position.asset.mint);
+      if (typeof pct === "number") {
+        row.priceChange24h = pct;
+      }
+      return row;
+    });
 }
 
 function mapVaultActivityPageToView(
@@ -1494,6 +1505,62 @@ export function useSmartAccountSidebarData(
     });
   }, [overview?.vaults, user?.walletAddress, authenticatedUserTotalUsd]);
 
+  const vaultMintsSignature = useMemo(() => {
+    const allPositions = (overview?.vaults ?? []).flatMap(
+      (vault) => vault.portfolio.positions
+    );
+    return createTokenMarketMintsSignature(allPositions);
+  }, [overview?.vaults]);
+
+  const [vaultPriceChange24hByMint, setVaultPriceChange24hByMint] = useState<
+    ReadonlyMap<string, number>
+  >(() => new Map());
+
+  useEffect(() => {
+    if (!vaultMintsSignature) {
+      setVaultPriceChange24hByMint(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    const url = new URL("/api/tokens/markets", window.location.origin);
+    url.searchParams.set("mints", vaultMintsSignature);
+
+    void fetch(url.toString())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Markets request failed: ${response.status}`);
+        }
+        return response.json() as Promise<{
+          markets: { mint: string; priceChange24hPercent: number | null }[];
+        }>;
+      })
+      .then(({ markets }) => {
+        if (cancelled) return;
+        const next = new Map<string, number>();
+        for (const market of markets) {
+          if (
+            typeof market.priceChange24hPercent === "number" &&
+            Number.isFinite(market.priceChange24hPercent)
+          ) {
+            next.set(market.mint, market.priceChange24hPercent);
+          }
+        }
+        setVaultPriceChange24hByMint(next);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn(
+          "[smart-account-sidebar] failed to fetch token markets",
+          error
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultMintsSignature]);
+
   const selectedVault = useMemo<SmartAccountVaultView | null>(() => {
     const vault =
       overview?.vaults.find(
@@ -1526,7 +1593,10 @@ export function useSmartAccountSidebarData(
         spendingLimits: vault.spendingLimits ?? [],
       }),
     };
-    const tokenRows = mapVaultToTokenRows(vault.portfolio.positions);
+    const tokenRows = mapVaultToTokenRows(
+      vault.portfolio.positions,
+      vaultPriceChange24hByMint
+    );
     const activityView =
       vaultActivityByAccountIndex[vault.accountIndex] ??
       mapVaultToActivityView(vault);
@@ -1553,6 +1623,7 @@ export function useSmartAccountSidebarData(
     authenticatedUserTotalUsd,
     vaultActivityByAccountIndex,
     vaultEntries,
+    vaultPriceChange24hByMint,
   ]);
 
   const approvals = useMemo(
