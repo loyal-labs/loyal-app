@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  type PrivateTransferAnalyticsFlow,
   gaslessClaimTransactions,
   privateTransferModifyBalanceEvents,
   privateTransferTokenCatalog,
@@ -77,6 +78,20 @@ type HoldingsRow = {
   decimals: number | null;
   priceUsd: string | null;
   symbol: string | null;
+  tokenMint: string;
+};
+
+type FlowRow = {
+  amountRaw: string | null;
+  day: string;
+  decimals: number | null;
+  flow: PrivateTransferAnalyticsFlow;
+  priceUsd: string | null;
+  tokenMint: string;
+};
+
+type PriceSourceRow = {
+  priceUsd: string | null;
   tokenMint: string;
 };
 
@@ -377,10 +392,10 @@ function addAssetAmount(
   }
 }
 
-function getMintsWithMissingPrices(holdingsRows: HoldingsRow[]): string[] {
+function getMintsWithMissingPrices(priceRows: PriceSourceRow[]): string[] {
   return Array.from(
     new Set(
-      holdingsRows
+      priceRows
         .filter((row) => toNumber(row.priceUsd) === null)
         .map((row) => row.tokenMint)
         .filter(Boolean)
@@ -389,9 +404,9 @@ function getMintsWithMissingPrices(holdingsRows: HoldingsRow[]): string[] {
 }
 
 async function loadLivePricesForMissingCatalogRows(
-  holdingsRows: HoldingsRow[]
+  priceRows: PriceSourceRow[]
 ): Promise<Map<string, number>> {
-  const missingPriceMints = getMintsWithMissingPrices(holdingsRows);
+  const missingPriceMints = getMintsWithMissingPrices(priceRows);
   if (missingPriceMints.length === 0) {
     return new Map();
   }
@@ -462,6 +477,57 @@ function buildShieldedAssets(args: {
   });
 }
 
+function buildShieldFlowPoints(args: {
+  dayKeys: string[];
+  flowRows: FlowRow[];
+  livePriceByMint: Map<string, number>;
+}): {
+  points: ShieldDayPoint[];
+  totalShielded: number;
+  totalUnshielded: number;
+} {
+  const flowByDay = new Map<string, { shielded: number; unshielded: number }>();
+
+  for (const row of args.flowRows) {
+    const priceUsd =
+      toNumber(row.priceUsd) ?? args.livePriceByMint.get(row.tokenMint) ?? null;
+    if (priceUsd === null) {
+      continue;
+    }
+
+    const amountUsd =
+      amountRawToUi(row.amountRaw ?? "0", row.decimals) * priceUsd;
+    const totals = flowByDay.get(row.day) ?? { shielded: 0, unshielded: 0 };
+    if (row.flow === "shield") {
+      totals.shielded += amountUsd;
+    } else {
+      totals.unshielded += amountUsd;
+    }
+    flowByDay.set(row.day, totals);
+  }
+
+  const points: ShieldDayPoint[] = [];
+  let totalShielded = 0;
+  let totalUnshielded = 0;
+
+  for (const dayKey of args.dayKeys) {
+    const totals = flowByDay.get(dayKey) ?? { shielded: 0, unshielded: 0 };
+    totalShielded += totals.shielded;
+    totalUnshielded += totals.unshielded;
+    points.push({
+      date: dayKey,
+      shielded: Number(totals.shielded.toFixed(2)),
+      unshielded: Number(totals.unshielded.toFixed(2)),
+    });
+  }
+
+  return {
+    points,
+    totalShielded: Number(totalShielded.toFixed(2)),
+    totalUnshielded: Number(totalUnshielded.toFixed(2)),
+  };
+}
+
 async function loadTransfersData(): Promise<TransfersData> {
   const db = getDatabase();
   const { startInclusive, endExclusive } = getWindowBoundsUtc();
@@ -487,17 +553,12 @@ async function loadTransfersData(): Promise<TransfersData> {
         ),
       db
         .select({
+          amountRaw: sum(privateTransferModifyBalanceEvents.amountRaw),
           day: flowDayExpression,
-          shielded: sql<string>`coalesce(sum(
-          case when ${privateTransferModifyBalanceEvents.flow} = 'shield'
-          then (${privateTransferModifyBalanceEvents.amountRaw}::numeric / power(10, coalesce(${privateTransferTokenCatalog.decimals}, 0))) * coalesce(${privateTransferTokenCatalog.lastPriceUsd}::numeric, 0)
-          else 0 end
-        ), 0)`,
-          unshielded: sql<string>`coalesce(sum(
-          case when ${privateTransferModifyBalanceEvents.flow} = 'unshield'
-          then (${privateTransferModifyBalanceEvents.amountRaw}::numeric / power(10, coalesce(${privateTransferTokenCatalog.decimals}, 0))) * coalesce(${privateTransferTokenCatalog.lastPriceUsd}::numeric, 0)
-          else 0 end
-        ), 0)`,
+          decimals: privateTransferTokenCatalog.decimals,
+          flow: privateTransferModifyBalanceEvents.flow,
+          priceUsd: privateTransferTokenCatalog.lastPriceUsd,
+          tokenMint: privateTransferModifyBalanceEvents.tokenMint,
         })
         .from(privateTransferModifyBalanceEvents)
         .leftJoin(
@@ -513,7 +574,13 @@ async function loadTransfersData(): Promise<TransfersData> {
             lt(privateTransferModifyBalanceEvents.occurredAt, endExclusive)
           )
         )
-        .groupBy(flowDayExpression),
+        .groupBy(
+          flowDayExpression,
+          privateTransferModifyBalanceEvents.flow,
+          privateTransferModifyBalanceEvents.tokenMint,
+          privateTransferTokenCatalog.decimals,
+          privateTransferTokenCatalog.lastPriceUsd
+        ),
       // Count users with net positive balance per token (shield - unshield > 0)
       db
         .select({
@@ -547,9 +614,10 @@ async function loadTransfersData(): Promise<TransfersData> {
   const userCountByMint = new Map(
     userCountRows.map((row) => [row.tokenMint, row.userCount])
   );
-  const livePriceByMint = await loadLivePricesForMissingCatalogRows(
-    holdingsRows
-  ).catch((error) => {
+  const livePriceByMint = await loadLivePricesForMissingCatalogRows([
+    ...holdingsRows,
+    ...flowRows,
+  ]).catch((error) => {
     console.error(
       "[transfers-data] Failed to load CoinGecko token prices",
       error
@@ -564,30 +632,11 @@ async function loadTransfersData(): Promise<TransfersData> {
     userCountByMint,
   });
 
-  const flowByDay = new Map(
-    flowRows.map((row) => [
-      row.day,
-      {
-        shielded: toNumber(row.shielded) ?? 0,
-        unshielded: toNumber(row.unshielded) ?? 0,
-      },
-    ])
-  );
-
-  const points: ShieldDayPoint[] = [];
-  let totalShielded = 0;
-  let totalUnshielded = 0;
-
-  for (const dayKey of dayKeys) {
-    const totals = flowByDay.get(dayKey) ?? { shielded: 0, unshielded: 0 };
-    totalShielded += totals.shielded;
-    totalUnshielded += totals.unshielded;
-    points.push({
-      date: dayKey,
-      shielded: Number(totals.shielded.toFixed(2)),
-      unshielded: Number(totals.unshielded.toFixed(2)),
-    });
-  }
+  const { points, totalShielded, totalUnshielded } = buildShieldFlowPoints({
+    dayKeys,
+    flowRows,
+    livePriceByMint,
+  });
 
   const tvl = assets.reduce(
     (sum, asset) => sum + (asset.totalValueUsd ?? 0),
@@ -597,8 +646,8 @@ async function loadTransfersData(): Promise<TransfersData> {
   return {
     assets,
     shieldPoints: points,
-    totalShielded: Number(totalShielded.toFixed(2)),
-    totalUnshielded: Number(totalUnshielded.toFixed(2)),
+    totalShielded,
+    totalUnshielded,
     tvl: Number(tvl.toFixed(2)),
   };
 }
