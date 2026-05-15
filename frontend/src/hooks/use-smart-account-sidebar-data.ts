@@ -77,6 +77,7 @@ export type SmartAccountVaultEntry = {
   accountIndex: number;
   label: string;
   address: string;
+  totalUsd: number;
   balanceWhole: string;
   balanceFraction: string;
   signers: SmartAccountSignerEntry[];
@@ -88,6 +89,7 @@ export type SmartAccountSignerEntry = {
   address: string;
   shortAddress: string;
   icon: string;
+  totalUsd: number;
   balanceWhole: string;
   balanceFraction: string;
   accessLevel: "suggest" | "sign" | "execute";
@@ -182,6 +184,7 @@ export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   isLoading: boolean;
   error: string | null;
+  totalUsd: number;
   vaultEntries: SmartAccountVaultEntry[];
   selectedVaultIndex: number;
   setSelectedVaultIndex: (index: number) => void;
@@ -331,6 +334,41 @@ function splitUsd(value: number | null | undefined) {
     whole: whole ?? "$0",
     fraction: fraction ? `.${fraction}` : ".00",
   };
+}
+
+function finiteUsd(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export function getSmartAccountTotalUsd({
+  authenticatedWalletAddress,
+  vaultEntries,
+}: {
+  authenticatedWalletAddress: string | null | undefined;
+  vaultEntries: SmartAccountVaultEntry[];
+}): number {
+  const authenticatedAddress = authenticatedWalletAddress?.toLowerCase();
+  const seenSignerAddresses = new Set<string>();
+  let totalUsd = 0;
+
+  for (const vault of vaultEntries) {
+    totalUsd += finiteUsd(vault.totalUsd);
+
+    for (const signer of vault.signers) {
+      const signerAddress = signer.address.toLowerCase();
+      if (signerAddress === authenticatedAddress) {
+        continue;
+      }
+      if (seenSignerAddresses.has(signerAddress)) {
+        continue;
+      }
+
+      seenSignerAddresses.add(signerAddress);
+      totalUsd += finiteUsd(signer.totalUsd);
+    }
+  }
+
+  return totalUsd;
 }
 
 function formatTokenBalance(balance: number): string {
@@ -541,6 +579,7 @@ function mapSignersToEntries(args: {
         address: signer.address,
         isAuthenticatedUser,
       }),
+      totalUsd: balanceUsd,
       balanceWhole: balance.whole,
       balanceFraction: balance.fraction,
       accessLevel: getSignerAccessLevel(signer),
@@ -1498,12 +1537,22 @@ export function useSmartAccountSidebarData(
         accountIndex: vault.accountIndex,
         label: "Stash",
         address: vault.address,
+        totalUsd: vault.portfolio.totals.totalUsd,
         balanceWhole: balance.whole,
         balanceFraction: balance.fraction,
         signers,
       };
     });
   }, [overview?.vaults, user?.walletAddress, authenticatedUserTotalUsd]);
+
+  const totalUsd = useMemo(
+    () =>
+      getSmartAccountTotalUsd({
+        authenticatedWalletAddress: user?.walletAddress,
+        vaultEntries,
+      }),
+    [user?.walletAddress, vaultEntries]
+  );
 
   const vaultMintsSignature = useMemo(() => {
     const allPositions = (overview?.vaults ?? []).flatMap(
@@ -1580,6 +1629,7 @@ export function useSmartAccountSidebarData(
       accountIndex: vault.accountIndex,
       label: "Stash",
       address: vault.address,
+      totalUsd: vault.portfolio.totals.totalUsd,
       balanceWhole: fallbackBalance.whole,
       balanceFraction: fallbackBalance.fraction,
       signers: mapSignersToEntries({
@@ -1606,6 +1656,7 @@ export function useSmartAccountSidebarData(
         accountIndex: entry.accountIndex,
         label: entry.label,
         address: entry.address,
+        totalUsd: entry.totalUsd,
         balanceWhole: entry.balanceWhole,
         balanceFraction: entry.balanceFraction,
         signers: entry.signers,
@@ -2522,6 +2573,7 @@ export function useSmartAccountSidebarData(
     overview,
     isLoading,
     error,
+    totalUsd,
     vaultEntries,
     selectedVaultIndex,
     setSelectedVaultIndex,

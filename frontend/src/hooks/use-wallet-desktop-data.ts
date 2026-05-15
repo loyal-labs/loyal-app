@@ -118,6 +118,18 @@ function formatUsd(value: number | null | undefined): string {
   });
 }
 
+export function splitUsdBalance(value: number | null | undefined): {
+  balanceFraction: string;
+  balanceWhole: string;
+} {
+  const [whole, fraction] = formatUsd(value).split(".");
+
+  return {
+    balanceWhole: whole ?? "$0",
+    balanceFraction: fraction ? `.${fraction}` : ".00",
+  };
+}
+
 function formatTokenBalance(balance: number): string {
   return balance.toLocaleString("en-US", {
     minimumFractionDigits: balance >= 1 ? 0 : 2,
@@ -1183,8 +1195,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     walletAddress,
   ]);
 
-  const formattedBalance = formatUsd(totals.totalUsd);
-  const balanceParts = formattedBalance.split(".");
+  const balance = splitUsdBalance(totals.totalUsd);
   const walletLabel = walletAddress
     ? `${
         { mainnet: "Mainnet", devnet: "Devnet", localnet: "Localnet" }[
@@ -1202,8 +1213,8 @@ export function useWalletDesktopData(): WalletDesktopData {
     ),
     isLoading,
     totalUsd: totals.totalUsd,
-    balanceWhole: balanceParts[0] ?? "$0",
-    balanceFraction: balanceParts[1] ? `.${balanceParts[1]}` : "",
+    balanceWhole: balance.balanceWhole,
+    balanceFraction: balance.balanceFraction,
     balanceSolLabel:
       totals.totalSol === null
         ? "0 SOL"

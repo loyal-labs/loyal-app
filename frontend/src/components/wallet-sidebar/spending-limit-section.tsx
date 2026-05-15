@@ -1,7 +1,7 @@
 "use client";
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
-import { Check, ChevronRight, Trash2, X } from "lucide-react";
+import { Check, Settings2, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -179,6 +179,9 @@ export function SpendingLimitSection({
         }
         .spending-limit-link:hover {
           opacity: 0.7 !important;
+        }
+        .spending-limit-icon-btn:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
         }
         .spending-limit-input:focus {
           border-color: rgba(0, 0, 0, 0.2) !important;
@@ -388,6 +391,7 @@ export function SpendingLimitSection({
                   display: "flex",
                   alignItems: "center",
                   gap: "10px",
+                  width: "100%",
                   overflow: "hidden",
                   borderRadius: "6px",
                 }}
@@ -442,6 +446,56 @@ export function SpendingLimitSection({
                   )}
                 </span>
                 <button
+                  aria-label="Edit spending limit"
+                  className="spending-limit-icon-btn"
+                  disabled={isPending}
+                  onClick={startLimitEdit}
+                  style={{
+                    width: "32px",
+                    height: "32px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: isPending ? "default" : "pointer",
+                    background: "rgba(0, 0, 0, 0.04)",
+                    border: "none",
+                    borderRadius: "9999px",
+                    color: secondary,
+                    flexShrink: 0,
+                    opacity: isPending ? 0.6 : 1,
+                    padding: 0,
+                  }}
+                  title="Edit spending limit"
+                  type="button"
+                >
+                  <Settings2 size={18} />
+                </button>
+                <button
+                  aria-label="Delete spending limit"
+                  className="spending-limit-icon-btn"
+                  disabled={isPending}
+                  onClick={requestLimitDelete}
+                  style={{
+                    width: "32px",
+                    height: "32px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: isPending ? "default" : "pointer",
+                    background: "rgba(0, 0, 0, 0.04)",
+                    border: "none",
+                    borderRadius: "9999px",
+                    color: "#EF4444",
+                    flexShrink: 0,
+                    opacity: isPending ? 0.6 : 1,
+                    padding: 0,
+                  }}
+                  title="Delete spending limit"
+                  type="button"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <button
                   disabled
                   style={{
                     background: "#000",
@@ -454,6 +508,7 @@ export function SpendingLimitSection({
                     fontSize: "13px",
                     fontWeight: 500,
                     lineHeight: "16px",
+                    marginLeft: "auto",
                     opacity: 1,
                     padding: "7px 12px",
                     whiteSpace: "nowrap",
@@ -475,63 +530,6 @@ export function SpendingLimitSection({
                 {getLimitResetLabel(spendingLimit)}
               </span>
             </div>
-            <button
-              className="spending-limit-link"
-              disabled={isPending}
-              onClick={startLimitEdit}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                paddingLeft: "12px",
-                cursor: isPending ? "default" : "pointer",
-                background: "transparent",
-                border: "none",
-                opacity: isPending ? 0.6 : 1,
-              }}
-              type="button"
-            >
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: secondary,
-                }}
-              >
-                {isPending ? "Saving" : "Change"}
-              </span>
-              <ChevronRight
-                size={24}
-                style={{
-                  color: "rgba(60, 60, 67, 0.3)",
-                  marginLeft: "6px",
-                }}
-              />
-            </button>
-            <button
-              aria-label="Delete spending limit"
-              className="spending-limit-link"
-              disabled={isPending}
-              onClick={requestLimitDelete}
-              style={{
-                width: "36px",
-                height: "36px",
-                marginLeft: "4px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: isPending ? "default" : "pointer",
-                background: "transparent",
-                border: "none",
-                color: "#EF4444",
-                opacity: isPending ? 0.6 : 1,
-              }}
-              title="Delete spending limit"
-              type="button"
-            >
-              <Trash2 size={18} />
-            </button>
           </div>
           <div style={{ padding: "8px 0 11px" }}>
             <div
