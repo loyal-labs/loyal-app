@@ -7,15 +7,18 @@ package_manager = "bun"
 resolution = true
 skip-lint = false
 
-[programs.mainnet]
-telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
-telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
-
 [programs.devnet]
+kamino-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [programs.localnet]
+kamino-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
+telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
+
+[programs.mainnet]
+kamino-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
@@ -35,16 +38,6 @@ startup_wait = 5000
 shutdown_wait = 2000
 upgradeable = true
 
-# MagicBlock's Delegation Program
-# https://docs.magicblock.gg/pages/ephemeral-rollups-ers/how-to-guide/rust-program
-[[test.validator.clone]]
-address = "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
-
-# MagicBlock’s Permission Program
-# https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/how-to-guide/quickstart#step-by-step-guide
-[[test.validator.clone]]
-address = "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
-
 [[test.genesis]]
 address = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 program = "target/deploy/telegram_verification.so"
@@ -54,3 +47,18 @@ upgradeable = true
 address = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 program = "target/deploy/telegram_private_transfer.so"
 upgradeable = true
+
+[test.validator]
+bind_address = "0.0.0.0"
+ledger = ".anchor/test-ledger"
+rpc_port = 8899
+
+# MagicBlock's Delegation Program
+# https://docs.magicblock.gg/pages/ephemeral-rollups-ers/how-to-guide/rust-program
+[[test.validator.clone]]
+address = "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+
+# MagicBlock’s Permission Program
+# https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/how-to-guide/quickstart#step-by-step-guide
+[[test.validator.clone]]
+address = "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
