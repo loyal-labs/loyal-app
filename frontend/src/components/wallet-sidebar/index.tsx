@@ -19,7 +19,10 @@ import type {
   SmartAccountSidebarData,
   SmartAccountSignerEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
-import type { WalletDesktopData } from "@/hooks/use-wallet-desktop-data";
+import {
+  splitUsdBalance,
+  type WalletDesktopData,
+} from "@/hooks/use-wallet-desktop-data";
 import {
   trackWalletShieldPressed,
   trackWalletSidebarTabOpen,
@@ -80,6 +83,13 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   const { activeTab, onTabChange } = props;
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(
     null
+  );
+  const totalBalance = useMemo(
+    () =>
+      splitUsdBalance(
+        props.walletDesktopData.totalUsd + props.smartAccountData.totalUsd
+      ),
+    [props.walletDesktopData.totalUsd, props.smartAccountData.totalUsd]
   );
 
   // Turnstile captcha gate for sign-in tab
@@ -1266,8 +1276,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             >
               {displayTab === "portfolio" && (
                 <PortfolioContent
-                  balanceFraction={props.walletDesktopData.balanceFraction}
-                  balanceWhole={props.walletDesktopData.balanceWhole}
+                  balanceFraction={totalBalance.balanceFraction}
+                  balanceWhole={totalBalance.balanceWhole}
                   isBalanceHidden={props.isBalanceHidden}
                   isLoading={
                     props.walletDesktopData.isLoading ||
@@ -1297,8 +1307,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   }}
                   onOpenVault={openVaultAccount}
                   onOpenAgent={openAgentPage}
-                  walletAddress={props.walletDesktopData.walletAddress}
-                  walletLabel={props.walletDesktopData.walletLabel}
                 />
               )}
               {displayTab === "receive" && (

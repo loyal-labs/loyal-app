@@ -419,13 +419,10 @@ export function PortfolioContent({
   onOpenSwap,
   onOpenShield,
   onOpenCommandMenu,
-  onOpenWallet,
   onOpenVault,
   onOpenAgent,
   onOpenAddSigner,
   onSmartAccountRetry,
-  walletAddress,
-  walletLabel,
   portfolioChange24h = null,
   earningsSummary = null,
   selectedSignerId = null,
@@ -434,6 +431,7 @@ export function PortfolioContent({
   showActionButtons = true,
   showApprovals = true,
   showHeaderControls = true,
+  topInset = 0,
 }: {
   balanceFraction: string;
   balanceWhole: string;
@@ -453,13 +451,10 @@ export function PortfolioContent({
   onOpenSwap: () => void;
   onOpenShield: () => void;
   onOpenCommandMenu?: () => void;
-  onOpenWallet?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   onOpenAddSigner?: (accountIndex: number) => void;
   onSmartAccountRetry?: () => void;
-  walletAddress: string | null;
-  walletLabel: string;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
   selectedSignerId?: string | null;
@@ -468,10 +463,10 @@ export function PortfolioContent({
   showActionButtons?: boolean;
   showApprovals?: boolean;
   showHeaderControls?: boolean;
+  topInset?: number;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [copied, setCopied] = useState(false);
   const [expandedSignerVaults, setExpandedSignerVaults] = useState<Set<number>>(
     () => new Set()
   );
@@ -493,17 +488,6 @@ export function PortfolioContent({
     if (!address) return null;
     return `${address.slice(0, 4)}…${address.slice(-4)}`;
   }, []);
-  const handleCopyAddress = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!walletAddress) return;
-      void navigator.clipboard.writeText(walletAddress).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    },
-    [walletAddress]
-  );
 
   if (isLoading) {
     return (
@@ -521,11 +505,12 @@ export function PortfolioContent({
         `}</style>
         <div
           style={{
+            boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
             height: "100%",
             minHeight: 0,
-            padding: "0 8px 8px",
+            padding: `${topInset}px 8px 8px`,
           }}
         >
           <div style={{ padding: "12px 12px 18px" }}>
@@ -616,7 +601,15 @@ export function PortfolioContent({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      style={{
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        paddingTop: topInset,
+      }}
+    >
       <style jsx>{`
         .portfolio-close-btn:hover {
           background: rgba(0, 0, 0, 0.08) !important;
@@ -681,13 +674,13 @@ export function PortfolioContent({
         </defs>
       </svg>
 
-      {/* Header: My Wallet + disconnect + settings + close */}
+      {/* Header: balance label + disconnect + settings + close */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "8px",
+          padding: showHeaderControls ? "8px" : "8px 8px 0",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
@@ -701,63 +694,14 @@ export function PortfolioContent({
             <span
               style={{
                 fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 600,
-                lineHeight: "20px",
-                color: "#000",
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                color: secondary,
               }}
             >
-              My Wallet
+              Total Balance
             </span>
-            {walletAddress ? (
-              <button
-                aria-label={`Copy address ${walletAddress}`}
-                className="portfolio-address-btn"
-                onClick={handleCopyAddress}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                  transition: "opacity 0.15s ease",
-                }}
-                title={walletAddress}
-                type="button"
-              >
-                <span>{walletLabel}</span>
-                <span
-                  style={{
-                    color: copied ? "#34C759" : "rgba(60, 60, 67, 0.35)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    transition: "color 0.15s ease",
-                    flexShrink: 0,
-                  }}
-                >
-                  {copied ? <Check size={12} /> : <Copy size={12} />}
-                </span>
-              </button>
-            ) : (
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                }}
-              >
-                {walletLabel}
-              </span>
-            )}
           </div>
         </div>
         {/* Cmd+K command menu trigger temporarily hidden.
@@ -850,31 +794,20 @@ export function PortfolioContent({
 
       {/* Balance */}
       <div
-        className="portfolio-account-row"
-        onClick={onOpenWallet}
-        onKeyDown={(event) => {
-          if (!onOpenWallet) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onOpenWallet();
-          }
-        }}
-        role={onOpenWallet ? "button" : undefined}
         style={{
           display: "flex",
           flexDirection: "column",
           alignItems: "stretch",
           width: "calc(100% - 16px)",
           margin: "0 8px",
-          padding: "8px 12px",
+          padding: showHeaderControls ? "8px 12px" : "0 12px 8px",
           borderRadius: "16px",
           background: isWalletSelected ? rowHoverBackground : "transparent",
           border: "none",
-          cursor: onOpenWallet ? "pointer" : "default",
+          cursor: "default",
           textAlign: "left",
           transition: "background 0.15s ease",
         }}
-        tabIndex={onOpenWallet ? 0 : undefined}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ borderRadius: "8px", overflow: "hidden" }}>

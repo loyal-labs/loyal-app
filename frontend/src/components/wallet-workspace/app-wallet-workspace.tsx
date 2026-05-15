@@ -76,7 +76,10 @@ import type {
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
-import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
+import {
+  splitUsdBalance,
+  useWalletDesktopData,
+} from "@/hooks/use-wallet-desktop-data";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -402,6 +405,27 @@ function RailNavButton({
   );
 }
 
+const MASCOT_BUBBLE_PHRASES = [
+  {
+    id: "shield-usdc",
+    ariaLabel: "Shield USDC to get passive income.",
+    linkText: "Shield USDC",
+    restText: " to get passive income.",
+  },
+  {
+    id: "monday-features",
+    ariaLabel: "New features are coming on Monday",
+    text: "New features are coming on Monday",
+  },
+  {
+    id: "loyal-x",
+    ariaLabel: "Follow me on X. I don't bite.",
+    href: "https://x.com/loyal_hq",
+    linkText: "Follow",
+    restText: " me on X. I don't bite.",
+  },
+] as const;
+
 function WalletRail({
   activeSection,
   dogCry,
@@ -410,6 +434,7 @@ function WalletRail({
   isSignedIn,
   isWalletLoading,
   onDisconnect,
+  onShieldUsdc,
   onSectionChange,
 }: {
   activeSection: WorkspaceSection;
@@ -419,17 +444,69 @@ function WalletRail({
   isSignedIn: boolean;
   isWalletLoading: boolean;
   onDisconnect: () => void;
+  onShieldUsdc: () => void;
   onSectionChange: (section: WorkspaceSection) => void;
 }) {
+  const [bubblePhraseIndex, setBubblePhraseIndex] = useState(0);
+  const bubblePhrase =
+    MASCOT_BUBBLE_PHRASES[bubblePhraseIndex] ?? MASCOT_BUBBLE_PHRASES[0];
+  const showMascotBubble = isSignedIn && !isWalletLoading;
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setBubblePhraseIndex(
+        (current) => (current + 1) % MASCOT_BUBBLE_PHRASES.length
+      );
+    }, 15_000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   return (
     <aside className="wallet-workspace-rail" aria-label="Workspace navigation">
       <div className="wallet-workspace-rail-top">
-        <div className="wallet-workspace-mascot" aria-hidden="true">
+        <div className="wallet-workspace-mascot">
           <DogWithMood cry={dogCry} nice={dogNice} squint={isBalanceHidden} />
           <span
             className="wallet-workspace-mascot-spinner"
             data-visible={isWalletLoading}
           />
+          {showMascotBubble ? (
+            <span
+              aria-label={bubblePhrase.ariaLabel}
+              className="wallet-workspace-mascot-bubble"
+              key={bubblePhrase.id}
+            >
+              <span className="wallet-workspace-mascot-bubble-content">
+                {"href" in bubblePhrase ? (
+                  <>
+                    <a
+                      className="wallet-workspace-mascot-bubble-link"
+                      href={bubblePhrase.href}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {bubblePhrase.linkText}
+                    </a>
+                    <span>&nbsp;{bubblePhrase.restText.trimStart()}</span>
+                  </>
+                ) : "linkText" in bubblePhrase ? (
+                  <>
+                    <button
+                      className="wallet-workspace-mascot-bubble-link"
+                      onClick={onShieldUsdc}
+                      type="button"
+                    >
+                      {bubblePhrase.linkText}
+                    </button>
+                    <span>&nbsp;{bubblePhrase.restText.trimStart()}</span>
+                  </>
+                ) : (
+                  bubblePhrase.text
+                )}
+              </span>
+            </span>
+          ) : null}
         </div>
 
         <nav className="wallet-workspace-rail-nav">
@@ -613,6 +690,11 @@ export function AppWalletWorkspace({
     authenticatedUserTotalUsd: walletDesktopData.totalUsd,
     onAfterTx: walletDesktopData.refresh,
   });
+  const totalBalance = useMemo(
+    () =>
+      splitUsdBalance(walletDesktopData.totalUsd + smartAccountData.totalUsd),
+    [walletDesktopData.totalUsd, smartAccountData.totalUsd]
+  );
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
@@ -1541,14 +1623,6 @@ export function AppWalletWorkspace({
       "wallet"
     );
   }, [derivedTokens, openActionView]);
-
-  const handleOpenWallet = useCallback(() => {
-    markDetailPaneTransition("switch");
-    setDetailInitialTab("tokens");
-    setDetailSelection("wallet");
-    setSelectedSignerId(null);
-    setSelectedDetail("My Wallet");
-  }, [markDetailPaneTransition]);
 
   const handleOpenVault = useCallback(
     (accountIndex: number) => {
@@ -2945,6 +3019,7 @@ export function AppWalletWorkspace({
         isSignedIn={isSignedIn}
         isWalletLoading={isWorkspaceLoading}
         onDisconnect={handleDisconnect}
+        onShieldUsdc={() => runOnWallet(handleCommandShieldUsdc)}
         onSectionChange={handleSectionChange}
       />
 
@@ -2972,8 +3047,8 @@ export function AppWalletWorkspace({
             ) : (
               <PortfolioContent
                 approvals={smartAccountData.approvals}
-                balanceFraction={walletDesktopData.balanceFraction}
-                balanceWhole={walletDesktopData.balanceWhole}
+                balanceFraction={totalBalance.balanceFraction}
+                balanceWhole={totalBalance.balanceWhole}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
                 isLoading={isWorkspaceLoading}
@@ -2987,7 +3062,6 @@ export function AppWalletWorkspace({
                 onOpenSend={() => handleRailAction("send")}
                 onOpenShield={() => handleRailAction("shield")}
                 onOpenSwap={() => handleRailAction("swap")}
-                onOpenWallet={handleOpenWallet}
                 onOpenVault={handleOpenVault}
                 onSmartAccountRetry={() => {
                   void smartAccountData.refresh();
@@ -3010,9 +3084,8 @@ export function AppWalletWorkspace({
                 showApprovals={false}
                 showHeaderControls={false}
                 smartAccountError={smartAccountData.error}
+                topInset={47}
                 vaultEntries={smartAccountData.vaultEntries}
-                walletAddress={walletDesktopData.walletAddress}
-                walletLabel={walletDesktopData.walletLabel}
                 portfolioChange24h={walletDesktopData.portfolioChange24h}
                 earningsSummary={walletDesktopData.earningsSummary}
               />
@@ -3234,6 +3307,88 @@ export function AppWalletWorkspace({
           opacity: 1;
           transform: scale(1);
           animation: wallet-workspace-spin 0.8s linear infinite;
+        }
+
+        .wallet-workspace-mascot-bubble {
+          position: absolute;
+          top: 2px;
+          left: 42px;
+          z-index: 35;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: max-content;
+          min-width: max-content;
+          max-width: none;
+          height: 30px;
+          padding: 0 14px;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          border-radius: 9999px;
+          background: #fff;
+          box-shadow:
+            0 10px 24px rgba(0, 0, 0, 0.08),
+            0 2px 6px rgba(0, 0, 0, 0.04);
+          color: rgba(0, 0, 0, 0.86);
+          font-family: var(--font-geist-sans), sans-serif;
+          font-size: 13px;
+          font-weight: 500;
+          line-height: 16px;
+          white-space: nowrap;
+          pointer-events: auto;
+          transform-origin: 0 50%;
+          animation: wallet-workspace-mascot-bubble-unravel 0.62s
+            cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .wallet-workspace-mascot-bubble-content {
+          position: relative;
+          z-index: 2;
+          display: inline-flex;
+          align-items: center;
+          flex: 0 0 auto;
+          width: max-content;
+          max-width: none;
+          overflow: hidden;
+          white-space: nowrap;
+          animation: wallet-workspace-mascot-bubble-content 0.62s
+            cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+
+        .wallet-workspace-mascot-bubble-content > * {
+          flex: 0 0 auto;
+          white-space: nowrap;
+        }
+
+        .wallet-workspace-mascot-bubble-link {
+          display: inline-flex;
+          border: 0;
+          background: transparent;
+          color: #f9363c;
+          cursor: pointer;
+          font: inherit;
+          padding: 0;
+          text-decoration: none;
+        }
+
+        .wallet-workspace-mascot-bubble-link:hover {
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+
+        .wallet-workspace-mascot-bubble::before {
+          content: "";
+          position: absolute;
+          z-index: 1;
+          left: -5px;
+          top: 11px;
+          width: 10px;
+          height: 10px;
+          border-left: 1px solid rgba(0, 0, 0, 0.08);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+          background: #fff;
+          transform: rotate(45deg);
+          animation: wallet-workspace-mascot-bubble-tail 0.62s
+            cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         .wallet-workspace-rail-nav {
@@ -3967,6 +4122,37 @@ export function AppWalletWorkspace({
         @keyframes wallet-workspace-spin {
           to {
             transform: rotate(360deg);
+          }
+        }
+
+        @keyframes wallet-workspace-mascot-bubble-unravel {
+          from {
+            opacity: 0;
+            transform: translateX(-4px) scaleX(0.08);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0) scaleX(1);
+          }
+        }
+
+        @keyframes wallet-workspace-mascot-bubble-content {
+          from {
+            clip-path: inset(0 100% 0 0);
+          }
+          to {
+            clip-path: inset(0 0 0 0);
+          }
+        }
+
+        @keyframes wallet-workspace-mascot-bubble-tail {
+          from {
+            opacity: 0;
+            transform: translateX(-4px) rotate(45deg) scale(0.3);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0) rotate(45deg) scale(1);
           }
         }
 
