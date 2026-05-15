@@ -1,22 +1,343 @@
 ---
 title: "Frequently Asked Questions"
-description: "Find quick answers about Loyal’s launch, architecture, and participation requirements."
+description: "Answers to the questions developers and users most often ask about Loyal — privacy mechanics, yield, agent guardrails, custody, and how Loyal compares to other Solana wallets."
 ---
 
+export const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Do you use a mixer?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No, not in the Tornado-Cash sense. Shielded tokens are commingled per mint inside shared Vaults, but Loyal does not shuffle, time-delay, or rotate funds. Transfers between users are arithmetic updates to deposit accounts inside MagicBlock's ephemeral runtime — no real SPL tokens move, and only the deposit owner can read the account state."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What's the anonymity set?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Per shielded token mint: every depositor of that token. All USDC deposits share one Vault; all SOL deposits share another. The anonymity set governs deposit-to-withdrawal linkability. Transfer privacy is provided by the ephemeral runtime and does not depend on set size — internal transfers are not observable on the base layer regardless of pool depth."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How does Loyal handle AML?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "OFAC screening runs at the deposit boundary, before funds enter a Vault. Sanctioned addresses are rejected at the runtime level by MagicBlock's compliance layer rather than enforced by Loyal's own infrastructure. A formal compliance framework covering non-OFAC controls is in development."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Solana anonymous by default?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Every Solana transaction — sender, recipient, amount, and token — is published to public block explorers and indexed by chain analytics within seconds. The same applies to USDC, USDT, and every other SPL token. Loyal makes transactions private by holding shielded balances in MagicBlock's ephemeral runtime, where transfers update encrypted deposit accounts that are not visible on the base layer."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What is MagicBlock's ephemeral runtime?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A high-throughput Solana execution environment that runs inside a Confidential VM operated by MagicBlock. Programs delegated into the runtime execute on encrypted state and settle back to Solana on demand. Loyal uses it for the private-transfer flow: deposit accounts and their balances exist inside the runtime and are only readable by their owner, while the underlying SPL tokens stay in shared Vaults on base Solana."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What are shielded assets?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Tokens you have deposited into a Loyal Vault. The real SPL tokens are pooled per mint on Solana — one Vault per token, commingled across all depositors — and each depositor holds a private deposit account inside MagicBlock's ephemeral runtime. Balance reads and transfers operate on the deposit account, not the underlying tokens, so movements stay private and yield from Kamino is earned at the Vault layer."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What's a Smart Account on Solana?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "A programmable Solana account whose signing rules are enforced by a program rather than a single private key. Loyal builds on the Squads Smart Account program — the most widely-used implementation — and adds a policy layer: token whitelists, spending caps, per-signer limits, approved-program lists. The account is a standard Solana account that any dApp can interact with through wallet adapters."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Where does the yield on shielded assets come from?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Kamino single-asset lending vaults on Solana. Shielded USDC, SOL, and USDT are deployed into Kamino's lending strategies — the same infrastructure used by Phantom Earn, Pendle, and Anchorage. Loyal does not run its own yield strategies and the APY shown in-app reflects Kamino's live rates net of protocol fees."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I shield USDC?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Call the deposit flow from the Private Transactions SDK with the USDC mint and the amount. Funds move from your wallet into the USDC Vault and a deposit account is created inside the ephemeral runtime under your key. From there, transfers and balance reads are private."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can an AI agent drain my wallet by buying every memecoin it sees?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Not unless you authorise it. Agent permissions are defined by Smart Account policies — token whitelists, spending caps, approved programs, time windows. The Squads program enforces these on-chain, so an agent operating against the account cannot execute transactions outside its policy envelope."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why not use a regular Solana multisig?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Multisigs answer who can sign. Loyal Smart Accounts also answer what can be signed. A standard multisig requires N-of-M approvals on arbitrary instructions; Loyal layers programmable policies (per-signer spending limits, token allowlists, protocol allowlists) on top of the Squads program so that automated signers — agents, bots, scripts — operate within a constrained surface."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Loyal custodial?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Loyal Smart Accounts are non-custodial Solana accounts that you control through your own wallet — Phantom, Backpack, Solflare, hardware wallet, any wallet adapter. Loyal does not hold private keys, does not have signing authority, and cannot move funds. Policy enforcement is on-chain via the Squads program. Shielded-asset deposits sit in a Vault program where withdrawal authority is tied to your deposit account."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happens to my funds if Loyal goes down?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Funds stay on Solana. Smart Accounts continue to function — they are accounts on the Squads program, not on Loyal's infrastructure, and can be signed against by any Solana client that talks to the Squads program. Shielded assets remain in their Vaults; if the Loyal-operated runtime client becomes unavailable, the underlying tokens can be redeemed through the Vault program's withdrawal path. Access to your funds does not depend on Loyal's website or app being online."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How does Loyal compare to Phantom or Backpack?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Phantom and Backpack are signer wallets — they hold a key and sign transactions. Loyal is a smart-account layer that sits alongside any Solana wallet adapter, adding policy-bound delegation for agents, programmable spending limits, and shielded balances with native yield. You can connect Phantom or Backpack as a signer on a Loyal Smart Account; Loyal does not replace them."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How does Loyal compare to Tornado Cash?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Loyal is not a mixer. Tornado Cash worked by depositing into a shared anonymity pool, waiting, and withdrawing to a fresh address — privacy came from time delay and pool depth. Loyal does not shuffle, time-delay, or rotate funds. Privacy comes from transfers happening inside MagicBlock's ephemeral runtime, where the runtime controls observability, plus OFAC screening at the deposit boundary that prevents sanctioned addresses from entering the Vault."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I send crypto using a Telegram username?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Username-based deposits are created with the SDK's send-by-handle flow, which writes the recipient's Telegram username (5–32 chars, alphanumeric + underscore) into a claimable deposit. The recipient claims by proving control of the same Telegram identity through the Loyal Telegram mini-app. If unclaimed, the deposit is reclaimable by the sender."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which chains does Loyal support?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Solana mainnet only. Smart Accounts target the Squads Smart Account Program; private transactions run on MagicBlock's ephemeral runtime, which settles to Solana. Multi-chain support is not on the current roadmap."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is the source code open?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The SDKs, CLI, and client integrations are open source at github.com/loyal-labs. The Smart Accounts program is the Squads V4 program (open source, audited). The ephemeral-runtime layer is operated by MagicBlock with their own attestation and audit posture."
+      }
+    }
+  ]
+};
+
+export const orgSchema = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Loyal",
+  "legalName": "Loyal DAO LLC",
+  "url": "https://askloyal.com",
+  "logo": "https://mintcdn.com/loyal/DWVryRcChq6727Ic/logo/light.png",
+  "description": "Private Solana wallet built on Squads Smart Accounts with programmable guardrails for AI agents and shielded balances with native Kamino yield.",
+  "sameAs": [
+    "https://x.com/loyal_hq",
+    "https://github.com/loyal-labs",
+    "https://discord.gg/HSeXaVhzWU",
+    "https://tg.askloyal.com",
+    "https://docs.askloyal.com"
+  ]
+};
+
+<script type="application/ld+json" dangerouslySetInnerHTML={{__html: JSON.stringify(faqSchema)}} />
+<script type="application/ld+json" dangerouslySetInnerHTML={{__html: JSON.stringify(orgSchema)}} />
+
+## Privacy and the anonymity set
+
 <AccordionGroup>
-<Accordion title="Why use TEEs instead of purely cryptographic approaches?">
-  You get near-native latency while keeping data encrypted in memory and that's the only way to guarantee that any node and compute provider won't have access to the data.
-</Accordion>
-<Accordion title="When will I be able to run production workloads?">
-  Post-launch targets follow the SDK beta and security audit sign-off. Expect staged access beginning after the MetaDAO token event.
-</Accordion>
-<Accordion title="How do pricing and micropayments translate to end users?">
-  You configure budgets per agent. Payments stream in sub-dollar increments so your customers only pay for the inference they consume.
-</Accordion>
-<Accordion title="What data does Loyal store?">
-  Agents keep short-lived context for processing, distill insights into encrypted knowledge graphs, and purge raw data after each session.
-</Accordion>
-<Accordion title="How can I contribute before launch?">
-  Join working groups, review the lightpaper, and help stress-test threat models in community calls.
-</Accordion>
+  <Accordion title="Do you use a mixer?">
+    ### Do you use a mixer?
+
+    No, not in the Tornado-Cash sense. Shielded tokens are **commingled per mint inside shared Vaults**, but Loyal does not shuffle, time-delay, or rotate funds.
+
+    Transfers between users are arithmetic updates to deposit accounts inside MagicBlock's ephemeral runtime — no real SPL tokens move, and only the deposit owner can read the account state.
+  </Accordion>
+
+  <Accordion title="What's the anonymity set?">
+    ### What's the anonymity set?
+
+    Per shielded token mint: **every depositor of that token**. All USDC deposits share one Vault; all SOL deposits share another.
+
+    The anonymity set governs deposit-to-withdrawal linkability. Transfer privacy is provided by the ephemeral runtime and does not depend on set size — internal transfers are not observable on the base layer regardless of pool depth.
+  </Accordion>
+
+  <Accordion title="How does Loyal handle AML?">
+    ### How does Loyal handle AML?
+
+    OFAC screening runs at the **deposit boundary**, before funds enter a Vault. Sanctioned addresses are rejected at the runtime level by MagicBlock's compliance layer rather than enforced by Loyal's own infrastructure.
+
+    A formal compliance framework covering non-OFAC controls is in development.
+  </Accordion>
+
+  <Accordion title="Is Solana anonymous by default?">
+    ### Is Solana anonymous by default?
+
+    **No.** Every Solana transaction — sender, recipient, amount, and token — is published to public block explorers and indexed by chain analytics within seconds. The same applies to USDC, USDT, and every other SPL token.
+
+    Loyal makes transactions private by holding shielded balances in MagicBlock's ephemeral runtime, where transfers update encrypted deposit accounts that are not visible on the base layer.
+  </Accordion>
+</AccordionGroup>
+
+## Core concepts
+
+<AccordionGroup>
+  <Accordion title="What is MagicBlock's ephemeral runtime?">
+    ### What is MagicBlock's ephemeral runtime?
+
+    A high-throughput Solana execution environment that runs inside a Confidential VM operated by MagicBlock. Programs delegated into the runtime execute on encrypted state and settle back to Solana on demand.
+
+    Loyal uses it for the private-transfer flow: deposit accounts and their balances exist inside the runtime and are only readable by their owner, while the underlying SPL tokens stay in shared Vaults on base Solana.
+  </Accordion>
+
+  <Accordion title="What are shielded assets?">
+    ### What are shielded assets?
+
+    Tokens you have deposited into a Loyal **Vault**. The real SPL tokens are pooled per mint on Solana — one Vault per token, commingled across all depositors — and each depositor holds a private **deposit account** inside MagicBlock's ephemeral runtime.
+
+    Balance reads and transfers operate on the deposit account, not the underlying tokens. Movements stay private and yield from Kamino is earned at the Vault layer and distributed to depositors pro-rata.
+  </Accordion>
+
+  <Accordion title="What's a Smart Account on Solana?">
+    ### What's a Smart Account on Solana?
+
+    A programmable Solana account whose signing rules are enforced by a **program** rather than a single private key. Loyal builds on the [Squads Smart Account program](https://github.com/Squads-Protocol/v4) — the most widely-used implementation — and adds a policy layer: token whitelists, spending caps, per-signer limits, approved-program lists.
+
+    The account itself is a standard Solana account that any dApp can interact with through wallet adapters.
+  </Accordion>
+</AccordionGroup>
+
+## Yield and shielded assets
+
+<AccordionGroup>
+  <Accordion title="Where does the yield on shielded assets come from?">
+    ### Where does the yield on shielded assets come from?
+
+    **Kamino single-asset lending vaults on Solana.** Shielded USDC, SOL, and USDT are deployed into Kamino's lending strategies — the same infrastructure used by Phantom Earn, Pendle, and Anchorage.
+
+    Loyal does not run its own yield strategies. The APY shown in-app reflects Kamino's live rates net of protocol fees.
+  </Accordion>
+
+  <Accordion title="How do I shield USDC?">
+    ### How do I shield USDC?
+
+    Call the deposit flow from the [Private Transactions SDK](/sdk/private-transactions/quick-start) with the USDC mint and the amount. Funds move from your wallet into the USDC Vault and a deposit account is created inside the ephemeral runtime under your key.
+
+    From there, transfers and balance reads are private. The same flow works for SOL and USDT.
+  </Accordion>
+</AccordionGroup>
+
+## Agent guardrails
+
+<AccordionGroup>
+  <Accordion title="Can an AI agent drain my wallet by buying every memecoin it sees?">
+    ### Can an AI agent drain my wallet by buying every memecoin it sees?
+
+    **Not unless you authorise it.** Agent permissions are defined by Smart Account policies — token whitelists, spending caps, approved programs, time windows.
+
+    The Squads program enforces these on-chain, so an agent operating against the account cannot execute transactions outside its policy envelope. See [Smart Accounts → Policies and Execution](/smart-accounts/policies-and-execution) for the policy schema and lifecycle.
+  </Accordion>
+
+  <Accordion title="Why not use a regular Solana multisig?">
+    ### Why not use a regular Solana multisig?
+
+    Multisigs answer **who** can sign. Loyal Smart Accounts also answer **what** can be signed.
+
+    A standard multisig requires N-of-M approvals on arbitrary instructions; Loyal layers programmable policies (per-signer spending limits, token allowlists, protocol allowlists) on top of the Squads program so that automated signers — agents, bots, scripts — operate within a constrained surface.
+  </Accordion>
+</AccordionGroup>
+
+## Custody and safety
+
+<AccordionGroup>
+  <Accordion title="Is Loyal custodial?">
+    ### Is Loyal custodial?
+
+    **No.** Loyal Smart Accounts are non-custodial Solana accounts that you control through your own wallet — Phantom, Backpack, Solflare, hardware wallet, any wallet adapter.
+
+    Loyal does not hold private keys, does not have signing authority, and cannot move funds. Policy enforcement is on-chain via the Squads program. Shielded-asset deposits sit in a Vault program where withdrawal authority is tied to your deposit account.
+  </Accordion>
+
+  <Accordion title="What happens to my funds if Loyal goes down?">
+    ### What happens to my funds if Loyal goes down?
+
+    **Funds stay on Solana.** Smart Accounts continue to function — they are accounts on the Squads program, not on Loyal's infrastructure, and can be signed against by any Solana client that talks to the Squads program.
+
+    Shielded assets remain in their Vaults; if the Loyal-operated runtime client becomes unavailable, the underlying tokens can be redeemed through the Vault program's withdrawal path. Access to your funds does not depend on Loyal's website or app being online.
+  </Accordion>
+</AccordionGroup>
+
+## Loyal in context
+
+<AccordionGroup>
+  <Accordion title="How does Loyal compare to Phantom or Backpack?">
+    ### How does Loyal compare to Phantom or Backpack?
+
+    Phantom and Backpack are **signer wallets** — they hold a key and sign transactions.
+
+    Loyal is a **smart-account layer** that sits alongside any Solana wallet adapter, adding policy-bound delegation for agents, programmable spending limits, and shielded balances with native yield. You can connect Phantom or Backpack as a signer on a Loyal Smart Account; Loyal does not replace them.
+  </Accordion>
+
+  <Accordion title="How does Loyal compare to Tornado Cash?">
+    ### How does Loyal compare to Tornado Cash?
+
+    **Loyal is not a mixer.** Tornado Cash worked by depositing into a shared anonymity pool, waiting, and withdrawing to a fresh address — privacy came from time delay and pool depth.
+
+    Loyal does not shuffle, time-delay, or rotate funds. Privacy comes from transfers happening inside MagicBlock's ephemeral runtime, where the runtime controls observability, plus **OFAC screening at the deposit boundary** that prevents sanctioned addresses from entering the Vault.
+  </Accordion>
+
+  <Accordion title="How do I send crypto using a Telegram username?">
+    ### How do I send crypto using a Telegram username?
+
+    Username-based deposits are created with the SDK's send-by-handle flow, which writes the recipient's Telegram username (5–32 chars, alphanumeric + underscore) into a claimable deposit.
+
+    The recipient claims by proving control of the same Telegram identity through the Loyal Telegram mini-app. If unclaimed, the deposit is reclaimable by the sender.
+  </Accordion>
+
+  <Accordion title="Which chains does Loyal support?">
+    ### Which chains does Loyal support?
+
+    **Solana mainnet only.** Smart Accounts target the Squads Smart Account Program; private transactions run on MagicBlock's ephemeral runtime, which settles to Solana.
+
+    Multi-chain support is not on the current roadmap.
+  </Accordion>
+
+  <Accordion title="Is the source code open?">
+    ### Is the source code open?
+
+    Yes. The SDKs, CLI, and client integrations are open source at [github.com/loyal-labs](https://github.com/loyal-labs).
+
+    The Smart Accounts program is the Squads V4 program (open source, audited). The ephemeral-runtime layer is operated by MagicBlock with their own attestation and audit posture.
+  </Accordion>
 </AccordionGroup>
