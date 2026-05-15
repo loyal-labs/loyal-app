@@ -1,0 +1,108 @@
+{
+  "address": "4RVMhCMFzQGwtKZFdowuMzChpsHhHFWvt8a7tVb4hqa6",
+  "metadata": {
+    "name": "kamino_route_crank",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Permissionless crank entrypoint for Kamino deposit routing"
+  },
+  "instructions": [
+    {
+      "name": "crank_route",
+      "discriminator": [
+        223,
+        67,
+        222,
+        93,
+        107,
+        203,
+        62,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "policy",
+          "writable": true
+        },
+        {
+          "name": "crank_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  107,
+                  97,
+                  109,
+                  105,
+                  110,
+                  111,
+                  95,
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  95,
+                  99,
+                  114,
+                  97,
+                  110,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "policy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "smart_account_program",
+          "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CrankRouteArgs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "PolicyPayloadTooLarge",
+      "msg": "Policy payload is too large"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidPolicyPayload",
+      "msg": "Invalid policy payload"
+    }
+  ],
+  "types": [
+    {
+      "name": "CrankRouteArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account_index",
+            "type": "u8"
+          },
+          {
+            "name": "policy_payload",
+            "type": "bytes"
+          }
+        ]
+      }
+    }
+  ]
+}

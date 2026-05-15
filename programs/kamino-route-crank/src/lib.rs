@@ -8,14 +8,12 @@ pub use constants::*;
 pub use error::*;
 #[doc(hidden)]
 pub(crate) use instructions::crank_route::__client_accounts_crank_route;
-#[doc(hidden)]
-pub(crate) use instructions::route_deposit::__client_accounts_route_deposit;
-pub use instructions::{CrankRoute, CrankRouteArgs, RouteDeposit, RouteDepositArgs};
+pub use instructions::{CrankRoute, CrankRouteArgs};
 
-declare_id!("4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX");
+declare_id!("4RVMhCMFzQGwtKZFdowuMzChpsHhHFWvt8a7tVb4hqa6");
 
 #[program]
-pub mod kamino_router {
+pub mod kamino_route_crank {
     use super::*;
 
     pub fn crank_route<'info>(
@@ -23,9 +21,5 @@ pub mod kamino_router {
         args: CrankRouteArgs,
     ) -> Result<()> {
         instructions::crank_route::handler(ctx, args)
-    }
-
-    pub fn route_deposit(ctx: Context<RouteDeposit>, args: RouteDepositArgs) -> Result<()> {
-        instructions::route_deposit::handler(ctx, args)
     }
 }

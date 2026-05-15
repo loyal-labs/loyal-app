@@ -4,7 +4,7 @@ use anchor_lang::solana_program::{
     program::invoke_signed,
 };
 
-use crate::{constants::*, KaminoRouterError};
+use crate::{constants::*, KaminoRouteCrankError};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CrankRouteArgs {
@@ -31,11 +31,11 @@ pub fn handler<'info>(
 ) -> Result<()> {
     require!(
         !args.policy_payload.is_empty(),
-        KaminoRouterError::InvalidPolicyPayload
+        KaminoRouteCrankError::InvalidPolicyPayload
     );
     require!(
         args.policy_payload.len() <= MAX_POLICY_PAYLOAD_LEN,
-        KaminoRouterError::PolicyPayloadTooLarge
+        KaminoRouteCrankError::PolicyPayloadTooLarge
     );
 
     let mut data = Vec::with_capacity(8 + 2 + 1 + args.policy_payload.len());

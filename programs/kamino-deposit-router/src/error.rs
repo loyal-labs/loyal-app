@@ -2,10 +2,6 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum KaminoRouterError {
-    #[msg("Policy payload is too large")]
-    PolicyPayloadTooLarge,
-    #[msg("Invalid policy payload")]
-    InvalidPolicyPayload,
     #[msg("Invalid token mint")]
     InvalidMint,
     #[msg("Invalid token account")]

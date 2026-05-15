@@ -1,82 +1,20 @@
-{
+/**
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/kamino_deposit_router.json`.
+ */
+export type KaminoDepositRouter = {
   "address": "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX",
   "metadata": {
-    "name": "kamino_router",
+    "name": "kaminoDepositRouter",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
   "instructions": [
     {
-      "name": "crank_route",
-      "discriminator": [
-        223,
-        67,
-        222,
-        93,
-        107,
-        203,
-        62,
-        192
-      ],
-      "accounts": [
-        {
-          "name": "policy",
-          "writable": true
-        },
-        {
-          "name": "crank_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  107,
-                  97,
-                  109,
-                  105,
-                  110,
-                  111,
-                  95,
-                  114,
-                  111,
-                  117,
-                  116,
-                  101,
-                  114,
-                  95,
-                  99,
-                  114,
-                  97,
-                  110,
-                  107
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "policy"
-              }
-            ]
-          }
-        },
-        {
-          "name": "smart_account_program",
-          "address": "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "CrankRouteArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "route_deposit",
+      "name": "routeDeposit",
       "discriminator": [
         24,
         140,
@@ -98,41 +36,41 @@
           "signer": true
         },
         {
-          "name": "source_liquidity",
+          "name": "sourceLiquidity",
           "writable": true
         },
         {
-          "name": "token_mint",
-          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          "name": "tokenMint",
+          "address": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
         },
         {
-          "name": "fee_liquidity",
+          "name": "feeLiquidity",
           "writable": true
         },
         {
-          "name": "lending_market",
-          "address": "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA"
+          "name": "lendingMarket",
+          "address": "27MKCQo5qP7ijrwWSMKX2Jeb3PhK2NZmHQ9befWVRS4J"
         },
         {
-          "name": "lending_market_authority"
+          "name": "lendingMarketAuthority"
         },
         {
           "name": "reserve",
           "writable": true,
-          "address": "9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu"
+          "address": "9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy"
         },
         {
-          "name": "reserve_liquidity_supply",
+          "name": "reserveLiquiditySupply",
           "writable": true,
-          "address": "H6JUwz8c61eQnYUx8avGXydKztKPyGvgWAUjmZUPS3BC"
+          "address": "Bh45cPkpfRvz9hAs23ye5TowsGbhbh4BXT4AGww8JfES"
         },
         {
-          "name": "reserve_collateral_mint",
+          "name": "reserveCollateralMint",
           "writable": true,
-          "address": "DKaVQFXD6Qz4USTkRWyPun3oU6r1RfYsWJ8YqLpnSnN5"
+          "address": "8GoBXfEq3aTiWTxEP2tAaygJMx3LhG764iN5e6gqaLA"
         },
         {
-          "name": "vault_collateral_token_account",
+          "name": "vaultCollateralTokenAccount",
           "writable": true,
           "pda": {
             "seeds": [
@@ -142,11 +80,11 @@
               },
               {
                 "kind": "account",
-                "path": "token_program"
+                "path": "tokenProgram"
               },
               {
                 "kind": "account",
-                "path": "reserve_collateral_mint"
+                "path": "reserveCollateralMint"
               }
             ],
             "program": {
@@ -189,23 +127,23 @@
           }
         },
         {
-          "name": "instruction_sysvar_account",
+          "name": "instructionSysvarAccount",
           "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
-          "name": "klend_program",
+          "name": "klendProgram",
           "address": "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "associated_token_program",
+          "name": "associatedTokenProgram",
           "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -214,7 +152,7 @@
           "name": "args",
           "type": {
             "defined": {
-              "name": "RouteDepositArgs"
+              "name": "routeDepositArgs"
             }
           }
         }
@@ -223,7 +161,7 @@
   ],
   "events": [
     {
-      "name": "KaminoRouteEvent",
+      "name": "kaminoRouteEvent",
       "discriminator": [
         182,
         216,
@@ -239,79 +177,53 @@
   "errors": [
     {
       "code": 6000,
-      "name": "PolicyPayloadTooLarge",
-      "msg": "Policy payload is too large"
-    },
-    {
-      "code": 6001,
-      "name": "InvalidPolicyPayload",
-      "msg": "Invalid policy payload"
-    },
-    {
-      "code": 6002,
-      "name": "InvalidMint",
+      "name": "invalidMint",
       "msg": "Invalid token mint"
     },
     {
-      "code": 6003,
-      "name": "InvalidTokenAccount",
+      "code": 6001,
+      "name": "invalidTokenAccount",
       "msg": "Invalid token account"
     },
     {
-      "code": 6004,
-      "name": "InvalidFeeTokenAccount",
+      "code": 6002,
+      "name": "invalidFeeTokenAccount",
       "msg": "Invalid fee token account"
     },
     {
-      "code": 6005,
-      "name": "InvalidKaminoAccounts",
+      "code": 6003,
+      "name": "invalidKaminoAccounts",
       "msg": "Invalid Kamino accounts"
     },
     {
-      "code": 6006,
-      "name": "ThresholdNotMet",
+      "code": 6004,
+      "name": "thresholdNotMet",
       "msg": "Source balance is not above the routing threshold"
     },
     {
-      "code": 6007,
-      "name": "RouteAmountTooSmall",
+      "code": 6005,
+      "name": "routeAmountTooSmall",
       "msg": "Route amount is too small"
     },
     {
-      "code": 6008,
-      "name": "Overflow",
+      "code": 6006,
+      "name": "overflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6009,
-      "name": "InvalidKaminoDeposit",
+      "code": 6007,
+      "name": "invalidKaminoDeposit",
       "msg": "Kamino consumed an unexpected liquidity amount"
     },
     {
-      "code": 6010,
-      "name": "NoCollateralMinted",
+      "code": 6008,
+      "name": "noCollateralMinted",
       "msg": "Kamino deposit minted no collateral shares"
     }
   ],
   "types": [
     {
-      "name": "CrankRouteArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "account_index",
-            "type": "u8"
-          },
-          {
-            "name": "policy_payload",
-            "type": "bytes"
-          }
-        ]
-      }
-    },
-    {
-      "name": "KaminoRouteEvent",
+      "name": "kaminoRouteEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -320,11 +232,11 @@
             "type": "pubkey"
           },
           {
-            "name": "source_liquidity",
+            "name": "sourceLiquidity",
             "type": "pubkey"
           },
           {
-            "name": "fee_liquidity",
+            "name": "feeLiquidity",
             "type": "pubkey"
           },
           {
@@ -332,43 +244,43 @@
             "type": "pubkey"
           },
           {
-            "name": "keep_liquidity_amount",
+            "name": "keepLiquidityAmount",
             "type": "u64"
           },
           {
-            "name": "routed_amount",
+            "name": "routedAmount",
             "type": "u64"
           },
           {
-            "name": "fee_amount",
+            "name": "feeAmount",
             "type": "u64"
           },
           {
-            "name": "deposited_amount",
+            "name": "depositedAmount",
             "type": "u64"
           },
           {
-            "name": "minted_collateral",
+            "name": "mintedCollateral",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "RouteDepositArgs",
+      "name": "routeDepositArgs",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "keep_liquidity_amount",
+            "name": "keepLiquidityAmount",
             "type": "u64"
           },
           {
-            "name": "minimum_deposit_amount",
+            "name": "minimumDepositAmount",
             "type": "u64"
           }
         ]
       }
     }
   ]
-}
+};

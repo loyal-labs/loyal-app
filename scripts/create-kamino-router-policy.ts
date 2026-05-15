@@ -89,7 +89,9 @@ Routing:
   --rpc-url <URL>                      Override RPC endpoint
   --program-id <PUBKEY>                Override Smart Account program id
   --smart-account-program-id <PUBKEY>  Alias for --program-id
-  --router-program-id <PUBKEY>         Override Kamino Router program id
+  --deposit-router-program-id <PUBKEY> Override Kamino Deposit Router program id
+  --route-crank-program-id <PUBKEY>    Override Kamino Route Crank program id
+  --router-program-id <PUBKEY>         Deprecated alias for --deposit-router-program-id
 
 Kamino/account constant overrides:
   --usdc-mint <PUBKEY>
@@ -304,8 +306,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (current === "--router-program-id" && next) {
-      configOverrides.routerProgramId = new PublicKey(next);
+    if (
+      (current === "--deposit-router-program-id" ||
+        current === "--router-program-id") &&
+      next
+    ) {
+      configOverrides.depositRouterProgramId = new PublicKey(next);
+      index += 1;
+      continue;
+    }
+
+    if (
+      (current === "--route-crank-program-id" ||
+        current === "--crank-program-id") &&
+      next
+    ) {
+      configOverrides.routeCrankProgramId = new PublicKey(next);
       index += 1;
       continue;
     }
@@ -586,48 +602,6 @@ function buildRouterPolicyCreationPayload(args: {
       owner: args.config.tokenProgramId,
       constraints: [equalsPubkeyData(0n, args.config.usdcMint)],
     }),
-    pubkeyConstraint({
-      accountIndex: 5,
-      pubkey: args.config.lendingMarket,
-    }),
-    pubkeyConstraint({
-      accountIndex: 6,
-      pubkey: args.config.lendingMarketAuthority,
-    }),
-    pubkeyConstraint({ accountIndex: 7, pubkey: args.config.reserve }),
-    pubkeyConstraint({
-      accountIndex: 8,
-      pubkey: args.config.reserveLiquiditySupply,
-    }),
-    pubkeyConstraint({
-      accountIndex: 9,
-      pubkey: args.config.reserveCollateralMint,
-      owner: args.config.tokenProgramId,
-    }),
-    pubkeyConstraint({
-      accountIndex: 10,
-      pubkey: args.vaultCollateralTokenAccount,
-    }),
-    pubkeyConstraint({
-      accountIndex: 11,
-      pubkey: args.config.instructionSysvarAccount,
-    }),
-    pubkeyConstraint({
-      accountIndex: 12,
-      pubkey: args.config.klendProgramId,
-    }),
-    pubkeyConstraint({
-      accountIndex: 13,
-      pubkey: args.config.tokenProgramId,
-    }),
-    pubkeyConstraint({
-      accountIndex: 14,
-      pubkey: args.config.associatedTokenProgramId,
-    }),
-    pubkeyConstraint({
-      accountIndex: 15,
-      pubkey: args.config.systemProgramId,
-    }),
   ];
 
   if (args.feeLiquidity) {
@@ -660,7 +634,7 @@ function buildRouterPolicyCreationPayload(args: {
         accountIndex: args.accountIndex,
         instructionsConstraints: [
           {
-            programId: args.config.routerProgramId,
+            programId: args.config.depositRouterProgramId,
             accountConstraints,
             dataConstraints: [
               {
@@ -761,7 +735,7 @@ async function main() {
   });
   const crankAuthority = getCrankAuthorityPda({
     policyPda,
-    routerProgramId: config.routerProgramId,
+    routeCrankProgramId: config.routeCrankProgramId,
   });
   const sourceLiquidity =
     args.sourceLiquidity ??
@@ -825,19 +799,31 @@ async function main() {
     transactionIndex,
     creator: settingsSigner.publicKey,
   } as never);
-  const preparedCreateAndPropose = freezePreparedOperation({
+  const preparedCreateSettingsTransaction = freezePreparedOperation({
+    operation: "createKaminoRouterPolicySettingsTransaction",
+    payer: feePayer.publicKey,
+    programId: args.smartAccountProgramId,
+    requiresConfirmation: true,
+    instructions: [...createSettingsTransaction.instructions],
+    lookupTableAccounts: [],
+  });
+  const preparedCreateProposal = freezePreparedOperation({
     operation: "createKaminoRouterPolicyProposal",
     payer: feePayer.publicKey,
     programId: args.smartAccountProgramId,
     requiresConfirmation: true,
-    instructions: [
-      ...createSettingsTransaction.instructions,
-      ...createProposal.instructions,
-    ],
+    instructions: [...createProposal.instructions],
     lookupTableAccounts: [],
   });
   const signers = dedupeSigners([feePayer, settingsSigner]);
-  const createSignature = await client.send(preparedCreateAndPropose, {
+  const createSettingsTransactionSignature = await client.send(
+    preparedCreateSettingsTransaction,
+    {
+      signers,
+      confirm: true,
+    }
+  );
+  const createProposalSignature = await client.send(preparedCreateProposal, {
     signers,
     confirm: true,
   });
@@ -886,7 +872,9 @@ async function main() {
   console.log(
     JSON.stringify(
       {
-        signature: createSignature,
+        signature: createSettingsTransactionSignature,
+        createSettingsTransactionSignature,
+        createProposalSignature,
         followUpSignatures,
         solanaEnv: args.solanaEnv,
         rpcUrl: args.rpcUrl,
@@ -902,7 +890,8 @@ async function main() {
         proposalPda: proposalPda.toBase58(),
         settingsSigner: settingsSigner.publicKey.toBase58(),
         feePayer: feePayer.publicKey.toBase58(),
-        routerProgramId: config.routerProgramId.toBase58(),
+        depositRouterProgramId: config.depositRouterProgramId.toBase58(),
+        routeCrankProgramId: config.routeCrankProgramId.toBase58(),
         usdcMint: config.usdcMint.toBase58(),
         sourceLiquidity: sourceLiquidity.toBase58(),
         feeLiquidityPinned: args.feeLiquidity?.toBase58() ?? null,

@@ -78,7 +78,9 @@ Network and programs:
   --rpc-url <URL>                      Override RPC endpoint
   --program-id <PUBKEY>                Override Smart Account program id
   --smart-account-program-id <PUBKEY>  Alias for --program-id
-  --router-program-id <PUBKEY>         Override Kamino Router program id
+  --deposit-router-program-id <PUBKEY> Override Kamino Deposit Router program id
+  --route-crank-program-id <PUBKEY>    Override Kamino Route Crank program id
+  --router-program-id <PUBKEY>         Deprecated alias for --deposit-router-program-id
 
 Kamino/account constant overrides:
   --usdc-mint <PUBKEY>
@@ -217,8 +219,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (current === "--router-program-id" && next) {
-      configOverrides.routerProgramId = new PublicKey(next);
+    if (
+      (current === "--deposit-router-program-id" ||
+        current === "--router-program-id") &&
+      next
+    ) {
+      configOverrides.depositRouterProgramId = new PublicKey(next);
+      index += 1;
+      continue;
+    }
+
+    if (
+      (current === "--route-crank-program-id" ||
+        current === "--crank-program-id") &&
+      next
+    ) {
+      configOverrides.routeCrankProgramId = new PublicKey(next);
       index += 1;
       continue;
     }
@@ -366,13 +382,13 @@ function buildCrankRouteInstruction(args: {
   policyPda: PublicKey;
   crankAuthority: PublicKey;
   smartAccountProgramId: PublicKey;
-  routerProgramId: PublicKey;
+  routeCrankProgramId: PublicKey;
   accountIndex: number;
   policyPayloadBytes: Uint8Array;
   remainingAccounts: AccountMeta[];
 }): TransactionInstruction {
   return new TransactionInstruction({
-    programId: args.routerProgramId,
+    programId: args.routeCrankProgramId,
     keys: [
       { pubkey: args.policyPda, isWritable: true, isSigner: false },
       { pubkey: args.crankAuthority, isWritable: false, isSigner: false },
@@ -417,7 +433,7 @@ async function main() {
   });
   const crankAuthority = getCrankAuthorityPda({
     policyPda: args.policyPda,
-    routerProgramId: config.routerProgramId,
+    routeCrankProgramId: config.routeCrankProgramId,
   });
   const isCrankAuthorityPolicySigner = policy.signers.some((signer) =>
     signer.key.equals(crankAuthority)
@@ -531,7 +547,7 @@ async function main() {
       policyPda: args.policyPda,
       crankAuthority,
       smartAccountProgramId: args.smartAccountProgramId,
-      routerProgramId: config.routerProgramId,
+      routeCrankProgramId: config.routeCrankProgramId,
       accountIndex: args.accountIndex,
       policyPayloadBytes,
       remainingAccounts,
@@ -601,7 +617,8 @@ async function main() {
         solanaEnv: args.solanaEnv,
         rpcUrl: args.rpcUrl,
         smartAccountProgramId: args.smartAccountProgramId.toBase58(),
-        routerProgramId: config.routerProgramId.toBase58(),
+        depositRouterProgramId: config.depositRouterProgramId.toBase58(),
+        routeCrankProgramId: config.routeCrankProgramId.toBase58(),
         policyPda: args.policyPda.toBase58(),
         settingsPda: policy.settings.toBase58(),
         vaultPda: vaultPda.toBase58(),

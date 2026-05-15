@@ -4,7 +4,8 @@ members = [
     "cli/private-transfers-cli",
     "cli/smart-accounts-cli",
     "sdk/loyal-smart-accounts-rs",
-    "programs/kamino-router",
+    "programs/kamino-deposit-router",
+    "programs/kamino-route-crank",
     "programs/telegram-private-transfer",
     "programs/telegram-verification",
 ]

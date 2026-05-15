@@ -2440,11 +2440,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "kamino-router"
+name = "kamino-deposit-router"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+]
+
+[[package]]
+name = "kamino-route-crank"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
 ]
 
 [[package]]

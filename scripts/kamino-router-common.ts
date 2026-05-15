@@ -31,10 +31,13 @@ import {
   type SolanaEnv,
 } from "../packages/solana-rpc/src/index.ts";
 
-export const KAMINO_ROUTER_PROGRAM_ID = new PublicKey(
+export const KAMINO_DEPOSIT_ROUTER_PROGRAM_ID = new PublicKey(
   "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
 );
-export const CRANK_AUTHORITY_SEED = Buffer.from("kamino_router_crank");
+export const KAMINO_ROUTE_CRANK_PROGRAM_ID = new PublicKey(
+  "4RVMhCMFzQGwtKZFdowuMzChpsHhHFWvt8a7tVb4hqa6"
+);
+export const CRANK_AUTHORITY_SEED = Buffer.from("kamino_route_crank");
 export const ROUTE_DEPOSIT_DISCRIMINATOR = Uint8Array.from([
   24, 140, 221, 247, 2, 183, 14, 53,
 ]);
@@ -46,7 +49,8 @@ export const USDC_DECIMALS = 6;
 export type RouterSolanaEnv = Extract<SolanaEnv, "mainnet" | "devnet">;
 
 export type KaminoRouterConfig = {
-  routerProgramId: PublicKey;
+  depositRouterProgramId: PublicKey;
+  routeCrankProgramId: PublicKey;
   smartAccountProgramId: PublicKey;
   usdcMint: PublicKey;
   klendProgramId: PublicKey;
@@ -62,7 +66,10 @@ export type KaminoRouterConfig = {
 };
 
 export type KaminoRouterConfigOverrides = Partial<{
+  depositRouterProgramId: PublicKey;
+  routeCrankProgramId: PublicKey;
   routerProgramId: PublicKey;
+  crankProgramId: PublicKey;
   smartAccountProgramId: PublicKey;
   usdcMint: PublicKey;
   klendProgramId: PublicKey;
@@ -238,7 +245,14 @@ export function resolveKaminoRouterConfig(args: {
     )[0];
 
   return {
-    routerProgramId: overrides.routerProgramId ?? KAMINO_ROUTER_PROGRAM_ID,
+    depositRouterProgramId:
+      overrides.depositRouterProgramId ??
+      overrides.routerProgramId ??
+      KAMINO_DEPOSIT_ROUTER_PROGRAM_ID,
+    routeCrankProgramId:
+      overrides.routeCrankProgramId ??
+      overrides.crankProgramId ??
+      KAMINO_ROUTE_CRANK_PROGRAM_ID,
     smartAccountProgramId:
       overrides.smartAccountProgramId ??
       resolveDefaultSmartAccountProgramId(args.env),
@@ -284,11 +298,11 @@ export function getPolicyPda(args: {
 
 export function getCrankAuthorityPda(args: {
   policyPda: PublicKey;
-  routerProgramId: PublicKey;
+  routeCrankProgramId: PublicKey;
 }): PublicKey {
   return PublicKey.findProgramAddressSync(
     [CRANK_AUTHORITY_SEED, args.policyPda.toBuffer()],
-    args.routerProgramId
+    args.routeCrankProgramId
   )[0];
 }
 
@@ -422,7 +436,7 @@ export function buildRouteDepositInstruction(args: {
   ];
 
   return new TransactionInstruction({
-    programId: args.config.routerProgramId,
+    programId: args.config.depositRouterProgramId,
     keys,
     data: encodeRouteDepositData({
       keepLiquidityAmount: args.keepLiquidityAmount,

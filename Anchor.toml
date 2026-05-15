@@ -8,17 +8,20 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-kamino-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+kamino-deposit-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+kamino-route-crank = "4RVMhCMFzQGwtKZFdowuMzChpsHhHFWvt8a7tVb4hqa6"
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [programs.localnet]
-kamino-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+kamino-deposit-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+kamino-route-crank = "4RVMhCMFzQGwtKZFdowuMzChpsHhHFWvt8a7tVb4hqa6"
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
 [programs.mainnet]
-kamino-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+kamino-deposit-router = "4MDtYRz8fbRfk3AbxdDJ2nCejQrSxcemAyZW9EEZDrtX"
+kamino-route-crank = "4RVMhCMFzQGwtKZFdowuMzChpsHhHFWvt8a7tVb4hqa6"
 telegram-private-transfer = "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
 telegram-verification = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz"
 
