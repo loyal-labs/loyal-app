@@ -1,8 +1,4 @@
-"use client";
-
 import { SendIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +20,10 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-import { checkPushReceipts, sendManualPushNotification } from "./actions";
+import {
+  submitManualPushNotification,
+  submitPushReceiptCheck,
+} from "./actions";
 
 type PushCounts = {
   all: number;
@@ -48,9 +47,11 @@ type RecentSend = {
   receiptsCheckedAt: string | null;
   createdAt: string;
   createdBy: string | null;
+  receiptIdCount: number;
+  lastTicketError: string | null;
 };
 
-type ActionState = {
+type ActionMessage = {
   kind: "success" | "error";
   message: string;
 } | null;
@@ -69,45 +70,12 @@ function statusVariant(status: string): "default" | "outline" | "destructive" {
 export function ManualPushPanel({
   counts,
   recentSends,
+  actionMessage,
 }: {
   counts: PushCounts;
   recentSends: RecentSend[];
+  actionMessage: ActionMessage;
 }) {
-  const router = useRouter();
-  const [state, setState] = useState<ActionState>(null);
-  const [audience, setAudience] = useState("all");
-  const [pending, startTransition] = useTransition();
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-
-    startTransition(async () => {
-      const result = await sendManualPushNotification(formData);
-      if ("error" in result) {
-        setState({ kind: "error", message: result.error });
-        return;
-      }
-
-      event.currentTarget.reset();
-      setState({ kind: "success", message: result.message });
-      router.refresh();
-    });
-  }
-
-  function handleCheckReceipts(sendId: string) {
-    startTransition(async () => {
-      const result = await checkPushReceipts(sendId);
-      if ("error" in result) {
-        setState({ kind: "error", message: result.error });
-        return;
-      }
-
-      setState({ kind: "success", message: result.message });
-      router.refresh();
-    });
-  }
-
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-3">
@@ -139,20 +107,20 @@ export function ManualPushPanel({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {state ? (
+          {actionMessage ? (
             <div
               className={cn(
                 "mb-4 rounded-md border px-3 py-2 text-sm",
-                state.kind === "error"
+                actionMessage.kind === "error"
                   ? "border-destructive/30 bg-destructive/10 text-destructive"
                   : "border-border bg-muted text-foreground"
               )}
             >
-              {state.message}
+              {actionMessage.message}
             </div>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form action={submitManualPushNotification} className="space-y-4">
             <div className="grid gap-3 md:grid-cols-[1fr_12rem]">
               <label className="block">
                 <span className="mb-1 block text-xs font-medium">Title</span>
@@ -162,8 +130,7 @@ export function ManualPushPanel({
                 <span className="mb-1 block text-xs font-medium">Audience</span>
                 <select
                   name="platform"
-                  value={audience}
-                  onChange={(event) => setAudience(event.target.value)}
+                  defaultValue="all"
                   className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   <option value="all">All mobile</option>
@@ -180,9 +147,7 @@ export function ManualPushPanel({
               </span>
               <Input
                 name="walletPublicKey"
-                placeholder="Required for Wallet test"
-                disabled={audience !== "wallet"}
-                required={audience === "wallet"}
+                placeholder="Solana wallet address for Wallet test"
               />
             </label>
 
@@ -221,9 +186,9 @@ export function ManualPushPanel({
             </div>
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={pending}>
+              <Button type="submit">
                 <SendIcon className="size-4" />
-                {pending ? "Sending..." : "Send push"}
+                Send push
               </Button>
             </div>
           </form>
@@ -263,6 +228,11 @@ export function ManualPushPanel({
                         <div className="text-xs text-muted-foreground">
                           {send.createdBy ?? send.source}
                         </div>
+                        {send.lastTicketError ? (
+                          <div className="mt-1 max-w-80 text-xs text-destructive">
+                            {send.lastTicketError}
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusVariant(send.status)}>
@@ -274,6 +244,11 @@ export function ManualPushPanel({
                       </TableCell>
                       <TableCell className="text-right">
                         {send.ticketCount}/{send.requestedCount}
+                        {send.ticketCount > 0 ? (
+                          <div className="text-xs text-muted-foreground">
+                            {send.receiptIdCount} receipt IDs
+                          </div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-right">
                         {send.receiptOkCount}/{send.receiptErrorCount}
@@ -282,15 +257,23 @@ export function ManualPushPanel({
                         {send.deviceNotRegisteredCount}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          disabled={pending || send.ticketCount === 0}
-                          onClick={() => handleCheckReceipts(send.id)}
-                        >
-                          Check receipts
-                        </Button>
+                        <form action={submitPushReceiptCheck}>
+                          <input
+                            type="hidden"
+                            name="sendId"
+                            value={send.id}
+                          />
+                          <Button
+                            type="submit"
+                            variant="outline"
+                            size="xs"
+                            disabled={send.receiptIdCount === 0}
+                          >
+                            {send.receiptIdCount === 0
+                              ? "No receipts"
+                              : "Check receipts"}
+                          </Button>
+                        </form>
                       </TableCell>
                     </TableRow>
                   ))

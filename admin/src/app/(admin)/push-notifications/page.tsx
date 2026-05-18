@@ -1,5 +1,9 @@
-import { pushNotificationSends, pushTokens } from "@loyal-labs/db-core/schema";
-import { and, count, desc, eq, isNotNull } from "drizzle-orm";
+import {
+  pushNotificationSends,
+  pushNotificationTickets,
+  pushTokens,
+} from "@loyal-labs/db-core/schema";
+import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
@@ -25,7 +29,45 @@ type RecentSendRow = {
   receiptsCheckedAt: Date | null;
   createdAt: Date;
   createdBy: string | null;
+  receiptIdCount: number;
+  lastTicketError: string | null;
 };
+
+type RecentSendBaseRow = Omit<
+  RecentSendRow,
+  "receiptIdCount" | "lastTicketError"
+>;
+
+type PushNotificationsPageProps = {
+  searchParams?: Promise<{
+    result?: string | string[];
+    message?: string | string[];
+  }>;
+};
+
+function toSingleValue(value: string | string[] | undefined) {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
+}
+
+function getActionMessage(result: string | undefined, message: string | undefined) {
+  if (!message) return null;
+  if (result === "success") return { kind: "success" as const, message };
+  if (result === "error") return { kind: "error" as const, message };
+  return null;
+}
+
+function getTicketError(row: {
+  ticketError: string | null;
+  ticketMessage: string | null;
+}) {
+  if (row.ticketError && row.ticketMessage) {
+    return `${row.ticketError}: ${row.ticketMessage}`;
+  }
+  return row.ticketError ?? row.ticketMessage;
+}
 
 async function getPushTokenCount(platform?: "ios" | "android") {
   const db = getDatabase();
@@ -44,9 +86,15 @@ async function getPushTokenCount(platform?: "ios" | "android") {
   return row?.count ?? 0;
 }
 
-export default async function PushNotificationsPage() {
+export default async function PushNotificationsPage({
+  searchParams,
+}: PushNotificationsPageProps) {
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const result = toSingleValue(resolvedSearchParams.result);
+  const message = toSingleValue(resolvedSearchParams.message);
+  const actionMessage = getActionMessage(result, message);
   const db = getDatabase();
-  const [all, ios, android, recentSends] = await Promise.all([
+  const [all, ios, android, recentSendRows] = await Promise.all([
     getPushTokenCount(),
     getPushTokenCount("ios"),
     getPushTokenCount("android"),
@@ -70,9 +118,51 @@ export default async function PushNotificationsPage() {
         createdBy: pushNotificationSends.createdBy,
       })
       .from(pushNotificationSends)
+      .where(eq(pushNotificationSends.source, "admin"))
       .orderBy(desc(pushNotificationSends.createdAt))
-      .limit(20) as Promise<RecentSendRow[]>,
+      .limit(20) as Promise<RecentSendBaseRow[]>,
   ]);
+  const ticketRows =
+    recentSendRows.length > 0
+      ? await db
+          .select({
+            sendId: pushNotificationTickets.sendId,
+            ticketId: pushNotificationTickets.ticketId,
+            ticketStatus: pushNotificationTickets.ticketStatus,
+            ticketMessage: pushNotificationTickets.ticketMessage,
+            ticketError: pushNotificationTickets.ticketError,
+          })
+          .from(pushNotificationTickets)
+          .where(
+            inArray(
+              pushNotificationTickets.sendId,
+              recentSendRows.map((send) => send.id)
+            )
+          )
+      : [];
+  const ticketMetaBySendId = new Map<
+    string,
+    { receiptIdCount: number; lastTicketError: string | null }
+  >();
+
+  for (const row of ticketRows) {
+    const meta = ticketMetaBySendId.get(row.sendId) ?? {
+      receiptIdCount: 0,
+      lastTicketError: null,
+    };
+    if (row.ticketId) {
+      meta.receiptIdCount += 1;
+    }
+    if (row.ticketStatus === "error") {
+      meta.lastTicketError = getTicketError(row);
+    }
+    ticketMetaBySendId.set(row.sendId, meta);
+  }
+  const recentSends = recentSendRows.map((send) => ({
+    ...send,
+    receiptIdCount: ticketMetaBySendId.get(send.id)?.receiptIdCount ?? 0,
+    lastTicketError: ticketMetaBySendId.get(send.id)?.lastTicketError ?? null,
+  }));
 
   return (
     <PageContainer>
@@ -83,6 +173,7 @@ export default async function PushNotificationsPage() {
       />
       <ManualPushPanel
         counts={{ all, ios, android }}
+        actionMessage={actionMessage}
         recentSends={recentSends.map((send) => ({
           ...send,
           sentAt: send.sentAt?.toISOString() ?? null,
