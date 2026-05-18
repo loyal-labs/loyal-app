@@ -12,6 +12,7 @@ import {
 } from "@loyal-labs/shared/expo-push";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import { getDatabase } from "@/lib/core/database";
 
@@ -54,6 +55,18 @@ function parseJsonData(
   }
 
   return parsed as Record<string, unknown>;
+}
+
+function redirectWithActionResult(result: ActionResult): never {
+  const searchParams = new URLSearchParams();
+  if ("error" in result) {
+    searchParams.set("result", "error");
+    searchParams.set("message", result.error);
+  } else {
+    searchParams.set("result", "success");
+    searchParams.set("message", result.message);
+  }
+  redirect(`/push-notifications?${searchParams.toString()}`);
 }
 
 export async function sendManualPushNotification(
@@ -150,6 +163,15 @@ export async function sendManualPushNotification(
         sound: "default",
       }))
     );
+    const receiptIdCount = result.receiptIds.length;
+    const ticketErrors = result.tickets.filter(
+      ({ ticket }) => ticket.status === "error"
+    );
+    const firstTicketError = ticketErrors[0]?.ticket.details?.error
+      ? `${ticketErrors[0].ticket.details.error}: ${
+          ticketErrors[0].ticket.message ?? "Expo rejected the ticket"
+        }`
+      : ticketErrors[0]?.ticket.message ?? null;
 
     for (const ticketChunk of chunk(result.tickets, 1000)) {
       await db.insert(pushNotificationTickets).values(
@@ -174,18 +196,27 @@ export async function sendManualPushNotification(
     await db
       .update(pushNotificationSends)
       .set({
-        status: "sent",
+        status: receiptIdCount === 0 ? "failed" : "sent",
         ticketCount: result.tickets.length,
         deviceNotRegisteredCount: staleTokens.length,
+        errorMessage: receiptIdCount === 0 ? firstTicketError : null,
         sentAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(pushNotificationSends.id, sendRow.id));
 
     revalidatePath("/push-notifications");
+    if (receiptIdCount === 0) {
+      return {
+        error: `Expo rejected all push tickets: ${
+          firstTicketError ?? "no receipt IDs were returned"
+        }`,
+      };
+    }
+
     return {
       success: true,
-      message: `Sent ${result.tickets.length} push tickets. Pruned ${staleTokens.length} dead tokens.`,
+      message: `Accepted ${receiptIdCount}/${tokens.length} push tickets. Pruned ${staleTokens.length} dead tokens.`,
     };
   } catch (error) {
     await db
@@ -304,4 +335,13 @@ export async function checkPushReceipts(sendId: string): Promise<ActionResult> {
         error instanceof Error ? error.message : "Failed to check receipts",
     };
   }
+}
+
+export async function submitManualPushNotification(formData: FormData) {
+  redirectWithActionResult(await sendManualPushNotification(formData));
+}
+
+export async function submitPushReceiptCheck(formData: FormData) {
+  const sendId = String(formData.get("sendId") ?? "");
+  redirectWithActionResult(await checkPushReceipts(sendId));
 }
