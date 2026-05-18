@@ -45,6 +45,13 @@ import {
   SwapShieldTabs,
 } from "@/components/wallet-sidebar/shield-content";
 import type { DraftProposalView } from "@/components/wallet-sidebar/draft-preview-content";
+import {
+  EarnDepositView,
+  EarnDetailView,
+  EarnPositionView,
+  EarnWithdrawView,
+  type EarnDepositSourceOption,
+} from "@/components/wallet-sidebar/earn-detail-view";
 import type { PermissionChangeDraft } from "@/components/wallet-sidebar/permission-preview-content";
 import type { SpendingLimitDraft } from "@/components/wallet-sidebar/spending-limit-preview-content";
 import { StashDetailView } from "@/components/wallet-sidebar/stash-detail-view";
@@ -113,6 +120,10 @@ type DetailSelection =
   | "agent"
   | "approval"
   | "connect"
+  | "earn"
+  | "earnDeposit"
+  | "earnPosition"
+  | "earnWithdraw"
   | "overview"
   | "vault"
   | "wallet";
@@ -149,6 +160,25 @@ function clampWidth(value: number, min: number, max: number) {
 
 function getWalletIcon(): string {
   return "/agents/Agent-01.svg";
+}
+
+function formatAddressForEarnSource(address: string | null | undefined): string {
+  if (!address) return "Unknown";
+  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
+
+function splitUsdcSourceBalance(value: number): {
+  fraction: string;
+  whole: string;
+} {
+  const formatted = Number.isFinite(value)
+    ? value.toLocaleString("en-US", {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2,
+      })
+    : "0.00";
+  const [whole = "0", fraction = "00"] = formatted.split(".");
+  return { fraction, whole };
 }
 
 function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
@@ -728,6 +758,9 @@ export function AppWalletWorkspace({
   const [detailInitialTab, setDetailInitialTab] = useState<DetailTab>("tokens");
   const [detailPaneTransition, setDetailPaneTransition] =
     useState<DetailPaneTransition>("switch");
+  const [hasEarnPosition, setHasEarnPosition] = useState(false);
+  const [earnWithdrawReturnSelection, setEarnWithdrawReturnSelection] =
+    useState<"earn" | "earnPosition">("earnPosition");
   const [detailPaneTransitionKey, setDetailPaneTransitionKey] = useState(0);
   const [actionReturnSelection, setActionReturnSelection] =
     useState<Exclude<DetailSelection, "action">>("vault");
@@ -970,6 +1003,50 @@ export function AppWalletWorkspace({
     () => [...derivedTokens, ...securedTokens],
     [derivedTokens, securedTokens]
   );
+  const earnDepositSources = useMemo<EarnDepositSourceOption[]>(() => {
+    const sources: EarnDepositSourceOption[] = [];
+    const mainUsdcPosition = walletDesktopData.positions.find(
+      (position) => position.asset.symbol.toUpperCase() === "USDC"
+    );
+    const mainBalance = splitUsdcSourceBalance(
+      mainUsdcPosition?.publicBalance ?? 0
+    );
+
+    sources.push({
+      addressLabel: formatAddressForEarnSource(walletDesktopData.walletAddress),
+      balanceFraction: mainBalance.fraction,
+      balanceWhole: mainBalance.whole,
+      icon: getWalletIcon(),
+      id: "main",
+      label: "Main",
+    });
+
+    for (const vault of smartAccountData.overview?.vaults ?? []) {
+      const entry = smartAccountData.vaultEntries.find(
+        (candidate) => candidate.accountIndex === vault.accountIndex
+      );
+      const usdcPosition = vault.portfolio.positions.find(
+        (position) => position.asset.symbol.toUpperCase() === "USDC"
+      );
+      const balance = splitUsdcSourceBalance(usdcPosition?.publicBalance ?? 0);
+
+      sources.push({
+        addressLabel: formatAddressForEarnSource(vault.address),
+        balanceFraction: balance.fraction,
+        balanceWhole: balance.whole,
+        icon: getVaultIcon(vault.accountIndex),
+        id: `vault:${vault.accountIndex}`,
+        label: entry?.label ?? "Stash",
+      });
+    }
+
+    return sources;
+  }, [
+    smartAccountData.overview?.vaults,
+    smartAccountData.vaultEntries,
+    walletDesktopData.positions,
+    walletDesktopData.walletAddress,
+  ]);
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -1623,6 +1700,81 @@ export function AppWalletWorkspace({
       "wallet"
     );
   }, [derivedTokens, openActionView]);
+
+  const handleOpenEarn = useCallback(() => {
+    markDetailPaneTransition("switch");
+    setSelectedSignerId(null);
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
+  }, [markDetailPaneTransition]);
+
+  const handleOpenEarnDeposit = useCallback(() => {
+    markDetailPaneTransition("forward");
+    setSelectedSignerId(null);
+    setDetailSelection("earnDeposit");
+    setSelectedDetail("Deposit");
+  }, [markDetailPaneTransition]);
+
+  const handleOpenEarnPosition = useCallback(() => {
+    markDetailPaneTransition("forward");
+    setHasEarnPosition(true);
+    setSelectedSignerId(null);
+    setDetailSelection("earnPosition");
+    setSelectedDetail("Lending Yield");
+  }, [markDetailPaneTransition]);
+
+  const handleBackFromEarnPosition = useCallback(() => {
+    markDetailPaneTransition("back");
+    setHasEarnPosition(true);
+    setSelectedSignerId(null);
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
+  }, [markDetailPaneTransition]);
+
+  const handleOpenEarnWithdrawFromEarn = useCallback(() => {
+    markDetailPaneTransition("forward");
+    setEarnWithdrawReturnSelection("earn");
+    setSelectedSignerId(null);
+    setDetailSelection("earnWithdraw");
+    setSelectedDetail("Withdraw");
+  }, [markDetailPaneTransition]);
+
+  const handleOpenEarnWithdrawFromPosition = useCallback(() => {
+    markDetailPaneTransition("forward");
+    setEarnWithdrawReturnSelection("earnPosition");
+    setSelectedSignerId(null);
+    setDetailSelection("earnWithdraw");
+    setSelectedDetail("Withdraw");
+  }, [markDetailPaneTransition]);
+
+  const handleBackFromEarnWithdraw = useCallback(() => {
+    markDetailPaneTransition("back");
+    setHasEarnPosition(true);
+    setSelectedSignerId(null);
+    if (earnWithdrawReturnSelection === "earn") {
+      setDetailSelection("earn");
+      setSelectedDetail("Earn");
+      return;
+    }
+    setDetailSelection("earnPosition");
+    setSelectedDetail("Lending Yield");
+  }, [earnWithdrawReturnSelection, markDetailPaneTransition]);
+
+  const handleCompleteEarnDeposit = useCallback(() => {
+    markDetailPaneTransition("forward");
+    setHasEarnPosition(true);
+    setSelectedSignerId(null);
+    setDetailSelection("earnPosition");
+    setSelectedDetail("Lending Yield");
+  }, [markDetailPaneTransition]);
+
+  const handleCompleteEarnWithdraw = useCallback(() => {
+    markDetailPaneTransition("back");
+    setHasEarnPosition(false);
+    setSelectedSignerId(null);
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
+  }, [markDetailPaneTransition]);
 
   const handleOpenVault = useCallback(
     (accountIndex: number) => {
@@ -2322,6 +2474,47 @@ export function AppWalletWorkspace({
             markDetailPaneTransition("close");
             setDetailSelection("vault");
           }}
+        />
+      );
+    }
+
+    if (detailSelection === "earn") {
+      return (
+        <EarnDetailView
+          hasCurrentPosition={hasEarnPosition}
+          onDeposit={handleOpenEarnDeposit}
+          onOpenPosition={handleOpenEarnPosition}
+          onWithdraw={handleOpenEarnWithdrawFromEarn}
+        />
+      );
+    }
+
+    if (detailSelection === "earnDeposit") {
+      return (
+        <EarnDepositView
+          onComplete={handleCompleteEarnDeposit}
+          onClose={handleOpenEarn}
+          sources={earnDepositSources}
+        />
+      );
+    }
+
+    if (detailSelection === "earnPosition") {
+      return (
+        <EarnPositionView
+          onBack={handleBackFromEarnPosition}
+          onDeposit={handleOpenEarnDeposit}
+          onWithdraw={handleOpenEarnWithdrawFromPosition}
+        />
+      );
+    }
+
+    if (detailSelection === "earnWithdraw") {
+      return (
+        <EarnWithdrawView
+          onBack={handleBackFromEarnWithdraw}
+          onClose={handleBackFromEarnPosition}
+          onComplete={handleCompleteEarnWithdraw}
         />
       );
     }
@@ -3062,6 +3255,8 @@ export function AppWalletWorkspace({
                 onOpenSend={() => handleRailAction("send")}
                 onOpenShield={() => handleRailAction("shield")}
                 onOpenSwap={() => handleRailAction("swap")}
+                onOpenEarnDeposit={handleOpenEarnDeposit}
+                onOpenEarn={handleOpenEarn}
                 onOpenVault={handleOpenVault}
                 onSmartAccountRetry={() => {
                   void smartAccountData.refresh();
@@ -3074,6 +3269,12 @@ export function AppWalletWorkspace({
                 }}
                 selectedSignerId={selectedSignerId}
                 selectedVaultIndex={smartAccountData.selectedVaultIndex}
+                isEarnSelected={
+                  activeDetailSelection === "earn" ||
+                  activeDetailSelection === "earnDeposit" ||
+                  activeDetailSelection === "earnPosition" ||
+                  activeDetailSelection === "earnWithdraw"
+                }
                 isWalletSelected={
                   (detailSelection === "wallet" ||
                     (detailSelection === "action" &&

@@ -142,6 +142,224 @@ function SmartAccountInlineError({
   );
 }
 
+function EarnYieldIcon({ size = 48 }: { size?: number }) {
+  const scale = size / 48;
+
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        background: "#32B67C",
+        borderRadius: `${12 * scale}px`,
+        display: "inline-block",
+        flexShrink: 0,
+        height: size,
+        overflow: "hidden",
+        position: "relative",
+        width: size,
+      }}
+    >
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: `${2 * scale}px`,
+          height: `${16 * scale}px`,
+          left: `${8 * scale}px`,
+          position: "absolute",
+          top: `${24 * scale}px`,
+          width: `${6 * scale}px`,
+        }}
+      />
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: `${2 * scale}px`,
+          height: `${32 * scale}px`,
+          left: `${21 * scale}px`,
+          position: "absolute",
+          top: `${8 * scale}px`,
+          width: `${6 * scale}px`,
+        }}
+      />
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: `${2 * scale}px`,
+          height: `${24 * scale}px`,
+          left: `${34 * scale}px`,
+          position: "absolute",
+          top: `${16 * scale}px`,
+          width: `${6 * scale}px`,
+        }}
+      />
+    </span>
+  );
+}
+
+function EarnPortfolioRow({
+  isSelected,
+  onDeposit,
+  onOpen,
+}: {
+  isSelected?: boolean;
+  onDeposit?: () => void;
+  onOpen?: () => void;
+}) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpen?.();
+    }
+  };
+  const handleDepositClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onDeposit?.();
+  };
+
+  return (
+    <>
+      <style jsx>{`
+        .portfolio-earn-row:hover {
+          background: ${rowHoverBackground} !important;
+        }
+        .portfolio-earn-row:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.45);
+          outline-offset: 2px;
+        }
+        .portfolio-earn-deposit-btn {
+          transition:
+            background 0.15s ease,
+            transform 0.15s ease;
+        }
+        .portfolio-earn-deposit-btn:hover {
+          background: #e72f34 !important;
+          transform: translateY(-1px);
+        }
+        .portfolio-earn-deposit-btn:active {
+          transform: translateY(0);
+        }
+      `}</style>
+      <div
+        className="portfolio-account-row portfolio-earn-row"
+        onClick={onOpen}
+        onKeyDown={handleKeyDown}
+        role="button"
+        style={{
+          alignItems: "center",
+          background: isSelected ? rowHoverBackground : "transparent",
+          borderRadius: "16px",
+          cursor: "pointer",
+          display: "flex",
+          minHeight: "60px",
+          overflow: "hidden",
+          padding: "0 12px",
+          transition: "background 0.15s ease",
+          width: "100%",
+        }}
+        tabIndex={0}
+      >
+        <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+          <EarnYieldIcon />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            flexDirection: "column",
+            gap: "2px",
+            minWidth: 0,
+            padding: "9px 0",
+          }}
+        >
+          <span
+            style={{
+              color: "#000",
+              display: "block",
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            $0
+            <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
+          </span>
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              gap: "4px",
+              minWidth: 0,
+            }}
+          >
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Earn
+            </span>
+            <span
+              style={{
+                alignItems: "center",
+                background: "rgba(52, 199, 89, 0.14)",
+                borderRadius: "6px",
+                color: "#34C759",
+                display: "inline-flex",
+                fontFamily: font,
+                fontSize: "11px",
+                fontWeight: 500,
+                gap: "2px",
+                lineHeight: "13px",
+                padding: "1px 4px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                src="/wallet-workspace/earn-flash.svg"
+                style={{ height: "12px", width: "8px" }}
+              />
+              8.46% APY
+            </span>
+          </div>
+        </div>
+        <button
+          className="portfolio-earn-deposit-btn"
+          onClick={handleDepositClick}
+          style={{
+            background: "#F9363C",
+            border: "none",
+            borderRadius: "9999px",
+            color: "#fff",
+            cursor: "pointer",
+            flexShrink: 0,
+            fontFamily: font,
+            fontSize: "14px",
+            fontWeight: 500,
+            lineHeight: "20px",
+            marginLeft: "12px",
+            padding: "6px 16px",
+            whiteSpace: "nowrap",
+          }}
+          type="button"
+        >
+          Deposit
+        </button>
+      </div>
+    </>
+  );
+}
+
 function RowCopyAddress({ address }: { address: string }) {
   const [copied, setCopied] = useState(false);
   const handleClick = useCallback(
@@ -418,6 +636,8 @@ export function PortfolioContent({
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  onOpenEarnDeposit,
+  onOpenEarn,
   onOpenCommandMenu,
   onOpenVault,
   onOpenAgent,
@@ -427,6 +647,7 @@ export function PortfolioContent({
   earningsSummary = null,
   selectedSignerId = null,
   selectedVaultIndex = null,
+  isEarnSelected = false,
   isWalletSelected = false,
   showActionButtons = true,
   showApprovals = true,
@@ -450,6 +671,8 @@ export function PortfolioContent({
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  onOpenEarnDeposit?: () => void;
+  onOpenEarn?: () => void;
   onOpenCommandMenu?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
@@ -459,6 +682,7 @@ export function PortfolioContent({
   earningsSummary?: WalletEarningsSummary | null;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
+  isEarnSelected?: boolean;
   isWalletSelected?: boolean;
   showActionButtons?: boolean;
   showApprovals?: boolean;
@@ -1049,6 +1273,13 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
+          {onOpenEarn ? (
+            <EarnPortfolioRow
+              isSelected={isEarnSelected}
+              onDeposit={onOpenEarnDeposit}
+              onOpen={onOpenEarn}
+            />
+          ) : null}
           {smartAccountError ? (
             <SmartAccountInlineError
               error={smartAccountError}
@@ -1070,6 +1301,7 @@ export function PortfolioContent({
                 const isVaultSelected =
                   selectedVaultIndex === vault.accountIndex &&
                   selectedSignerId === null &&
+                  !isEarnSelected &&
                   !isWalletSelected;
 
                 return (
