@@ -155,6 +155,13 @@
       "when": 1777879564863,
       "tag": "0021_old_hitman",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1779094226000,
+      "tag": "0022_manual_push_notifications",
+      "breakpoints": true
     }
   ]
 }

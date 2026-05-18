@@ -5,7 +5,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname, ".."),
   },
-  transpilePackages: ["@loyal-labs/db-core", "@loyal-labs/db-adapter-neon"],
+  transpilePackages: [
+    "@loyal-labs/db-core",
+    "@loyal-labs/db-adapter-neon",
+    "@loyal-labs/shared",
+  ],
   productionBrowserSourceMaps: true,
 };
 

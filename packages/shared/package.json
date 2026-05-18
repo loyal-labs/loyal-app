@@ -20,6 +20,11 @@
       "import": "./dist/analytics-server.js",
       "default": "./dist/analytics-server.js",
       "types": "./dist/analytics-server.d.ts"
+    },
+    "./expo-push": {
+      "import": "./dist/expo-push.js",
+      "default": "./dist/expo-push.js",
+      "types": "./dist/expo-push.d.ts"
     }
   },
   "files": [
