@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   title: "Privacy Policy - Loyal",
   description:
     "Privacy Policy for AskLoyal / Loyal services. Learn how we handle your data.",
+  alternates: {
+    canonical: "/privacy-policy",
+  },
 };
 
 export default function PrivacyPolicyPage() {

@@ -1,0 +1,54 @@
+# robots.txt for askloyal.com
+# Spec: https://www.rfc-editor.org/rfc/rfc9309
+# llms.txt: https://askloyal.com/llms.txt
+# Sitemap: https://askloyal.com/sitemap.xml
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /ingest/
+Disallow: /app
+Disallow: /app/
+Disallow: /500
+Disallow: /_next/
+Disallow: /*.json$
+
+# Explicit AI/search bot allowlist. Signals deliberate opt-in (Anthropic in
+# particular treats explicit named allows more confidently than implicit
+# allow-all). Same rules as User-agent: * above, listed under named UAs.
+User-agent: Googlebot
+User-agent: Bingbot
+User-agent: DuckDuckBot
+User-agent: Applebot
+User-agent: YandexBot
+User-agent: Slurp
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-User
+User-agent: Claude-SearchBot
+User-agent: anthropic-ai
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: CCBot
+User-agent: meta-externalagent
+User-agent: DuckAssistBot
+User-agent: Bytespider
+User-agent: Amazonbot
+User-agent: Cohere-AI
+User-agent: mistralai-User
+User-agent: YouBot
+User-agent: Diffbot
+Allow: /
+Disallow: /api/
+Disallow: /ingest/
+Disallow: /app
+Disallow: /app/
+Disallow: /500
+Disallow: /_next/
+
+Sitemap: https://askloyal.com/sitemap.xml
+Host: https://askloyal.com
