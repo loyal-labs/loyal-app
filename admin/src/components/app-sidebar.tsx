@@ -3,7 +3,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOutIcon } from "lucide-react";
+import {
+  AppWindowIcon,
+  ArrowLeftRightIcon,
+  BellRingIcon,
+  BookOpenIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  ShieldUserIcon,
+  UsersRoundIcon,
+  WalletCardsIcon,
+  type LucideIcon,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -20,20 +31,52 @@ import {
 
 type NavItem = {
   href: string;
+  icon: LucideIcon;
   label: string;
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { href: "/overview", label: "Overview" },
-  { href: "/communities", label: "Communities" },
-  { href: "/features", label: "Features" },
-  { href: "/flags", label: "Flags" },
-  { href: "/transfers", label: "Transfers" },
-  { href: "/smart-accounts", label: "Smart accounts" },
-  { href: "/push-notifications", label: "Push notifications" },
-  { href: "/dapps", label: "dApps" },
-  { href: "/library", label: "Library" },
-  { href: "/admins", label: "Admins" },
+type NavGroup = {
+  items: NavItem[];
+  label: string;
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Core",
+    items: [
+      { href: "/overview", icon: LayoutDashboardIcon, label: "Overview" },
+      { href: "/communities", icon: UsersRoundIcon, label: "Communities" },
+      // { href: "/features", icon: ListChecksIcon, label: "Features" },
+      // { href: "/flags", icon: FlagIcon, label: "Flags" },
+    ],
+  },
+  {
+    label: "Solana",
+    items: [
+      { href: "/transfers", icon: ArrowLeftRightIcon, label: "Transfers" },
+      {
+        href: "/smart-accounts",
+        icon: WalletCardsIcon,
+        label: "Smart accounts",
+      },
+    ],
+  },
+  {
+    label: "Mobile",
+    items: [
+      { href: "/dapps", icon: AppWindowIcon, label: "dApps" },
+      {
+        href: "/push-notifications",
+        icon: BellRingIcon,
+        label: "Push notifications",
+      },
+      { href: "/library", icon: BookOpenIcon, label: "Library" },
+    ],
+  },
+  {
+    label: "Access",
+    items: [{ href: "/admins", icon: ShieldUserIcon, label: "Admins" }],
+  },
 ];
 
 export function AppSidebar() {
@@ -53,29 +96,30 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV_ITEMS.map(({ href, label }) => {
-                const isActive =
-                  pathname === href || pathname?.startsWith(`${href}/`);
+        {NAV_GROUPS.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map(({ href, icon: Icon, label }) => {
+                  const isActive =
+                    pathname === href || pathname?.startsWith(`${href}/`);
 
-                return (
-                  <SidebarMenuItem key={href}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      className="gap-2"
-                    >
-                      <Link href={href}>{label}</Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                  return (
+                    <SidebarMenuItem key={href}>
+                      <SidebarMenuButton asChild isActive={isActive}>
+                        <Link href={href}>
+                          <Icon />
+                          <span>{label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
