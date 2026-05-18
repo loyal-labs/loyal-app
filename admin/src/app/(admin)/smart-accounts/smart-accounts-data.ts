@@ -32,6 +32,7 @@ export type SmartAccountRegistrationRow = {
   id: string;
   registeredAt: string;
   solanaEnv: string;
+  sponsorshipSignature: string | null;
   userAddress: string;
   vaultAddress: string | null;
 };
@@ -188,6 +189,17 @@ async function loadSmartAccountsData(): Promise<SmartAccountsData> {
         id: appUserSmartAccounts.id,
         registeredAt: appUserSmartAccounts.createdAt,
         solanaEnv: appUserSmartAccounts.solanaEnv,
+        sponsorshipSignature: sql<string | null>`coalesce(
+          (
+            select ${appSmartAccountSponsorshipTransactions.signature}
+            from ${appSmartAccountSponsorshipTransactions}
+            where ${appSmartAccountSponsorshipTransactions.solanaEnv} = ${appUserSmartAccounts.solanaEnv}
+              and ${appSmartAccountSponsorshipTransactions.settingsPda} = ${appUserSmartAccounts.settingsPda}
+            order by ${appSmartAccountSponsorshipTransactions.occurredAt} desc
+            limit 1
+          ),
+          ${appUserSmartAccounts.creationSignature}
+        )`,
         userAddress: sql<string>`coalesce(
           (
             select ${appSmartAccountSponsorshipTransactions.userAddress}
