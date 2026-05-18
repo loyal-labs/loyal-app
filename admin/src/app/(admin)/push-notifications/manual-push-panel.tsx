@@ -174,18 +174,17 @@ export function ManualPushPanel({
               </label>
             </div>
 
-            {audience === "wallet" ? (
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium">
-                  Wallet public key
-                </span>
-                <Input
-                  name="walletPublicKey"
-                  placeholder="Solana wallet address"
-                  required
-                />
-              </label>
-            ) : null}
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium">
+                Wallet public key
+              </span>
+              <Input
+                name="walletPublicKey"
+                placeholder="Required for Wallet test"
+                disabled={audience !== "wallet"}
+                required={audience === "wallet"}
+              />
+            </label>
 
             <label className="block">
               <span className="mb-1 block text-xs font-medium">Body</span>
