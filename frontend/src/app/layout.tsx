@@ -16,6 +16,21 @@ import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 const geistSans = GeistSans;
 const geistMono = GeistMono;
 
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Loyal",
+  legalName: "Loyal DAO LLC",
+  url: "https://askloyal.com",
+  logo: "https://askloyal.com/android-chrome-512x512.png",
+  sameAs: [
+    "https://x.com/loyal_hq",
+    "https://github.com/loyal-labs",
+    "https://discord.com/invite/tAwXsXwTv6",
+    "https://t.me/loyal_tgchat",
+  ],
+};
+
 export const metadata: Metadata = {
   title: "Loyal: Solana Wallet with Agent Guardrails",
   description:
@@ -81,6 +96,15 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(organizationJsonLd).replace(
+              /</g,
+              "\\u003c"
+            ),
+          }}
+        />
         <PublicEnvProvider value={publicEnv}>{children}</PublicEnvProvider>
       </body>
     </html>
