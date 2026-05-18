@@ -20,7 +20,7 @@ export type WalletPushPayload = {
  */
 export async function sendPushToWallet(
   walletPublicKey: string,
-  payload: WalletPushPayload,
+  payload: WalletPushPayload
 ): Promise<{ sentTo: number }> {
   const db = getDatabase();
   const rows = await db
@@ -40,6 +40,7 @@ export async function sendPushToWallet(
       sound: "default",
       data: payload.data,
     })),
+    { source: "wallet" }
   );
 
   return { sentTo: rows.length };

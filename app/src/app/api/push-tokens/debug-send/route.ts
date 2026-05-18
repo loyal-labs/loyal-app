@@ -22,7 +22,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     console.error("PUSH_DEBUG_SECRET environment variable is not set");
     return NextResponse.json(
       { error: "Server misconfigured" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 
@@ -55,7 +55,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!walletPublicKey || !title || !message) {
     return NextResponse.json(
       { error: "walletPublicKey, title, and body are required" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -73,7 +73,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (rows.length === 0) {
     return NextResponse.json(
       { error: "No push tokens registered for this wallet", sentTo: 0 },
-      { status: 404 },
+      { status: 404 }
     );
   }
 
@@ -85,6 +85,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       sound: "default",
       data,
     })),
+    { source: "debug" }
   );
 
   return NextResponse.json({ success: true, sentTo: rows.length });

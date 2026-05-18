@@ -180,6 +180,14 @@ export type FlagAudience = "all" | "public" | "team";
  */
 export type FlagTargetEnvironment = "development" | "preview" | "production";
 
+export type ManualPushAudience = "all" | "platform" | "wallet";
+
+export type PushNotificationSendStatus =
+  | "sending"
+  | "sent"
+  | "receipt_checked"
+  | "failed";
+
 // ============================================================================
 // TABLES
 // ============================================================================
@@ -605,6 +613,80 @@ export const pushTokens = pgTable(
     uniqueIndex("push_tokens_token_unique").on(table.token),
     index("push_tokens_telegram_user_id_idx").on(table.telegramUserId),
     index("push_tokens_wallet_public_key_idx").on(table.walletPublicKey),
+  ]
+);
+
+export const pushNotificationSends = pgTable(
+  "push_notification_sends",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    source: text("source").notNull(),
+    audience: text("audience").$type<ManualPushAudience>().notNull(),
+    platform: text("platform"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    data: jsonb("data").$type<Record<string, unknown> | null>(),
+    createdBy: text("created_by"),
+    status: text("status").$type<PushNotificationSendStatus>().notNull(),
+    requestedCount: integer("requested_count").default(0).notNull(),
+    ticketCount: integer("ticket_count").default(0).notNull(),
+    receiptOkCount: integer("receipt_ok_count").default(0).notNull(),
+    receiptErrorCount: integer("receipt_error_count").default(0).notNull(),
+    deviceNotRegisteredCount: integer("device_not_registered_count")
+      .default(0)
+      .notNull(),
+    errorMessage: text("error_message"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    receiptsCheckedAt: timestamp("receipts_checked_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("push_notification_sends_created_at_idx").on(table.createdAt),
+    index("push_notification_sends_status_idx").on(table.status),
+    check(
+      "push_notification_sends_audience_check",
+      sql`${table.audience} IN ('all', 'platform', 'wallet')`
+    ),
+    check(
+      "push_notification_sends_status_check",
+      sql`${table.status} IN ('sending', 'sent', 'receipt_checked', 'failed')`
+    ),
+  ]
+);
+
+export const pushNotificationTickets = pgTable(
+  "push_notification_tickets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sendId: uuid("send_id")
+      .notNull()
+      .references(() => pushNotificationSends.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    ticketId: text("ticket_id"),
+    ticketStatus: text("ticket_status").notNull(),
+    ticketMessage: text("ticket_message"),
+    ticketError: text("ticket_error"),
+    receiptStatus: text("receipt_status"),
+    receiptMessage: text("receipt_message"),
+    receiptError: text("receipt_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("push_notification_tickets_send_id_idx").on(table.sendId),
+    index("push_notification_tickets_ticket_id_idx").on(table.ticketId),
+    index("push_notification_tickets_token_idx").on(table.token),
   ]
 );
 
@@ -1613,6 +1695,15 @@ export type InsertBotMessage = typeof botMessages.$inferInsert;
 
 export type PushToken = typeof pushTokens.$inferSelect;
 export type InsertPushToken = typeof pushTokens.$inferInsert;
+
+export type PushNotificationSend = typeof pushNotificationSends.$inferSelect;
+export type InsertPushNotificationSend =
+  typeof pushNotificationSends.$inferInsert;
+
+export type PushNotificationTicket =
+  typeof pushNotificationTickets.$inferSelect;
+export type InsertPushNotificationTicket =
+  typeof pushNotificationTickets.$inferInsert;
 
 export type WalletPushSyncState = typeof walletPushSyncState.$inferSelect;
 export type InsertWalletPushSyncState = typeof walletPushSyncState.$inferInsert;
