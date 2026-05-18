@@ -17,7 +17,7 @@ const geistSans = GeistSans;
 const geistMono = GeistMono;
 
 export const metadata: Metadata = {
-  title: "Loyal — Solana Wallet with Agent Guardrails",
+  title: "Loyal: Solana Wallet with Agent Guardrails",
   description:
     "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
   metadataBase: new URL("https://askloyal.com"),
@@ -31,8 +31,8 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    url: "https://askloyal.com",
-    title: "Loyal — Solana Wallet with Agent Guardrails",
+    url: "https://askloyal.com/",
+    title: "Loyal: Solana Wallet with Agent Guardrails",
     description:
       "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
     images: [
@@ -40,19 +40,19 @@ export const metadata: Metadata = {
         url: "https://askloyal.com/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Loyal — Solana wallet for AI agents and Telegram payments",
+        alt: "Loyal: Solana wallet with smart-account guardrails for AI agents",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Loyal — Solana Wallet with Agent Guardrails",
+    title: "Loyal: Solana Wallet with Agent Guardrails",
     description:
       "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
     images: [
       {
         url: "https://askloyal.com/og-image.png",
-        alt: "Loyal — Solana wallet for AI agents and Telegram payments",
+        alt: "Loyal: Solana wallet with smart-account guardrails for AI agents",
       },
     ],
   },
