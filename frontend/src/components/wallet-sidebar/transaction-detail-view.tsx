@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Globe, Share } from "lucide-react";
+import { ArrowLeft, Check, Globe, Share, X } from "lucide-react";
 import { useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -14,9 +14,11 @@ function truncateAddress(addr: string): string {
 
 export function TransactionDetailView({
   detail,
+  dismissIcon = "back",
   onBack,
 }: {
   detail: TransactionDetail;
+  dismissIcon?: "back" | "close";
   onBack: () => void;
 }) {
   const publicEnv = usePublicEnv();
@@ -83,7 +85,7 @@ export function TransactionDetailView({
           }}
           type="button"
         >
-          <ArrowLeft size={24} />
+          {dismissIcon === "close" ? <X size={24} /> : <ArrowLeft size={24} />}
         </button>
       </div>
 

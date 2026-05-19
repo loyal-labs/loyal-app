@@ -48,7 +48,6 @@ import type { DraftProposalView } from "@/components/wallet-sidebar/draft-previe
 import {
   EarnDepositView,
   EarnDetailView,
-  EarnPositionView,
   EarnWithdrawView,
   type EarnDepositSourceOption,
 } from "@/components/wallet-sidebar/earn-detail-view";
@@ -95,6 +94,7 @@ import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
+import { EarnTransactionsPane } from "./earn-transactions-pane";
 import { BuilderBlocksPane } from "./builder-blocks-pane";
 import {
   mockPolicies,
@@ -122,7 +122,6 @@ type DetailSelection =
   | "connect"
   | "earn"
   | "earnDeposit"
-  | "earnPosition"
   | "earnWithdraw"
   | "overview"
   | "vault"
@@ -759,8 +758,6 @@ export function AppWalletWorkspace({
   const [detailPaneTransition, setDetailPaneTransition] =
     useState<DetailPaneTransition>("switch");
   const [hasEarnPosition, setHasEarnPosition] = useState(false);
-  const [earnWithdrawReturnSelection, setEarnWithdrawReturnSelection] =
-    useState<"earn" | "earnPosition">("earnPosition");
   const [detailPaneTransitionKey, setDetailPaneTransitionKey] = useState(0);
   const [actionReturnSelection, setActionReturnSelection] =
     useState<Exclude<DetailSelection, "action">>("vault");
@@ -848,6 +845,10 @@ export function AppWalletWorkspace({
   const selectedVault = smartAccountData.selectedVault;
   const activeDetailSelection =
     detailSelection === "action" ? actionReturnSelection : detailSelection;
+  const isEarnReviewContext =
+    activeDetailSelection === "earn" ||
+    activeDetailSelection === "earnDeposit" ||
+    activeDetailSelection === "earnWithdraw";
   const isAuthResolving = !isAuthHydrated;
   const isWorkspaceLoading =
     isSignedIn && (walletDesktopData.isLoading || smartAccountData.isLoading);
@@ -1715,33 +1716,8 @@ export function AppWalletWorkspace({
     setSelectedDetail("Deposit");
   }, [markDetailPaneTransition]);
 
-  const handleOpenEarnPosition = useCallback(() => {
+  const handleOpenEarnWithdraw = useCallback(() => {
     markDetailPaneTransition("forward");
-    setHasEarnPosition(true);
-    setSelectedSignerId(null);
-    setDetailSelection("earnPosition");
-    setSelectedDetail("Lending Yield");
-  }, [markDetailPaneTransition]);
-
-  const handleBackFromEarnPosition = useCallback(() => {
-    markDetailPaneTransition("back");
-    setHasEarnPosition(true);
-    setSelectedSignerId(null);
-    setDetailSelection("earn");
-    setSelectedDetail("Earn");
-  }, [markDetailPaneTransition]);
-
-  const handleOpenEarnWithdrawFromEarn = useCallback(() => {
-    markDetailPaneTransition("forward");
-    setEarnWithdrawReturnSelection("earn");
-    setSelectedSignerId(null);
-    setDetailSelection("earnWithdraw");
-    setSelectedDetail("Withdraw");
-  }, [markDetailPaneTransition]);
-
-  const handleOpenEarnWithdrawFromPosition = useCallback(() => {
-    markDetailPaneTransition("forward");
-    setEarnWithdrawReturnSelection("earnPosition");
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
     setSelectedDetail("Withdraw");
@@ -1751,21 +1727,16 @@ export function AppWalletWorkspace({
     markDetailPaneTransition("back");
     setHasEarnPosition(true);
     setSelectedSignerId(null);
-    if (earnWithdrawReturnSelection === "earn") {
-      setDetailSelection("earn");
-      setSelectedDetail("Earn");
-      return;
-    }
-    setDetailSelection("earnPosition");
-    setSelectedDetail("Lending Yield");
-  }, [earnWithdrawReturnSelection, markDetailPaneTransition]);
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
+  }, [markDetailPaneTransition]);
 
   const handleCompleteEarnDeposit = useCallback(() => {
-    markDetailPaneTransition("forward");
+    markDetailPaneTransition("back");
     setHasEarnPosition(true);
     setSelectedSignerId(null);
-    setDetailSelection("earnPosition");
-    setSelectedDetail("Lending Yield");
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
   }, [markDetailPaneTransition]);
 
   const handleCompleteEarnWithdraw = useCallback(() => {
@@ -2483,8 +2454,7 @@ export function AppWalletWorkspace({
         <EarnDetailView
           hasCurrentPosition={hasEarnPosition}
           onDeposit={handleOpenEarnDeposit}
-          onOpenPosition={handleOpenEarnPosition}
-          onWithdraw={handleOpenEarnWithdrawFromEarn}
+          onWithdraw={handleOpenEarnWithdraw}
         />
       );
     }
@@ -2499,21 +2469,11 @@ export function AppWalletWorkspace({
       );
     }
 
-    if (detailSelection === "earnPosition") {
-      return (
-        <EarnPositionView
-          onBack={handleBackFromEarnPosition}
-          onDeposit={handleOpenEarnDeposit}
-          onWithdraw={handleOpenEarnWithdrawFromPosition}
-        />
-      );
-    }
-
     if (detailSelection === "earnWithdraw") {
       return (
         <EarnWithdrawView
-          onBack={handleBackFromEarnWithdraw}
-          onClose={handleBackFromEarnPosition}
+          destinations={earnDepositSources}
+          onClose={handleBackFromEarnWithdraw}
           onComplete={handleCompleteEarnWithdraw}
         />
       );
@@ -2892,7 +2852,11 @@ export function AppWalletWorkspace({
       ).detail;
 
       return (
-        <TransactionDetailView detail={detail} onBack={handleActionBack} />
+        <TransactionDetailView
+          detail={detail}
+          dismissIcon={actionReturnSelection === "earn" ? "close" : "back"}
+          onBack={handleActionBack}
+        />
       );
     }
 
@@ -3242,6 +3206,7 @@ export function AppWalletWorkspace({
                 approvals={smartAccountData.approvals}
                 balanceFraction={totalBalance.balanceFraction}
                 balanceWhole={totalBalance.balanceWhole}
+                hasEarnPosition={hasEarnPosition}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
                 isLoading={isWorkspaceLoading}
@@ -3256,7 +3221,9 @@ export function AppWalletWorkspace({
                 onOpenShield={() => handleRailAction("shield")}
                 onOpenSwap={() => handleRailAction("swap")}
                 onOpenEarnDeposit={handleOpenEarnDeposit}
-                onOpenEarn={handleOpenEarn}
+                onOpenEarn={
+                  hasEarnPosition ? handleOpenEarn : handleOpenEarnDeposit
+                }
                 onOpenVault={handleOpenVault}
                 onSmartAccountRetry={() => {
                   void smartAccountData.refresh();
@@ -3272,7 +3239,6 @@ export function AppWalletWorkspace({
                 isEarnSelected={
                   activeDetailSelection === "earn" ||
                   activeDetailSelection === "earnDeposit" ||
-                  activeDetailSelection === "earnPosition" ||
                   activeDetailSelection === "earnWithdraw"
                 }
                 isWalletSelected={
@@ -3349,6 +3315,17 @@ export function AppWalletWorkspace({
                   </motion.div>
                 ) : null}
               </AnimatePresence>
+            ) : isEarnReviewContext ? (
+              <EarnTransactionsPane
+                onSelectTransaction={(detail) => {
+                  openActionView(
+                    { type: "transaction", detail, from: "portfolio" },
+                    "Transaction",
+                    "",
+                    "earn"
+                  );
+                }}
+              />
             ) : isWorkspaceLoading ? (
               <WorkspaceApprovalsSkeleton />
             ) : (

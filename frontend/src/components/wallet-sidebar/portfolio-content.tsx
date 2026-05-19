@@ -197,10 +197,12 @@ function EarnYieldIcon({ size = 48 }: { size?: number }) {
 }
 
 function EarnPortfolioRow({
+  hasPosition = false,
   isSelected,
   onDeposit,
   onOpen,
 }: {
+  hasPosition?: boolean;
   isSelected?: boolean;
   onDeposit?: () => void;
   onOpen?: () => void;
@@ -283,7 +285,7 @@ function EarnPortfolioRow({
               whiteSpace: "nowrap",
             }}
           >
-            $0
+            {hasPosition ? "$1,000" : "$0"}
             <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
           </span>
           <div
@@ -333,28 +335,30 @@ function EarnPortfolioRow({
             </span>
           </div>
         </div>
-        <button
-          className="portfolio-earn-deposit-btn"
-          onClick={handleDepositClick}
-          style={{
-            background: "#F9363C",
-            border: "none",
-            borderRadius: "9999px",
-            color: "#fff",
-            cursor: "pointer",
-            flexShrink: 0,
-            fontFamily: font,
-            fontSize: "14px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            marginLeft: "12px",
-            padding: "6px 16px",
-            whiteSpace: "nowrap",
-          }}
-          type="button"
-        >
-          Deposit
-        </button>
+        {hasPosition ? null : (
+          <button
+            className="portfolio-earn-deposit-btn"
+            onClick={handleDepositClick}
+            style={{
+              background: "#F9363C",
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: "pointer",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              marginLeft: "12px",
+              padding: "6px 16px",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            Deposit
+          </button>
+        )}
       </div>
     </>
   );
@@ -645,6 +649,7 @@ export function PortfolioContent({
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
+  hasEarnPosition = false,
   selectedSignerId = null,
   selectedVaultIndex = null,
   isEarnSelected = false,
@@ -680,6 +685,7 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
+  hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
   isEarnSelected?: boolean;
@@ -1275,6 +1281,7 @@ export function PortfolioContent({
         >
           {onOpenEarn ? (
             <EarnPortfolioRow
+              hasPosition={hasEarnPosition}
               isSelected={isEarnSelected}
               onDeposit={onOpenEarnDeposit}
               onOpen={onOpenEarn}

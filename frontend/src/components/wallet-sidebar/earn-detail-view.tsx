@@ -2,7 +2,6 @@
 
 import NumberFlow, { continuous } from "@number-flow/react";
 import {
-  ArrowLeft,
   ArrowUp,
   Check,
   ChevronsDownUp,
@@ -14,33 +13,17 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
-const EARN_VAULTS = [
-  {
-    apy: "8.46% APY",
-    label: "Kamino · Lending Yield",
-    logo: "/wallet-workspace/earn-kamino.png",
-  },
-  {
-    apy: "5.46% APY",
-    label: "Drift · Lending Yield",
-    logo: "/wallet-workspace/earn-drift.png",
-  },
-];
+const TOP_EARN_VAULT = {
+  apy: "8.46% APY",
+  label: "Kamino · Lending Yield",
+  logo: "/wallet-workspace/earn-kamino.png",
+} as const;
 
-const EARN_DEPOSIT_VAULTS = [
-  {
-    apy: "8.46% APY",
-    id: "kamino",
-    label: "Kamino · Lending Yield",
-    logo: "/wallet-workspace/earn-deposit-kamino.png",
-  },
-  {
-    apy: "2.46% APY",
-    id: "drift",
-    label: "Drift · Lending Yield",
-    logo: "/wallet-workspace/earn-drift.png",
-  },
-] as const;
+const TOP_DEPOSIT_VAULT = {
+  apy: "8.46% APY",
+  label: "Kamino · Lending Yield",
+  logo: "/wallet-workspace/earn-deposit-kamino.png",
+} as const;
 
 const EARN_CHART_WIDTH = 508;
 const EARN_CHART_HEIGHT = 260;
@@ -99,34 +82,56 @@ function formatMoney(value: number) {
   });
 }
 
-function buildEarnChartPoints(): EarnChartPoint[] {
+function formatForecastMoney(value: number, mutedFraction = false) {
+  const [whole, fraction = "00"] = formatMoney(value).split(".");
+  return (
+    <>
+      ${whole}
+      <span style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}>
+        .{fraction}
+      </span>
+    </>
+  );
+}
+
+const FORECAST_TARGET_MULTIPLIER = 1.12048;
+const FORECAST_LOW_MULTIPLIER = 1.07;
+const FORECAST_HIGH_MULTIPLIER = 1.19;
+const FORECAST_DATES = [
+  "May 2026",
+  "Jun 2026",
+  "Jul 2026",
+  "Aug 2026",
+  "Sep 2026",
+  "Oct 2026",
+  "Nov 2026",
+  "Dec 2026",
+  "Jan 2027",
+  "Feb 2027",
+  "Mar 2027",
+  "Apr 2027",
+  "May 2027",
+];
+
+const FORECAST_AMOUNT_PRESETS = [
+  { label: "$100", value: 100 },
+  { label: "$500", value: 500 },
+  { label: "$1,000", value: 1000 },
+  { label: "$5,000", value: 5000 },
+] as const;
+
+function buildEarnChartPoints(principal: number): EarnChartPoint[] {
   const months = 12;
-  const principal = 1000;
-  const target = 1120.48;
-  const lowTarget = 1070;
-  const highTarget = 1190;
-  const dates = [
-    "May 2026",
-    "Jun 2026",
-    "Jul 2026",
-    "Aug 2026",
-    "Sep 2026",
-    "Oct 2026",
-    "Nov 2026",
-    "Dec 2026",
-    "Jan 2027",
-    "Feb 2027",
-    "Mar 2027",
-    "Apr 2027",
-    "May 2027",
-  ];
+  const target = principal * FORECAST_TARGET_MULTIPLIER;
+  const lowTarget = principal * FORECAST_LOW_MULTIPLIER;
+  const highTarget = principal * FORECAST_HIGH_MULTIPLIER;
 
   return Array.from({ length: months + 1 }, (_, index) => {
     const progress = index / months;
     const eased = Math.pow(progress, 1.08);
     const value = principal + (target - principal) * eased;
     return {
-      date: dates[index] ?? "May 2027",
+      date: FORECAST_DATES[index] ?? FORECAST_DATES[FORECAST_DATES.length - 1],
       highValue: principal + (highTarget - principal) * progress,
       index,
       lowValue: principal + (lowTarget - principal) * progress,
@@ -437,79 +442,566 @@ function EarnGrowingBalance() {
   );
 }
 
-function EarnForecastBlock({ padding = "8px 20px" }: { padding?: string }) {
+const EARNINGS_RATE_PER_SECOND =
+  (EARN_BALANCE_PRINCIPAL * EARN_BALANCE_APY) / SECONDS_PER_YEAR;
+const EARNINGS_DEPOSIT_OFFSET_MS = 30 * 24 * 60 * 60 * 1000;
+const EARNINGS_CHART_HEIGHT = 242;
+const EARNINGS_DAY_MS = 24 * 60 * 60 * 1000;
+const EARNINGS_RANGES = [
+  {
+    bars: 7,
+    binMs: EARNINGS_DAY_MS,
+    id: "1W",
+    label: "1W",
+    rangeSubtitle: "Past Week",
+  },
+  {
+    bars: 30,
+    binMs: EARNINGS_DAY_MS,
+    id: "1M",
+    label: "1M",
+    rangeSubtitle: "Past Month",
+  },
+  {
+    bars: 26,
+    binMs: 7 * EARNINGS_DAY_MS,
+    id: "6M",
+    label: "6M",
+    rangeSubtitle: "Past 6 Months",
+  },
+  {
+    bars: 12,
+    binMs: Math.round((365 / 12) * EARNINGS_DAY_MS),
+    id: "1Y",
+    label: "1Y",
+    rangeSubtitle: "Past Year",
+  },
+] as const;
+
+type EarningsRangeId = (typeof EARNINGS_RANGES)[number]["id"];
+
+function formatEarningsAmount(value: number) {
+  const formatted = value.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  });
+  return `+$${formatted}`;
+}
+
+function formatEarningsBarDate(endMs: number, rangeId: EarningsRangeId) {
+  const date = new Date(endMs);
+  if (rangeId === "1Y") {
+    return date.toLocaleString("en-US", { month: "short", year: "numeric" });
+  }
+  if (rangeId === "6M") {
+    return date.toLocaleString("en-US", { day: "numeric", month: "short" });
+  }
+  return date.toLocaleString("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    hour12: true,
+    minute: "2-digit",
+    month: "short",
+  });
+}
+
+function EarningsBlock() {
+  const [activeTab, setActiveTab] = useState<"Earnings" | "Forecast">(
+    "Earnings"
+  );
+  const [earningsRevision, setEarningsRevision] = useState(0);
+  const [forecastRevision, setForecastRevision] = useState(0);
+  const [rangeId, setRangeId] = useState<EarningsRangeId>("1M");
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const handleTabChange = (next: "Earnings" | "Forecast") => {
+    if (next === activeTab) return;
+    setActiveTab(next);
+    setHoveredBar(null);
+    if (next === "Earnings") {
+      setEarningsRevision((r) => r + 1);
+    } else {
+      setForecastRevision((r) => r + 1);
+    }
+  };
+  const depositAtRef = useRef<number | null>(null);
+  if (depositAtRef.current === null) {
+    depositAtRef.current = Date.now() - EARNINGS_DEPOSIT_OFFSET_MS;
+  }
+  const depositAt = depositAtRef.current;
+  const forecastPrincipalRef = useRef<number | null>(null);
+  if (forecastPrincipalRef.current === null) {
+    const elapsedSec = Math.max(0, (Date.now() - depositAt) / 1000);
+    forecastPrincipalRef.current =
+      EARN_BALANCE_PRINCIPAL + elapsedSec * EARNINGS_RATE_PER_SECOND;
+  }
+  const forecastAmount = forecastPrincipalRef.current;
+
+  const range =
+    EARNINGS_RANGES.find((r) => r.id === rangeId) ?? EARNINGS_RANGES[1];
+
+  const bars = useMemo(() => {
+    const now = Date.now();
+    return Array.from({ length: range.bars }, (_, i) => {
+      const endMs = now - (range.bars - 1 - i) * range.binMs;
+      const elapsedSec = Math.max(0, (endMs - depositAt) / 1000);
+      const value = elapsedSec * EARNINGS_RATE_PER_SECOND;
+      return { endMs, value };
+    });
+  }, [range.bars, range.binMs, depositAt]);
+
+  const maxValue = useMemo(() => {
+    const peak = Math.max(...bars.map((b) => b.value), 0.01);
+    return Math.max(1, Math.ceil(peak));
+  }, [bars]);
+
+  const initialLive = Math.max(0, (Date.now() - depositAt) / 1000) *
+    EARNINGS_RATE_PER_SECOND;
+  const [liveTotal, setLiveTotal] = useState<number>(initialLive);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const next = Math.max(0, (Date.now() - depositAt) / 1000) *
+        EARNINGS_RATE_PER_SECOND;
+      setLiveTotal(Number(next.toFixed(EARN_BALANCE_DECIMALS)));
+    }, EARN_BALANCE_SAMPLE_MS);
+    return () => window.clearInterval(id);
+  }, [depositAt]);
+
+  const hoveredBarEntry = hoveredBar !== null ? bars[hoveredBar] : null;
+  const displayValue = hoveredBarEntry ? hoveredBarEntry.value : liveTotal;
+
+  const subtitleNode = (() => {
+    if (hoveredBarEntry) {
+      const prevValue =
+        hoveredBar !== null && hoveredBar > 0 ? bars[hoveredBar - 1].value : 0;
+      const diff = Math.max(0, hoveredBarEntry.value - prevValue);
+      return (
+        <>
+          <span style={{ color: "#34C759" }}>{formatEarningsAmount(diff)}</span>
+          <span style={{ color: secondary }}>
+            {" · "}
+            {formatEarningsBarDate(hoveredBarEntry.endMs, rangeId)}
+          </span>
+        </>
+      );
+    }
+    const first = bars[0]?.value ?? 0;
+    const delta = Math.max(0, liveTotal - first);
+    return (
+      <span style={{ color: "#34C759" }}>
+        {formatEarningsAmount(delta)} {range.rangeSubtitle}
+      </span>
+    );
+  })();
+
   return (
     <section
       style={{
         display: "flex",
         flexDirection: "column",
-        padding,
+        padding: "8px",
         width: "100%",
       }}
     >
-      <div style={{ display: "flex", gap: "8px", padding: "0 0 10px" }}>
-        {["Balance", "Yield", "Forecast"].map((tab) => (
-          <button
-            key={tab}
-            style={{
-              background:
-                tab === "Forecast" ? "rgba(0, 0, 0, 0.04)" : "transparent",
-              border: "none",
-              borderRadius: "9999px",
-              color: tab === "Forecast" ? "#000" : secondary,
-              cursor: "default",
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: tab === "Forecast" ? 500 : 400,
-              lineHeight: "20px",
-              padding: "6px 12px",
-            }}
-            type="button"
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-      <DepositChart />
+      <style jsx>{`
+        :global(.earnings-current-flow) {
+          --number-flow-mask-height: 0.12em;
+          --number-flow-mask-width: 0.24em;
+          color: #000;
+          font-family: ${font};
+          font-size: 28px;
+          font-variant-numeric: tabular-nums;
+          font-weight: 600;
+          line-height: 32px;
+        }
+        :global(.earnings-current-flow::part(decimal)),
+        :global(.earnings-current-flow::part(fraction)) {
+          color: rgba(60, 60, 67, 0.4);
+        }
+        .earnings-bar {
+          background: rgba(0, 0, 0, 0.04);
+          border: none;
+          border-radius: 4px;
+          flex: 1 0 0;
+          min-width: 0;
+          padding: 0;
+          transform-origin: center bottom;
+          animation: earnings-bar-rise 0.55s cubic-bezier(0.2, 0, 0, 1) both;
+          animation-delay: calc(var(--bar-index, 0) * 14ms);
+          transition: background 0.18s ease;
+        }
+        .earnings-bar:hover,
+        .earnings-bar-active {
+          background: #34c759;
+        }
+        @keyframes earnings-bar-rise {
+          from {
+            transform: scaleY(0);
+            opacity: 0;
+          }
+          to {
+            transform: scaleY(1);
+            opacity: 1;
+          }
+        }
+        .earnings-tab-panel {
+          transition:
+            opacity 0.34s cubic-bezier(0.2, 0, 0, 1),
+            transform 0.34s cubic-bezier(0.2, 0, 0, 1),
+            filter 0.34s cubic-bezier(0.2, 0, 0, 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .earnings-bar {
+            animation: none;
+          }
+          .earnings-tab-panel {
+            transition: none;
+          }
+        }
+        .earnings-range-chip {
+          background: transparent;
+          border: none;
+          border-radius: 9999px;
+          color: ${secondary};
+          cursor: pointer;
+          font-family: ${font};
+          font-size: 14px;
+          font-weight: 500;
+          line-height: 20px;
+          padding: 6px 12px;
+          transition: background 0.15s ease;
+        }
+        .earnings-range-chip:hover:not(.earnings-range-chip-active) {
+          background: rgba(0, 0, 0, 0.04);
+        }
+        .earnings-range-chip-active {
+          background: rgba(0, 0, 0, 0.04);
+          color: #000;
+        }
+      `}</style>
+
       <div
         style={{
+          alignItems: "center",
           display: "flex",
+          gap: "8px",
           justifyContent: "space-between",
-          overflow: "hidden",
-          paddingTop: "8px",
+          padding: "0 12px 8px",
           width: "100%",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-          <span
-            style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "13px",
-              lineHeight: "16px",
-            }}
-          >
-            May 2026
-          </span>
-          <span
-            style={{
-              color: "#000",
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 500,
-              lineHeight: "20px",
-            }}
-          >
-            $1,000
-            <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
-          </span>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            gap: "8px",
+            minWidth: 0,
+          }}
+        >
+          {(["Earnings", "Forecast"] as const).map((tab) => {
+            const isActive = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                style={{
+                  background: isActive ? "#F5F5F5" : "transparent",
+                  border: "none",
+                  borderRadius: "9999px",
+                  color: isActive ? "#000" : secondary,
+                  cursor: "pointer",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  padding: "6px 12px",
+                  transition: "background 0.15s ease",
+                }}
+                type="button"
+              >
+                {tab}
+              </button>
+            );
+          })}
         </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateAreas: '"panel"',
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        <div
+          aria-hidden={activeTab !== "Forecast"}
+          className="earnings-tab-panel"
+          key={`forecast-${forecastRevision}`}
+          style={{
+            filter: activeTab === "Forecast" ? "blur(0)" : "blur(2px)",
+            gridArea: "panel",
+            opacity: activeTab === "Forecast" ? 1 : 0,
+            pointerEvents: activeTab === "Forecast" ? "auto" : "none",
+            transform:
+              activeTab === "Forecast"
+                ? "translateY(0) scale(1)"
+                : "translateY(6px) scale(0.985)",
+          }}
+        >
+          <div style={{ padding: "12px", width: "100%" }}>
+            <DepositChart key={forecastAmount} principal={forecastAmount} />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                overflow: "hidden",
+                paddingTop: "8px",
+                width: "100%",
+              }}
+            >
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "2px" }}
+              >
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
+                  {FORECAST_DATES[0]}
+                </span>
+                <span
+                  style={{
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    lineHeight: "20px",
+                  }}
+                >
+                  {formatForecastMoney(forecastAmount, true)}
+                </span>
+              </div>
+              <div
+                style={{
+                  alignItems: "flex-end",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                }}
+              >
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
+                  {FORECAST_DATES[FORECAST_DATES.length - 1]}
+                </span>
+                <span
+                  style={{
+                    alignItems: "center",
+                    color: "#34C759",
+                    display: "flex",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    gap: "4px",
+                    lineHeight: "20px",
+                  }}
+                >
+                  {formatForecastMoney(
+                    forecastAmount * FORECAST_TARGET_MULTIPLIER
+                  )}
+                  <span
+                    style={{
+                      alignItems: "center",
+                      background: "#34C759",
+                      borderRadius: "4px",
+                      display: "inline-flex",
+                      height: "16px",
+                      justifyContent: "center",
+                      width: "16px",
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      src="/wallet-workspace/earn-growth-arrow.svg"
+                      style={{ height: "12px", width: "12px" }}
+                    />
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          aria-hidden={activeTab !== "Earnings"}
+          className="earnings-tab-panel"
+          key={`earnings-${earningsRevision}`}
+          style={{
+            filter: activeTab === "Earnings" ? "blur(0)" : "blur(2px)",
+            gridArea: "panel",
+            opacity: activeTab === "Earnings" ? 1 : 0,
+            pointerEvents: activeTab === "Earnings" ? "auto" : "none",
+            transform:
+              activeTab === "Earnings"
+                ? "translateY(0) scale(1)"
+                : "translateY(6px) scale(0.985)",
+          }}
+        >
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          padding: "2px 14px",
+          width: "100%",
+        }}
+      >
         <div
           style={{
             alignItems: "flex-end",
             display: "flex",
-            flexDirection: "column",
-            gap: "2px",
+            gap: "8px",
+            justifyContent: "space-between",
+            paddingBottom: "8px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: 0,
+            }}
+          >
+            <NumberFlow
+              animated={hoveredBar === null}
+              className="earnings-current-flow"
+              format={{
+                maximumFractionDigits: EARN_BALANCE_DECIMALS,
+                minimumFractionDigits: EARN_BALANCE_DECIMALS,
+                useGrouping: true,
+              }}
+              opacityTiming={{ duration: 280, easing: "ease-out" }}
+              plugins={EARN_NUMBER_FLOW_PLUGINS}
+              prefix="$"
+              spinTiming={{
+                duration: 900,
+                easing: "cubic-bezier(0.2, 0, 0, 1)",
+              }}
+              transformTiming={{
+                duration: 900,
+                easing: "cubic-bezier(0.2, 0, 0, 1)",
+              }}
+              trend={1}
+              value={Number(displayValue.toFixed(EARN_BALANCE_DECIMALS))}
+            />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "16px",
+              }}
+            >
+              {subtitleNode}
+            </span>
+          </div>
+          <span
+            style={{
+              color: secondary,
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "16px",
+              paddingBottom: "2px",
+            }}
+          >
+            ${maxValue.toFixed(2)}
+          </span>
+        </div>
+
+        <div
+          key={`earnings-bars-${rangeId}`}
+          onMouseLeave={() => setHoveredBar(null)}
+          style={{
+            alignItems: "flex-end",
+            display: "flex",
+            gap: "8px",
+            height: `${EARNINGS_CHART_HEIGHT}px`,
+            overflow: "hidden",
+            width: "100%",
+          }}
+        >
+          {bars.map((bar, i) => {
+            const heightPct = (bar.value / maxValue) * 100;
+            const isActive = hoveredBar === i;
+            const minHeightPx = 4;
+            return (
+              <button
+                aria-label={`Bar ${i + 1}`}
+                className={`earnings-bar${
+                  isActive ? " earnings-bar-active" : ""
+                }`}
+                key={i}
+                onMouseEnter={() => setHoveredBar(i)}
+                style={{
+                  height: `max(${minHeightPx}px, ${heightPct.toFixed(2)}%)`,
+                  ["--bar-index" as never]: i,
+                }}
+                type="button"
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          padding: "8px 12px 0",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            gap: "8px",
+            minWidth: 0,
+          }}
+        >
+          {EARNINGS_RANGES.map((r) => (
+            <button
+              className={`earnings-range-chip${
+                r.id === rangeId ? " earnings-range-chip-active" : ""
+              }`}
+              key={r.id}
+              onClick={() => {
+                setRangeId(r.id);
+                setHoveredBar(null);
+              }}
+              type="button"
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            justifyContent: "flex-end",
+            minWidth: 0,
+            paddingLeft: "12px",
           }}
         >
           <span
@@ -518,43 +1010,13 @@ function EarnForecastBlock({ padding = "8px 20px" }: { padding?: string }) {
               fontFamily: font,
               fontSize: "13px",
               lineHeight: "16px",
+              whiteSpace: "nowrap",
             }}
           >
-            May 2027
+            $0.00
           </span>
-          <span
-            style={{
-              alignItems: "center",
-              color: "#34C759",
-              display: "flex",
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 500,
-              gap: "4px",
-              lineHeight: "20px",
-            }}
-          >
-            $1,120.48
-            <span
-              style={{
-                alignItems: "center",
-                background: "#34C759",
-                borderRadius: "4px",
-                display: "inline-flex",
-                height: "16px",
-                justifyContent: "center",
-                width: "16px",
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                src="/wallet-workspace/earn-growth-arrow.svg"
-                style={{ height: "12px", width: "12px" }}
-              />
-            </span>
-          </span>
+        </div>
+      </div>
         </div>
       </div>
     </section>
@@ -564,12 +1026,10 @@ function EarnForecastBlock({ padding = "8px 20px" }: { padding?: string }) {
 export function EarnDetailView({
   hasCurrentPosition = false,
   onDeposit,
-  onOpenPosition,
   onWithdraw,
 }: {
   hasCurrentPosition?: boolean;
   onDeposit?: () => void;
-  onOpenPosition?: () => void;
   onWithdraw?: () => void;
 }) {
   return (
@@ -588,7 +1048,7 @@ export function EarnDetailView({
           alignItems: "center",
           display: "flex",
           justifyContent: "space-between",
-          padding: "16px 20px 8px",
+          padding: "10px 20px 0",
         }}
       >
         <h2
@@ -603,6 +1063,7 @@ export function EarnDetailView({
             minWidth: 0,
             overflow: "hidden",
             textOverflow: "ellipsis",
+            transform: "translateY(-5px)",
             whiteSpace: "nowrap",
           }}
         >
@@ -634,11 +1095,11 @@ export function EarnDetailView({
           borderRadius: "20px",
           display: "flex",
           overflow: "hidden",
-          padding: "8px 20px",
+          padding: "0 20px 8px",
           width: "100%",
         }}
       >
-        <div style={{ display: "flex", padding: "8px 12px 8px 0" }}>
+        <div style={{ display: "flex", padding: "0 12px 8px 0" }}>
           <EarnYieldIcon />
         </div>
         <div
@@ -648,7 +1109,7 @@ export function EarnDetailView({
             flexDirection: "column",
             gap: "2px",
             minWidth: 0,
-            padding: "8px 0",
+            padding: "0 0 8px",
           }}
         >
           <span
@@ -690,7 +1151,9 @@ export function EarnDetailView({
         </div>
       </div>
 
-      {hasCurrentPosition ? <EarnForecastBlock /> : null}
+      {hasCurrentPosition ? <div style={{ height: "9px" }} /> : null}
+
+      {hasCurrentPosition ? <EarningsBlock /> : null}
 
       {hasCurrentPosition ? (
         <section
@@ -711,37 +1174,23 @@ export function EarnDetailView({
                 lineHeight: "20px",
                 margin: 0,
                 padding: "12px 0 8px",
-            }}
-          >
+              }}
+            >
               Current positions
             </h3>
           </div>
-          <button
-            className="earn-current-position-row"
-            onClick={onOpenPosition}
+          <div
             style={{
               alignItems: "center",
-              background: "transparent",
-              border: "none",
-              borderRadius: "16px",
-              cursor: "pointer",
               display: "flex",
               minHeight: "60px",
               overflow: "hidden",
               padding: "0 12px",
-              textAlign: "left",
-              transition: "background 0.15s ease",
               width: "100%",
             }}
-            type="button"
           >
-            <style jsx>{`
-              .earn-current-position-row:hover {
-                background: rgba(0, 0, 0, 0.04) !important;
-              }
-            `}</style>
             <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-              <VaultIcon logo="/wallet-workspace/earn-kamino.png" />
+              <VaultIcon logo={TOP_EARN_VAULT.logo} />
             </div>
             <div
               style={{
@@ -764,10 +1213,10 @@ export function EarnDetailView({
                   whiteSpace: "nowrap",
                 }}
               >
-                Kamino · Lending Yield
+                {TOP_EARN_VAULT.label}
               </span>
               <div>
-                <ApyBadge value="8.46% APY" />
+                <ApyBadge value={TOP_EARN_VAULT.apy} />
               </div>
             </div>
             <span
@@ -784,88 +1233,9 @@ export function EarnDetailView({
               $1,000
               <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
             </span>
-          </button>
+          </div>
         </section>
       ) : null}
-
-      <section
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          padding: "8px",
-          width: "100%",
-        }}
-      >
-        <div style={{ padding: "3px 12px 1px" }}>
-          <h3
-            style={{
-              color: "#000",
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 600,
-              lineHeight: "20px",
-              margin: 0,
-              padding: "12px 0 8px",
-            }}
-          >
-            {hasCurrentPosition ? "Available positions" : "Available vaults"}
-          </h3>
-        </div>
-        {EARN_VAULTS.filter(
-          (vault) => !hasCurrentPosition || !vault.label.startsWith("Kamino")
-        ).map((vault) => (
-          <div
-            className="earn-detail-row"
-            key={vault.label}
-            style={{
-              alignItems: "center",
-              borderRadius: "16px",
-              display: "flex",
-              minHeight: "60px",
-              overflow: "hidden",
-              padding: "0 12px",
-              width: "100%",
-            }}
-          >
-            <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-              <VaultIcon logo={vault.logo} />
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flex: 1,
-                flexDirection: "column",
-                gap: "2px",
-                height: "60px",
-                justifyContent: "center",
-                minWidth: 0,
-                padding: "9px 0",
-              }}
-            >
-              <span
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {vault.label}
-              </span>
-              <div>
-                <ApyBadge value={vault.apy} />
-              </div>
-            </div>
-            <div style={{ display: "flex", paddingLeft: "12px" }}>
-              <DepositButton onClick={onDeposit} />
-            </div>
-          </div>
-        ))}
-      </section>
     </div>
   );
 }
@@ -948,192 +1318,6 @@ function PositionHeaderButton({
   );
 }
 
-function EarnPositionIcon() {
-  return (
-    <span aria-hidden="true" style={{ display: "flex", padding: "8px 12px 8px 0" }}>
-      <VaultIcon logo="/wallet-workspace/earn-kamino.png" />
-    </span>
-  );
-}
-
-export function EarnPositionView({
-  onBack,
-  onDeposit,
-  onWithdraw,
-}: {
-  onBack?: () => void;
-  onDeposit?: () => void;
-  onWithdraw?: () => void;
-}) {
-  return (
-    <div
-      style={{
-        background: "#fff",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-        width: "100%",
-      }}
-    >
-      <div
-        style={{
-          alignItems: "center",
-          display: "flex",
-          justifyContent: "space-between",
-          padding: "16px 20px 8px",
-        }}
-      >
-        <div style={{ display: "flex", paddingRight: "12px" }}>
-          <BackButton iconColor="#85868A" onClick={onBack} />
-        </div>
-        <h2
-          style={{
-            color: "#000",
-            flex: 1,
-            fontFamily: font,
-            fontSize: "20px",
-            fontWeight: 600,
-            lineHeight: "28px",
-            margin: 0,
-            minWidth: 0,
-          }}
-        >
-          Lending Yield
-        </h2>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <PositionHeaderButton
-            icon="withdraw"
-            iconColor="#85868A"
-            label="Withdraw"
-            onClick={onWithdraw}
-          />
-          <PositionHeaderButton dark icon="deposit" label="Deposit" onClick={onDeposit} />
-        </div>
-      </div>
-
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          scrollbarWidth: "none",
-          width: "100%",
-        }}
-      >
-        <div
-          style={{
-            alignItems: "center",
-            display: "flex",
-            padding: "8px 20px",
-            width: "100%",
-          }}
-        >
-          <EarnPositionIcon />
-          <div
-            style={{
-              display: "flex",
-              flex: 1,
-              flexDirection: "column",
-              gap: "2px",
-              minWidth: 0,
-              padding: "8px 0",
-            }}
-          >
-            <span
-              style={{
-                color: secondary,
-                fontFamily: font,
-                fontSize: "14px",
-                lineHeight: "20px",
-              }}
-            >
-              Balance · <span style={{ color: "#34C759" }}>8.46% APY</span>
-            </span>
-            <span
-              style={{
-                color: "#000",
-                fontFamily: font,
-                fontSize: "40px",
-                fontWeight: 600,
-                lineHeight: "48px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              <EarnGrowingBalance />
-            </span>
-          </div>
-        </div>
-
-        <section
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            padding: "8px 20px",
-            width: "100%",
-          }}
-        >
-          <div style={{ display: "flex", gap: "8px", padding: "0 0 10px" }}>
-            {["Balance", "Yield", "Forecast"].map((tab) => (
-              <button
-                key={tab}
-                style={{
-                  background:
-                    tab === "Forecast" ? "rgba(0, 0, 0, 0.04)" : "transparent",
-                  border: "none",
-                  borderRadius: "9999px",
-                  color: tab === "Forecast" ? "#000" : secondary,
-                  cursor: "default",
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: tab === "Forecast" ? 500 : 400,
-                  lineHeight: "20px",
-                  padding: "6px 12px",
-                }}
-                type="button"
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-          <div style={{ width: "100%" }}>
-            <DepositChart />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                overflow: "hidden",
-                paddingTop: "8px",
-                width: "100%",
-              }}
-            >
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ color: secondary, fontFamily: font, fontSize: "13px", lineHeight: "16px" }}>
-                  May 2026
-                </span>
-                <span style={{ color: "#000", fontFamily: font, fontSize: "16px", fontWeight: 500, lineHeight: "20px" }}>
-                  $1,000<span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
-                </span>
-              </div>
-              <div style={{ alignItems: "flex-end", display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ color: secondary, fontFamily: font, fontSize: "13px", lineHeight: "16px" }}>
-                  May 2027
-                </span>
-                <span style={{ alignItems: "center", color: "#34C759", display: "flex", fontFamily: font, fontSize: "16px", fontWeight: 500, gap: "4px", lineHeight: "20px" }}>
-                  $1,120.48
-                  <span style={{ alignItems: "center", background: "#34C759", borderRadius: "4px", display: "inline-flex", height: "16px", justifyContent: "center", width: "16px" }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img alt="" aria-hidden="true" src="/wallet-workspace/earn-growth-arrow.svg" style={{ height: "12px", width: "12px" }} />
-                  </span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
 
 function WithdrawRouteRow({
   amount,
@@ -1267,60 +1451,81 @@ function WithdrawRouteRow({
 }
 
 export function EarnWithdrawView({
-  onBack,
   onClose,
   onComplete,
+  destinations = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
-  onBack?: () => void;
   onClose?: () => void;
   onComplete?: () => void;
+  destinations?: EarnDepositSourceOption[];
 }) {
   const withdrawAmountInputRef = useRef<HTMLInputElement | null>(null);
-  const withdrawSourceCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+  const withdrawDestCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
   const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [isWithdrawSourceMenuOpen, setIsWithdrawSourceMenuOpen] =
+  const [isWithdrawDestMenuOpen, setIsWithdrawDestMenuOpen] = useState(false);
+  const [isWithdrawDestMenuClosing, setIsWithdrawDestMenuClosing] =
     useState(false);
-  const [isWithdrawSourceMenuClosing, setIsWithdrawSourceMenuClosing] =
-    useState(false);
+  const destinationOptions =
+    destinations.length > 0 ? destinations : FALLBACK_EARN_DEPOSIT_SOURCES;
+  const [selectedDestinationId, setSelectedDestinationId] = useState(
+    destinationOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id
+  );
+  const selectedDestination =
+    destinationOptions.find((dest) => dest.id === selectedDestinationId) ??
+    destinationOptions[0] ??
+    FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
   const withdrawUsdDisplay = hasWithdrawAmount
     ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
-  const shouldShowWithdrawSourceMenu =
-    isWithdrawSourceMenuOpen || isWithdrawSourceMenuClosing;
+  const shouldShowWithdrawDestMenu =
+    isWithdrawDestMenuOpen || isWithdrawDestMenuClosing;
 
-  const closeWithdrawSourceMenu = () => {
-    if (!isWithdrawSourceMenuOpen || isWithdrawSourceMenuClosing) return;
-    setIsWithdrawSourceMenuClosing(true);
-    withdrawSourceCloseTimerRef.current = setTimeout(() => {
-      setIsWithdrawSourceMenuOpen(false);
-      setIsWithdrawSourceMenuClosing(false);
-      withdrawSourceCloseTimerRef.current = null;
+  const closeWithdrawDestMenu = () => {
+    if (!isWithdrawDestMenuOpen || isWithdrawDestMenuClosing) return;
+    setIsWithdrawDestMenuClosing(true);
+    withdrawDestCloseTimerRef.current = setTimeout(() => {
+      setIsWithdrawDestMenuOpen(false);
+      setIsWithdrawDestMenuClosing(false);
+      withdrawDestCloseTimerRef.current = null;
     }, 180);
   };
 
-  const openWithdrawSourceMenu = () => {
-    if (withdrawSourceCloseTimerRef.current) {
-      clearTimeout(withdrawSourceCloseTimerRef.current);
-      withdrawSourceCloseTimerRef.current = null;
+  const openWithdrawDestMenu = () => {
+    if (withdrawDestCloseTimerRef.current) {
+      clearTimeout(withdrawDestCloseTimerRef.current);
+      withdrawDestCloseTimerRef.current = null;
     }
-    setIsWithdrawSourceMenuClosing(false);
-    setIsWithdrawSourceMenuOpen(true);
+    setIsWithdrawDestMenuClosing(false);
+    setIsWithdrawDestMenuOpen(true);
   };
 
-  const toggleWithdrawSourceMenu = () => {
-    if (isWithdrawSourceMenuClosing) {
-      openWithdrawSourceMenu();
+  const toggleWithdrawDestMenu = () => {
+    if (isWithdrawDestMenuClosing) {
+      openWithdrawDestMenu();
       return;
     }
-    if (isWithdrawSourceMenuOpen) {
-      closeWithdrawSourceMenu();
+    if (isWithdrawDestMenuOpen) {
+      closeWithdrawDestMenu();
       return;
     }
-    openWithdrawSourceMenu();
+    openWithdrawDestMenu();
   };
+
+  const handleDestinationSelect = (destinationId: string) => {
+    setSelectedDestinationId(destinationId);
+    closeWithdrawDestMenu();
+  };
+
+  useEffect(() => {
+    if (!destinationOptions.some((dest) => dest.id === selectedDestinationId)) {
+      setSelectedDestinationId(
+        destinationOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id
+      );
+    }
+  }, [destinationOptions, selectedDestinationId]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -1328,8 +1533,8 @@ export function EarnWithdrawView({
     });
     return () => {
       window.cancelAnimationFrame(frame);
-      if (withdrawSourceCloseTimerRef.current) {
-        clearTimeout(withdrawSourceCloseTimerRef.current);
+      if (withdrawDestCloseTimerRef.current) {
+        clearTimeout(withdrawDestCloseTimerRef.current);
       }
     };
   }, []);
@@ -1396,12 +1601,9 @@ export function EarnWithdrawView({
           alignItems: "center",
           display: "flex",
           justifyContent: "space-between",
-          padding: "16px 20px 8px",
+          padding: "10px 20px 8px",
         }}
       >
-        <div style={{ display: "flex", paddingRight: "12px" }}>
-          <BackButton iconColor="#85868A" onClick={onBack} />
-        </div>
         <h2
           style={{
             color: "#000",
@@ -1564,17 +1766,36 @@ export function EarnWithdrawView({
           </div>
           <WithdrawRouteRow
             amount="1,280.00"
-            icon="/wallet-workspace/earn-kamino.png"
-            isDropdown
-            isOpen={isWithdrawSourceMenuOpen}
+            icon={TOP_EARN_VAULT.logo}
             isPosition
-            onClick={toggleWithdrawSourceMenu}
-            subtitle="Kamino · Lending Yield"
+            subtitle={TOP_EARN_VAULT.label}
           />
-          {shouldShowWithdrawSourceMenu ? (
+          <div style={{ padding: "3px 12px 1px" }}>
+            <p
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "16px",
+                lineHeight: "20px",
+                margin: 0,
+                padding: "12px 0 4px",
+              }}
+            >
+              To
+            </p>
+          </div>
+          <WithdrawRouteRow
+            amount={`${selectedDestination.balanceWhole}.${selectedDestination.balanceFraction}`}
+            icon={selectedDestination.icon}
+            isDropdown
+            isOpen={isWithdrawDestMenuOpen}
+            onClick={toggleWithdrawDestMenu}
+            subtitle={`${selectedDestination.label} · ${selectedDestination.addressLabel}`}
+          />
+          {shouldShowWithdrawDestMenu ? (
             <div
               className={`earn-withdraw-source-sheet ${
-                isWithdrawSourceMenuClosing
+                isWithdrawDestMenuClosing
                   ? "earn-withdraw-source-sheet-closing"
                   : ""
               }`}
@@ -1591,40 +1812,23 @@ export function EarnWithdrawView({
                 padding: "8px",
                 position: "absolute",
                 right: "8px",
-                top: "108px",
+                top: "232px",
                 WebkitBackdropFilter: "blur(16px)",
                 zIndex: 4,
               }}
             >
-              <WithdrawRouteRow
-                amount="1,280.00"
-                icon="/wallet-workspace/earn-kamino.png"
-                isPosition
-                isSelected
-                onClick={closeWithdrawSourceMenu}
-                subtitle="Kamino · Lending Yield"
-              />
+              {destinationOptions.map((dest) => (
+                <WithdrawRouteRow
+                  amount={`${dest.balanceWhole}.${dest.balanceFraction}`}
+                  icon={dest.icon}
+                  isSelected={dest.id === selectedDestination.id}
+                  key={dest.id}
+                  onClick={() => handleDestinationSelect(dest.id)}
+                  subtitle={`${dest.label} · ${dest.addressLabel}`}
+                />
+              ))}
             </div>
           ) : null}
-          <div style={{ padding: "3px 12px 1px" }}>
-            <p
-              style={{
-                color: secondary,
-                fontFamily: font,
-                fontSize: "16px",
-                lineHeight: "20px",
-                margin: 0,
-                padding: "12px 0 4px",
-              }}
-            >
-              To
-            </p>
-          </div>
-          <WithdrawRouteRow
-            amount="1,280.00"
-            icon="/agents/Stashx.svg"
-            subtitle="Stash"
-          />
         </section>
       </div>
 
@@ -1705,45 +1909,6 @@ function CloseButton({
   );
 }
 
-function BackButton({
-  iconColor,
-  onClick,
-}: {
-  iconColor?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <>
-      <style jsx>{`
-        .earn-deposit-back:hover {
-          background: rgba(0, 0, 0, 0.08) !important;
-        }
-      `}</style>
-      <button
-        className="earn-deposit-back"
-        onClick={onClick}
-        style={{
-          alignItems: "center",
-          background: "rgba(0, 0, 0, 0.04)",
-          border: "none",
-          borderRadius: "9999px",
-          color: "#3C3C43",
-          cursor: "pointer",
-          display: "inline-flex",
-          height: "36px",
-          justifyContent: "center",
-          padding: "6px",
-          transition: "background 0.15s ease",
-          width: "36px",
-        }}
-        type="button"
-      >
-        <ArrowLeft color={iconColor} size={24} strokeWidth={2} />
-      </button>
-    </>
-  );
-}
-
 function DepositVaultIcon({ logo }: { logo: string }) {
   return (
     <span
@@ -1804,158 +1969,55 @@ function DepositVaultIcon({ logo }: { logo: string }) {
 }
 
 function DepositVaultRow({
-  isHighlighted = false,
-  isOpen = false,
-  isPulsing = false,
-  isSelected = false,
-  isTrigger = false,
-  onClick,
   vault,
 }: {
-  isHighlighted?: boolean;
-  isOpen?: boolean;
-  isPulsing?: boolean;
-  isSelected?: boolean;
-  isTrigger?: boolean;
-  onClick?: () => void;
-  vault: (typeof EARN_DEPOSIT_VAULTS)[number];
+  vault: { apy: string; label: string; logo: string };
 }) {
   return (
-    <>
-      <style jsx>{`
-        .earn-yield-trigger,
-        .earn-yield-option {
-          transition:
-            background 0.15s ease,
-            transform 0.18s ease;
-        }
-        .earn-yield-trigger:hover {
-          background: rgba(0, 0, 0, 0.04) !important;
-        }
-        .earn-yield-option:hover {
-          background: rgba(0, 0, 0, 0.04) !important;
-        }
-        .earn-yield-row-pulse {
-          animation: earn-yield-row-pulse 0.22s ease;
-        }
-        .earn-yield-check {
-          animation: earn-yield-check-in 0.18s ease;
-        }
-        .earn-yield-chevron {
-          transition: transform 0.18s ease;
-        }
-        @keyframes earn-yield-row-pulse {
-          0% {
-            transform: scale(0.99);
-          }
-          100% {
-            transform: scale(1);
-          }
-        }
-        @keyframes earn-yield-check-in {
-          0% {
-            opacity: 0;
-            transform: scale(0.82);
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-      `}</style>
-      <button
-        className={`${isTrigger ? "earn-yield-trigger" : "earn-yield-option"} ${
-          isPulsing ? "earn-yield-row-pulse" : ""
-        }`}
-        onClick={onClick}
+    <div
+      style={{
+        alignItems: "center",
+        background: "transparent",
+        borderRadius: "8px",
+        display: "flex",
+        minHeight: "60px",
+        overflow: "hidden",
+        padding: "0 12px",
+        textAlign: "left",
+        width: "100%",
+      }}
+    >
+      <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+        <DepositVaultIcon logo={vault.logo} />
+      </div>
+      <div
         style={{
-          alignItems: "center",
-          background: isTrigger
-            ? isOpen
-              ? "rgba(0, 0, 0, 0.04)"
-              : "transparent"
-            : isHighlighted
-              ? "rgba(0, 0, 0, 0.04)"
-              : "transparent",
-          border: "none",
-          borderRadius: isTrigger ? "16px" : "8px",
-          cursor: onClick ? "pointer" : "default",
           display: "flex",
-          minHeight: "60px",
-          overflow: "hidden",
-          padding: "0 12px",
-          textAlign: "left",
-          width: "100%",
+          flex: 1,
+          flexDirection: "column",
+          gap: "2px",
+          justifyContent: "center",
+          minWidth: 0,
         }}
-        type="button"
       >
-        <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-          <DepositVaultIcon logo={vault.logo} />
-        </div>
-        <div
+        <span
           style={{
-            display: "flex",
-            flex: 1,
-            flexDirection: "column",
-            gap: "2px",
-            height: "60px",
-            justifyContent: "center",
-            minWidth: 0,
-            padding: "9px 0",
+            color: secondary,
+            fontFamily: font,
+            fontSize: "13px",
+            lineHeight: "16px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
-          <span
-            style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "13px",
-              lineHeight: "16px",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {vault.label}
-          </span>
-          <div>
-            <ApyBadge value={vault.apy} />
-          </div>
+          {vault.label}
+        </span>
+        <div>
+          <ApyBadge value={vault.apy} />
         </div>
-        {isTrigger ? (
-          <span
-            aria-hidden="true"
-            className="earn-yield-chevron"
-            style={{
-              display: "flex",
-              marginLeft: "12px",
-              transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-            }}
-          >
-            {isOpen ? (
-              <ChevronsDownUp
-                color="#B1B1B4"
-                size={24}
-                strokeWidth={2}
-              />
-            ) : (
-              <ChevronsUpDown
-                color="#B1B1B4"
-                size={24}
-                strokeWidth={2}
-              />
-            )}
-          </span>
-        ) : isSelected ? (
-          <Check
-            className="earn-yield-check"
-            color="#F9363C"
-            size={24}
-            strokeWidth={2}
-            style={{ marginLeft: "12px" }}
-          />
-        ) : null}
-      </button>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -2121,12 +2183,12 @@ function DepositSourceRow({
   );
 }
 
-function DepositChart() {
-  const points = useMemo(buildEarnChartPoints, []);
+function DepositChart({ principal = 1000 }: { principal?: number }) {
+  const points = useMemo(() => buildEarnChartPoints(principal), [principal]);
   const defaultHoverIndex = Math.floor((points.length - 1) / 2);
   const [hoverIndex, setHoverIndex] = useState(defaultHoverIndex);
-  const minValue = 1000;
-  const maxValue = 1190;
+  const minValue = principal;
+  const maxValue = principal * FORECAST_HIGH_MULTIPLIER;
   const chartHeight = EARN_CHART_BASELINE - EARN_CHART_TOP;
   const plot = (value: number) =>
     EARN_CHART_BASELINE -
@@ -2144,10 +2206,6 @@ function DepositChart() {
     plotted
       .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point[key]}`)
       .join(" ");
-  const activePath = plotted
-    .slice(0, hoverIndex + 1)
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
   const areaPath = [
     `M${plotted[0]?.x ?? 0},${EARN_CHART_BASELINE}`,
     ...plotted.map((point) => `L${point.x},${point.y}`),
@@ -2181,6 +2239,37 @@ function DepositChart() {
         width: "100%",
       }}
     >
+      <style jsx>{`
+        .earn-chart-reveal-rect {
+          animation: earn-chart-reveal 0.7s cubic-bezier(0.2, 0, 0, 1) both;
+          transform-origin: 0 0;
+        }
+        .earn-chart-hover-elements {
+          animation: earn-chart-hover-fade 0.25s 0.5s ease both;
+        }
+        @keyframes earn-chart-reveal {
+          0% {
+            transform: scaleX(0);
+          }
+          100% {
+            transform: scaleX(1);
+          }
+        }
+        @keyframes earn-chart-hover-fade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .earn-chart-reveal-rect,
+          .earn-chart-hover-elements {
+            animation: none;
+          }
+        }
+      `}</style>
       <div style={{ flex: 1, minHeight: 0, position: "relative", width: "100%" }}>
         <svg
           aria-label="Estimated earnings chart"
@@ -2198,43 +2287,58 @@ function DepositChart() {
               y1="0"
               y2={EARN_CHART_BASELINE}
             >
-              <stop stopColor="#FDAFB1" stopOpacity="0.2" />
-              <stop offset="1" stopColor="#FDAFB1" stopOpacity="0" />
+              <stop stopColor="#34C759" stopOpacity="0.28" />
+              <stop offset="1" stopColor="#34C759" stopOpacity="0" />
             </linearGradient>
+            <clipPath
+              clipPathUnits="userSpaceOnUse"
+              id="earn-chart-reveal-clip"
+            >
+              <rect
+                className="earn-chart-reveal-rect"
+                height={EARN_CHART_HEIGHT}
+                width={EARN_CHART_WIDTH}
+                x={0}
+                y={0}
+              />
+            </clipPath>
           </defs>
-          <path d={areaPath} fill="url(#earn-chart-area)" />
-          <path
-            d={pathFrom("highY")}
-            fill="none"
-            stroke="#FDAFB1"
-            strokeDasharray="6 6"
-            strokeLinecap="round"
-          />
-          <path
-            d={pathFrom("lowY")}
-            fill="none"
-            stroke="#FDAFB1"
-            strokeDasharray="6 6"
-            strokeLinecap="round"
-          />
-          <path
-            d={pathFrom("y")}
-            fill="none"
-            stroke="#F9363C"
-            strokeLinecap="round"
-            strokeOpacity="0.35"
-            strokeWidth="2"
-          />
-          <path
-            d={activePath}
-            fill="none"
-            stroke="#F9363C"
-            strokeLinecap="round"
-            strokeWidth="2"
-          />
+          <g clipPath="url(#earn-chart-reveal-clip)">
+            <path d={areaPath} fill="url(#earn-chart-area)" />
+            <path
+              d={pathFrom("highY")}
+              fill="none"
+              stroke="#A7E2BC"
+              strokeDasharray="6 6"
+              strokeLinecap="round"
+            />
+            <path
+              d={pathFrom("lowY")}
+              fill="none"
+              stroke="#A7E2BC"
+              strokeDasharray="6 6"
+              strokeLinecap="round"
+            />
+            <path
+              d={pathFrom("y")}
+              fill="none"
+              stroke="#34C759"
+              strokeLinecap="round"
+              strokeWidth="2"
+            />
+            <rect
+              fill="#fff"
+              fillOpacity="0.7"
+              height={EARN_CHART_HEIGHT}
+              width={Math.max(EARN_CHART_WIDTH - hoverPoint.x, 0)}
+              x={hoverPoint.x}
+              y={0}
+            />
+          </g>
         </svg>
         <div
           aria-hidden="true"
+          className="earn-chart-hover-elements"
           style={{
             borderLeft: "1px dashed rgba(60, 60, 67, 0.18)",
             bottom: `${((EARN_CHART_HEIGHT - EARN_CHART_BASELINE) / EARN_CHART_HEIGHT) * 100}%`,
@@ -2245,12 +2349,13 @@ function DepositChart() {
           }}
         />
         {[
-          { color: "#FDAFB1", top: pointTop(hoverPoint.highY) },
-          { color: "#F9363C", top: pointTop(hoverPoint.y) },
-          { color: "#FDAFB1", top: pointTop(hoverPoint.lowY) },
+          { color: "#A7E2BC", top: pointTop(hoverPoint.highY) },
+          { color: "#34C759", top: pointTop(hoverPoint.y) },
+          { color: "#A7E2BC", top: pointTop(hoverPoint.lowY) },
         ].map((dot) => (
           <span
             aria-hidden="true"
+            className="earn-chart-hover-elements"
             key={`${dot.color}-${dot.top}`}
             style={{
               background: dot.color,
@@ -2266,6 +2371,7 @@ function DepositChart() {
           />
         ))}
         <div
+          className="earn-chart-hover-elements"
           style={{
             background: "#F5F5F5",
             borderRadius: "16px",
@@ -2333,34 +2439,20 @@ export function EarnDepositView({
   sources?: EarnDepositSourceOption[];
 }) {
   const amountInputRef = useRef<HTMLInputElement | null>(null);
-  const [depositStep, setDepositStep] = useState<"overview" | "amount">(
-    "overview"
-  );
-  const [screenTransition, setScreenTransition] = useState<
-    "back" | "forward" | null
-  >(null);
   const [depositAmount, setDepositAmount] = useState("");
-  const [isYieldMenuOpen, setIsYieldMenuOpen] = useState(false);
-  const [isYieldMenuClosing, setIsYieldMenuClosing] = useState(false);
+  const [forecastAmount, setForecastAmount] = useState<number>(
+    FORECAST_AMOUNT_PRESETS[2].value
+  );
   const [isSourceMenuOpen, setIsSourceMenuOpen] = useState(false);
   const [isSourceMenuClosing, setIsSourceMenuClosing] = useState(false);
-  const [selectionPulseId, setSelectionPulseId] =
-    useState<(typeof EARN_DEPOSIT_VAULTS)[number]["id"] | null>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sourceCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
-  const [selectedVaultId, setSelectedVaultId] =
-    useState<(typeof EARN_DEPOSIT_VAULTS)[number]["id"]>("kamino");
   const sourceOptions =
     sources.length > 0 ? sources : FALLBACK_EARN_DEPOSIT_SOURCES;
   const [selectedSourceId, setSelectedSourceId] = useState(
     sourceOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id
   );
-  const selectedVault =
-    EARN_DEPOSIT_VAULTS.find((vault) => vault.id === selectedVaultId) ??
-    EARN_DEPOSIT_VAULTS[0];
   const selectedSource =
     sourceOptions.find((source) => source.id === selectedSourceId) ??
     sourceOptions[0] ??
@@ -2384,48 +2476,7 @@ export function EarnDepositView({
         ? "Insufficient balance"
         : null;
   const isDepositButtonDisabled = !hasDepositAmount || amountError !== null;
-  const shouldShowYieldMenu = isYieldMenuOpen || isYieldMenuClosing;
   const shouldShowSourceMenu = isSourceMenuOpen || isSourceMenuClosing;
-  const openYieldMenu = () => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setIsYieldMenuClosing(false);
-    setIsYieldMenuOpen(true);
-  };
-  const closeYieldMenu = () => {
-    if (!isYieldMenuOpen || isYieldMenuClosing) return;
-    setIsYieldMenuClosing(true);
-    closeTimerRef.current = setTimeout(() => {
-      setIsYieldMenuOpen(false);
-      setIsYieldMenuClosing(false);
-      closeTimerRef.current = null;
-    }, 180);
-  };
-  const toggleYieldMenu = () => {
-    if (isYieldMenuClosing) {
-      openYieldMenu();
-      return;
-    }
-    if (isYieldMenuOpen) {
-      closeYieldMenu();
-      return;
-    }
-    openYieldMenu();
-  };
-  const handleYieldSelect = (
-    vaultId: (typeof EARN_DEPOSIT_VAULTS)[number]["id"]
-  ) => {
-    setSelectedVaultId(vaultId);
-    setSelectionPulseId(vaultId);
-    if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
-    pulseTimerRef.current = setTimeout(() => {
-      setSelectionPulseId(null);
-      pulseTimerRef.current = null;
-    }, 260);
-    closeYieldMenu();
-  };
   const openSourceMenu = () => {
     if (sourceCloseTimerRef.current) {
       clearTimeout(sourceCloseTimerRef.current);
@@ -2459,12 +2510,36 @@ export function EarnDepositView({
     closeSourceMenu();
   };
 
+  const forecastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const cancelForecastDebounce = () => {
+    if (forecastDebounceRef.current) {
+      clearTimeout(forecastDebounceRef.current);
+      forecastDebounceRef.current = null;
+    }
+  };
+  const scheduleForecastFromInput = (rawValue: string) => {
+    cancelForecastDebounce();
+    forecastDebounceRef.current = setTimeout(() => {
+      const numeric = Number.parseFloat(rawValue.replace(/,/g, "")) || 0;
+      setForecastAmount(
+        numeric > 0 ? numeric : FORECAST_AMOUNT_PRESETS[2].value
+      );
+    }, 1000);
+  };
+  const handleChipClick = (value: number) => {
+    cancelForecastDebounce();
+    setForecastAmount(value);
+  };
+
   useEffect(() => {
     return () => {
-      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
       if (sourceCloseTimerRef.current) {
         clearTimeout(sourceCloseTimerRef.current);
+      }
+      if (forecastDebounceRef.current) {
+        clearTimeout(forecastDebounceRef.current);
       }
     };
   }, []);
@@ -2476,400 +2551,14 @@ export function EarnDepositView({
   }, [selectedSourceId, sourceOptions]);
 
   useEffect(() => {
-    if (depositStep !== "amount") return;
     const frame = window.requestAnimationFrame(() => {
       amountInputRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [depositStep]);
-
-  const handleOverviewPrimaryClick = () => {
-    if (isYieldMenuOpen) {
-      closeYieldMenu();
-      return;
-    }
-    setScreenTransition("forward");
-    setDepositStep("amount");
-  };
-
-  if (depositStep === "amount") {
-    return (
-      <div
-        className={
-          screenTransition === "forward" ? "earn-deposit-screen-forward" : ""
-        }
-        style={{
-          background: "#fff",
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-          width: "100%",
-        }}
-      >
-        <style jsx>{`
-          .earn-deposit-max:hover,
-          .earn-deposit-submit:not(:disabled):hover {
-            background: #222 !important;
-          }
-          .earn-deposit-amount-input::selection {
-            background: rgba(249, 54, 60, 0.18);
-          }
-          .earn-deposit-amount-input::placeholder {
-            color: rgba(60, 60, 67, 0.4);
-            opacity: 1;
-          }
-          .earn-deposit-screen-forward {
-            animation: earn-deposit-screen-forward 0.24s
-              cubic-bezier(0.2, 0, 0, 1) both;
-          }
-          .earn-source-sheet {
-            animation: earn-source-sheet-open 0.18s ease forwards;
-            transform-origin: top center;
-          }
-          .earn-source-sheet-closing {
-            animation: earn-source-sheet-close 0.18s ease forwards;
-            pointer-events: none;
-          }
-          @keyframes earn-source-sheet-open {
-            0% {
-              opacity: 0;
-              transform: translateY(-6px) scale(0.985);
-            }
-            100% {
-              opacity: 1;
-              transform: translateY(0) scale(1);
-            }
-          }
-          @keyframes earn-source-sheet-close {
-            0% {
-              opacity: 1;
-              transform: translateY(0) scale(1);
-            }
-            100% {
-              opacity: 0;
-              transform: translateY(-6px) scale(0.985);
-            }
-          }
-          @keyframes earn-deposit-screen-forward {
-            0% {
-              opacity: 0;
-              transform: translateX(20px);
-            }
-            100% {
-              opacity: 1;
-              transform: translateX(0);
-            }
-          }
-          @media (prefers-reduced-motion: reduce) {
-            .earn-deposit-screen-forward {
-              animation: none;
-            }
-          }
-        `}</style>
-        <div
-          style={{
-            alignItems: "center",
-            display: "flex",
-            justifyContent: "space-between",
-            padding: "16px 20px 8px",
-          }}
-        >
-          <div style={{ display: "flex", paddingRight: "12px" }}>
-            <BackButton
-              onClick={() => {
-                if (isSourceMenuOpen) closeSourceMenu();
-                setScreenTransition("back");
-                setDepositStep("overview");
-              }}
-            />
-          </div>
-          <h2
-            style={{
-              color: "#000",
-              flex: 1,
-              fontFamily: font,
-              fontSize: "20px",
-              fontWeight: 600,
-              lineHeight: "28px",
-              margin: 0,
-              minWidth: 0,
-            }}
-          >
-            Deposit
-          </h2>
-          <CloseButton onClick={onClose} />
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            flex: 1,
-            flexDirection: "column",
-            minHeight: 0,
-            overflowY: "auto",
-            scrollbarWidth: "none",
-            width: "100%",
-          }}
-        >
-          <section
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              padding: "30px 8px 8px",
-              width: "100%",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-                padding: "8px 12px",
-                width: "100%",
-              }}
-            >
-              <div
-                style={{
-                  alignItems: "center",
-                  display: "flex",
-                  gap: "4px",
-                  width: "100%",
-                }}
-              >
-                <div
-                  style={{
-                    alignItems: "baseline",
-                    display: "flex",
-                    flex: 1,
-                    gap: "8px",
-                    minWidth: 0,
-                  }}
-                >
-                  <input
-                    className="earn-deposit-amount-input"
-                    inputMode="decimal"
-                    ref={amountInputRef}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      if (value === "" || /^[\d,]*\.?\d*$/.test(value)) {
-                        setDepositAmount(value);
-                      }
-                    }}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "#000",
-                      flexShrink: 1,
-                      fontFamily: font,
-                      fontSize: "40px",
-                      fontWeight: 600,
-                      lineHeight: "48px",
-                      minWidth: 0,
-                      outline: "none",
-                      padding: 0,
-                      width: `${Math.max(depositAmount.length, 1)}ch`,
-                    }}
-                    placeholder="0"
-                    type="text"
-                    value={depositAmount}
-                  />
-                  <span
-                    style={{
-                      color: "rgba(60, 60, 67, 0.4)",
-                      fontFamily: font,
-                      fontSize: "28px",
-                      fontWeight: 600,
-                      lineHeight: "32px",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    USDC
-                  </span>
-                </div>
-                <button
-                  className="earn-deposit-max"
-                  onClick={() => setDepositAmount("1,000")}
-                  style={{
-                    background: "#000",
-                    border: "none",
-                    borderRadius: "9999px",
-                    color: "#fff",
-                    cursor: "pointer",
-                    flexShrink: 0,
-                    fontFamily: font,
-                    fontSize: "14px",
-                    fontWeight: 500,
-                    lineHeight: "20px",
-                    padding: "6px 16px",
-                    transition: "background 0.15s ease",
-                  }}
-                  type="button"
-                >
-                  MAX
-                </button>
-              </div>
-              <span
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                }}
-              >
-                {depositUsdDisplay}
-              </span>
-            </div>
-          </section>
-
-          <section
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              padding: "8px",
-              position: "relative",
-              width: "100%",
-              zIndex: 2,
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-              <div style={{ padding: "3px 12px 1px" }}>
-                <p
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    margin: 0,
-                    padding: "12px 0 4px",
-                  }}
-                >
-                  From
-                </p>
-              </div>
-              <DepositSourceRow
-                isOpen={isSourceMenuOpen}
-                isTrigger
-                onClick={toggleSourceMenu}
-                source={selectedSource}
-              />
-              {shouldShowSourceMenu ? (
-                <div
-                  className={`earn-source-sheet ${
-                    isSourceMenuClosing ? "earn-source-sheet-closing" : ""
-                  }`}
-                  style={{
-                    backdropFilter: "blur(16px)",
-                    background: "rgba(255, 255, 255, 0.7)",
-                    borderRadius: "16px",
-                    boxShadow:
-                      "0 0 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08)",
-                    display: "flex",
-                    flexDirection: "column",
-                    left: "8px",
-                    overflow: "hidden",
-                    padding: "8px",
-                    position: "absolute",
-                    right: "8px",
-                    top: "108px",
-                    WebkitBackdropFilter: "blur(16px)",
-                    zIndex: 4,
-                  }}
-                >
-                  {sourceOptions.map((source, index) => (
-                    <DepositSourceRow
-                      isHighlighted={
-                        source.id !== selectedSource.id &&
-                        index ===
-                          Math.min(
-                            sourceOptions.findIndex(
-                              (option) => option.id === selectedSource.id
-                            ) + 1,
-                            sourceOptions.length - 1
-                          )
-                      }
-                      isSelected={source.id === selectedSource.id}
-                      key={source.id}
-                      onClick={() => handleSourceSelect(source.id)}
-                      source={source}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-              <div style={{ padding: "3px 12px 1px" }}>
-                <p
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    margin: 0,
-                    padding: "12px 0 4px",
-                  }}
-                >
-                  To
-                </p>
-              </div>
-              <DepositVaultRow vault={selectedVault} />
-            </div>
-          </section>
-        </div>
-
-        <div
-          style={{
-            background: "linear-gradient(to bottom, rgba(255,255,255,0), #fff 28%)",
-            padding: "16px 32px 24px",
-            width: "100%",
-          }}
-        >
-          <button
-            className="earn-deposit-submit"
-            disabled={isDepositButtonDisabled}
-            onClick={onComplete}
-            style={{
-              alignItems: "center",
-              background: amountError
-                ? "rgba(249, 54, 60, 0.14)"
-                : isDepositButtonDisabled
-                  ? "rgba(0, 0, 0, 0.04)"
-                  : "#000",
-              border: "none",
-              borderRadius: "78px",
-              color: amountError
-                ? "#F9363C"
-                : isDepositButtonDisabled
-                  ? secondary
-                  : "#fff",
-              cursor: isDepositButtonDisabled ? "default" : "pointer",
-              display: "flex",
-              fontFamily: font,
-              fontSize: "17px",
-              fontWeight: 500,
-              height: "50px",
-              justifyContent: "center",
-              lineHeight: "22px",
-              padding: "15px 12px",
-              transition: "background 0.15s ease",
-              width: "100%",
-            }}
-            type="button"
-          >
-            {amountError ?? "Deposit"}
-          </button>
-        </div>
-      </div>
-    );
-  }
+  }, []);
 
   return (
     <div
-      className={screenTransition === "back" ? "earn-deposit-screen-back" : ""}
       style={{
         background: "#fff",
         display: "flex",
@@ -2880,22 +2569,34 @@ export function EarnDepositView({
       }}
     >
       <style jsx>{`
-        .earn-deposit-next:hover {
+        .earn-deposit-max:hover,
+        .earn-deposit-submit:not(:disabled):hover {
           background: #222 !important;
         }
-        .earn-deposit-screen-back {
-          animation: earn-deposit-screen-back 0.24s
-            cubic-bezier(0.2, 0, 0, 1) both;
+        .earn-deposit-amount-input::selection {
+          background: rgba(249, 54, 60, 0.18);
         }
-        .earn-yield-sheet {
-          animation: earn-yield-sheet-open 0.18s ease forwards;
+        .earn-deposit-amount-input::placeholder {
+          color: rgba(60, 60, 67, 0.4);
+          opacity: 1;
+        }
+        .earn-forecast-chip {
+          transition:
+            background 0.15s ease,
+            color 0.15s ease;
+        }
+        .earn-forecast-chip:hover:not(.earn-forecast-chip-active) {
+          background: rgba(0, 0, 0, 0.04);
+        }
+        .earn-source-sheet {
+          animation: earn-source-sheet-open 0.18s ease forwards;
           transform-origin: top center;
         }
-        .earn-yield-sheet-closing {
-          animation: earn-yield-sheet-close 0.18s ease forwards;
+        .earn-source-sheet-closing {
+          animation: earn-source-sheet-close 0.18s ease forwards;
           pointer-events: none;
         }
-        @keyframes earn-yield-sheet-open {
+        @keyframes earn-source-sheet-open {
           0% {
             opacity: 0;
             transform: translateY(-6px) scale(0.985);
@@ -2905,7 +2606,7 @@ export function EarnDepositView({
             transform: translateY(0) scale(1);
           }
         }
-        @keyframes earn-yield-sheet-close {
+        @keyframes earn-source-sheet-close {
           0% {
             opacity: 1;
             transform: translateY(0) scale(1);
@@ -2913,21 +2614,6 @@ export function EarnDepositView({
           100% {
             opacity: 0;
             transform: translateY(-6px) scale(0.985);
-          }
-        }
-        @keyframes earn-deposit-screen-back {
-          0% {
-            opacity: 0;
-            transform: translateX(-20px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .earn-deposit-screen-back {
-            animation: none;
           }
         }
       `}</style>
@@ -2936,7 +2622,7 @@ export function EarnDepositView({
           alignItems: "center",
           display: "flex",
           justifyContent: "space-between",
-          padding: "16px 20px 8px",
+          padding: "10px 20px 8px",
         }}
       >
         <h2
@@ -2972,88 +2658,74 @@ export function EarnDepositView({
             display: "flex",
             flexDirection: "column",
             padding: "8px",
-            position: "relative",
             width: "100%",
-            zIndex: 2,
           }}
         >
-          <div style={{ padding: "3px 12px 1px" }}>
-            <p
-              style={{
-                color: secondary,
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                margin: 0,
-                padding: "12px 0 4px",
-              }}
-            >
-              Earn with
-            </p>
-          </div>
-          <DepositVaultRow
-            isOpen={isYieldMenuOpen}
-            isPulsing={selectionPulseId === selectedVault.id}
-            isTrigger
-            onClick={toggleYieldMenu}
-            vault={selectedVault}
-          />
-          {shouldShowYieldMenu ? (
-            <div
-              className={`earn-yield-sheet ${
-                isYieldMenuClosing ? "earn-yield-sheet-closing" : ""
-              }`}
-              style={{
-                backdropFilter: "blur(16px)",
-                background: "rgba(255, 255, 255, 0.7)",
-                borderRadius: "16px",
-                boxShadow:
-                  "0 0 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08)",
-                display: "flex",
-                flexDirection: "column",
-                left: "8px",
-                overflow: "hidden",
-                padding: "8px",
-                position: "absolute",
-                right: "8px",
-                top: "116px",
-                WebkitBackdropFilter: "blur(16px)",
-                zIndex: 4,
-              }}
-            >
-              {EARN_DEPOSIT_VAULTS.map((vault) => (
-                <DepositVaultRow
-                  isHighlighted={vault.id !== selectedVaultId}
-                  isPulsing={selectionPulseId === vault.id}
-                  isSelected={vault.id === selectedVaultId}
-                  key={vault.id}
-                  onClick={() => handleYieldSelect(vault.id)}
-                  vault={vault}
-                />
-              ))}
-            </div>
-          ) : null}
+          <DepositVaultRow vault={TOP_DEPOSIT_VAULT} />
         </section>
 
-        <section style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, padding: "8px", width: "100%" }}>
-          <div style={{ padding: "3px 12px 1px" }}>
+        <section style={{ display: "flex", flexDirection: "column", padding: "8px", width: "100%" }}>
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              gap: "8px",
+              justifyContent: "space-between",
+              padding: "12px 12px 8px",
+              width: "100%",
+            }}
+          >
             <p
               style={{
                 color: secondary,
+                flexShrink: 0,
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
                 lineHeight: "20px",
                 margin: 0,
-                padding: "12px 0 4px",
               }}
             >
               Estimated earnings
             </p>
+            <div
+              style={{
+                display: "flex",
+                flexShrink: 0,
+                gap: "4px",
+              }}
+            >
+              {FORECAST_AMOUNT_PRESETS.map((preset) => {
+                const isActive = preset.value === forecastAmount;
+                return (
+                  <button
+                    className={`earn-forecast-chip ${
+                      isActive ? "earn-forecast-chip-active" : ""
+                    }`}
+                    key={preset.value}
+                    onClick={() => handleChipClick(preset.value)}
+                    style={{
+                      background: isActive ? "#000" : "transparent",
+                      border: "none",
+                      borderRadius: "9999px",
+                      color: isActive ? "#fff" : secondary,
+                      cursor: "pointer",
+                      fontFamily: font,
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      lineHeight: "16px",
+                      padding: "4px 10px",
+                    }}
+                    type="button"
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div style={{ padding: "12px", width: "100%" }}>
-            <DepositChart />
+            <DepositChart key={forecastAmount} principal={forecastAmount} />
             <div
               style={{
                 display: "flex",
@@ -3065,18 +2737,18 @@ export function EarnDepositView({
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ color: secondary, fontFamily: font, fontSize: "13px", lineHeight: "16px" }}>
-                  May 2026
+                  {FORECAST_DATES[0]}
                 </span>
                 <span style={{ color: "#000", fontFamily: font, fontSize: "16px", fontWeight: 500, lineHeight: "20px" }}>
-                  $1,000<span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
+                  {formatForecastMoney(forecastAmount, true)}
                 </span>
               </div>
               <div style={{ alignItems: "flex-end", display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ color: secondary, fontFamily: font, fontSize: "13px", lineHeight: "16px" }}>
-                  May 2027
+                  {FORECAST_DATES[FORECAST_DATES.length - 1]}
                 </span>
                 <span style={{ alignItems: "center", color: "#34C759", display: "flex", fontFamily: font, fontSize: "16px", fontWeight: 500, gap: "4px", lineHeight: "20px" }}>
-                  $1,120.48
+                  {formatForecastMoney(forecastAmount * FORECAST_TARGET_MULTIPLIER)}
                   <span style={{ alignItems: "center", background: "#34C759", borderRadius: "4px", display: "inline-flex", height: "16px", justifyContent: "center", width: "16px" }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img alt="" aria-hidden="true" src="/wallet-workspace/earn-growth-arrow.svg" style={{ height: "12px", width: "12px" }} />
@@ -3084,6 +2756,201 @@ export function EarnDepositView({
                 </span>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px 8px 0",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              padding: "8px 12px",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                alignItems: "center",
+                display: "flex",
+                gap: "4px",
+                width: "100%",
+              }}
+            >
+              <div
+                style={{
+                  alignItems: "baseline",
+                  display: "flex",
+                  flex: 1,
+                  gap: "8px",
+                  minWidth: 0,
+                }}
+              >
+                <input
+                  className="earn-deposit-amount-input"
+                  inputMode="decimal"
+                  ref={amountInputRef}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "" || /^[\d,]*\.?\d*$/.test(value)) {
+                      setDepositAmount(value);
+                      scheduleForecastFromInput(value);
+                    }
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#000",
+                    flexShrink: 1,
+                    fontFamily: font,
+                    fontSize: "40px",
+                    fontWeight: 600,
+                    lineHeight: "48px",
+                    minWidth: 0,
+                    outline: "none",
+                    padding: 0,
+                    width: `${Math.max(depositAmount.length, 1)}ch`,
+                  }}
+                  placeholder="0"
+                  type="text"
+                  value={depositAmount}
+                />
+                <span
+                  style={{
+                    color: "rgba(60, 60, 67, 0.4)",
+                    fontFamily: font,
+                    fontSize: "28px",
+                    fontWeight: 600,
+                    lineHeight: "32px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  USDC
+                </span>
+              </div>
+              <button
+                className="earn-deposit-max"
+                onClick={() => {
+                  const maxValue =
+                    selectedSource.balanceWhole.replace(/^0+/, "") || "0";
+                  setDepositAmount(maxValue);
+                  scheduleForecastFromInput(maxValue);
+                }}
+                style={{
+                  background: "#000",
+                  border: "none",
+                  borderRadius: "9999px",
+                  color: "#fff",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  padding: "6px 16px",
+                  transition: "background 0.15s ease",
+                }}
+                type="button"
+              >
+                MAX
+              </button>
+            </div>
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+              }}
+            >
+              {depositUsdDisplay}
+            </span>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            position: "relative",
+            width: "100%",
+            zIndex: 2,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+            <div style={{ padding: "3px 12px 1px" }}>
+              <p
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  margin: 0,
+                  padding: "12px 0 4px",
+                }}
+              >
+                From
+              </p>
+            </div>
+            <DepositSourceRow
+              isOpen={isSourceMenuOpen}
+              isTrigger
+              onClick={toggleSourceMenu}
+              source={selectedSource}
+            />
+            {shouldShowSourceMenu ? (
+              <div
+                className={`earn-source-sheet ${
+                  isSourceMenuClosing ? "earn-source-sheet-closing" : ""
+                }`}
+                style={{
+                  backdropFilter: "blur(16px)",
+                  background: "rgba(255, 255, 255, 0.7)",
+                  borderRadius: "16px",
+                  boxShadow:
+                    "0 0 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08)",
+                  display: "flex",
+                  flexDirection: "column",
+                  left: "8px",
+                  overflow: "hidden",
+                  padding: "8px",
+                  position: "absolute",
+                  right: "8px",
+                  top: "44px",
+                  WebkitBackdropFilter: "blur(16px)",
+                  zIndex: 4,
+                }}
+              >
+                {sourceOptions.map((source, index) => (
+                  <DepositSourceRow
+                    isHighlighted={
+                      source.id !== selectedSource.id &&
+                      index ===
+                        Math.min(
+                          sourceOptions.findIndex(
+                            (option) => option.id === selectedSource.id
+                          ) + 1,
+                          sourceOptions.length - 1
+                        )
+                    }
+                    isSelected={source.id === selectedSource.id}
+                    key={source.id}
+                    onClick={() => handleSourceSelect(source.id)}
+                    source={source}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
         </section>
       </div>
@@ -3096,15 +2963,24 @@ export function EarnDepositView({
         }}
       >
         <button
-          className="earn-deposit-next"
-          onClick={handleOverviewPrimaryClick}
+          className="earn-deposit-submit"
+          disabled={isDepositButtonDisabled}
+          onClick={onComplete}
           style={{
             alignItems: "center",
-            background: "#000",
+            background: amountError
+              ? "rgba(249, 54, 60, 0.14)"
+              : isDepositButtonDisabled
+                ? "rgba(0, 0, 0, 0.04)"
+                : "#000",
             border: "none",
             borderRadius: "78px",
-            color: "#fff",
-            cursor: "pointer",
+            color: amountError
+              ? "#F9363C"
+              : isDepositButtonDisabled
+                ? secondary
+                : "#fff",
+            cursor: isDepositButtonDisabled ? "default" : "pointer",
             display: "flex",
             fontFamily: font,
             fontSize: "17px",
@@ -3113,11 +2989,12 @@ export function EarnDepositView({
             justifyContent: "center",
             lineHeight: "22px",
             padding: "15px 12px",
+            transition: "background 0.15s ease",
             width: "100%",
           }}
           type="button"
         >
-          {isYieldMenuOpen ? "Select" : "Next"}
+          {amountError ?? "Deposit"}
         </button>
       </div>
     </div>
