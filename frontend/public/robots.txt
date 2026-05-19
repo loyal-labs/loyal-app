@@ -49,6 +49,7 @@ Disallow: /app
 Disallow: /app/
 Disallow: /500
 Disallow: /_next/
+Disallow: /*.json$
 
 Sitemap: https://askloyal.com/sitemap.xml
-Host: https://askloyal.com
+Host: askloyal.com
