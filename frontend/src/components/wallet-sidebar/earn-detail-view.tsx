@@ -42,9 +42,19 @@ export type EarnDepositSourceOption = {
   addressLabel: string;
   balanceFraction: string;
   balanceWhole: string;
+  accountIndex?: number;
+  decimals?: number;
   icon: string;
   id: string;
   label: string;
+  mint?: string;
+  sourceType?: "vault" | "wallet";
+};
+
+export type EarnDepositRequest = {
+  amount: number;
+  amountText: string;
+  source: EarnDepositSourceOption;
 };
 
 const FALLBACK_EARN_DEPOSIT_SOURCES: EarnDepositSourceOption[] = [
@@ -2432,10 +2442,16 @@ function DepositChart({ principal = 1000 }: { principal?: number }) {
 export function EarnDepositView({
   onComplete,
   onClose,
+  isSubmitting = false,
+  submitError,
+  submitNotice,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
-  onComplete?: () => void;
+  onComplete?: (request: EarnDepositRequest) => void | Promise<void>;
   onClose?: () => void;
+  isSubmitting?: boolean;
+  submitError?: string | null;
+  submitNotice?: string | null;
   sources?: EarnDepositSourceOption[];
 }) {
   const amountInputRef = useRef<HTMLInputElement | null>(null);
@@ -2475,7 +2491,8 @@ export function EarnDepositView({
       : hasDepositAmount && numericDepositAmount > selectedSourceBalance
         ? "Insufficient balance"
         : null;
-  const isDepositButtonDisabled = !hasDepositAmount || amountError !== null;
+  const isDepositButtonDisabled =
+    isSubmitting || !hasDepositAmount || amountError !== null;
   const shouldShowSourceMenu = isSourceMenuOpen || isSourceMenuClosing;
   const openSourceMenu = () => {
     if (sourceCloseTimerRef.current) {
@@ -2508,6 +2525,15 @@ export function EarnDepositView({
   const handleSourceSelect = (sourceId: string) => {
     setSelectedSourceId(sourceId);
     closeSourceMenu();
+  };
+  const handleDepositSubmit = () => {
+    if (isDepositButtonDisabled) return;
+
+    void onComplete?.({
+      amount: numericDepositAmount,
+      amountText: depositAmount,
+      source: selectedSource,
+    });
   };
 
   const forecastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -2546,7 +2572,9 @@ export function EarnDepositView({
 
   useEffect(() => {
     if (!sourceOptions.some((source) => source.id === selectedSourceId)) {
-      setSelectedSourceId(sourceOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id);
+      setSelectedSourceId(
+        sourceOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id
+      );
     }
   }, [selectedSourceId, sourceOptions]);
 
@@ -2571,7 +2599,7 @@ export function EarnDepositView({
       <style jsx>{`
         .earn-deposit-max:hover,
         .earn-deposit-submit:not(:disabled):hover {
-          background: #222 !important;
+          background: #e43136 !important;
         }
         .earn-deposit-amount-input::selection {
           background: rgba(249, 54, 60, 0.18);
@@ -2838,8 +2866,15 @@ export function EarnDepositView({
               <button
                 className="earn-deposit-max"
                 onClick={() => {
-                  const maxValue =
+                  const maxWhole =
                     selectedSource.balanceWhole.replace(/^0+/, "") || "0";
+                  const maxFraction = selectedSource.balanceFraction.replace(
+                    /0+$/,
+                    ""
+                  );
+                  const maxValue = maxFraction
+                    ? `${maxWhole}.${maxFraction}`
+                    : maxWhole;
                   setDepositAmount(maxValue);
                   scheduleForecastFromInput(maxValue);
                 }}
@@ -2962,17 +2997,32 @@ export function EarnDepositView({
           width: "100%",
         }}
       >
+        {submitError || submitNotice ? (
+          <p
+            style={{
+              color: submitError ? "#F9363C" : secondary,
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 500,
+              lineHeight: "18px",
+              margin: "0 0 8px",
+              textAlign: "center",
+            }}
+          >
+            {submitError ?? submitNotice}
+          </p>
+        ) : null}
         <button
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}
-          onClick={onComplete}
+          onClick={handleDepositSubmit}
           style={{
             alignItems: "center",
             background: amountError
               ? "rgba(249, 54, 60, 0.14)"
               : isDepositButtonDisabled
                 ? "rgba(0, 0, 0, 0.04)"
-                : "#000",
+                : "#F9363C",
             border: "none",
             borderRadius: "78px",
             color: amountError
@@ -2994,7 +3044,7 @@ export function EarnDepositView({
           }}
           type="button"
         >
-          {amountError ?? "Deposit"}
+          {amountError ?? (isSubmitting ? "Depositing..." : "Deposit")}
         </button>
       </div>
     </div>

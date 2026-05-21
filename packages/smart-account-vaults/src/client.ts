@@ -59,6 +59,8 @@ import {
 import type {
   SmartAccountOverview,
   SmartAccountAddSignerProposalInput,
+  SmartAccountCreateYieldRoutingPolicyInput,
+  SmartAccountCreateYieldRoutingPolicyResult,
   SmartAccountCustomInstructionProposalInput,
   SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
@@ -80,6 +82,7 @@ import type {
   SmartAccountVaultSnapshot,
   SmartAccountVaultsClientConfig,
 } from "./types";
+import { buildKaminoRebalancePolicyCreationPayload } from "./yield-routing";
 import {
   SOL_SPENDING_LIMIT_MINT,
   formatTokenAmount,
@@ -2102,6 +2105,65 @@ export function createSmartAccountVaultsClient(
       );
   }
 
+  async function prepareCreateYieldRoutingPolicy(
+    args: SmartAccountCreateYieldRoutingPolicyInput
+  ): Promise<SmartAccountCreateYieldRoutingPolicyResult> {
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const nextPolicySeed = resolveNextPolicySeed(settings);
+    const rebalancePolicyPda = pda.getPolicyPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      policySeed: nextPolicySeed.number,
+    })[0];
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex,
+    })[0];
+
+    const policyCreationPayload = buildKaminoRebalancePolicyCreationPayload({
+      accountIndex,
+      vault: vaultPda,
+      reserves: args.kaminoReserves,
+      klendProgramId: args.klendProgramId,
+    });
+    const change = await prepareSettingsChange({
+      actions: [
+        {
+          __kind: "PolicyCreate",
+          seed: toBn(nextPolicySeed.bigint),
+          policyCreationPayload,
+          signers: [createPolicySigner(args.delegatedSigner)],
+          threshold: 1,
+          timeLock: 0,
+          startTimestamp: null,
+          expirationArgs: null,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "createYieldRoutingPolicy",
+      policies: [rebalancePolicyPda],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+
+    return {
+      ...change,
+      policies: {
+        rebalance: rebalancePolicyPda,
+      },
+      policySeeds: {
+        rebalance: nextPolicySeed.bigint,
+      },
+    };
+  }
+
   async function resolveAgentPolicy(args: SmartAccountAddSignerProposalInput) {
     const accountIndex = resolveVaultAccountIndex(args.accountIndex);
 
@@ -2991,6 +3053,7 @@ export function createSmartAccountVaultsClient(
     prepareSplTransferProposal,
     prepareCustomInstructionProposal,
     preparePolicyCustomInstructionProposal,
+    prepareCreateYieldRoutingPolicy,
     prepareAddInitiateSigner,
     prepareRemoveInitiateSigner,
     prepareUpdateSignerPermissions,

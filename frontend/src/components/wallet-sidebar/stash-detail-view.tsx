@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -28,6 +29,15 @@ import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
+
+export type YieldRoutingPrompt = {
+  title: string;
+  body: string;
+  ctaLabel: string;
+  isPending?: boolean;
+  error?: string | null;
+  onCreate: () => void;
+};
 
 function formatAddressForDisplay(address: string): string {
   if (address.length <= 12) {
@@ -54,6 +64,7 @@ export function StashDetailView({
   getTokenActions,
   onTokenDetail,
   onActivityTabOpen,
+  yieldRoutingPrompt,
   initialTab = "tokens",
 }: {
   accountIndex: number;
@@ -72,6 +83,7 @@ export function StashDetailView({
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
   onActivityTabOpen?: () => void;
+  yieldRoutingPrompt?: YieldRoutingPrompt | null;
   initialTab?: "activity" | "tokens";
 }) {
   const [activeTab, setActiveTab] =
@@ -120,6 +132,9 @@ export function StashDetailView({
         }
         .stash-address-btn:hover {
           opacity: 0.72 !important;
+        }
+        .stash-yield-routing-btn:hover:not(:disabled) {
+          background: rgba(249, 54, 60, 0.22) !important;
         }
         @container (max-width: 440px) {
           .stash-action-label {
@@ -402,6 +417,116 @@ export function StashDetailView({
             </span>
           </button>
         </div>
+
+        {yieldRoutingPrompt && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              padding: "8px 20px",
+            }}
+          >
+            <div
+              style={{
+                alignItems: "center",
+                background: "rgba(249, 54, 60, 0.08)",
+                borderRadius: "12px",
+                display: "flex",
+                gap: "12px",
+                padding: "12px",
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  alignItems: "center",
+                  background: "rgba(249, 54, 60, 0.14)",
+                  borderRadius: "9999px",
+                  color: "#F9363C",
+                  display: "inline-flex",
+                  flexShrink: 0,
+                  height: "36px",
+                  justifyContent: "center",
+                  width: "36px",
+                }}
+              >
+                <Sparkles size={18} strokeWidth={1.8} />
+              </span>
+              <div
+                style={{
+                  display: "flex",
+                  flex: 1,
+                  flexDirection: "column",
+                  gap: "2px",
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    lineHeight: "18px",
+                  }}
+                >
+                  {yieldRoutingPrompt.title}
+                </span>
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                  }}
+                >
+                  {yieldRoutingPrompt.body}
+                </span>
+                {yieldRoutingPrompt.error && (
+                  <span
+                    style={{
+                      color: "#F9363C",
+                      fontFamily: font,
+                      fontSize: "12px",
+                      fontWeight: 500,
+                      lineHeight: "16px",
+                    }}
+                  >
+                    {yieldRoutingPrompt.error}
+                  </span>
+                )}
+              </div>
+              <button
+                className="stash-yield-routing-btn"
+                disabled={yieldRoutingPrompt.isPending}
+                onClick={yieldRoutingPrompt.onCreate}
+                style={{
+                  background: "rgba(249, 54, 60, 0.14)",
+                  border: "none",
+                  borderRadius: "9999px",
+                  color: "#000",
+                  cursor: yieldRoutingPrompt.isPending ? "default" : "pointer",
+                  flexShrink: 0,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  lineHeight: "18px",
+                  opacity: yieldRoutingPrompt.isPending ? 0.58 : 1,
+                  padding: "8px 12px",
+                  transition: "background 0.15s ease, opacity 0.15s ease",
+                  whiteSpace: "nowrap",
+                }}
+                type="button"
+              >
+                {yieldRoutingPrompt.isPending
+                  ? "Creating..."
+                  : yieldRoutingPrompt.ctaLabel}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div
           style={{

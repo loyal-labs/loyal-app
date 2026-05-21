@@ -2583,6 +2583,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "loyal-hub-swap-program"
+version = "0.1.0"
+dependencies = [
+ "solana-program 2.3.0",
+ "solana-system-interface 1.0.0",
+ "spl-token",
+]
+
+[[package]]
 name = "loyal-smart-accounts-rs"
 version = "0.1.0"
 dependencies = [

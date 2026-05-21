@@ -2,6 +2,7 @@
 
 import {
   createSmartAccountVaultsClient,
+  KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
   sendPreparedWithWallet,
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
@@ -10,7 +11,9 @@ import {
   type SmartAccountSignerSnapshot,
   type SmartAccountSpendingLimitSnapshot,
   type SmartAccountVaultSnapshot,
+  type SmartAccountYieldRoutingKaminoReserve,
 } from "@loyal-labs/smart-account-vaults";
+import { getKaminoModifyBalanceAccountsForTokenMint } from "@loyal-labs/private-transactions";
 import {
   type ActivityPage,
   NATIVE_SOL_MINT,
@@ -23,14 +26,19 @@ import type {
   Connection,
   SendOptions,
   Transaction,
-  TransactionInstruction,
   VersionedTransaction,
 } from "@solana/web3.js";
 import {
   LAMPORTS_PER_SOL,
   PublicKey,
+  TransactionInstruction,
   TransactionMessage,
 } from "@solana/web3.js";
+import {
+  createAssociatedTokenAccountIdempotentInstruction,
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -39,6 +47,12 @@ import type {
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import type {
+  SaveYieldRoutingPolicyRequest,
+  SaveYieldRoutingPolicyResponse,
+  YieldRoutingPoliciesResponse,
+  YieldRoutingPolicyRecord,
+} from "@/features/yield-routing/types";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
@@ -165,6 +179,33 @@ export type VaultSwapRequest = {
 
 export type VaultSwapResult = VaultTransferResult;
 
+export type YieldRoutingPolicyCreationRequest = {
+  accountIndex: number;
+  routeMint: string;
+  delegatedSigner: string;
+  kaminoReserves: Array<{
+    reserve: string;
+    market: string;
+    liquidityMint: string;
+  }>;
+};
+
+export type YieldRoutingPolicyCreationResult = VaultTransferResult & {
+  policyAddress?: string;
+  policySeed?: string;
+};
+
+export type VaultKaminoDepositRequest = {
+  accountIndex: number;
+  amount: number;
+  amountText?: string;
+  routeMint: string;
+  decimals?: number;
+  symbol?: string;
+};
+
+export type VaultKaminoDepositResult = VaultTransferResult;
+
 export type VaultTransferCapability =
   | { kind: "blocked"; reason: string }
   | {
@@ -186,6 +227,8 @@ export type SmartAccountSidebarData = {
   error: string | null;
   totalUsd: number;
   vaultEntries: SmartAccountVaultEntry[];
+  yieldRoutingPolicies: YieldRoutingPolicyRecord[];
+  isYieldRoutingPoliciesLoading: boolean;
   selectedVaultIndex: number;
   setSelectedVaultIndex: (index: number) => void;
   selectedVault: SmartAccountVaultView | null;
@@ -278,6 +321,12 @@ export type SmartAccountSidebarData = {
     request: VaultTransferRequest
   ) => Promise<VaultTransferResult>;
   executeVaultSwap: (request: VaultSwapRequest) => Promise<VaultSwapResult>;
+  createYieldRoutingPolicy: (
+    request: YieldRoutingPolicyCreationRequest
+  ) => Promise<YieldRoutingPolicyCreationResult>;
+  executeVaultKaminoDeposit: (
+    request: VaultKaminoDepositRequest
+  ) => Promise<VaultKaminoDepositResult>;
   isActionPending: boolean;
   pendingProposalId: string | null;
   pendingSpendingLimitActionKey: string | null;
@@ -899,6 +948,100 @@ async function decompileVersionedTransaction(args: {
   };
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function saveYieldRoutingPolicyMetadata(
+  policy: SaveYieldRoutingPolicyRequest
+): Promise<YieldRoutingPolicyRecord> {
+  const retryDelaysMs = [0, 800, 2000];
+  let lastError: Error | null = null;
+
+  for (const delay of retryDelaysMs) {
+    if (delay > 0) {
+      await wait(delay);
+    }
+
+    const response = await fetch("/api/smart-accounts/yield-routing", {
+      body: JSON.stringify(policy),
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+
+    if (response.ok) {
+      const payload = (await response.json()) as SaveYieldRoutingPolicyResponse;
+      return payload.policy;
+    }
+
+    const errorPayload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    lastError = new Error(
+      errorPayload?.error?.message ?? "Failed to save yield-routing policy."
+    );
+
+    if (response.status !== 409 && response.status !== 429) {
+      break;
+    }
+  }
+
+  throw lastError ?? new Error("Failed to save yield-routing policy.");
+}
+
+function uiTokenAmountToRawAmount(args: {
+  amount: number;
+  amountText?: string;
+  decimals: number;
+}): bigint {
+  const amountText =
+    args.amountText?.trim() || args.amount.toLocaleString("en-US", {
+      maximumFractionDigits: args.decimals,
+      useGrouping: false,
+    });
+  const normalizedAmount = amountText.replaceAll(",", "");
+
+  if (!/^(?:\d+|\d*\.\d+)$/.test(normalizedAmount)) {
+    throw new Error("Deposit amount is invalid.");
+  }
+
+  const [wholePart = "0", fractionPart = ""] = normalizedAmount.split(".");
+
+  if (fractionPart.length > args.decimals) {
+    throw new Error("Amount has more decimal places than this token supports.");
+  }
+
+  const scale = BigInt(10) ** BigInt(args.decimals);
+  const wholeRaw = BigInt(wholePart || "0") * scale;
+  const paddedFraction = fractionPart.padEnd(args.decimals, "0");
+  const fractionRaw = paddedFraction ? BigInt(paddedFraction) : BigInt(0);
+  const rawAmount = wholeRaw + fractionRaw;
+
+  if (rawAmount <= BigInt(0)) {
+    throw new Error("Enter an amount greater than 0.");
+  }
+
+  if (rawAmount > BigInt("18446744073709551615")) {
+    throw new Error("Amount is too large for this token.");
+  }
+
+  return rawAmount;
+}
+
+function buildKaminoDepositReserveLiquidityData(amountRaw: bigint): Uint8Array {
+  if (amountRaw <= BigInt(0) || amountRaw > BigInt("18446744073709551615")) {
+    throw new Error("Kamino deposit amount is outside the u64 range.");
+  }
+
+  const data = new Uint8Array(16);
+  data.set(KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR, 0);
+  new DataView(data.buffer).setBigUint64(8, amountRaw, true);
+  return data;
+}
+
 function resolveVaultSolPriceUsd(
   vault: SmartAccountOverview["vaults"][number] | undefined
 ): number | null {
@@ -1129,6 +1272,13 @@ export function useSmartAccountSidebarData(
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [yieldRoutingPolicies, setYieldRoutingPolicies] = useState<
+    YieldRoutingPolicyRecord[]
+  >([]);
+  const [
+    isYieldRoutingPoliciesLoading,
+    setIsYieldRoutingPoliciesLoading,
+  ] = useState(false);
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(
@@ -1209,6 +1359,46 @@ export function useSmartAccountSidebarData(
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const loadYieldRoutingPolicies = useCallback(async () => {
+    if (!user?.settingsPda) {
+      setYieldRoutingPolicies([]);
+      return;
+    }
+
+    setIsYieldRoutingPoliciesLoading(true);
+
+    try {
+      const response = await fetch("/api/smart-accounts/yield-routing", {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorPayload = (await response
+          .json()
+          .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+        throw new Error(
+          errorPayload?.error?.message ??
+            "Failed to load yield-routing policies."
+        );
+      }
+
+      const payload = (await response.json()) as YieldRoutingPoliciesResponse;
+      setYieldRoutingPolicies(payload.policies);
+    } catch (loadError) {
+      console.warn(
+        "[smart-account-sidebar] failed to load yield-routing policies",
+        loadError
+      );
+      setYieldRoutingPolicies([]);
+    } finally {
+      setIsYieldRoutingPoliciesLoading(false);
+    }
+  }, [user?.settingsPda]);
+
+  useEffect(() => {
+    void loadYieldRoutingPolicies();
+  }, [loadYieldRoutingPolicies]);
 
   useEffect(() => {
     setSelectedVaultIndex(0);
@@ -2569,12 +2759,409 @@ export function useSmartAccountSidebarData(
     [connection, overview, refreshAfterTx, wallet]
   );
 
+  const createYieldRoutingPolicy = useCallback(
+    async (
+      request: YieldRoutingPolicyCreationRequest
+    ): Promise<YieldRoutingPolicyCreationResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to create this policy.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign smart-account transactions.",
+        };
+      }
+
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === request.accountIndex
+      );
+      if (!vault) {
+        return { success: false, error: "Stash not found." };
+      }
+
+      if (request.kaminoReserves.length === 0) {
+        return {
+          success: false,
+          error: "Yield routing needs at least one Kamino reserve.",
+        };
+      }
+
+      let delegatedSigner: PublicKey;
+      let routeMint: PublicKey;
+      let reserves: SmartAccountYieldRoutingKaminoReserve[];
+
+      try {
+        delegatedSigner = new PublicKey(request.delegatedSigner);
+        routeMint = new PublicKey(request.routeMint);
+        reserves = request.kaminoReserves.map((reserve) => ({
+          reserve: new PublicKey(reserve.reserve),
+          market: new PublicKey(reserve.market),
+          liquidityMint: new PublicKey(reserve.liquidityMint),
+        }));
+      } catch {
+        return {
+          success: false,
+          error:
+            "Yield-routing policy configuration contains an invalid address.",
+        };
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const actionKey = `yield-routing:${request.accountIndex}:${routeMint.toBase58()}`;
+
+      setIsActionPending(true);
+      setPendingSpendingLimitActionKey(actionKey);
+
+      try {
+        const prepared = await client.prepareCreateYieldRoutingPolicy({
+          settingsPda: new PublicKey(overview.settingsPda),
+          creator: wallet.publicKey,
+          feePayer: wallet.publicKey,
+          delegatedSigner,
+          accountIndex: request.accountIndex,
+          kaminoReserves: reserves,
+        });
+        const signature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: prepared.prepared,
+          confirm: true,
+        }).catch(async (sendError) => {
+          throw await normalizeSpendingLimitError(sendError, connection);
+        });
+        const policyAddress = prepared.policies.rebalance.toBase58();
+        const policySeed = prepared.policySeeds.rebalance.toString();
+        const threshold = overview.threshold ?? 1;
+
+        if (threshold > 1) {
+          void refreshAfterTx({
+            accountIndex: request.accountIndex,
+            signerAddresses: [delegatedSigner.toBase58()],
+          }).catch((err) => {
+            console.warn("[smart-account] post-tx refresh failed", err);
+          });
+
+          return {
+            success: true,
+            signature,
+            status: "proposed",
+            policyAddress,
+            policySeed,
+          };
+        }
+
+        await saveYieldRoutingPolicyMetadata({
+          accountIndex: request.accountIndex,
+          vaultAddress: vault.address,
+          routeMint: routeMint.toBase58(),
+          rebalancePolicyPda: policyAddress,
+          rebalancePolicySeed: policySeed,
+          delegatedSigner: delegatedSigner.toBase58(),
+          allowedReserves: reserves.map((reserve) =>
+            reserve.reserve.toBase58()
+          ),
+          allowedMarkets: reserves.map((reserve) => reserve.market.toBase58()),
+          allowedLiquidityMints: reserves.map((reserve) =>
+            reserve.liquidityMint.toBase58()
+          ),
+          creationSignature: signature,
+        });
+
+        void refreshAfterTx({
+          accountIndex: request.accountIndex,
+          signerAddresses: [delegatedSigner.toBase58()],
+        }).catch((err) => {
+          console.warn("[smart-account] post-tx refresh failed", err);
+        });
+        await loadYieldRoutingPolicies();
+
+        return {
+          success: true,
+          signature,
+          status: "executed",
+          policyAddress,
+          policySeed,
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error
+            ? err.message
+            : "Yield-routing policy creation failed.";
+        console.error("[createYieldRoutingPolicy] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+        setPendingSpendingLimitActionKey(null);
+      }
+    },
+    [
+      connection,
+      loadYieldRoutingPolicies,
+      overview,
+      refreshAfterTx,
+      user?.walletAddress,
+      wallet,
+    ]
+  );
+
+  const executeVaultKaminoDeposit = useCallback(
+    async (
+      request: VaultKaminoDepositRequest
+    ): Promise<VaultKaminoDepositResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const vault = overview.vaults.find(
+        (entry) => entry.accountIndex === request.accountIndex
+      );
+      if (!vault) {
+        return { success: false, error: "Stash not found." };
+      }
+
+      const connectedAddress = wallet.publicKey.toBase58();
+      const settingsSigner = overview.signers.find(
+        (signer) =>
+          signer.scope === "settings" &&
+          signer.address === connectedAddress &&
+          signer.canInitiate
+      );
+
+      if (!settingsSigner) {
+        return {
+          success: false,
+          error:
+            "Connected wallet isn't authorized to deposit from this stash. Connect a vault signer with proposal access.",
+        };
+      }
+
+      let routeMint: PublicKey;
+      try {
+        routeMint = new PublicKey(request.routeMint);
+      } catch {
+        return { success: false, error: "Kamino route mint is invalid." };
+      }
+
+      const kaminoAccounts =
+        getKaminoModifyBalanceAccountsForTokenMint(routeMint);
+      if (!kaminoAccounts) {
+        return {
+          success: false,
+          error: "Kamino deposit accounts are not configured for this mint.",
+        };
+      }
+
+      const decimals = request.decimals ?? kaminoAccounts.liquidityDecimals;
+      let amountRaw: bigint;
+      try {
+        amountRaw = uiTokenAmountToRawAmount({
+          amount: request.amount,
+          amountText: request.amountText,
+          decimals,
+        });
+      } catch (err) {
+        return {
+          success: false,
+          error:
+            err instanceof Error ? err.message : "Deposit amount is invalid.",
+        };
+      }
+
+      const vaultPda = new PublicKey(vault.address);
+      const vaultLiquidityTokenAccount = getAssociatedTokenAddressSync(
+        routeMint,
+        vaultPda,
+        true,
+        TOKEN_PROGRAM_ID
+      );
+      const vaultCollateralTokenAccount = getAssociatedTokenAddressSync(
+        kaminoAccounts.reserveCollateralMint,
+        vaultPda,
+        true,
+        TOKEN_PROGRAM_ID
+      );
+      const instructions: TransactionInstruction[] = [
+        createAssociatedTokenAccountIdempotentInstruction(
+          vaultPda,
+          vaultCollateralTokenAccount,
+          vaultPda,
+          kaminoAccounts.reserveCollateralMint,
+          TOKEN_PROGRAM_ID
+        ),
+        new TransactionInstruction({
+          programId: kaminoAccounts.klendProgram,
+          keys: [
+            { pubkey: vaultPda, isSigner: true, isWritable: false },
+            {
+              pubkey: kaminoAccounts.reserve,
+              isSigner: false,
+              isWritable: true,
+            },
+            {
+              pubkey: kaminoAccounts.lendingMarket,
+              isSigner: false,
+              isWritable: false,
+            },
+            {
+              pubkey: kaminoAccounts.lendingMarketAuthority,
+              isSigner: false,
+              isWritable: false,
+            },
+            { pubkey: routeMint, isSigner: false, isWritable: false },
+            {
+              pubkey: kaminoAccounts.reserveLiquiditySupply,
+              isSigner: false,
+              isWritable: true,
+            },
+            {
+              pubkey: kaminoAccounts.reserveCollateralMint,
+              isSigner: false,
+              isWritable: true,
+            },
+            {
+              pubkey: vaultLiquidityTokenAccount,
+              isSigner: false,
+              isWritable: true,
+            },
+            {
+              pubkey: vaultCollateralTokenAccount,
+              isSigner: false,
+              isWritable: true,
+            },
+            { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+            { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+            {
+              pubkey: kaminoAccounts.instructionSysvarAccount,
+              isSigner: false,
+              isWritable: false,
+            },
+          ],
+          data: Buffer.from(buildKaminoDepositReserveLiquidityData(amountRaw)),
+        }),
+      ];
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+      const actionKey = `kamino-deposit:${request.accountIndex}:${routeMint.toBase58()}`;
+
+      setIsActionPending(true);
+      setPendingSpendingLimitActionKey(actionKey);
+
+      try {
+        const preparedProposal = await client.prepareCustomInstructionProposal({
+          settingsPda,
+          creator: wallet.publicKey,
+          feePayer: wallet.publicKey,
+          instructions,
+          accountIndex: request.accountIndex,
+          memo: `Deposit ${request.symbol ?? "USDC"} to Kamino`,
+        });
+        const proposeSignature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: preparedProposal,
+          confirm: true,
+        });
+        const threshold = overview.threshold ?? 1;
+
+        if (threshold > 1) {
+          await refreshAfterTx({ accountIndex: request.accountIndex });
+          return {
+            success: true,
+            signature: proposeSignature,
+            status: "proposed",
+          };
+        }
+
+        const settingsAfterPropose =
+          await client.sdk.smartAccounts.queries.fetchSettings(settingsPda);
+        const transactionIndex = BigInt(
+          String(settingsAfterPropose.transactionIndex)
+        );
+
+        const approveOp = await client.prepareApproveProposal({
+          settingsPda,
+          transactionIndex,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+        });
+        await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: approveOp,
+          confirm: true,
+        });
+
+        const executeOp = await client.prepareExecuteProposal({
+          settingsPda,
+          transactionIndex,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+        });
+        const executeSignature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: executeOp,
+          confirm: true,
+        });
+
+        await refreshAfterTx({ accountIndex: request.accountIndex });
+        return {
+          success: true,
+          signature: executeSignature,
+          status: "executed",
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Kamino deposit failed.";
+        console.error("[executeVaultKaminoDeposit] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+        setPendingSpendingLimitActionKey(null);
+      }
+    },
+    [connection, overview, refreshAfterTx, wallet]
+  );
+
   return {
     overview,
     isLoading,
     error,
     totalUsd,
     vaultEntries,
+    yieldRoutingPolicies,
+    isYieldRoutingPoliciesLoading,
     selectedVaultIndex,
     setSelectedVaultIndex,
     selectedVault,
@@ -2594,6 +3181,8 @@ export function useSmartAccountSidebarData(
     evaluateVaultTransferCapability,
     executeVaultTransfer,
     executeVaultSwap,
+    createYieldRoutingPolicy,
+    executeVaultKaminoDeposit,
     isActionPending,
     pendingProposalId,
     pendingSpendingLimitActionKey,

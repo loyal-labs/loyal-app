@@ -1,0 +1,13 @@
+[package]
+name = "loyal-hub-swap-program"
+version = "0.1.0"
+edition = "2021"
+description = "Small policy-gated stable swap hub for Loyal yield routing tests"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+solana-program = "2.3.0"
+solana-system-interface = { version = "1.0.0", features = ["bincode"] }
+spl-token = { version = "8.0.0", features = ["no-entrypoint"] }

@@ -52,11 +52,13 @@ describe("public config", () => {
       NEXT_PUBLIC_MIXPANEL_TOKEN: "  token  ",
       NEXT_PUBLIC_MIXPANEL_PROXY_PATH: " ingest-custom ",
       NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID: " usercentrics-id ",
+      NEXT_PUBLIC_YIELD_ROUTING_DELEGATED_SIGNER: " signer-address ",
     });
 
     expect(env.mixpanelToken).toBe("token");
     expect(env.mixpanelProxyPath).toBe("/ingest-custom");
     expect(env.usercentricsSettingsId).toBe("usercentrics-id");
+    expect(env.yieldRoutingDelegatedSigner).toBe("signer-address");
   });
 
   test("defaults mixpanel proxy path and git metadata when unset", () => {

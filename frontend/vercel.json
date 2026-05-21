@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/cron/yield-routing",
+      "schedule": "0 * * * *"
+    }
+  ],
   "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../packages ../sdk",
   "installCommand": "rm -rf node_modules && cd .. && bun install --frozen-lockfile",
   "buildCommand": "bun run build"

@@ -3,19 +3,16 @@
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  ChartNoAxesColumn,
   Copy,
   Eye,
   EyeOff,
   File as FileIcon,
   KeyRound,
-  Layers2,
   LayoutTemplate,
   LogOut,
   Plus,
   RefreshCw,
   Repeat2,
-  Settings,
   Shield as ShieldIcon,
   Sparkles,
   Wallet,
@@ -49,6 +46,7 @@ import {
   EarnDepositView,
   EarnDetailView,
   EarnWithdrawView,
+  type EarnDepositRequest,
   type EarnDepositSourceOption,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import type { PermissionChangeDraft } from "@/components/wallet-sidebar/permission-preview-content";
@@ -82,6 +80,7 @@ import type {
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
+import { useShield } from "@/hooks/use-shield";
 import {
   splitUsdBalance,
   useWalletDesktopData,
@@ -89,6 +88,7 @@ import {
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { getYieldRoutingDefaults } from "@/features/yield-routing/defaults";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
@@ -727,6 +727,7 @@ export function AppWalletWorkspace({
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
+  const { executeShield } = useShield();
   const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn, close: closeSignIn } = useSignInModal();
   const signInOpenedForConnectRef = useRef(false);
@@ -758,6 +759,14 @@ export function AppWalletWorkspace({
   const [detailPaneTransition, setDetailPaneTransition] =
     useState<DetailPaneTransition>("switch");
   const [hasEarnPosition, setHasEarnPosition] = useState(false);
+  const [yieldRoutingError, setYieldRoutingError] = useState<string | null>(
+    null
+  );
+  const [earnDepositError, setEarnDepositError] = useState<string | null>(null);
+  const [earnDepositNotice, setEarnDepositNotice] = useState<string | null>(
+    null
+  );
+  const [isEarnDepositSubmitting, setIsEarnDepositSubmitting] = useState(false);
   const [detailPaneTransitionKey, setDetailPaneTransitionKey] = useState(0);
   const [actionReturnSelection, setActionReturnSelection] =
     useState<Exclude<DetailSelection, "action">>("vault");
@@ -843,6 +852,14 @@ export function AppWalletWorkspace({
   const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   const prevHadTokensRef = useRef(false);
   const selectedVault = smartAccountData.selectedVault;
+  const yieldRoutingDefaults = useMemo(
+    () =>
+      getYieldRoutingDefaults({
+        solanaEnv: publicEnv.solanaEnv,
+        delegatedSigner: publicEnv.yieldRoutingDelegatedSigner,
+      }),
+    [publicEnv.solanaEnv, publicEnv.yieldRoutingDelegatedSigner]
+  );
   const activeDetailSelection =
     detailSelection === "action" ? actionReturnSelection : detailSelection;
   const isEarnReviewContext =
@@ -914,6 +931,34 @@ export function AppWalletWorkspace({
     [smartAccountData.approvals]
   );
   const selectedVaultAccountIndex = selectedVault?.entry.accountIndex ?? 0;
+  const findYieldRoutingPolicy = useCallback(
+    (accountIndex: number) =>
+      smartAccountData.yieldRoutingPolicies.find(
+        (policy) =>
+          policy.state === "active" &&
+          policy.accountIndex === accountIndex &&
+          policy.routeMint === yieldRoutingDefaults?.routeMint
+      ) ?? null,
+    [smartAccountData.yieldRoutingPolicies, yieldRoutingDefaults?.routeMint]
+  );
+  const selectedVaultYieldRoutingPolicy = selectedVault
+    ? findYieldRoutingPolicy(selectedVault.entry.accountIndex)
+    : null;
+  const selectedVaultRoutePosition = useMemo(() => {
+    if (!(selectedVault && yieldRoutingDefaults)) return null;
+
+    return (
+      selectedVault.positions.find(
+        (position) => position.asset.mint === yieldRoutingDefaults.routeMint
+      ) ?? null
+    );
+  }, [selectedVault, yieldRoutingDefaults]);
+  const isYieldRoutingActionPending =
+    smartAccountData.isActionPending &&
+    smartAccountData.pendingSpendingLimitActionKey ===
+      `yield-routing:${selectedVaultAccountIndex}:${
+        yieldRoutingDefaults?.routeMint ?? ""
+      }`;
   const selectedVaultSpendingLimit = useMemo(() => {
     const spendingLimits = selectedVault?.spendingLimits ?? [];
 
@@ -1017,9 +1062,12 @@ export function AppWalletWorkspace({
       addressLabel: formatAddressForEarnSource(walletDesktopData.walletAddress),
       balanceFraction: mainBalance.fraction,
       balanceWhole: mainBalance.whole,
+      decimals: mainUsdcPosition?.asset.decimals ?? 6,
       icon: getWalletIcon(),
       id: "main",
       label: "Main",
+      mint: mainUsdcPosition?.asset.mint ?? yieldRoutingDefaults?.routeMint,
+      sourceType: "wallet",
     });
 
     for (const vault of smartAccountData.overview?.vaults ?? []) {
@@ -1035,9 +1083,13 @@ export function AppWalletWorkspace({
         addressLabel: formatAddressForEarnSource(vault.address),
         balanceFraction: balance.fraction,
         balanceWhole: balance.whole,
+        accountIndex: vault.accountIndex,
+        decimals: usdcPosition?.asset.decimals ?? 6,
         icon: getVaultIcon(vault.accountIndex),
         id: `vault:${vault.accountIndex}`,
         label: entry?.label ?? "Stash",
+        mint: usdcPosition?.asset.mint ?? yieldRoutingDefaults?.routeMint,
+        sourceType: "vault",
       });
     }
 
@@ -1047,6 +1099,7 @@ export function AppWalletWorkspace({
     smartAccountData.vaultEntries,
     walletDesktopData.positions,
     walletDesktopData.walletAddress,
+    yieldRoutingDefaults?.routeMint,
   ]);
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
@@ -1702,9 +1755,75 @@ export function AppWalletWorkspace({
     );
   }, [derivedTokens, openActionView]);
 
+  const handleEnableYieldRouting = useCallback(async () => {
+    if (!(selectedVault && yieldRoutingDefaults?.delegatedSigner)) {
+      setYieldRoutingError("Yield-routing signer is not configured.");
+      return;
+    }
+
+    if (yieldRoutingDefaults.reserves.length === 0) {
+      setYieldRoutingError("No Kamino reserves are configured for this route.");
+      return;
+    }
+
+    setYieldRoutingError(null);
+    const result = await smartAccountData.createYieldRoutingPolicy({
+      accountIndex: selectedVault.entry.accountIndex,
+      routeMint: yieldRoutingDefaults.routeMint,
+      delegatedSigner: yieldRoutingDefaults.delegatedSigner,
+      kaminoReserves: yieldRoutingDefaults.reserves,
+    });
+
+    if (!result.success) {
+      setYieldRoutingError(
+        result.error ?? "Could not create the yield-routing policy."
+      );
+      return;
+    }
+
+    if (result.status === "proposed") {
+      setYieldRoutingError(
+        "Policy proposal created. Approve it before optimizer cron can run."
+      );
+    }
+  }, [selectedVault, smartAccountData, yieldRoutingDefaults]);
+
+  const selectedVaultYieldRoutingPrompt = useMemo(() => {
+    if (
+      !selectedVault ||
+      !yieldRoutingDefaults ||
+      selectedVaultYieldRoutingPolicy ||
+      !selectedVaultRoutePosition ||
+      selectedVaultRoutePosition.publicBalance <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      title: "Enable Kamino routing",
+      body: `${selectedVaultRoutePosition.asset.symbol} in this stash can be optimized by a policy-limited signer.`,
+      ctaLabel: "Enable",
+      isPending: isYieldRoutingActionPending,
+      error: yieldRoutingError,
+      onCreate: () => {
+        void handleEnableYieldRouting();
+      },
+    };
+  }, [
+    handleEnableYieldRouting,
+    isYieldRoutingActionPending,
+    selectedVault,
+    selectedVaultRoutePosition,
+    selectedVaultYieldRoutingPolicy,
+    yieldRoutingDefaults,
+    yieldRoutingError,
+  ]);
+
   const handleOpenEarn = useCallback(() => {
     markDetailPaneTransition("switch");
     setSelectedSignerId(null);
+    setEarnDepositError(null);
+    setEarnDepositNotice(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
   }, [markDetailPaneTransition]);
@@ -1712,6 +1831,8 @@ export function AppWalletWorkspace({
   const handleOpenEarnDeposit = useCallback(() => {
     markDetailPaneTransition("forward");
     setSelectedSignerId(null);
+    setEarnDepositError(null);
+    setEarnDepositNotice(null);
     setDetailSelection("earnDeposit");
     setSelectedDetail("Deposit");
   }, [markDetailPaneTransition]);
@@ -1731,13 +1852,130 @@ export function AppWalletWorkspace({
     setSelectedDetail("Earn");
   }, [markDetailPaneTransition]);
 
-  const handleCompleteEarnDeposit = useCallback(() => {
-    markDetailPaneTransition("back");
-    setHasEarnPosition(true);
-    setSelectedSignerId(null);
-    setDetailSelection("earn");
-    setSelectedDetail("Earn");
-  }, [markDetailPaneTransition]);
+  const handleCompleteEarnDeposit = useCallback(
+    async (request: EarnDepositRequest) => {
+      setEarnDepositError(null);
+      setEarnDepositNotice(null);
+
+      const routeMint = request.source.mint ?? yieldRoutingDefaults?.routeMint;
+      if (!routeMint) {
+        setEarnDepositError("USDC routing is not configured for this network.");
+        return;
+      }
+
+      setIsEarnDepositSubmitting(true);
+
+      try {
+        if ((request.source.sourceType ?? "wallet") === "wallet") {
+          const result = await executeShield({
+            tokenSymbol: "USDC",
+            tokenMint: routeMint,
+            amount: request.amount,
+            successTrackingProperties: {
+              token_symbol: "USDC",
+              token_mint: routeMint,
+              amount: request.amountText,
+              usd_value: `$${request.amount.toLocaleString("en-US", {
+                maximumFractionDigits: 2,
+                minimumFractionDigits: 2,
+              })}`,
+              direction: "earn_deposit",
+            },
+          });
+
+          if (!result.success) {
+            setEarnDepositError(
+              result.error ?? "Kamino deposit failed. Try again."
+            );
+            return;
+          }
+
+          await walletDesktopData.refresh();
+          markDetailPaneTransition("back");
+          setHasEarnPosition(true);
+          setSelectedSignerId(null);
+          setDetailSelection("earn");
+          setSelectedDetail("Earn");
+          return;
+        }
+
+        const accountIndex = request.source.accountIndex;
+        if (typeof accountIndex !== "number") {
+          setEarnDepositError("Select a stash that holds USDC.");
+          return;
+        }
+
+        if (!yieldRoutingDefaults?.delegatedSigner) {
+          setEarnDepositError("Yield-routing signer is not configured.");
+          return;
+        }
+
+        const policy = findYieldRoutingPolicy(accountIndex);
+        if (!policy) {
+          const policyResult = await smartAccountData.createYieldRoutingPolicy({
+            accountIndex,
+            routeMint,
+            delegatedSigner: yieldRoutingDefaults.delegatedSigner,
+            kaminoReserves: yieldRoutingDefaults.reserves,
+          });
+
+          if (!policyResult.success) {
+            setEarnDepositError(
+              policyResult.error ??
+                "Could not create the Kamino routing policy."
+            );
+            return;
+          }
+
+          if (policyResult.status === "proposed") {
+            setEarnDepositNotice(
+              "Policy proposal created. Approve it before depositing this stash into Kamino."
+            );
+            return;
+          }
+        }
+
+        const depositResult = await smartAccountData.executeVaultKaminoDeposit({
+          accountIndex,
+          routeMint,
+          amount: request.amount,
+          amountText: request.amountText,
+          decimals: request.source.decimals,
+          symbol: "USDC",
+        });
+
+        if (!depositResult.success) {
+          setEarnDepositError(
+            depositResult.error ?? "Kamino deposit failed. Try again."
+          );
+          return;
+        }
+
+        if (depositResult.status === "proposed") {
+          setEarnDepositNotice(
+            "Deposit proposal created. Approve it in Approvals to complete the Kamino deposit."
+          );
+          return;
+        }
+
+        markDetailPaneTransition("back");
+        setHasEarnPosition(true);
+        setSelectedSignerId(null);
+        setDetailSelection("earn");
+        setSelectedDetail("Earn");
+      } finally {
+        setIsEarnDepositSubmitting(false);
+      }
+    },
+    [
+      executeShield,
+      findYieldRoutingPolicy,
+      markDetailPaneTransition,
+      smartAccountData,
+      walletDesktopData,
+      yieldRoutingDefaults,
+    ]
+  );
 
   const handleCompleteEarnWithdraw = useCallback(() => {
     markDetailPaneTransition("back");
@@ -2462,8 +2700,11 @@ export function AppWalletWorkspace({
     if (detailSelection === "earnDeposit") {
       return (
         <EarnDepositView
+          isSubmitting={isEarnDepositSubmitting}
           onComplete={handleCompleteEarnDeposit}
           onClose={handleOpenEarn}
+          submitError={earnDepositError}
+          submitNotice={earnDepositNotice}
           sources={earnDepositSources}
         />
       );
@@ -2781,6 +3022,7 @@ export function AppWalletWorkspace({
               .catch(() => undefined);
           }}
           onTokenDetail={handleTokenDetail}
+          yieldRoutingPrompt={selectedVaultYieldRoutingPrompt}
         />
       );
     }

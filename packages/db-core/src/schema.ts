@@ -118,6 +118,20 @@ export type AppUserSmartAccountSolanaEnv =
 export type AppUserSmartAccountState = "provisioning" | "ready" | "failed";
 
 /**
+ * Lifecycle state for user-enabled yield-routing policies.
+ */
+export type AppSmartAccountVaultYieldPolicyState =
+  | "active"
+  | "paused"
+  | "failed"
+  | "archived";
+
+/**
+ * Supported automated yield-routing policy families.
+ */
+export type AppSmartAccountVaultYieldPolicyKind = "kamino_rebalance";
+
+/**
  * Lifecycle state for wallet auth completion attempts.
  */
 export type AppWalletAuthCompletionState =
@@ -812,6 +826,89 @@ export const appUserSmartAccounts = pgTable(
     check(
       "app_user_smart_accounts_state_check",
       sql`${table.state} IN ('provisioning', 'ready', 'failed')`
+    ),
+  ]
+);
+
+/**
+ * Durable scheduler/index records for vault-scoped yield-routing policies.
+ * On-chain Squads policy accounts are the source of truth; this table stores
+ * the app-owned scheduling metadata needed by cron/crank workers.
+ */
+export const appSmartAccountVaultYieldPolicies = pgTable(
+  "app_smart_account_vault_yield_policies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUsers.id, { onDelete: "cascade" }),
+    smartAccountId: uuid("smart_account_id")
+      .notNull()
+      .references(() => appUserSmartAccounts.id, { onDelete: "cascade" }),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    vaultAddress: text("vault_address").notNull(),
+    accountIndex: integer("account_index").notNull(),
+    kind: text("kind")
+      .$type<AppSmartAccountVaultYieldPolicyKind>()
+      .notNull(),
+    state: text("state")
+      .$type<AppSmartAccountVaultYieldPolicyState>()
+      .notNull(),
+    routeMint: text("route_mint").notNull(),
+    rebalancePolicyPda: text("rebalance_policy_pda").notNull(),
+    rebalancePolicySeed: text("rebalance_policy_seed").notNull(),
+    delegatedSigner: text("delegated_signer").notNull(),
+    allowedReserves: jsonb("allowed_reserves").$type<string[]>().notNull(),
+    allowedMarkets: jsonb("allowed_markets").$type<string[]>().notNull(),
+    allowedLiquidityMints: jsonb("allowed_liquidity_mints")
+      .$type<string[]>()
+      .notNull(),
+    creationSignature: text("creation_signature"),
+    lastCrankedAt: timestamp("last_cranked_at", { withTimezone: true }),
+    nextCrankAfter: timestamp("next_crank_after", { withTimezone: true }),
+    lastCrankSignature: text("last_crank_signature"),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_vault_yield_policy_env_policy_uidx").on(
+      table.solanaEnv,
+      table.rebalancePolicyPda
+    ),
+    uniqueIndex("app_vault_yield_policy_env_vault_mint_uidx").on(
+      table.solanaEnv,
+      table.settingsPda,
+      table.accountIndex,
+      table.routeMint
+    ),
+    index("app_vault_yield_policy_user_id_idx").on(table.userId),
+    index("app_vault_yield_policy_smart_account_id_idx").on(
+      table.smartAccountId
+    ),
+    index("app_vault_yield_policy_next_crank_idx").on(
+      table.state,
+      table.nextCrankAfter
+    ),
+    check(
+      "app_vault_yield_policy_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+    check(
+      "app_vault_yield_policy_kind_check",
+      sql`${table.kind} IN ('kamino_rebalance')`
+    ),
+    check(
+      "app_vault_yield_policy_state_check",
+      sql`${table.state} IN ('active', 'paused', 'failed', 'archived')`
     ),
   ]
 );
@@ -1538,6 +1635,7 @@ export const botMessagesRelations = relations(botMessages, ({ one }) => ({
 export const appUsersRelations = relations(appUsers, ({ many }) => ({
   wallets: many(appUserWallets),
   smartAccounts: many(appUserSmartAccounts),
+  vaultYieldPolicies: many(appSmartAccountVaultYieldPolicies),
   walletAuthCompletions: many(appWalletAuthCompletions),
   chats: many(appChats),
 }));
@@ -1551,10 +1649,25 @@ export const appUserWalletsRelations = relations(appUserWallets, ({ one }) => ({
 
 export const appUserSmartAccountsRelations = relations(
   appUserSmartAccounts,
-  ({ one }) => ({
+  ({ one, many }) => ({
     user: one(appUsers, {
       fields: [appUserSmartAccounts.userId],
       references: [appUsers.id],
+    }),
+    vaultYieldPolicies: many(appSmartAccountVaultYieldPolicies),
+  })
+);
+
+export const appSmartAccountVaultYieldPoliciesRelations = relations(
+  appSmartAccountVaultYieldPolicies,
+  ({ one }) => ({
+    user: one(appUsers, {
+      fields: [appSmartAccountVaultYieldPolicies.userId],
+      references: [appUsers.id],
+    }),
+    smartAccount: one(appUserSmartAccounts, {
+      fields: [appSmartAccountVaultYieldPolicies.smartAccountId],
+      references: [appUserSmartAccounts.id],
     }),
   })
 );
@@ -1717,6 +1830,11 @@ export type InsertAppUserWallet = typeof appUserWallets.$inferInsert;
 export type AppUserSmartAccount = typeof appUserSmartAccounts.$inferSelect;
 export type InsertAppUserSmartAccount =
   typeof appUserSmartAccounts.$inferInsert;
+
+export type AppSmartAccountVaultYieldPolicy =
+  typeof appSmartAccountVaultYieldPolicies.$inferSelect;
+export type InsertAppSmartAccountVaultYieldPolicy =
+  typeof appSmartAccountVaultYieldPolicies.$inferInsert;
 
 export type AppSmartAccountSponsorshipTransaction =
   typeof appSmartAccountSponsorshipTransactions.$inferSelect;

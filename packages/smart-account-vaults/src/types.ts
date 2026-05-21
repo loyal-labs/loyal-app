@@ -15,6 +15,11 @@ import type {
   AddressLookupTableAccount,
 } from "@solana/web3.js";
 import type { SmartAccountSpendingLimitPeriod } from "./spending-limits";
+import type {
+  SmartAccountYieldRoutingKaminoReserve,
+  SmartAccountYieldRoutingPolicyAddresses,
+  SmartAccountYieldRoutingPolicySeeds,
+} from "./yield-routing";
 
 export type SmartAccountProposalStatus =
   | "draft"
@@ -302,7 +307,24 @@ export type SmartAccountUseSpendingLimitInput = {
   memo?: string;
 };
 
+export type SmartAccountCreateYieldRoutingPolicyInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  delegatedSigner: PublicKey;
+  accountIndex?: number;
+  kaminoReserves: SmartAccountYieldRoutingKaminoReserve[];
+  klendProgramId?: PublicKey;
+  memo?: string;
+};
+
 export type SmartAccountPreparedSettingsChange = {
   transactionIndex: bigint;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
 };
+
+export type SmartAccountCreateYieldRoutingPolicyResult =
+  SmartAccountPreparedSettingsChange & {
+    policies: SmartAccountYieldRoutingPolicyAddresses;
+    policySeeds: SmartAccountYieldRoutingPolicySeeds;
+  };

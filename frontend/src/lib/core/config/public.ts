@@ -24,6 +24,8 @@ const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
 const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
+const YIELD_ROUTING_DELEGATED_SIGNER_ENV_NAME =
+  "NEXT_PUBLIC_YIELD_ROUTING_DELEGATED_SIGNER";
 
 export type TurnstileConfig =
   | { mode: "bypass"; verificationToken: string }
@@ -47,6 +49,7 @@ export type PublicEnv = {
   mixpanelToken: string | undefined;
   mixpanelProxyPath: string;
   usercentricsSettingsId: string | undefined;
+  yieldRoutingDelegatedSigner: string | undefined;
   gitBranch: string;
   gitCommitHash: string;
 };
@@ -123,6 +126,10 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
     usercentricsSettingsId: getOptionalEnv(
       env,
       USERCENTRICS_SETTINGS_ID_ENV_NAME
+    ),
+    yieldRoutingDelegatedSigner: getOptionalEnv(
+      env,
+      YIELD_ROUTING_DELEGATED_SIGNER_ENV_NAME
     ),
     gitBranch: getOptionalEnv(env, "NEXT_PUBLIC_GIT_BRANCH") ?? "unknown",
     gitCommitHash: getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",

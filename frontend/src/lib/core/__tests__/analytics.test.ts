@@ -90,6 +90,8 @@ const publicEnv = {
   demoRecipeEnabled: false,
   mixpanelToken: "frontend-mixpanel-token",
   mixpanelProxyPath: "/ingest",
+  usercentricsSettingsId: undefined,
+  yieldRoutingDelegatedSigner: undefined,
   gitBranch: "feature-branch",
   gitCommitHash: "abc1234",
 } as const;
