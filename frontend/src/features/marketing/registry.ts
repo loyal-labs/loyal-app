@@ -14,10 +14,4 @@ export type MarketingPage = {
  * Add an entry whenever you create a new src/app/<slug>/page.tsx via the
  * /marketing-page skill. Order in this array == order in the dropdown.
  */
-export const MARKETING_PAGES: MarketingPage[] = [
-  {
-    slug: "smart-accounts",
-    title: "Smart Accounts",
-    description: "Scoped on-chain guardrails for AI agents",
-  },
-];
+export const MARKETING_PAGES: MarketingPage[] = [];
