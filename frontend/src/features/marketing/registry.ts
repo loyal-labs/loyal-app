@@ -1,0 +1,23 @@
+export type MarketingPage = {
+  /** URL slug (used in /<slug>). No leading slash. */
+  slug: string;
+  /** Display name shown in the header Features dropdown. */
+  title: string;
+  /** One-line subtitle shown under the title in the dropdown (optional). */
+  description?: string;
+};
+
+/**
+ * Every marketing page lives at the root URL (askloyal.com/<slug>) and is
+ * registered here so the Features dropdown in the header can list it.
+ *
+ * Add an entry whenever you create a new src/app/<slug>/page.tsx via the
+ * /marketing-page skill. Order in this array == order in the dropdown.
+ */
+export const MARKETING_PAGES: MarketingPage[] = [
+  {
+    slug: "smart-accounts",
+    title: "Smart Accounts",
+    description: "Scoped on-chain guardrails for AI agents",
+  },
+];
