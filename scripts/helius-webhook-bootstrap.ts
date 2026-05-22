@@ -33,11 +33,13 @@ import { Connection } from "@solana/web3.js";
 import { isNotNull, isNull } from "drizzle-orm";
 
 import { aggregateAddressesForWallet } from "../app/src/features/push-incoming-transfers/server/address-aggregator";
+import { MAX_ADDRESSES_PER_WEBHOOK } from "../app/src/features/push-incoming-transfers/server/constants";
 import { createHeliusWebhook } from "../app/src/features/push-incoming-transfers/server/helius-client";
 
 // Helius advertises a 100k accountAddresses cap per webhook. We keep
-// 50% headroom for ATA churn and accidental duplicates.
-const SHARD_LIMIT = 50_000;
+// 50% headroom for ATA churn and accidental duplicates. Shared with
+// the resync cron via MAX_ADDRESSES_PER_WEBHOOK in constants.ts.
+const SHARD_LIMIT = MAX_ADDRESSES_PER_WEBHOOK;
 // ATA aggregation hits Solana RPC; throttle a touch to stay under
 // Helius free-tier ~10 req/s when iterating many wallets.
 const PER_WALLET_THROTTLE_MS = 200;

@@ -151,6 +151,9 @@ export const serverEnv = {
   get heliusWebhookSecret(): string {
     return getRequiredEnv("HELIUS_WEBHOOK_SECRET");
   },
+  get heliusWebhookUrl(): string {
+    return getRequiredEnv("HELIUS_WEBHOOK_URL");
+  },
   get telegramSummaryPeerOverride(): TelegramSummaryPeerOverride | null {
     return getTelegramSummaryPeerOverride();
   },
