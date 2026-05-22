@@ -63,10 +63,17 @@ type RoutedRecipient = {
  * should fire a push to. Pulls recipient addresses (positive amounts
  * only) from both native and SPL transfers and looks them up in the
  * registered-address map. Returns an empty array if nothing routes.
+ *
+ * SPL transfers arrive from Helius as UI-decimal floats; we scale them
+ * to raw base units here using the mint metadata so the resulting
+ * recipient already carries a correct, final `amountRaw`. Mints missing
+ * from the metadata map fall back to `decimals = 0` (matching
+ * `UNKNOWN_DECIMALS` in format.ts) and a structured warning is logged.
  */
 function routeEventToRecipients(
   event: HeliusEnhancedEvent,
   addressToWallet: Map<string, string>,
+  metadataByMint: Map<string, { symbol: string; decimals: number }>,
 ): RoutedRecipient[] {
   const recipients: RoutedRecipient[] = [];
   const occurredAt = new Date(event.timestamp * 1000);
@@ -78,28 +85,22 @@ function routeEventToRecipients(
       if (transfer.tokenAmount <= 0) continue;
       const wallet = addressToWallet.get(transfer.toUserAccount);
       if (!wallet) continue;
-      // Helius enhanced webhook gives tokenAmount as a UI-decimal number
-      // (already scaled by the mint's decimals). Convert back to raw
-      // base units using the metadata we already fetched.
-      // We don't have decimals here — caller passes amountRaw as best
-      // effort. To preserve precision we delegate scaling later.
+      const metadata = metadataByMint.get(transfer.mint);
+      if (!metadata) {
+        console.warn("[helius-webhook] missing mint metadata; using decimals=0", {
+          mint: transfer.mint,
+          signature: event.signature,
+          walletPublicKey: wallet,
+        });
+      }
+      const decimals = metadata?.decimals ?? 0;
       recipients.push({
         walletPublicKey: wallet,
         event: {
           kind: "spl" as IncomingTransferKind,
           recipient: wallet,
           sender: transfer.fromUserAccount || null,
-          // Carry the UI amount in amountRaw + decimals=0 will round-trip
-          // poorly; instead, store the float as raw and rely on metadata
-          // lookup to provide decimals so formatAmount can scale.
-          // We store as the integer portion of (tokenAmount * 10^decimals)
-          // at format time. For now stash the float in a side channel by
-          // storing tokenAmount * 1 as bigint of the unscaled raw.
-          // Cleanest: store amountRaw=BigInt(round(tokenAmount * 10^decimals))
-          // at format time. We can't do that yet because we resolve
-          // decimals globally. So we expose a placeholder and adjust
-          // at format time using the metadata map.
-          amountRaw: BigInt(0),
+          amountRaw: scaleToRawAmount(transfer.tokenAmount, decimals),
           mint: transfer.mint,
           signature: event.signature,
           occurredAt,
@@ -236,7 +237,11 @@ export async function processHeliusWebhookPayload(
   // Per-event try/catch so one malformed entry doesn't poison the batch.
   for (const event of transferEvents) {
     try {
-      const recipients = routeEventToRecipients(event, addressToWallet);
+      const recipients = routeEventToRecipients(
+        event,
+        addressToWallet,
+        metadataByMint,
+      );
       if (recipients.length === 0) {
         stats.unroutable += 1;
         continue;
@@ -256,41 +261,16 @@ export async function processHeliusWebhookPayload(
         }
         await deps.recordDelivery(event.signature, walletPublicKey);
 
-        // For SPL transfers, scale the UI amount to raw base units now
-        // that we have decimals from the metadata lookup. For SOL we
-        // already populated amountRaw with lamports.
-        let amountRaw = domainEvent.amountRaw;
-        const metadata = metadataByMint.get(domainEvent.mint) ?? null;
-        if (domainEvent.kind === "spl" && metadata) {
-          const splTransfer = event.tokenTransfers?.find(
-            (t) =>
-              t.toUserAccount === walletPublicKey ||
-              (t.toUserAccount &&
-                addressToWallet.get(t.toUserAccount) === walletPublicKey &&
-                t.mint === domainEvent.mint),
-          );
-          if (splTransfer && typeof splTransfer.tokenAmount === "number") {
-            amountRaw = scaleToRawAmount(
-              splTransfer.tokenAmount,
-              metadata.decimals,
-            );
-          }
-        }
-
-        const finalEvent: IncomingTransferEvent = {
-          ...domainEvent,
-          amountRaw,
-        };
-
         // Provide a synthetic SOL metadata fallback so the formatter
         // always renders the SOL symbol with correct decimals.
+        const metadata = metadataByMint.get(domainEvent.mint) ?? null;
         const effectiveMetadata =
           metadata ??
           (domainEvent.kind === "sol"
             ? { symbol: "SOL", decimals: 9 }
             : null);
         const payload = formatIncomingTransferPush(
-          finalEvent,
+          domainEvent,
           effectiveMetadata,
         );
 
