@@ -692,10 +692,11 @@ export const pushNotificationTickets = pgTable(
 );
 
 /**
- * Per-wallet cursor for the incoming-transfer push cron. We store the
- * newest transaction signature we've already notified on so the next
- * run can ask `getSignaturesForAddress(..., { until: lastSignature })`
- * for only the new tail instead of re-scanning every run.
+ * @deprecated 2026-05-22 — superseded by Helius enhanced webhooks
+ * (see `heliusWebhooks` / `heliusWebhookAddresses` / `heliusWebhookDeliveries`).
+ * The old per-wallet polling cron that populated this cursor has been
+ * removed; the table is kept for one release window to preserve a
+ * rollback path, then dropped in a follow-up migration.
  */
 export const walletPushSyncState = pgTable("wallet_push_sync_state", {
   walletPublicKey: text("wallet_public_key").primaryKey(),

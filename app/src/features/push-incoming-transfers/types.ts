@@ -9,11 +9,3 @@ export type IncomingTransferEvent = {
   signature: string;
   occurredAt: Date;
 };
-
-export type IncomingTransferPushStats = {
-  walletsScanned: number;
-  signaturesFetched: number;
-  eventsDetected: number;
-  notificationsSent: number;
-  walletsErrored: number;
-};
