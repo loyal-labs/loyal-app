@@ -13,6 +13,7 @@ import {
   trackAuthSignInSucceeded,
   trackPageView,
 } from "@/lib/core/analytics";
+import { X_PIXEL_EVENTS, xPixelEvent } from "@/lib/core/x-pixel";
 
 export type ShouldTrackFrontendPageViewParams = {
   pathname: string | null;
@@ -36,6 +37,39 @@ export function shouldTrackAuthSignInSuccess({
   previousUser,
 }: ShouldTrackAuthSignInSuccessParams): boolean {
   return previousUser === null && nextUser !== null;
+}
+
+const X_PIXEL_SIGNUP_STORAGE_KEY = "loyal_x_pixel_signup_fired_v1";
+
+function hasXPixelSignupBeenFired(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(X_PIXEL_SIGNUP_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markXPixelSignupFired(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(X_PIXEL_SIGNUP_STORAGE_KEY, "1");
+  } catch {
+    // Storage may be unavailable; we accept that the event may fire again on
+    // a future session rather than swallowing the conversion entirely.
+  }
+}
+
+export function fireXPixelSignupIfNeeded(): void {
+  if (hasXPixelSignupBeenFired()) {
+    return;
+  }
+  xPixelEvent(X_PIXEL_EVENTS.signup);
+  markXPixelSignupFired();
 }
 
 export function AnalyticsBootstrap() {
@@ -78,6 +112,7 @@ export function AnalyticsBootstrap() {
       })
     ) {
       trackAuthSignInSucceeded(publicEnv, user!);
+      fireXPixelSignupIfNeeded();
     }
 
     previousUserRef.current = user;

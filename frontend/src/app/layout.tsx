@@ -5,6 +5,7 @@ import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import { cookies } from "next/headers";
 
+import { XPixelBootstrap } from "@/components/analytics/x-pixel-bootstrap";
 import { PublicEnvProvider } from "@/contexts/public-env-context";
 import { createPublicEnv } from "@/lib/core/config/public";
 import {
@@ -105,7 +106,10 @@ export default async function RootLayout({
             ),
           }}
         />
-        <PublicEnvProvider value={publicEnv}>{children}</PublicEnvProvider>
+        <PublicEnvProvider value={publicEnv}>
+          <XPixelBootstrap />
+          {children}
+        </PublicEnvProvider>
       </body>
     </html>
   );
