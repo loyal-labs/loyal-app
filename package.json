@@ -49,6 +49,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release-packages": "bun run scripts/release-packages.ts",
+    "helius:webhook:bootstrap": "bun --conditions=react-server scripts/helius-webhook-bootstrap.ts",
     "sync:mirror-repos": "bun run scripts/mirror-repos/sync.ts",
     "build:db-packages": "bun run --cwd packages/db-core build && bun run --cwd packages/db-adapter-neon build",
     "build:llm-packages": "bun run --cwd packages/llm-core build && bun run --cwd packages/llm-server build",

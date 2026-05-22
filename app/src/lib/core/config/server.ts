@@ -145,6 +145,15 @@ export const serverEnv = {
   get privateMainnetRpcUrl(): string {
     return getRequiredEnv("PRIVATE_MAINNET_RPC_URL");
   },
+  get heliusApiKey(): string {
+    return getRequiredEnv("HELIUS_API_KEY");
+  },
+  get heliusWebhookSecret(): string {
+    return getRequiredEnv("HELIUS_WEBHOOK_SECRET");
+  },
+  get heliusWebhookUrl(): string {
+    return getRequiredEnv("HELIUS_WEBHOOK_URL");
+  },
   get telegramSummaryPeerOverride(): TelegramSummaryPeerOverride | null {
     return getTelegramSummaryPeerOverride();
   },

@@ -21,3 +21,9 @@ export const MAX_TRANSACTIONS_PER_WALLET_PER_RUN = 50;
 // Concurrent wallets processed per run. Helius rate limits are
 // generous but we don't want to burn the whole budget on one cron.
 export const WALLET_CONCURRENCY = 5;
+
+// Helius advertises a 100k accountAddresses cap per webhook. We keep
+// 50% headroom for ATA churn and accidental duplicates. Shared between
+// the bootstrap script and the resync cron so both honor the same
+// sharding policy.
+export const MAX_ADDRESSES_PER_WEBHOOK = 50_000;
