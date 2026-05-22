@@ -5,7 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { PublicEnv } from "@/lib/core/config/public";
 
-const LOCAL_CONSENT_KEY = "loyal_cookie_consent_v1";
+import {
+  COOKIE_CONSENT_STORAGE_KEY,
+  persistCookieConsent,
+  readStoredCookieConsent,
+} from "./cookie-consent-state";
+
 const COOKIE_PREFERENCES_EVENT = "loyal:open-cookie-preferences";
 
 export type ConsentCategoryId = "analytics" | "marketing" | "personalization";
@@ -186,25 +191,13 @@ export function buildUsercentricsDecisions(
 }
 
 function getStoredLocalChoices(): ConsentChoices | null {
-  try {
-    const storedValue = window.localStorage.getItem(LOCAL_CONSENT_KEY);
-    if (!storedValue) {
-      return null;
-    }
-
-    const parsedValue = JSON.parse(storedValue) as Partial<ConsentChoices>;
-    return {
-      analytics: parsedValue.analytics === true,
-      marketing: parsedValue.marketing === true,
-      personalization: parsedValue.personalization === true,
-    };
-  } catch {
+  if (typeof window === "undefined") {
     return null;
   }
-}
-
-function persistLocalChoices(choices: ConsentChoices) {
-  window.localStorage.setItem(LOCAL_CONSENT_KEY, JSON.stringify(choices));
+  if (window.localStorage.getItem(COOKIE_CONSENT_STORAGE_KEY) === null) {
+    return null;
+  }
+  return readStoredCookieConsent();
 }
 
 function CookieSwitch({
@@ -420,12 +413,13 @@ export function LandingCookieConsent({
     [onAnalyticsConsentChange]
   );
 
-  const syncChoicesFromServices = useCallback(() => {
+  const syncChoicesFromServices = useCallback((): ConsentChoices => {
     const services = usercentricsRef.current?.getServicesBaseInfo() ?? [];
     servicesRef.current = services;
     const nextChoices = getChoicesFromServices(services);
     setChoices(nextChoices);
     onAnalyticsConsentChange(getAnalyticsConsentFromServices(services));
+    return nextChoices;
   }, [onAnalyticsConsentChange]);
 
   useEffect(() => {
@@ -478,7 +472,8 @@ export function LandingCookieConsent({
 
         usercentricsRef.current = usercentrics;
         setSdkModule(importedModule);
-        syncChoicesFromServices();
+        const initialChoices = syncChoicesFromServices();
+        persistCookieConsent(initialChoices);
 
         if (
           initialValues.variant === importedModule.UI_VARIANT.DEFAULT &&
@@ -511,15 +506,16 @@ export function LandingCookieConsent({
 
   const confirmChoices = useCallback(
     async (nextChoices: ConsentChoices) => {
+      let persistedChoices = nextChoices;
       if (usercentricsRef.current) {
         await usercentricsRef.current.updateServices(
           buildUsercentricsDecisions(servicesRef.current, nextChoices)
         );
-        syncChoicesFromServices();
+        persistedChoices = syncChoicesFromServices();
       } else {
-        persistLocalChoices(nextChoices);
         applyChoices(nextChoices);
       }
+      persistCookieConsent(persistedChoices);
 
       setPreferencesSource(null);
       setView(null);
@@ -528,32 +524,34 @@ export function LandingCookieConsent({
   );
 
   const acceptAll = useCallback(async () => {
-    const nextChoices = {
+    const allAccepted: ConsentChoices = {
       analytics: true,
       marketing: true,
       personalization: true,
     };
 
+    let persistedChoices = allAccepted;
     if (usercentricsRef.current) {
       await usercentricsRef.current.acceptAllServices();
-      syncChoicesFromServices();
+      persistedChoices = syncChoicesFromServices();
     } else {
-      persistLocalChoices(nextChoices);
-      applyChoices(nextChoices);
+      applyChoices(allAccepted);
     }
+    persistCookieConsent(persistedChoices);
 
     setPreferencesSource(null);
     setView(null);
   }, [applyChoices, syncChoicesFromServices]);
 
   const rejectAll = useCallback(async () => {
+    let persistedChoices: ConsentChoices = DEFAULT_CHOICES;
     if (usercentricsRef.current) {
       await usercentricsRef.current.denyAllServices();
-      syncChoicesFromServices();
+      persistedChoices = syncChoicesFromServices();
     } else {
-      persistLocalChoices(DEFAULT_CHOICES);
       applyChoices(DEFAULT_CHOICES);
     }
+    persistCookieConsent(persistedChoices);
 
     setPreferencesSource(null);
     setView(null);
