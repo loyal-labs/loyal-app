@@ -1,6 +1,5 @@
 import { AnchorProvider } from "@coral-xyz/anchor";
 import {
-  type Connection,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -8,7 +7,7 @@ import {
 
 import type { Signer } from "@/lib/wallet/signer";
 
-import { getConnection, getWebsocketConnection } from "../rpc/connection";
+import { getConnection } from "../rpc/connection";
 import { SimpleWallet } from "./wallet-implementation";
 
 // Lazy-loaded to avoid top-level Buffer usage in React Native runtime
@@ -36,14 +35,6 @@ export const getWalletProvider = async (): Promise<AnchorProvider> => {
   const connection = getConnection();
   const wallet = new SimpleWallet(signer);
 
-  return new AnchorProvider(connection, wallet);
-};
-
-export const getCustomWalletProvider = async (
-  signer: Signer,
-): Promise<AnchorProvider> => {
-  const connection = getWebsocketConnection();
-  const wallet = new SimpleWallet(signer);
   return new AnchorProvider(connection, wallet);
 };
 
@@ -155,48 +146,6 @@ export const getWalletBalance = async (
 const invalidateBalanceCache = () => {
   balanceCache = null;
   balancePromise = null;
-};
-
-export const subscribeToWalletBalance = async (
-  onChange: (lamports: number) => void
-): Promise<() => Promise<void>> => {
-  let connection: Connection;
-  let signer: Signer;
-  try {
-    connection = getWebsocketConnection();
-    signer = await getWalletSigner();
-  } catch (error) {
-    // Loud so Datadog's trackErrors picks it up — a silent throw here
-    // meant the balance card stopped updating without any observable
-    // signal in logs.
-    console.error("[ws/balance] Subscription setup failed", error);
-    throw error;
-  }
-
-  let lastLamports = balanceCache?.lamports;
-
-  const subscriptionId = connection.onAccountChange(
-    signer.publicKey,
-    (accountInfo) => {
-      const lamports = accountInfo.lamports;
-      if (typeof lastLamports === "number" && lamports === lastLamports) {
-        return;
-      }
-
-      lastLamports = lamports;
-      setCachedBalance(lamports);
-      onChange(lamports);
-    },
-    "confirmed"
-  );
-
-  return async () => {
-    try {
-      await connection.removeAccountChangeListener(subscriptionId);
-    } catch (error) {
-      console.error("[ws/balance] Failed to remove subscription", error);
-    }
-  };
 };
 
 export const sendSolTransaction = async (

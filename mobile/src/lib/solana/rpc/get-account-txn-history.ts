@@ -18,12 +18,8 @@ import {
   decodeTelegramTransferInstruction,
   decodeTelegramVerificationInstruction,
 } from "../solana-helpers";
-import { getConnection, getWebsocketConnection } from "./connection";
+import { getConnection } from "./connection";
 import { GetAccountTransactionHistoryOptions, WalletTransfer } from "./types";
-
-type ListenForAccountTransactionsOptions = {
-  onlySystemTransfers?: boolean;
-};
 
 type TokenBalanceEntry = {
   accountIndex: number;
@@ -780,65 +776,4 @@ export const getAccountTransactionHistory = async (
   const nextCursor = signatures[signatures.length - 1]?.signature;
 
   return { transfers, nextCursor };
-};
-
-export const listenForAccountTransactions = async (
-  publicKey: PublicKey,
-  onTransfer: (transfer: WalletTransfer) => void,
-  options: ListenForAccountTransactionsOptions = {},
-): Promise<() => Promise<void>> => {
-  const connection = getWebsocketConnection();
-  const walletAddress = publicKey.toBase58();
-  const processedSignatures = new Set<string>();
-  const rememberSignature = (sig: string) => {
-    processedSignatures.add(sig);
-    if (processedSignatures.size > 100) {
-      const [first] = processedSignatures;
-      processedSignatures.delete(first);
-    }
-  };
-
-  let subscriptionId: number;
-  try {
-    subscriptionId = await connection.onLogs(
-      publicKey,
-      async (logInfo) => {
-        try {
-          const signature = logInfo.signature;
-          if (!signature) return;
-          if (processedSignatures.has(signature)) return;
-          rememberSignature(signature);
-
-          const parsedTx = await connection.getParsedTransaction(signature, {
-            maxSupportedTransactionVersion: 0,
-          });
-          if (!parsedTx) return;
-
-          const transfer = mapTransactionToTransfer(
-            parsedTx,
-            signature,
-            walletAddress,
-            options.onlySystemTransfers ?? false,
-          );
-          if (transfer) {
-            onTransfer(transfer);
-          }
-        } catch (err) {
-          console.error("[ws/txs] Error handling websocket transaction", err);
-        }
-      },
-      "confirmed",
-    );
-  } catch (error) {
-    console.error("[ws/txs] onLogs subscription setup failed", error);
-    throw error;
-  }
-
-  return async () => {
-    try {
-      await connection.removeOnLogsListener(subscriptionId);
-    } catch (error) {
-      console.error("[ws/txs] Failed to remove onLogs listener", error);
-    }
-  };
 };

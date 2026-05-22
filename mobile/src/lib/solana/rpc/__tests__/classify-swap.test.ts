@@ -5,7 +5,6 @@
 // to satisfy the import graph.
 jest.mock("../connection", () => ({
   getConnection: jest.fn(),
-  getWebsocketConnection: jest.fn(),
   getSolanaEnv: jest.fn(() => "mainnet"),
 }));
 
