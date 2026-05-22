@@ -10,8 +10,7 @@
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
-        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
-        "EXPO_PUBLIC_HELIUS_API_KEY": "497b1891-685f-41bd-a958-7e642072a1bb"
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
       },
       "android": {
         "buildType": "apk"
@@ -34,8 +33,7 @@
       "env": {
         "PLAY_STORE_BUILD": "true",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
-        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
-        "EXPO_PUBLIC_HELIUS_API_KEY": "497b1891-685f-41bd-a958-7e642072a1bb"
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
       },
       "ios": {
         "resourceClass": "m-medium"
@@ -47,8 +45,7 @@
       "env": {
         "DAPP_STORE_BUILD": "true",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
-        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
-        "EXPO_PUBLIC_HELIUS_API_KEY": "497b1891-685f-41bd-a958-7e642072a1bb"
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
       },
       "android": {
         "buildType": "apk",
