@@ -179,11 +179,3 @@ export const serverEnv = {
     return REQUIRED_R2_ENV_VARS.every((name) => Boolean(getOptionalEnv(name)));
   },
 } as const;
-
-export function getHeliusApiKey(): string {
-  return getRequiredEnv("HELIUS_API_KEY");
-}
-
-export function getHeliusWebhookSecret(): string {
-  return getRequiredEnv("HELIUS_WEBHOOK_SECRET");
-}
