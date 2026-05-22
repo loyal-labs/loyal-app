@@ -1,11 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
-import {
-  getAccountTransactionHistory,
-  listenForAccountTransactions,
-} from "@/lib/solana/rpc/get-account-txn-history";
+import { getAccountTransactionHistory } from "@/lib/solana/rpc/get-account-txn-history";
 import type { WalletTransfer } from "@/lib/solana/rpc/types";
 import { walletTransactionsCache } from "@/lib/solana/wallet-cache";
 import type { Transaction } from "@/types/wallet";
@@ -119,22 +116,7 @@ function mergeTransactions(
   );
 }
 
-type UseWalletTransactionsOptions = {
-  /**
-   * Called whenever the websocket surfaces a transaction involving the
-   * user's wallet. The hook has already merged the transfer into the
-   * activity feed; this callback lets the caller kick cross-cutting
-   * refreshes (SOL balance, holdings) since a tx usually moves funds
-   * but the sockets are scoped to the wallet pubkey mention, not to
-   * every touched ATA.
-   */
-  onWsTransaction?: () => void;
-};
-
-export function useWalletTransactions(
-  walletAddress: string | null,
-  { onWsTransaction }: UseWalletTransactionsOptions = {},
-) {
+export function useWalletTransactions(walletAddress: string | null) {
   const [walletTransactions, setWalletTransactions] = useState<Transaction[]>(
     () =>
       walletAddress
@@ -143,8 +125,6 @@ export function useWalletTransactions(
         : [],
   );
   const [isFetchingTransactions, setIsFetchingTransactions] = useState(false);
-  const onWsTransactionRef = useRef(onWsTransaction);
-  onWsTransactionRef.current = onWsTransaction;
 
   const mapTransferToTransaction = useCallback(
     (transfer: WalletTransfer): Transaction => {
@@ -253,63 +233,6 @@ export function useWalletTransactions(
     if (!walletAddress) return;
     void loadWalletTransactions();
   }, [walletAddress, loadWalletTransactions]);
-
-  // Subscribe to websocket transaction updates
-  useEffect(() => {
-    if (!walletAddress) return;
-
-    let isCancelled = false;
-    let unsubscribe: (() => Promise<void>) | null = null;
-
-    void (async () => {
-      try {
-        const cacheKey = getTransactionsCacheKey(walletAddress);
-        unsubscribe = await listenForAccountTransactions(
-          new PublicKey(walletAddress),
-          (transfer) => {
-            if (isCancelled) return;
-            const mapped = mapTransferToTransaction(transfer);
-            setWalletTransactions((prev) => {
-              const next = [...prev];
-
-              const matchIndex = mapped.signature
-                ? next.findIndex((tx) => tx.signature === mapped.signature)
-                : next.findIndex((tx) => tx.id === mapped.id);
-
-              if (matchIndex >= 0) {
-                const existing = next[matchIndex];
-                if (
-                  existing.transferType === "swap" &&
-                  mapped.transferType !== "swap"
-                ) {
-                  next[matchIndex] = { ...mapped, ...existing };
-                } else {
-                  next[matchIndex] = { ...existing, ...mapped };
-                }
-              } else {
-                next.unshift(mapped);
-              }
-
-              const sorted = next.sort((a, b) => b.timestamp - a.timestamp);
-              walletTransactionsCache.set(cacheKey, sorted);
-              return sorted;
-            });
-            onWsTransactionRef.current?.();
-          },
-          { onlySystemTransfers: false },
-        );
-      } catch (error) {
-        console.error("Failed to subscribe to transaction updates", error);
-      }
-    })();
-
-    return () => {
-      isCancelled = true;
-      if (unsubscribe) {
-        void unsubscribe();
-      }
-    };
-  }, [mapTransferToTransaction, walletAddress]);
 
   return {
     walletTransactions,

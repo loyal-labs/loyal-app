@@ -7,7 +7,6 @@
 // imports in source order.
 jest.mock("../../rpc/connection", () => ({
   getConnection: jest.fn(),
-  getWebsocketConnection: jest.fn(),
   getSolanaEnv: jest.fn(() => "mainnet"),
 }));
 

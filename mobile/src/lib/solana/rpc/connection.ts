@@ -103,13 +103,11 @@ export const getPerEndpoints = (
 };
 
 let cachedConnection: Connection | null = null;
-let cachedWebsocketConnection: Connection | null = null;
 let cachedEnv: SolanaEnv | null = null;
 const connectionConfig = { commitment: "confirmed" as const };
 
 function invalidateConnectionCache(): void {
   cachedConnection = null;
-  cachedWebsocketConnection = null;
   cachedEnv = null;
 }
 
@@ -128,15 +126,4 @@ export const getConnection = (): Connection => {
   const { rpcEndpoint } = getEndpoints(env);
   cachedConnection = new Connection(rpcEndpoint, connectionConfig);
   return cachedConnection;
-};
-
-export const getWebsocketConnection = (): Connection => {
-  const env = ensureEnv();
-  if (cachedWebsocketConnection) return cachedWebsocketConnection;
-  const { rpcEndpoint, websocketEndpoint } = getEndpoints(env);
-  cachedWebsocketConnection = new Connection(rpcEndpoint, {
-    ...connectionConfig,
-    wsEndpoint: websocketEndpoint,
-  });
-  return cachedWebsocketConnection;
 };

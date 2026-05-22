@@ -7,7 +7,7 @@ import {
   Shield,
   ShieldOff,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import {
   useAnimatedScrollHandler,
@@ -57,7 +57,6 @@ import { getSolanaEnv, onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import {
   getCachedBalanceBg,
-  resetWalletBalanceSubscription,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
 import type { ShieldDirection } from "@/lib/solana/shielding";
@@ -78,31 +77,14 @@ export default function WalletScreen() {
   const { solPriceUsd } = useSolPrice();
   const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
 
-  // Stable forwarder: auto-refresh hooks need `requestRefresh` to kick a
-  // full refresh, but `requestRefresh` itself isn't defined until
-  // `useWalletAutoRefresh` runs after the data hooks. A ref breaks the
-  // cycle — the callbacks passed to the data hooks are stable, and at
-  // call time they read the current `requestRefresh` from the ref.
-  const requestRefreshRef = useRef<
-    (reason: WalletRefreshReason) => Promise<void> | void
-  >(() => undefined);
-
   const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
-    useTokenHoldings(walletAddress, {
-      onAtaBalanceChange: () => {
-        void requestRefreshRef.current("ws-ata");
-      },
-    });
+    useTokenHoldings(walletAddress);
   const apyByMint = useTokenApy(tokenHoldings);
   const {
     walletTransactions,
     isFetchingTransactions,
     loadWalletTransactions,
-  } = useWalletTransactions(walletAddress, {
-    onWsTransaction: () => {
-      void requestRefreshRef.current("ws-transaction");
-    },
-  });
+  } = useWalletTransactions(walletAddress);
   const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
     useKaminoEarnings();
 
@@ -112,18 +94,11 @@ export default function WalletScreen() {
         reason === "manual" ||
         reason === "mutation" ||
         reason === "network-switch";
-      const shouldRefreshHoldings = reason !== "ws-ata";
-      const shouldForceTransactions =
-        forceOnChainState || reason === "ws-ata";
 
       await Promise.allSettled([
         refreshBalance(forceOnChainState),
-        shouldRefreshHoldings
-          ? refreshTokenHoldings(
-              forceOnChainState || reason === "ws-transaction",
-            )
-          : Promise.resolve(),
-        loadWalletTransactions({ force: shouldForceTransactions }),
+        refreshTokenHoldings(forceOnChainState),
+        loadWalletTransactions({ force: forceOnChainState }),
       ]);
     },
     [refreshBalance, refreshTokenHoldings, loadWalletTransactions],
@@ -133,7 +108,6 @@ export default function WalletScreen() {
     walletAddress,
     refresh: doFullRefresh,
   });
-  requestRefreshRef.current = requestRefresh;
 
   // Re-fetch everything when the Solana network is switched in Settings
   const [networkLoading, setNetworkLoading] = useState(false);
@@ -179,10 +153,8 @@ export default function WalletScreen() {
       setNetworkKey((k) => k + 1);
       setTokenMarketRefreshKey((k) => k + 1);
 
-      void resetWalletBalanceSubscription().then(() =>
-        Promise.resolve(requestRefresh("network-switch")).finally(() =>
-          setNetworkLoading(false),
-        ),
+      Promise.resolve(requestRefresh("network-switch")).finally(() =>
+        setNetworkLoading(false),
       );
     });
   }, [requestRefresh]);
