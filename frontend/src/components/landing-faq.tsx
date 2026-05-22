@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 
-const faqs = [
+export type FaqItem = {
+  question: string;
+  answer: string;
+};
+
+export const LANDING_FAQS: FaqItem[] = [
   {
     question: "What is Loyal?",
     answer:
@@ -46,14 +51,33 @@ const faqs = [
   },
 ];
 
-export function LandingFaq() {
+export function LandingFaq({ items = LANDING_FAQS }: { items?: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const faqs = items;
+
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
+  };
 
   return (
     <section
       className="flex w-full justify-center bg-white px-4 py-12 lg:px-6 lg:py-24"
       id="faq"
     >
+      {/* FAQPage JSON-LD, generated from the same items rendered below so the
+          two can never drift. Rendered as script children (not
+          dangerouslySetInnerHTML): React escapes <, >, & — preventing script
+          breakout — and the browser decodes them back via textContent. */}
+      <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>
       <div className="grid w-full max-w-[560px] gap-10 lg:max-w-[1560px] lg:grid-cols-2 lg:gap-6">
         <div className="pb-12 lg:pb-0" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">
