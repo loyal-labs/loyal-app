@@ -16,10 +16,6 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/cron/push-incoming-transfers",
-      "schedule": "*/2 * * * *"
-    },
-    {
       "path": "/api/cron/push-shielded-transfers",
       "schedule": "1-59/2 * * * *"
     },
