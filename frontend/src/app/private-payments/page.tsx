@@ -355,7 +355,23 @@ export default function PrivatePaymentsPage() {
           {
             icon: <KeyRound className="size-16 text-[#f9363c]" />,
             title: "You hold the keys",
-            body: "Loyal is self-custodial. Keys live in your Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a custodian. Pooling tokens in a shared Vault isn't custody either: only your key can withdraw your balance.",
+            body: (
+              <>
+                Loyal is self-custodial. Keys live in your Telegram passkey,
+                Chrome extension, web app session, or Android app. The
+                Confidential VM is a signing co-processor, not a custodian.
+                Pooling tokens in a shared Vault isn&apos;t custody either: only
+                your key can withdraw your balance. Smart-account policies on
+                the same wallet can also delegate bounded authority to{" "}
+                <Link
+                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+                  href="/agents"
+                >
+                  AI agents
+                </Link>
+                , so the same custody model covers agent operators too.
+              </>
+            ),
           },
           {
             icon: <TrendingUp className="size-16 text-[#f9363c]" />,

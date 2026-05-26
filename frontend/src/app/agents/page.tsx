@@ -32,7 +32,7 @@ import { Section } from "@/features/marketing/blocks/section";
 import { TextImageHero } from "@/features/marketing/blocks/text-image";
 
 const PAGE_TITLE =
-  "Agent Wallet on Solana · Smart Accounts for AI Agents · Loyal";
+  "Agent Wallet on Solana | Smart Accounts for AI Agents | Loyal";
 const PAGE_DESCRIPTION =
   "Loyal is an agent wallet on Solana. Every wallet is a Smart Account with policies and spending caps, so your AI agents stay within bounds.";
 const OG_IMAGE = "/marketing/agents/og-agents.13a73749.png";
@@ -333,7 +333,28 @@ export default function AgentsPage() {
           {
             icon: <BotMessageSquare className="size-16 text-[#f9363c]" />,
             title: "Treasury operations",
-            body: "A DAO or team treasury that delegates routine payouts to an agent (payroll, vendor invoices) while keeping principal signers on the multisig. Can Sign is the natural fit.",
+            body: (
+              <>
+                A DAO or team treasury that delegates routine payouts to an
+                agent (payroll, vendor invoices) while keeping principal signers
+                on the multisig. Can Sign is the natural fit. The same pattern
+                routes idle reserves to a{" "}
+                <Link
+                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+                  href="/earn"
+                >
+                  best-rate optimizer
+                </Link>{" "}
+                or a{" "}
+                <Link
+                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+                  href="/yield"
+                >
+                  shielded-yield reserve
+                </Link>
+                .
+              </>
+            ),
           },
           {
             icon: <ShoppingBag className="size-16 text-[#f9363c]" />,

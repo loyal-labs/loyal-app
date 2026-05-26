@@ -223,10 +223,17 @@ export default function EarnPage() {
                   Private and passive: your shielded dollars earn while they
                   sit.
                 </strong>{" "}
-                Dollars you hold and shield don&apos;t sit idle. The underlying
-                tokens are put to work in Kamino lending while your balance
-                stays private, earning the baseline lending rate with nothing
-                for you to manage. That&apos;s the{" "}
+                Dollars you hold and{" "}
+                <Link
+                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+                  href="/private-payments"
+                >
+                  shield
+                </Link>{" "}
+                don&apos;t sit idle. The underlying tokens are put to work in
+                Kamino lending while your balance stays private, earning the
+                baseline lending rate with nothing for you to manage.
+                That&apos;s the{" "}
                 <Link
                   className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
                   href="/yield"

@@ -230,12 +230,18 @@ export default function YieldPage() {
             size: "lg",
             body: (
               <>
-                Shielding a balance just to make it private doesn&apos;t stand
-                on its own. Almost nobody parks capital purely to keep it
-                confidential, and privacy needs a crowd: your own transaction
-                volume isn&apos;t enough to hide behind. A privacy layer with no
-                other reason to hold funds never attracts the activity that
-                makes it work.
+                Shielding a balance just to make it{" "}
+                <Link
+                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+                  href="/private-payments"
+                >
+                  private
+                </Link>{" "}
+                doesn&apos;t stand on its own. Almost nobody parks capital
+                purely to keep it confidential, and privacy needs a crowd: your
+                own transaction volume isn&apos;t enough to hide behind. A
+                privacy layer with no other reason to hold funds never attracts
+                the activity that makes it work.
               </>
             ),
           },
@@ -251,7 +257,15 @@ export default function YieldPage() {
                 Most privacy protocols lock funds that then sit idle for the
                 entire time they&apos;re shielded. The dollars backing a
                 shielded balance on Loyal don&apos;t. They&apos;re deposited
-                into Kamino and earn while the balance stays private.
+                into Kamino and earn while the balance stays private. For the
+                same routing logic on open (unshielded) balances, see{" "}
+                <Link
+                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+                  href="/earn"
+                >
+                  /earn
+                </Link>
+                .
               </>
             ),
           },
