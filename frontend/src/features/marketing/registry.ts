@@ -30,4 +30,9 @@ export const MARKETING_PAGES: MarketingPage[] = [
     title: "Yield",
     description: "Yield on Shielded USDC, SOL & USDT",
   },
+  {
+    slug: "earn",
+    title: "Earn",
+    description: "Best Available Stablecoin Yield on Solana",
+  },
 ];
