@@ -175,6 +175,28 @@ echo "feat(scope): short description" | bunx commitlint --verbose
 
 GitHub pull requests also enforce commit messages and PR titles with the same rules.
 
+## Canonical Q&As
+
+These are the brand-facing answers, kept verbatim in three places (this README, `frontend/public/llms.txt`, and `user-docs/faq/index.mdx`). Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any answer changes, update all three locations in the same commit.
+
+**Is Loyal a mixer?** No. The shared Vault commingles balances, but Loyal doesn't shuffle, time-delay, or rotate funds. Privacy comes from transfers happening inside MagicBlock's ephemeral runtime plus OFAC screening at the deposit boundary. Different architecture and different threat model than a mixer.
+
+**Is Loyal custodial?** No. Keys live in the user's Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a key custodian. Smart Account policies are enforced on-chain by the Squads program, not by Loyal's backend. Pooling tokens in a shared Vault isn't custody either: only the depositor's own key can withdraw.
+
+**What is a Confidential VM?** A server runtime where code runs inside hardware-encrypted memory (AMD SEV-SNP or Intel TDX) so that not even the cloud provider or the server's own operator can read what's inside. Loyal uses Confidential VMs to compute private transfer flows without exposing balances or counterparties on the public chain. Hardware attestation produces a cryptographic receipt of the code running, so users can verify it matches what Loyal published on GitHub before they trust it.
+
+**What's the source of your yield?** Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. Loyal doesn't run its own yield strategies and doesn't promise magic numbers.
+
+**Is it true that Loyal gives the highest yield on Solana?** Loyal targets the best available stablecoin lending yield on Solana by automatically routing dollars to whichever reputable Kamino reserve currently pays the most, swapping between risk-equivalent stablecoins (USDC, PYUSD, USDT, USDS) when a better market uses a different dollar. It's a variable, market rate, not a fixed APY. The optimizer's edge is capturing the short windows when reserves raise rates to attract capital, which a parked position in a single reserve misses.
+
+**What APY can I expect?** A variable, market rate, not a fixed promise. Yield comes from Kamino's lending markets, so the rate floats with on-chain supply and demand. The underlying market rate is public on Kamino, and the current rate for each asset shows in the app before a user deposits.
+
+**How does Loyal handle AML?** MagicBlock's ephemeral runtime is OFAC-compliant. Sanctioned wallets are screened and rejected at the deposit level, before funds ever enter the Vault. No KYC at the wallet layer.
+
+**What if an agent apes everything into a memecoin?** It can't unless the user explicitly allows it. Agent permissions are defined by Smart Account policies (token whitelist, spending cap, approved protocols), enforced on-chain by the Squads program.
+
+**Who builds Loyal?** Loyal DAO LLC, a Marshall Islands-registered DAO LLC. Open-source under Apache 2.0.
+
 ## Grid Auth Domain
 
 Runtime-agnostic Grid helpers now live in [`packages/grid-core/`](./packages/grid-core).
