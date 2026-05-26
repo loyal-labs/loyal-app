@@ -449,7 +449,7 @@ export default function EarnPage() {
           {
             icon: <TrendingDown className="size-16 text-[#f9363c]" />,
             title: "Reserve smart-contract and depeg risk",
-            body: "Your dollars sit in Kamino reserves that carry smart-contract risk, where an exploit or a bad-debt event could affect the principal — the same exposure every lender in that reserve takes. Because the strategy moves between stablecoins, a stablecoin losing its peg is also a genuine risk, which is why the whitelist is limited to reputable dollars and established reserves.",
+            body: "Your dollars sit in Kamino reserves that carry smart-contract risk, where an exploit or a bad-debt event could affect the principal, the same exposure every lender in that reserve takes. Because the strategy moves between stablecoins, a stablecoin losing its peg is also a genuine risk, which is why the whitelist is limited to reputable dollars and established reserves.",
           },
           {
             icon: <ShieldCheck className="size-16 text-[#f9363c]" />,
@@ -578,7 +578,7 @@ export default function EarnPage() {
             hardware-isolated Confidential VM.
             <br />
             <br />
-            The whole stack is in the loyal-app monorepo — read how the policy,
+            The whole stack is in the loyal-app monorepo; read how the policy,
             the routing, and the Kamino integration fit together.
           </>
         }
@@ -599,8 +599,8 @@ export default function EarnPage() {
         body={
           <>
             Deposit dollars, set how much goes to earning, and Loyal routes it
-            to the best available rate from there. Loyal lives in three
-            places — all on the same Squads-based smart account: web app,
+            to the best available rate from there. Loyal lives in four
+            places, all on the same Squads-based smart account: web app,
             Chrome extension, Telegram mini-app, and the Android app.{" "}
             <strong>Stay Loyal.</strong>
           </>

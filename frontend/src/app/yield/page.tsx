@@ -95,12 +95,12 @@ const yieldFaqs: FaqItem[] = [
     question:
       "How do I earn yield on USDC without exposing my wallet on-chain?",
     answer:
-      "Deposit USDC into Loyal and shield the balance. Loyal routes the underlying USDC into Kamino's single-asset lending vaults on Solana, so it earns yield while your balance stays shielded — individual balances and movements aren't attributable to your address. You collect yield without un-shielding and without revealing your balance on-chain. Withdraw any time by un-shielding.",
+      "Deposit USDC into Loyal and shield the balance. Loyal routes the underlying USDC into Kamino's single-asset lending vaults on Solana, so it earns yield while your balance stays shielded: individual balances and movements aren't attributable to your address. You collect yield without un-shielding and without revealing your balance on-chain. Withdraw any time by un-shielding.",
   },
   {
     question: "Where does the yield come from?",
     answer:
-      "Kamino. Specifically, Kamino's single-asset lending vaults on Solana — the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, SOL, or USDT, your assets are deployed into Kamino's strategies. We don't run our own yield strategies and we don't promise magic numbers.",
+      "Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, SOL, or USDT, your assets are deployed into Kamino's strategies. We don't run our own yield strategies and we don't promise magic numbers.",
   },
   {
     question: "Do I have to un-shield to earn yield?",
@@ -192,7 +192,7 @@ export default function YieldPage() {
                 <br />
                 <strong>Your balance stays private.</strong> Inside the Vault,
                 balances aren&apos;t attributable to any address. Transfers
-                between shielded users don&apos;t move real tokens at all —
+                between shielded users don&apos;t move real tokens at all;
                 they&apos;re arithmetic on deposit accounts, run inside
                 MagicBlock&apos;s ephemeral runtime where only the account owner
                 can see or touch the balance.
@@ -214,7 +214,7 @@ export default function YieldPage() {
                 pulls the tokens back from Kamino and releases real SPL tokens
                 from the pool to your address. Because deposits and withdrawals
                 both go through the shared pool, there&apos;s no on-chain link
-                between the two. Commingled isn&apos;t custodial — only your own
+                between the two. Commingled isn&apos;t custodial: only your own
                 key can withdraw your balance.
               </>
             ),
@@ -269,7 +269,7 @@ export default function YieldPage() {
                 Solana has a deep bench of on-chain native protocols that
                 compose with each other. Loyal&apos;s Vault can deposit its
                 underlying tokens straight into Kamino, a major Solana lending
-                protocol, and pull them back on demand — all on-chain, all in
+                protocol, and pull them back on demand, all on-chain, all in
                 code. There&apos;s no off-chain bridge, no custodian moving
                 funds between venues, no manual rebalancing desk.
               </>
@@ -302,8 +302,8 @@ export default function YieldPage() {
                 <strong>
                   Kamino. Specifically, Kamino&apos;s single-asset lending
                   vaults on Solana
-                </strong>{" "}
-                — the same infrastructure used by Phantom, Pendle, Anchorage,
+                </strong>
+                , the same infrastructure used by Phantom, Pendle, Anchorage,
                 and others. When you earn APY on shielded USDC, SOL, or USDT,
                 your assets are deployed into Kamino&apos;s strategies. We
                 don&apos;t run our own yield strategies and we don&apos;t
@@ -345,17 +345,17 @@ export default function YieldPage() {
           {
             icon: <TrendingUp className="size-16 text-[#f9363c]" />,
             title: "Your principal carries Kamino's risk",
-            body: "While shielded, the underlying tokens sit in Kamino's lending vaults. If one of those vaults suffered a smart-contract exploit or a bad-debt event, the deposited principal could be affected — the same risk every Kamino lender takes. We don't insure deposits and we don't run our own strategies that could paper over a loss. The venue is Kamino, one of the most-used lending protocols on Solana.",
+            body: "While shielded, the underlying tokens sit in Kamino's lending vaults. If one of those vaults suffered a smart-contract exploit or a bad-debt event, the deposited principal could be affected, the same risk every Kamino lender takes. We don't insure deposits and we don't run our own strategies that could paper over a loss. The venue is Kamino, one of the most-used lending protocols on Solana.",
           },
           {
             icon: <ShieldCheck className="size-16 text-[#f9363c]" />,
             title: "A Loyal-side compromise does not move your funds",
-            body: "The shielded layer runs a signer inside a hardware-isolated Confidential VM. Even a worst-case compromise of that layer can't move your money, because your own private key signature is still required on every transfer and withdrawal. A worst-case hardware compromise would degrade your transfer privacy back toward a standard Solana wallet — still self-custodial, still your funds — not drain your balance.",
+            body: "The shielded layer runs a signer inside a hardware-isolated Confidential VM. Even a worst-case compromise of that layer can't move your money, because your own private key signature is still required on every transfer and withdrawal. A worst-case hardware compromise would degrade your transfer privacy back toward a standard Solana wallet (still self-custodial, still your funds), not drain your balance.",
           },
           {
             icon: <KeyRound className="size-16 text-[#f9363c]" />,
             title: "You hold the keys",
-            body: "Loyal is self-custodial. Keys live in your Telegram passkey, Chrome extension, or web app session. The Confidential VM is a signing co-processor, not a custodian, and Loyal can't move your funds — including the portion in Kamino — without your signature.",
+            body: "Loyal is self-custodial. Keys live in your Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a custodian, and Loyal can't move your funds (including the portion in Kamino) without your signature.",
           },
           {
             icon: <CircleCheck className="size-16 text-[#f9363c]" />,
@@ -395,7 +395,7 @@ export default function YieldPage() {
           {
             icon: <Banknote className="size-16 text-[#f9363c]" />,
             title: "Teams holding runway",
-            body: "If you raised in stablecoins and you're holding months of payroll, that float can earn while it waits — without exposing the balance or the burn rate that a competitor could infer from it. You un-shield what you need, when you need it.",
+            body: "If you raised in stablecoins and you're holding months of payroll, that float can earn while it waits, without exposing the balance or the burn rate that a competitor could infer from it. You un-shield what you need, when you need it.",
           },
           {
             icon: <BotMessageSquare className="size-16 text-[#f9363c]" />,
@@ -437,7 +437,7 @@ export default function YieldPage() {
             to earn yield.
             <br />
             <br />
-            The whole stack is in the loyal-app monorepo — read how the Vault,
+            The whole stack is in the loyal-app monorepo; read how the Vault,
             the shielding, and the Kamino routing fit together.
           </>
         }
@@ -455,7 +455,7 @@ export default function YieldPage() {
       <TextImageHero
         layout="text-right"
         title="Start earning"
-        body="Deposit USDC, SOL, or USDT, shield it, and it starts earning. Loyal lives in three places — all on the same Squads-based smart account: web app, Chrome extension, Telegram mini-app, and the Android app."
+        body="Deposit USDC, SOL, or USDT, shield it, and it starts earning. Loyal lives in four places, all on the same Squads-based smart account: web app, Chrome extension, Telegram mini-app, and the Android app."
         cta={{ label: "Get started", href: "https://app.askloyal.com" }}
         image={{
           src: "/landing/figma/get-started-extension-wallet.png",

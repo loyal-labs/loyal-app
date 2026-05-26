@@ -98,7 +98,7 @@ const privatePaymentsFaqs: FaqItem[] = [
   {
     question: "Is Solana untraceable?",
     answer:
-      "Solana is not untraceable by default — every transaction is public on a public ledger. With Loyal, USDC, SOL, and USDT transfers happen as arithmetic on confidential deposit accounts inside MagicBlock's ephemeral runtime, not as real token movements on the main chain, so there's nothing for an on-chain analyst to graph. That's what most users mean when they say 'untraceable'.",
+      "Solana is not untraceable by default; every transaction is public on a public ledger. With Loyal, USDC, SOL, and USDT transfers happen as arithmetic on confidential deposit accounts inside MagicBlock's ephemeral runtime, not as real token movements on the main chain, so there's nothing for an on-chain analyst to graph. That's what most users mean when they say 'untraceable'.",
   },
   {
     question: "Is Loyal a mixer?",
@@ -108,12 +108,12 @@ const privatePaymentsFaqs: FaqItem[] = [
   {
     question: "Is Loyal custodial?",
     answer:
-      "No. Keys live in your Telegram passkey, Chrome extension, or web app session. The Confidential VM is a signing co-processor, not a key custodian. Pooling tokens in a shared Vault isn't custody either — this is not a centralized exchange, and only your key can withdraw your balance.",
+      "No. Keys live in your Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a key custodian. Pooling tokens in a shared Vault isn't custody either: this is not a centralized exchange, and only your key can withdraw your balance.",
   },
   {
     question: "Is it KYC-free?",
     answer:
-      "Yes at the wallet layer. Loyal does not collect identity, email, or personal information to create a wallet. Deposit screening is OFAC-list-only — a sanctions check, not an identity check.",
+      "Yes at the wallet layer. Loyal does not collect identity, email, or personal information to create a wallet. Deposit screening is OFAC-list-only: a sanctions check, not an identity check.",
   },
   {
     question: "What is a Confidential VM?",
@@ -128,12 +128,12 @@ const privatePaymentsFaqs: FaqItem[] = [
   {
     question: "What happens if the Confidential VM is compromised?",
     answer:
-      "Funds remain safe, because a Confidential VM compromise alone is not sufficient to move funds — your private key signature is still required on every transfer. A worst-case hardware compromise would degrade transfer privacy back toward a standard Solana wallet (still self-custodial, still your funds), not exfiltrate balances. Attestation lets you verify the VM state before trusting it.",
+      "Funds remain safe, because a Confidential VM compromise alone is not sufficient to move funds; your private key signature is still required on every transfer. A worst-case hardware compromise would degrade transfer privacy back toward a standard Solana wallet (still self-custodial, still your funds), not exfiltrate balances. Attestation lets you verify the VM state before trusting it.",
   },
   {
     question: "Do private transfers work for SOL too, or only for USDC?",
     answer:
-      "USDC, SOL, and USDT are supported as shielded assets. Each lives in its own per-mint shared Vault. The same mechanism — confidential deposit accounts on top of a commingled token pool, with transfers as arithmetic inside MagicBlock's ephemeral runtime — applies across all three.",
+      "USDC, SOL, and USDT are supported as shielded assets. Each lives in its own per-mint shared Vault. The same mechanism (confidential deposit accounts on top of a commingled token pool, with transfers as arithmetic inside MagicBlock's ephemeral runtime) applies across all three.",
   },
   {
     question: "Can I use Loyal for payroll without exposing recipient addresses?",
@@ -143,7 +143,7 @@ const privatePaymentsFaqs: FaqItem[] = [
   {
     question: "Can a regulator subpoena my balance?",
     answer:
-      "We cannot produce what we don't have. Loyal's infrastructure does not store cleartext balances or transfer history that's readable by Loyal team members — both are encrypted, with cleartext access governed by the user's keys. If you need to disclose your balance or history selectively, Loyal supports hierarchical viewing keys: you grant a read-only view to the party who needs it, without giving up your private key.",
+      "We cannot produce what we don't have. Loyal's infrastructure does not store cleartext balances or transfer history that's readable by Loyal team members: both are encrypted, with cleartext access governed by the user's keys. If you need to disclose your balance or history selectively, Loyal supports hierarchical viewing keys: you grant a read-only view to the party who needs it, without giving up your private key.",
   },
 ];
 
@@ -212,7 +212,7 @@ export default function PrivatePaymentsPage() {
                 <br />
                 <br />
                 Two different properties. Pool size matters for fungibility;
-                it doesn&apos;t matter for transfer privacy — the transfers
+                it doesn&apos;t matter for transfer privacy, because the transfers
                 themselves are invisible inside the ephemeral runtime regardless
                 of how many other users are in the pool. Commingled isn&apos;t
                 custodial: only your own key can withdraw your balance.
@@ -235,7 +235,7 @@ export default function PrivatePaymentsPage() {
                 <br />
                 <br />
                 Your shielded dollars earn the <strong>passive baseline rate</strong>{" "}
-                while they&apos;re shielded — the underlying pooled tokens are
+                while they&apos;re shielded: the underlying pooled tokens are
                 deployed into Kamino&apos;s single-asset lending vaults on
                 Solana, and yield accrues without you exposing your balance or
                 un-shielding to collect. Full mechanism on{" "}
@@ -259,8 +259,8 @@ export default function PrivatePaymentsPage() {
                 dollars. Shielded dollars earn the baseline only.
                 <br />
                 <br />
-                You can split a balance — shielded for privacy at the baseline,
-                open for active optimization — on the{" "}
+                You can split a balance (shielded for privacy at the baseline,
+                open for active optimization) on the{" "}
                 <Link
                   className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
                   href="/earn"
@@ -303,7 +303,7 @@ export default function PrivatePaymentsPage() {
             body: "The Vault's signing key runs inside a hardware-isolated Confidential VM. Privacy comes from hardware isolation plus the ephemeral runtime, not from commingling with anonymous strangers in a pool.",
           },
         ]}
-        closingStatement="Different architecture. Different threat model. For normal users who want their salary, payments, or DeFi flows kept private — built for you. For laundering sanctioned funds — wrong system."
+        closingStatement="Different architecture. Different threat model. For normal users who want their salary, payments, or DeFi flows kept private, built for you. For laundering sanctioned funds, wrong system."
       />
 
       {/* Block 5 — Section (Confidential VM and attestation) */}
@@ -350,12 +350,12 @@ export default function PrivatePaymentsPage() {
           {
             icon: <RotateCcw className="size-16 text-[#f9363c]" />,
             title: "A Confidential VM compromise alone doesn't move your funds",
-            body: "Your own private key signature is still required on every transfer and withdrawal. A worst-case hardware compromise would degrade transfer privacy back toward a standard Solana wallet — still self-custodial, still your funds — not exfiltrate balances. The privacy guarantee degrades; the custody guarantee doesn't.",
+            body: "Your own private key signature is still required on every transfer and withdrawal. A worst-case hardware compromise would degrade transfer privacy back toward a standard Solana wallet (still self-custodial, still your funds), not exfiltrate balances. The privacy guarantee degrades; the custody guarantee doesn't.",
           },
           {
             icon: <KeyRound className="size-16 text-[#f9363c]" />,
             title: "You hold the keys",
-            body: "Loyal is self-custodial. Keys live in your Telegram passkey, Chrome extension, or web app session. The Confidential VM is a signing co-processor, not a custodian. Pooling tokens in a shared Vault isn't custody either — only your key can withdraw your balance.",
+            body: "Loyal is self-custodial. Keys live in your Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a custodian. Pooling tokens in a shared Vault isn't custody either: only your key can withdraw your balance.",
           },
           {
             icon: <TrendingUp className="size-16 text-[#f9363c]" />,
@@ -403,7 +403,7 @@ export default function PrivatePaymentsPage() {
       {/* Block 8 — Section-18 (text-left feature row: how it's built) */}
       <TextImageHero
         title="How it's built"
-        body="Two open-source Anchor programs on Solana mainnet handle shielding and verification. Transfer privacy runs on MagicBlock's ephemeral runtime. The @loyal-labs/private-transactions SDK is public — read the source, ship private transfers in your own app."
+        body="Two open-source Anchor programs on Solana mainnet handle shielding and verification. Transfer privacy runs on MagicBlock's ephemeral runtime. The @loyal-labs/private-transactions SDK is public; read the source, ship private transfers in your own app."
         cta={{
           label: "Read the SDK",
           href: "https://docs.askloyal.com/sdk/private-transactions/quick-start",
@@ -418,7 +418,7 @@ export default function PrivatePaymentsPage() {
       <TextImageHero
         layout="text-right"
         title="Get started"
-        body="Runs in the web app, browser extension, Telegram mini-app, and Android app — all backed by the same Squads Smart Account. Supported assets: USDC, SOL, USDT."
+        body="Runs in the web app, browser extension, Telegram mini-app, and Android app, all backed by the same Squads Smart Account. Supported assets: USDC, SOL, USDT."
         cta={{ label: "Get started", href: "https://app.askloyal.com" }}
         image={{
           src: "/landing/figma/get-started-extension-wallet.png",
