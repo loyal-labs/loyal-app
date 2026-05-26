@@ -25,4 +25,9 @@ export const MARKETING_PAGES: MarketingPage[] = [
     title: "Private Payments",
     description: "Anonymous Crypto Wallet on Solana",
   },
+  {
+    slug: "yield",
+    title: "Yield",
+    description: "Yield on Shielded USDC, SOL & USDT",
+  },
 ];
