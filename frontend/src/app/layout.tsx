@@ -48,6 +48,8 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: "https://askloyal.com/",
+    siteName: "Loyal",
+    locale: "en_US",
     title: "Loyal: Solana Wallet with Agent Guardrails",
     description:
       "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",

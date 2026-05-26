@@ -266,7 +266,6 @@ function HeaderContent({
         width="98"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <title>Loyal eye</title>
         <g
           className="transition duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{

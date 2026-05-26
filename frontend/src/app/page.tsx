@@ -22,7 +22,7 @@ const featureCards = [
       "/landing/figma/feature-phone-bg.png",
       "/landing/figma/feature-phone-overlay.png",
     ],
-    text: "Keep your finds private, execute secure transactions and make money on shielded assets",
+    text: "Keep your funds private, execute secure transactions and make money on shielded assets",
     tone: "light",
   },
   {
@@ -166,7 +166,7 @@ export default function LandingPage() {
               <h2 className="max-w-[600px] text-[24px] font-medium leading-[1.1] text-white lg:text-[32px]">
                 Access agentic workflows available for the mobile app and
                 browser extension, or build on top with permissionless access
-                using our SDK — all code is open source
+                using our SDK. All code is open source.
               </h2>
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[20px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0 lg:h-auto lg:text-[16px]"
