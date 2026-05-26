@@ -11,21 +11,19 @@ const walletPublicKey = storage.defineItem<string | null>("local:walletPublicKey
   fallback: null,
 });
 
-// Lockout durations in ms, indexed by (failedAttempts - 4).
-// Attempts 1–3 have no lockout. 4 → 30s, 5 → 1m, 6 → 5m, ...
+// Lockout durations in ms, indexed by (failedAttempts - 6).
+// Attempts 1–5 have no lockout. 6 → 15s, 7 → 30s, 8 → 1m, 9 → 5m, 10+ → 15m.
 const LOCKOUT_DURATIONS_MS = [
-  30_000,      // 4th failure  → 30 s
-  60_000,      // 5th failure  → 1 min
-  300_000,     // 6th failure  → 5 min
-  900_000,     // 7th failure  → 15 min
-  3_600_000,   // 8th failure  → 1 hour
-  14_400_000,  // 9th failure  → 4 hours
-  86_400_000,  // 10th+ failure → 24 hours
+  15_000,   // 6th failure   → 15 s
+  30_000,   // 7th failure   → 30 s
+  60_000,   // 8th failure   → 1 min
+  300_000,  // 9th failure   → 5 min
+  900_000,  // 10th+ failure → 15 min
 ];
 
 function getLockoutDuration(attempts: number): number {
-  if (attempts < 4) return 0;
-  const index = Math.min(attempts - 4, LOCKOUT_DURATIONS_MS.length - 1);
+  if (attempts < 6) return 0;
+  const index = Math.min(attempts - 6, LOCKOUT_DURATIONS_MS.length - 1);
   return LOCKOUT_DURATIONS_MS[index];
 }
 
