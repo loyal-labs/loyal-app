@@ -20,4 +20,9 @@ export const MARKETING_PAGES: MarketingPage[] = [
     title: "Agents",
     description: "Smart Accounts for AI Agents",
   },
+  {
+    slug: "private-payments",
+    title: "Private Payments",
+    description: "Anonymous Crypto Wallet on Solana",
+  },
 ];
