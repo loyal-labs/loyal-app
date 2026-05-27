@@ -17,18 +17,64 @@ import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 const geistSans = GeistSans;
 const geistMono = GeistMono;
 
-const organizationJsonLd = {
+const siteJsonLd = {
   "@context": "https://schema.org",
-  "@type": "Organization",
-  name: "Loyal",
-  legalName: "Loyal DAO LLC",
-  url: "https://askloyal.com",
-  logo: "https://askloyal.com/android-chrome-512x512.png",
-  sameAs: [
-    "https://x.com/loyal_hq",
-    "https://github.com/loyal-labs",
-    "https://discord.com/invite/tAwXsXwTv6",
-    "https://t.me/loyal_tgchat",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://askloyal.com/#organization",
+      name: "Loyal",
+      legalName: "Loyal DAO LLC",
+      url: "https://askloyal.com",
+      logo: "https://askloyal.com/android-chrome-512x512.png",
+      description:
+        "Self-custody Solana smart-account wallet with on-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments and yield on shielded balances.",
+      foundingDate: "2025",
+      foundingLocation: {
+        "@type": "Place",
+        name: "Marshall Islands",
+      },
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "main@askloyal.com",
+        url: "https://discord.askloyal.com",
+      },
+      sameAs: [
+        "https://www.wikidata.org/wiki/Q139927376",
+        "https://x.com/loyal_hq",
+        "https://github.com/loyal-labs",
+        "https://discord.askloyal.com",
+        "https://t.me/loyal_tgchat",
+        "https://medium.com/@askloyal",
+        "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack",
+        "https://app.askloyal.com",
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://askloyal.com/#website",
+      url: "https://askloyal.com",
+      name: "Loyal",
+      publisher: { "@id": "https://askloyal.com/#organization" },
+      inLanguage: "en-US",
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://askloyal.com/#app",
+      name: "Loyal",
+      url: "https://askloyal.com",
+      applicationCategory: "FinanceApplication",
+      operatingSystem: "Web, Chrome, Android",
+      description:
+        "Solana wallet with smart-account guardrails for AI agents, private transfers, and yield on shielded balances. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
+      publisher: { "@id": "https://askloyal.com/#organization" },
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+      },
+    },
   ],
 };
 
@@ -48,6 +94,8 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     url: "https://askloyal.com/",
+    siteName: "Loyal",
+    locale: "en_US",
     title: "Loyal: Solana Wallet with Agent Guardrails",
     description:
       "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
@@ -100,7 +148,7 @@ export default async function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(organizationJsonLd).replace(
+            __html: JSON.stringify(siteJsonLd).replace(
               /</g,
               "\\u003c"
             ),

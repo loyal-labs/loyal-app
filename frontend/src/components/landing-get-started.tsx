@@ -11,7 +11,7 @@ type Segment = "Extension" | "Mobile" | "Web";
 
 const appUrl = "https://app.askloyal.com";
 const chromeWebStoreUrl =
-  "https://chromewebstore.google.com/detail/loyal-%E2%80%94-private-solana-wa/cdienfadefhlaknmedckgifkjdbioack?authuser=1&hl=en";
+  "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack";
 const telegramMiniAppUrl =
   "https://t.me/askloyal_tgbot/app?startapp=askloyalcom";
 const seekerDappStoreUrl = "solanadappstore://details?id=com.loyal.app";

@@ -11,22 +11,49 @@ import { LandingHero } from "@/components/landing-hero";
 import { LandingRoadmap } from "@/components/landing-roadmap";
 import { LandingScrollAnimations } from "@/components/landing-scroll-animations";
 
-const featureCards = [
+type FeatureImage = {
+  src: string;
+  alt: string;
+  decorative?: boolean;
+};
+
+const featureCards: {
+  images: FeatureImage[];
+  text: string;
+  tone: "black" | "light" | "red";
+}[] = [
   {
-    images: ["/landing/figma/feature-yield-card.png"],
+    images: [
+      {
+        src: "/landing/figma/feature-yield-card.png",
+        alt: "Loyal Earn card showing an idle USDC balance accruing yield in the background",
+      },
+    ],
     text: "Earn in the background without locking up your funds or giving up control",
     tone: "black",
   },
   {
     images: [
-      "/landing/figma/feature-phone-bg.png",
-      "/landing/figma/feature-phone-overlay.png",
+      {
+        src: "/landing/figma/feature-phone-bg.png",
+        alt: "",
+        decorative: true,
+      },
+      {
+        src: "/landing/figma/feature-phone-overlay.png",
+        alt: "Loyal mobile app screen sending a private transaction over shielded assets",
+      },
     ],
-    text: "Keep your finds private, execute secure transactions and make money on shielded assets",
+    text: "Keep your funds private, execute secure transactions and make money on shielded assets",
     tone: "light",
   },
   {
-    images: ["/landing/figma/feature-agent-card.png"],
+    images: [
+      {
+        src: "/landing/figma/feature-agent-card.png",
+        alt: "Agent permission panel with spending caps and approved-protocol whitelists for AI agents",
+      },
+    ],
     text: "Define guardrails and rulesets for your financial workflows: assign granular permissions to every agent",
     tone: "red",
   },
@@ -61,16 +88,16 @@ export default function LandingPage() {
                     : "bg-[#f2f2f2]"
                 }`}
               >
-                {feature.images.map((src) => (
+                {feature.images.map((image) => (
                   <Image
-                    alt=""
-                    aria-hidden="true"
+                    alt={image.alt}
+                    aria-hidden={image.decorative ? "true" : undefined}
                     className="object-cover"
                     fill
-                    key={src}
+                    key={image.src}
                     loading="eager"
                     sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
-                    src={src}
+                    src={image.src}
                     unoptimized
                   />
                 ))}
@@ -101,8 +128,7 @@ export default function LandingPage() {
           >
             <div className="relative mt-6 aspect-[400/600] w-full overflow-hidden rounded-[24px] border border-black/10 lg:mt-0">
               <Image
-                alt=""
-                aria-hidden="true"
+                alt="Multiple wallets organized under one Loyal smart account, each with its own balances and policies"
                 className="object-cover"
                 fill
                 sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
@@ -166,7 +192,7 @@ export default function LandingPage() {
               <h2 className="max-w-[600px] text-[24px] font-medium leading-[1.1] text-white lg:text-[32px]">
                 Access agentic workflows available for the mobile app and
                 browser extension, or build on top with permissionless access
-                using our SDK — all code is open source
+                using our SDK. All code is open source.
               </h2>
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[20px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0 lg:h-auto lg:text-[16px]"

@@ -1,0 +1,9 @@
+# Loyal security disclosure.
+# Report vulnerabilities to the contacts below. Coordinated
+# disclosure preferred. We respond on best-effort within 5 business days.
+
+Contact: mailto:rodion@askloyal.com
+Contact: https://discord.askloyal.com
+Expires: 2027-05-26T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://askloyal.com/.well-known/security.txt
