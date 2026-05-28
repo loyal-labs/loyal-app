@@ -64,8 +64,9 @@ const siteJsonLd = {
       "@id": "https://askloyal.com/#app",
       name: "Loyal",
       url: "https://askloyal.com",
+      image: "https://askloyal.com/og-image.png",
       applicationCategory: "FinanceApplication",
-      operatingSystem: "Web, Chrome, Android",
+      operatingSystem: "Android",
       description:
         "Solana wallet with smart-account guardrails for AI agents, private transfers, and yield on shielded balances. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
       publisher: { "@id": "https://askloyal.com/#organization" },
