@@ -108,6 +108,7 @@ function HeroDefault({ tone, title, body, cta, image }: HeroProps) {
             alt={image.alt}
             className="object-cover"
             fill
+            priority
             sizes="(min-width: 1024px) 50vw, 100vw"
             src={image.src}
           />
@@ -146,6 +147,7 @@ function HeroSplit({ title, body, cta, image }: HeroProps) {
             alt={image.alt}
             className="object-cover"
             fill
+            priority
             sizes="(min-width: 1024px) 33vw, 100vw"
             src={image.src}
           />
