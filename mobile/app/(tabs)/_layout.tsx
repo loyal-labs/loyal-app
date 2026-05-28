@@ -3,9 +3,8 @@ import { router, Tabs } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
-// After this long in the background, snap back to the wallet home on resume
-// regardless of which tab/screen the user had open. Short absences leave the
-// navigation state alone.
+// After this long in the background, snap back to the Earn home on resume
+// regardless of which tab/screen the user had open.
 const RESET_TO_HOME_AFTER_MS = 20 * 60 * 1000;
 
 export default function TabsLayout() {
@@ -26,8 +25,6 @@ export default function TabsLayout() {
       backgroundedAt.current = null;
       if (elapsed < RESET_TO_HOME_AFTER_MS) return;
 
-      // Pop any screens pushed on top of the tabs (token detail, browser,
-      // etc.), then switch to the wallet (index) tab.
       try {
         router.dismissAll();
       } catch {
@@ -46,7 +43,10 @@ export default function TabsLayout() {
         animation: "shift",
       }}
     >
+      {/* index.tsx renders the Earn screen — it's the route group's default so
+          cold start (URL "/") lands here without any extra config. */}
       <Tabs.Screen name="index" />
+      <Tabs.Screen name="wallet" />
       <Tabs.Screen name="browser" />
       <Tabs.Screen name="library" />
       <Tabs.Screen name="profile" />
