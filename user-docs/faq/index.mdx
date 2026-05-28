@@ -12,7 +12,7 @@ export const faqSchema = {
       "name": "Do you use a mixer?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Sort of, but not really. When you shield tokens, they go into a shared Vault, one pool per token mint that holds everyone's real SPL tokens. In that sense, yes, your tokens are commingled. But Loyal doesn't shuffle or tumble anything. Transfers between users don't move real tokens at all; they're pure arithmetic on deposit accounts. Those accounting operations happen inside MagicBlock's private ephemeral runtime, where only the deposit owner can see or interact with the account. So the pool gives you fungibility (an observer can't tell whose tokens are whose inside the Vault), and the ephemeral runtime gives you transaction privacy (nobody can see the transfers happening). No shuffling, no time delays, no 'mix quality.'"
+        "text": "Loyal is not a mixer. The architecture is different. When you shield tokens, they go into a shared Vault, one pool per token mint that holds everyone's real SPL tokens. Your tokens are commingled in that pool, but Loyal doesn't shuffle or tumble anything. Transfers between users don't move real tokens at all; they're pure arithmetic on deposit accounts. Those accounting operations happen inside MagicBlock's private ephemeral runtime, where only the deposit owner can see or interact with the account. So the pool gives you fungibility (an observer can't tell whose tokens are whose inside the Vault), and the ephemeral runtime gives you transaction privacy (nobody can see the transfers happening). No shuffling, no time delays, no 'mix quality.'"
       }
     },
     {
@@ -116,7 +116,7 @@ export const faqSchema = {
       "name": "How does Loyal compare to Phantom or Backpack?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Phantom and Backpack are great wallets. Loyal isn't replacing your wallet, it's adding a brain to it. Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded assets via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them."
+        "text": "Loyal adds Smart Accounts and an AI-agent permission layer on top of your existing wallet. Phantom and Backpack are still great wallets; Loyal sits alongside them, holding the Smart Account that an agent operates within your rules. Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded USDC via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them."
       }
     },
     {
@@ -177,7 +177,7 @@ export const orgSchema = {
 
 <AccordionGroup>
   <Accordion title="Do you use a mixer?">
-    Sort of, but not really. When you shield tokens, they go into a shared **Vault**, one pool per token mint that holds everyone's real SPL tokens. In that sense, yes, your tokens are commingled. But Loyal doesn't shuffle or tumble anything.
+    **Loyal is not a mixer.** The architecture is different. When you shield tokens, they go into a shared **Vault**, one pool per token mint that holds everyone's real SPL tokens. Your tokens are commingled in that pool, but Loyal doesn't shuffle or tumble anything.
 
     Transfers between users don't move real tokens at all; they're pure arithmetic on deposit accounts. Those accounting operations happen inside MagicBlock's private ephemeral runtime, where only the deposit owner can see or interact with the account.
 
@@ -275,9 +275,9 @@ export const orgSchema = {
 
 <AccordionGroup>
   <Accordion title="How does Loyal compare to Phantom or Backpack?">
-    **Phantom and Backpack are great wallets.** Loyal isn't replacing your wallet, it's adding a brain to it.
+    **Loyal adds Smart Accounts and an AI-agent permission layer on top of your existing wallet.** Phantom and Backpack are still great wallets; Loyal sits alongside them, holding the Smart Account that an agent operates within your rules.
 
-    Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded assets via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them.
+    Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded USDC via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them.
   </Accordion>
 
   <Accordion title="Where can I download Loyal?">

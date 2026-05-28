@@ -111,6 +111,12 @@ const agentFaqs: FaqItem[] = [
       "All three solve the same problem (scoped agent access without giving up the wallet) at different layers of the stack. Coinbase Agentic Wallets are wallet infrastructure for Base; MetaMask Advanced Permissions are an EVM standard (ERC-7715) implemented in the MetaMask Smart Accounts Kit. Loyal is a deployed self-custodial agent wallet on Solana with the same intent-based model, built on Squads smart accounts and the @loyal-labs/private-transactions SDK.",
   },
   {
+    question:
+      "How does Loyal compare to Crossmint, Privy, Turnkey, or Cobo for agent wallets?",
+    answer:
+      "Crossmint, Privy, Turnkey, and Cobo are wallet infrastructure for developers: embedded wallets, signer APIs, MPC custody, and policy engines that other teams compose into their own product. Loyal is a self-custodial agent wallet you use directly. Where those platforms sell the building blocks to teams shipping agent products, Loyal ships the assembled product on Solana, with Squads-based Smart Account policies (permission tiers, spending caps, address allowlists) and the @loyal-labs/private-transactions SDK in the box. If you're building a product, those infra platforms may fit. If you want an agent wallet to use, Loyal is one.",
+  },
+  {
     question: "Does Loyal support MCP?",
     answer:
       "Yes via the SDK today. A dedicated loyal-mcp MCP server is on the roadmap. The current path is to wrap @loyal-labs/private-transactions in a thin MCP layer; straightforward TypeScript, a few hundred lines.",
