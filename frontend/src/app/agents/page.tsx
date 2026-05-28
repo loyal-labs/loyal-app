@@ -64,22 +64,6 @@ export const metadata: Metadata = {
   },
 };
 
-const softwareApplicationJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Loyal",
-  applicationCategory: "FinanceApplication",
-  operatingSystem: "Web, Chrome, Android",
-  url: "https://askloyal.com/agents",
-  description: PAGE_DESCRIPTION,
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  creator: {
-    "@type": "Organization",
-    name: "Loyal",
-    url: "https://askloyal.com",
-  },
-};
-
 const breadcrumbJsonLd = {
   "@context": "https://schema.org",
   "@type": "BreadcrumbList",
@@ -147,9 +131,6 @@ export default function AgentsPage() {
   return (
     <main className="min-h-screen overflow-x-clip bg-white text-black">
       {/* JSON-LD as script children (XSS-safe; React escapes <>&) — schema has no such chars */}
-      <script type="application/ld+json">
-        {JSON.stringify(softwareApplicationJsonLd)}
-      </script>
       <script type="application/ld+json">
         {JSON.stringify(breadcrumbJsonLd)}
       </script>

@@ -55,19 +55,20 @@ export const metadata: Metadata = {
   },
 };
 
-const softwareApplicationJsonLd = {
+const financialProductJsonLd = {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Loyal",
-  applicationCategory: "FinanceApplication",
-  operatingSystem: "Web, Chrome, Android",
+  "@type": "FinancialProduct",
+  name: "Yield on Shielded USDC",
   url: "https://askloyal.com/yield",
   description: PAGE_DESCRIPTION,
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  creator: {
-    "@type": "Organization",
-    name: "Loyal",
-    url: "https://askloyal.com",
+  category: "Stablecoin lending",
+  provider: { "@id": "https://askloyal.com/#organization" },
+  feesAndCommissionsSpecification:
+    "No platform fees on yield. Underlying yield is sourced from Kamino lending vaults; rates float with on-chain supply and demand.",
+  interestRate: {
+    "@type": "QuantitativeValue",
+    description:
+      "Variable APY from Kamino's single-asset lending vaults on Solana. The current rate is displayed in the app before deposit.",
   },
 };
 
@@ -149,7 +150,7 @@ export default function YieldPage() {
     <main className="min-h-screen overflow-x-clip bg-white text-black">
       {/* JSON-LD as script children (XSS-safe; React escapes <>&) — schema has no such chars */}
       <script type="application/ld+json">
-        {JSON.stringify(softwareApplicationJsonLd)}
+        {JSON.stringify(financialProductJsonLd)}
       </script>
       <script type="application/ld+json">
         {JSON.stringify(breadcrumbJsonLd)}
