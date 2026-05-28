@@ -322,7 +322,7 @@ function HeaderContent({
       <div className="flex shrink-0 items-center gap-2 lg:hidden">
         <Link
           className="flex h-11 shrink-0 items-center justify-center rounded-full bg-black px-4 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-          href="#get-started-mobile"
+          href="/#get-started-mobile"
           onClick={closeMenu}
           tabIndex={linkTabIndex}
         >

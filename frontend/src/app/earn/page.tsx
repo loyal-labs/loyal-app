@@ -57,43 +57,6 @@ export const metadata: Metadata = {
   },
 };
 
-const techArticleJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "TechArticle",
-  headline:
-    "Earn the Best Available Stablecoin Yield on Solana, Automatically",
-  description:
-    "How Loyal earns the best available stablecoin yield on Solana: routing dollars to whichever Kamino lending reserve pays the most, bounded by an on-chain Squads policy, without giving up custody.",
-  datePublished: "2026-05-21",
-  dateModified: "2026-05-21",
-  author: {
-    "@type": "Person",
-    name: "Chris",
-    jobTitle: "CEO",
-    worksFor: {
-      "@type": "Organization",
-      name: "Loyal",
-      url: "https://askloyal.com",
-    },
-  },
-  publisher: {
-    "@type": "Organization",
-    name: "Loyal",
-    url: "https://askloyal.com",
-    logo: { "@type": "ImageObject", url: "https://askloyal.com/logo.png" },
-  },
-  mainEntityOfPage: {
-    "@type": "WebPage",
-    "@id": "https://askloyal.com/earn",
-  },
-  about: [
-    { "@type": "Thing", name: "Stablecoin yield optimization" },
-    { "@type": "Thing", name: "Non-custodial yield" },
-    { "@type": "Organization", name: "Kamino", url: "https://kamino.finance" },
-    { "@type": "Organization", name: "Squads", url: "https://squads.so" },
-  ],
-};
-
 const breadcrumbJsonLd = {
   "@context": "https://schema.org",
   "@type": "BreadcrumbList",
@@ -166,9 +129,6 @@ export default function EarnPage() {
   return (
     <main className="min-h-screen overflow-x-clip bg-white text-black">
       {/* JSON-LD as script children (XSS-safe; React escapes <>&) — schema has no such chars */}
-      <script type="application/ld+json">
-        {JSON.stringify(techArticleJsonLd)}
-      </script>
       <script type="application/ld+json">
         {JSON.stringify(breadcrumbJsonLd)}
       </script>
