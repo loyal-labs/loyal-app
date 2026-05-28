@@ -197,7 +197,7 @@ Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any 
 
 ### Yield
 
-**What's the source of your yield?** Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, SOL, or USDT, your assets are deployed into Kamino's strategies. Loyal doesn't run its own yield strategies and doesn't promise magic numbers.
+**What's the source of your yield?** Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, your assets are deployed into Kamino's strategies. Loyal doesn't run its own yield strategies and doesn't promise magic numbers. Shielded SOL and USDT are supported for private transfers but do not currently earn yield.
 
 **Is it true that Loyal gives the highest yield on Solana?** Loyal targets the best available stablecoin lending yield on Solana by automatically routing your dollars to whichever reputable Kamino reserve currently pays the most, swapping between risk-equivalent stablecoins (USDC, PYUSD, USDT, USDS) when a better market uses a different dollar. It's a variable, market rate, not a fixed APY. The optimizer's edge is capturing the short windows when reserves raise rates to attract capital, which a parked position in a single reserve misses. Loyal doesn't quote magic numbers; the live rate is visible in the app before you deposit.
 
@@ -221,7 +221,7 @@ Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any 
 
 ### Compatibility and apps
 
-**How does Loyal compare to Phantom or Backpack?** Phantom and Backpack are great wallets. Loyal isn't replacing your wallet, it's adding a brain to it. Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded assets via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them.
+**How does Loyal compare to Phantom or Backpack?** Phantom and Backpack are great wallets. Loyal isn't replacing your wallet, it's adding a brain to it. Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded USDC via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them.
 
 **Where can I download Loyal?** Loyal runs in four places, all on the same Squads-based smart account: the web app at askloyal.com, the Chrome extension on the Chrome Web Store, the Telegram mini-app at @askloyal_tgbot, and the Android app on Google Play. iOS isn't available yet.
 
