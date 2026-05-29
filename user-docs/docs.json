@@ -14,6 +14,12 @@
         "tab": "DeFi",
         "groups": [
           {
+            "group": "Home",
+            "pages": [
+              "index"
+            ]
+          },
+          {
             "group": "Private Transactions",
             "pages": [
               "sdk/private-transactions/quick-start",
