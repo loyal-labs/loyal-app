@@ -8,6 +8,7 @@ import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
 import { initAnalytics } from "@/lib/analytics/analytics";
+import { AppReadyProvider } from "@/lib/app-ready";
 import { SignApprovalProvider } from "@/lib/wallet/sign-approval";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
 import {
@@ -85,30 +86,32 @@ export default function RootLayout() {
             <PushTokenRegistrar />
             <StatusBar style="auto" />
             <WalletAuthGate />
-            <Stack
-              screenOptions={{
-                headerBackButtonDisplayMode: "minimal",
-              }}
-            >
-              <Stack.Screen
-                name="(tabs)"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="token/[mint]"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="browser/site"
-                options={{ headerShown: false }}
-              />
-              <Stack.Screen
-                name="login"
-                options={{ headerShown: false, presentation: "modal" }}
-              />
-              {/* Summaries detail screen commented out — kept for potential reinstatement */}
-              {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
-            </Stack>
+            <AppReadyProvider splashDone={!showSplash}>
+              <Stack
+                screenOptions={{
+                  headerBackButtonDisplayMode: "minimal",
+                }}
+              >
+                <Stack.Screen
+                  name="(tabs)"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="token/[mint]"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="browser/site"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="login"
+                  options={{ headerShown: false, presentation: "modal" }}
+                />
+                {/* Summaries detail screen commented out — kept for potential reinstatement */}
+                {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
+              </Stack>
+            </AppReadyProvider>
             <OtaUpdateBanner />
           </SignApprovalProvider>
         </WalletProvider>
