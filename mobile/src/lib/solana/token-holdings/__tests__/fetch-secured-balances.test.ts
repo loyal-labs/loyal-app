@@ -59,7 +59,7 @@ describe("buildScanList", () => {
         SOLANA_USDC_MINT_MAINNET,
         LOYAL_TOKEN_MINT,
         SOLANA_USDT_MINT_MAINNET,
-      ]),
+      ])
     );
   });
 
@@ -88,7 +88,7 @@ describe("buildScanList", () => {
 
     const scanned = buildScanList([existingUsdt]);
     const usdtEntries = scanned.filter(
-      (holding) => holding.mint === SOLANA_USDT_MINT_MAINNET,
+      (holding) => holding.mint === SOLANA_USDT_MINT_MAINNET
     );
 
     expect(usdtEntries).toHaveLength(1);
