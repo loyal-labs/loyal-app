@@ -57,9 +57,7 @@ function replacePosition(
   mint: string,
   nextPosition: PortfolioPosition
 ): PortfolioPosition[] {
-  const index = positions.findIndex(
-    (position) => position.asset.mint === mint
-  );
+  const index = positions.findIndex((position) => position.asset.mint === mint);
   if (index < 0) {
     return [...positions, nextPosition];
   }
@@ -80,9 +78,7 @@ export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
     return unchanged(snapshot);
   }
 
-  const position = snapshot.positions.find(
-    (p) => p.asset.mint === trackedMint
-  );
+  const position = snapshot.positions.find((p) => p.asset.mint === trackedMint);
   if (!position || position.securedBalance <= 0) {
     return unchanged(snapshot);
   }
@@ -131,8 +127,8 @@ export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
     principalLiquidityAmountRaw === null
       ? null
       : currentLiquidityAmountRaw > principalLiquidityAmountRaw
-        ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
-        : BigInt(0);
+      ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
+      : BigInt(0);
 
   const principalBalance =
     principalLiquidityAmountRaw === null

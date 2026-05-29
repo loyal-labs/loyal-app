@@ -25,7 +25,9 @@ async function fetchSecureHoldings(args: {
         "[wallet-data] Failed to enumerate Loyal deposits; shielded balances will be hidden",
         error
       );
-      return [] as Awaited<ReturnType<typeof privateClient.getAllDepositsByUser>>;
+      return [] as Awaited<
+        ReturnType<typeof privateClient.getAllDepositsByUser>
+      >;
     });
 
   const secureBalances = new Map<string, bigint>();
