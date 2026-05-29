@@ -121,7 +121,7 @@ describe("resolveInitialShieldAssetKey", () => {
       resolveInitialShieldAssetKey(assets, {
         initialMint: "mint-usdc",
         initialDirection: "shield",
-      })
+      }),
     ).toBe(buildShieldAssetKey("mint-usdc", false));
   });
 
@@ -130,7 +130,7 @@ describe("resolveInitialShieldAssetKey", () => {
       resolveInitialShieldAssetKey(assets, {
         initialMint: "mint-usdc",
         initialDirection: "unshield",
-      })
+      }),
     ).toBe(buildShieldAssetKey("mint-usdc", true));
   });
 
@@ -139,7 +139,7 @@ describe("resolveInitialShieldAssetKey", () => {
       resolveInitialShieldAssetKey(assets, {
         initialMint: "mint-sol",
         initialDirection: "unshield",
-      })
+      }),
     ).toBeNull();
   });
 });
@@ -150,7 +150,7 @@ describe("getShieldTokenDecimals", () => {
       getShieldTokenDecimals({
         tokenSymbol: "TOKEN",
         tokenDecimals: 9,
-      })
+      }),
     ).toBe(9);
   });
 
@@ -158,7 +158,7 @@ describe("getShieldTokenDecimals", () => {
     expect(
       getShieldTokenDecimals({
         tokenSymbol: "USDC",
-      })
+      }),
     ).toBe(6);
   });
 });
