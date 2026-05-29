@@ -6,6 +6,8 @@ import {
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  USDC_MINT_DEVNET,
+  USDC_MINT_MAINNET,
 } from "@loyal-labs/private-transactions";
 import {
   type SolanaEnv,
@@ -41,6 +43,40 @@ async function waitForAccount(
     if (info) return;
     await new Promise((r) => setTimeout(r, 500));
   }
+}
+
+function isKaminoUsdcMint(tokenMint: PublicKey, solanaEnv: SolanaEnv): boolean {
+  const trackedMint =
+    solanaEnv === "mainnet"
+      ? USDC_MINT_MAINNET
+      : solanaEnv === "devnet"
+      ? USDC_MINT_DEVNET
+      : null;
+  return trackedMint ? tokenMint.equals(trackedMint) : false;
+}
+
+async function getTransferDepositAmount(args: {
+  client: LoyalPrivateTransactionsClient;
+  tokenMint: PublicKey;
+  liquidityAmountRaw: number;
+  solanaEnv: SolanaEnv;
+}): Promise<bigint> {
+  const liquidityAmountRaw = BigInt(args.liquidityAmountRaw);
+  if (!isKaminoUsdcMint(args.tokenMint, args.solanaEnv)) {
+    return liquidityAmountRaw;
+  }
+
+  const collateralSharesAmountRaw =
+    await args.client.getKaminoCollateralSharesForLiquidityAmount({
+      tokenMint: args.tokenMint,
+      liquidityAmountRaw,
+    });
+  if (collateralSharesAmountRaw === null) {
+    throw new Error(
+      "Could not quote the current USDC shielded exchange rate. Please retry."
+    );
+  }
+  return collateralSharesAmountRaw;
 }
 
 export function usePrivateSend(
@@ -122,6 +158,12 @@ export function usePrivateSend(
         const user = signer.publicKey;
         const validator = getErValidatorForSolanaEnv(solanaEnv);
         const isNativeSol = tokenMint.equals(NATIVE_MINT);
+        const transferAmount = await getTransferDepositAmount({
+          client,
+          tokenMint,
+          liquidityAmountRaw: rawAmount,
+          solanaEnv,
+        });
 
         // 1. Check ephemeral balance - skip shield if sufficient
         const existingDeposit = await client.getEphemeralDeposit(
@@ -129,7 +171,7 @@ export function usePrivateSend(
           tokenMint
         );
         const existingBalance = existingDeposit?.amount ?? BigInt(0);
-        const needsShield = existingBalance < BigInt(rawAmount);
+        const needsShield = existingBalance < transferAmount;
 
         if (needsShield) {
           // Init deposit if needed
@@ -261,7 +303,7 @@ export function usePrivateSend(
             username,
             user,
             tokenMint,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         } else {
@@ -296,7 +338,7 @@ export function usePrivateSend(
             user,
             tokenMint,
             destinationUser: destination,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         }

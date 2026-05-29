@@ -4,6 +4,8 @@ import {
   findUsernameDepositPda,
   getErValidatorForSolanaEnv,
   LoyalPrivateTransactionsClient,
+  USDC_MINT_DEVNET,
+  USDC_MINT_MAINNET,
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { getPerEndpoints } from "@loyal-labs/solana-rpc";
@@ -32,6 +34,40 @@ async function waitForAccount(
     if (info) return;
     await new Promise((r) => setTimeout(r, 500));
   }
+}
+
+function isKaminoUsdcMint(tokenMint: PublicKey, solanaEnv: string): boolean {
+  const trackedMint =
+    solanaEnv === "mainnet"
+      ? USDC_MINT_MAINNET
+      : solanaEnv === "devnet"
+      ? USDC_MINT_DEVNET
+      : null;
+  return trackedMint ? tokenMint.equals(trackedMint) : false;
+}
+
+async function getTransferDepositAmount(args: {
+  client: LoyalPrivateTransactionsClient;
+  tokenMint: PublicKey;
+  liquidityAmountRaw: number;
+  solanaEnv: string;
+}): Promise<bigint> {
+  const liquidityAmountRaw = BigInt(args.liquidityAmountRaw);
+  if (!isKaminoUsdcMint(args.tokenMint, args.solanaEnv)) {
+    return liquidityAmountRaw;
+  }
+
+  const collateralSharesAmountRaw =
+    await args.client.getKaminoCollateralSharesForLiquidityAmount({
+      tokenMint: args.tokenMint,
+      liquidityAmountRaw,
+    });
+  if (collateralSharesAmountRaw === null) {
+    throw new Error(
+      "Could not quote the current USDC shielded exchange rate. Please retry."
+    );
+  }
+  return collateralSharesAmountRaw;
 }
 
 export function usePrivateSend() {
@@ -129,6 +165,12 @@ export function usePrivateSend() {
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = wallet.publicKey;
         const validator = getErValidatorForSolanaEnv(publicEnv.solanaEnv);
+        const transferAmount = await getTransferDepositAmount({
+          client,
+          tokenMint,
+          liquidityAmountRaw: rawAmount,
+          solanaEnv: publicEnv.solanaEnv,
+        });
 
         // 1. Check ephemeral balance — skip shield if sufficient
         const existingDeposit = await client.getEphemeralDeposit(
@@ -136,7 +178,7 @@ export function usePrivateSend() {
           tokenMint
         );
         const existingBalance = existingDeposit?.amount ?? BigInt(0);
-        const needsShield = existingBalance < BigInt(rawAmount);
+        const needsShield = existingBalance < transferAmount;
 
         if (needsShield) {
           const shieldPlan = await client.buildShieldTokensTransactionPlan({
@@ -189,7 +231,7 @@ export function usePrivateSend() {
             username,
             user,
             tokenMint,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         } else {
@@ -225,7 +267,7 @@ export function usePrivateSend() {
             user,
             tokenMint,
             destinationUser: destination,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         }

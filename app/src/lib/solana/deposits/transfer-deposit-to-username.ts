@@ -7,6 +7,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import { getSolanaEnv } from "../rpc/connection";
 import { getWalletKeypair } from "../wallet/wallet-details";
+import { resolveTrackedKaminoUsdcMint } from "./kamino-usdc-position";
 import { waitForAccount } from "./loyal-deposits";
 import { getPrivateClient } from "./private-client";
 
@@ -19,8 +20,24 @@ export async function transferTokensToUsername(params: {
   console.log("> transferTokensToUsername");
   const keypair = await getWalletKeypair();
   const client = await getPrivateClient();
-  const validator = getErValidatorForSolanaEnv(getSolanaEnv());
+  const solanaEnv = getSolanaEnv();
+  const validator = getErValidatorForSolanaEnv(solanaEnv);
   const { tokenMint, amount, destinationUsername } = params;
+  let transferAmount = BigInt(amount);
+
+  if (tokenMint.toBase58() === resolveTrackedKaminoUsdcMint(solanaEnv)) {
+    const quotedTransferAmount =
+      await client.getKaminoCollateralSharesForLiquidityAmount({
+        tokenMint,
+        liquidityAmountRaw: BigInt(amount),
+      });
+    if (quotedTransferAmount === null) {
+      throw new Error(
+        "Could not quote the current USDC shielded exchange rate. Please retry."
+      );
+    }
+    transferAmount = quotedTransferAmount;
+  }
 
   const existingBaseUsernameDeposit = await client.getBaseUsernameDeposit(
     destinationUsername,
@@ -70,7 +87,7 @@ export async function transferTokensToUsername(params: {
     username: destinationUsername,
     user: keypair.publicKey,
     tokenMint,
-    amount,
+    amount: transferAmount,
     payer: keypair.publicKey,
   });
   console.log("transferToUsernameDeposit sig", transferToUsernameDepositSig);
