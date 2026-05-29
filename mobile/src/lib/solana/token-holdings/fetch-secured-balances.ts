@@ -12,7 +12,9 @@ import { getConnection } from "../rpc/connection";
 import { resolveTokenIcon } from "./resolve-token-info";
 import type { TokenHolding } from "./types";
 
-const PROGRAM_ID = new PublicKey("97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV");
+const PROGRAM_ID = new PublicKey(
+  "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV"
+);
 const DEPOSIT_SEED = new TextEncoder().encode("deposit_v2");
 const DEFAULT_TOKEN_DECIMALS = 6;
 
@@ -94,10 +96,13 @@ export function buildScanList(holdings: TokenHolding[]): TokenHolding[] {
   return Array.from(byMint.values());
 }
 
-function findDepositPda(user: PublicKey, tokenMint: PublicKey): [PublicKey, number] {
+function findDepositPda(
+  user: PublicKey,
+  tokenMint: PublicKey
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [DEPOSIT_SEED, user.toBuffer(), tokenMint.toBuffer()],
-    PROGRAM_ID,
+    PROGRAM_ID
   );
 }
 
@@ -119,7 +124,7 @@ function readDepositAmount(data: Buffer): bigint {
  */
 export async function fetchSecuredBalances(
   owner: string,
-  holdings: TokenHolding[],
+  holdings: TokenHolding[]
 ): Promise<TokenHolding[]> {
   const connection = getConnection();
   const ownerPk = new PublicKey(owner);
@@ -128,7 +133,7 @@ export async function fetchSecuredBalances(
   if (scanList.length === 0) return [];
 
   const pdas = scanList.map(
-    ({ mint }) => findDepositPda(ownerPk, new PublicKey(mint))[0],
+    ({ mint }) => findDepositPda(ownerPk, new PublicKey(mint))[0]
   );
 
   const accountInfos = await connection.getMultipleAccountsInfo(pdas);

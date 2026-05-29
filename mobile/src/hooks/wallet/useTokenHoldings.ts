@@ -26,7 +26,7 @@ export function useTokenHoldings(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress],
+    [walletAddress]
   );
 
   useEffect(() => {
