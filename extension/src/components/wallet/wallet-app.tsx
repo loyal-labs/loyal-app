@@ -1144,10 +1144,7 @@ function WalletInterface() {
     useWalletContext();
   const solanaEnv = network as import("@loyal-labs/solana-rpc").SolanaEnv;
   const walletPubkey = signer?.publicKey ?? null;
-  const walletDataClient = useExtensionWalletDataClient(
-    solanaEnv,
-    walletPubkey
-  );
+  const walletDataClient = useExtensionWalletDataClient(solanaEnv, signer);
   const walletData = useWalletData({
     publicKey: walletPubkey,
     connected: !!signer,

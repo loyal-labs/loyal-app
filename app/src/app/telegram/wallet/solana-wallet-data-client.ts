@@ -25,9 +25,7 @@ async function fetchSecureHoldings(args: {
         "[wallet-data] Failed to enumerate Loyal deposits; shielded balances will be hidden",
         error
       );
-      return [] as Awaited<
-        ReturnType<typeof privateClient.getAllDepositsByUser>
-      >;
+      return [] as Awaited<ReturnType<typeof privateClient.getAllDepositsByUser>>;
     });
 
   const secureBalances = new Map<string, bigint>();
@@ -43,6 +41,7 @@ async function fetchSecureHoldings(args: {
       mintBase58 === trackedKaminoMint &&
       secureAmountRaw > BigInt(0)
     ) {
+      let quoteLoaded = false;
       try {
         const quote = await privateClient.getKaminoShieldedBalanceQuote({
           tokenMint: deposit.tokenMint,
@@ -50,12 +49,16 @@ async function fetchSecureHoldings(args: {
         });
         if (quote) {
           secureAmountRaw = quote.redeemableLiquidityAmountRaw;
+          quoteLoaded = true;
         }
       } catch (error) {
         console.warn(
           "[wallet-data] Failed to convert Kamino USDC collateral shares to liquidity",
           error
         );
+      }
+      if (!quoteLoaded) {
+        continue;
       }
     }
 

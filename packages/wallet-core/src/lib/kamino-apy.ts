@@ -1,17 +1,32 @@
-import { LoyalPrivateTransactionsClient } from "@loyal-labs/private-transactions";
+import {
+  type KaminoShieldedBalanceQuote,
+  LoyalPrivateTransactionsClient,
+} from "@loyal-labs/private-transactions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { getSolanaEndpoints } from "@loyal-labs/solana-rpc";
 import { Keypair, PublicKey } from "@solana/web3.js";
 
 const APY_TTL_MS = 5 * 60 * 1000;
+const QUOTE_TTL_MS = 15 * 1000;
 
 type ApyCacheEntry = {
   expiresAt: number;
   apyBps: number | null;
 };
 
+type QuoteCacheEntry = {
+  expiresAt: number;
+  sharesKey: string;
+  quote: KaminoShieldedBalanceQuote | null;
+};
+
 const apyCache = new Map<string, ApyCacheEntry>();
 const apyInflight = new Map<string, Promise<number | null>>();
+const quoteCache = new Map<string, QuoteCacheEntry>();
+const quoteInflight = new Map<
+  string,
+  Promise<KaminoShieldedBalanceQuote | null>
+>();
 
 const clientPromises = new Map<
   SolanaEnv,
@@ -82,5 +97,49 @@ export async function getCachedKaminoLendingApyBps(args: {
   })();
 
   apyInflight.set(key, promise);
+  return promise;
+}
+
+export async function getCachedKaminoShieldedBalanceQuote(args: {
+  solanaEnv: SolanaEnv;
+  mint: string;
+  collateralSharesAmountRaw: bigint;
+}): Promise<KaminoShieldedBalanceQuote | null> {
+  const { solanaEnv, mint, collateralSharesAmountRaw } = args;
+  const key = `${solanaEnv}:${mint}`;
+  const sharesKey = collateralSharesAmountRaw.toString();
+  const now = Date.now();
+
+  const entry = quoteCache.get(key);
+  if (entry && entry.expiresAt > now && entry.sharesKey === sharesKey) {
+    return entry.quote;
+  }
+
+  const inflightKey = `${key}:${sharesKey}`;
+  const inflight = quoteInflight.get(inflightKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    try {
+      const client = await getReadOnlyClient(solanaEnv);
+      const quote = await client.getKaminoShieldedBalanceQuote({
+        tokenMint: new PublicKey(mint),
+        collateralSharesAmountRaw,
+      });
+      quoteCache.set(key, {
+        expiresAt: Date.now() + QUOTE_TTL_MS,
+        sharesKey,
+        quote,
+      });
+      return quote;
+    } catch (error) {
+      console.warn("[kamino-apy] getKaminoShieldedBalanceQuote failed", error);
+      return null;
+    } finally {
+      quoteInflight.delete(inflightKey);
+    }
+  })();
+
+  quoteInflight.set(inflightKey, promise);
   return promise;
 }

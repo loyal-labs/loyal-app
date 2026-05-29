@@ -1,4 +1,5 @@
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { computePortfolioTotals } from "@loyal-labs/solana-wallet";
 import type {
   PortfolioPosition,
   PortfolioSnapshot,
@@ -8,7 +9,10 @@ import type {
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getCachedKaminoLendingApyBps } from "../lib/kamino-apy";
+import {
+  getCachedKaminoLendingApyBps,
+  getCachedKaminoShieldedBalanceQuote,
+} from "../lib/kamino-apy";
 import { getTokenIconUrl } from "../lib/token-icon";
 import type { ActivityRow, TokenRow, TransactionDetail } from "../types/wallet";
 
@@ -39,6 +43,7 @@ const EMPTY_POSITIONS: PortfolioPosition[] = [];
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDC_MINT_DEVNET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const LOYL_ICON_URL =
   "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
@@ -350,6 +355,96 @@ function mapPositionToSecuredTokenRow(position: PortfolioPosition): TokenRow {
   };
 }
 
+function resolveTrackedKaminoUsdcMint(solanaEnv: SolanaEnv): string | null {
+  if (solanaEnv === "mainnet") return USDC_MINT;
+  if (solanaEnv === "devnet") return USDC_MINT_DEVNET;
+  return null;
+}
+
+function removeUnquotedKaminoShieldedLiquidity(
+  snapshot: PortfolioSnapshot,
+  trackedMint: string
+): PortfolioSnapshot {
+  const position = snapshot.positions.find(
+    (candidate) => candidate.asset.mint === trackedMint
+  );
+  if (!position || position.securedBalance <= 0) return snapshot;
+
+  const nextPosition: PortfolioPosition = {
+    ...position,
+    securedBalance: 0,
+    totalBalance: position.publicBalance,
+    securedValueUsd: null,
+    totalValueUsd: position.publicValueUsd,
+  };
+  const nextPositions = snapshot.positions.map((candidate) =>
+    candidate.asset.mint === trackedMint ? nextPosition : candidate
+  );
+
+  return {
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  };
+}
+
+async function enrichKaminoShieldedLiquidity(
+  snapshot: PortfolioSnapshot,
+  solanaEnv: SolanaEnv
+): Promise<PortfolioSnapshot> {
+  const trackedMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+  if (!trackedMint) return snapshot;
+
+  const position = snapshot.positions.find(
+    (candidate) => candidate.asset.mint === trackedMint
+  );
+  if (!position || position.securedBalance <= 0) return snapshot;
+
+  const scale = Math.pow(10, position.asset.decimals);
+  const collateralSharesAmountRaw = BigInt(
+    Math.round(position.securedBalance * scale)
+  );
+  if (collateralSharesAmountRaw <= BigInt(0)) return snapshot;
+
+  const quote = await getCachedKaminoShieldedBalanceQuote({
+    solanaEnv,
+    mint: trackedMint,
+    collateralSharesAmountRaw,
+  });
+  if (!quote) {
+    return removeUnquotedKaminoShieldedLiquidity(snapshot, trackedMint);
+  }
+
+  const liquidityBalance = Number(quote.redeemableLiquidityAmountRaw) / scale;
+  const securedValueUsd =
+    position.priceUsd === null ? null : liquidityBalance * position.priceUsd;
+  const nextPosition: PortfolioPosition = {
+    ...position,
+    securedBalance: liquidityBalance,
+    totalBalance: position.publicBalance + liquidityBalance,
+    securedValueUsd,
+    totalValueUsd:
+      position.publicValueUsd === null || securedValueUsd === null
+        ? position.publicValueUsd ?? securedValueUsd
+        : position.publicValueUsd + securedValueUsd,
+  };
+  const nextPositions = snapshot.positions.map((candidate) =>
+    candidate.asset.mint === trackedMint ? nextPosition : candidate
+  );
+
+  return {
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  };
+}
+
 const ENV_LABELS: Record<string, string> = {
   mainnet: "Mainnet",
   devnet: "Devnet",
@@ -422,9 +517,13 @@ export function useWalletData(params: {
       client.getPortfolio(publicKey),
       client.getActivity(publicKey, { limit: 25 }),
     ])
-      .then(([nextPortfolio, history]) => {
+      .then(async ([nextPortfolio, history]) => {
+        const enrichedPortfolio = await enrichKaminoShieldedLiquidity(
+          nextPortfolio,
+          solanaEnv
+        );
         if (cancelled) return;
-        setPortfolioSnapshot(nextPortfolio);
+        setPortfolioSnapshot(enrichedPortfolio);
         setActivities(history.activities);
         setIsLoading(false);
       })
@@ -436,7 +535,7 @@ export function useWalletData(params: {
     return () => {
       cancelled = true;
     };
-  }, [client, connected, publicKey]);
+  }, [client, connected, publicKey, solanaEnv]);
 
   useEffect(() => {
     if (!(connected && publicKey)) return;
@@ -449,7 +548,11 @@ export function useWalletData(params: {
       .subscribePortfolio(
         publicKey,
         (snapshot) => {
-          if (!closed) setPortfolioSnapshot(snapshot);
+          void enrichKaminoShieldedLiquidity(snapshot, solanaEnv).then(
+            (enrichedSnapshot) => {
+              if (!closed) setPortfolioSnapshot(enrichedSnapshot);
+            }
+          );
         },
         { emitInitial: false }
       )
@@ -499,7 +602,7 @@ export function useWalletData(params: {
       if (unsubscribePortfolio) void unsubscribePortfolio();
       if (unsubscribeActivity) void unsubscribeActivity();
     };
-  }, [client, connected, publicKey]);
+  }, [client, connected, publicKey, solanaEnv]);
 
   // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);

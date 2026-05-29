@@ -66,6 +66,38 @@ function replacePosition(
   );
 }
 
+function withoutUnquotedKaminoShieldedLiquidity(
+  snapshot: PortfolioSnapshot,
+  trackedMint: string
+): EnrichedPortfolio {
+  const position = snapshot.positions.find(
+    (candidate) => candidate.asset.mint === trackedMint
+  );
+  if (!position || position.securedBalance <= 0) return unchanged(snapshot);
+
+  const nextPosition: PortfolioPosition = {
+    ...position,
+    securedBalance: 0,
+    totalBalance: position.publicBalance,
+    securedValueUsd: null,
+    totalValueUsd: position.publicValueUsd,
+  };
+  const nextPositions = replacePosition(
+    snapshot.positions,
+    trackedMint,
+    nextPosition
+  );
+
+  return unchanged({
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  });
+}
+
 export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
   snapshot: PortfolioSnapshot;
   walletAddress: string;
@@ -112,7 +144,7 @@ export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
   ]);
 
   if (!quote) {
-    return unchanged(snapshot);
+    return withoutUnquotedKaminoShieldedLiquidity(snapshot, trackedMint);
   }
 
   const currentLiquidityAmountRaw = quote.redeemableLiquidityAmountRaw;
