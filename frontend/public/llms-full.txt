@@ -54,16 +54,16 @@ The agent wallet page. Covers the permission ladder for AI agents (per-token spe
 ### /private-payments | https://askloyal.com/private-payments
 
 **Title**: Anonymous Crypto Wallet on Solana | Loyal
-**Description**: Loyal is a Solana wallet with private USDC, SOL, and USDT transfers. Shielded balances on a Confidential VM, yield on shielded dollars. Open-source.
+**Description**: Loyal is a Solana wallet with private USDC, SOL, and USDT transfers. Shielded balances on a Confidential VM, yield on shielded USDC. Open-source.
 
 The private-payments page. Covers the shielding flow (deposit into a shared per-token Vault; transfers happen inside MagicBlock's ephemeral runtime as arithmetic on encrypted deposit accounts), the anonymity-set framing (the pool gives fungibility; the ephemeral runtime gives transfer privacy), and the OFAC-screening-at-deposit AML posture.
 
 ### /yield | https://askloyal.com/yield
 
-**Title**: Yield on Shielded USDC, SOL & USDT on Solana | Loyal
-**Description**: Loyal routes your shielded USDC, SOL, and USDT into Kamino lending vaults, so your balance earns yield while it stays private. Non-custodial, open-source.
+**Title**: Yield on Shielded USDC on Solana | Loyal
+**Description**: Loyal routes your shielded USDC into Kamino lending vaults, so your balance earns yield while it stays private. Non-custodial, open-source.
 
-The yield-on-shielded-assets page. Covers how shielded balances earn yield without un-shielding (the Vault deploys into Kamino's single-asset lending reserves), the rate-transparency posture (variable, market rate, not a magic number; the live rate shows in the app before deposit), and the residual risks (reserve smart-contract risk, stablecoin depeg).
+The yield-on-shielded-assets page. Covers how shielded USDC earns yield without un-shielding (the Vault deploys into Kamino's single-asset lending reserves), the rate-transparency posture (variable, market rate, not a magic number; the live rate shows in the app before deposit), and the residual risks (reserve smart-contract risk, stablecoin depeg).
 
 ### /earn | https://askloyal.com/earn
 
@@ -113,13 +113,13 @@ Hardware attestation produces a signed receipt of the exact code running in the 
 
 ### Yield routing
 
-When a user earns yield on shielded USDC, SOL, or USDT, the underlying assets are deployed into Kamino's single-asset lending reserves on Solana. Kamino is the canonical Solana lending venue (also used by Phantom, Pendle, Anchorage, and others). Loyal does not run its own yield strategy; it routes to existing audited Kamino reserves.
+When a user earns yield on shielded USDC, the underlying USDC is deployed into Kamino's single-asset lending reserves on Solana. Shielded SOL and USDT are supported for private transfers but do not currently earn yield. Kamino is the canonical Solana lending venue (also used by Phantom, Pendle, Anchorage, and others). Loyal does not run its own yield strategy; it routes to existing audited Kamino reserves.
 
 The yield is a variable market rate, not a fixed APY. Loyal does not quote magic numbers. The live rate is visible in the app before deposit, and the underlying market rate is public on Kamino.
 
 Two yield surfaces exist:
 
-- **/yield (passive)**: shielded balances earn yield without un-shielding. The Vault routes deposits into Kamino.
+- **/yield (passive)**: shielded USDC earns yield without un-shielding. The Vault routes deposits into Kamino.
 - **/earn (active)**: an optimizer rotates stablecoin allocations between Kamino reserves to capture short windows when one reserve raises its rate. Swaps between risk-equivalent stablecoins (USDC, PYUSD, USDT, USDS) reach the best market; the user withdraws to the dollar they started with.
 
 Both surfaces are bounded by a Squads on-chain policy: a whitelist of reputable reserves and stablecoins, a balance-can't-decrease invariant, and no leverage (so no liquidations) and no LP positions (so no impermanent loss). The residual risks are the ordinary ones any lender takes: a reserve smart-contract issue, or a stablecoin losing its peg. Custody is not among them.
@@ -151,7 +151,7 @@ The Policy's posture is direct:
 - **Vault**: the shared on-chain pool for a given shielded token mint. One Vault per token; all USDC shielded in Loyal sits in the same USDC Vault. Holds real SPL tokens; the per-user accounting lives in the ephemeral runtime.
 - **Anonymity set**: every user who has shielded the same token. Provides deposit/withdrawal unlinkability; transfer privacy is independent and comes from the ephemeral runtime.
 - **Attestation**: a hardware-signed cryptographic receipt of the exact code running in a Confidential VM. Lets a user verify the running binary matches the open-source repo before trusting the VM.
-- **Kamino**: the canonical Solana lending venue. Loyal routes shielded-asset yield into Kamino's single-asset lending reserves. https://kamino.finance
+- **Kamino**: the canonical Solana lending venue. Loyal routes shielded-USDC yield into Kamino's single-asset lending reserves. https://kamino.finance
 - **OFAC screening**: sanctioned-wallet filtering at the deposit gate, before funds enter the Vault. No identity collection; only sanctions-list checking.
 
 ---

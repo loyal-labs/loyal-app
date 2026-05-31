@@ -27,7 +27,7 @@ import { TextImageHero } from "@/features/marketing/blocks/text-image";
 
 const PAGE_TITLE = "Anonymous Crypto Wallet on Solana | Loyal";
 const PAGE_DESCRIPTION =
-  "Loyal is a Solana wallet with private USDC, SOL, and USDT transfers. Shielded balances on a Confidential VM, yield on shielded dollars. Open-source.";
+  "Loyal is a Solana wallet with private USDC, SOL, and USDT transfers. Shielded balances on a Confidential VM, yield on shielded USDC. Open-source.";
 // TODO: replace with /marketing/private-payments/og-private-payments.<hash>.png
 // once the designer ships the per-page 1200x630 card (mascot + "Private by default").
 const OG_IMAGE = "/og-image.png";
@@ -146,7 +146,7 @@ export default function PrivatePaymentsPage() {
       <Hero
         tone="dark"
         title="Anonymous Crypto Wallet on Solana"
-        body="Send USDC, SOL, and USDT to anyone without exposing your balance or your history. Private transfers are the default, balances stay shielded from the public chain, and your shielded dollars keep earning yield."
+        body="Send USDC, SOL, and USDT to anyone without exposing your balance or your history. Private transfers are the default, balances stay shielded from the public chain, and your shielded USDC keeps earning yield."
         cta={{ label: "Open the wallet", href: "https://app.askloyal.com" }}
         image={{
           // TODO: replace with /marketing/private-payments/hero-shielded-vault.<hash>.png
@@ -215,16 +215,17 @@ export default function PrivatePaymentsPage() {
                 earning yield. Loyal doesn&apos;t.
                 <br />
                 <br />
-                Your shielded dollars earn the <strong>passive baseline rate</strong>{" "}
-                while they&apos;re shielded: the underlying pooled tokens are
+                Your shielded USDC earns the <strong>passive baseline rate</strong>{" "}
+                while it&apos;s shielded: the underlying pooled USDC is
                 deployed into Kamino&apos;s single-asset lending vaults on
                 Solana, and yield accrues without you exposing your balance or
-                un-shielding to collect. Full mechanism on{" "}
+                un-shielding to collect. Shielded SOL and USDT are supported for
+                private transfers but do not currently earn yield. Full mechanism on{" "}
                 <Link
                   className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
                   href="/yield"
                 >
-                  yield on shielded assets
+                  yield on shielded USDC
                 </Link>
                 .
               </>
@@ -356,8 +357,8 @@ export default function PrivatePaymentsPage() {
           },
           {
             icon: <TrendingUp className="size-16 text-[#f9363c]" />,
-            title: "Shielded balances that earn carry Kamino's lending risk",
-            body: "While shielded, the underlying pooled tokens earn in Kamino's single-asset lending vaults. A Kamino smart-contract exploit or bad-debt event could affect deposited principal, the same risk any Kamino lender takes. No insurance, no Loyal-run strategies that could paper over a loss. Full risk discussion on /yield.",
+            title: "Shielded USDC that earns carries Kamino's lending risk",
+            body: "While shielded, the underlying pooled USDC earns in Kamino's single-asset lending vaults. A Kamino smart-contract exploit or bad-debt event could affect deposited principal, the same risk any Kamino lender takes. No insurance, no Loyal-run strategies that could paper over a loss. Shielded SOL and USDT don't carry this risk because they don't currently earn. Full risk discussion on /yield.",
           },
           {
             icon: <CircleCheck className="size-16 text-[#f9363c]" />,

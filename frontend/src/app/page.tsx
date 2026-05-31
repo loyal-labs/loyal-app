@@ -44,7 +44,7 @@ const featureCards: {
         alt: "Loyal mobile app screen sending a private transaction over shielded assets",
       },
     ],
-    text: "Keep your funds private, execute secure transactions and make money on shielded assets",
+    text: "Keep your funds private, execute secure transactions and make money on shielded USDC",
     tone: "light",
   },
   {
