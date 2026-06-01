@@ -3,7 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useShield } from "@loyal-labs/wallet-core/hooks";
 
-import type { FormButtonProps, SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
+import type {
+  FormButtonProps,
+  SubView,
+  SwapMode,
+  SwapToken,
+} from "@loyal-labs/wallet-core/types";
 
 import { getAnalyticsErrorProperties, track } from "~/src/lib/analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
@@ -373,8 +378,13 @@ export function ShieldContent({
   // Map extension network to SolanaEnv expected by hooks
   const solanaEnv = network === "mainnet" ? "mainnet" : "devnet";
 
-  const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield(signer, connection, solanaEnv);
+  const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield(
+    signer,
+    connection,
+    solanaEnv
+  );
   const [amount, setAmount] = useState("");
+  const [isMaxSelected, setIsMaxSelected] = useState(false);
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [resultAmount, setResultAmount] = useState("");
@@ -385,7 +395,9 @@ export function ShieldContent({
   }, [phase, onFormActiveChange]);
 
   const token = tokenProp;
-  const direction: "shield" | "unshield" = token.isSecured ? "unshield" : "shield";
+  const direction: "shield" | "unshield" = token.isSecured
+    ? "unshield"
+    : "shield";
   const numericAmount = Number.parseFloat(amount) || 0;
   const hasAmount = numericAmount > 0;
 
@@ -414,14 +426,23 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
+      const isMax = pct === 100;
       let val = pct === 100 ? bal : bal * (pct / 100);
-      if (token.symbol.toUpperCase() === "SOL" && sourceBalance - val < 0.00005) {
+      if (
+        token.symbol.toUpperCase() === "SOL" &&
+        sourceBalance - val < 0.00005
+      ) {
         val = Math.max(0, sourceBalance - 0.00005);
       }
+      setIsMaxSelected(isMax && val > 0);
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
     [sourceBalance, token.symbol]
   );
+
+  useEffect(() => {
+    setIsMaxSelected(false);
+  }, [token.mint, token.isSecured]);
 
   const handleConfirm = useCallback(async () => {
     if (!hasAmount || insufficientFunds) return;
@@ -440,6 +461,7 @@ export function ShieldContent({
       tokenSymbol: token.symbol,
       amount: numericAmount,
       tokenMint: token.mint,
+      isMax: direction === "unshield" && isMaxSelected,
     };
 
     const result =
@@ -450,6 +472,7 @@ export function ShieldContent({
     if (result.success) {
       setPhase("success");
       setAmount("");
+      setIsMaxSelected(false);
       track(
         direction === "shield"
           ? SHIELD_EVENTS.shieldTokens
@@ -475,6 +498,7 @@ export function ShieldContent({
   }, [
     hasAmount,
     insufficientFunds,
+    isMaxSelected,
     numericAmount,
     token.price,
     token.symbol,
@@ -1202,7 +1226,10 @@ export function ShieldContent({
                   inputMode="decimal"
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
+                    if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                      setIsMaxSelected(false);
+                      setAmount(v);
+                    }
                   }}
                   placeholder="0"
                   style={{
