@@ -40,6 +40,12 @@ export {
 export { shieldTokens } from "./src/actions/shieldTokens";
 export { unshieldTokens } from "./src/actions/unshieldTokens";
 export { enumerateDepositsByUser } from "./src/enumerate-deposits";
+export { delegateDepositIx } from "./src/instructions/delegateDeposit";
+export { delegateUsernameDepositIx } from "./src/instructions/delegateUsernameDeposit";
+export { initializeDepositIx } from "./src/instructions/initializeDeposit";
+export { initializeUsernameDepositIx } from "./src/instructions/initializeUsernameDeposit";
+export { transferDepositIx } from "./src/instructions/transferDeposit";
+export { transferToUsernameDepositIx } from "./src/instructions/transferToUsernameDeposit";
 
 // Types
 export type {
@@ -49,6 +55,8 @@ export type {
   ClientConfig,
   DepositData,
   UsernameDepositData,
+  CheckedTransactionInstruction,
+  InstructionCheck,
   InitializeDepositParams,
   CloseDepositParams,
   CloseUsernameDepositParams,

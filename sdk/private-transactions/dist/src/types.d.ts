@@ -354,6 +354,7 @@ export interface DelegateUsernameDepositParams {
     payer: PublicKey;
     validator: PublicKey;
     rpcOptions?: RpcOptions;
+    passNotExist?: boolean;
 }
 /**
  * Parameters for undelegating a deposit from an ephemeral rollup
