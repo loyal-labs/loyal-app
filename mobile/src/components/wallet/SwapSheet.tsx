@@ -149,6 +149,13 @@ export function SwapSheet({
   const [step, setStep] = useState<SwapStep>("form");
   const [fromMint, setFromMint] = useState(NATIVE_SOL_MINT);
   const [toMint, setToMint] = useState(getDefaultUsdcMint);
+  // Holds the full token object for a "to" selection that isn't in the user's
+  // holdings or the popular list (e.g. a Jupiter search result), so the form
+  // can still display it. Without this, picking a searched token leaves
+  // toHolding null and the selector falls back to the "Select" placeholder.
+  const [selectedToToken, setSelectedToToken] = useState<TokenHolding | null>(
+    null,
+  );
   const [amountStr, setAmountStr] = useState("");
   const [quote, setQuote] = useState<JupiterQuoteResponse | null>(null);
   const [isFetchingQuote, setIsFetchingQuote] = useState(false);
@@ -194,7 +201,7 @@ export function SwapSheet({
   const toHolding =
     tokenHoldings.find((t) => t.mint === toMint) ??
     toPickerTokens.find((t) => t.mint === toMint) ??
-    null;
+    (selectedToToken?.mint === toMint ? selectedToToken : null);
 
   const amountNum = parseFloat(amountStr) || 0;
   const fromBalance = fromHolding?.balance ?? 0;
@@ -216,6 +223,7 @@ export function SwapSheet({
       setStep("form");
       setFromMint(initialMints.fromMint);
       setToMint(initialMints.toMint);
+      setSelectedToToken(null);
       setFromIsSecured(false);
       setSwapStage("idle");
       setAmountStr("");
@@ -447,11 +455,12 @@ export function SwapSheet({
   );
 
   const selectToToken = useCallback(
-    (mint: string) => {
-      setToMint(mint);
+    (token: TokenHolding) => {
+      setToMint(token.mint);
+      setSelectedToToken(token);
       setShowToPicker(false);
       setQuote(null);
-      if (mint === fromMint) {
+      if (token.mint === fromMint) {
         setFromMint(toMint);
         setFromIsSecured(false);
       }
@@ -517,8 +526,8 @@ export function SwapSheet({
                   mode="from"
                   tokenHoldings={fromHoldings}
                   tokenDetailsByMint={tokenDetailsByMint}
-                  onSelect={(mint, isSecured) =>
-                    selectFromToken(mint, Boolean(isSecured))
+                  onSelect={(token) =>
+                    selectFromToken(token.mint, Boolean(token.isSecured))
                   }
                   onCancel={() => setShowFromPicker(false)}
                 />
@@ -528,7 +537,7 @@ export function SwapSheet({
                   tokenHoldings={toPickerTokens}
                   tokenDetailsByMint={tokenDetailsByMint}
                   searchTokens={searchTokens}
-                  onSelect={(mint) => selectToToken(mint)}
+                  onSelect={(token) => selectToToken(token)}
                   onCancel={() => setShowToPicker(false)}
                 />
               ) : (
@@ -687,7 +696,7 @@ function TokenPicker({
   tokenHoldings: TokenHolding[];
   tokenDetailsByMint?: TokenDetailsByMint;
   searchTokens?: (query: string) => Promise<PopularToken[]>;
-  onSelect: (mint: string, isSecured?: boolean) => void;
+  onSelect: (token: TokenHolding) => void;
   onCancel: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -780,7 +789,7 @@ function TokenPicker({
           <Pressable
             key={`${token.mint}:${isSecured ? "shielded" : "public"}`}
             className="flex-row items-center rounded-xl px-2 py-3 active:bg-neutral-100"
-            onPress={() => onSelect(token.mint, isSecured)}
+            onPress={() => onSelect(token)}
           >
             <View style={{ position: "relative" }}>
               <Image
