@@ -3780,13 +3780,15 @@ async function buildUnshieldTokensInstructionPlan(params) {
     });
     checks.push(...delegateDepositIxs.ensure);
   } else {
-    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
-    instructions.push({
-      label: "closePermission",
-      ix: closePermissionIxs.ix,
-      rentLamports: closePermissionRentLamports
-    });
-    checks.push(...closePermissionIxs.ensure);
+    if (permissionAccountInfo && permissionAccountInfo.lamports > 0 && permissionAccountInfo.data.length > 0) {
+      const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+      instructions.push({
+        label: "closePermission",
+        ix: closePermissionIxs.ix,
+        rentLamports: closePermissionRentLamports
+      });
+      checks.push(...closePermissionIxs.ensure);
+    }
     const closeDepositIxs = await closeDepositIx(baseProgram, {
       user,
       tokenMint

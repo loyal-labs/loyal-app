@@ -171,14 +171,20 @@ export async function buildUnshieldTokensInstructionPlan(params: {
   } else {
     // Unshield of full amount - do cleanup
 
-    // Close permissions
-    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
-    instructions.push({
-      label: "closePermission",
-      ix: closePermissionIxs.ix,
-      rentLamports: closePermissionRentLamports,
-    });
-    checks.push(...closePermissionIxs.ensure);
+    if (
+      permissionAccountInfo &&
+      permissionAccountInfo.lamports > 0 &&
+      permissionAccountInfo.data.length > 0
+    ) {
+      // Close permissions
+      const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+      instructions.push({
+        label: "closePermission",
+        ix: closePermissionIxs.ix,
+        rentLamports: closePermissionRentLamports,
+      });
+      checks.push(...closePermissionIxs.ensure);
+    }
 
     const closeDepositIxs = await closeDepositIx(baseProgram, {
       user,
