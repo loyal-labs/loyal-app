@@ -70,10 +70,10 @@ export function LandingHero() {
             data-hero-reveal="left"
           >
             <h1 className="max-w-[420px] text-[56px] font-semibold leading-none lg:text-[64px]">
-              Put your money on autopilot
+              Make your money bigger
             </h1>
             <p className="w-[292px] max-w-full text-[20px] font-normal leading-none lg:mt-6 lg:w-auto lg:max-w-[320px] lg:text-[24px]">
-              Keep full control over your funds and away from prying eyes
+              A Solana wallet with on-chain guardrails for your AI agents
             </p>
           </div>
 
