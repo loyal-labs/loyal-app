@@ -1,11 +1,20 @@
 import {
   DELEGATION_PROGRAM_ID,
+  type ShieldFlowExecutionResult,
+  type ShieldFlowPlan,
+  type ShieldFlowTransactionPlan,
+  delegateDepositIx,
+  delegateUsernameDepositIx,
   findDepositPda,
   findUsernameDepositPda,
   getErValidatorForSolanaEnv,
+  initializeDepositIx,
+  initializeUsernameDepositIx,
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  transferDepositIx,
+  transferToUsernameDepositIx,
   USDC_MINT_DEVNET,
   USDC_MINT_MAINNET,
 } from "@loyal-labs/private-transactions";
@@ -14,17 +23,11 @@ import {
   getPerEndpoints,
   getSolanaEndpoints,
 } from "@loyal-labs/solana-rpc";
-import {
-  getAssociatedTokenAddressSync,
-  NATIVE_MINT,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
 import type { Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "../constants/token-mints";
-import { closeWsolAta, wrapSolToWSol } from "../lib/solana/wsol-adapter";
 import type { WalletSigner } from "../types/signer";
 
 export type PrivateSendResult = {
@@ -33,16 +36,18 @@ export type PrivateSendResult = {
   error?: string;
 };
 
-async function waitForAccount(
-  connection: Connection,
-  pda: PublicKey,
-  maxAttempts = 30
-): Promise<void> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const info = await connection.getAccountInfo(pda);
-    if (info) return;
-    await new Promise((r) => setTimeout(r, 500));
+function cleanSolanaErrorMessage(message: string): string {
+  const logsIndex = message.indexOf("Logs:");
+  if (logsIndex !== -1) {
+    return message.slice(0, logsIndex).trim();
   }
+  return message;
+}
+
+function getLastSignature(
+  result: ShieldFlowExecutionResult
+): string | undefined {
+  return result.signatures[result.signatures.length - 1]?.signature;
 }
 
 function isKaminoUsdcMint(tokenMint: PublicKey, solanaEnv: SolanaEnv): boolean {
@@ -77,6 +82,224 @@ async function getTransferDepositAmount(args: {
     );
   }
   return collateralSharesAmountRaw;
+}
+
+function appendBaseSetupTransaction(
+  plan: ShieldFlowPlan,
+  setupTransaction: ShieldFlowTransactionPlan | null
+): void {
+  if (!setupTransaction) {
+    return;
+  }
+
+  const lastBaseTransaction = [...plan.transactions]
+    .reverse()
+    .find((transaction) => transaction.cluster === "base");
+
+  if (!lastBaseTransaction) {
+    plan.transactions.push(setupTransaction);
+    return;
+  }
+
+  lastBaseTransaction.instructions.push(...setupTransaction.instructions);
+  lastBaseTransaction.checks = [
+    ...(lastBaseTransaction.checks ?? []),
+    ...(setupTransaction.checks ?? []),
+  ];
+  lastBaseTransaction.postSendOwnerChange ??=
+    setupTransaction.postSendOwnerChange;
+}
+
+async function buildWalletRecipientTransferPlan(args: {
+  client: LoyalPrivateTransactionsClient;
+  connection: Connection;
+  destination: PublicKey;
+  tokenMint: PublicKey;
+  user: PublicKey;
+  payer: PublicKey;
+  validator: PublicKey;
+  amount: bigint;
+}): Promise<{
+  setupTransaction: ShieldFlowTransactionPlan | null;
+  transferTransaction: ShieldFlowTransactionPlan;
+}> {
+  const {
+    client,
+    connection,
+    destination,
+    tokenMint,
+    user,
+    payer,
+    validator,
+    amount,
+  } = args;
+  const [destinationDepositPda] = findDepositPda(destination, tokenMint);
+  const destinationInfo = await connection.getAccountInfo(
+    destinationDepositPda
+  );
+  const setupInstructions: ShieldFlowTransactionPlan["instructions"] = [];
+  const setupChecks: ShieldFlowTransactionPlan["checks"] = [];
+
+  if (!destinationInfo) {
+    const initializeDeposit = await initializeDepositIx(client.baseProgram, {
+      tokenMint,
+      user: destination,
+      payer,
+    });
+    setupInstructions.push({
+      label: "initializeRecipientDeposit",
+      ix: initializeDeposit.ix,
+    });
+    setupChecks.push(...initializeDeposit.ensure);
+  }
+
+  if (!destinationInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
+    const delegateDeposit = await delegateDepositIx(client.baseProgram, {
+      tokenMint,
+      user: destination,
+      payer,
+      validator,
+      passNotExist: true,
+    });
+    setupInstructions.push({
+      label: "delegateRecipientDeposit",
+      ix: delegateDeposit.ix,
+    });
+    setupChecks.push(...delegateDeposit.ensure);
+  }
+
+  const transfer = await transferDepositIx(client.ephemeralProgram, {
+    user,
+    tokenMint,
+    destinationUser: destination,
+    amount,
+    payer,
+  });
+
+  return {
+    setupTransaction:
+      setupInstructions.length > 0
+        ? {
+            label: "privateSend:prepareRecipientDeposit",
+            cluster: "base",
+            instructions: setupInstructions,
+            checks: setupChecks,
+            postSendOwnerChange: {
+              address: destinationDepositPda,
+              owner: DELEGATION_PROGRAM_ID,
+              bestEffort: true,
+            },
+          }
+        : null,
+    transferTransaction: {
+      label: "privateSend:transferDeposit",
+      cluster: "ephemeral",
+      instructions: [{ label: "transferDeposit", ix: transfer.ix }],
+      checks: transfer.ensure,
+    },
+  };
+}
+
+async function buildTelegramRecipientTransferPlan(args: {
+  client: LoyalPrivateTransactionsClient;
+  connection: Connection;
+  username: string;
+  tokenMint: PublicKey;
+  user: PublicKey;
+  payer: PublicKey;
+  validator: PublicKey;
+  amount: bigint;
+}): Promise<{
+  setupTransaction: ShieldFlowTransactionPlan | null;
+  transferTransaction: ShieldFlowTransactionPlan;
+}> {
+  const {
+    client,
+    connection,
+    username,
+    tokenMint,
+    user,
+    payer,
+    validator,
+    amount,
+  } = args;
+  const [usernameDepositPda] = await findUsernameDepositPda(
+    username,
+    tokenMint
+  );
+  const [baseInfo, ephemeralDeposit] = await Promise.all([
+    connection.getAccountInfo(usernameDepositPda),
+    client.getEphemeralUsernameDeposit(username, tokenMint).catch(() => null),
+  ]);
+  const setupInstructions: ShieldFlowTransactionPlan["instructions"] = [];
+  const setupChecks: ShieldFlowTransactionPlan["checks"] = [];
+
+  if (!baseInfo && !ephemeralDeposit) {
+    const initializeDeposit = await initializeUsernameDepositIx(
+      client.baseProgram,
+      {
+        tokenMint,
+        username,
+        payer,
+      }
+    );
+    setupInstructions.push({
+      label: "initializeRecipientUsernameDeposit",
+      ix: initializeDeposit.ix,
+    });
+    setupChecks.push(...initializeDeposit.ensure);
+  }
+
+  if (!baseInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
+    const delegateDeposit = await delegateUsernameDepositIx(
+      client.baseProgram,
+      {
+        tokenMint,
+        username,
+        payer,
+        validator,
+        passNotExist: true,
+      }
+    );
+    setupInstructions.push({
+      label: "delegateRecipientUsernameDeposit",
+      ix: delegateDeposit.ix,
+    });
+    setupChecks.push(...delegateDeposit.ensure);
+  }
+
+  const transfer = await transferToUsernameDepositIx(client.ephemeralProgram, {
+    username,
+    user,
+    tokenMint,
+    amount,
+    payer,
+  });
+
+  return {
+    setupTransaction:
+      setupInstructions.length > 0
+        ? {
+            label: "privateSend:prepareRecipientUsernameDeposit",
+            cluster: "base",
+            instructions: setupInstructions,
+            checks: setupChecks,
+            postSendOwnerChange: {
+              address: usernameDepositPda,
+              owner: DELEGATION_PROGRAM_ID,
+              bestEffort: true,
+            },
+          }
+        : null,
+    transferTransaction: {
+      label: "privateSend:transferToUsernameDeposit",
+      cluster: "ephemeral",
+      instructions: [
+        { label: "transferToUsernameDeposit", ix: transfer.ix },
+      ],
+      checks: transfer.ensure,
+    },
+  };
 }
 
 export function usePrivateSend(
@@ -157,7 +380,6 @@ export function usePrivateSend(
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = signer.publicKey;
         const validator = getErValidatorForSolanaEnv(solanaEnv);
-        const isNativeSol = tokenMint.equals(NATIVE_MINT);
         const transferAmount = await getTransferDepositAmount({
           client,
           tokenMint,
@@ -172,187 +394,68 @@ export function usePrivateSend(
         );
         const existingBalance = existingDeposit?.amount ?? BigInt(0);
         const needsShield = existingBalance < transferAmount;
-
-        if (needsShield) {
-          // Init deposit if needed
-          const baseDeposit = await client.getBaseDeposit(user, tokenMint);
-          if (!baseDeposit) {
-            await client.initializeDeposit({
+        const plan = needsShield
+          ? await client.buildShieldTokensTransactionPlan({
               tokenMint,
-              user,
-              payer: user,
-            });
-            const [depositPda] = findDepositPda(user, tokenMint);
-            await waitForAccount(connection, depositPda);
-          }
-
-          // Wrap SOL -> wSOL if native
-          const walletSigner = {
-            publicKey: user,
-            signTransaction: signer.signTransaction.bind(signer),
-          };
-          let createdAta = false;
-          if (isNativeSol) {
-            const result = await wrapSolToWSol({
-              connection,
-              wallet: walletSigner,
-              lamports: rawAmount,
-            });
-            createdAta = result.createdAta;
-          }
-
-          const userTokenAccount = getAssociatedTokenAddressSync(
-            tokenMint,
-            user,
-            false,
-            TOKEN_PROGRAM_ID
-          );
-
-          // Undelegate if currently delegated
-          const [depositPda] = findDepositPda(user, tokenMint);
-          const depositInfo = await connection.getAccountInfo(depositPda);
-          if (depositInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-            await client.undelegateDeposit({
-              tokenMint,
+              amount: BigInt(rawAmount),
               user,
               payer: user,
               magicProgram: MAGIC_PROGRAM_ID,
               magicContext: MAGIC_CONTEXT_ID,
-            });
-          }
-
-          // Move tokens into deposit vault
-          await client.modifyBalance({
-            tokenMint,
-            amount: rawAmount,
-            increase: true,
-            user,
-            payer: user,
-          });
-
-          // Close wSOL ATA if we created it
-          if (isNativeSol && createdAta) {
-            await closeWsolAta({
-              connection,
-              wallet: walletSigner,
-              wsolAta: userTokenAccount,
-            });
-          }
-
-          // Create permission (may already exist)
-          try {
-            await client.createPermission({
-              tokenMint,
+            })
+          : ({
+              kind: "shield",
               user,
               payer: user,
-            });
-          } catch {
-            // Permission may already exist
-          }
-
-          // Delegate deposit
-          try {
-            await client.delegateDeposit({
               tokenMint,
-              user,
-              payer: user,
-              validator,
-            });
-          } catch {
-            // May already be delegated
-          }
-        }
-
-        // 2. Transfer
-        let signature: string;
+              amount: transferAmount,
+              transactions: [],
+            } satisfies ShieldFlowPlan);
 
         if (params.recipientType === "telegram") {
-          const mixedCaseUsername = params.recipient;
-          const username = mixedCaseUsername.toLowerCase();
-          const existingBase = await client.getBaseUsernameDeposit(
-            username,
-            tokenMint
-          );
-          const existingEphemeral = await client.getEphemeralUsernameDeposit(
-            username,
-            tokenMint
-          );
-
-          if (!existingBase && !existingEphemeral) {
-            await client.initializeUsernameDeposit({
+          const username = params.recipient.toLowerCase();
+          const { setupTransaction, transferTransaction } =
+            await buildTelegramRecipientTransferPlan({
+              client,
+              connection,
               tokenMint,
               username,
-              payer: user,
-            });
-            const [pda] = await findUsernameDepositPda(username, tokenMint);
-            await waitForAccount(connection, pda);
-          }
-
-          const [pda] = await findUsernameDepositPda(username, tokenMint);
-          const baseInfo = await connection.getAccountInfo(pda);
-          if (!baseInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-            await client.delegateUsernameDeposit({
-              tokenMint,
-              username,
+              user,
               payer: user,
               validator,
+              amount: transferAmount,
             });
-          }
-
-          signature = await client.transferToUsernameDeposit({
-            username,
-            user,
-            tokenMint,
-            amount: transferAmount,
-            payer: user,
-          });
+          appendBaseSetupTransaction(plan, setupTransaction);
+          plan.transactions.push(transferTransaction);
         } else {
           const destination = new PublicKey(params.recipient);
-          const existingBase = await client.getBaseDeposit(
-            destination,
-            tokenMint
-          );
-
-          if (!existingBase) {
-            await client.initializeDeposit({
+          const { setupTransaction, transferTransaction } =
+            await buildWalletRecipientTransferPlan({
+              client,
+              connection,
+              destination,
               tokenMint,
-              user: destination,
-              payer: user,
-            });
-            const [pda] = findDepositPda(destination, tokenMint);
-            await waitForAccount(connection, pda);
-          }
-
-          const [pda] = findDepositPda(destination, tokenMint);
-          const destInfo = await connection.getAccountInfo(pda);
-          if (!destInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-            await client.delegateDeposit({
-              tokenMint,
-              user: destination,
+              user,
               payer: user,
               validator,
+              amount: transferAmount,
             });
-          }
-
-          signature = await client.transferDeposit({
-            user,
-            tokenMint,
-            destinationUser: destination,
-            amount: transferAmount,
-            payer: user,
-          });
+          appendBaseSetupTransaction(plan, setupTransaction);
+          plan.transactions.push(transferTransaction);
         }
 
+        const executionResult = await client.executeShieldFlowTransactionPlan({
+          plan,
+        });
+
         setLoading(false);
-        return { signature, success: true };
+        return { signature: getLastSignature(executionResult), success: true };
       } catch (err) {
         let errorMessage = "Private send failed";
         if (err instanceof Error) {
-          if (err.message.includes("User rejected")) {
-            errorMessage = "Transaction was rejected in your wallet.";
-          } else {
-            errorMessage = err.message;
-          }
+          errorMessage = err.message.includes("User rejected")
+            ? "Transaction was rejected in your wallet."
+            : cleanSolanaErrorMessage(err.message);
         }
         setError(errorMessage);
         setLoading(false);
