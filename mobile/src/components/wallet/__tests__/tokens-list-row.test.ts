@@ -44,6 +44,35 @@ describe("buildTokenRowContent", () => {
     });
   });
 
+  it("derives the position value from market price when the holding price is missing", () => {
+    // USDT: Helius/Jupiter left the holding unpriced (priceUsd/valueUsd null),
+    // but the CoinGecko market price loaded — the row must show a real value,
+    // not "—".
+    expect(
+      buildTokenRowContent(
+        {
+          mint: "usdt",
+          symbol: "USDT",
+          name: "Tether USD",
+          balance: 10,
+          decimals: 6,
+          priceUsd: null,
+          valueUsd: null,
+          imageUrl: null,
+          isSecured: false,
+        },
+        {
+          status: "loaded",
+          priceUsd: 1.0002,
+          priceChange24hPercent: 0.02,
+        },
+      ),
+    ).toMatchObject({
+      usdValue: "$10.00",
+      showMarketSkeleton: false,
+    });
+  });
+
   it("falls back to holding price without a delta after a market fetch failure", () => {
     expect(
       buildTokenRowContent(

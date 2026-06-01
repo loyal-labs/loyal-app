@@ -100,10 +100,21 @@ export function buildTokenRowContent(
     detailSymbol: overrides?.symbol,
     holdingSymbol: holding.symbol,
   });
+  const resolvedPriceUsd =
+    marketState.status === "loaded" && isFiniteNumber(marketState.priceUsd)
+      ? marketState.priceUsd
+      : isFiniteNumber(holding.priceUsd)
+        ? holding.priceUsd
+        : null;
+
+  // Prefer the holding's own valueUsd, then derive from the resolved price.
+  // resolvedPriceUsd favors the CoinGecko market price over the flaky
+  // Helius/Jupiter holding price, so a token whose holding price never
+  // resolved (e.g. USDT) still shows a position value instead of "—".
   const resolvedUsdValue = isFiniteNumber(holding.valueUsd)
     ? holding.valueUsd
-    : isFiniteNumber(holding.priceUsd)
-      ? holding.balance * holding.priceUsd
+    : isFiniteNumber(resolvedPriceUsd)
+      ? holding.balance * resolvedPriceUsd
       : holding.balance === 0
         ? 0
         : null;
@@ -119,13 +130,6 @@ export function buildTokenRowContent(
       showMarketSkeleton: true,
     };
   }
-
-  const resolvedPriceUsd =
-    marketState.status === "loaded" && isFiniteNumber(marketState.priceUsd)
-      ? marketState.priceUsd
-      : isFiniteNumber(holding.priceUsd)
-        ? holding.priceUsd
-        : null;
 
   const priceChange =
     marketState.status === "loaded"
