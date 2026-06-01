@@ -96,6 +96,10 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+function getBaseTokenId(id?: string | null): string | null {
+  return id ? id.replace(/-secured$/, "") : null;
+}
+
 // ---------------------------------------------------------------------------
 // 3-layer sliding navigation
 // ---------------------------------------------------------------------------
@@ -1366,6 +1370,24 @@ function WalletInterface() {
     [positions]
   );
 
+  useEffect(() => {
+    if (shieldTokens.length === 0) return;
+
+    setShieldToken((current) => {
+      const exactMatch = shieldTokens.find(
+        (token) =>
+          token.mint === current.mint &&
+          Boolean(token.isSecured) === Boolean(current.isSecured)
+      );
+      if (exactMatch) return exactMatch;
+
+      const sameMint = current.mint
+        ? shieldTokens.find((token) => token.mint === current.mint)
+        : undefined;
+      return sameMint ?? shieldTokens[0]!;
+    });
+  }, [shieldTokens]);
+
   // Merge user's held tokens with popular tokens for swap target selection
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
@@ -1394,10 +1416,12 @@ function WalletInterface() {
     (token: TokenRow): TokenRowActions | undefined => {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
       const isSecured = token.isSecured === true;
+      const tokenMint = getBaseTokenId(token.id);
 
       const pickShieldTokenVariant = (wantSecured: boolean) => {
+        if (!tokenMint) return;
         const match = shieldTokens.find(
-          (t) => t.mint === token.id && t.isSecured === wantSecured
+          (t) => t.mint === tokenMint && t.isSecured === wantSecured
         );
         if (match) setShieldToken(match);
       };
