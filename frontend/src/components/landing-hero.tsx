@@ -100,7 +100,7 @@ export function LandingHero() {
                 Yield on shielded assets
               </h2>
               <p className="mt-3 text-[20px] font-normal leading-[1.1] lg:mt-4">
-                Earn yield on USDC, SOL, and USDT while your assets stay private
+                Earn yield on USDC while your assets stay private
               </p>
             </div>
             <div className="order-1 flex w-full items-center gap-3 lg:order-2 lg:mt-8">

@@ -28,7 +28,7 @@ const siteJsonLd = {
       url: "https://askloyal.com",
       logo: "https://askloyal.com/android-chrome-512x512.png",
       description:
-        "Self-custody Solana smart-account wallet with on-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments and yield on shielded balances.",
+        "Self-custody Solana smart-account wallet with on-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments and yield on shielded USDC.",
       foundingDate: "2025",
       foundingLocation: {
         "@type": "Place",
@@ -68,7 +68,7 @@ const siteJsonLd = {
       applicationCategory: "FinanceApplication",
       operatingSystem: "Android",
       description:
-        "Solana wallet with smart-account guardrails for AI agents, private transfers, and yield on shielded balances. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
+        "Solana wallet with smart-account guardrails for AI agents, private transfers, and yield on shielded USDC. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
       publisher: { "@id": "https://askloyal.com/#organization" },
       offers: {
         "@type": "Offer",
