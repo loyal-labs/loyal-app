@@ -11,12 +11,12 @@ export const LANDING_FAQS: FaqItem[] = [
   {
     question: "What is Loyal?",
     answer:
-      "Every wallet address is a Smart Account with its own policies and spending caps so your agents can never spend more or send funds somewhere you didn't approve.",
+      "Loyal is a self-custody Solana wallet with on-chain guardrails. Every wallet address is a Smart Account with its own policies and spending caps, so your agents can never spend more or send funds somewhere you didn't approve.",
   },
   {
     question: "How can I use Loyal?",
     answer:
-      "Start with the browser extension or web app, create a shielded wallet, and approve only the permissions each app or agent needs.",
+      "Start with the browser extension, web app, or mobile app, create a shielded wallet, and approve only the permissions each app or agent needs.",
   },
   {
     question: "Can I create more than one wallet?",
@@ -47,7 +47,7 @@ export const LANDING_FAQS: FaqItem[] = [
   {
     question: "Can I use Loyal across devices and platforms?",
     answer:
-      "Yes. Loyal is being built for browser, web, and mobile so the same account model can follow you across devices.",
+      "Yes. Loyal runs in your browser, on the web, and on mobile, so the same account model follows you across devices.",
   },
 ];
 
