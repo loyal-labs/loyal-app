@@ -4,6 +4,7 @@ module.exports = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@loyal-labs/shared$": "<rootDir>/../packages/shared/src/index",
+    "^@loyal-labs/private-transactions$": "<rootDir>/../sdk/private-transactions/index",
     "^expo-seed-vault$": "<rootDir>/modules/expo-seed-vault/src/index",
     "\\.(png|jpg|jpeg|gif|webp|svg)$": "<rootDir>/test/fileMock.js",
   },
