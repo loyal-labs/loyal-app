@@ -20,7 +20,7 @@
     "@loyal-labs/private-transactions": "file:../sdk/private-transactions",
     "@loyal-labs/shared": "file:../packages/shared",
     "@loyal-labs/solana-rpc": "file:../packages/solana-rpc",
-    "@magicblock-labs/ephemeral-rollups-sdk": "^0.10.5",
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
     "@noble/ciphers": "^2.1.1",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-firebase/analytics": "^24.0.0",
