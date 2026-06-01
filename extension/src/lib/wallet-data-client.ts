@@ -1,69 +1,77 @@
-import { findDepositPda } from "@loyal-labs/private-transactions";
+import {
+  enumerateDepositsByUser,
+  LoyalPrivateTransactionsClient,
+  type WalletLike,
+} from "@loyal-labs/private-transactions";
 import {
   createSolanaWalletDataClient,
-  NATIVE_SOL_MINT,
-  type AssetBalance,
   type SecureBalanceMap,
   type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
-import { getSolanaEndpoints } from "@loyal-labs/solana-rpc";
+import { getPerEndpoints, getSolanaEndpoints } from "@loyal-labs/solana-rpc";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
-import type { PublicKey as PublicKeyType } from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
 import { useMemo } from "react";
 
-/** Deposit account layout: 8-byte discriminator + 32 user + 32 tokenMint + 8 amount (u64 LE) */
-const DEPOSIT_AMOUNT_OFFSET = 8 + 32 + 32; // 72
-
-function readDepositAmount(data: Buffer): bigint {
-  if (data.length < DEPOSIT_AMOUNT_OFFSET + 8) return BigInt(0);
-  let value = BigInt(0);
-  for (let i = 0; i < 8; i++) {
-    value += BigInt(data[DEPOSIT_AMOUNT_OFFSET + i]) << BigInt(i * 8);
-  }
-  return value;
-}
+import type { WalletSigner } from "@loyal-labs/wallet-core/types";
 
 export function useExtensionWalletDataClient(
   solanaEnv: SolanaEnv,
-  walletPublicKey: PublicKeyType | null,
+  signer: WalletSigner | null
 ): SolanaWalletDataClient {
   return useMemo(() => {
-    const { rpcEndpoint } = getSolanaEndpoints(solanaEnv);
+    const { rpcEndpoint, websocketEndpoint } = getSolanaEndpoints(solanaEnv);
+    const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
     const baseConnection = new Connection(rpcEndpoint, "confirmed");
+    const ephemeralConnection = new Connection(perRpcEndpoint, "confirmed");
+    let signedClientPromise: Promise<LoyalPrivateTransactionsClient> | null =
+      null;
+
+    const getSignedClient = () => {
+      if (!signer || !signer.signMessage) return null;
+      signedClientPromise ??= LoyalPrivateTransactionsClient.fromConfig({
+        signer: signer as unknown as WalletLike,
+        baseRpcEndpoint: rpcEndpoint,
+        baseWsEndpoint: websocketEndpoint,
+        ephemeralRpcEndpoint: perRpcEndpoint,
+        ephemeralWsEndpoint: perWsEndpoint,
+      }).catch((error: unknown) => {
+        signedClientPromise = null;
+        throw error;
+      });
+      return signedClientPromise;
+    };
 
     return createSolanaWalletDataClient({
       env: solanaEnv,
-      secureBalanceProvider: async ({ owner, tokenMints, assetBalances }) => {
-        const nativeMint = new PublicKey(NATIVE_SOL_MINT);
-        const uniqueMints = new Map<string, PublicKey>();
-        uniqueMints.set(nativeMint.toBase58(), nativeMint);
-        for (const mint of tokenMints) {
-          uniqueMints.set(mint.toBase58(), mint);
+      secureBalanceProvider: async ({ owner }) => {
+        const enumerateDeposits = () =>
+          enumerateDepositsByUser({
+            user: owner,
+            baseConnection,
+            ephemeralConnection,
+          });
+        const signedClient = getSignedClient();
+        const deposits = signedClient
+          ? await signedClient
+              .then((client) => client.getAllDepositsByUser(owner))
+              .catch((error: unknown) => {
+                console.warn(
+                  "Failed to load signed private deposits; falling back to public enumeration",
+                  error
+                );
+                signedClientPromise = null;
+                return enumerateDeposits();
+              })
+          : await enumerateDeposits();
+
+        const secureBalances = new Map<string, bigint>();
+        for (const deposit of deposits) {
+          if (deposit.amount <= BigInt(0)) continue;
+          secureBalances.set(deposit.tokenMint.toBase58(), deposit.amount);
         }
-
-        const mintEntries = Array.from(uniqueMints.entries());
-        const pdas = mintEntries.map(([, mint]) => findDepositPda(owner, mint)[0]);
-        const accountInfos = await baseConnection.getMultipleAccountsInfo(pdas);
-
-        const rawDeposits = new Map<string, bigint>();
-        for (let i = 0; i < mintEntries.length; i++) {
-          const info = accountInfos[i];
-          if (!info?.data) continue;
-          const amount = readDepositAmount(info.data as Buffer);
-          if (amount > BigInt(0)) {
-            rawDeposits.set(mintEntries[i][0], amount);
-          }
-        }
-
-        return new Map<string, bigint>(
-          [...rawDeposits.entries()].filter(([mint]) =>
-            assetBalances.some(
-              (assetBalance: AssetBalance) => assetBalance.asset.mint === mint
-            )
-          )
-        ) as SecureBalanceMap;
+        return secureBalances as SecureBalanceMap;
       },
     });
-  }, [solanaEnv, walletPublicKey]);
+  }, [solanaEnv, signer]);
 }

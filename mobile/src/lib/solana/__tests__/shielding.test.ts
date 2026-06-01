@@ -219,6 +219,18 @@ describe("computeUnshieldModifyAmount", () => {
     expect(result).toBe(BigInt(4_000_000));
   });
 
+  it("fails closed for partial Kamino unshields when the quote is unavailable", () => {
+    expect(() =>
+      computeUnshieldModifyAmount({
+        isMax: false,
+        requestedRawAmount: BigInt(2_000_000),
+        currentDepositRaw: BigInt(4_000_000),
+        isTrackedKaminoToken: true,
+        kaminoQuotedShares: null,
+      })
+    ).toThrow("Could not quote the current USDC shielded exchange rate");
+  });
+
   it("uses the raw requested amount for non-Kamino partial unshields", () => {
     const result = computeUnshieldModifyAmount({
       isMax: false,
@@ -229,6 +241,18 @@ describe("computeUnshieldModifyAmount", () => {
     });
 
     expect(result).toBe(BigInt(10_000_000));
+  });
+
+  it("fails closed for Kamino MAX unshields when the on-chain deposit is unavailable", () => {
+    expect(() =>
+      computeUnshieldModifyAmount({
+        isMax: true,
+        requestedRawAmount: BigInt(1_000_000),
+        currentDepositRaw: BigInt(0),
+        isTrackedKaminoToken: true,
+        kaminoQuotedShares: null,
+      })
+    ).toThrow("Could not read the current USDC shielded balance");
   });
 
   it("falls back to the requested raw amount on MAX when the on-chain deposit is empty", () => {

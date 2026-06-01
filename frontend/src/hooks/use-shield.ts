@@ -267,9 +267,12 @@ export function useShield() {
               tokenMint,
               liquidityAmountRaw: BigInt(rawAmount),
             });
-          if (quotedShares !== null) {
-            planAmount = quotedShares;
+          if (quotedShares === null) {
+            throw new Error(
+              "Could not quote the current USDC shielded exchange rate. Please retry."
+            );
           }
+          planAmount = quotedShares;
 
           if (
             collateralSharesBefore > BigInt(0) &&

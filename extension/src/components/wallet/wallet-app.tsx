@@ -54,7 +54,11 @@ import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
 import { fetchPriceChanges } from "~/src/lib/coingecko";
-import { pendingDappApproval, onboardingCompleted, confettiShown } from "~/src/lib/storage";
+import {
+  pendingDappApproval,
+  onboardingCompleted,
+  confettiShown,
+} from "~/src/lib/storage";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
   flushInstallEvent,
@@ -1019,10 +1023,7 @@ function UnlockScreen() {
             maxWidth: "320px",
           }}
         >
-          <TriangleAlert
-            size={48}
-            style={{ color: "rgba(60, 60, 67, 0.3)" }}
-          />
+          <TriangleAlert size={48} style={{ color: "rgba(60, 60, 67, 0.3)" }} />
           <h2
             style={{
               fontFamily: "var(--font-geist-sans), sans-serif",
@@ -1143,10 +1144,7 @@ function WalletInterface() {
     useWalletContext();
   const solanaEnv = network as import("@loyal-labs/solana-rpc").SolanaEnv;
   const walletPubkey = signer?.publicKey ?? null;
-  const walletDataClient = useExtensionWalletDataClient(
-    solanaEnv,
-    walletPubkey
-  );
+  const walletDataClient = useExtensionWalletDataClient(solanaEnv, signer);
   const walletData = useWalletData({
     publicKey: walletPubkey,
     connected: !!signer,
@@ -1303,13 +1301,17 @@ function WalletInterface() {
   // Enrich token rows with 24h price change from CoinGecko
   const [priceChanges, setPriceChanges] = useState<Record<string, number>>({});
   useEffect(() => {
-    const mints = allTokenRows.map((t) => t.id).filter((id): id is string => !!id);
+    const mints = allTokenRows
+      .map((t) => t.id)
+      .filter((id): id is string => !!id);
     if (mints.length === 0) return;
     let cancelled = false;
     void fetchPriceChanges(mints).then((changes) => {
       if (!cancelled) setPriceChanges(changes);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [allTokenRows]);
 
   const enrichedTokenRows = useMemo(() => {
@@ -1469,7 +1471,9 @@ function WalletInterface() {
             walletAddress={walletAddress}
             walletLabel={walletLabel}
             getTokenActions={getTokenActions}
-            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "portfolio" })}
+            onTokenDetail={(token) =>
+              handleNavigate({ type: "tokenDetail", token, from: "portfolio" })
+            }
             onShieldUsdc={() => {
               const usdc = shieldTokens.find(
                 (t) => t.symbol === "USDC" && !t.isSecured
@@ -1537,7 +1541,9 @@ function WalletInterface() {
             onBack={goBack}
             onClose={handleClose}
             getTokenActions={getTokenActions}
-            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "allTokens" })}
+            onTokenDetail={(token) =>
+              handleNavigate({ type: "tokenDetail", token, from: "allTokens" })
+            }
           />
         );
       }
@@ -1559,7 +1565,9 @@ function WalletInterface() {
     if (subView.type === "tokenDetail") {
       const t = subView.token;
       const actions = getTokenActions(t);
-      const asSwapToken: SwapToken = swapTokens.find((s) => s.mint === t.id) ?? {
+      const asSwapToken: SwapToken = swapTokens.find(
+        (s) => s.mint === t.id
+      ) ?? {
         mint: t.id,
         symbol: t.symbol,
         icon: t.icon,
@@ -1587,10 +1595,14 @@ function WalletInterface() {
             handleTabChange("swap");
             setSubView(null);
           }}
-          onShield={(actions?.onShield || actions?.onUnshield) ? () => {
-            actions.onShield?.(t) ?? actions.onUnshield?.(t);
-            setSubView(null);
-          } : undefined}
+          onShield={
+            actions?.onShield || actions?.onUnshield
+              ? () => {
+                  actions.onShield?.(t) ?? actions.onUnshield?.(t);
+                  setSubView(null);
+                }
+              : undefined
+          }
         />
       );
     }

@@ -135,13 +135,25 @@ export function computeUnshieldModifyAmount(
   params: ComputeUnshieldModifyAmountParams,
 ): bigint {
   if (params.isMax) {
-    return params.currentDepositRaw > BigInt(0)
-      ? params.currentDepositRaw
-      : params.requestedRawAmount;
+    if (params.currentDepositRaw > BigInt(0)) {
+      return params.currentDepositRaw;
+    }
+    if (params.isTrackedKaminoToken) {
+      throw new Error(
+        "Could not read the current USDC shielded balance. Please retry."
+      );
+    }
+    return params.requestedRawAmount;
   }
 
   if (params.isTrackedKaminoToken) {
-    let amount = params.kaminoQuotedShares ?? params.requestedRawAmount;
+    if (params.kaminoQuotedShares === null) {
+      throw new Error(
+        "Could not quote the current USDC shielded exchange rate. Please retry."
+      );
+    }
+
+    let amount = params.kaminoQuotedShares;
     if (
       params.currentDepositRaw > BigInt(0) &&
       amount > params.currentDepositRaw
