@@ -18,7 +18,7 @@ export function ActionButton({ icon, label, onPress }: ActionButtonProps) {
   };
 
   return (
-    <Pressable className="items-center gap-2" onPress={handlePress}>
+    <Pressable className="flex-1 items-center gap-2" onPress={handlePress}>
       <View
         className="h-[52px] w-[52px] items-center justify-center rounded-full"
         style={{ backgroundColor: "rgba(249, 54, 60, 0.14)" }}
@@ -27,6 +27,7 @@ export function ActionButton({ icon, label, onPress }: ActionButtonProps) {
       </View>
       <Text
         className="text-[13px]"
+        numberOfLines={1}
         style={{ color: "rgba(60, 60, 67, 0.6)" }}
       >
         {label}

@@ -379,7 +379,7 @@ export default function WalletScreen() {
         />
 
         {/* Action buttons */}
-        <View className="mt-6 flex-row flex-wrap justify-center gap-6 px-4">
+        <View className="mt-6 flex-row px-4">
           <ActionButton
             icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
             label="Send"

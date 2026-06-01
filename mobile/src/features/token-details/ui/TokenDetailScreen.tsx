@@ -370,7 +370,7 @@ function ActionRailButton({
 
   return (
     <Pressable
-      className="items-center gap-2"
+      className="flex-1 items-center gap-2"
       onPress={disabled ? undefined : handlePress}
       style={{ opacity: disabled || muted ? 0.45 : 1 }}
       accessibilityState={{ disabled }}
@@ -381,7 +381,7 @@ function ActionRailButton({
       >
         {icon}
       </View>
-      <Text className="text-[13px]" style={{ color: MUTED_TEXT }}>
+      <Text className="text-[13px]" numberOfLines={1} style={{ color: MUTED_TEXT }}>
         {label}
       </Text>
     </Pressable>
@@ -857,7 +857,7 @@ function TokenDetailBody({
         </View>
       ) : null}
 
-      <View className="mt-6 flex-row flex-wrap justify-center gap-6 px-2">
+      <View className="mt-6 flex-row px-2">
         <ActionRailButton
           icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
           label="Send"
