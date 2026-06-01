@@ -40,7 +40,7 @@ const OPACITY_RIGHT_FORECAST = 0.14; // forecast bars after the selected one
 const BAR_RADIUS = 6;
 const FIRST_BAR_RATIO = 0.12; // height of the shortest (leftmost) bar
 
-// Reveal motion — shared with the rest of the Earn tab (see EarnBubbles).
+// Reveal motion for the deposited-state chart.
 const ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
 // Bars grow up from the baseline with a left-to-right stagger. A single 0→1
 // `progress` drives every bar; each bar maps a slice of it via its index, so

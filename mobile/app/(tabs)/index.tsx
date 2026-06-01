@@ -2,23 +2,20 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
 import { ArrowUp, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withRepeat,
-  withSequence,
-  withSpring,
+  withDelay,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DepositSheet } from "@/components/earn/DepositSheet";
-import { type BubbleData, EarnBubbles } from "@/components/earn/EarnBubbles";
 import { EarnChart } from "@/components/earn/EarnChart";
-import { EarnMascot } from "@/components/earn/EarnMascot";
+import { EarnDog } from "@/components/earn/EarnDog";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { useAppReady } from "@/lib/app-ready";
 import { Pressable, Text, View } from "@/tw";
@@ -26,7 +23,6 @@ import { Pressable, Text, View } from "@/tw";
 import EarnFlash from "../../assets/images/earn/flash.svg";
 
 const APY_LABEL = "8.46% APY";
-const IDLE_AMOUNT = "$1,250";
 const DEPOSITED_BALANCE_WHOLE = "$6,165";
 const DEPOSITED_BALANCE_CENTS = ".662512";
 
@@ -34,114 +30,149 @@ const COLOR_BADGE_GREEN = "#32B67C";
 const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_BALANCE_DIM = "rgba(60, 60, 67, 0.4)";
 const COLOR_WITHDRAW_BG = "#F5F5F5";
+const COLOR_HEADLINE_DIM = "rgba(255, 255, 255, 0.6)";
 
 const TAB_BAR_RESERVED_HEIGHT = 96;
 
-// Beat after the tab becomes visible before the demo starts, so it doesn't
-// begin the instant the splash/lock overlays clear on cold start.
-const ANIMATION_START_DELAY_MS = 1000;
+// The dog is authored at 400×506 (full head). It sits full-bleed at the bottom
+// of the black hero; its lower jaw (below head-y 410) is clipped by the white
+// balance card that meets it. DOG_CLIP is that 96px (506−410) overflow as a
+// ratio of width so the clip scales with the screen (Figma 3883:18252).
+const DOG_NATURAL_RATIO = 506 / 400;
+const DOG_CLIP_RATIO = 96 / 400;
+// Sunk start state: the dog drops until only its ears (head above ~y150) peek
+// over the card; the reveal rises it back to rest.
+const DOG_EARS_HEAD_Y = 150;
+const DOG_SINK_RATIO = (410 - DOG_EARS_HEAD_Y) / 400;
 
-// The delay only applies to the first reveal of the app session (cold start).
-// Later navigations to the Earn tab replay immediately. Module-level so it
-// survives any screen remount — navigation must never re-introduce the delay.
-let hasRevealedSinceLaunch = false;
+const ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+// Overshoot for the APY badge pop (animate-text `spring-scale-in`).
+const BADGE_EASING = Easing.bezier(0.34, 1.56, 0.64, 1);
 
-// How long after a demo play to "pop" the Deposit button — i.e. after the
-// bubbles have typed and the mascot has tilted back + closed its eye (~4.4s).
-const DEPOSIT_POP_DELAY_MS = 4600;
-
-// Pre-deposit demo copy. Rendered as animated iMessage-style bubbles that slide
-// in from the left and type their text one by one (see EarnBubbles).
-const BUBBLES: BubbleData[] = [
-  {
-    widthPct: 62,
-    segments: [
-      { text: "You have " },
-      { text: IDLE_AMOUNT, strong: true },
-      { text: " sitting idle." },
-    ],
-  },
-  {
-    widthPct: 70,
-    segments: [
-      { text: "Let's start earning " },
-      { text: APY_LABEL, strong: true },
-    ],
-  },
-  {
-    widthPct: 72,
-    segments: [{ text: "Withdraw instantly, any time." }],
-  },
-];
+// Reveal choreography: hold on just the ears for a beat, then the dog rises
+// while the three headline lines stagger in (animate-text `mask-reveal-up`),
+// then the APY badge pops last.
+const REVEAL_START_DELAY_MS = 700;
+const DOG_RISE_MS = 800;
+const LINE_FROM_Y = 24;
+const LINE_REVEAL_MS = 850;
+const LINE_STAGGER_MS = 650;
+const LINES_START_MS = 200;
+const BADGE_START_MS = 2050;
+const BADGE_MS = 500;
 
 export default function EarnScreen() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const appReady = useAppReady();
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [hasDeposit, setHasDeposit] = useState(false);
-  // Bumped to (re)play the bubble + mascot demo.
-  const [runId, setRunId] = useState(0);
   const [isFocused, setIsFocused] = useState(false);
-  const appReady = useAppReady();
+  // Bumped to (re)play the reveal each time the tab becomes visible.
+  const [runId, setRunId] = useState(0);
 
-  // Track focus, and reset to the pre-deposit state whenever the user leaves the
-  // Earn tab so returning always replays the demo.
+  const dogHeight = width * DOG_NATURAL_RATIO;
+
+  // Reveal drivers. riseY starts sunk so the first paint already shows just the
+  // ears; the line/badge progress values run 0 → 1.
+  const riseY = useSharedValue(width * DOG_SINK_RATIO);
+  const line0 = useSharedValue(0);
+  const line1 = useSharedValue(0);
+  const line2 = useSharedValue(0);
+  const badge = useSharedValue(0);
+
+  // Track focus; reset to the pre-deposit, pre-reveal state on leave so the tab
+  // always reopens on a clean pitch.
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
       return () => {
         setIsFocused(false);
         setHasDeposit(false);
+        riseY.value = width * DOG_SINK_RATIO;
+        line0.value = 0;
+        line1.value = 0;
+        line2.value = 0;
+        badge.value = 0;
       };
-    }, []),
+    }, [width, riseY, line0, line1, line2, badge]),
   );
 
-  // Only (re)play once the tab is both focused AND actually visible — i.e. the
-  // splash and wallet auth overlays are gone. Otherwise the animation runs
-  // hidden during boot and the user lands mid-animation. The first reveal after
-  // launch waits a beat (so it doesn't start the instant overlays clear); later
-  // navigations play immediately.
+  // Only (re)play once the tab is focused AND visible (splash/lock cleared), so
+  // the reveal never runs hidden during boot.
   useEffect(() => {
-    if (!(isFocused && appReady)) {
-      return;
-    }
-    if (hasRevealedSinceLaunch) {
+    if (isFocused && appReady) {
       setRunId((id) => id + 1);
-      return;
     }
-    const timer = setTimeout(() => {
-      hasRevealedSinceLaunch = true;
-      setRunId((id) => id + 1);
-    }, ANIMATION_START_DELAY_MS);
-    return () => clearTimeout(timer);
   }, [isFocused, appReady]);
 
-  // Springy "pop" on the Deposit button once the demo has finished playing — an
-  // attention nudge toward the next action. Fires after each pre-deposit demo.
-  const depositScale = useSharedValue(1);
-  const depositPopStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: depositScale.value }],
-  }));
-
+  // The reveal itself, keyed to runId.
   useEffect(() => {
-    cancelAnimation(depositScale);
-    depositScale.value = 1;
-    if (runId === 0 || hasDeposit) {
+    if (runId === 0) {
       return;
     }
-    const timer = setTimeout(() => {
-      depositScale.value = withRepeat(
-        withSequence(
-          withTiming(0.8, { duration: 110, easing: Easing.out(Easing.quad) }),
-          // Loose, underdamped spring → overshoots to ~1.12 before settling.
-          withSpring(1, { damping: 5, mass: 0.8, stiffness: 180 }),
-        ),
-        2,
-        false,
-      );
-    }, DEPOSIT_POP_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [runId, hasDeposit, depositScale]);
+    const sink = width * DOG_SINK_RATIO;
+    cancelAnimation(riseY);
+    cancelAnimation(line0);
+    cancelAnimation(line1);
+    cancelAnimation(line2);
+    cancelAnimation(badge);
+    riseY.value = sink;
+    line0.value = 0;
+    line1.value = 0;
+    line2.value = 0;
+    badge.value = 0;
+
+    riseY.value = withDelay(
+      REVEAL_START_DELAY_MS,
+      withTiming(0, { duration: DOG_RISE_MS, easing: ENTER_EASING }),
+    );
+    line0.value = withDelay(
+      REVEAL_START_DELAY_MS + LINES_START_MS,
+      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING }),
+    );
+    line1.value = withDelay(
+      REVEAL_START_DELAY_MS + LINES_START_MS + LINE_STAGGER_MS,
+      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING }),
+    );
+    line2.value = withDelay(
+      REVEAL_START_DELAY_MS + LINES_START_MS + 2 * LINE_STAGGER_MS,
+      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING }),
+    );
+    badge.value = withDelay(
+      REVEAL_START_DELAY_MS + BADGE_START_MS,
+      withTiming(1, { duration: BADGE_MS, easing: BADGE_EASING }),
+    );
+
+    return () => {
+      cancelAnimation(riseY);
+      cancelAnimation(line0);
+      cancelAnimation(line1);
+      cancelAnimation(line2);
+      cancelAnimation(badge);
+    };
+  }, [runId, width, riseY, line0, line1, line2, badge]);
+
+  const riseStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: riseY.value }],
+  }));
+  const line0Style = useAnimatedStyle(() => ({
+    opacity: line0.value,
+    transform: [{ translateY: (1 - line0.value) * LINE_FROM_Y }],
+  }));
+  const line1Style = useAnimatedStyle(() => ({
+    opacity: line1.value,
+    transform: [{ translateY: (1 - line1.value) * LINE_FROM_Y }],
+  }));
+  const line2Style = useAnimatedStyle(() => ({
+    opacity: line2.value,
+    transform: [{ translateY: (1 - line2.value) * LINE_FROM_Y }],
+  }));
+  const badgeStyle = useAnimatedStyle(() => ({
+    opacity: badge.value,
+    transform: [{ scale: 0.7 + badge.value * 0.3 }],
+  }));
 
   const handleOpenDeposit = useCallback(() => {
     void Haptics.selectionAsync();
@@ -172,35 +203,75 @@ export default function EarnScreen() {
   return (
     <View style={styles.root}>
       <View style={[styles.topArea, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Earn</Text>
-          <View style={styles.badge}>
-            <EarnFlash width={12} height={16} />
-            <Text style={styles.badgeText}>{APY_LABEL}</Text>
-          </View>
-        </View>
-
         {hasDeposit ? (
-          <EarnChart />
-        ) : (
-          <View style={styles.initialContent}>
-            <EarnBubbles bubbles={BUBBLES} runId={runId} />
-
-            <View pointerEvents="none" style={styles.mascotWrap}>
-              <EarnMascot runId={runId} width={300} height={252} />
+          <>
+            <View style={styles.header}>
+              <Text style={styles.title}>Earn</Text>
+              <View style={styles.badge}>
+                <EarnFlash width={12} height={16} />
+                <Text style={styles.badgeText}>{APY_LABEL}</Text>
+              </View>
             </View>
-          </View>
+            <EarnChart />
+          </>
+        ) : (
+          <>
+            {/* Behind the copy so the headline + badge always sit on top. */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.dogWrap,
+                { bottom: -(width * DOG_CLIP_RATIO) },
+                riseStyle,
+              ]}
+            >
+              <EarnDog
+                runId={runId}
+                startDelay={REVEAL_START_DELAY_MS}
+                width={width}
+                height={dogHeight}
+              />
+            </Animated.View>
+
+            <View style={styles.hero}>
+              <Animated.View style={line0Style}>
+                <Text style={styles.headline}>
+                  <Text style={styles.headlineDim}>Turn </Text>
+                  <Text style={styles.headlineBright}>$6,000</Text>
+                </Text>
+              </Animated.View>
+              <Animated.View style={line1Style}>
+                <Text style={styles.headline}>
+                  <Text style={styles.headlineDim}>into </Text>
+                  <Text style={styles.headlineBright}>$6,507 </Text>
+                  <Text style={styles.headlineDim}>in</Text>
+                </Text>
+              </Animated.View>
+              <Animated.View style={line2Style}>
+                <Text style={styles.headline}>
+                  <Text style={styles.headlineDim}>a year with</Text>
+                </Text>
+              </Animated.View>
+              <Animated.View style={[styles.badgeReveal, badgeStyle]}>
+                <View style={styles.heroBadge}>
+                  <EarnFlash width={21} height={28} />
+                  <Text style={styles.heroBadgeText}>{APY_LABEL}</Text>
+                </View>
+              </Animated.View>
+            </View>
+          </>
         )}
       </View>
 
       <View
         style={[
           styles.bottomCard,
+          hasDeposit ? styles.bottomCardRounded : null,
           { paddingBottom: TAB_BAR_RESERVED_HEIGHT + insets.bottom },
         ]}
       >
         <View style={styles.balanceRow}>
-          <Text style={styles.balanceLabel}>Balance</Text>
+          <Text style={styles.balanceLabel}>Earn Balance</Text>
           <Text style={styles.balanceValue}>
             {hasDeposit ? (
               <>
@@ -221,22 +292,23 @@ export default function EarnScreen() {
         </View>
 
         <View style={styles.actionRow}>
-          <Animated.View style={depositPopStyle}>
-            <Pressable
-              onPress={handleOpenDeposit}
-              accessibilityRole="button"
-              accessibilityLabel="Deposit"
-              style={({ pressed }) => [
-                styles.depositButton,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <View style={styles.iconWrap}>
-                <Plus size={20} color="#FFF" strokeWidth={2.2} />
-              </View>
-              <Text style={styles.depositLabel}>Deposit</Text>
-            </Pressable>
-          </Animated.View>
+          <Pressable
+            onPress={handleOpenDeposit}
+            accessibilityRole="button"
+            accessibilityLabel="Deposit"
+            style={({ pressed }) => [
+              styles.depositButton,
+              // Full-width on the empty hero; stays content-width beside
+              // Withdraw once a deposit exists (per Figma 3883:18293).
+              hasDeposit ? null : styles.depositButtonFull,
+              { opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <View style={styles.iconWrap}>
+              <Plus size={20} color="#FFF" strokeWidth={2.2} />
+            </View>
+            <Text style={styles.depositLabel}>Deposit</Text>
+          </Pressable>
           {hasDeposit ? (
             <Pressable
               onPress={handleOpenWithdraw}
@@ -277,17 +349,61 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   topArea: {
-    // No horizontal padding on the outer column — the chart needs the full
-    // screen width and supplies its own internal padding. Header/bubbles/
-    // mascot get their own 16px padding instead.
     flex: 1,
     position: "relative",
     overflow: "hidden",
   },
-  initialContent: {
-    flex: 1,
-    paddingHorizontal: 16,
+  // Pre-deposit hero (Figma 3883:18252).
+  hero: {
+    marginTop: 52,
+    paddingHorizontal: 20,
+    alignItems: "center",
   },
+  headline: {
+    fontFamily: "Geist_900Black",
+    fontSize: 40,
+    lineHeight: 40,
+    letterSpacing: -0.4,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  // The @/tw Text wrapper forces a fontFamily onto every Text (defaulting to
+  // Geist_400Regular), so nested spans must restate the weight or they drop
+  // back to regular instead of inheriting the parent's Black.
+  headlineDim: {
+    fontFamily: "Geist_900Black",
+    color: COLOR_HEADLINE_DIM,
+  },
+  headlineBright: {
+    fontFamily: "Geist_900Black",
+    color: "#FFF",
+  },
+  badgeReveal: {
+    marginTop: 8,
+  },
+  heroBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 3,
+    borderRadius: 48,
+    backgroundColor: COLOR_BADGE_GREEN,
+  },
+  heroBadgeText: {
+    fontFamily: "Geist_900Black",
+    fontSize: 40,
+    lineHeight: 40,
+    letterSpacing: -0.4,
+    color: "#FFF",
+  },
+  dogWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+  },
+  // Header shown in the deposited state (Figma 3883:18253 header).
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -318,18 +434,17 @@ const styles = StyleSheet.create({
     color: "#FFF",
     letterSpacing: 0.06,
   },
-  mascotWrap: {
-    position: "absolute",
-    right: -40,
-    bottom: 0,
-  },
   bottomCard: {
     backgroundColor: "#FFF",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
     paddingHorizontal: 16,
     paddingTop: 8,
     gap: 8,
+  },
+  // Rounded top only in the deposited state; the empty hero meets the dog with
+  // a flush, square edge (Figma 3883:18287).
+  bottomCardRounded: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
   },
   balanceRow: {
     flexDirection: "column",
@@ -375,6 +490,9 @@ const styles = StyleSheet.create({
     borderRadius: 78,
     backgroundColor: "#000",
     overflow: "hidden",
+  },
+  depositButtonFull: {
+    flex: 1,
   },
   withdrawButton: {
     flexDirection: "row",

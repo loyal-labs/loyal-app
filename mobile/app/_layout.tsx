@@ -32,6 +32,7 @@ export default function RootLayout() {
     Geist_500Medium: require("@expo-google-fonts/geist/500Medium/Geist_500Medium.ttf"),
     Geist_600SemiBold: require("@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf"),
     Geist_700Bold: require("@expo-google-fonts/geist/700Bold/Geist_700Bold.ttf"),
+    Geist_900Black: require("@expo-google-fonts/geist/900Black/Geist_900Black.ttf"),
   });
 
   // Hide native splash once fonts are ready — Lottie takes over
