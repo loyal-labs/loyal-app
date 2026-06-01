@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 
 import { fetchWithTimeout } from "@/lib/network/fetch-with-timeout";
-import type { Signer } from "@/lib/wallet/signer";
 
 import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "../constants";
 import { getSolanaEnv } from "../rpc/connection";
@@ -309,8 +308,7 @@ async function fetchHoldingsFromHelius(
 
 export async function fetchTokenHoldings(
   publicKey: string,
-  forceRefresh = false,
-  signer?: Signer | null
+  forceRefresh = false
 ): Promise<TokenHolding[]> {
   try {
     new PublicKey(publicKey);
@@ -319,13 +317,12 @@ export async function fetchTokenHoldings(
   }
 
   const cached = holdingsCache.get(publicKey);
-  const canUseCache = !forceRefresh && !signer;
-  if (canUseCache && isCacheValid(cached)) {
+  if (!forceRefresh && isCacheValid(cached)) {
     return cached!.holdings;
   }
 
   const inflight = inflightRequests.get(publicKey);
-  if (inflight && canUseCache) {
+  if (inflight && !forceRefresh) {
     return inflight;
   }
 
@@ -339,11 +336,7 @@ export async function fetchTokenHoldings(
     async (holdings) => {
       let allHoldings = holdings;
       try {
-        const securedHoldings = await fetchSecuredBalances(
-          publicKey,
-          holdings,
-          signer
-        );
+        const securedHoldings = await fetchSecuredBalances(publicKey, holdings);
         allHoldings = [...holdings, ...securedHoldings];
       } catch (error) {
         console.warn(
