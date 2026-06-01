@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import {
   AlertCircle,
   ArrowLeft,
+  Check,
   CheckCircle2,
   ChevronDown,
   ClipboardPaste,
@@ -282,6 +283,10 @@ export function SendSheet({
   const [amountStr, setAmountStr] = useState("");
   const [currencyMode, setCurrencyMode] = useState<"TOKEN" | "USD">("TOKEN");
   const [isPrivate, setIsPrivate] = useState(false);
+  // Acknowledgment of the "self-custodial wallets only" warning shown before a
+  // private transfer to a wallet address. Reset on each entry to the confirm
+  // step so the user re-acknowledges per transfer.
+  const [privacyAck, setPrivacyAck] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
@@ -327,6 +332,11 @@ export function SendSheet({
   // user toggle. Selecting a shielded source from the picker doesn't
   // imply private — that just controls which balance gets debited.
   const effectivePrivate = isTelegramRecipient || isPrivate;
+  // A private transfer to a typed wallet address requires the recipient to
+  // control the keys and claim it, so warn before sending — funds sent to an
+  // exchange deposit address or a smart contract may be lost. Telegram
+  // recipients claim in-app, so the warning doesn't apply to them.
+  const showPrivacyWarning = effectivePrivate && isWalletRecipient;
   const sendFeeReserveSol = getSendFeeReserveSol({
     isTelegramRecipient: effectivePrivate,
   });
@@ -740,6 +750,7 @@ export function SendSheet({
                   isTelegramRecipient={isTelegramRecipient}
                   onNext={() => {
                     Keyboard.dismiss();
+                    setPrivacyAck(false);
                     setStep("confirm");
                   }}
                 />
@@ -755,6 +766,9 @@ export function SendSheet({
               amountInUsd={amountInUsd}
               feeDisplay={feeDisplay}
               isSending={isSending}
+              showPrivacyWarning={showPrivacyWarning}
+              privacyAck={privacyAck}
+              onTogglePrivacyAck={() => setPrivacyAck((value) => !value)}
               onConfirm={handleSend}
             />
           )}
@@ -1435,6 +1449,9 @@ function ConfirmStep({
   amountInUsd,
   feeDisplay,
   isSending,
+  showPrivacyWarning,
+  privacyAck,
+  onTogglePrivacyAck,
   onConfirm,
 }: {
   recipient: string;
@@ -1443,12 +1460,19 @@ function ConfirmStep({
   amountInUsd: number;
   feeDisplay: string;
   isSending: boolean;
+  showPrivacyWarning: boolean;
+  privacyAck: boolean;
+  onTogglePrivacyAck: () => void;
   onConfirm: () => void;
 }) {
   const recipientDisplay =
     recipient.startsWith("@") || recipient.length <= 12
       ? recipient
       : `${recipient.slice(0, 6)}...${recipient.slice(-4)}`;
+
+  // For a private transfer to a wallet address the user must tick the warning
+  // before sending; otherwise only the in-flight guard applies.
+  const confirmDisabled = isSending || (showPrivacyWarning && !privacyAck);
 
   return (
     <>
@@ -1461,11 +1485,65 @@ function ConfirmStep({
         <Row label="Network fee" value={feeDisplay} />
       </View>
 
+      {showPrivacyWarning ? (
+        <View
+          className="mb-6 rounded-2xl p-4"
+          style={{ backgroundColor: "rgba(249, 54, 60, 0.1)" }}
+        >
+          <View className="mb-2 flex-row items-center gap-2">
+            <AlertCircle size={18} color="#f9363c" strokeWidth={2} />
+            <Text className="text-[14px] font-semibold text-black">
+              Private transfer — self-custodial wallets only
+            </Text>
+          </View>
+          <Text className="text-[13px] leading-5 text-neutral-700">
+            • Only works to a self-custodial wallet you control (Phantom,
+            Solflare, etc.)
+          </Text>
+          <Text className="mt-1 text-[13px] leading-5 text-neutral-700">
+            • Do <Text className="font-semibold text-black">NOT</Text> send to a
+            centralized exchange
+          </Text>
+          <Text className="mt-1 text-[13px] leading-5 text-neutral-700">
+            • Do <Text className="font-semibold text-black">NOT</Text> send to a
+            smart contract
+          </Text>
+          <Text className="mt-2 text-[12px] leading-4 text-neutral-500">
+            The recipient must be able to claim the transfer. Funds sent to an
+            exchange or a contract may be lost.
+          </Text>
+
+          <Pressable
+            onPress={onTogglePrivacyAck}
+            className="mt-3 flex-row items-center gap-2"
+            hitSlop={8}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: privacyAck }}
+          >
+            <View
+              className="h-5 w-5 items-center justify-center rounded-md"
+              style={{
+                backgroundColor: privacyAck ? "#f9363c" : "transparent",
+                borderWidth: privacyAck ? 0 : 1.5,
+                borderColor: "rgba(249, 54, 60, 0.5)",
+              }}
+            >
+              {privacyAck ? (
+                <Check size={14} color="#fff" strokeWidth={3} />
+              ) : null}
+            </View>
+            <Text className="text-[14px] font-medium text-black">
+              I understand
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <Pressable
-        className={`items-center rounded-2xl py-4 ${isSending ? "opacity-40" : ""}`}
+        className={`items-center rounded-2xl py-4 ${confirmDisabled ? "opacity-40" : ""}`}
         style={{ backgroundColor: "#f9363c" }}
         onPress={onConfirm}
-        disabled={isSending}
+        disabled={confirmDisabled}
       >
         {isSending ? (
           <ActivityIndicator color="#fff" />
