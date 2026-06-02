@@ -12,6 +12,7 @@ import {
   Globe,
   Heart,
   Key,
+  Lightbulb,
   MessageSquare,
   Network,
   RotateCcw,
@@ -22,6 +23,7 @@ import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
+import { getShowTips, setShowTips } from "@/lib/settings";
 import {
   getSolanaEnv,
   setSolanaEnvOverride,
@@ -159,6 +161,7 @@ export default function ProfileScreen() {
   const [analyticsOptIn, setAnalyticsOptIn] = useState(
     () => mmkv.getBoolean(ANALYTICS_OPT_IN_KEY) ?? true,
   );
+  const [showTips, setShowTipsState] = useState(getShowTips);
   const [isMainnet, setIsMainnet] = useState(() => getSolanaEnv() === "mainnet");
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
@@ -210,6 +213,14 @@ export default function ProfileScreen() {
     }
     setAnalyticsOptIn(value);
     mmkv.setBoolean(ANALYTICS_OPT_IN_KEY, value);
+  }, []);
+
+  const handleShowTipsToggle = useCallback((value: boolean) => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setShowTipsState(value);
+    setShowTips(value);
   }, []);
 
   const handleNetworkToggle = useCallback((value: boolean) => {
@@ -354,6 +365,21 @@ export default function ProfileScreen() {
             toggle={{
               value: isMainnet,
               onValueChange: handleNetworkToggle,
+            }}
+          />
+        </SettingsSection>
+
+        {/* Tips */}
+        <SettingsSection>
+          <ProfileCell
+            icon={
+              <Lightbulb size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
+            }
+            title="Show tips"
+            subtitle="Show in-app hints, like the chart swipe hint"
+            toggle={{
+              value: showTips,
+              onValueChange: handleShowTipsToggle,
             }}
           />
         </SettingsSection>
