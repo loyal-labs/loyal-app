@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchTokenHoldings } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 
 export function useTokenHoldings(walletAddress: string | null) {
+  const { signer } = useWallet();
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [isHoldingsLoading, setIsHoldingsLoading] = useState(false);
   const fetchIdRef = useRef(0);
@@ -14,7 +16,11 @@ export function useTokenHoldings(walletAddress: string | null) {
       const fetchId = ++fetchIdRef.current;
       setIsHoldingsLoading(true);
       try {
-        const holdings = await fetchTokenHoldings(walletAddress, forceRefresh);
+        const holdings = await fetchTokenHoldings(
+          walletAddress,
+          forceRefresh,
+          signer
+        );
         if (fetchId === fetchIdRef.current) {
           setTokenHoldings(holdings);
         }
@@ -26,7 +32,7 @@ export function useTokenHoldings(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress],
+    [signer, walletAddress]
   );
 
   useEffect(() => {

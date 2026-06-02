@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 
 import { fetchWithTimeout } from "@/lib/network/fetch-with-timeout";
+import type { Signer } from "@/lib/wallet/signer";
 
 import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "../constants";
 import { getSolanaEnv } from "../rpc/connection";
@@ -35,11 +36,7 @@ type JupiterTokenSearchResult = {
 };
 
 function isPositiveFiniteNumber(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    value > 0
-  );
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function normalizeUsdValue(value: unknown): number | null {
@@ -49,7 +46,7 @@ function normalizeUsdValue(value: unknown): number | null {
 function resolveHoldingUsdValue(
   balance: number,
   rawValueUsd: unknown,
-  priceUsd: number | null,
+  priceUsd: number | null
 ): number | null {
   if (isPositiveFiniteNumber(rawValueUsd)) return rawValueUsd;
   if (isPositiveFiniteNumber(priceUsd)) return balance * priceUsd;
@@ -57,7 +54,7 @@ function resolveHoldingUsdValue(
 }
 
 function normalizeHoldingsWithImpliedPrices(
-  holdings: TokenHolding[],
+  holdings: TokenHolding[]
 ): TokenHolding[] {
   const impliedPriceByMint = new Map<string, number>();
 
@@ -70,7 +67,10 @@ function normalizeHoldingsWithImpliedPrices(
 
     const normalizedValueUsd = normalizeUsdValue(holding.valueUsd);
     if (normalizedValueUsd !== null && holding.balance > 0) {
-      impliedPriceByMint.set(holding.mint, normalizedValueUsd / holding.balance);
+      impliedPriceByMint.set(
+        holding.mint,
+        normalizedValueUsd / holding.balance
+      );
     }
   }
 
@@ -90,7 +90,7 @@ function normalizeHoldingsWithImpliedPrices(
       valueUsd: resolveHoldingUsdValue(
         holding.balance,
         holding.valueUsd,
-        normalizedPriceUsd,
+        normalizedPriceUsd
       ),
     };
   });
@@ -163,14 +163,14 @@ export function mapAssetToHolding(asset: HeliusAsset): TokenHolding | null {
     valueUsd: resolveHoldingUsdValue(
       normalizedBalance,
       price_info?.total_price,
-      priceUsd,
+      priceUsd
     ),
     imageUrl: resolveImageUrl(asset),
   };
 }
 
 function mapNativeBalance(
-  nativeBalance: HeliusNativeBalance | undefined,
+  nativeBalance: HeliusNativeBalance | undefined
 ): TokenHolding | null {
   if (!nativeBalance) return null;
 
@@ -197,7 +197,7 @@ const jupiterFetch: FetchLike = (input, init) =>
 
 export async function enrichHoldingsWithJupiterPrices(
   holdings: TokenHolding[],
-  fetchImpl: FetchLike = jupiterFetch,
+  fetchImpl: FetchLike = jupiterFetch
 ): Promise<TokenHolding[]> {
   if (holdings.length === 0) return holdings;
 
@@ -209,7 +209,7 @@ export async function enrichHoldingsWithJupiterPrices(
       valueUsd: resolveHoldingUsdValue(
         holding.balance,
         holding.valueUsd,
-        normalizedPriceUsd,
+        normalizedPriceUsd
       ),
     };
   });
@@ -218,7 +218,7 @@ export async function enrichHoldingsWithJupiterPrices(
     ...new Set(
       normalizedHoldings
         .filter((holding) => holding.priceUsd === null)
-        .map((holding) => holding.mint),
+        .map((holding) => holding.mint)
     ),
   ];
 
@@ -229,18 +229,17 @@ export async function enrichHoldingsWithJupiterPrices(
       try {
         const response = await fetchImpl(
           `${JUPITER_TOKEN_SEARCH_URL}?query=${encodeURIComponent(mint)}`,
-          { method: "GET" },
+          { method: "GET" }
         );
         if (!response.ok) return null;
-        const tokens =
-          (await response.json()) as JupiterTokenSearchResult[];
+        const tokens = (await response.json()) as JupiterTokenSearchResult[];
         const match = tokens.find((token) => token.id === mint);
         const usdPrice = normalizeUsdValue(match?.usdPrice);
         return usdPrice ? { mint, usdPrice } : null;
       } catch {
         return null;
       }
-    }),
+    })
   );
 
   const jupiterPrices = new Map<string, number>();
@@ -264,7 +263,7 @@ export async function enrichHoldingsWithJupiterPrices(
 
 async function fetchHoldingsFromHelius(
   rpcUrl: string,
-  publicKey: string,
+  publicKey: string
 ): Promise<TokenHolding[]> {
   const response = await fetchWithTimeout(rpcUrl, {
     method: "POST",
@@ -311,6 +310,7 @@ async function fetchHoldingsFromHelius(
 export async function fetchTokenHoldings(
   publicKey: string,
   forceRefresh = false,
+  signer?: Signer | null
 ): Promise<TokenHolding[]> {
   try {
     new PublicKey(publicKey);
@@ -319,12 +319,13 @@ export async function fetchTokenHoldings(
   }
 
   const cached = holdingsCache.get(publicKey);
-  if (!forceRefresh && isCacheValid(cached)) {
+  const canUseCache = !forceRefresh && !signer;
+  if (canUseCache && isCacheValid(cached)) {
     return cached!.holdings;
   }
 
   const inflight = inflightRequests.get(publicKey);
-  if (inflight && !forceRefresh) {
+  if (inflight && canUseCache) {
     return inflight;
   }
 
@@ -341,10 +342,14 @@ export async function fetchTokenHoldings(
         const securedHoldings = await fetchSecuredBalances(
           publicKey,
           holdings,
+          signer
         );
         allHoldings = [...holdings, ...securedHoldings];
       } catch (error) {
-        console.warn("Failed to fetch secured balances, using public only", error);
+        console.warn(
+          "Failed to fetch secured balances, using public only",
+          error
+        );
       }
 
       let enrichedHoldings = allHoldings;
@@ -353,16 +358,15 @@ export async function fetchTokenHoldings(
       } catch (error) {
         console.warn("Failed to enrich holdings with Jupiter prices", error);
       }
-      const normalizedHoldings = normalizeHoldingsWithImpliedPrices(
-        enrichedHoldings,
-      );
+      const normalizedHoldings =
+        normalizeHoldingsWithImpliedPrices(enrichedHoldings);
 
       holdingsCache.set(publicKey, {
         holdings: normalizedHoldings,
         fetchedAt: Date.now(),
       });
       return normalizedHoldings;
-    },
+    }
   );
 
   inflightRequests.set(publicKey, loader);

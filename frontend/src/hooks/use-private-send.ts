@@ -4,14 +4,13 @@ import {
   findUsernameDepositPda,
   getErValidatorForSolanaEnv,
   LoyalPrivateTransactionsClient,
+  USDC_MINT_DEVNET,
+  USDC_MINT_MAINNET,
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
-import {
-  useConnection,
-  useWallet,
-} from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
@@ -28,13 +27,47 @@ export type PrivateSendResult = {
 async function waitForAccount(
   connection: ReturnType<typeof useConnection>["connection"],
   pda: PublicKey,
-  maxAttempts = 30,
+  maxAttempts = 30
 ): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
     const info = await connection.getAccountInfo(pda);
     if (info) return;
     await new Promise((r) => setTimeout(r, 500));
   }
+}
+
+function isKaminoUsdcMint(tokenMint: PublicKey, solanaEnv: string): boolean {
+  const trackedMint =
+    solanaEnv === "mainnet"
+      ? USDC_MINT_MAINNET
+      : solanaEnv === "devnet"
+      ? USDC_MINT_DEVNET
+      : null;
+  return trackedMint ? tokenMint.equals(trackedMint) : false;
+}
+
+async function getTransferDepositAmount(args: {
+  client: LoyalPrivateTransactionsClient;
+  tokenMint: PublicKey;
+  liquidityAmountRaw: number;
+  solanaEnv: string;
+}): Promise<bigint> {
+  const liquidityAmountRaw = BigInt(args.liquidityAmountRaw);
+  if (!isKaminoUsdcMint(args.tokenMint, args.solanaEnv)) {
+    return liquidityAmountRaw;
+  }
+
+  const collateralSharesAmountRaw =
+    await args.client.getKaminoCollateralSharesForLiquidityAmount({
+      tokenMint: args.tokenMint,
+      liquidityAmountRaw,
+    });
+  if (collateralSharesAmountRaw === null) {
+    throw new Error(
+      "Could not quote the current USDC shielded exchange rate. Please retry."
+    );
+  }
+  return collateralSharesAmountRaw;
 }
 
 export function usePrivateSend() {
@@ -45,43 +78,54 @@ export function usePrivateSend() {
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<LoyalPrivateTransactionsClient | null>(null);
 
-  const getClient = useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
-    if (clientRef.current) return clientRef.current;
+  const getClient =
+    useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
+      if (clientRef.current) return clientRef.current;
 
-    if (
-      !wallet.publicKey ||
-      !wallet.signTransaction ||
-      !wallet.signAllTransactions ||
-      !wallet.signMessage
-    ) {
-      throw new Error("Wallet must support signTransaction, signAllTransactions, and signMessage for private send");
-    }
+      if (
+        !wallet.publicKey ||
+        !wallet.signTransaction ||
+        !wallet.signAllTransactions ||
+        !wallet.signMessage
+      ) {
+        throw new Error(
+          "Wallet must support signTransaction, signAllTransactions, and signMessage for private send"
+        );
+      }
 
-    const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
-      publicEnv.solanaEnv
-    );
-    const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
+      const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
+        publicEnv.solanaEnv
+      );
+      const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(
+        publicEnv.solanaEnv
+      );
 
-    // The SDK internally checks for signMessage on the signer at runtime
-    // for TEE auth, even though WalletLike type doesn't declare it
-    const signer = {
-      publicKey: wallet.publicKey,
-      signTransaction: wallet.signTransaction,
-      signAllTransactions: wallet.signAllTransactions,
-      signMessage: wallet.signMessage,
-    } as unknown as import("@loyal-labs/private-transactions").WalletLike;
+      // The SDK internally checks for signMessage on the signer at runtime
+      // for TEE auth, even though WalletLike type doesn't declare it
+      const signer = {
+        publicKey: wallet.publicKey,
+        signTransaction: wallet.signTransaction,
+        signAllTransactions: wallet.signAllTransactions,
+        signMessage: wallet.signMessage,
+      } as unknown as import("@loyal-labs/private-transactions").WalletLike;
 
-    const client = await LoyalPrivateTransactionsClient.fromConfig({
-      signer,
-      baseRpcEndpoint: rpcEndpoint,
-      baseWsEndpoint: websocketEndpoint,
-      ephemeralRpcEndpoint: perRpcEndpoint,
-      ephemeralWsEndpoint: perWsEndpoint,
-    });
+      const client = await LoyalPrivateTransactionsClient.fromConfig({
+        signer,
+        baseRpcEndpoint: rpcEndpoint,
+        baseWsEndpoint: websocketEndpoint,
+        ephemeralRpcEndpoint: perRpcEndpoint,
+        ephemeralWsEndpoint: perWsEndpoint,
+      });
 
-    clientRef.current = client;
-    return client;
-  }, [wallet.publicKey, wallet.signTransaction, wallet.signAllTransactions, wallet.signMessage, publicEnv.solanaEnv]);
+      clientRef.current = client;
+      return client;
+    }, [
+      wallet.publicKey,
+      wallet.signTransaction,
+      wallet.signAllTransactions,
+      wallet.signMessage,
+      publicEnv.solanaEnv,
+    ]);
 
   // Reset client when wallet changes
   const prevPubkey = useRef(wallet.publicKey?.toBase58());
@@ -100,7 +144,10 @@ export function usePrivateSend() {
       successTrackingProperties?: AnalyticsProperties;
     }): Promise<PrivateSendResult> => {
       if (!(wallet.connected && wallet.publicKey && wallet.signTransaction)) {
-        return { success: false, error: "Wallet not connected or missing signing capability" };
+        return {
+          success: false,
+          error: "Wallet not connected or missing signing capability",
+        };
       }
 
       setLoading(true);
@@ -108,7 +155,8 @@ export function usePrivateSend() {
 
       try {
         const client = await getClient();
-        const resolvedMint = params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
+        const resolvedMint =
+          params.tokenMint || TOKEN_MINTS[params.tokenSymbol.toUpperCase()];
         if (!resolvedMint) {
           throw new Error(`Unknown token: ${params.tokenSymbol}`);
         }
@@ -117,11 +165,20 @@ export function usePrivateSend() {
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = wallet.publicKey;
         const validator = getErValidatorForSolanaEnv(publicEnv.solanaEnv);
+        const transferAmount = await getTransferDepositAmount({
+          client,
+          tokenMint,
+          liquidityAmountRaw: rawAmount,
+          solanaEnv: publicEnv.solanaEnv,
+        });
 
         // 1. Check ephemeral balance — skip shield if sufficient
-        const existingDeposit = await client.getEphemeralDeposit(user, tokenMint);
+        const existingDeposit = await client.getEphemeralDeposit(
+          user,
+          tokenMint
+        );
         const existingBalance = existingDeposit?.amount ?? BigInt(0);
-        const needsShield = existingBalance < BigInt(rawAmount);
+        const needsShield = existingBalance < transferAmount;
 
         if (needsShield) {
           const shieldPlan = await client.buildShieldTokensTransactionPlan({
@@ -140,11 +197,21 @@ export function usePrivateSend() {
           // Transfer to username
           const mixedCaseUsername = params.recipient;
           const username = mixedCaseUsername.toLowerCase();
-          const existingBase = await client.getBaseUsernameDeposit(username, tokenMint);
-          const existingEphemeral = await client.getEphemeralUsernameDeposit(username, tokenMint);
+          const existingBase = await client.getBaseUsernameDeposit(
+            username,
+            tokenMint
+          );
+          const existingEphemeral = await client.getEphemeralUsernameDeposit(
+            username,
+            tokenMint
+          );
 
           if (!existingBase && !existingEphemeral) {
-            await client.initializeUsernameDeposit({ tokenMint, username, payer: user });
+            await client.initializeUsernameDeposit({
+              tokenMint,
+              username,
+              payer: user,
+            });
             const [pda] = await findUsernameDepositPda(username, tokenMint);
             await waitForAccount(connection, pda);
           }
@@ -152,23 +219,35 @@ export function usePrivateSend() {
           const [pda] = await findUsernameDepositPda(username, tokenMint);
           const baseInfo = await connection.getAccountInfo(pda);
           if (!baseInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-            await client.delegateUsernameDeposit({ tokenMint, username, payer: user, validator });
+            await client.delegateUsernameDeposit({
+              tokenMint,
+              username,
+              payer: user,
+              validator,
+            });
           }
 
           signature = await client.transferToUsernameDeposit({
             username,
             user,
             tokenMint,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         } else {
           // Transfer to wallet address
           const destination = new PublicKey(params.recipient);
-          const existingBase = await client.getBaseDeposit(destination, tokenMint);
+          const existingBase = await client.getBaseDeposit(
+            destination,
+            tokenMint
+          );
 
           if (!existingBase) {
-            await client.initializeDeposit({ tokenMint, user: destination, payer: user });
+            await client.initializeDeposit({
+              tokenMint,
+              user: destination,
+              payer: user,
+            });
             const [pda] = findDepositPda(destination, tokenMint);
             await waitForAccount(connection, pda);
           }
@@ -176,14 +255,19 @@ export function usePrivateSend() {
           const [pda] = findDepositPda(destination, tokenMint);
           const destInfo = await connection.getAccountInfo(pda);
           if (!destInfo?.owner.equals(DELEGATION_PROGRAM_ID)) {
-            await client.delegateDeposit({ tokenMint, user: destination, payer: user, validator });
+            await client.delegateDeposit({
+              tokenMint,
+              user: destination,
+              payer: user,
+              validator,
+            });
           }
 
           signature = await client.transferDeposit({
             user,
             tokenMint,
             destinationUser: destination,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         }
@@ -210,7 +294,14 @@ export function usePrivateSend() {
         return { success: false, error: errorMessage };
       }
     },
-    [wallet.connected, wallet.publicKey, wallet.signTransaction, connection, getClient, publicEnv],
+    [
+      wallet.connected,
+      wallet.publicKey,
+      wallet.signTransaction,
+      connection,
+      getClient,
+      publicEnv,
+    ]
   );
 
   return {

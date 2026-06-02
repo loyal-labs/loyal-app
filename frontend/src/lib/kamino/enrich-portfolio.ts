@@ -57,15 +57,45 @@ function replacePosition(
   mint: string,
   nextPosition: PortfolioPosition
 ): PortfolioPosition[] {
-  const index = positions.findIndex(
-    (position) => position.asset.mint === mint
-  );
+  const index = positions.findIndex((position) => position.asset.mint === mint);
   if (index < 0) {
     return [...positions, nextPosition];
   }
   return positions.map((position, i) =>
     i === index ? nextPosition : position
   );
+}
+
+function withoutUnquotedKaminoShieldedLiquidity(
+  snapshot: PortfolioSnapshot,
+  trackedMint: string
+): EnrichedPortfolio {
+  const position = snapshot.positions.find(
+    (candidate) => candidate.asset.mint === trackedMint
+  );
+  if (!position || position.securedBalance <= 0) return unchanged(snapshot);
+
+  const nextPosition: PortfolioPosition = {
+    ...position,
+    securedBalance: 0,
+    totalBalance: position.publicBalance,
+    securedValueUsd: null,
+    totalValueUsd: position.publicValueUsd,
+  };
+  const nextPositions = replacePosition(
+    snapshot.positions,
+    trackedMint,
+    nextPosition
+  );
+
+  return unchanged({
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  });
 }
 
 export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
@@ -80,9 +110,7 @@ export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
     return unchanged(snapshot);
   }
 
-  const position = snapshot.positions.find(
-    (p) => p.asset.mint === trackedMint
-  );
+  const position = snapshot.positions.find((p) => p.asset.mint === trackedMint);
   if (!position || position.securedBalance <= 0) {
     return unchanged(snapshot);
   }
@@ -116,7 +144,7 @@ export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
   ]);
 
   if (!quote) {
-    return unchanged(snapshot);
+    return withoutUnquotedKaminoShieldedLiquidity(snapshot, trackedMint);
   }
 
   const currentLiquidityAmountRaw = quote.redeemableLiquidityAmountRaw;
@@ -131,8 +159,8 @@ export async function enrichSnapshotWithKaminoUsdcEarnings(args: {
     principalLiquidityAmountRaw === null
       ? null
       : currentLiquidityAmountRaw > principalLiquidityAmountRaw
-        ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
-        : BigInt(0);
+      ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
+      : BigInt(0);
 
   const principalBalance =
     principalLiquidityAmountRaw === null

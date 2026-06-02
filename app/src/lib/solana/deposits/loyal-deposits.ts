@@ -304,9 +304,12 @@ export async function unshieldTokens(params: {
         liquidityAmountRaw: BigInt(amount),
       });
 
-    if (quotedCollateralSharesAmountRaw !== null) {
-      modifyAmount = quotedCollateralSharesAmountRaw;
+    if (quotedCollateralSharesAmountRaw === null) {
+      throw new Error(
+        "Could not quote the current USDC shielded exchange rate. Please retry."
+      );
     }
+    modifyAmount = quotedCollateralSharesAmountRaw;
 
     const currentCollateralSharesAmountRaw =
       depositBeforeModify?.amount ?? BigInt(0);

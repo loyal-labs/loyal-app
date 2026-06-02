@@ -529,6 +529,11 @@ export function useShield(): {
               tokenMint,
               liquidityAmountRaw: BigInt(rawAmount),
             });
+          if (kaminoQuotedShares === null) {
+            throw new Error(
+              "Could not quote the current USDC shielded exchange rate. Please retry."
+            );
+          }
         }
 
         const modifyAmount = computeUnshieldModifyAmount({
