@@ -22,6 +22,7 @@
     "@connectrpc/connect": "^2.0.4",
     "@connectrpc/connect-web": "^2.0.4",
     "@icons-pack/react-simple-icons": "^13.7.0",
+    "@loyal/actions": "workspace:*",
     "@loyal-labs/auth-core": "workspace:*",
     "@loyal-labs/db-adapter-neon": "workspace:*",
     "@loyal-labs/db-core": "workspace:*",

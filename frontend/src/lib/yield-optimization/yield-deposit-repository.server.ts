@@ -1,5 +1,12 @@
 import "server-only";
 
+import {
+  LoyalCluster,
+  RiskBasket,
+  createVaultYieldRoutingPolicyPlan,
+  type VaultYieldRoutingPolicyPlan,
+} from "@loyal/actions";
+import { PublicKey } from "@solana/web3.js";
 import { and, eq, sql } from "drizzle-orm";
 
 import {
@@ -46,13 +53,59 @@ function createDependencies(): YieldDepositRepositoryDependencies {
   };
 }
 
-function createRoutePolicySwapLane(input: ConfirmedYieldDepositInput) {
+function parseLoyalCluster(cluster: string): LoyalCluster {
+  if (cluster === LoyalCluster.Devnet) {
+    return LoyalCluster.Devnet;
+  }
+  if (cluster === LoyalCluster.MainnetBeta || cluster === "mainnet") {
+    return LoyalCluster.MainnetBeta;
+  }
+  throw new Error(`unsupported Loyal cluster: ${cluster}`);
+}
+
+function createYieldRoutingPolicyPlanFromDepositInput(
+  input: ConfirmedYieldDepositInput
+): VaultYieldRoutingPolicyPlan {
+  return createVaultYieldRoutingPolicyPlan({
+    cluster: parseLoyalCluster(input.cluster),
+    risk: RiskBasket.Safe,
+    smartAccount: {
+      settings: new PublicKey(input.settings),
+      authority: new PublicKey(input.walletAddress),
+      delegatedSigner: new PublicKey(input.walletAddress),
+    },
+    vaultIndex: input.vaultIndex,
+  });
+}
+
+export function createRoutePolicyValuesFromPlan(
+  plan: VaultYieldRoutingPolicyPlan,
+  input: ConfirmedYieldDepositInput,
+  now: Date
+) {
   return {
-    depositMint: input.depositMint,
-    liquidityMint: input.liquidityMint,
-    market: input.market,
-    targetReserve: input.targetReserve,
-    targetSupplyApyBps: input.targetSupplyApyBps?.toString() ?? null,
+    active: true,
+    authority: input.smartAccountAddress,
+    cluster: input.cluster,
+    delegatedSigners: [input.walletAddress],
+    firstSeenAt: now,
+    id: input.policyId,
+    kaminoLiquidityMints: plan.persistence.kaminoLiquidityMints,
+    kaminoMarkets: plan.persistence.kaminoMarkets,
+    lastSeenAt: now,
+    lastSeenSignature: input.policySignature,
+    lastSeenSlot: input.confirmedSlot,
+    policyAccount: input.policyAccount,
+    policySeed: input.policySeed,
+    riskProfile: plan.persistence.riskProfile,
+    routeModes: plan.persistence.routeModes,
+    settings: input.settings,
+    stableMints: plan.persistence.stableMints,
+    swapLanes: plan.persistence.swapLanes,
+    threshold: plan.persistence.threshold,
+    universePreset: plan.persistence.universePreset,
+    vaultIndex: plan.metadata.vaultIndex,
+    vaultPubkey: plan.metadata.vault.toBase58(),
   };
 }
 
@@ -62,30 +115,12 @@ export async function recordConfirmedYieldDeposit(
 ): Promise<UserYieldPositionRecord> {
   const { client } = dependencies;
   const now = dependencies.now();
-  const routePolicyValues = {
-    active: true,
-    authority: input.smartAccountAddress,
-    cluster: input.cluster,
-    delegatedSigners: [input.walletAddress],
-    firstSeenAt: now,
-    id: input.policyId,
-    kaminoLiquidityMints: [input.liquidityMint],
-    kaminoMarkets: input.market ? [input.market] : [],
-    lastSeenAt: now,
-    lastSeenSignature: input.policySignature,
-    lastSeenSlot: input.confirmedSlot,
-    policyAccount: input.policyAccount,
-    policySeed: input.policySeed,
-    riskProfile: "safe_no_fees",
-    routeModes: ["kamino_supply"],
-    settings: input.settings,
-    stableMints: [input.depositMint],
-    swapLanes: [createRoutePolicySwapLane(input)],
-    threshold: 1,
-    universePreset: "safe_no_fees",
-    vaultIndex: input.vaultIndex,
-    vaultPubkey: input.vaultPubkey,
-  };
+  const routePolicyPlan = createYieldRoutingPolicyPlanFromDepositInput(input);
+  const routePolicyValues = createRoutePolicyValuesFromPlan(
+    routePolicyPlan,
+    input,
+    now
+  );
   const managedVaultValues = {
     active: true,
     activePolicyId: input.policyId,
@@ -93,8 +128,8 @@ export async function recordConfirmedYieldDeposit(
     firstSeenAt: now,
     lastSeenAt: now,
     settings: input.settings,
-    vaultIndex: input.vaultIndex,
-    vaultPubkey: input.vaultPubkey,
+    vaultIndex: routePolicyPlan.metadata.vaultIndex,
+    vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
   };
   const depositValues = {
     cluster: input.cluster,
@@ -141,8 +176,8 @@ export async function recordConfirmedYieldDeposit(
           swapLanes: sql`excluded.swap_lanes`,
           threshold: sql`excluded.threshold`,
           universePreset: sql`excluded.universe_preset`,
-          vaultIndex: input.vaultIndex,
-          vaultPubkey: input.vaultPubkey,
+          vaultIndex: routePolicyValues.vaultIndex,
+          vaultPubkey: routePolicyValues.vaultPubkey,
         },
       }),
     client.db
@@ -158,7 +193,7 @@ export async function recordConfirmedYieldDeposit(
           active: true,
           activePolicyId: input.policyId,
           lastSeenAt: now,
-          vaultPubkey: input.vaultPubkey,
+          vaultPubkey: managedVaultValues.vaultPubkey,
         },
       }),
     client.db
