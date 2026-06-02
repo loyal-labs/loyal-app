@@ -1,5 +1,6 @@
 "use client";
 
+import { TOKEN_DECIMALS } from "@loyal-labs/wallet-core/constants";
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +12,13 @@ import type { FormButtonProps, SubView, SwapMode, SwapToken } from "./types";
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const red = "#F9363C";
+
+function formatAmountInputValue(value: number, tokenSymbol: string): string {
+  const decimals = TOKEN_DECIMALS[tokenSymbol.toUpperCase()] ?? 6;
+  const fractionDigits = Math.min(Math.max(decimals, 0), 9);
+
+  return String(Number(value.toFixed(fractionDigits)));
+}
 
 function SwapShieldTabs({
   mode,
@@ -503,7 +511,7 @@ export function ShieldContent({
       ) {
         val = Math.max(0, bal - 0.00005);
       }
-      setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
+      setAmount(val > 0 ? formatAmountInputValue(val, token.symbol) : "");
     },
     [direction, sourceBalance, token.symbol]
   );
