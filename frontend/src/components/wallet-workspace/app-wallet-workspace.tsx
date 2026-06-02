@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
+import { ApprovalReviewContent } from "@/components/wallet-sidebar/approval-review-content";
 import { ConnectRequestContent } from "@/components/wallet-sidebar/connect-request-content";
 import { PortfolioContent } from "@/components/wallet-sidebar/portfolio-content";
 import { ReceiveContent } from "@/components/wallet-sidebar/receive-content";
@@ -49,6 +50,7 @@ import {
   EarnDepositView,
   EarnDetailView,
   EarnWithdrawView,
+  type EarnDepositDraft,
   type EarnDepositSourceOption,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import type { PermissionChangeDraft } from "@/components/wallet-sidebar/permission-preview-content";
@@ -95,8 +97,9 @@ import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position"
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
-import { EarnTransactionsPane } from "./earn-transactions-pane";
 import { BuilderBlocksPane } from "./builder-blocks-pane";
+import { buildEarnDepositReviewItem } from "./earn-deposit-review";
+import { EarnTransactionsPane } from "./earn-transactions-pane";
 import {
   mockPolicies,
   type NewPolicyMode,
@@ -162,7 +165,9 @@ function getWalletIcon(): string {
   return "/agents/Agent-01.svg";
 }
 
-function formatAddressForEarnSource(address: string | null | undefined): string {
+function formatAddressForEarnSource(
+  address: string | null | undefined
+): string {
   if (!address) return "Unknown";
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
@@ -774,8 +779,8 @@ export function AppWalletWorkspace({
     pathname === "/app/policies"
       ? "policies"
       : pathname === "/app/settings"
-        ? "settings"
-        : initialSection;
+      ? "settings"
+      : initialSection;
   const [activeSection, setActiveSection] =
     useState<WorkspaceSection>(routeSection);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
@@ -847,14 +852,18 @@ export function AppWalletWorkspace({
     useState<PermissionChangeDraft | null>(null);
   const [isPermissionDraftSubmitting, setIsPermissionDraftSubmitting] =
     useState(false);
-  const [permissionDraftError, setPermissionDraftError] =
-    useState<string | null>(null);
+  const [permissionDraftError, setPermissionDraftError] = useState<
+    string | null
+  >(null);
   const [spendingLimitDraft, setSpendingLimitDraft] =
     useState<SpendingLimitDraft | null>(null);
+  const [pendingEarnDepositDraft, setPendingEarnDepositDraft] =
+    useState<EarnDepositDraft | null>(null);
   const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
     useState(false);
-  const [spendingLimitDraftError, setSpendingLimitDraftError] =
-    useState<string | null>(null);
+  const [spendingLimitDraftError, setSpendingLimitDraftError] = useState<
+    string | null
+  >(null);
   const resizeStateRef = useRef<{
     startWidth: number;
     startX: number;
@@ -868,8 +877,8 @@ export function AppWalletWorkspace({
         section === "policies"
           ? "/app/policies"
           : section === "settings"
-            ? "/app/settings"
-            : "/app";
+          ? "/app/settings"
+          : "/app";
       router.push(targetPath);
     },
     [router]
@@ -1105,6 +1114,15 @@ export function AppWalletWorkspace({
     walletDesktopData.positions,
     walletDesktopData.walletAddress,
   ]);
+  const earnDepositReviewItem = useMemo(
+    () =>
+      pendingEarnDepositDraft && detailSelection === "earnDeposit"
+        ? buildEarnDepositReviewItem({
+            draft: pendingEarnDepositDraft,
+          })
+        : null,
+    [detailSelection, pendingEarnDepositDraft]
+  );
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -1714,12 +1732,7 @@ export function AppWalletWorkspace({
     if (activeDetailSelection === "vault") {
       openActionView({ type: "receivePanel" }, "Receive", "", "vault");
     }
-  }, [
-    activeDetailSelection,
-    openActionView,
-    selectedAgent,
-    selectedSignerId,
-  ]);
+  }, [activeDetailSelection, openActionView, selectedAgent, selectedSignerId]);
 
   const handleCommandSend = useCallback(() => {
     if (activeDetailSelection === "vault") {
@@ -1764,6 +1777,7 @@ export function AppWalletWorkspace({
 
   const handleOpenEarn = useCallback(() => {
     markDetailPaneTransition("switch");
+    setPendingEarnDepositDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
@@ -1771,6 +1785,7 @@ export function AppWalletWorkspace({
 
   const handleOpenEarnDeposit = useCallback(() => {
     markDetailPaneTransition("forward");
+    setPendingEarnDepositDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
     setSelectedDetail("Deposit");
@@ -1793,6 +1808,7 @@ export function AppWalletWorkspace({
 
   const handleCompleteEarnDeposit = useCallback(() => {
     markDetailPaneTransition("back");
+    setPendingEarnDepositDraft(null);
     setHasEarnPosition(true);
     setSelectedSignerId(null);
     setDetailSelection("earn");
@@ -1840,30 +1856,29 @@ export function AppWalletWorkspace({
     [markDetailPaneTransition, walletDesktopData.walletAddress]
   );
 
-  const handleOpenFirstPolicyAgent = useCallback(
-    () => {
-      const firstVaultAgent = smartAccountData.vaultEntries
-        .map((vault) => ({
-          accountIndex: vault.accountIndex,
-          signer: vault.signers.find((signer) => signer.scope === "policy"),
-        }))
-        .find(
-          (entry): entry is { accountIndex: number; signer: SmartAccountSignerEntry } =>
-            Boolean(entry.signer)
-        );
+  const handleOpenFirstPolicyAgent = useCallback(() => {
+    const firstVaultAgent = smartAccountData.vaultEntries
+      .map((vault) => ({
+        accountIndex: vault.accountIndex,
+        signer: vault.signers.find((signer) => signer.scope === "policy"),
+      }))
+      .find(
+        (
+          entry
+        ): entry is { accountIndex: number; signer: SmartAccountSignerEntry } =>
+          Boolean(entry.signer)
+      );
 
-      setActiveSection("wallet");
-      router.push("/app");
+    setActiveSection("wallet");
+    router.push("/app");
 
-      if (!firstVaultAgent) {
-        return;
-      }
+    if (!firstVaultAgent) {
+      return;
+    }
 
-      smartAccountData.setSelectedVaultIndex(firstVaultAgent.accountIndex);
-      handleOpenAgent(firstVaultAgent.signer);
-    },
-    [handleOpenAgent, router, smartAccountData]
-  );
+    smartAccountData.setSelectedVaultIndex(firstVaultAgent.accountIndex);
+    handleOpenAgent(firstVaultAgent.signer);
+  }, [handleOpenAgent, router, smartAccountData]);
 
   const handleCommandSelectPolicy = useCallback(
     (policyId: string) => {
@@ -1989,9 +2004,7 @@ export function AppWalletWorkspace({
       setSelectedApprovalId(null);
     } catch (error) {
       const raw =
-        error instanceof Error
-          ? error.message
-          : "Failed to submit proposal.";
+        error instanceof Error ? error.message : "Failed to submit proposal.";
       setDraftError(raw);
     } finally {
       setIsDraftSubmitting(false);
@@ -2047,7 +2060,9 @@ export function AppWalletWorkspace({
     ) => {
       setSpendingLimitDraftError(null);
       setSpendingLimitDraft({
-        id: `spending-limit-draft:${input.kind}:${input.signerAddress}:${Date.now()}`,
+        id: `spending-limit-draft:${input.kind}:${
+          input.signerAddress
+        }:${Date.now()}`,
         ...input,
       } as SpendingLimitDraft);
     },
@@ -2139,7 +2154,9 @@ export function AppWalletWorkspace({
       return {
         description: `${tokenKind} ${token.amount} ${token.symbol}${tokenValue}`,
         iconUrl: token.icon,
-        id: `token:${token.id ?? token.symbol}:${token.isSecured ? "shielded" : "public"}:${index}`,
+        id: `token:${token.id ?? token.symbol}:${
+          token.isSecured ? "shielded" : "public"
+        }:${index}`,
         keywords: [
           token.symbol,
           token.isSecured ? "shielded private" : "unshielded public",
@@ -2219,12 +2236,16 @@ export function AppWalletWorkspace({
           description: isVaultActive
             ? "Receive funds into this vault"
             : selectedSignerId
-              ? "Fund selected user from your wallet"
-              : "Show wallet receive address",
+            ? "Fund selected user from your wallet"
+            : "Show wallet receive address",
           disabled: !isSignedIn || (!isWalletActive && !isVaultActive),
           icon: <ArrowDownLeft size={19} strokeWidth={1.9} />,
           id: "action:receive",
-          label: isVaultActive ? "Top Up" : selectedSignerId ? "Top Up" : "Receive",
+          label: isVaultActive
+            ? "Top Up"
+            : selectedSignerId
+            ? "Top Up"
+            : "Receive",
           onSelect: () => runOnWallet(handleCommandReceiveOrTopUp),
         },
         {
@@ -2395,12 +2416,7 @@ export function AppWalletWorkspace({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [
-    detailSelection,
-    handleActionBack,
-    isCommandMenuOpen,
-    viewStack.length,
-  ]);
+  }, [detailSelection, handleActionBack, isCommandMenuOpen, viewStack.length]);
 
   const renderDetailPane = () => {
     if (activeSection === "settings") {
@@ -2440,9 +2456,7 @@ export function AppWalletWorkspace({
                 initial={{ x: "calc(100% + 8px)" }}
                 key="builder-overlay"
               >
-                <WorkflowBuilderPane
-                  onBack={() => setPolicyView("details")}
-                />
+                <WorkflowBuilderPane onBack={() => setPolicyView("details")} />
               </motion.div>
             ) : null}
           </AnimatePresence>
@@ -2526,6 +2540,7 @@ export function AppWalletWorkspace({
     if (detailSelection === "earnDeposit") {
       return (
         <EarnDepositView
+          onDraftChange={setPendingEarnDepositDraft}
           onComplete={handleCompleteEarnDeposit}
           onClose={handleOpenEarn}
           sources={earnDepositSources}
@@ -2593,8 +2608,8 @@ export function AppWalletWorkspace({
                       level === "suggest"
                         ? ["initiate"]
                         : level === "sign"
-                          ? ["initiate", "vote"]
-                          : ["initiate", "vote", "execute"],
+                        ? ["initiate", "vote"]
+                        : ["initiate", "vote", "execute"],
                     policyAddress:
                       selectedAgent.scope === "policy"
                         ? selectedAgent.policyAddress
@@ -2700,8 +2715,8 @@ export function AppWalletWorkspace({
                 level === "suggest"
                   ? ["initiate"]
                   : level === "sign"
-                    ? ["initiate", "vote"]
-                    : ["initiate", "vote", "execute"],
+                  ? ["initiate", "vote"]
+                  : ["initiate", "vote", "execute"],
               policyAddress:
                 selectedAgent.scope === "policy"
                   ? selectedAgent.policyAddress
@@ -2861,8 +2876,8 @@ export function AppWalletWorkspace({
                 accessLevel === "suggest"
                   ? ["initiate"]
                   : accessLevel === "sign"
-                    ? ["initiate", "vote"]
-                    : ["initiate", "vote", "execute"],
+                  ? ["initiate", "vote"]
+                  : ["initiate", "vote", "execute"],
             })
           }
           onAdded={({ signerAddress }) =>
@@ -3342,7 +3357,8 @@ export function AppWalletWorkspace({
         </div>
       </section>
 
-      {showWorkspaceShell && (!isSmartAccountRateLimited || activeSection === "policies") ? (
+      {showWorkspaceShell &&
+      (!isSmartAccountRateLimited || activeSection === "policies") ? (
         <>
           <button
             aria-label="Resize approvals pane"
@@ -3379,6 +3395,17 @@ export function AppWalletWorkspace({
                   </motion.div>
                 ) : null}
               </AnimatePresence>
+            ) : earnDepositReviewItem ? (
+              <ApprovalReviewContent
+                actionError={null}
+                approval={earnDepositReviewItem}
+                isSubmitting={false}
+                onApprove={handleCompleteEarnDeposit}
+                onBack={handleOpenEarn}
+                onClose={handleOpenEarn}
+                onDecline={handleOpenEarn}
+                onExecute={handleCompleteEarnDeposit}
+              />
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
                 onSelectTransaction={(detail) => {
@@ -3416,9 +3443,7 @@ export function AppWalletWorkspace({
                 }
                 spendingLimitDraft={spendingLimitDraft}
                 spendingLimitDraftError={spendingLimitDraftError}
-                isSpendingLimitDraftSubmitting={
-                  isSpendingLimitDraftSubmitting
-                }
+                isSpendingLimitDraftSubmitting={isSpendingLimitDraftSubmitting}
                 onCancelSpendingLimitDraft={handleCancelSpendingLimitDraft}
                 onSubmitSpendingLimitDraft={() =>
                   void handleSubmitSpendingLimitDraft()
@@ -3567,8 +3592,7 @@ export function AppWalletWorkspace({
           border: 1px solid rgba(0, 0, 0, 0.08);
           border-radius: 9999px;
           background: #fff;
-          box-shadow:
-            0 10px 24px rgba(0, 0, 0, 0.08),
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
             0 2px 6px rgba(0, 0, 0, 0.04);
           color: rgba(0, 0, 0, 0.86);
           font-family: var(--font-geist-sans), sans-serif;

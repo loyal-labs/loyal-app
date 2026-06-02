@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
-import { MaxFeeBps, RiskBasket, Stablecoin } from "./types.js";
-import type { Address } from "./types.js";
+import { MaxFeeBps, RiskBasket, Stablecoin } from "./types.ts";
+import type { Address } from "./types.ts";
 
 export const DEFAULT_MAX_FEE_BPS = MaxFeeBps.Bps100;
 

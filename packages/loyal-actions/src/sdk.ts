@@ -1,9 +1,9 @@
 import { PublicKey } from "@solana/web3.js";
-import { DEFAULT_MAX_FEE_BPS, RISK_BASKET_MARKETS, STABLECOIN_MINTS, STABLECOINS } from "./constants.js";
-import { clusterConfigFor } from "./cluster.js";
-import { kaminoDepositConstraint, kaminoWithdrawConstraint, jupiterConstraint, loyalHubConstraint, uniquePubkeys } from "./internal/protocols.js";
-import { createProgramInteractionPolicyInstruction, deriveActionAccount } from "./internal/squads.js";
-import { LoyalCluster, MaxFeeBps, RiskBasket, SwapLane } from "./types.js";
+import { DEFAULT_MAX_FEE_BPS, RISK_BASKET_MARKETS, STABLECOIN_MINTS, STABLECOINS } from "./constants.ts";
+import { clusterConfigFor } from "./cluster.ts";
+import { kaminoDepositConstraint, kaminoWithdrawConstraint, jupiterConstraint, loyalHubConstraint, uniquePubkeys } from "./internal/protocols.ts";
+import { createProgramInteractionPolicyInstruction, deriveActionAccount } from "./internal/squads.ts";
+import { LoyalCluster, MaxFeeBps, RiskBasket, SwapLane } from "./types.ts";
 import type {
   CreateVaultYieldRoutingPolicyPlanInput,
   CreateYieldRoutePolicyPlanInput,
@@ -17,7 +17,7 @@ import type {
   LoyalSmartAccountConfig,
   VaultYieldRoutingPolicyPlan,
   YieldRoutePolicyPlan,
-} from "./types.js";
+} from "./types.ts";
 
 const VALID_MAX_FEE_BPS = new Set<number>([
   MaxFeeBps.Bps50,

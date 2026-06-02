@@ -10,6 +10,7 @@
     "allowSyntheticDefaultImports": true,
     "declaration": true,
     "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
     "types": ["bun-types"]
   },

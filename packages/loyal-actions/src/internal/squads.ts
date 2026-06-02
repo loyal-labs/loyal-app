@@ -3,9 +3,9 @@ import {
   SystemProgram,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { YIELD_ROUTE_STANDALONE_ACTION_SEED } from "../constants.js";
-import type { LoyalClusterConfig } from "../cluster.js";
-import { BytesEncoder } from "./bytes.js";
+import { YIELD_ROUTE_STANDALONE_ACTION_SEED } from "../constants.ts";
+import type { LoyalClusterConfig } from "../cluster.ts";
+import { BytesEncoder } from "./bytes.ts";
 
 const SQUADS_SEED_PREFIX = new TextEncoder().encode("smart_account");
 const SQUADS_SEED_POLICY = new TextEncoder().encode("policy");

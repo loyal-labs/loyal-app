@@ -23,7 +23,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun run generate:abi && tsc -p tsconfig.build.json",
+    "build": "bun run generate:abi && tsc -p tsconfig.build.json && bun ./scripts/rewrite-declaration-imports.ts",
     "generate:abi": "bun ./scripts/generate-loyal-hub-abi.ts",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit"

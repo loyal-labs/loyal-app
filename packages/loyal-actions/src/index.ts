@@ -14,20 +14,20 @@ export {
   KAMINO_XSTOCKS_MARKET,
   RISK_BASKET_MARKETS,
   STABLECOIN_MINTS,
-} from "./constants.js";
-export { LOYAL_CLUSTER_CONFIGS } from "./cluster.js";
+} from "./constants.ts";
+export { LOYAL_CLUSTER_CONFIGS } from "./cluster.ts";
 export {
   createLoyalActionsSdk,
   createVaultYieldRoutingPolicyPlan,
   createYieldRoutePolicyPlan,
-} from "./sdk.js";
+} from "./sdk.ts";
 export {
   LoyalCluster,
   MaxFeeBps,
   RiskBasket,
   Stablecoin,
   SwapLane,
-} from "./types.js";
+} from "./types.ts";
 export type {
   Address,
   CreateVaultYieldRoutingPolicyPlanInput,
@@ -44,4 +44,4 @@ export type {
   LoyalSmartAccountConfig,
   VaultYieldRoutingPolicyPlan,
   YieldRoutePolicyPlan,
-} from "./types.js";
+} from "./types.ts";

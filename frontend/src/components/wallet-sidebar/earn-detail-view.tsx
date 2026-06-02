@@ -91,6 +91,16 @@ export type EarnDepositCompletion = {
   source: EarnDepositSourceOption;
 };
 
+export type EarnDepositDraft = {
+  amount: number;
+  amountLabel: string;
+  forecastApyBps: number;
+  source: EarnDepositSourceOption;
+  symbol: "USDC";
+  tokenDecimals: number;
+  tokenMint: string | null;
+};
+
 type EarnChartPoint = {
   date: string;
   highValue: number;
@@ -2514,10 +2524,12 @@ function DepositChart({
 export function EarnDepositView({
   onComplete,
   onClose,
+  onDraftChange,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
   onComplete?: (deposit: EarnDepositCompletion) => void;
   onClose?: () => void;
+  onDraftChange?: (draft: EarnDepositDraft | null) => void;
   sources?: EarnDepositSourceOption[];
 }) {
   const earnForecastApy = useEarnForecastApy();
@@ -2633,6 +2645,33 @@ export function EarnDepositView({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasDepositAmount || amountError !== null) {
+      onDraftChange?.(null);
+      return;
+    }
+
+    onDraftChange?.({
+      amount: numericDepositAmount,
+      amountLabel: depositAmount,
+      forecastApyBps: earnForecastApy.apyBps,
+      source: selectedSource,
+      symbol: "USDC",
+      tokenDecimals: selectedSource.decimals,
+      tokenMint: selectedSource.mint,
+    });
+  }, [
+    amountError,
+    depositAmount,
+    earnForecastApy.apyBps,
+    hasDepositAmount,
+    numericDepositAmount,
+    onDraftChange,
+    selectedSource,
+  ]);
+
+  useEffect(() => () => onDraftChange?.(null), [onDraftChange]);
 
   useEffect(() => {
     if (!sourceOptions.some((source) => source.id === selectedSourceId)) {

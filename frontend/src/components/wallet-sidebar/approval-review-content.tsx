@@ -10,6 +10,34 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const mono = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace";
 
+export type ApprovalReviewDisplayRow = {
+  label: string;
+  value: string;
+};
+
+export type ApprovalReviewDisplaySection = {
+  rows: ApprovalReviewDisplayRow[];
+  title: string;
+};
+
+export type ApprovalReviewDisplayItem = {
+  actionMode?: "execute" | "none" | "vote";
+  amount: string;
+  destinationLabel: string;
+  disabledActionLabel?: string;
+  primaryActionLabel?: string;
+  proposal?: Pick<SmartAccountApprovalItem["proposal"], "decodedInstructions">;
+  reviewRows?: ApprovalReviewDisplayRow[];
+  reviewSections?: ApprovalReviewDisplaySection[];
+  secondaryActionLabel?: string;
+  sourceLabel: string;
+  status: string;
+  statusLabel?: string;
+  summaryLabel?: string;
+  symbol: string;
+  title: string;
+};
+
 function toStatusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
@@ -25,7 +53,7 @@ export function ApprovalReviewContent({
   showClose = true,
   actionError = null,
 }: {
-  approval: SmartAccountApprovalItem | null;
+  approval: ApprovalReviewDisplayItem | SmartAccountApprovalItem | null;
   isSubmitting: boolean;
   onBack: () => void;
   onClose: () => void;
@@ -65,9 +93,42 @@ export function ApprovalReviewContent({
     );
   }
 
-  const canVote = approval.status === "active";
-  const canExecute = approval.status === "approved" && approval.canExecute;
-  const decodedInstructions = approval.proposal.decodedInstructions ?? [];
+  const actionMode = "actionMode" in approval ? approval.actionMode : undefined;
+  const canVote =
+    actionMode === "vote" ||
+    (actionMode === undefined && approval.status === "active");
+  const canExecute =
+    actionMode === "execute" ||
+    (actionMode === undefined &&
+      approval.status === "approved" &&
+      "canExecute" in approval &&
+      approval.canExecute);
+  const decodedInstructions = approval.proposal?.decodedInstructions ?? [];
+  const statusLabel =
+    "statusLabel" in approval && approval.statusLabel
+      ? approval.statusLabel
+      : toStatusLabel(approval.status);
+  const secondaryActionLabel =
+    "secondaryActionLabel" in approval && approval.secondaryActionLabel
+      ? approval.secondaryActionLabel
+      : "Reject";
+  const primaryActionLabel =
+    "primaryActionLabel" in approval && approval.primaryActionLabel
+      ? approval.primaryActionLabel
+      : canExecute
+      ? "Execute"
+      : "Approve";
+  const disabledActionLabel =
+    "disabledActionLabel" in approval && approval.disabledActionLabel
+      ? approval.disabledActionLabel
+      : "No action available";
+  const reviewRows = "reviewRows" in approval ? approval.reviewRows : undefined;
+  const reviewSections =
+    "reviewSections" in approval ? approval.reviewSections : undefined;
+  const summaryLabel =
+    "summaryLabel" in approval && approval.summaryLabel
+      ? approval.summaryLabel
+      : `${approval.title} to ${approval.destinationLabel}`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -150,7 +211,7 @@ export function ApprovalReviewContent({
                 color: secondary,
               }}
             >
-              {approval.title} to {approval.destinationLabel}
+              {summaryLabel}
             </span>
           </div>
         </div>
@@ -189,7 +250,7 @@ export function ApprovalReviewContent({
                   marginTop: "2px",
                 }}
               >
-                {toStatusLabel(approval.status)}
+                {statusLabel}
               </span>
             </div>
 
@@ -249,6 +310,93 @@ export function ApprovalReviewContent({
               </span>
             </div>
 
+            {reviewRows?.map((row) => (
+              <div key={row.label} style={{ padding: "9px 12px" }}>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                    color: secondary,
+                    display: "block",
+                  }}
+                >
+                  {row.label}
+                </span>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#000",
+                    display: "block",
+                    marginTop: "2px",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {row.value}
+                </span>
+              </div>
+            ))}
+
+            {reviewSections?.map((section) => (
+              <div key={section.title} style={{ padding: "11px 12px" }}>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    lineHeight: "16px",
+                    color: "#000",
+                    display: "block",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {section.title}
+                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                  }}
+                >
+                  {section.rows.map((row) => (
+                    <div key={row.label}>
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: "13px",
+                          fontWeight: 400,
+                          lineHeight: "16px",
+                          color: secondary,
+                          display: "block",
+                        }}
+                      >
+                        {row.label}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: row.value.length > 44 ? mono : font,
+                          fontSize: row.value.length > 44 ? "13px" : "16px",
+                          fontWeight: 400,
+                          lineHeight: row.value.length > 44 ? "18px" : "20px",
+                          color: "#000",
+                          display: "block",
+                          marginTop: "2px",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {row.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
             <ProposalInstructionDetails
               instructions={decodedInstructions}
               isRawDataExpanded={isRawDataExpanded}
@@ -301,7 +449,7 @@ export function ApprovalReviewContent({
               }}
               type="button"
             >
-              Reject
+              {secondaryActionLabel}
             </button>
             <button
               className="review-primary-btn"
@@ -325,7 +473,7 @@ export function ApprovalReviewContent({
               }}
               type="button"
             >
-              Approve
+              {primaryActionLabel}
             </button>
           </div>
         ) : canExecute ? (
@@ -351,7 +499,7 @@ export function ApprovalReviewContent({
             }}
             type="button"
           >
-            Execute
+            {primaryActionLabel}
           </button>
         ) : (
           <button
@@ -372,7 +520,7 @@ export function ApprovalReviewContent({
             }}
             type="button"
           >
-            No action available
+            {disabledActionLabel}
           </button>
         )}
       </div>

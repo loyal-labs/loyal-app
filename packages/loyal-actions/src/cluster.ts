@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { LoyalCluster } from "./types.js";
+import { LoyalCluster } from "./types.ts";
 
 export type LoyalClusterConfig = {
   squadsSmartAccountProgramId: PublicKey;

@@ -5,16 +5,16 @@ import {
   KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
   KAMINO_LEND_PROGRAM_ID,
   KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR,
-} from "../constants.js";
+} from "../constants.ts";
 import {
   CONFIG_SEED,
   SWAP_EXACT_IN,
   SWAP_EXACT_IN_MAX_FEE_BPS_DATA_OFFSET,
   SWAP_EXACT_IN_TAG_OFFSET,
   swapExactInAccounts,
-} from "../generated/loyal-hub-abi.js";
-import type { LoyalClusterConfig } from "../cluster.js";
-import type { DataConstraint, InstructionConstraint } from "./squads.js";
+} from "../generated/loyal-hub-abi.ts";
+import type { LoyalClusterConfig } from "../cluster.ts";
+import type { DataConstraint, InstructionConstraint } from "./squads.ts";
 
 const SPL_TOKEN_ACCOUNT_AUTHORITY_OFFSET = BigInt(32);
 
