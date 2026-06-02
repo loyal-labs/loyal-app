@@ -60,6 +60,10 @@ import type {
   SmartAccountOverview,
   SmartAccountOverviewBase,
   SmartAccountAddSignerProposalInput,
+  SmartAccountClosePoliciesProposalInput,
+  SmartAccountClosePoliciesSyncInput,
+  SmartAccountClosePolicyProposalInput,
+  SmartAccountClosePolicySyncInput,
   SmartAccountCustomInstructionProposalInput,
   SmartAccountPolicyOverview,
   SmartAccountPolicySnapshot,
@@ -3018,6 +3022,106 @@ export function createSmartAccountVaultsClient(
     });
   }
 
+  async function prepareClosePolicies(
+    args: SmartAccountClosePoliciesProposalInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const policies = await resolvePoliciesForClose({
+      policies: args.policies,
+      settingsPda: args.settingsPda,
+    });
+
+    return prepareSettingsChange({
+      actions: policies.map((policy) => ({
+        __kind: "PolicyRemove",
+        policy,
+      })),
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "closePolicies",
+      policies,
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareClosePoliciesSync(
+    args: SmartAccountClosePoliciesSyncInput
+  ): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+    if (args.signers.length === 0) {
+      throw new Error("At least one signer is required.");
+    }
+
+    const policies = await resolvePoliciesForClose({
+      policies: args.policies,
+      settingsPda: args.settingsPda,
+    });
+
+    return smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+      {
+        feePayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        signers: dedupePublicKeys(args.signers),
+        actions: policies.map((policy) => ({
+          __kind: "PolicyRemove",
+          policy,
+        })),
+        memo: args.memo,
+        remainingAccounts: toWritableAccountMetas(policies),
+      } as never
+    );
+  }
+
+  async function prepareCloseYieldRoutingPolicies(
+    args: SmartAccountClosePoliciesProposalInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const policies = await resolveYieldRoutingPoliciesForClose({
+      policies: args.policies,
+      settingsPda: args.settingsPda,
+    });
+
+    return prepareSettingsChange({
+      actions: policies.map((policy) => ({
+        __kind: "PolicyRemove",
+        policy,
+      })),
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "closeYieldRoutingPolicies",
+      policies,
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareCloseYieldRoutingPoliciesSync(
+    args: SmartAccountClosePoliciesSyncInput
+  ): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+    if (args.signers.length === 0) {
+      throw new Error("At least one signer is required.");
+    }
+
+    const policies = await resolveYieldRoutingPoliciesForClose({
+      policies: args.policies,
+      settingsPda: args.settingsPda,
+    });
+
+    return smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+      {
+        feePayer: args.feePayer,
+        settingsPda: args.settingsPda,
+        signers: dedupePublicKeys(args.signers),
+        actions: policies.map((policy) => ({
+          __kind: "PolicyRemove",
+          policy,
+        })),
+        memo: args.memo,
+        remainingAccounts: toWritableAccountMetas(policies),
+      } as never
+    );
+  }
+
   async function prepareUseSolSpendingLimitPolicy(
     args: SmartAccountUseSpendingLimitInput
   ): Promise<PreparedLoyalSmartAccountsOperation<string>> {
@@ -3294,6 +3398,53 @@ export function createSmartAccountVaultsClient(
     return executionAccounts;
   }
 
+  async function resolvePoliciesForClose(args: {
+    policies: PublicKey[];
+    settingsPda: PublicKey;
+  }): Promise<PublicKey[]> {
+    const policies = dedupePublicKeys(args.policies);
+
+    if (policies.length === 0) {
+      throw new Error("At least one policy is required.");
+    }
+
+    const policyAccounts = await Promise.all(
+      policies.map((policyPda) =>
+        smartAccountsClient.policies.queries.fetchPolicy(policyPda)
+      )
+    );
+
+    for (const policy of policyAccounts) {
+      if (!policy.settings.equals(args.settingsPda)) {
+        throw new Error("Policy belongs to another vault.");
+      }
+    }
+
+    return policies;
+  }
+
+  async function resolveYieldRoutingPoliciesForClose(args: {
+    policies: PublicKey[];
+    settingsPda: PublicKey;
+  }): Promise<PublicKey[]> {
+    const policies = await resolvePoliciesForClose(args);
+    const policyAccounts = await Promise.all(
+      policies.map((policyPda) =>
+        smartAccountsClient.policies.queries.fetchPolicy(policyPda)
+      )
+    );
+
+    for (const policy of policyAccounts) {
+      if (policy.policyState.__kind !== "ProgramInteraction") {
+        throw new Error(
+          "Yield routing cleanup only accepts program-interaction policies."
+        );
+      }
+    }
+
+    return policies;
+  }
+
   async function getPolicyTransactionExecutionAccounts(args: {
     policy: Policy;
     policyPayload: generated.PolicyPayload;
@@ -3472,6 +3623,34 @@ export function createSmartAccountVaultsClient(
     prepareSetSpendingLimitProposal: prepareSetSpendingLimitPolicy,
     prepareRemoveSpendingLimitPolicy,
     prepareRemoveSpendingLimitProposal: prepareRemoveSpendingLimitPolicy,
+    prepareClosePolicies,
+    prepareClosePolicy: (args: SmartAccountClosePolicyProposalInput) =>
+      prepareClosePolicies({
+        ...args,
+        policies: [args.policy],
+      }),
+    prepareClosePoliciesSync,
+    prepareClosePolicySync: (args: SmartAccountClosePolicySyncInput) =>
+      prepareClosePoliciesSync({
+        ...args,
+        policies: [args.policy],
+      }),
+    prepareCloseYieldRoutingPolicies,
+    prepareCloseYieldRoutingPolicy: (
+      args: SmartAccountClosePolicyProposalInput
+    ) =>
+      prepareCloseYieldRoutingPolicies({
+        ...args,
+        policies: [args.policy],
+      }),
+    prepareCloseYieldRoutingPoliciesSync,
+    prepareCloseYieldRoutingPolicySync: (
+      args: SmartAccountClosePolicySyncInput
+    ) =>
+      prepareCloseYieldRoutingPoliciesSync({
+        ...args,
+        policies: [args.policy],
+      }),
     prepareUseSolSpendingLimitPolicy,
     prepareUseSolSpendingLimit: prepareUseSolSpendingLimitPolicy,
     prepareApproveProposal,

@@ -310,6 +310,47 @@ export type SmartAccountRemoveSpendingLimitProposalInput = {
   memo?: string;
 };
 
+export type SmartAccountClosePoliciesProposalInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  policies: PublicKey[];
+  memo?: string;
+};
+
+export type SmartAccountClosePolicyProposalInput = Omit<
+  SmartAccountClosePoliciesProposalInput,
+  "policies"
+> & {
+  policy: PublicKey;
+};
+
+export type SmartAccountClosePoliciesSyncInput = Omit<
+  SmartAccountClosePoliciesProposalInput,
+  "creator"
+> & {
+  signers: PublicKey[];
+};
+
+export type SmartAccountClosePolicySyncInput = Omit<
+  SmartAccountClosePoliciesSyncInput,
+  "policies"
+> & {
+  policy: PublicKey;
+};
+
+export type SmartAccountCloseYieldRoutingPoliciesProposalInput =
+  SmartAccountClosePoliciesProposalInput;
+
+export type SmartAccountCloseYieldRoutingPolicyProposalInput =
+  SmartAccountClosePolicyProposalInput;
+
+export type SmartAccountCloseYieldRoutingPoliciesSyncInput =
+  SmartAccountClosePoliciesSyncInput;
+
+export type SmartAccountCloseYieldRoutingPolicySyncInput =
+  SmartAccountClosePolicySyncInput;
+
 export type SmartAccountUseSpendingLimitInput = {
   settingsPda: PublicKey;
   feePayer: PublicKey;
