@@ -350,6 +350,7 @@ function ShieldedSelectableTokenPill({
   );
 }
 
+type ShieldDirection = "shield" | "unshield";
 type ShieldPhase = "form" | "processing" | "success" | "error" | "details";
 
 export function ShieldContent({
@@ -389,15 +390,15 @@ export function ShieldContent({
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [resultAmount, setResultAmount] = useState("");
   const [resultUsd, setResultUsd] = useState("");
+  const [confirmedDirection, setConfirmedDirection] =
+    useState<ShieldDirection | null>(null);
 
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
   }, [phase, onFormActiveChange]);
 
   const token = tokenProp;
-  const direction: "shield" | "unshield" = token.isSecured
-    ? "unshield"
-    : "shield";
+  const direction: ShieldDirection = token.isSecured ? "unshield" : "shield";
   const numericAmount = Number.parseFloat(amount) || 0;
   const hasAmount = numericAmount > 0;
 
@@ -447,6 +448,8 @@ export function ShieldContent({
   const handleConfirm = useCallback(async () => {
     if (!hasAmount || insufficientFunds) return;
 
+    const operationDirection = direction;
+    setConfirmedDirection(operationDirection);
     setResultAmount(String(numericAmount));
     setResultUsd(
       `$${(numericAmount * token.price).toLocaleString("en-US", {
@@ -461,11 +464,11 @@ export function ShieldContent({
       tokenSymbol: token.symbol,
       amount: numericAmount,
       tokenMint: token.mint,
-      isMax: direction === "unshield" && isMaxSelected,
+      isMax: operationDirection === "unshield" && isMaxSelected,
     };
 
     const result =
-      direction === "shield"
+      operationDirection === "shield"
         ? await shieldFn(params)
         : await unshieldFn(params);
 
@@ -474,7 +477,7 @@ export function ShieldContent({
       setAmount("");
       setIsMaxSelected(false);
       track(
-        direction === "shield"
+        operationDirection === "shield"
           ? SHIELD_EVENTS.shieldTokens
           : SHIELD_EVENTS.unshieldTokens,
         {
@@ -486,7 +489,7 @@ export function ShieldContent({
       setErrorMessage(result.error);
       setPhase("error");
       track(
-        direction === "shield"
+        operationDirection === "shield"
           ? SHIELD_EVENTS.shieldTokensFailed
           : SHIELD_EVENTS.unshieldTokensFailed,
         {
@@ -539,6 +542,9 @@ export function ShieldContent({
   }, [phase]);
 
   const renderPhaseContent = (p: ShieldPhase) => {
+    const displayDirection =
+      p === "form" ? direction : confirmedDirection ?? direction;
+
     if (p === "processing") {
       return (
         <div
@@ -561,7 +567,7 @@ export function ShieldContent({
 
           <StatusHeader
             onClose={onClose}
-            title={direction === "shield" ? "Shield" : "Unshield"}
+            title={displayDirection === "shield" ? "Shield" : "Unshield"}
           />
 
           <div
@@ -619,9 +625,9 @@ export function ShieldContent({
                   }}
                 />
                 <img
-                  alt={direction === "shield" ? "Shield" : "Unshield"}
+                  alt={displayDirection === "shield" ? "Shield" : "Unshield"}
                   src={
-                    direction === "shield"
+                    displayDirection === "shield"
                       ? "/hero-new/Shield.png"
                       : "/hero-new/Unshield.svg"
                   }
@@ -646,7 +652,9 @@ export function ShieldContent({
                     color: "#000",
                   }}
                 >
-                  {direction === "shield" ? "Shielding..." : "Unshielding..."}
+                  {displayDirection === "shield"
+                    ? "Shielding..."
+                    : "Unshielding..."}
                 </span>
               </div>
             </div>
@@ -712,7 +720,7 @@ export function ShieldContent({
             onClose={onClose}
             title={
               isSuccess
-                ? direction === "shield"
+                ? displayDirection === "shield"
                   ? "Shield"
                   : "Unshield"
                 : "Shield/Unshield"
@@ -769,9 +777,11 @@ export function ShieldContent({
                 >
                   {isSuccess
                     ? `${token.symbol} ${
-                        direction === "shield" ? "Shielded" : "Unshielded"
+                        displayDirection === "shield"
+                          ? "Shielded"
+                          : "Unshielded"
                       }`
-                    : direction === "shield"
+                    : displayDirection === "shield"
                     ? "Shielding Failed"
                     : "Unshielding Failed"}
                 </span>
@@ -791,7 +801,7 @@ export function ShieldContent({
                         {resultAmount} {token.symbol}
                       </span>
                       {` moved to your ${
-                        direction === "shield" ? "secure" : "main"
+                        displayDirection === "shield" ? "secure" : "main"
                       } balance`}
                     </>
                   ) : (
@@ -840,6 +850,7 @@ export function ShieldContent({
               }
               onClick={() => {
                 setPhase("form");
+                setConfirmedDirection(null);
                 onDone();
               }}
               style={{
@@ -893,7 +904,7 @@ export function ShieldContent({
 
           <StatusHeader
             onClose={onClose}
-            title={direction === "shield" ? "Shielded" : "Unshielded"}
+            title={displayDirection === "shield" ? "Shielded" : "Unshielded"}
           />
 
           <div
@@ -932,9 +943,11 @@ export function ShieldContent({
                   />
                 </div>
                 <img
-                  alt={direction === "shield" ? "Shielded" : "Unshielded"}
+                  alt={
+                    displayDirection === "shield" ? "Shielded" : "Unshielded"
+                  }
                   src={
-                    direction === "shield"
+                    displayDirection === "shield"
                       ? "/hero-new/Shield.png"
                       : "/hero-new/Unshield.svg"
                   }
@@ -1052,6 +1065,7 @@ export function ShieldContent({
               className="shield-done-btn"
               onClick={() => {
                 setPhase("form");
+                setConfirmedDirection(null);
                 onDone();
               }}
               style={{
