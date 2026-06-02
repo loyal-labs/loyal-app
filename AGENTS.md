@@ -257,6 +257,24 @@ These complement the command list above and mirror guidance in `mobile/CLAUDE.md
 
 ### Database Patterns
 
+### Database Ownership
+
+This repo reads from or writes to three database surfaces. Keep their purposes separate:
+
+| Database surface | Runtime owner | Code entrypoint | Responsibility |
+|------------------|---------------|-----------------|----------------|
+| App Neon database | App/admin product plane | `/app/src/lib/core/database.ts`, `/frontend/src/lib/core/database.ts`, shared schema in `/packages/db-core/src/schema.ts` | Users, Telegram communities/messages/summaries, app wallet auth, smart-account records, sponsorship analytics, admin-readable app state |
+| Yield Neon database (`loyal_yield`) | Yield optimization control plane | `/frontend/src/lib/yield-optimization/yield-neon-client.server.ts` | Yield route policies, managed vault metadata, vault/reserve snapshots, rebalance decisions, confirmed user yield positions and deposit events |
+| Kamino Timescale database (`kamino`) | Market data/read model | `/frontend/src/lib/kamino/timescale-reserve-client.server.ts` | Read-only Kamino reserve history/latest reserve updates used to choose or forecast safe/no-fee earn targets |
+
+Rules:
+
+- App/product tables belong in `@loyal-labs/db-core/schema` and use the app-local `getDatabase()` wrapper.
+- Yield optimizer tables in `loyal_yield` are not app-product tables. Keep their Drizzle models and repository methods under `/frontend/src/lib/yield-optimization`.
+- Kamino Timescale is read-only from this app. Do not write user, policy, vault, or app state into Timescale.
+- Confirmed yield deposits are written only after chain confirmation. Persist route policy/vault metadata in `loyal_yield.route_policies` and `loyal_yield.managed_vaults`, then record immutable deposit events and aggregate user positions in `loyal_yield.user_yield_position_deposits` and `loyal_yield.user_yield_positions`.
+- Keep cross-database joins out of app code. Fetch from each database through its owning server module and join in typed application code only when needed.
+
 Schema conventions used in `/packages/db-core/src/schema.ts`:
 
 - **Primary Keys**: UUID with `defaultRandom()` for all tables

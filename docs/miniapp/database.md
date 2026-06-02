@@ -12,10 +12,42 @@ Neon PostgreSQL integration using Drizzle ORM.
 
 ## Ownership and Boundaries
 
-- `@loyal-labs/db-core`: shared Drizzle schema, relations, and table types.
+- `@loyal-labs/db-core`: shared Drizzle definitions and exported table types.
 - `@loyal-labs/db-adapter-neon`: shared `createNeonDb()` adapter factory and Neon DB types.
 - `src/lib/core/database.ts`: app-local `getDatabase()` wrapper; owns `serverEnv` resolution and singleton lifecycle.
 - App code must import schema from `@loyal-labs/db-core/schema`.
+
+The app now uses three separate database surfaces. Do not treat them as interchangeable.
+
+| Database surface | Connection/config owner | Schema/entrypoint | What belongs there |
+| ---------------- | ----------------------- | ----------------- | ------------------ |
+| App Neon database | App and admin runtimes | `src/lib/core/database.ts`; shared table definitions in `../packages/db-core/src/schema.ts` | Product data: users, Telegram communities, messages, summaries, encrypted bot threads/messages, wallet auth, app smart-account records, sponsorship analytics, admin-readable app state |
+| Yield Neon database (`loyal_yield`) | Yield optimization server code | `../frontend/src/lib/yield-optimization/yield-neon-client.server.ts` | Yield control-plane data: route policies, managed vaults, vault/reserve snapshots, rebalance decisions, confirmed user yield positions, immutable confirmed deposit events |
+| Kamino Timescale database (`kamino`) | Kamino market-data readers | `../frontend/src/lib/kamino/timescale-reserve-client.server.ts` | Read-only reserve telemetry: Kamino reserve updates and latest reserve rows used for earn forecasts and safe/no-fee target selection |
+
+### App Neon
+
+Use App Neon for app-owned product state. New app tables should be defined in `../packages/db-core/src/schema.ts`, queried through `getDatabase()`, and migrated with the app Drizzle commands.
+
+Typical rows include Telegram account state, community activity, stored messages, and generated summaries. This database also stores app wallet authentication, smart-account provisioning records, sponsorship analytics, and other product-plane audit rows.
+
+### Yield Neon
+
+Use Yield Neon for optimizer state that belongs to the `loyal_yield` schema. This database is shared with yield orchestration and should be accessed through server-only yield modules.
+
+The shared optimizer tables include `route_policies` for detected or app-confirmed policy metadata and `managed_vaults` for active vault metadata tied to a smart-account settings PDA. Snapshot tables such as `vault_position_snapshots`, `vault_position_snapshot_positions`, and `vault_reserve_positions_current` are optimizer read models. `rebalance_decisions` stores optimizer decisions and execution status. App-confirmed user deposits are represented by `user_yield_positions`, keyed by `cluster + settings + vault_index + target_reserve`, and `user_yield_position_deposits`, keyed by `cluster + deposit_signature`.
+
+Confirmed yield deposits should be written only after the chain transaction is confirmed. The write flow should upsert policy and vault metadata, insert the deposit event idempotently, then update the aggregate position only when the event is new.
+
+### Kamino Timescale
+
+Use Kamino Timescale as a read-only market-data source. It answers questions such as "which safe/no-fee reserve currently has the best APY?" or "what APY range should the UI forecast?" It must not store app users, smart-account settings, policies, vaults, or deposit confirmations.
+
+### Cross-Database Rules
+
+Do not join across these databases in SQL from app code. Keep each database behind its owning server module and combine results in typed application code only when a feature needs both product state and market or yield state.
+
+Do not duplicate ownership. If a row describes app identity or product state, use App Neon. If it describes optimizer policy, vault, or position state, use Yield Neon. If it describes Kamino reserve telemetry, read it from Timescale.
 
 ## Usage
 
