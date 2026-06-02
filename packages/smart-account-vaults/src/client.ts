@@ -3302,6 +3302,8 @@ export function createSmartAccountVaultsClient(
       throw new Error("Earn deposit amount must be greater than 0.");
     }
 
+    const shouldInitializeYieldRoutingPolicy =
+      args.initializeYieldRoutingPolicy ?? true;
     const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC];
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
@@ -3398,7 +3400,7 @@ export function createSmartAccountVaultsClient(
           [],
           TOKEN_PROGRAM_ID
         ),
-        ...policyPlan.instructions,
+        ...(shouldInitializeYieldRoutingPolicy ? policyPlan.instructions : []),
         ...policyExecution.instructions,
       ],
       lookupTableAccounts: policyExecution.lookupTableAccounts,
@@ -3438,6 +3440,9 @@ export function createSmartAccountVaultsClient(
         liquidityMint: usdcMint.toBase58(),
         depositMint: usdcMint.toBase58(),
         principalAmountRaw: args.amountRaw.toString(),
+        policyInitialization: shouldInitializeYieldRoutingPolicy
+          ? "create"
+          : "reuse",
         targetSupplyApyBps: null,
       },
     };

@@ -866,6 +866,19 @@ async function postConfirmedEarnWithdraw(args: {
   }
 }
 
+function hasInitializedEarnYieldRoutingPolicy(
+  overview: SmartAccountOverview | null
+): boolean {
+  return (
+    overview?.policies.some(
+      (policy) =>
+        policy.seed === "1" &&
+        policy.state === "ProgramInteraction" &&
+        policy.accountIndex === 1
+    ) ?? false
+  );
+}
+
 export function getSmartAccountTotalUsd({
   authenticatedWalletAddress,
   vaultEntries,
@@ -3413,6 +3426,8 @@ export function useSmartAccountSidebarData(
           walletAddress: wallet.publicKey,
           feePayer: wallet.publicKey,
           amountRaw: request.amountRaw,
+          initializeYieldRoutingPolicy:
+            !hasInitializedEarnYieldRoutingPolicy(overview),
         });
         const signature = await sendPreparedWithWallet({
           connection,

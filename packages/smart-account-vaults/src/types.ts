@@ -367,6 +367,7 @@ export type SmartAccountEarnUsdcDepositInput = {
   walletAddress: PublicKey;
   feePayer: PublicKey;
   amountRaw: bigint;
+  initializeYieldRoutingPolicy?: boolean;
   memo?: string;
 };
 
@@ -384,6 +385,7 @@ export type SmartAccountEarnUsdcDepositMetadata = {
   liquidityMint: string;
   depositMint: string;
   principalAmountRaw: string;
+  policyInitialization: "create" | "reuse";
   targetSupplyApyBps: string | null;
 };
 

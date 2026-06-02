@@ -230,9 +230,44 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(result.persistence).toMatchObject({
       cluster: "mainnet-beta",
       policyId: "1",
+      policyInitialization: "create",
       policySeed: "1",
       principalAmountRaw: "1000000",
       vaultIndex: 1,
+    });
+  });
+
+  test("builds a top-up earn deposit without recreating the routing policy", async () => {
+    mockKaminoDepositInstruction();
+    const client = createSmartAccountVaultsClient({
+      connection: {} as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcDeposit({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      amountRaw: BigInt(500_000),
+      initializeYieldRoutingPolicy: false,
+    });
+
+    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
+    );
+
+    const transfer = decodeTransferCheckedInstruction(
+      result.prepared.instructions[1]!,
+      TOKEN_PROGRAM_ID
+    );
+    expect(transfer.data.amount.toString()).toBe("500000");
+    expect(result.prepared.instructions[2]?.programId.toBase58()).toBe(
+      programId.toBase58()
+    );
+    expect(result.persistence).toMatchObject({
+      policyInitialization: "reuse",
+      principalAmountRaw: "500000",
     });
   });
 
