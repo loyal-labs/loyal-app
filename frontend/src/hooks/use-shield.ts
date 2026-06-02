@@ -5,11 +5,10 @@ import {
   MAGIC_PROGRAM_ID,
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
-import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { trackWalletShieldCompleted } from "@/lib/core/analytics";
@@ -18,7 +17,11 @@ import {
   recordKaminoUsdcUnshield,
   resolveTrackedKaminoUsdcMint,
 } from "@/lib/kamino/kamino-usdc-position";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import {
+  getFrontendPrivateClient,
+  invalidateFrontendPrivateClientForError,
+  type FrontendPrivateClientSigner,
+} from "@/lib/solana/private-client-cache";
 
 function cleanSolanaErrorMessage(message: string): string {
   const logsIndex = message.indexOf("Logs:");
@@ -59,12 +62,9 @@ export function useShield() {
   const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<LoyalPrivateTransactionsClient | null>(null);
 
   const getClient =
     useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
-      if (clientRef.current) return clientRef.current;
-
       if (
         !wallet.publicKey ||
         !wallet.signTransaction ||
@@ -76,30 +76,17 @@ export function useShield() {
         );
       }
 
-      const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
-        publicEnv.solanaEnv
-      );
-      const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(
-        publicEnv.solanaEnv
-      );
-
       const signer = {
         publicKey: wallet.publicKey,
         signTransaction: wallet.signTransaction,
         signAllTransactions: wallet.signAllTransactions,
         signMessage: wallet.signMessage,
-      } as unknown as import("@loyal-labs/private-transactions").WalletLike;
+      } as FrontendPrivateClientSigner;
 
-      const client = await LoyalPrivateTransactionsClient.fromConfig({
+      return getFrontendPrivateClient({
         signer,
-        baseRpcEndpoint: rpcEndpoint,
-        baseWsEndpoint: websocketEndpoint,
-        ephemeralRpcEndpoint: perRpcEndpoint,
-        ephemeralWsEndpoint: perWsEndpoint,
+        solanaEnv: publicEnv.solanaEnv,
       });
-
-      clientRef.current = client;
-      return client;
     }, [
       wallet.publicKey,
       wallet.signTransaction,
@@ -107,13 +94,6 @@ export function useShield() {
       wallet.signMessage,
       publicEnv.solanaEnv,
     ]);
-
-  // Reset client when wallet changes
-  const prevPubkey = useRef(wallet.publicKey?.toBase58());
-  if (wallet.publicKey?.toBase58() !== prevPubkey.current) {
-    clientRef.current = null;
-    prevPubkey.current = wallet.publicKey?.toBase58();
-  }
 
   const executeShield = useCallback(
     async (params: {
@@ -200,6 +180,13 @@ export function useShield() {
         }
         return { success: true, signature: getLastSignature(executionResult) };
       } catch (err) {
+        if (wallet.publicKey) {
+          invalidateFrontendPrivateClientForError({
+            publicKey: wallet.publicKey.toBase58(),
+            solanaEnv: publicEnv.solanaEnv,
+            error: err,
+          });
+        }
         let errorMessage = "Shield failed";
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
@@ -323,6 +310,13 @@ export function useShield() {
         setLoading(false);
         return { success: true, signature: getLastSignature(executionResult) };
       } catch (err) {
+        if (wallet.publicKey) {
+          invalidateFrontendPrivateClientForError({
+            publicKey: wallet.publicKey.toBase58(),
+            solanaEnv: publicEnv.solanaEnv,
+            error: err,
+          });
+        }
         let errorMessage = "Unshield failed";
         if (err instanceof Error) {
           errorMessage = err.message.includes("User rejected")
