@@ -38,8 +38,6 @@ const EARN_CHART_BASELINE = 238;
 const EARN_CHART_TOP = 12;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
-const EARN_BALANCE_INITIAL_VALUE = 1000.000006;
-const EARN_BALANCE_PRINCIPAL = 1000;
 const EARN_BALANCE_SAMPLE_MS = 250;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
@@ -208,8 +206,8 @@ function getEarnApyRate(apyBps: number): number {
   return apyBps / 10_000;
 }
 
-function getEarningsRatePerSecond(apyBps: number): number {
-  return (EARN_BALANCE_PRINCIPAL * getEarnApyRate(apyBps)) / SECONDS_PER_YEAR;
+function getEarningsRatePerSecond(apyBps: number, principal: number): number {
+  return (principal * getEarnApyRate(apyBps)) / SECONDS_PER_YEAR;
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -450,25 +448,30 @@ function DepositButton({
   );
 }
 
-function EarnGrowingBalance({ apyBps }: { apyBps: number }) {
-  const [value, setValue] = useState(EARN_BALANCE_INITIAL_VALUE);
+function EarnGrowingBalance({
+  apyBps,
+  principalAmount,
+}: {
+  apyBps: number;
+  principalAmount: number;
+}) {
+  const [value, setValue] = useState(principalAmount);
 
   useEffect(() => {
-    const ratePerSecond = getEarningsRatePerSecond(apyBps);
+    setValue(principalAmount);
+    const ratePerSecond = getEarningsRatePerSecond(apyBps, principalAmount);
     const startedAt = performance.now();
     const interval = window.setInterval(() => {
       const elapsedSeconds = (performance.now() - startedAt) / 1000;
       const earned = ratePerSecond * elapsedSeconds;
 
       setValue(
-        Number(
-          (EARN_BALANCE_INITIAL_VALUE + earned).toFixed(EARN_BALANCE_DECIMALS)
-        )
+        Number((principalAmount + earned).toFixed(EARN_BALANCE_DECIMALS))
       );
     }, EARN_BALANCE_SAMPLE_MS);
 
     return () => window.clearInterval(interval);
-  }, [apyBps]);
+  }, [apyBps, principalAmount]);
 
   return (
     <>
@@ -571,7 +574,13 @@ function formatEarningsBarDate(endMs: number, rangeId: EarningsRangeId) {
   });
 }
 
-function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
+function EarningsBlock({
+  apy,
+  principalAmount,
+}: {
+  apy: EarnForecastApy;
+  principalAmount: number;
+}) {
   const [activeTab, setActiveTab] = useState<"Earnings" | "Forecast">(
     "Earnings"
   );
@@ -598,8 +607,8 @@ function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
   if (forecastPrincipalRef.current === null) {
     const elapsedSec = Math.max(0, (Date.now() - depositAt) / 1000);
     forecastPrincipalRef.current =
-      EARN_BALANCE_PRINCIPAL +
-      elapsedSec * getEarningsRatePerSecond(apy.apyBps);
+      principalAmount +
+      elapsedSec * getEarningsRatePerSecond(apy.apyBps, principalAmount);
   }
   const forecastAmount = forecastPrincipalRef.current;
 
@@ -1098,10 +1107,12 @@ export function EarnDetailView({
   hasCurrentPosition = false,
   onDeposit,
   onWithdraw,
+  principalAmount = 0,
 }: {
   hasCurrentPosition?: boolean;
   onDeposit?: () => void;
   onWithdraw?: () => void;
+  principalAmount?: number;
 }) {
   const earnForecastApy = useEarnForecastApy();
   const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
@@ -1215,7 +1226,10 @@ export function EarnDetailView({
             }}
           >
             {hasCurrentPosition ? (
-              <EarnGrowingBalance apyBps={earnForecastApy.apyBps} />
+              <EarnGrowingBalance
+                apyBps={earnForecastApy.apyBps}
+                principalAmount={principalAmount}
+              />
             ) : (
               <>
                 $0
@@ -1228,7 +1242,13 @@ export function EarnDetailView({
 
       {hasCurrentPosition ? <div style={{ height: "9px" }} /> : null}
 
-      {hasCurrentPosition ? <EarningsBlock apy={earnForecastApy} /> : null}
+      {hasCurrentPosition ? (
+        <EarningsBlock
+          apy={earnForecastApy}
+          key={`${principalAmount}:${earnForecastApy.apyBps}`}
+          principalAmount={principalAmount}
+        />
+      ) : null}
 
       {hasCurrentPosition ? (
         <section

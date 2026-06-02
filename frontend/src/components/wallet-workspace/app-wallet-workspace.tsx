@@ -146,6 +146,13 @@ type PersistedWorkspaceSelection =
     }
   | { type: "vault"; accountIndex: number }
   | { type: "wallet" };
+type ActiveEarnPosition = {
+  principalAmountRaw: string;
+  status: string;
+};
+type ActiveEarnPositionResponse = {
+  position: ActiveEarnPosition | null;
+};
 
 const PANE_WIDTH_STORAGE_KEY = "loyal-wallet-workspace-pane-widths";
 const SELECTED_WORKSPACE_ITEM_STORAGE_KEY =
@@ -369,6 +376,41 @@ function parseTokenAmountLabelToRaw(
     BigInt(wholePart || "0") * BigInt(10) ** BigInt(decimals) +
     BigInt(fraction || "0")
   );
+}
+
+function rawTokenAmountToNumber(amountRaw: string, decimals: number): number {
+  if (!/^\d+$/.test(amountRaw)) {
+    return 0;
+  }
+
+  const raw = BigInt(amountRaw);
+  const scale = BigInt(10) ** BigInt(decimals);
+  return Number(raw / scale) + Number(raw % scale) / 10 ** decimals;
+}
+
+async function fetchActiveEarnPosition(): Promise<ActiveEarnPosition | null> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/position",
+    {
+      credentials: "include",
+    }
+  );
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to load active earn position."
+    );
+  }
+
+  const payload = (await response.json()) as ActiveEarnPositionResponse;
+  return payload.position;
 }
 
 function buildVaultSendContext(args: {
@@ -818,7 +860,8 @@ export function AppWalletWorkspace({
   const [detailInitialTab, setDetailInitialTab] = useState<DetailTab>("tokens");
   const [detailPaneTransition, setDetailPaneTransition] =
     useState<DetailPaneTransition>("switch");
-  const [hasEarnPosition, setHasEarnPosition] = useState(false);
+  const [activeEarnPosition, setActiveEarnPosition] =
+    useState<ActiveEarnPosition | null>(null);
   const [detailPaneTransitionKey, setDetailPaneTransitionKey] = useState(0);
   const [actionReturnSelection, setActionReturnSelection] =
     useState<Exclude<DetailSelection, "action">>("vault");
@@ -1140,6 +1183,17 @@ export function AppWalletWorkspace({
         : null,
     [detailSelection, pendingEarnDepositDraft]
   );
+  const hasEarnPosition =
+    activeEarnPosition?.status === "active" &&
+    BigInt(activeEarnPosition.principalAmountRaw) > BigInt(0);
+  const earnWithdrawMaxAmount = activeEarnPosition
+    ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
+    : 0;
+  const refreshActiveEarnPosition = useCallback(async () => {
+    const position = await fetchActiveEarnPosition();
+    setActiveEarnPosition(position);
+    return position;
+  }, []);
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -1159,6 +1213,35 @@ export function AppWalletWorkspace({
 
     return position?.securedBalance ?? 0;
   }, [shieldToken.mint, walletDesktopData.positions]);
+
+  useEffect(() => {
+    if (!isAuthHydrated) {
+      return;
+    }
+
+    if (!isSignedIn) {
+      setActiveEarnPosition(null);
+      return;
+    }
+
+    let isCancelled = false;
+    fetchActiveEarnPosition()
+      .then((position) => {
+        if (!isCancelled) {
+          setActiveEarnPosition(position);
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.warn("[earn-position] failed to load active position", error);
+          setActiveEarnPosition(null);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAuthHydrated, isSignedIn, smartAccountData.overview?.settingsPda]);
 
   useEffect(() => {
     setConnectAgentAddress(
@@ -1817,7 +1900,6 @@ export function AppWalletWorkspace({
 
   const handleBackFromEarnWithdraw = useCallback(() => {
     markDetailPaneTransition("back");
-    setHasEarnPosition(true);
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
@@ -1843,10 +1925,18 @@ export function AppWalletWorkspace({
 
       markDetailPaneTransition("back");
       setPendingEarnDepositDraft(null);
-      setHasEarnPosition(true);
+      setActiveEarnPosition((current) => ({
+        principalAmountRaw: (
+          BigInt(current?.principalAmountRaw ?? "0") + amountRaw
+        ).toString(),
+        status: "active",
+      }));
       setSelectedSignerId(null);
       setDetailSelection("earn");
       setSelectedDetail("Earn");
+      void refreshActiveEarnPosition().catch((error) => {
+        console.warn("[earn-position] post-deposit refresh failed", error);
+      });
     } catch (error) {
       const raw =
         error instanceof Error ? error.message : "Earn deposit failed.";
@@ -1861,7 +1951,12 @@ export function AppWalletWorkspace({
           : raw
       );
     }
-  }, [markDetailPaneTransition, pendingEarnDepositDraft, smartAccountData]);
+  }, [
+    markDetailPaneTransition,
+    pendingEarnDepositDraft,
+    refreshActiveEarnPosition,
+    smartAccountData,
+  ]);
 
   const handleCompleteEarnWithdraw = useCallback(
     async (withdrawal: { amount: number; mode: "partial" | "full" }) => {
@@ -1881,17 +1976,33 @@ export function AppWalletWorkspace({
         }
 
         markDetailPaneTransition("back");
-        setHasEarnPosition(withdrawal.mode !== "full");
+        setActiveEarnPosition((current) => {
+          if (withdrawal.mode === "full" || !current) {
+            return null;
+          }
+
+          const nextPrincipal = BigInt(current.principalAmountRaw) - amountRaw;
+          return nextPrincipal > BigInt(0)
+            ? {
+                ...current,
+                principalAmountRaw: nextPrincipal.toString(),
+                status: "active",
+              }
+            : null;
+        });
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
+        void refreshActiveEarnPosition().catch((error) => {
+          console.warn("[earn-position] post-withdraw refresh failed", error);
+        });
       } catch (error) {
         setProposalActionError(
           error instanceof Error ? error.message : "Earn withdrawal failed."
         );
       }
     },
-    [markDetailPaneTransition, smartAccountData]
+    [markDetailPaneTransition, refreshActiveEarnPosition, smartAccountData]
   );
 
   const handleOpenVault = useCallback(
@@ -2604,6 +2715,7 @@ export function AppWalletWorkspace({
           hasCurrentPosition={hasEarnPosition}
           onDeposit={handleOpenEarnDeposit}
           onWithdraw={handleOpenEarnWithdraw}
+          principalAmount={earnWithdrawMaxAmount}
         />
       );
     }
@@ -2625,7 +2737,7 @@ export function AppWalletWorkspace({
         <EarnWithdrawView
           destinations={earnDepositSources}
           isSubmitting={smartAccountData.isActionPending}
-          maxWithdrawAmount={1280}
+          maxWithdrawAmount={earnWithdrawMaxAmount}
           onClose={handleBackFromEarnWithdraw}
           onComplete={handleCompleteEarnWithdraw}
         />

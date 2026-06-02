@@ -42,6 +42,14 @@ export type ConfirmedYieldDepositInput = {
 
 export type UserYieldPositionRecord = typeof userYieldPositions.$inferSelect;
 
+export type ActiveYieldPositionLookupInput = {
+  cluster: string;
+  settings: string;
+  targetReserve: string;
+  vaultIndex: number;
+  walletAddress: string;
+};
+
 export type ConfirmedYieldWithdrawalInput = {
   cluster: string;
   walletAddress: string;
@@ -334,6 +342,27 @@ export async function recordConfirmedYieldDeposit(
   }
 
   return existingPosition;
+}
+
+export async function findActiveYieldPosition(
+  input: ActiveYieldPositionLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionRecord | null> {
+  const position =
+    await dependencies.client.db.query.userYieldPositions.findFirst({
+      where: and(
+        eq(userYieldPositions.cluster, input.cluster),
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.targetReserve, input.targetReserve),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.status, "active")
+      ),
+    });
+
+  return position ?? null;
 }
 
 export async function recordConfirmedYieldWithdrawal(
