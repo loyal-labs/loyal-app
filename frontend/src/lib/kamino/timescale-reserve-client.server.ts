@@ -1,5 +1,11 @@
 import "server-only";
 
+import {
+  RISK_BASKET_MARKETS,
+  STABLECOIN_MINTS,
+  STABLECOINS,
+} from "@loyal/actions/constants";
+import { RiskBasket, type Stablecoin } from "@loyal/actions/types";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { and, desc, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
 import {
@@ -64,7 +70,68 @@ export type TimescaleReserveClientTables = {
   reserveUpdates: typeof timescaleReserveUpdates;
 };
 
-export type TimescaleReserveUpdateRow = typeof timescaleReserveUpdates.$inferSelect;
+export type TimescaleReserveUpdateRow =
+  typeof timescaleReserveUpdates.$inferSelect;
+export type CurrentBestApyReserveByStablecoin = TimescaleReserveUpdateRow & {
+  stablecoin: Stablecoin;
+};
+
+const DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE = 100_000;
+const DEFAULT_MAX_SUPPLY_APY = 0.5;
+
+const stablecoinByLiquidityMint = new Map<string, Stablecoin>(
+  STABLECOINS.map((stablecoin) => [
+    STABLECOIN_MINTS[stablecoin].toBase58(),
+    stablecoin,
+  ])
+);
+
+export function selectCurrentBestApyReserveByStablecoin(
+  rows: readonly TimescaleReserveUpdateRow[]
+): CurrentBestApyReserveByStablecoin[] {
+  const bestByStablecoin = new Map<
+    Stablecoin,
+    CurrentBestApyReserveByStablecoin
+  >();
+
+  for (const row of rows) {
+    const stablecoin = stablecoinByLiquidityMint.get(row.liquidityMint);
+    const current = stablecoin ? bestByStablecoin.get(stablecoin) : undefined;
+    if (!stablecoin || (current && current.supplyApy >= row.supplyApy)) {
+      continue;
+    }
+    bestByStablecoin.set(stablecoin, { ...row, stablecoin });
+  }
+
+  return STABLECOINS.flatMap((stablecoin) => {
+    const row = bestByStablecoin.get(stablecoin);
+    return row ? [row] : [];
+  });
+}
+
+export function getTimescaleReserveDatabaseUrl(): string | null {
+  return (
+    process.env.KAMINO_TIMESCALE_DATABASE_URL ??
+    process.env.TIMESCALE_DATABASE_URL ??
+    null
+  );
+}
+
+export async function getCurrentBestApyReserveByStablecoin(args: {
+  riskProfile: RiskBasket;
+}): Promise<CurrentBestApyReserveByStablecoin[]> {
+  const databaseUrl = getTimescaleReserveDatabaseUrl();
+  if (!databaseUrl) {
+    return [];
+  }
+
+  const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
+  try {
+    return await client.getCurrentBestApyReserveByStablecoin(args);
+  } finally {
+    await client.close();
+  }
+}
 
 export class TimescaleReserveClient {
   readonly db: PostgresJsDatabase;
@@ -114,5 +181,58 @@ export class TimescaleReserveClient {
         )
       )
       .orderBy(desc(table.observedAt));
+  }
+
+  async getCurrentBestApyReserveByStablecoin(args: {
+    riskProfile: RiskBasket;
+    minTotalSupplyUsdEstimate?: number;
+    maxSupplyApy?: number;
+  }): Promise<CurrentBestApyReserveByStablecoin[]> {
+    if (!Object.values(RiskBasket).includes(args.riskProfile)) {
+      throw new Error(`unsupported risk profile: ${String(args.riskProfile)}`);
+    }
+
+    const reserveUpdates = this.tables.reserveUpdates;
+    const latestReserveUpdates = this.tables.latestReserveUpdates;
+    const marketAddresses = RISK_BASKET_MARKETS[args.riskProfile].map(
+      (market) => market.toBase58()
+    );
+    const stablecoinLiquidityMints = STABLECOINS.map((stablecoin) =>
+      STABLECOIN_MINTS[stablecoin].toBase58()
+    );
+
+    const rows = await this.db
+      .select()
+      .from(reserveUpdates)
+      .innerJoin(
+        latestReserveUpdates,
+        and(
+          eq(reserveUpdates.reserve, latestReserveUpdates.reserve),
+          eq(reserveUpdates.slot, latestReserveUpdates.slot),
+          eq(reserveUpdates.observedAt, latestReserveUpdates.observedAt)
+        )
+      )
+      .where(
+        and(
+          eq(reserveUpdates.reserveLastUpdateStale, false),
+          gt(
+            reserveUpdates.totalSupplyUsdEstimate,
+            args.minTotalSupplyUsdEstimate ??
+              DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE
+          ),
+          gte(reserveUpdates.supplyApy, 0),
+          lt(
+            reserveUpdates.supplyApy,
+            args.maxSupplyApy ?? DEFAULT_MAX_SUPPLY_APY
+          ),
+          inArray(reserveUpdates.market, marketAddresses),
+          inArray(reserveUpdates.liquidityMint, stablecoinLiquidityMints)
+        )
+      )
+      .orderBy(desc(reserveUpdates.supplyApy));
+
+    return selectCurrentBestApyReserveByStablecoin(
+      rows.map((row) => row.reserve_updates)
+    );
   }
 }

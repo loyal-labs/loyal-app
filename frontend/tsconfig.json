@@ -20,6 +20,11 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
+      "@loyal/actions": ["../packages/loyal-actions/src/index.ts"],
+      "@loyal/actions/constants": [
+        "../packages/loyal-actions/src/constants.ts"
+      ],
+      "@loyal/actions/types": ["../packages/loyal-actions/src/types.ts"],
       "@loyal-labs/shared": ["../packages/shared/src/index.ts"],
       "@loyal-labs/shared/analytics": ["../packages/shared/src/analytics.ts"],
       "@loyal-labs/shared/analytics-server": [

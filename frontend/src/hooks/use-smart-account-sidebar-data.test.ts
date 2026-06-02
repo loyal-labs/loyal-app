@@ -9,6 +9,7 @@ import type {
 
 import {
   createOverviewFromCache,
+  type CurrentBestApyReserveByStablecoinCache,
   getSmartAccountTotalUsd,
   readSmartAccountOverviewCache,
   type SmartAccountSignerEntry,
@@ -120,6 +121,29 @@ function makeProposal(): SmartAccountProposalSnapshot {
     },
     transactionAddress: "transaction",
     transactionIndex: "1",
+  };
+}
+
+function makeBestApyReserves(): CurrentBestApyReserveByStablecoinCache {
+  return {
+    riskProfile: "safe",
+    reserves: [
+      {
+        borrowApy: 0.01,
+        liquidityMint: "usdc-mint",
+        market: "market",
+        marketName: "Main",
+        observedAt: "2026-06-01T00:00:00.000Z",
+        reserve: "reserve-usdc",
+        slot: 1,
+        stablecoin: "USDC",
+        supplyApy: 0.12,
+        symbol: "USDC",
+        totalBorrowUsdEstimate: 10,
+        totalSupplyUsdEstimate: 1_000_000,
+        utilization: 0.2,
+      },
+    ],
   };
 }
 
@@ -237,6 +261,36 @@ describe("smart-account overview cache", () => {
 
     expect(cache?.groups.base?.data.settingsPda).toBe("settings");
     expect(cache?.groups.vaults?.data[0]?.portfolio.totals.totalUsd).toBe(12);
+  });
+
+  test("caches best APY reserves independently from overview groups", () => {
+    const storage = createMemoryStorage();
+
+    writeSmartAccountOverviewCacheGroup({
+      data: makeOverviewBase(),
+      group: "base",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+    writeSmartAccountOverviewCacheGroup({
+      data: makeBestApyReserves(),
+      group: "bestApyReserves",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+
+    const cache = readSmartAccountOverviewCache({
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+
+    expect(cache?.groups.base?.data.settingsPda).toBe("settings");
+    expect(cache?.groups.bestApyReserves?.data.reserves[0]?.reserve).toBe(
+      "reserve-usdc"
+    );
   });
 
   test("rebuilds an overview from cached partial groups", () => {

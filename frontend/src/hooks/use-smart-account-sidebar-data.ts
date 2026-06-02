@@ -73,6 +73,27 @@ type SmartAccountOverviewCacheGroup<T> = {
   data: T;
 };
 
+export type CurrentBestApyReserveByStablecoinSnapshot = {
+  borrowApy: number;
+  liquidityMint: string;
+  market: string | null;
+  marketName: string | null;
+  observedAt: string;
+  reserve: string;
+  slot: number;
+  stablecoin: string;
+  supplyApy: number;
+  symbol: string | null;
+  totalBorrowUsdEstimate: number;
+  totalSupplyUsdEstimate: number;
+  utilization: number;
+};
+
+export type CurrentBestApyReserveByStablecoinCache = {
+  riskProfile: string;
+  reserves: CurrentBestApyReserveByStablecoinSnapshot[];
+};
+
 type SmartAccountOverviewCachePayload = {
   version: 1;
   settingsPda: string;
@@ -83,6 +104,7 @@ type SmartAccountOverviewCachePayload = {
     vaults?: SmartAccountOverviewCacheGroup<SmartAccountVaultSnapshot[]>;
     policies?: SmartAccountOverviewCacheGroup<SmartAccountPolicyOverview>;
     proposals?: SmartAccountOverviewCacheGroup<SmartAccountProposalSnapshot[]>;
+    bestApyReserves?: SmartAccountOverviewCacheGroup<CurrentBestApyReserveByStablecoinCache>;
   };
 };
 
@@ -94,6 +116,7 @@ type SmartAccountOverviewCacheGroupData = {
   vaults: SmartAccountVaultSnapshot[];
   policies: SmartAccountPolicyOverview;
   proposals: SmartAccountProposalSnapshot[];
+  bestApyReserves: CurrentBestApyReserveByStablecoinCache;
 };
 
 export type SmartAccountApprovalItem = {
@@ -223,11 +246,14 @@ export type SmartAccountSidebarData = {
   isVaultsLoading: boolean;
   isPoliciesLoading: boolean;
   isProposalsLoading: boolean;
+  isBestApyReservesLoading: boolean;
+  bestApyReservesByStablecoin: CurrentBestApyReserveByStablecoinCache | null;
   scopedErrors: {
     base: string | null;
     vaults: string | null;
     policies: string | null;
     proposals: string | null;
+    bestApyReserves: string | null;
   };
   error: string | null;
   totalUsd: number;
@@ -530,6 +556,7 @@ function mergePolicyOverview(
 
 const SMART_ACCOUNT_OVERVIEW_CACHE_VERSION = 1;
 const SMART_ACCOUNT_OVERVIEW_CACHE_PREFIX = "loyal.smartAccountOverview.v1";
+const DEFAULT_BEST_APY_RESERVES_RISK_PROFILE = "safe";
 
 function getSmartAccountOverviewCacheKey(args: {
   settingsPda: string;
@@ -1531,17 +1558,23 @@ export function useSmartAccountSidebarData(
   const [isVaultsLoading, setIsVaultsLoading] = useState(false);
   const [isPoliciesLoading, setIsPoliciesLoading] = useState(false);
   const [isProposalsLoading, setIsProposalsLoading] = useState(false);
+  const [isBestApyReservesLoading, setIsBestApyReservesLoading] =
+    useState(false);
+  const [bestApyReservesByStablecoin, setBestApyReservesByStablecoin] =
+    useState<CurrentBestApyReserveByStablecoinCache | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scopedErrors, setScopedErrors] = useState<{
     base: string | null;
     vaults: string | null;
     policies: string | null;
     proposals: string | null;
+    bestApyReserves: string | null;
   }>({
     base: null,
     vaults: null,
     policies: null,
     proposals: null,
+    bestApyReserves: null,
   });
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
@@ -1578,25 +1611,36 @@ export function useSmartAccountSidebarData(
           vaults: null,
           policies: null,
           proposals: null,
+          bestApyReserves: null,
         });
+        setBestApyReservesByStablecoin(null);
         return;
       }
 
+      const settingsPda = user.settingsPda;
       let baseOverview: SmartAccountOverview | null = null;
       const shouldReadCache = refreshOptions?.readCache ?? true;
       const cachedPayload = shouldReadCache
         ? readSmartAccountOverviewCache({
-            settingsPda: user.settingsPda,
+            settingsPda,
             solanaEnv,
           })
         : null;
       const cachedOverview = cachedPayload
         ? createOverviewFromCache(cachedPayload)
         : null;
+      const cachedBestApyReserves =
+        cachedPayload?.groups.bestApyReserves?.data ??
+        readSmartAccountOverviewCache({
+          settingsPda,
+          solanaEnv,
+        })?.groups.bestApyReserves?.data ??
+        null;
 
       if (cachedOverview) {
         baseOverview = cachedOverview;
         setOverview(cachedOverview);
+        setBestApyReservesByStablecoin(cachedBestApyReserves);
         setVaultActivityByAccountIndex({});
         vaultActivityLoadPromisesRef.current.clear();
       }
@@ -1605,12 +1649,14 @@ export function useSmartAccountSidebarData(
       setIsVaultsLoading(false);
       setIsPoliciesLoading(false);
       setIsProposalsLoading(false);
+      setIsBestApyReservesLoading(false);
       setError(null);
       setScopedErrors({
         base: null,
         vaults: null,
         policies: null,
         proposals: null,
+        bestApyReserves: null,
       });
 
       try {
@@ -1622,7 +1668,7 @@ export function useSmartAccountSidebarData(
           baseUrl
         );
         writeSmartAccountOverviewCacheGroup({
-          settingsPda: user.settingsPda,
+          settingsPda,
           solanaEnv,
           group: "base",
           data: base,
@@ -1682,7 +1728,7 @@ export function useSmartAccountSidebarData(
             SmartAccountVaultSnapshot[]
           >(vaultsUrl);
           writeSmartAccountOverviewCacheGroup({
-            settingsPda: user.settingsPda,
+            settingsPda,
             solanaEnv,
             group: "vaults",
             data: vaults,
@@ -1720,7 +1766,7 @@ export function useSmartAccountSidebarData(
               policiesUrl
             );
           writeSmartAccountOverviewCacheGroup({
-            settingsPda: user.settingsPda,
+            settingsPda,
             solanaEnv,
             group: "policies",
             data: policies,
@@ -1755,7 +1801,7 @@ export function useSmartAccountSidebarData(
             SmartAccountProposalSnapshot[]
           >(proposalsUrl);
           writeSmartAccountOverviewCacheGroup({
-            settingsPda: user.settingsPda,
+            settingsPda,
             solanaEnv,
             group: "proposals",
             data: proposals,
@@ -1784,7 +1830,61 @@ export function useSmartAccountSidebarData(
         }
       };
 
-      await Promise.allSettled([loadVaults(), loadPolicies(), loadProposals()]);
+      const loadBestApyReserves = async () => {
+        if (
+          cachedBestApyReserves?.riskProfile ===
+          DEFAULT_BEST_APY_RESERVES_RISK_PROFILE
+        ) {
+          setBestApyReservesByStablecoin(cachedBestApyReserves);
+          return;
+        }
+
+        setIsBestApyReservesLoading(true);
+
+        try {
+          const bestApyReservesUrl = new URL(
+            "/api/smart-accounts/overview/best-apy-reserves",
+            window.location.origin
+          );
+          bestApyReservesUrl.searchParams.set(
+            "riskProfile",
+            DEFAULT_BEST_APY_RESERVES_RISK_PROFILE
+          );
+          const reserves = await fetchSmartAccountGroup<
+            CurrentBestApyReserveByStablecoinSnapshot[]
+          >(bestApyReservesUrl);
+          const cacheValue: CurrentBestApyReserveByStablecoinCache = {
+            riskProfile: DEFAULT_BEST_APY_RESERVES_RISK_PROFILE,
+            reserves,
+          };
+
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "bestApyReserves",
+            data: cacheValue,
+          });
+          setBestApyReservesByStablecoin(cacheValue);
+        } catch (nextError) {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load current best APY reserves.";
+          setScopedErrors((current) => ({
+            ...current,
+            bestApyReserves: message,
+          }));
+        } finally {
+          setIsBestApyReservesLoading(false);
+        }
+      };
+
+      await Promise.allSettled([
+        loadVaults(),
+        loadPolicies(),
+        loadProposals(),
+        loadBestApyReserves(),
+      ]);
     },
     [solanaEnv, user?.settingsPda]
   );
@@ -3153,7 +3253,11 @@ export function useSmartAccountSidebarData(
   );
 
   const isLoading =
-    isBaseLoading || isVaultsLoading || isPoliciesLoading || isProposalsLoading;
+    isBaseLoading ||
+    isVaultsLoading ||
+    isPoliciesLoading ||
+    isProposalsLoading ||
+    isBestApyReservesLoading;
 
   return {
     overview,
@@ -3162,6 +3266,8 @@ export function useSmartAccountSidebarData(
     isVaultsLoading,
     isPoliciesLoading,
     isProposalsLoading,
+    isBestApyReservesLoading,
+    bestApyReservesByStablecoin,
     scopedErrors,
     error,
     totalUsd,
