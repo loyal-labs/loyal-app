@@ -120,7 +120,6 @@ export function useIncomingDeposits(params: {
         const username = transaction.username.toLowerCase();
         const amountLamports = transaction.amountLamports;
         const payerPublicKey = await getGaslessPublicKey();
-        console.log("payerPublicKey", payerPublicKey);
 
         // Overview of PER claim:
         //
@@ -260,12 +259,10 @@ export function useIncomingDeposits(params: {
         }
 
         const provider = await getWalletProvider();
-        console.log("Fetching deposits for username:", username);
         const deposits = await fetchDeposits(
           provider.wallet.publicKey,
           username
         );
-        console.log("Deposits fetched:", deposits.length, deposits);
         if (isCancelled) {
           return;
         }

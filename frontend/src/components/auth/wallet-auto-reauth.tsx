@@ -58,7 +58,6 @@ export function WalletAutoReauth() {
         });
         await refreshSession();
         setStatus("done");
-        console.log("[wallet-auto-reauth] session restored for", walletAddress);
       } catch (error) {
         // Only show "rejected" banner for actual signature rejections.
         // Network/CORS/API errors (e.g. auth server unreachable from this domain)

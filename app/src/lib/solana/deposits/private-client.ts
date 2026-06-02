@@ -90,18 +90,9 @@ const getCachedAuthToken = async (
 
 const verifyTeeIntegrityAsync = (solanaEnv: SolanaEnv): void => {
   const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
-  const t0 = performance.now();
-  verifyTeeIntegrity(perRpcEndpoint)
-    .then(() => {
-      console.log(
-        `[private-client] verifyTeeIntegrity: ${(
-          performance.now() - t0
-        ).toFixed(1)}ms`,
-      );
-    })
-    .catch((error) => {
-      console.error("TEE RPC integrity verification error", error);
-    });
+  verifyTeeIntegrity(perRpcEndpoint).catch((error) => {
+    console.error("TEE RPC integrity verification error", error);
+  });
 };
 
 const fetchAndCacheAuthToken = async (
@@ -109,21 +100,17 @@ const fetchAndCacheAuthToken = async (
   solanaEnv: SolanaEnv,
 ): Promise<{ token: string; expiresAt: number } | null> => {
   try {
-    // Fire-and-forget TEE integrity check; logs result but does not block callers
+    // Fire-and-forget TEE integrity check; failures do not block callers.
     setTimeout(() => verifyTeeIntegrityAsync(solanaEnv), 10_000);
 
     const signMessage = (message: Uint8Array): Promise<Uint8Array> =>
       Promise.resolve(sign.detached(message, keypair.secretKey));
 
     const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
-    const t1 = performance.now();
     const authToken = await getAuthToken(
       perRpcEndpoint,
       keypair.publicKey,
       signMessage,
-    );
-    console.log(
-      `[private-client] getAuthToken: ${(performance.now() - t1).toFixed(1)}ms`,
     );
 
     const storageKey = getPrivateAuthTokenStorageKey(

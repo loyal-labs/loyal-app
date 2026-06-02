@@ -27,6 +27,29 @@ const TOKEN_2022_PROGRAM_ID = new PublicKey(
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const SOLANA_NETWORK = "solana";
 const DEFAULT_SUBSCRIPTION_DEBOUNCE_MS = 750;
+export const SOLANA_USDC_MINT_DEVNET =
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+export const USDC_ICON_URL =
+  "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png";
+
+type KnownTokenMetadata = {
+  descriptor: AssetDescriptor;
+  priceUsd: number;
+};
+
+const KNOWN_TOKEN_METADATA: Record<string, KnownTokenMetadata> = {
+  [SOLANA_USDC_MINT_DEVNET]: {
+    descriptor: {
+      mint: SOLANA_USDC_MINT_DEVNET,
+      symbol: "USDC",
+      name: "USD Coin",
+      decimals: 6,
+      imageUrl: USDC_ICON_URL,
+      isNative: false,
+    },
+    priceUsd: 1,
+  },
+};
 
 type CoinGeckoTokenMarket = {
   mint: string;
@@ -136,6 +159,24 @@ function mapCoinGeckoTokenData(
     market: {
       priceUsd: parseNumber(attrs.price_usd),
     },
+  };
+}
+
+export function resolveKnownTokenMetadata(
+  mint: string,
+  decimals?: number
+): KnownTokenMetadata | null {
+  const known = KNOWN_TOKEN_METADATA[mint];
+  if (!known) {
+    return null;
+  }
+
+  return {
+    descriptor: {
+      ...known.descriptor,
+      decimals: decimals ?? known.descriptor.decimals,
+    },
+    priceUsd: known.priceUsd,
   };
 }
 
@@ -290,6 +331,11 @@ export function createFrontendAssetProvider(args: {
           },
           priceUsd,
         };
+      }
+
+      const knownToken = resolveKnownTokenMetadata(mint, decimals);
+      if (knownToken) {
+        return knownToken;
       }
 
       const market = await fetchCoinGeckoTokenMarket(args.fetchImpl, mint);

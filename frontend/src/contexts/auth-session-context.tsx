@@ -138,24 +138,6 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     };
   }, [hydrateSession, isHydrated, refreshSession, session]);
 
-  useEffect(() => {
-    if (!isHydrated || user === null) {
-      return;
-    }
-
-    console.log("[auth-session] signed-in user claims", {
-      authMethod: user.authMethod,
-      subjectAddress: user.subjectAddress,
-      displayAddress: user.displayAddress,
-      smartAccountAddress: user.smartAccountAddress ?? null,
-      settingsPda: user.settingsPda ?? null,
-      walletAddress: user.walletAddress ?? null,
-      provider: user.provider ?? null,
-      claimKeys: Object.keys(user),
-      rawUser: user,
-    });
-  }, [isHydrated, user]);
-
   const logout = useCallback(async () => {
     trackAuthLogout(publicEnv, user);
     await authApiClient.logout();

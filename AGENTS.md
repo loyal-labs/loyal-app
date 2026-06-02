@@ -4,6 +4,18 @@ This file provides guidance to coding agents when working with code in this repo
 
 !! Never run build on frontend locally for testing purposes !!
 
+## Secrets
+
+Use the 1Password Environment `loyal-frontend-devnet` for local frontend devnet secrets. The environment is mounted at `.env.1password`, which is ignored by Git through `.env*`.
+
+Do not write plaintext secrets to `.env` files, source files, command arguments, logs, or chat. When a command needs environment variables, use the 1Password CLI with the mounted env file:
+
+```sh
+op run --env-file=.env.1password -- sh -c '<command>'
+```
+
+Keep shell variable expansion inside the `sh -c` subprocess so `op run` injects values before the command reads them.
+
 ## Project Overview
 
 Solana Telegram Transactions enables users to deposit SOL for any Telegram username, which can later be claimed by the verified account owner. It integrates Solana smart contracts with a Telegram mini-app interface.

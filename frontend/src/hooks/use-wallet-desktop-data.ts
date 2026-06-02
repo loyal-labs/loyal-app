@@ -677,11 +677,6 @@ export function useWalletDesktopData(): WalletDesktopData {
   }, [ownerPublicKey]);
 
   useEffect(() => {
-    console.log("[wallet-data] effect fired", {
-      connected: wallet.connected,
-      publicKey: ownerPublicKey?.toBase58() ?? null,
-    });
-
     if (!ownerPublicKey) {
       setPortfolioSnapshot(null);
       setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
@@ -696,7 +691,6 @@ export function useWalletDesktopData(): WalletDesktopData {
 
     const publicKey = ownerPublicKey;
     const address = publicKey.toBase58();
-    console.log("[wallet-data] fetching portfolio for", address);
 
     void client
       .getPortfolio(publicKey)
@@ -738,7 +732,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     return () => {
       cancelled = true;
     };
-  }, [client, wallet.connected, ownerPublicKey, applyEnrichment]);
+  }, [client, ownerPublicKey, applyEnrichment]);
 
   useEffect(() => {
     if (!ownerPublicKey) {
