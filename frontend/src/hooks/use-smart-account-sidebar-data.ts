@@ -6,6 +6,8 @@ import {
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
+  type SmartAccountPreparedEarnUsdcDeposit,
+  type SmartAccountPreparedEarnUsdcWithdraw,
   type SmartAccountPolicyOverview,
   type SmartAccountProposalSnapshot,
   type SmartAccountSignerPermission,
@@ -224,6 +226,33 @@ export type VaultSwapRequest = {
 
 export type VaultSwapResult = VaultTransferResult;
 
+export type EarnDepositRequest = {
+  amountRaw: bigint;
+};
+
+export type EarnDepositResult = {
+  success: boolean;
+  signature?: string;
+  confirmedSlot?: string;
+  status?: "executed";
+  error?: string;
+};
+
+export type EarnWithdrawRequest = {
+  amountRaw: bigint;
+  mode: "partial" | "full";
+};
+
+export type EarnWithdrawResult = {
+  success: boolean;
+  signature?: string;
+  confirmedSlot?: string;
+  status?: "executed" | "confirmation_record_failed";
+  mode?: "partial" | "full";
+  amountRaw?: string;
+  error?: string;
+};
+
 export type VaultTransferCapability =
   | { kind: "blocked"; reason: string }
   | {
@@ -350,6 +379,12 @@ export type SmartAccountSidebarData = {
     request: VaultTransferRequest
   ) => Promise<VaultTransferResult>;
   executeVaultSwap: (request: VaultSwapRequest) => Promise<VaultSwapResult>;
+  executeEarnDeposit: (
+    request: EarnDepositRequest
+  ) => Promise<EarnDepositResult>;
+  executeEarnWithdraw: (
+    request: EarnWithdrawRequest
+  ) => Promise<EarnWithdrawResult>;
   isActionPending: boolean;
   pendingProposalId: string | null;
   pendingSpendingLimitActionKey: string | null;
@@ -764,6 +799,71 @@ async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
 
   const payload = (await response.json()) as SmartAccountTimedRouteResponse<T>;
   return payload.data;
+}
+
+async function postConfirmedEarnDeposit(args: {
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  signature: string;
+  confirmedSlot: string;
+  smartAccountAddress: string;
+}) {
+  const body = {
+    ...args.preparedDeposit.persistence,
+    smartAccountAddress: args.smartAccountAddress,
+    policySignature: args.signature,
+    depositSignature: args.signature,
+    confirmedSlot: args.confirmedSlot,
+  };
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/deposits/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to record confirmed earn deposit."
+    );
+  }
+}
+
+async function postConfirmedEarnWithdraw(args: {
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
+  signature: string;
+  confirmedSlot: string;
+  smartAccountAddress: string;
+}) {
+  const body = {
+    ...args.preparedWithdraw.persistence,
+    smartAccountAddress: args.smartAccountAddress,
+    withdrawalSignature: args.signature,
+    confirmedSlot: args.confirmedSlot,
+  };
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/withdrawals/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to record confirmed earn withdrawal."
+    );
+  }
 }
 
 export function getSmartAccountTotalUsd({
@@ -1293,6 +1393,22 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
       options?: SendOptions
     ) => wallet.sendTransaction!(transaction, nextConnection, options),
   };
+}
+
+async function resolveConfirmedSignatureSlot(args: {
+  connection: Connection;
+  signature: string;
+}): Promise<string> {
+  const { value } = await args.connection.getSignatureStatuses([
+    args.signature,
+  ]);
+  const slot = value[0]?.slot;
+
+  if (typeof slot !== "number") {
+    throw new Error("Confirmed transaction slot is unavailable.");
+  }
+
+  return String(slot);
 }
 
 async function decompileVersionedTransaction(args: {
@@ -3252,6 +3368,205 @@ export function useSmartAccountSidebarData(
     [connection, overview, refreshAfterTx, wallet]
   );
 
+  const executeEarnDeposit = useCallback(
+    async (request: EarnDepositRequest): Promise<EarnDepositResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      if (request.amountRaw <= BigInt(0)) {
+        return { success: false, error: "Amount must be greater than 0." };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+
+      setIsActionPending(true);
+      try {
+        const preparedDeposit = await client.prepareEarnUsdcDeposit({
+          settingsPda,
+          walletAddress: wallet.publicKey,
+          feePayer: wallet.publicKey,
+          amountRaw: request.amountRaw,
+        });
+        const signature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: preparedDeposit.prepared,
+          confirm: true,
+        });
+        const confirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature,
+        });
+
+        await postConfirmedEarnDeposit({
+          preparedDeposit,
+          signature,
+          confirmedSlot,
+          smartAccountAddress: overview.canonicalVaultAddress,
+        });
+
+        void refreshAfterTx({
+          accountIndex: preparedDeposit.vault.accountIndex,
+          signerAddresses: [wallet.publicKey.toBase58()],
+        }).catch((err) => {
+          console.warn("[smart-account] post-earn refresh failed", err);
+        });
+
+        return {
+          success: true,
+          signature,
+          confirmedSlot,
+          status: "executed",
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Earn deposit failed.";
+        console.error("[executeEarnDeposit] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
+  );
+
+  const executeEarnWithdraw = useCallback(
+    async (request: EarnWithdrawRequest): Promise<EarnWithdrawResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      if (request.amountRaw <= BigInt(0)) {
+        return { success: false, error: "Amount must be greater than 0." };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+
+      setIsActionPending(true);
+      try {
+        const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
+          settingsPda,
+          walletAddress: wallet.publicKey,
+          feePayer: wallet.publicKey,
+          amountRaw: request.amountRaw,
+          mode: request.mode,
+        });
+        const signature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: preparedWithdraw.prepared,
+          confirm: true,
+        });
+        const confirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature,
+        });
+
+        try {
+          await postConfirmedEarnWithdraw({
+            preparedWithdraw,
+            signature,
+            confirmedSlot,
+            smartAccountAddress: overview.canonicalVaultAddress,
+          });
+        } catch (error) {
+          return {
+            success: false,
+            signature,
+            confirmedSlot,
+            status: "confirmation_record_failed",
+            mode: request.mode,
+            amountRaw: request.amountRaw.toString(),
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to record confirmed earn withdrawal.",
+          };
+        }
+
+        void refreshAfterTx({
+          accountIndex: preparedWithdraw.vault.accountIndex,
+          signerAddresses: [wallet.publicKey.toBase58()],
+        }).catch((err) => {
+          console.warn(
+            "[smart-account] post-earn-withdraw refresh failed",
+            err
+          );
+        });
+
+        return {
+          success: true,
+          signature,
+          confirmedSlot,
+          status: "executed",
+          mode: request.mode,
+          amountRaw: request.amountRaw.toString(),
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Earn withdrawal failed.";
+        console.error("[executeEarnWithdraw] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
+  );
+
   const isLoading =
     isBaseLoading ||
     isVaultsLoading ||
@@ -3291,6 +3606,8 @@ export function useSmartAccountSidebarData(
     evaluateVaultTransferCapability,
     executeVaultTransfer,
     executeVaultSwap,
+    executeEarnDeposit,
+    executeEarnWithdraw,
     isActionPending,
     pendingProposalId,
     pendingSpendingLimitActionKey,

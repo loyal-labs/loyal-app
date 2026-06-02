@@ -95,7 +95,8 @@ export const managedVaults = loyalYieldSchema.table(
     uniqueIndex("managed_vaults_cluster_settings_index_uidx").on(
       table.cluster,
       table.settings,
-      table.vaultIndex
+      table.vaultIndex,
+      table.vaultPubkey
     ),
   ]
 );
@@ -184,10 +185,43 @@ export const userYieldPositionDeposits = loyalYieldSchema.table(
   ]
 );
 
+export const userYieldPositionWithdrawals = loyalYieldSchema.table(
+  "user_yield_position_withdrawals",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    withdrawalSignature: text("withdrawal_signature").notNull(),
+    confirmedSlot: bigint("confirmed_slot", { mode: "bigint" }).notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    smartAccountAddress: text("smart_account_address").notNull(),
+    settings: text("settings").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    vaultPubkey: text("vault_pubkey").notNull(),
+    policyId: bigint("policy_id", { mode: "bigint" }).notNull(),
+    policyAccount: text("policy_account").notNull(),
+    policySeed: bigint("policy_seed", { mode: "bigint" }).notNull(),
+    targetReserve: text("target_reserve").notNull(),
+    market: text("market"),
+    liquidityMint: text("liquidity_mint").notNull(),
+    withdrawnAmountRaw: bigint("withdrawn_amount_raw", {
+      mode: "bigint",
+    }).notNull(),
+    mode: text("mode").notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_yield_position_withdrawals_signature_uidx").on(
+      table.cluster,
+      table.withdrawalSignature
+    ),
+  ]
+);
+
 export const vaultPositionSnapshots = loyalYieldSchema.table(
   "vault_position_snapshots",
   {
-    id: bigint("id", { mode: "bigint" }).primaryKey(),
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
     vaultId: bigint("vault_id", { mode: "bigint" }).notNull(),
     policyId: bigint("policy_id", { mode: "bigint" }).notNull(),
     observedSlot: bigint("observed_slot", { mode: "bigint" }).notNull(),
@@ -202,7 +236,7 @@ export const vaultPositionSnapshots = loyalYieldSchema.table(
 export const vaultPositionSnapshotPositions = loyalYieldSchema.table(
   "vault_position_snapshot_positions",
   {
-    id: bigint("id", { mode: "bigint" }).primaryKey(),
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
     snapshotId: bigint("snapshot_id", { mode: "bigint" }).notNull(),
     reserve: text("reserve").notNull(),
     market: text("market"),
@@ -240,7 +274,7 @@ export const vaultReservePositionsCurrent = loyalYieldSchema.table(
 export const rebalanceDecisions = loyalYieldSchema.table(
   "rebalance_decisions",
   {
-    id: bigint("id", { mode: "bigint" }).primaryKey(),
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
     vaultId: bigint("vault_id", { mode: "bigint" }).notNull(),
     sourceSnapshotId: bigint("source_snapshot_id", { mode: "bigint" }),
     status: decisionStatus("status").notNull(),

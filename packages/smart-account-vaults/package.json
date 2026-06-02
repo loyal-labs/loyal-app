@@ -21,6 +21,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@loyal/actions": "workspace:*",
     "@loyal-labs/loyal-smart-accounts": "workspace:*",
     "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
     "@loyal-labs/solana-instruction-decoder": "workspace:*",

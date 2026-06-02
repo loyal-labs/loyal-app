@@ -12,11 +12,14 @@ const {
   managedVaults,
   routePolicies,
   userYieldPositionDeposits,
+  userYieldPositionWithdrawals,
   userYieldPositions,
 } = await import("../yield-neon-client.server");
-const { createRoutePolicyValuesFromPlan, recordConfirmedYieldDeposit } = await import(
-  "../yield-deposit-repository.server"
-);
+const {
+  createRoutePolicyValuesFromPlan,
+  recordConfirmedYieldDeposit,
+  recordConfirmedYieldWithdrawal,
+} = await import("../yield-deposit-repository.server");
 
 const settings = new PublicKey("11111111111111111111111111111112");
 const walletAddress = new PublicKey("11111111111111111111111111111113");
@@ -26,6 +29,12 @@ type InsertCall = {
   conflict?: unknown;
   table: unknown;
   values?: Record<string, unknown>;
+};
+
+type UpdateCall = {
+  table: unknown;
+  set?: Record<string, unknown>;
+  where?: unknown;
 };
 
 function input(overrides = {}) {
@@ -45,9 +54,31 @@ function input(overrides = {}) {
     smartAccountAddress: smartAccountAddress.toBase58(),
     targetReserve: "reserve-1",
     targetSupplyApyBps: BigInt(523),
-    vaultIndex: 0,
+    vaultIndex: 1,
     vaultPubkey: "11111111111111111111111111111115",
     walletAddress: walletAddress.toBase58(),
+    ...overrides,
+  };
+}
+
+function withdrawalInput(overrides = {}) {
+  return {
+    cluster: "devnet",
+    confirmedSlot: BigInt(140),
+    liquidityMint: "USDC-mint",
+    market: "Main",
+    mode: "partial" as const,
+    policyAccount: "policy-account-1",
+    policyId: BigInt(42),
+    policySeed: BigInt(7),
+    settings: settings.toBase58(),
+    smartAccountAddress: smartAccountAddress.toBase58(),
+    targetReserve: "reserve-1",
+    vaultIndex: 1,
+    vaultPubkey: "11111111111111111111111111111115",
+    walletAddress: walletAddress.toBase58(),
+    withdrawalSignature: "withdrawal-sig-1",
+    withdrawnAmountRaw: BigInt(250_000),
     ...overrides,
   };
 }
@@ -74,7 +105,7 @@ function position(overrides = {}) {
     targetReserve: "reserve-1",
     targetSupplyApyBps: BigInt(523),
     updatedAt: now,
-    vaultIndex: 0,
+    vaultIndex: 1,
     vaultPubkey: "11111111111111111111111111111115",
     walletAddress: walletAddress.toBase58(),
     ...overrides,
@@ -83,10 +114,13 @@ function position(overrides = {}) {
 
 function createFakeClient(args: {
   duplicateDeposit?: boolean;
+  duplicateWithdrawal?: boolean;
   existingPosition?: ReturnType<typeof position>;
   upsertedPosition?: ReturnType<typeof position>;
+  updatedPosition?: ReturnType<typeof position>;
 }) {
   const insertCalls: InsertCall[] = [];
+  const updateCalls: UpdateCall[] = [];
   const findFirst = mock(async () => args.existingPosition ?? null);
 
   class InsertBuilder {
@@ -122,6 +156,9 @@ function createFakeClient(args: {
       if (this.call.table === userYieldPositionDeposits) {
         return args.duplicateDeposit ? [] : [{ id: BigInt(99) }];
       }
+      if (this.call.table === userYieldPositionWithdrawals) {
+        return args.duplicateWithdrawal ? [] : [{ id: BigInt(100) }];
+      }
       if (this.call.table === userYieldPositions && this.returnsSelection) {
         return [args.upsertedPosition ?? position()];
       }
@@ -133,11 +170,48 @@ function createFakeClient(args: {
     }
   }
 
+  class UpdateBuilder {
+    readonly call: UpdateCall;
+    private returnsSelection = false;
+
+    constructor(table: unknown) {
+      this.call = { table };
+      updateCalls.push(this.call);
+    }
+
+    set(values: Record<string, unknown>) {
+      this.call.set = values;
+      return this;
+    }
+
+    where(where: unknown) {
+      this.call.where = where;
+      return this;
+    }
+
+    returning() {
+      this.returnsSelection = true;
+      return this;
+    }
+
+    async execute() {
+      if (this.call.table === userYieldPositions && this.returnsSelection) {
+        return [args.updatedPosition ?? position()];
+      }
+      return [];
+    }
+
+    then(resolve: (value: unknown) => void, reject: (error: unknown) => void) {
+      return this.execute().then(resolve, reject);
+    }
+  }
+
   const db = {
-    batch: mock(async (queries: InsertBuilder[]) =>
+    batch: mock(async (queries: Array<InsertBuilder | UpdateBuilder>) =>
       Promise.all(queries.map((query) => query.execute()))
     ),
     insert: mock((table: unknown) => new InsertBuilder(table)),
+    update: mock((table: unknown) => new UpdateBuilder(table)),
     query: {
       userYieldPositions: {
         findFirst,
@@ -150,6 +224,7 @@ function createFakeClient(args: {
     db,
     findFirst,
     insertCalls,
+    updateCalls,
   };
 }
 
@@ -206,6 +281,10 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(routePolicyCall?.values).toEqual(
       createRoutePolicyValuesFromPlan(plan, depositInput, now)
     );
+    expect(routePolicyCall?.values?.authority).toBe(walletAddress.toBase58());
+    expect(routePolicyCall?.values?.delegatedSigners).toEqual([
+      walletAddress.toBase58(),
+    ]);
     expect(routePolicyCall?.values?.stableMints).toEqual(
       plan.persistence.stableMints
     );
@@ -221,10 +300,20 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(managedVaultCall?.values?.vaultPubkey).toBe(
       plan.metadata.vault.toBase58()
     );
+    expect(
+      (managedVaultCall?.conflict as { target: unknown[] }).target
+    ).toEqual([
+      managedVaults.cluster,
+      managedVaults.settings,
+      managedVaults.vaultIndex,
+      managedVaults.vaultPubkey,
+    ]);
   });
 
   test("duplicate deposit signature returns the existing position without another aggregate upsert", async () => {
-    const existingPosition = position({ principalAmountRaw: BigInt(1_000_000) });
+    const existingPosition = position({
+      principalAmountRaw: BigInt(1_000_000),
+    });
     const fake = createFakeClient({
       duplicateDeposit: true,
       existingPosition,
@@ -240,6 +329,30 @@ describe("recordConfirmedYieldDeposit", () => {
       routePolicies,
       managedVaults,
       userYieldPositionDeposits,
+    ]);
+    expect(fake.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  test("duplicate deposit signature recovers the aggregate when the position is missing", async () => {
+    const recoveredPosition = position({
+      principalAmountRaw: BigInt(1_000_000),
+    });
+    const fake = createFakeClient({
+      duplicateDeposit: true,
+      upsertedPosition: recoveredPosition,
+    });
+
+    const result = await recordConfirmedYieldDeposit(input(), {
+      client: fake.client as never,
+      now: () => new Date("2026-06-01T00:00:00.000Z"),
+    });
+
+    expect(result).toBe(recoveredPosition);
+    expect(fake.insertCalls.map((call) => call.table)).toEqual([
+      routePolicies,
+      managedVaults,
+      userYieldPositionDeposits,
+      userYieldPositions,
     ]);
     expect(fake.findFirst).toHaveBeenCalledTimes(1);
   });
@@ -271,5 +384,105 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(aggregateCall?.values?.principalAmountRaw).toBe(BigInt(1_500_000));
     expect(result.principalAmountRaw).toBe(BigInt(2_500_000));
     expect(result.lastDepositSignature).toBe("deposit-sig-2");
+  });
+});
+
+describe("recordConfirmedYieldWithdrawal", () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test("records a partial withdrawal and decrements the active position", async () => {
+    const fake = createFakeClient({
+      existingPosition: position({ principalAmountRaw: BigInt(1_000_000) }),
+      updatedPosition: position({
+        lastConfirmedSlot: BigInt(140),
+        principalAmountRaw: BigInt(750_000),
+      }),
+    });
+
+    const result = await recordConfirmedYieldWithdrawal(withdrawalInput(), {
+      client: fake.client as never,
+      now: () => new Date("2026-06-01T00:00:00.000Z"),
+    });
+
+    expect(result.principalAmountRaw).toBe(BigInt(750_000));
+    expect(fake.insertCalls.map((call) => call.table)).toEqual([
+      userYieldPositionWithdrawals,
+    ]);
+    expect(fake.updateCalls.map((call) => call.table)).toEqual([
+      userYieldPositions,
+    ]);
+    expect(fake.insertCalls[0]?.values).toMatchObject({
+      mode: "partial",
+      withdrawalSignature: "withdrawal-sig-1",
+      withdrawnAmountRaw: BigInt(250_000),
+    });
+    expect(fake.updateCalls[0]?.set).toMatchObject({
+      lastConfirmedSlot: BigInt(140),
+      status: "active",
+    });
+  });
+
+  test("full withdrawal closes position, policy, and managed vault", async () => {
+    const fake = createFakeClient({
+      existingPosition: position({ principalAmountRaw: BigInt(1_000_000) }),
+      updatedPosition: position({
+        lastConfirmedSlot: BigInt(140),
+        principalAmountRaw: BigInt(0),
+        status: "closed",
+      }),
+    });
+
+    const result = await recordConfirmedYieldWithdrawal(
+      withdrawalInput({
+        mode: "full" as const,
+        withdrawnAmountRaw: BigInt(1_000_000),
+      }),
+      {
+        client: fake.client as never,
+        now: () => new Date("2026-06-01T00:00:00.000Z"),
+      }
+    );
+
+    expect(result.status).toBe("closed");
+    expect(result.principalAmountRaw).toBe(BigInt(0));
+    expect(fake.updateCalls.map((call) => call.table)).toEqual([
+      userYieldPositions,
+      routePolicies,
+      managedVaults,
+    ]);
+    expect(fake.updateCalls[1]?.set).toMatchObject({ active: false });
+    expect(fake.updateCalls[2]?.set).toMatchObject({ active: false });
+  });
+
+  test("duplicate withdrawal signature returns existing position", async () => {
+    const existingPosition = position({ principalAmountRaw: BigInt(750_000) });
+    const fake = createFakeClient({
+      duplicateWithdrawal: true,
+      existingPosition,
+    });
+
+    const result = await recordConfirmedYieldWithdrawal(withdrawalInput(), {
+      client: fake.client as never,
+      now: () => new Date("2026-06-01T00:00:00.000Z"),
+    });
+
+    expect(result).toBe(existingPosition);
+    expect(fake.updateCalls).toHaveLength(0);
+  });
+
+  test("rejects over-withdrawal before writing an event", async () => {
+    const fake = createFakeClient({
+      existingPosition: position({ principalAmountRaw: BigInt(100_000) }),
+    });
+
+    await expect(
+      recordConfirmedYieldWithdrawal(withdrawalInput(), {
+        client: fake.client as never,
+        now: () => new Date("2026-06-01T00:00:00.000Z"),
+      })
+    ).rejects.toThrow("exceeds the active yield position amount");
+    expect(fake.insertCalls).toHaveLength(0);
   });
 });

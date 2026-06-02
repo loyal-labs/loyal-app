@@ -1,11 +1,30 @@
 import { NextResponse } from "next/server";
+import {
+  KAMINO_MAIN_MARKET,
+  KAMINO_MAIN_USDC_RESERVE,
+  LoyalCluster,
+  RiskBasket,
+  STABLECOIN_MINTS,
+  Stablecoin,
+  createVaultYieldRoutingPolicyPlan,
+} from "@loyal/actions";
+import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
+import { Connection, PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
   recordConfirmedYieldDeposit,
   type ConfirmedYieldDepositInput,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
+
+const EARN_DEPOSIT_POLICY_SEED = BigInt(1);
+const EARN_DEPOSIT_VAULT_INDEX = 1;
+const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
+
+const connectionCache = new Map<SolanaEnv, Connection>();
 
 type ConfirmDepositRequestBody = {
   cluster?: unknown;
@@ -100,6 +119,20 @@ function readVaultIndex(body: ConfirmDepositRequestBody): number {
   return value;
 }
 
+function parseLoyalCluster(cluster: string): LoyalCluster {
+  if (cluster === LoyalCluster.Devnet) {
+    return LoyalCluster.Devnet;
+  }
+  if (cluster === LoyalCluster.MainnetBeta || cluster === "mainnet") {
+    return LoyalCluster.MainnetBeta;
+  }
+  throw new Error(`unsupported Loyal cluster: ${cluster}`);
+}
+
+function getConfiguredSolanaEnv(): SolanaEnv {
+  return resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
+}
+
 function parseRequestBody(body: unknown): ConfirmedYieldDepositInput {
   if (!body || typeof body !== "object") {
     throw new Error("Request body must be an object.");
@@ -126,6 +159,146 @@ function parseRequestBody(body: unknown): ConfirmedYieldDepositInput {
     vaultPubkey: readRequiredString(record, "vaultPubkey"),
     walletAddress: readRequiredString(record, "walletAddress"),
   };
+}
+
+function assertCanonicalField(
+  actual: string | bigint | number | null,
+  expected: string | bigint | number | null,
+  label: string
+) {
+  if (actual !== expected) {
+    throw new Error(`${label} does not match the canonical earn deposit metadata.`);
+  }
+}
+
+function createCanonicalDepositInput(
+  requestInput: ConfirmedYieldDepositInput
+): ConfirmedYieldDepositInput {
+  const cluster = parseLoyalCluster(requestInput.cluster);
+  const walletAddress = new PublicKey(requestInput.walletAddress);
+  const settings = new PublicKey(requestInput.settings);
+  const policyPlan = createVaultYieldRoutingPolicyPlan({
+    cluster,
+    risk: RiskBasket.Safe,
+    smartAccount: {
+      settings,
+      authority: walletAddress,
+      delegatedSigner: walletAddress,
+    },
+    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+  });
+  const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC].toBase58();
+  const canonicalInput = {
+    ...requestInput,
+    cluster,
+    depositMint: usdcMint,
+    liquidityMint: usdcMint,
+    market: KAMINO_MAIN_MARKET.toBase58(),
+    policyAccount: policyPlan.actionAccount.toBase58(),
+    policyId: EARN_DEPOSIT_POLICY_SEED,
+    policySeed: EARN_DEPOSIT_POLICY_SEED,
+    policySignature: requestInput.depositSignature,
+    targetReserve: KAMINO_MAIN_USDC_RESERVE.toBase58(),
+    targetSupplyApyBps: null,
+    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+    vaultPubkey: policyPlan.metadata.vault.toBase58(),
+  };
+
+  assertCanonicalField(requestInput.cluster, canonicalInput.cluster, "cluster");
+  assertCanonicalField(
+    requestInput.depositMint,
+    canonicalInput.depositMint,
+    "depositMint"
+  );
+  assertCanonicalField(
+    requestInput.liquidityMint,
+    canonicalInput.liquidityMint,
+    "liquidityMint"
+  );
+  assertCanonicalField(requestInput.market, canonicalInput.market, "market");
+  assertCanonicalField(
+    requestInput.policyAccount,
+    canonicalInput.policyAccount,
+    "policyAccount"
+  );
+  assertCanonicalField(requestInput.policyId, canonicalInput.policyId, "policyId");
+  assertCanonicalField(
+    requestInput.policySeed,
+    canonicalInput.policySeed,
+    "policySeed"
+  );
+  assertCanonicalField(
+    requestInput.policySignature,
+    canonicalInput.policySignature,
+    "policySignature"
+  );
+  assertCanonicalField(
+    requestInput.targetReserve,
+    canonicalInput.targetReserve,
+    "targetReserve"
+  );
+  assertCanonicalField(
+    requestInput.targetSupplyApyBps,
+    canonicalInput.targetSupplyApyBps,
+    "targetSupplyApyBps"
+  );
+  assertCanonicalField(
+    requestInput.vaultIndex,
+    canonicalInput.vaultIndex,
+    "vaultIndex"
+  );
+  assertCanonicalField(
+    requestInput.vaultPubkey,
+    canonicalInput.vaultPubkey,
+    "vaultPubkey"
+  );
+
+  return canonicalInput;
+}
+
+function getConnection(cluster: SolanaEnv): Connection {
+  const cached = connectionCache.get(cluster);
+  if (cached) {
+    return cached;
+  }
+
+  const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(cluster);
+  const connection = new Connection(rpcEndpoint, {
+    commitment: "confirmed",
+    disableRetryOnRateLimit: true,
+    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+    wsEndpoint: websocketEndpoint,
+  });
+  connectionCache.set(cluster, connection);
+  return connection;
+}
+
+async function resolveConfirmedSignatureSlot(args: {
+  cluster: SolanaEnv;
+  signature: string;
+}): Promise<bigint> {
+  const { value } = await getConnection(args.cluster).getSignatureStatuses(
+    [args.signature],
+    { searchTransactionHistory: true }
+  );
+  const status = value[0];
+
+  if (!status || status.err) {
+    throw new Error("Deposit transaction is not confirmed.");
+  }
+
+  if (
+    status.confirmationStatus !== "confirmed" &&
+    status.confirmationStatus !== "finalized"
+  ) {
+    throw new Error("Deposit transaction is not confirmed.");
+  }
+
+  if (typeof status.slot !== "number") {
+    throw new Error("Confirmed transaction slot is unavailable.");
+  }
+
+  return BigInt(status.slot);
 }
 
 function serializePosition(position: UserYieldPositionRecord) {
@@ -170,6 +343,51 @@ export async function POST(request: Request) {
       403,
       "principal_mismatch",
       "Confirmed yield deposit does not match the authenticated wallet session."
+    );
+  }
+
+  try {
+    input = createCanonicalDepositInput(input);
+  } catch (error) {
+    return jsonError(
+      400,
+      "metadata_mismatch",
+      error instanceof Error
+        ? error.message
+        : "Confirmed yield deposit metadata is invalid."
+    );
+  }
+
+  const solanaEnv = getConfiguredSolanaEnv();
+  if (input.cluster !== solanaEnv) {
+    return jsonError(
+      400,
+      "cluster_mismatch",
+      "Confirmed yield deposit cluster does not match the configured Solana environment."
+    );
+  }
+
+  let confirmedSlot: bigint;
+  try {
+    confirmedSlot = await resolveConfirmedSignatureSlot({
+      cluster: solanaEnv,
+      signature: input.depositSignature,
+    });
+  } catch (error) {
+    return jsonError(
+      400,
+      "unconfirmed_signature",
+      error instanceof Error
+        ? error.message
+        : "Deposit transaction is not confirmed."
+    );
+  }
+
+  if (input.confirmedSlot !== confirmedSlot) {
+    return jsonError(
+      400,
+      "slot_mismatch",
+      "Confirmed yield deposit slot does not match the transaction status."
     );
   }
 

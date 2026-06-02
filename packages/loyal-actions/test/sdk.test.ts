@@ -47,7 +47,7 @@ function deriveVault(settingsPda: PublicKey, vaultIndex: number): PublicKey {
       Buffer.from("smart_account"),
       Uint8Array.from([vaultIndex]),
     ],
-    new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"),
+    new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
   )[0];
 }
 
@@ -61,8 +61,16 @@ describe("initYieldRoutePolicy", () => {
     });
 
     expect(policy.instructions).toHaveLength(1);
-    expect(policy.instructions[0]?.programId.toBase58()).toBe("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
-    expect(policy.instructions[0]?.keys.map((key) => [key.pubkey.toBase58(), key.isSigner, key.isWritable])).toEqual([
+    expect(policy.instructions[0]?.programId.toBase58()).toBe(
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+    );
+    expect(
+      policy.instructions[0]?.keys.map((key) => [
+        key.pubkey.toBase58(),
+        key.isSigner,
+        key.isWritable,
+      ])
+    ).toEqual([
       [settings.toBase58(), false, true],
       [authority.toBase58(), true, true],
       ["11111111111111111111111111111111", false, false],
@@ -70,9 +78,13 @@ describe("initYieldRoutePolicy", () => {
       [authority.toBase58(), true, false],
       [policy.actionAccount.toBase58(), false, true],
     ]);
-    expect(policy.instructions[0]?.data.subarray(0, 8).toJSON().data).toEqual([138, 209, 64, 163, 79, 67, 233, 76]);
+    expect(policy.instructions[0]?.data.subarray(0, 8).toJSON().data).toEqual([
+      138, 209, 64, 163, 79, 67, 233, 76,
+    ]);
     expect(policy.routes.sameMint.instructionConstraintIndexes).toEqual([0, 2]);
-    expect(policy.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 2]);
+    expect(policy.routes.jupiter.instructionConstraintIndexes).toEqual([
+      0, 1, 2,
+    ]);
     expect(policy.routes.loyal).toBeUndefined();
     expect(policy.spec.maxFeeBps).toBe(DEFAULT_MAX_FEE_BPS);
     expect(policy.metadata).toEqual({
@@ -85,8 +97,12 @@ describe("initYieldRoutePolicy", () => {
       universePreset: "canonical_stable_kamino",
       routeModes: ["same_mint_kamino", "jupiter", "loyal"],
       stableMints: policy.spec.stableMints.map((mint) => mint.toBase58()),
-      kaminoMarkets: policy.spec.kaminoMarkets.map((market) => market.toBase58()),
-      kaminoLiquidityMints: policy.spec.kaminoLiquidityMints.map((mint) => mint.toBase58()),
+      kaminoMarkets: policy.spec.kaminoMarkets.map((market) =>
+        market.toBase58()
+      ),
+      kaminoLiquidityMints: policy.spec.kaminoLiquidityMints.map((mint) =>
+        mint.toBase58()
+      ),
       swapLanes: [
         {
           lane: SwapLane.Jupiter,
@@ -112,8 +128,12 @@ describe("initYieldRoutePolicy", () => {
       squads,
     });
 
-    expect(loyalOnly.routes.sameMint.instructionConstraintIndexes).toEqual([0, 2]);
-    expect(loyalOnly.routes.loyal.instructionConstraintIndexes).toEqual([0, 1, 2]);
+    expect(loyalOnly.routes.sameMint.instructionConstraintIndexes).toEqual([
+      0, 2,
+    ]);
+    expect(loyalOnly.routes.loyal.instructionConstraintIndexes).toEqual([
+      0, 1, 2,
+    ]);
     expect(loyalOnly.routes.jupiter).toBeUndefined();
     expect(both.routes.sameMint.instructionConstraintIndexes).toEqual([0, 3]);
     expect(both.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 3]);
@@ -129,7 +149,15 @@ describe("initYieldRoutePolicy", () => {
       squads,
     });
 
-    expect(Object.values(Stablecoin).map(String)).toEqual(["USDC", "USDT", "PYUSD", "USDS", "USDG", "USDE", "SUSDE"]);
+    expect(Object.values(Stablecoin).map(String)).toEqual([
+      "USDC",
+      "USDT",
+      "PYUSD",
+      "USDS",
+      "USDG",
+      "USDE",
+      "SUSDE",
+    ]);
     expect(Object.keys(STABLECOIN_MINTS)).toEqual(Object.values(Stablecoin));
     expect(policy.spec.stablecoins).toEqual(Object.values(Stablecoin));
     expect(policy.spec.stableMints.map((mint) => mint.toBase58())).toEqual([
@@ -151,10 +179,20 @@ describe("initYieldRoutePolicy", () => {
 
     expect(safe.every((market) => medium.includes(market))).toBe(true);
     expect(medium.every((market) => aggressive.includes(market))).toBe(true);
-    for (const market of [KAMINO_JLP_MARKET, KAMINO_HUMA_MARKET, KAMINO_XSTOCKS_MARKET, KAMINO_SOLSTICE_MARKET, KAMINO_ALTCOINS_MARKET]) {
+    for (const market of [
+      KAMINO_JLP_MARKET,
+      KAMINO_HUMA_MARKET,
+      KAMINO_XSTOCKS_MARKET,
+      KAMINO_SOLSTICE_MARKET,
+      KAMINO_ALTCOINS_MARKET,
+    ]) {
       expect(safe).not.toContain(market);
     }
-    for (const market of [KAMINO_JLP_MARKET, KAMINO_BITCOIN_MARKET, KAMINO_SUPERSTATE_OPENING_BELL_MARKET]) {
+    for (const market of [
+      KAMINO_JLP_MARKET,
+      KAMINO_BITCOIN_MARKET,
+      KAMINO_SUPERSTATE_OPENING_BELL_MARKET,
+    ]) {
       expect(medium).toContain(market);
     }
     expect(medium).not.toContain(KAMINO_ALTCOINS_MARKET);
@@ -169,14 +207,14 @@ describe("initYieldRoutePolicy", () => {
         risk: RiskBasket.Safe,
         swapLanes: [],
         squads,
-      }),
+      })
     ).toThrow("at least one swap lane is required");
     expect(() =>
       sdk.initYieldRoutePolicy({
         risk: RiskBasket.Safe,
         swapLanes: [SwapLane.Jupiter, SwapLane.Jupiter],
         squads,
-      }),
+      })
     ).toThrow("duplicate swap lane");
     expect(() =>
       sdk.initYieldRoutePolicy({
@@ -184,9 +222,11 @@ describe("initYieldRoutePolicy", () => {
         swapLanes: [SwapLane.Jupiter],
         maxFeeBps: 99 as MaxFeeBps,
         squads,
-      }),
+      })
     ).toThrow("unsupported maxFeeBps");
-    expect(() => createLoyalActionsSdk({ cluster: "localnet" as LoyalCluster })).toThrow("unsupported Loyal cluster");
+    expect(() =>
+      createLoyalActionsSdk({ cluster: "localnet" as LoyalCluster })
+    ).toThrow("unsupported Loyal cluster");
   });
 });
 
@@ -225,8 +265,12 @@ describe("initYieldRoutingPolicy", () => {
       lockKey: `${settings.toBase58()}:${vaultIndex}`,
     });
     expect(derived.spec.swapLanes).toEqual([SwapLane.Jupiter, SwapLane.Loyal]);
-    expect(derived.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 3]);
-    expect(derived.routes.loyal.instructionConstraintIndexes).toEqual([0, 2, 3]);
+    expect(derived.routes.jupiter.instructionConstraintIndexes).toEqual([
+      0, 1, 3,
+    ]);
+    expect(derived.routes.loyal.instructionConstraintIndexes).toEqual([
+      0, 2, 3,
+    ]);
   });
 
   test("uses the default max fee when callers omit one", () => {
@@ -256,25 +300,25 @@ describe("initYieldRoutingPolicy", () => {
       sdkWithoutSmartAccount.initYieldRoutingPolicy({
         risk: RiskBasket.Safe,
         vaultIndex: 0,
-      }),
+      })
     ).toThrow("smartAccount config is required");
     expect(() =>
       sdk.initYieldRoutingPolicy({
         risk: RiskBasket.Safe,
         vaultIndex: 256,
-      }),
+      })
     ).toThrow("vaultIndex must be a u8");
     expect(() =>
       sdk.initYieldRoutingPolicy({
         risk: RiskBasket.Safe,
         vaultIndex: -1,
-      }),
+      })
     ).toThrow("vaultIndex must be a u8");
     expect(() =>
       sdk.initYieldRoutingPolicy({
         risk: "weird" as RiskBasket,
         vaultIndex: 0,
-      }),
+      })
     ).toThrow("unsupported risk basket");
   });
 });
@@ -363,5 +407,25 @@ describe("yield route policy plan compilers", () => {
         instructionConstraintIndexes: [0, 2, 3],
       },
     ]);
+  });
+
+  test("safe earn policy metadata exposes vault 1 and withdraw/same-mint indexes", () => {
+    const plan = createVaultYieldRoutingPolicyPlan({
+      cluster: LoyalCluster.MainnetBeta,
+      smartAccount,
+      risk: RiskBasket.Safe,
+      vaultIndex: 1,
+    });
+
+    expect(plan.metadata.vaultIndex).toBe(1);
+    expect(plan.routes.sameMint.instructionConstraintIndexes).toEqual([0, 3]);
+    expect(plan.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 3]);
+    expect(plan.routes.loyal.instructionConstraintIndexes).toEqual([0, 2, 3]);
+    expect(plan.persistence).toMatchObject({
+      riskProfile: RiskBasket.Safe,
+      routeModes: ["same_mint_kamino", "jupiter", "loyal"],
+      threshold: 1,
+      universePreset: "canonical_stable_kamino",
+    });
   });
 });

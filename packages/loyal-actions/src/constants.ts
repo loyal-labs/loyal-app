@@ -41,6 +41,9 @@ export const STABLECOINS = [
 export const KAMINO_MAIN_MARKET = new PublicKey(
   "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF"
 );
+export const KAMINO_MAIN_USDC_RESERVE = new PublicKey(
+  "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59"
+);
 export const KAMINO_FIGURE_MARKET = new PublicKey(
   "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA"
 );

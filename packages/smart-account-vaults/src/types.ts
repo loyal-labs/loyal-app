@@ -362,6 +362,103 @@ export type SmartAccountUseSpendingLimitInput = {
   memo?: string;
 };
 
+export type SmartAccountEarnUsdcDepositInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  feePayer: PublicKey;
+  amountRaw: bigint;
+  memo?: string;
+};
+
+export type SmartAccountEarnUsdcDepositMetadata = {
+  cluster: "mainnet-beta";
+  walletAddress: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyId: string;
+  policyAccount: string;
+  policySeed: string;
+  targetReserve: string;
+  market: string;
+  liquidityMint: string;
+  depositMint: string;
+  principalAmountRaw: string;
+  targetSupplyApyBps: string | null;
+};
+
+export type SmartAccountPreparedEarnUsdcDeposit = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  policy: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+    sameMintInstructionConstraintIndexes: readonly [number, number];
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+  };
+  targetReserve: {
+    reserve: PublicKey;
+    market: PublicKey;
+    liquidityMint: PublicKey;
+    supplyApyBps: bigint | null;
+  };
+  persistence: SmartAccountEarnUsdcDepositMetadata;
+};
+
+export type SmartAccountEarnUsdcWithdrawInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  feePayer: PublicKey;
+  amountRaw: bigint;
+  mode: "partial" | "full";
+  memo?: string;
+};
+
+export type SmartAccountEarnUsdcWithdrawMetadata = {
+  cluster: "mainnet-beta";
+  walletAddress: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyId: string;
+  policyAccount: string;
+  policySeed: string;
+  targetReserve: string;
+  market: string;
+  liquidityMint: string;
+  withdrawnAmountRaw: string;
+  mode: "partial" | "full";
+};
+
+export type SmartAccountPreparedEarnUsdcWithdraw = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  mode: "partial" | "full";
+  amountRaw: bigint;
+  policy: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+    withdrawInstructionConstraintIndex: 0;
+    sameMintInstructionConstraintIndexes: readonly [number, number];
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+    collateralAta: PublicKey;
+  };
+  targetReserve: {
+    reserve: PublicKey;
+    market: PublicKey;
+    liquidityMint: PublicKey;
+  };
+  persistence: SmartAccountEarnUsdcWithdrawMetadata;
+};
+
 export type SmartAccountPreparedSettingsChange = {
   transactionIndex: bigint;
   prepared: PreparedLoyalSmartAccountsOperation<string>;

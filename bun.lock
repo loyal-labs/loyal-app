@@ -391,6 +391,7 @@
         "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
         "@loyal-labs/solana-instruction-decoder": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
+        "@loyal/actions": "workspace:*",
         "@solana/spl-token": "^0.4.13",
         "@solana/web3.js": "^1.98.0",
         "bn.js": "^5.2.2",

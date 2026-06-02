@@ -146,7 +146,9 @@ function formatForecastMoney(value: number, mutedFraction = false) {
   return (
     <>
       ${whole}
-      <span style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}>
+      <span
+        style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}
+      >
         .{fraction}
       </span>
     </>
@@ -182,9 +184,10 @@ export function buildEarnChartPoints(
 ): EarnChartPoint[] {
   const months = 12;
   const target = principal * getEarnForecastTargetMultiplier(apy.apyBps);
-  const lowTarget = principal * getEarnForecastTargetMultiplier(apy.rangeLowBps);
-  const highTarget = principal *
-    getEarnForecastTargetMultiplier(apy.rangeHighBps);
+  const lowTarget =
+    principal * getEarnForecastTargetMultiplier(apy.rangeLowBps);
+  const highTarget =
+    principal * getEarnForecastTargetMultiplier(apy.rangeHighBps);
 
   return Array.from({ length: months + 1 }, (_, index) => {
     const progress = index / months;
@@ -206,9 +209,7 @@ function getEarnApyRate(apyBps: number): number {
 }
 
 function getEarningsRatePerSecond(apyBps: number): number {
-  return (
-    (EARN_BALANCE_PRINCIPAL * getEarnApyRate(apyBps)) / SECONDS_PER_YEAR
-  );
+  return (EARN_BALANCE_PRINCIPAL * getEarnApyRate(apyBps)) / SECONDS_PER_YEAR;
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -386,9 +387,7 @@ function DepositButton({
       <style jsx>{`
         .earn-detail-deposit,
         .earn-detail-deposit-dark {
-          transition:
-            background 0.15s ease,
-            transform 0.15s ease;
+          transition: background 0.15s ease, transform 0.15s ease;
         }
         .earn-detail-deposit:hover {
           background: rgba(0, 0, 0, 0.08) !important;
@@ -599,7 +598,8 @@ function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
   if (forecastPrincipalRef.current === null) {
     const elapsedSec = Math.max(0, (Date.now() - depositAt) / 1000);
     forecastPrincipalRef.current =
-      EARN_BALANCE_PRINCIPAL + elapsedSec * getEarningsRatePerSecond(apy.apyBps);
+      EARN_BALANCE_PRINCIPAL +
+      elapsedSec * getEarningsRatePerSecond(apy.apyBps);
   }
   const forecastAmount = forecastPrincipalRef.current;
 
@@ -628,8 +628,7 @@ function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
   useEffect(() => {
     const ratePerSecond = getEarningsRatePerSecond(apy.apyBps);
     const id = window.setInterval(() => {
-      const next = Math.max(0, (Date.now() - depositAt) / 1000) *
-        ratePerSecond;
+      const next = Math.max(0, (Date.now() - depositAt) / 1000) * ratePerSecond;
       setLiveTotal(Number(next.toFixed(EARN_BALANCE_DECIMALS)));
     }, EARN_BALANCE_SAMPLE_MS);
     return () => window.clearInterval(id);
@@ -713,8 +712,7 @@ function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
           }
         }
         .earnings-tab-panel {
-          transition:
-            opacity 0.34s cubic-bezier(0.2, 0, 0, 1),
+          transition: opacity 0.34s cubic-bezier(0.2, 0, 0, 1),
             transform 0.34s cubic-bezier(0.2, 0, 0, 1),
             filter 0.34s cubic-bezier(0.2, 0, 0, 1);
         }
@@ -888,8 +886,7 @@ function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
                   }}
                 >
                   {formatForecastMoney(
-                    forecastAmount *
-                      getEarnForecastTargetMultiplier(apy.apyBps)
+                    forecastAmount * getEarnForecastTargetMultiplier(apy.apyBps)
                   )}
                   <span
                     style={{
@@ -930,167 +927,167 @@ function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
                 : "translateY(6px) scale(0.985)",
           }}
         >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          padding: "2px 14px",
-          width: "100%",
-        }}
-      >
-        <div
-          style={{
-            alignItems: "flex-end",
-            display: "flex",
-            gap: "8px",
-            justifyContent: "space-between",
-            paddingBottom: "8px",
-            width: "100%",
-          }}
-        >
           <div
             style={{
               display: "flex",
-              flex: 1,
               flexDirection: "column",
-              gap: "2px",
-              minWidth: 0,
+              padding: "2px 14px",
+              width: "100%",
             }}
           >
-            <NumberFlow
-              animated={hoveredBar === null}
-              className="earnings-current-flow"
-              format={{
-                maximumFractionDigits: EARN_BALANCE_DECIMALS,
-                minimumFractionDigits: EARN_BALANCE_DECIMALS,
-                useGrouping: true,
-              }}
-              opacityTiming={{ duration: 280, easing: "ease-out" }}
-              plugins={EARN_NUMBER_FLOW_PLUGINS}
-              prefix="$"
-              spinTiming={{
-                duration: 900,
-                easing: "cubic-bezier(0.2, 0, 0, 1)",
-              }}
-              transformTiming={{
-                duration: 900,
-                easing: "cubic-bezier(0.2, 0, 0, 1)",
-              }}
-              trend={1}
-              value={Number(displayValue.toFixed(EARN_BALANCE_DECIMALS))}
-            />
-            <span
+            <div
               style={{
-                fontFamily: font,
-                fontSize: "13px",
-                lineHeight: "16px",
+                alignItems: "flex-end",
+                display: "flex",
+                gap: "8px",
+                justifyContent: "space-between",
+                paddingBottom: "8px",
+                width: "100%",
               }}
             >
-              {subtitleNode}
-            </span>
-          </div>
-          <span
-            style={{
-              color: secondary,
-              flexShrink: 0,
-              fontFamily: font,
-              fontSize: "13px",
-              lineHeight: "16px",
-              paddingBottom: "2px",
-            }}
-          >
-            ${maxValue.toFixed(2)}
-          </span>
-        </div>
-
-        <div
-          key={`earnings-bars-${rangeId}`}
-          onMouseLeave={() => setHoveredBar(null)}
-          style={{
-            alignItems: "flex-end",
-            display: "flex",
-            gap: "8px",
-            height: `${EARNINGS_CHART_HEIGHT}px`,
-            overflow: "hidden",
-            width: "100%",
-          }}
-        >
-          {bars.map((bar, i) => {
-            const heightPct = (bar.value / maxValue) * 100;
-            const isActive = hoveredBar === i;
-            const minHeightPx = 4;
-            return (
-              <button
-                aria-label={`Bar ${i + 1}`}
-                className={`earnings-bar${
-                  isActive ? " earnings-bar-active" : ""
-                }`}
-                key={i}
-                onMouseEnter={() => setHoveredBar(i)}
+              <div
                 style={{
-                  height: `max(${minHeightPx}px, ${heightPct.toFixed(2)}%)`,
-                  ["--bar-index" as never]: i,
+                  display: "flex",
+                  flex: 1,
+                  flexDirection: "column",
+                  gap: "2px",
+                  minWidth: 0,
                 }}
-                type="button"
-              />
-            );
-          })}
-        </div>
-      </div>
+              >
+                <NumberFlow
+                  animated={hoveredBar === null}
+                  className="earnings-current-flow"
+                  format={{
+                    maximumFractionDigits: EARN_BALANCE_DECIMALS,
+                    minimumFractionDigits: EARN_BALANCE_DECIMALS,
+                    useGrouping: true,
+                  }}
+                  opacityTiming={{ duration: 280, easing: "ease-out" }}
+                  plugins={EARN_NUMBER_FLOW_PLUGINS}
+                  prefix="$"
+                  spinTiming={{
+                    duration: 900,
+                    easing: "cubic-bezier(0.2, 0, 0, 1)",
+                  }}
+                  transformTiming={{
+                    duration: 900,
+                    easing: "cubic-bezier(0.2, 0, 0, 1)",
+                  }}
+                  trend={1}
+                  value={Number(displayValue.toFixed(EARN_BALANCE_DECIMALS))}
+                />
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
+                  {subtitleNode}
+                </span>
+              </div>
+              <span
+                style={{
+                  color: secondary,
+                  flexShrink: 0,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  lineHeight: "16px",
+                  paddingBottom: "2px",
+                }}
+              >
+                ${maxValue.toFixed(2)}
+              </span>
+            </div>
 
-      <div
-        style={{
-          display: "flex",
-          padding: "8px 12px 0",
-          width: "100%",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flex: 1,
-            gap: "8px",
-            minWidth: 0,
-          }}
-        >
-          {EARNINGS_RANGES.map((r) => (
-            <button
-              className={`earnings-range-chip${
-                r.id === rangeId ? " earnings-range-chip-active" : ""
-              }`}
-              key={r.id}
-              onClick={() => {
-                setRangeId(r.id);
-                setHoveredBar(null);
+            <div
+              key={`earnings-bars-${rangeId}`}
+              onMouseLeave={() => setHoveredBar(null)}
+              style={{
+                alignItems: "flex-end",
+                display: "flex",
+                gap: "8px",
+                height: `${EARNINGS_CHART_HEIGHT}px`,
+                overflow: "hidden",
+                width: "100%",
               }}
-              type="button"
             >
-              {r.label}
-            </button>
-          ))}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flex: 1,
-            justifyContent: "flex-end",
-            minWidth: 0,
-            paddingLeft: "12px",
-          }}
-        >
-          <span
+              {bars.map((bar, i) => {
+                const heightPct = (bar.value / maxValue) * 100;
+                const isActive = hoveredBar === i;
+                const minHeightPx = 4;
+                return (
+                  <button
+                    aria-label={`Bar ${i + 1}`}
+                    className={`earnings-bar${
+                      isActive ? " earnings-bar-active" : ""
+                    }`}
+                    key={i}
+                    onMouseEnter={() => setHoveredBar(i)}
+                    style={{
+                      height: `max(${minHeightPx}px, ${heightPct.toFixed(2)}%)`,
+                      ["--bar-index" as never]: i,
+                    }}
+                    type="button"
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div
             style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "13px",
-              lineHeight: "16px",
-              whiteSpace: "nowrap",
+              display: "flex",
+              padding: "8px 12px 0",
+              width: "100%",
             }}
           >
-            $0.00
-          </span>
-        </div>
-      </div>
+            <div
+              style={{
+                display: "flex",
+                flex: 1,
+                gap: "8px",
+                minWidth: 0,
+              }}
+            >
+              {EARNINGS_RANGES.map((r) => (
+                <button
+                  className={`earnings-range-chip${
+                    r.id === rangeId ? " earnings-range-chip-active" : ""
+                  }`}
+                  key={r.id}
+                  onClick={() => {
+                    setRangeId(r.id);
+                    setHoveredBar(null);
+                  }}
+                  type="button"
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flex: 1,
+                justifyContent: "flex-end",
+                minWidth: 0,
+                paddingLeft: "12px",
+              }}
+            >
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  lineHeight: "16px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                $0.00
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1200,7 +1197,8 @@ export function EarnDetailView({
           >
             {hasCurrentPosition ? (
               <>
-                Balance · <span style={{ color: "#34C759" }}>{earnApyLabel}</span>
+                Balance ·{" "}
+                <span style={{ color: "#34C759" }}>{earnApyLabel}</span>
               </>
             ) : (
               "Balance"
@@ -1334,9 +1332,7 @@ function PositionHeaderButton({
     <>
       <style jsx>{`
         .earn-position-action {
-          transition:
-            background 0.15s ease,
-            transform 0.15s ease;
+          transition: background 0.15s ease, transform 0.15s ease;
         }
         .earn-position-action:hover {
           transform: translateY(-1px);
@@ -1394,7 +1390,6 @@ function PositionHeaderButton({
     </>
   );
 }
-
 
 function WithdrawRouteRow({
   amount,
@@ -1528,18 +1523,25 @@ function WithdrawRouteRow({
 }
 
 export function EarnWithdrawView({
+  isSubmitting = false,
+  maxWithdrawAmount = 1280,
   onClose,
   onComplete,
   destinations = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
+  isSubmitting?: boolean;
+  maxWithdrawAmount?: number;
   onClose?: () => void;
-  onComplete?: () => void;
+  onComplete?: (withdrawal: {
+    amount: number;
+    mode: "partial" | "full";
+  }) => void | Promise<void>;
   destinations?: EarnDepositSourceOption[];
 }) {
   const withdrawAmountInputRef = useRef<HTMLInputElement | null>(null);
-  const withdrawDestCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const withdrawDestCloseTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [isWithdrawDestMenuOpen, setIsWithdrawDestMenuOpen] = useState(false);
   const [isWithdrawDestMenuClosing, setIsWithdrawDestMenuClosing] =
@@ -1554,6 +1556,18 @@ export function EarnWithdrawView({
     destinationOptions[0] ??
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
+  const numericWithdrawAmount = Number(withdrawAmount.replace(/,/g, ""));
+  const isFullWithdraw =
+    hasWithdrawAmount &&
+    Number.isFinite(numericWithdrawAmount) &&
+    numericWithdrawAmount >= maxWithdrawAmount;
+  const withdrawAmountError =
+    hasWithdrawAmount &&
+    (!Number.isFinite(numericWithdrawAmount) || numericWithdrawAmount <= 0)
+      ? "Enter an amount"
+      : hasWithdrawAmount && numericWithdrawAmount > maxWithdrawAmount
+      ? "Insufficient balance"
+      : null;
   const withdrawUsdDisplay = hasWithdrawAmount
     ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
@@ -1793,13 +1807,21 @@ export function EarnWithdrawView({
               </button>
               <button
                 className="earn-withdraw-submit"
-                onClick={() => setWithdrawAmount("1,280")}
+                disabled={isSubmitting}
+                onClick={() =>
+                  setWithdrawAmount(
+                    maxWithdrawAmount.toLocaleString("en-US", {
+                      maximumFractionDigits: 6,
+                      minimumFractionDigits: 0,
+                    })
+                  )
+                }
                 style={{
                   background: "#000",
                   border: "none",
                   borderRadius: "9999px",
                   color: "#fff",
-                  cursor: "pointer",
+                  cursor: isSubmitting ? "default" : "pointer",
                   fontFamily: font,
                   fontSize: "14px",
                   fontWeight: 500,
@@ -1826,7 +1848,14 @@ export function EarnWithdrawView({
           </span>
         </section>
 
-        <section style={{ padding: "8px", position: "relative", width: "100%", zIndex: 2 }}>
+        <section
+          style={{
+            padding: "8px",
+            position: "relative",
+            width: "100%",
+            zIndex: 2,
+          }}
+        >
           <div style={{ padding: "3px 12px 1px" }}>
             <p
               style={{
@@ -1842,7 +1871,10 @@ export function EarnWithdrawView({
             </p>
           </div>
           <WithdrawRouteRow
-            amount="1,280.00"
+            amount={maxWithdrawAmount.toLocaleString("en-US", {
+              maximumFractionDigits: 2,
+              minimumFractionDigits: 2,
+            })}
             icon={TOP_EARN_VAULT.logo}
             isPosition
             subtitle={TOP_EARN_VAULT.label}
@@ -1911,22 +1943,39 @@ export function EarnWithdrawView({
 
       <div
         style={{
-          background: "linear-gradient(to bottom, rgba(255,255,255,0), #fff 28%)",
+          background:
+            "linear-gradient(to bottom, rgba(255,255,255,0), #fff 28%)",
           padding: "16px 32px 24px",
           width: "100%",
         }}
       >
         <button
           className="earn-withdraw-submit"
-          disabled={!hasWithdrawAmount}
-          onClick={onComplete}
+          disabled={
+            isSubmitting || !hasWithdrawAmount || withdrawAmountError !== null
+          }
+          onClick={() =>
+            void onComplete?.({
+              amount: numericWithdrawAmount,
+              mode: isFullWithdraw ? "full" : "partial",
+            })
+          }
           style={{
             alignItems: "center",
-            background: hasWithdrawAmount ? "#000" : "rgba(0, 0, 0, 0.04)",
+            background:
+              hasWithdrawAmount && withdrawAmountError === null && !isSubmitting
+                ? "#000"
+                : "rgba(0, 0, 0, 0.04)",
             border: "none",
             borderRadius: "78px",
-            color: hasWithdrawAmount ? "#fff" : secondary,
-            cursor: hasWithdrawAmount ? "pointer" : "default",
+            color:
+              hasWithdrawAmount && withdrawAmountError === null && !isSubmitting
+                ? "#fff"
+                : secondary,
+            cursor:
+              hasWithdrawAmount && withdrawAmountError === null && !isSubmitting
+                ? "pointer"
+                : "default",
             display: "flex",
             fontFamily: font,
             fontSize: "17px",
@@ -1940,7 +1989,10 @@ export function EarnWithdrawView({
           }}
           type="button"
         >
-          Withdraw
+          {isSubmitting
+            ? "Withdrawing..."
+            : withdrawAmountError ??
+              (isFullWithdraw ? "Withdraw all" : "Withdraw")}
         </button>
       </div>
     </div>
@@ -2020,7 +2072,13 @@ function DepositVaultIcon({ logo }: { logo: string }) {
         <img
           alt=""
           src="/wallet-workspace/earn-deposit-usdc-overlay.png"
-          style={{ height: "100%", inset: 0, objectFit: "cover", position: "absolute", width: "100%" }}
+          style={{
+            height: "100%",
+            inset: 0,
+            objectFit: "cover",
+            position: "absolute",
+            width: "100%",
+          }}
         />
       </span>
       <span
@@ -2120,9 +2178,7 @@ function DepositSourceRow({
       <style jsx>{`
         .earn-source-trigger,
         .earn-source-option {
-          transition:
-            background 0.15s ease,
-            transform 0.18s ease;
+          transition: background 0.15s ease, transform 0.18s ease;
         }
         .earn-source-trigger:hover,
         .earn-source-option:hover {
@@ -2155,8 +2211,8 @@ function DepositSourceRow({
               ? "rgba(0, 0, 0, 0.04)"
               : "transparent"
             : isHighlighted
-              ? "rgba(0, 0, 0, 0.04)"
-              : "transparent",
+            ? "rgba(0, 0, 0, 0.04)"
+            : "transparent",
           border: "none",
           borderRadius: isTrigger ? "16px" : "8px",
           cursor: onClick ? "pointer" : "default",
@@ -2235,17 +2291,9 @@ function DepositSourceRow({
             }}
           >
             {isOpen ? (
-              <ChevronsDownUp
-                color="#B1B1B4"
-                size={24}
-                strokeWidth={2}
-              />
+              <ChevronsDownUp color="#B1B1B4" size={24} strokeWidth={2} />
             ) : (
-              <ChevronsUpDown
-                color="#B1B1B4"
-                size={24}
-                strokeWidth={2}
-              />
+              <ChevronsUpDown color="#B1B1B4" size={24} strokeWidth={2} />
             )}
           </span>
         ) : isSelected ? (
@@ -2269,10 +2317,10 @@ function DepositChart({
   apy?: EarnForecastApy;
   principal?: number;
 }) {
-  const points = useMemo(() => buildEarnChartPoints(principal, apy), [
-    apy,
-    principal,
-  ]);
+  const points = useMemo(
+    () => buildEarnChartPoints(principal, apy),
+    [apy, principal]
+  );
   const defaultHoverIndex = Math.floor((points.length - 1) / 2);
   const [hoverIndex, setHoverIndex] = useState(defaultHoverIndex);
   const minValue = principal;
@@ -2293,7 +2341,9 @@ function DepositChart({
   }));
   const pathFrom = (key: "highY" | "lowY" | "y") =>
     plotted
-      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point[key]}`)
+      .map(
+        (point, index) => `${index === 0 ? "M" : "L"}${point.x},${point[key]}`
+      )
       .join(" ");
   const areaPath = [
     `M${plotted[0]?.x ?? 0},${EARN_CHART_BASELINE}`,
@@ -2359,7 +2409,9 @@ function DepositChart({
           }
         }
       `}</style>
-      <div style={{ flex: 1, minHeight: 0, position: "relative", width: "100%" }}>
+      <div
+        style={{ flex: 1, minHeight: 0, position: "relative", width: "100%" }}
+      >
         <svg
           aria-label="Estimated earnings chart"
           preserveAspectRatio="none"
@@ -2430,7 +2482,10 @@ function DepositChart({
           className="earn-chart-hover-elements"
           style={{
             borderLeft: "1px dashed rgba(60, 60, 67, 0.18)",
-            bottom: `${((EARN_CHART_HEIGHT - EARN_CHART_BASELINE) / EARN_CHART_HEIGHT) * 100}%`,
+            bottom: `${
+              ((EARN_CHART_HEIGHT - EARN_CHART_BASELINE) / EARN_CHART_HEIGHT) *
+              100
+            }%`,
             left: `${hoverLeft}%`,
             pointerEvents: "none",
             position: "absolute",
@@ -2522,12 +2577,14 @@ function DepositChart({
 }
 
 export function EarnDepositView({
+  isSubmitting = false,
   onComplete,
   onClose,
   onDraftChange,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
-  onComplete?: (deposit: EarnDepositCompletion) => void;
+  isSubmitting?: boolean;
+  onComplete?: (deposit: EarnDepositCompletion) => void | Promise<void>;
   onClose?: () => void;
   onDraftChange?: (draft: EarnDepositDraft | null) => void;
   sources?: EarnDepositSourceOption[];
@@ -2564,9 +2621,10 @@ export function EarnDepositView({
     hasDepositAmount && numericDepositAmount < MIN_DEPOSIT_USDC
       ? `Minimum deposit is ${MIN_DEPOSIT_USDC} USDC`
       : hasDepositAmount && numericDepositAmount > selectedSourceBalance
-        ? "Insufficient balance"
-        : null;
-  const isDepositButtonDisabled = !hasDepositAmount || amountError !== null;
+      ? "Insufficient balance"
+      : null;
+  const isDepositButtonDisabled =
+    isSubmitting || !hasDepositAmount || amountError !== null;
   const shouldShowSourceMenu = isSourceMenuOpen || isSourceMenuClosing;
   const openSourceMenu = () => {
     if (sourceCloseTimerRef.current) {
@@ -2675,7 +2733,9 @@ export function EarnDepositView({
 
   useEffect(() => {
     if (!sourceOptions.some((source) => source.id === selectedSourceId)) {
-      setSelectedSourceId(sourceOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id);
+      setSelectedSourceId(
+        sourceOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id
+      );
     }
   }, [selectedSourceId, sourceOptions]);
 
@@ -2710,9 +2770,7 @@ export function EarnDepositView({
           opacity: 1;
         }
         .earn-forecast-chip {
-          transition:
-            background 0.15s ease,
-            color 0.15s ease;
+          transition: background 0.15s ease, color 0.15s ease;
         }
         .earn-forecast-chip:hover:not(.earn-forecast-chip-active) {
           background: rgba(0, 0, 0, 0.04);
@@ -2790,13 +2848,17 @@ export function EarnDepositView({
             width: "100%",
           }}
         >
-          <DepositVaultRow
-            apyLabel={earnApyLabel}
-            vault={TOP_DEPOSIT_VAULT}
-          />
+          <DepositVaultRow apyLabel={earnApyLabel} vault={TOP_DEPOSIT_VAULT} />
         </section>
 
-        <section style={{ display: "flex", flexDirection: "column", padding: "8px", width: "100%" }}>
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
           <div
             style={{
               alignItems: "center",
@@ -2871,26 +2933,83 @@ export function EarnDepositView({
                 width: "100%",
               }}
             >
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ color: secondary, fontFamily: font, fontSize: "13px", lineHeight: "16px" }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "2px" }}
+              >
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
                   {FORECAST_DATES[0]}
                 </span>
-                <span style={{ color: "#000", fontFamily: font, fontSize: "16px", fontWeight: 500, lineHeight: "20px" }}>
+                <span
+                  style={{
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    lineHeight: "20px",
+                  }}
+                >
                   {formatForecastMoney(forecastAmount, true)}
                 </span>
               </div>
-              <div style={{ alignItems: "flex-end", display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ color: secondary, fontFamily: font, fontSize: "13px", lineHeight: "16px" }}>
+              <div
+                style={{
+                  alignItems: "flex-end",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                }}
+              >
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
                   {FORECAST_DATES[FORECAST_DATES.length - 1]}
                 </span>
-                <span style={{ alignItems: "center", color: "#34C759", display: "flex", fontFamily: font, fontSize: "16px", fontWeight: 500, gap: "4px", lineHeight: "20px" }}>
+                <span
+                  style={{
+                    alignItems: "center",
+                    color: "#34C759",
+                    display: "flex",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    gap: "4px",
+                    lineHeight: "20px",
+                  }}
+                >
                   {formatForecastMoney(
                     forecastAmount *
                       getEarnForecastTargetMultiplier(earnForecastApy.apyBps)
                   )}
-                  <span style={{ alignItems: "center", background: "#34C759", borderRadius: "4px", display: "inline-flex", height: "16px", justifyContent: "center", width: "16px" }}>
+                  <span
+                    style={{
+                      alignItems: "center",
+                      background: "#34C759",
+                      borderRadius: "4px",
+                      display: "inline-flex",
+                      height: "16px",
+                      justifyContent: "center",
+                      width: "16px",
+                    }}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img alt="" aria-hidden="true" src="/wallet-workspace/earn-growth-arrow.svg" style={{ height: "12px", width: "12px" }} />
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      src="/wallet-workspace/earn-growth-arrow.svg"
+                      style={{ height: "12px", width: "12px" }}
+                    />
                   </span>
                 </span>
               </div>
@@ -3027,7 +3146,9 @@ export function EarnDepositView({
             zIndex: 2,
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", width: "100%" }}
+          >
             <div style={{ padding: "3px 12px 1px" }}>
               <p
                 style={{
@@ -3098,7 +3219,8 @@ export function EarnDepositView({
 
       <div
         style={{
-          background: "linear-gradient(to bottom, rgba(255,255,255,0), #fff 28%)",
+          background:
+            "linear-gradient(to bottom, rgba(255,255,255,0), #fff 28%)",
           padding: "16px 32px 24px",
           width: "100%",
         }}
@@ -3107,7 +3229,7 @@ export function EarnDepositView({
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}
           onClick={() =>
-            onComplete?.({
+            void onComplete?.({
               amount: numericDepositAmount,
               source: selectedSource,
             })
@@ -3117,15 +3239,15 @@ export function EarnDepositView({
             background: amountError
               ? "rgba(249, 54, 60, 0.14)"
               : isDepositButtonDisabled
-                ? "rgba(0, 0, 0, 0.04)"
-                : "#000",
+              ? "rgba(0, 0, 0, 0.04)"
+              : "#000",
             border: "none",
             borderRadius: "78px",
             color: amountError
               ? "#F9363C"
               : isDepositButtonDisabled
-                ? secondary
-                : "#fff",
+              ? secondary
+              : "#fff",
             cursor: isDepositButtonDisabled ? "default" : "pointer",
             display: "flex",
             fontFamily: font,
@@ -3140,7 +3262,7 @@ export function EarnDepositView({
           }}
           type="button"
         >
-          {amountError ?? "Deposit"}
+          {isSubmitting ? "Depositing..." : amountError ?? "Deposit"}
         </button>
       </div>
     </div>

@@ -354,6 +354,23 @@ function formatAmountForDraft(amount: number): string {
   });
 }
 
+function parseTokenAmountLabelToRaw(
+  amountLabel: string,
+  decimals: number
+): bigint {
+  const normalized = amountLabel.replace(/,/g, "").trim();
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    throw new Error("Enter a valid deposit amount.");
+  }
+
+  const [wholePart, fractionPart = ""] = normalized.split(".");
+  const fraction = fractionPart.slice(0, decimals).padEnd(decimals, "0");
+  return (
+    BigInt(wholePart || "0") * BigInt(10) ** BigInt(decimals) +
+    BigInt(fraction || "0")
+  );
+}
+
 function buildVaultSendContext(args: {
   accountIndex: number;
   evaluateCapability: SmartAccountSidebarData["evaluateVaultTransferCapability"];
@@ -1806,22 +1823,76 @@ export function AppWalletWorkspace({
     setSelectedDetail("Earn");
   }, [markDetailPaneTransition]);
 
-  const handleCompleteEarnDeposit = useCallback(() => {
-    markDetailPaneTransition("back");
-    setPendingEarnDepositDraft(null);
-    setHasEarnPosition(true);
-    setSelectedSignerId(null);
-    setDetailSelection("earn");
-    setSelectedDetail("Earn");
-  }, [markDetailPaneTransition]);
+  const handleCompleteEarnDeposit = useCallback(async () => {
+    if (!pendingEarnDepositDraft) {
+      setProposalActionError("Enter a deposit amount before continuing.");
+      return;
+    }
 
-  const handleCompleteEarnWithdraw = useCallback(() => {
-    markDetailPaneTransition("back");
-    setHasEarnPosition(false);
-    setSelectedSignerId(null);
-    setDetailSelection("earn");
-    setSelectedDetail("Earn");
-  }, [markDetailPaneTransition]);
+    setProposalActionError(null);
+    try {
+      const amountRaw = parseTokenAmountLabelToRaw(
+        pendingEarnDepositDraft.amountLabel,
+        pendingEarnDepositDraft.tokenDecimals
+      );
+      const result = await smartAccountData.executeEarnDeposit({ amountRaw });
+
+      if (!result.success) {
+        throw new Error(result.error ?? "Earn deposit failed.");
+      }
+
+      markDetailPaneTransition("back");
+      setPendingEarnDepositDraft(null);
+      setHasEarnPosition(true);
+      setSelectedSignerId(null);
+      setDetailSelection("earn");
+      setSelectedDetail("Earn");
+    } catch (error) {
+      const raw =
+        error instanceof Error ? error.message : "Earn deposit failed.";
+      const haystack = raw.toLowerCase();
+      const isRentError =
+        haystack.includes("insufficient funds for rent") ||
+        haystack.includes("insufficient lamports") ||
+        haystack.includes("would result in account being unable to pay rent");
+      setProposalActionError(
+        isRentError
+          ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
+          : raw
+      );
+    }
+  }, [markDetailPaneTransition, pendingEarnDepositDraft, smartAccountData]);
+
+  const handleCompleteEarnWithdraw = useCallback(
+    async (withdrawal: { amount: number; mode: "partial" | "full" }) => {
+      setProposalActionError(null);
+      try {
+        const amountRaw = parseTokenAmountLabelToRaw(
+          withdrawal.amount.toString(),
+          6
+        );
+        const result = await smartAccountData.executeEarnWithdraw({
+          amountRaw,
+          mode: withdrawal.mode,
+        });
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Earn withdrawal failed.");
+        }
+
+        markDetailPaneTransition("back");
+        setHasEarnPosition(withdrawal.mode !== "full");
+        setSelectedSignerId(null);
+        setDetailSelection("earn");
+        setSelectedDetail("Earn");
+      } catch (error) {
+        setProposalActionError(
+          error instanceof Error ? error.message : "Earn withdrawal failed."
+        );
+      }
+    },
+    [markDetailPaneTransition, smartAccountData]
+  );
 
   const handleOpenVault = useCallback(
     (accountIndex: number) => {
@@ -2540,6 +2611,7 @@ export function AppWalletWorkspace({
     if (detailSelection === "earnDeposit") {
       return (
         <EarnDepositView
+          isSubmitting={smartAccountData.isActionPending}
           onDraftChange={setPendingEarnDepositDraft}
           onComplete={handleCompleteEarnDeposit}
           onClose={handleOpenEarn}
@@ -2552,6 +2624,8 @@ export function AppWalletWorkspace({
       return (
         <EarnWithdrawView
           destinations={earnDepositSources}
+          isSubmitting={smartAccountData.isActionPending}
+          maxWithdrawAmount={1280}
           onClose={handleBackFromEarnWithdraw}
           onComplete={handleCompleteEarnWithdraw}
         />
