@@ -40,31 +40,45 @@ const EARN_NUMBER_FLOW_PLUGINS = [continuous];
 
 export type EarnDepositSourceOption = {
   addressLabel: string;
+  balance: number;
   balanceFraction: string;
   balanceWhole: string;
+  decimals: number;
   icon: string;
   id: string;
   label: string;
+  mint: string | null;
 };
 
 const FALLBACK_EARN_DEPOSIT_SOURCES: EarnDepositSourceOption[] = [
   {
     addressLabel: "2Lzb…UQUu",
+    balance: 1280,
     balanceFraction: "00",
     balanceWhole: "1,280",
+    decimals: 6,
     icon: "/agents/Agent-01.svg",
     id: "main",
     label: "Main",
+    mint: null,
   },
   {
     addressLabel: "9xQe…3Kf8",
+    balance: 12_346.28,
     balanceFraction: "28",
     balanceWhole: "12,346",
+    decimals: 6,
     icon: "/agents/Stashx.svg",
     id: "stash",
     label: "Stash",
+    mint: null,
   },
 ];
+
+export type EarnDepositCompletion = {
+  amount: number;
+  source: EarnDepositSourceOption;
+};
 
 type EarnChartPoint = {
   date: string;
@@ -80,6 +94,30 @@ function formatMoney(value: number) {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
   });
+}
+
+function formatDepositAmount(value: number) {
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 6,
+    minimumFractionDigits: 0,
+  });
+}
+
+export function clampDepositAmountInput(rawValue: string, balance: number) {
+  if (rawValue === "") {
+    return "";
+  }
+
+  if (!/^[\d,]*\.?\d*$/.test(rawValue)) {
+    return null;
+  }
+
+  const numericValue = Number.parseFloat(rawValue.replace(/,/g, "")) || 0;
+  if (numericValue > balance) {
+    return formatDepositAmount(balance);
+  }
+
+  return rawValue;
 }
 
 function formatForecastMoney(value: number, mutedFraction = false) {
@@ -2434,7 +2472,7 @@ export function EarnDepositView({
   onClose,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
-  onComplete?: () => void;
+  onComplete?: (deposit: EarnDepositCompletion) => void;
   onClose?: () => void;
   sources?: EarnDepositSourceOption[];
 }) {
@@ -2457,12 +2495,7 @@ export function EarnDepositView({
     sourceOptions.find((source) => source.id === selectedSourceId) ??
     sourceOptions[0] ??
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
-  const selectedSourceBalance = Number.parseFloat(
-    `${selectedSource.balanceWhole}.${selectedSource.balanceFraction}`.replace(
-      /,/g,
-      ""
-    )
-  );
+  const selectedSourceBalance = selectedSource.balance;
   const numericDepositAmount =
     Number.parseFloat(depositAmount.replace(/,/g, "")) || 0;
   const hasDepositAmount = depositAmount.length > 0;
@@ -2506,7 +2539,18 @@ export function EarnDepositView({
     openSourceMenu();
   };
   const handleSourceSelect = (sourceId: string) => {
+    const nextSource =
+      sourceOptions.find((source) => source.id === sourceId) ?? selectedSource;
+    const clampedAmount = clampDepositAmountInput(
+      depositAmount,
+      nextSource.balance
+    );
+
     setSelectedSourceId(sourceId);
+    if (clampedAmount !== null && clampedAmount !== depositAmount) {
+      setDepositAmount(clampedAmount);
+      scheduleForecastFromInput(clampedAmount);
+    }
     closeSourceMenu();
   };
 
@@ -2798,10 +2842,13 @@ export function EarnDepositView({
                   inputMode="decimal"
                   ref={amountInputRef}
                   onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "" || /^[\d,]*\.?\d*$/.test(value)) {
-                      setDepositAmount(value);
-                      scheduleForecastFromInput(value);
+                    const clampedValue = clampDepositAmountInput(
+                      event.target.value,
+                      selectedSource.balance
+                    );
+                    if (clampedValue !== null) {
+                      setDepositAmount(clampedValue);
+                      scheduleForecastFromInput(clampedValue);
                     }
                   }}
                   style={{
@@ -2838,8 +2885,7 @@ export function EarnDepositView({
               <button
                 className="earn-deposit-max"
                 onClick={() => {
-                  const maxValue =
-                    selectedSource.balanceWhole.replace(/^0+/, "") || "0";
+                  const maxValue = formatDepositAmount(selectedSource.balance);
                   setDepositAmount(maxValue);
                   scheduleForecastFromInput(maxValue);
                 }}
@@ -2965,7 +3011,12 @@ export function EarnDepositView({
         <button
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}
-          onClick={onComplete}
+          onClick={() =>
+            onComplete?.({
+              amount: numericDepositAmount,
+              source: selectedSource,
+            })
+          }
           style={{
             alignItems: "center",
             background: amountError
