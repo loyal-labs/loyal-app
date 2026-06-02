@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { KAMINO_MAIN_USDC_RESERVE, LoyalCluster } from "@loyal/actions";
+import {
+  LoyalCluster,
+  getKaminoUsdcEarnTargetForCluster,
+} from "@loyal/actions";
 import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
@@ -48,10 +51,12 @@ export async function GET(request: Request) {
     );
   }
 
+  const cluster = resolveConfiguredCluster();
+  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
   const position = await findActiveYieldPosition({
-    cluster: resolveConfiguredCluster(),
+    cluster,
     settings: principal.settingsPda,
-    targetReserve: KAMINO_MAIN_USDC_RESERVE.toBase58(),
+    targetReserve: earnTarget.reserve.toBase58(),
     vaultIndex: EARN_VAULT_INDEX,
     walletAddress: principal.walletAddress,
   });

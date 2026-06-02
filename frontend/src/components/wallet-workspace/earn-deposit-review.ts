@@ -91,7 +91,7 @@ export function buildEarnDepositReviewItem(args: {
         { label: "Actions", value: "Swap" },
         {
           label: "Supported lanes",
-          value: [SwapLane.Jupiter, SwapLane.Loyal]
+          value: [SwapLane.Jupiter]
             .map(formatSwapLaneLabel)
             .join(", "),
         },

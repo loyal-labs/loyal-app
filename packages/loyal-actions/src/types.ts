@@ -144,11 +144,11 @@ export type YieldRoutePolicyPlan<
 > = InitYieldRoutePolicyResult<Lanes>;
 
 export type VaultYieldRoutingPolicyPlan = YieldRoutePolicyPlan<
-  readonly [SwapLane.Jupiter, SwapLane.Loyal]
+  readonly [SwapLane.Jupiter]
 >;
 
 export type InitYieldRoutingPolicyResult = InitYieldRoutePolicyResult<
-  readonly [SwapLane.Jupiter, SwapLane.Loyal]
+  readonly [SwapLane.Jupiter]
 >;
 
 export type LoyalActionsSdk = {

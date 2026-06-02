@@ -8,14 +8,10 @@ import {
   test,
 } from "bun:test";
 import {
-  KAMINO_MAIN_MARKET,
-  KAMINO_MAIN_USDC_RESERVE,
   LoyalCluster,
-  RiskBasket,
-  STABLECOIN_MINTS,
-  Stablecoin,
-  createVaultYieldRoutingPolicyPlan,
+  getKaminoUsdcEarnTargetForCluster,
 } from "@loyal/actions";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
@@ -23,16 +19,18 @@ mock.module("server-only", () => ({}));
 const settings = new PublicKey("11111111111111111111111111111112");
 const walletAddress = new PublicKey("11111111111111111111111111111113");
 const smartAccountAddress = new PublicKey("11111111111111111111111111111114");
-const policyPlan = createVaultYieldRoutingPolicyPlan({
-  cluster: LoyalCluster.Devnet,
-  risk: RiskBasket.Safe,
-  smartAccount: {
-    settings,
-    authority: walletAddress,
-    delegatedSigner: walletAddress,
-  },
-  vaultIndex: 1,
-});
+const earnTarget = getKaminoUsdcEarnTargetForCluster(LoyalCluster.Devnet);
+const vaultPubkey = pda.getSmartAccountPda({
+  settingsPda: settings,
+  accountIndex: 1,
+})[0];
+const policyAccountForSeed = (policySeed: number) =>
+  pda
+    .getPolicyPda({
+      settingsPda: settings,
+      policySeed,
+    })[0]
+    .toBase58();
 const getSignatureStatuses = mock(async () => ({
   value: [
     {
@@ -66,20 +64,20 @@ const recordConfirmedYieldWithdrawal = mock(async () => ({
   id: BigInt(1),
   lastConfirmedSlot: BigInt(123),
   lastDepositSignature: "deposit-sig-1",
-  liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
-  market: KAMINO_MAIN_MARKET.toBase58(),
-  policyAccount: policyPlan.actionAccount.toBase58(),
-  policyId: BigInt(1),
-  policySeed: BigInt(1),
+  liquidityMint: earnTarget.liquidityMint.toBase58(),
+  market: earnTarget.market.toBase58(),
+  policyAccount: policyAccountForSeed(2),
+  policyId: BigInt(2),
+  policySeed: BigInt(2),
   principalAmountRaw: BigInt(750_000),
   settings: settings.toBase58(),
   smartAccountAddress: smartAccountAddress.toBase58(),
   status: "active" as const,
-  targetReserve: KAMINO_MAIN_USDC_RESERVE.toBase58(),
+  targetReserve: earnTarget.reserve.toBase58(),
   targetSupplyApyBps: BigInt(523),
   updatedAt: new Date("2026-06-01T00:00:00.000Z"),
   vaultIndex: 1,
-  vaultPubkey: policyPlan.metadata.vault.toBase58(),
+  vaultPubkey: vaultPubkey.toBase58(),
   walletAddress: walletAddress.toBase58(),
 }));
 
@@ -106,21 +104,22 @@ let POST: typeof import("../route").POST;
 const previousSolanaEnv = process.env.NEXT_PUBLIC_SOLANA_ENV;
 
 function body(overrides = {}) {
-  const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC].toBase58();
+  const usdcMint = earnTarget.liquidityMint.toBase58();
+  const policySeed = "2";
   return {
     cluster: "devnet",
     confirmedSlot: "123",
     liquidityMint: usdcMint,
-    market: KAMINO_MAIN_MARKET.toBase58(),
+    market: earnTarget.market.toBase58(),
     mode: "partial",
-    policyAccount: policyPlan.actionAccount.toBase58(),
-    policyId: "1",
-    policySeed: "1",
+    policyAccount: policyAccountForSeed(Number(policySeed)),
+    policyId: policySeed,
+    policySeed,
     settings: settings.toBase58(),
     smartAccountAddress: smartAccountAddress.toBase58(),
-    targetReserve: KAMINO_MAIN_USDC_RESERVE.toBase58(),
+    targetReserve: earnTarget.reserve.toBase58(),
     vaultIndex: 1,
-    vaultPubkey: policyPlan.metadata.vault.toBase58(),
+    vaultPubkey: vaultPubkey.toBase58(),
     walletAddress: walletAddress.toBase58(),
     withdrawalSignature: "withdrawal-sig-1",
     withdrawnAmountRaw: "250000",
@@ -210,17 +209,17 @@ describe("yield optimization withdrawal confirm route", () => {
     expect(recordConfirmedYieldWithdrawal).toHaveBeenCalledWith({
       cluster: "devnet",
       confirmedSlot: BigInt(123),
-      liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
-      market: KAMINO_MAIN_MARKET.toBase58(),
+      liquidityMint: earnTarget.liquidityMint.toBase58(),
+      market: earnTarget.market.toBase58(),
       mode: "partial",
-      policyAccount: policyPlan.actionAccount.toBase58(),
-      policyId: BigInt(1),
-      policySeed: BigInt(1),
+      policyAccount: policyAccountForSeed(2),
+      policyId: BigInt(2),
+      policySeed: BigInt(2),
       settings: settings.toBase58(),
       smartAccountAddress: smartAccountAddress.toBase58(),
-      targetReserve: KAMINO_MAIN_USDC_RESERVE.toBase58(),
+      targetReserve: earnTarget.reserve.toBase58(),
       vaultIndex: 1,
-      vaultPubkey: policyPlan.metadata.vault.toBase58(),
+      vaultPubkey: vaultPubkey.toBase58(),
       walletAddress: walletAddress.toBase58(),
       withdrawalSignature: "withdrawal-sig-1",
       withdrawnAmountRaw: BigInt(250_000),
@@ -232,8 +231,8 @@ describe("yield optimization withdrawal confirm route", () => {
       position: {
         id: "1",
         lastConfirmedSlot: "123",
-        policyId: "1",
-        policySeed: "1",
+        policyId: "2",
+        policySeed: "2",
         principalAmountRaw: "750000",
         targetSupplyApyBps: "523",
       },
@@ -241,14 +240,16 @@ describe("yield optimization withdrawal confirm route", () => {
   });
 
   test("returns 400 when client policy metadata is tampered", async () => {
-    const response = await POST(request(body({ policySeed: "2" })));
+    const response = await POST(
+      request(body({ policyAccount: policyAccountForSeed(3) }))
+    );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "metadata_mismatch",
         message:
-          "policySeed does not match the canonical earn withdrawal metadata.",
+          "policyAccount does not match the canonical earn withdrawal metadata.",
       },
     });
     expect(recordConfirmedYieldWithdrawal).not.toHaveBeenCalled();

@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  KAMINO_MAIN_MARKET,
-  KAMINO_MAIN_USDC_RESERVE,
   LoyalCluster,
-  RiskBasket,
-  STABLECOIN_MINTS,
-  Stablecoin,
-  createVaultYieldRoutingPolicyPlan,
+  getKaminoUsdcEarnTargetForCluster,
 } from "@loyal/actions";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -20,7 +16,6 @@ import {
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
-const EARN_DEPOSIT_POLICY_SEED = BigInt(1);
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
@@ -163,34 +158,40 @@ function assertCanonicalField(
   }
 }
 
+function toSafePolicySeed(policySeed: bigint): number {
+  if (policySeed <= BigInt(0) || policySeed > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("policySeed is outside the supported earn policy range.");
+  }
+
+  return Number(policySeed);
+}
+
 function createCanonicalWithdrawalInput(
   requestInput: ConfirmedYieldWithdrawalInput
 ): ConfirmedYieldWithdrawalInput {
   const cluster = parseLoyalCluster(requestInput.cluster);
-  const walletAddress = new PublicKey(requestInput.walletAddress);
   const settings = new PublicKey(requestInput.settings);
-  const policyPlan = createVaultYieldRoutingPolicyPlan({
-    cluster,
-    risk: RiskBasket.Safe,
-    smartAccount: {
-      settings,
-      authority: walletAddress,
-      delegatedSigner: walletAddress,
-    },
-    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-  });
-  const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC].toBase58();
+  const expectedPolicyAccount = pda.getPolicyPda({
+    settingsPda: settings,
+    policySeed: toSafePolicySeed(requestInput.policySeed),
+  })[0];
+  const expectedVault = pda.getSmartAccountPda({
+    settingsPda: settings,
+    accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+  })[0];
+  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
+  const usdcMint = earnTarget.liquidityMint.toBase58();
   const canonicalInput = {
     ...requestInput,
     cluster,
     liquidityMint: usdcMint,
-    market: KAMINO_MAIN_MARKET.toBase58(),
-    policyAccount: policyPlan.actionAccount.toBase58(),
-    policyId: EARN_DEPOSIT_POLICY_SEED,
-    policySeed: EARN_DEPOSIT_POLICY_SEED,
-    targetReserve: KAMINO_MAIN_USDC_RESERVE.toBase58(),
+    market: earnTarget.market.toBase58(),
+    policyAccount: expectedPolicyAccount.toBase58(),
+    policyId: requestInput.policySeed,
+    policySeed: requestInput.policySeed,
+    targetReserve: earnTarget.reserve.toBase58(),
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-    vaultPubkey: policyPlan.metadata.vault.toBase58(),
+    vaultPubkey: expectedVault.toBase58(),
   };
 
   assertCanonicalField(requestInput.cluster, canonicalInput.cluster, "cluster");
@@ -204,6 +205,11 @@ function createCanonicalWithdrawalInput(
     requestInput.policyAccount,
     canonicalInput.policyAccount,
     "policyAccount"
+  );
+  assertCanonicalField(
+    requestInput.policyId,
+    requestInput.policySeed,
+    "policyId"
   );
   assertCanonicalField(
     requestInput.policyId,

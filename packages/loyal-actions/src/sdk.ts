@@ -1,5 +1,11 @@
 import { PublicKey } from "@solana/web3.js";
-import { DEFAULT_MAX_FEE_BPS, RISK_BASKET_MARKETS, STABLECOIN_MINTS, STABLECOINS } from "./constants.ts";
+import {
+  DEFAULT_MAX_FEE_BPS,
+  getKaminoUsdcEarnTargetForCluster,
+  getRiskBasketMarketsForCluster,
+  getStablecoinMintsForCluster,
+  getStablecoinsForCluster,
+} from "./constants.ts";
 import { clusterConfigFor } from "./cluster.ts";
 import { kaminoDepositConstraint, kaminoWithdrawConstraint, jupiterConstraint, loyalHubConstraint, uniquePubkeys } from "./internal/protocols.ts";
 import { createProgramInteractionPolicyInstruction, deriveActionAccount } from "./internal/squads.ts";
@@ -31,11 +37,10 @@ const SQUADS_SEED_PREFIX = new TextEncoder().encode("smart_account");
 
 const DEFAULT_YIELD_ROUTING_SWAP_LANES = [
   SwapLane.Jupiter,
-  SwapLane.Loyal,
 ] as const;
 
 const YIELD_ROUTE_UNIVERSE_PRESET = "canonical_stable_kamino";
-const YIELD_ROUTE_MODES = ["same_mint_kamino", "jupiter", "loyal"] as const;
+const YIELD_ROUTE_MODES = ["same_mint_kamino", "jupiter"] as const;
 const YIELD_ROUTE_POLICY_THRESHOLD = 1;
 
 export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane[]>(
@@ -48,18 +53,38 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
   validateInput(input);
 
   const maxFeeBps = input.maxFeeBps ?? DEFAULT_MAX_FEE_BPS;
-  const stableMints = STABLECOINS.map((stablecoin) => STABLECOIN_MINTS[stablecoin]);
-  const kaminoMarkets = [...RISK_BASKET_MARKETS[input.risk]];
+  const stableMints = [...getStablecoinMintsForCluster(input.cluster)];
+  if (uniquePubkeys(stableMints).length !== stableMints.length) {
+    throw new Error("stablecoin mint registry contains duplicates");
+  }
+  const kaminoMarkets = [
+    ...getRiskBasketMarketsForCluster(input.cluster, input.risk),
+  ];
+  const kaminoEarnTarget = getKaminoUsdcEarnTargetForCluster(input.cluster);
   const kaminoLiquidityMints = [...stableMints];
   const actionAccount = deriveActionAccount(clusterConfig, input.squads.settings);
   const constraints = [
-    kaminoWithdrawConstraint(clusterConfig, input.squads.vault, kaminoMarkets, kaminoLiquidityMints),
+    kaminoWithdrawConstraint(
+      clusterConfig,
+      input.squads.vault,
+      kaminoMarkets,
+      kaminoLiquidityMints,
+      kaminoEarnTarget.lendProgramId,
+      kaminoEarnTarget.withdrawDiscriminator,
+    ),
     ...input.swapLanes.map((lane) =>
       lane === SwapLane.Jupiter
         ? jupiterConstraint(clusterConfig, input.squads.vault, stableMints, maxFeeBps)
         : loyalHubConstraint(clusterConfig, input.squads.vault, stableMints, maxFeeBps),
     ),
-    kaminoDepositConstraint(clusterConfig, input.squads.vault, kaminoMarkets, kaminoLiquidityMints),
+    kaminoDepositConstraint(
+      clusterConfig,
+      input.squads.vault,
+      kaminoMarkets,
+      kaminoLiquidityMints,
+      kaminoEarnTarget.lendProgramId,
+      kaminoEarnTarget.depositDiscriminator,
+    ),
   ];
 
   const instruction = createProgramInteractionPolicyInstruction(clusterConfig, input.squads, constraints);
@@ -95,7 +120,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
     routes: routes as YieldRoutePolicyPlan<Lanes>["routes"],
     spec: {
       risk: input.risk,
-      stablecoins: [...STABLECOINS],
+      stablecoins: [...getStablecoinsForCluster(input.cluster)],
       stableMints,
       kaminoMarkets,
       kaminoLiquidityMints,
@@ -221,10 +246,6 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
     if (!(value instanceof PublicKey)) {
       throw new Error(`squads.${name} must be a PublicKey`);
     }
-  }
-  const stableMints = STABLECOINS.map((stablecoin) => STABLECOIN_MINTS[stablecoin]);
-  if (uniquePubkeys(stableMints).length !== stableMints.length) {
-    throw new Error("stablecoin mint registry contains duplicates");
   }
 }
 

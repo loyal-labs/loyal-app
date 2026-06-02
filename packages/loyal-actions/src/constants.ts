@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { MaxFeeBps, RiskBasket, Stablecoin } from "./types.ts";
+import { LoyalCluster, MaxFeeBps, RiskBasket, Stablecoin } from "./types.ts";
 import type { Address } from "./types.ts";
 
 export const DEFAULT_MAX_FEE_BPS = MaxFeeBps.Bps100;
@@ -28,6 +28,18 @@ export const STABLECOIN_MINTS: Record<Stablecoin, Address> = {
   ),
 };
 
+export const STABLECOIN_MINTS_BY_CLUSTER: Record<
+  LoyalCluster,
+  Partial<Record<Stablecoin, Address>>
+> = {
+  [LoyalCluster.MainnetBeta]: STABLECOIN_MINTS,
+  [LoyalCluster.Devnet]: {
+    [Stablecoin.USDC]: new PublicKey(
+      "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+    ),
+  },
+};
+
 export const STABLECOINS = [
   Stablecoin.USDC,
   Stablecoin.USDT,
@@ -43,6 +55,12 @@ export const KAMINO_MAIN_MARKET = new PublicKey(
 );
 export const KAMINO_MAIN_USDC_RESERVE = new PublicKey(
   "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59"
+);
+export const KAMINO_DEVNET_MAIN_MARKET = new PublicKey(
+  "27MKCQo5qP7ijrwWSMKX2Jeb3PhK2NZmHQ9befWVRS4J"
+);
+export const KAMINO_DEVNET_USDC_RESERVE = new PublicKey(
+  "9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy"
 );
 export const KAMINO_FIGURE_MARKET = new PublicKey(
   "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA"
@@ -105,14 +123,103 @@ export const RISK_BASKET_MARKETS: Record<RiskBasket, readonly Address[]> = {
   ],
 };
 
+export const RISK_BASKET_MARKETS_BY_CLUSTER: Record<
+  LoyalCluster,
+  Record<RiskBasket, readonly Address[]>
+> = {
+  [LoyalCluster.MainnetBeta]: RISK_BASKET_MARKETS,
+  [LoyalCluster.Devnet]: {
+    [RiskBasket.Safe]: [KAMINO_DEVNET_MAIN_MARKET],
+    [RiskBasket.Medium]: [KAMINO_DEVNET_MAIN_MARKET],
+    [RiskBasket.Aggressive]: [KAMINO_DEVNET_MAIN_MARKET],
+  },
+};
+
+export function getStablecoinMintForCluster(
+  cluster: LoyalCluster,
+  stablecoin: Stablecoin
+): Address {
+  const mint = STABLECOIN_MINTS_BY_CLUSTER[cluster]?.[stablecoin];
+  if (!mint) {
+    throw new Error(
+      `unsupported stablecoin ${stablecoin} for cluster ${cluster}`
+    );
+  }
+  return mint;
+}
+
+export function getStablecoinMintsForCluster(
+  cluster: LoyalCluster
+): readonly Address[] {
+  return STABLECOINS.flatMap((stablecoin) => {
+    const mint = STABLECOIN_MINTS_BY_CLUSTER[cluster]?.[stablecoin];
+    return mint ? [mint] : [];
+  });
+}
+
+export function getStablecoinsForCluster(
+  cluster: LoyalCluster
+): readonly Stablecoin[] {
+  return STABLECOINS.filter(
+    (stablecoin) => STABLECOIN_MINTS_BY_CLUSTER[cluster]?.[stablecoin]
+  );
+}
+
+export function getRiskBasketMarketsForCluster(
+  cluster: LoyalCluster,
+  risk: RiskBasket
+): readonly Address[] {
+  return RISK_BASKET_MARKETS_BY_CLUSTER[cluster][risk];
+}
+
+export function getKaminoUsdcEarnTargetForCluster(cluster: LoyalCluster): {
+  depositDiscriminator: readonly number[];
+  liquidityMint: Address;
+  lendProgramId: Address;
+  market: Address;
+  reserve: Address;
+  withdrawDiscriminator: readonly number[];
+} {
+  if (cluster === LoyalCluster.Devnet) {
+    return {
+      depositDiscriminator:
+        KAMINO_DEVNET_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
+      liquidityMint: getStablecoinMintForCluster(cluster, Stablecoin.USDC),
+      lendProgramId: KAMINO_DEVNET_LEND_PROGRAM_ID,
+      market: KAMINO_DEVNET_MAIN_MARKET,
+      reserve: KAMINO_DEVNET_USDC_RESERVE,
+      withdrawDiscriminator:
+        KAMINO_DEVNET_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR,
+    };
+  }
+
+  return {
+    depositDiscriminator: KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
+    liquidityMint: getStablecoinMintForCluster(cluster, Stablecoin.USDC),
+    lendProgramId: KAMINO_LEND_PROGRAM_ID,
+    market: KAMINO_MAIN_MARKET,
+    reserve: KAMINO_MAIN_USDC_RESERVE,
+    withdrawDiscriminator: KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR,
+  };
+}
+
 export const KAMINO_LEND_PROGRAM_ID = new PublicKey(
   "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd"
+);
+export const KAMINO_DEVNET_LEND_PROGRAM_ID = new PublicKey(
+  "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 );
 export const KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR = [
   242, 35, 198, 137, 82, 225, 242, 182,
 ] as const;
 export const KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR = [
   235, 52, 119, 152, 149, 197, 20, 7,
+] as const;
+export const KAMINO_DEVNET_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR = [
+  169, 201, 30, 126, 6, 205, 102, 68,
+] as const;
+export const KAMINO_DEVNET_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR = [
+  234, 117, 181, 125, 185, 142, 220, 29,
 ] as const;
 
 export const JUPITER_SWAP_DISCRIMINATOR = [

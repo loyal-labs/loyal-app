@@ -1,4 +1,5 @@
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts";
+import type { LoyalCluster } from "@loyal/actions";
 import type { DecodedSolanaInstruction } from "@loyal-labs/solana-instruction-decoder";
 import type {
   ActivityPage,
@@ -367,12 +368,21 @@ export type SmartAccountEarnUsdcDepositInput = {
   walletAddress: PublicKey;
   feePayer: PublicKey;
   amountRaw: bigint;
+  cluster?: LoyalCluster;
   initializeYieldRoutingPolicy?: boolean;
   memo?: string;
 };
 
+export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
+  settingsPda: PublicKey;
+  signer: PublicKey;
+  feePayer: PublicKey;
+  cluster?: LoyalCluster;
+  memo?: string;
+};
+
 export type SmartAccountEarnUsdcDepositMetadata = {
-  cluster: "mainnet-beta";
+  cluster: LoyalCluster;
   walletAddress: string;
   settings: string;
   vaultIndex: 1;
@@ -416,12 +426,13 @@ export type SmartAccountEarnUsdcWithdrawInput = {
   walletAddress: PublicKey;
   feePayer: PublicKey;
   amountRaw: bigint;
+  cluster?: LoyalCluster;
   mode: "partial" | "full";
   memo?: string;
 };
 
 export type SmartAccountEarnUsdcWithdrawMetadata = {
-  cluster: "mainnet-beta";
+  cluster: LoyalCluster;
   walletAddress: string;
   settings: string;
   vaultIndex: 1;

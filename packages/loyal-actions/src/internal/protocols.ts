@@ -22,10 +22,13 @@ export function kaminoWithdrawConstraint(
   config: LoyalClusterConfig,
   vault: PublicKey,
   markets: readonly PublicKey[],
-  liquidityMints: readonly PublicKey[]
+  liquidityMints: readonly PublicKey[],
+  lendProgramId = KAMINO_LEND_PROGRAM_ID,
+  discriminator: readonly number[] =
+    KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR
 ): InstructionConstraint {
   return {
-    programId: KAMINO_LEND_PROGRAM_ID,
+    programId: lendProgramId,
     accountConstraints: [
       pubkeyConstraint(0, [vault]),
       pubkeyConstraint(1, uniquePubkeys(markets)),
@@ -34,7 +37,7 @@ export function kaminoWithdrawConstraint(
       pubkeyConstraint(10, [config.tokenProgramId]),
     ],
     dataConstraints: discriminatorConstraint(
-      KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR
+      discriminator
     ),
   };
 }
@@ -43,10 +46,13 @@ export function kaminoDepositConstraint(
   config: LoyalClusterConfig,
   vault: PublicKey,
   markets: readonly PublicKey[],
-  liquidityMints: readonly PublicKey[]
+  liquidityMints: readonly PublicKey[],
+  lendProgramId = KAMINO_LEND_PROGRAM_ID,
+  discriminator: readonly number[] =
+    KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR
 ): InstructionConstraint {
   return {
-    programId: KAMINO_LEND_PROGRAM_ID,
+    programId: lendProgramId,
     accountConstraints: [
       pubkeyConstraint(0, [vault]),
       pubkeyConstraint(2, uniquePubkeys(markets)),
@@ -55,7 +61,7 @@ export function kaminoDepositConstraint(
       pubkeyConstraint(10, [config.tokenProgramId]),
     ],
     dataConstraints: discriminatorConstraint(
-      KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR
+      discriminator
     ),
   };
 }

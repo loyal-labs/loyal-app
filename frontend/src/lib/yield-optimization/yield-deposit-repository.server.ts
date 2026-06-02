@@ -471,12 +471,13 @@ export async function recordConfirmedYieldWithdrawal(
           lastSeenSignature: input.withdrawalSignature,
           lastSeenSlot: input.confirmedSlot,
         })
-        .where(
-          and(
-            eq(routePolicies.cluster, input.cluster),
-            eq(routePolicies.policyAccount, input.policyAccount)
-          )
-        ) as never,
+	        .where(
+	          and(
+	            eq(routePolicies.cluster, input.cluster),
+	            eq(routePolicies.settings, input.settings),
+	            eq(routePolicies.vaultIndex, input.vaultIndex)
+	          )
+	        ) as never,
       client.db
         .update(managedVaults)
         .set({ active: false, lastSeenAt: now })

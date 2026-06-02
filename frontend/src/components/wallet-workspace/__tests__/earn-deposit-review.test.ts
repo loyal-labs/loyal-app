@@ -84,7 +84,7 @@ describe("buildEarnDepositReviewItem", () => {
       expect.arrayContaining([
         { label: "Policy", value: "Swap policy" },
         { label: "Actions", value: "Swap" },
-        { label: "Supported lanes", value: "Jupiter, Loyal" },
+        { label: "Supported lanes", value: "Jupiter" },
         expect.objectContaining({
           label: "Mints",
           value: expect.stringContaining("USDC (EPjF...Dt1v)"),

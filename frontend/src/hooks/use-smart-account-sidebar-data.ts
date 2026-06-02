@@ -15,6 +15,7 @@ import {
   type SmartAccountSpendingLimitSnapshot,
   type SmartAccountVaultSnapshot,
 } from "@loyal-labs/smart-account-vaults";
+import { LoyalCluster } from "@loyal/actions";
 import {
   type ActivityPage,
   NATIVE_SOL_MINT,
@@ -869,14 +870,19 @@ async function postConfirmedEarnWithdraw(args: {
 function hasInitializedEarnYieldRoutingPolicy(
   overview: SmartAccountOverview | null
 ): boolean {
-  return (
-    overview?.policies.some(
-      (policy) =>
-        policy.seed === "1" &&
-        policy.state === "ProgramInteraction" &&
-        policy.accountIndex === 1
-    ) ?? false
+	return (
+		overview?.policies.some(
+			(policy) =>
+				policy.state === "ProgramInteraction" &&
+				policy.accountIndex === 1
+		) ?? false
   );
+}
+
+function resolveEarnLoyalCluster(solanaEnv: string): LoyalCluster {
+  return solanaEnv === "devnet"
+    ? LoyalCluster.Devnet
+    : LoyalCluster.MainnetBeta;
 }
 
 export function getSmartAccountTotalUsd({
@@ -3426,6 +3432,7 @@ export function useSmartAccountSidebarData(
           walletAddress: wallet.publicKey,
           feePayer: wallet.publicKey,
           amountRaw: request.amountRaw,
+          cluster: resolveEarnLoyalCluster(solanaEnv),
           initializeYieldRoutingPolicy:
             !hasInitializedEarnYieldRoutingPolicy(overview),
         });
@@ -3517,6 +3524,7 @@ export function useSmartAccountSidebarData(
           walletAddress: wallet.publicKey,
           feePayer: wallet.publicKey,
           amountRaw: request.amountRaw,
+          cluster: resolveEarnLoyalCluster(solanaEnv),
           mode: request.mode,
         });
         const signature = await sendPreparedWithWallet({

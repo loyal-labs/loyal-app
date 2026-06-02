@@ -95,7 +95,7 @@ describe("initYieldRoutePolicy", () => {
     expect(policy.persistence).toEqual({
       riskProfile: RiskBasket.Safe,
       universePreset: "canonical_stable_kamino",
-      routeModes: ["same_mint_kamino", "jupiter", "loyal"],
+      routeModes: ["same_mint_kamino", "jupiter"],
       stableMints: policy.spec.stableMints.map((mint) => mint.toBase58()),
       kaminoMarkets: policy.spec.kaminoMarkets.map((market) =>
         market.toBase58()
@@ -240,7 +240,7 @@ describe("initYieldRoutingPolicy", () => {
     });
     const explicit = sdk.initYieldRoutePolicy({
       risk: RiskBasket.Safe,
-      swapLanes: [SwapLane.Jupiter, SwapLane.Loyal] as const,
+      swapLanes: [SwapLane.Jupiter] as const,
       maxFeeBps: MaxFeeBps.Bps125,
       squads: {
         ...smartAccount,
@@ -264,12 +264,9 @@ describe("initYieldRoutingPolicy", () => {
       vault: explicitVault,
       lockKey: `${settings.toBase58()}:${vaultIndex}`,
     });
-    expect(derived.spec.swapLanes).toEqual([SwapLane.Jupiter, SwapLane.Loyal]);
+    expect(derived.spec.swapLanes).toEqual([SwapLane.Jupiter]);
     expect(derived.routes.jupiter.instructionConstraintIndexes).toEqual([
-      0, 1, 3,
-    ]);
-    expect(derived.routes.loyal.instructionConstraintIndexes).toEqual([
-      0, 2, 3,
+      0, 1, 2,
     ]);
   });
 
@@ -385,7 +382,7 @@ describe("yield route policy plan compilers", () => {
     expect(wrappedPlan).toEqual(plan);
   });
 
-  test("vault-indexed routing exposes Jupiter and Loyal persistence metadata", () => {
+  test("vault-indexed routing exposes Jupiter persistence metadata", () => {
     const plan = createVaultYieldRoutingPolicyPlan({
       cluster: LoyalCluster.MainnetBeta,
       smartAccount,
@@ -393,18 +390,12 @@ describe("yield route policy plan compilers", () => {
       vaultIndex: 0,
     });
 
-    expect(plan.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 3]);
-    expect(plan.routes.loyal.instructionConstraintIndexes).toEqual([0, 2, 3]);
+    expect(plan.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 2]);
     expect(plan.persistence.swapLanes).toEqual([
       {
         lane: SwapLane.Jupiter,
         actionAccount: plan.actionAccount.toBase58(),
-        instructionConstraintIndexes: [0, 1, 3],
-      },
-      {
-        lane: SwapLane.Loyal,
-        actionAccount: plan.actionAccount.toBase58(),
-        instructionConstraintIndexes: [0, 2, 3],
+        instructionConstraintIndexes: [0, 1, 2],
       },
     ]);
   });
@@ -418,12 +409,11 @@ describe("yield route policy plan compilers", () => {
     });
 
     expect(plan.metadata.vaultIndex).toBe(1);
-    expect(plan.routes.sameMint.instructionConstraintIndexes).toEqual([0, 3]);
-    expect(plan.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 3]);
-    expect(plan.routes.loyal.instructionConstraintIndexes).toEqual([0, 2, 3]);
+    expect(plan.routes.sameMint.instructionConstraintIndexes).toEqual([0, 2]);
+    expect(plan.routes.jupiter.instructionConstraintIndexes).toEqual([0, 1, 2]);
     expect(plan.persistence).toMatchObject({
       riskProfile: RiskBasket.Safe,
-      routeModes: ["same_mint_kamino", "jupiter", "loyal"],
+      routeModes: ["same_mint_kamino", "jupiter"],
       threshold: 1,
       universePreset: "canonical_stable_kamino",
     });
