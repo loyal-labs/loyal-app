@@ -140,6 +140,25 @@ export type SmartAccountVaultSnapshot = {
   spendingLimits: SmartAccountSpendingLimitSnapshot[];
 };
 
+export type SmartAccountVaultBaseSnapshot = Pick<
+  SmartAccountVaultSnapshot,
+  "accountIndex" | "address"
+>;
+
+export type SmartAccountOverviewBase = Omit<
+  SmartAccountOverview,
+  "policies" | "spendingLimits" | "vaults" | "proposals"
+> & {
+  accountUtilization: number;
+  vaults: SmartAccountVaultBaseSnapshot[];
+};
+
+export type SmartAccountPolicyOverview = {
+  signers: SmartAccountSignerSnapshot[];
+  policies: SmartAccountPolicySnapshot[];
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
+};
+
 export type SmartAccountOverview = {
   programId: string;
   settingsPda: string;

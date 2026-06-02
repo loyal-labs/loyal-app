@@ -5,6 +5,8 @@ import {
   sendPreparedWithWallet,
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
+  type SmartAccountOverviewBase,
+  type SmartAccountPolicyOverview,
   type SmartAccountProposalSnapshot,
   type SmartAccountSignerPermission,
   type SmartAccountSignerSnapshot,
@@ -15,6 +17,7 @@ import {
   type ActivityPage,
   NATIVE_SOL_MINT,
   type PortfolioPosition,
+  type PortfolioSnapshot,
   type WalletActivity,
 } from "@loyal-labs/solana-wallet";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
@@ -39,13 +42,18 @@ import type {
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { getPublicEnv } from "@/lib/core/config/public";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
 
-type SmartAccountRouteResponse = {
-  overview: SmartAccountOverview;
+type SmartAccountTimedRouteResponse<T> = {
+  data: T;
+  meta: {
+    fetchedAt: number;
+    timingsMs: Record<string, number>;
+  };
 };
 
 type SmartAccountVaultActivityRouteResponse = {
@@ -58,6 +66,34 @@ type SmartAccountRouteErrorResponse = {
     code?: string;
     message?: string;
   };
+};
+
+type SmartAccountOverviewCacheGroup<T> = {
+  savedAt: number;
+  data: T;
+};
+
+type SmartAccountOverviewCachePayload = {
+  version: 1;
+  settingsPda: string;
+  solanaEnv: string;
+  savedAt: number;
+  groups: {
+    base?: SmartAccountOverviewCacheGroup<SmartAccountOverviewBase>;
+    vaults?: SmartAccountOverviewCacheGroup<SmartAccountVaultSnapshot[]>;
+    policies?: SmartAccountOverviewCacheGroup<SmartAccountPolicyOverview>;
+    proposals?: SmartAccountOverviewCacheGroup<SmartAccountProposalSnapshot[]>;
+  };
+};
+
+type SmartAccountOverviewCacheGroupName =
+  keyof SmartAccountOverviewCachePayload["groups"];
+
+type SmartAccountOverviewCacheGroupData = {
+  base: SmartAccountOverviewBase;
+  vaults: SmartAccountVaultSnapshot[];
+  policies: SmartAccountPolicyOverview;
+  proposals: SmartAccountProposalSnapshot[];
 };
 
 export type SmartAccountApprovalItem = {
@@ -183,6 +219,16 @@ export type VaultTransferCapability =
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   isLoading: boolean;
+  isBaseLoading: boolean;
+  isVaultsLoading: boolean;
+  isPoliciesLoading: boolean;
+  isProposalsLoading: boolean;
+  scopedErrors: {
+    base: string | null;
+    vaults: string | null;
+    policies: string | null;
+    proposals: string | null;
+  };
   error: string | null;
   totalUsd: number;
   vaultEntries: SmartAccountVaultEntry[];
@@ -338,6 +384,359 @@ function splitUsd(value: number | null | undefined) {
 
 function finiteUsd(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function createEmptyPortfolio(owner: string): PortfolioSnapshot {
+  return {
+    owner,
+    nativeBalanceLamports: 0,
+    positions: [],
+    totals: {
+      effectiveSolPriceUsd: null,
+      pricedCount: 0,
+      totalSol: null,
+      totalUsd: 0,
+      unpricedCount: 0,
+    },
+    fetchedAt: Date.now(),
+  };
+}
+
+function createEmptyVaultSnapshot(
+  vault: SmartAccountOverviewBase["vaults"][number]
+): SmartAccountVaultSnapshot {
+  return {
+    accountIndex: vault.accountIndex,
+    address: vault.address,
+    lamports: 0,
+    portfolio: createEmptyPortfolio(vault.address),
+    activity: { activities: [] },
+    signers: [],
+    spendingLimits: [],
+  };
+}
+
+function dedupeSignerSnapshots(
+  signers: SmartAccountSignerSnapshot[]
+): SmartAccountSignerSnapshot[] {
+  const uniqueSigners = new Map<string, SmartAccountSignerSnapshot>();
+
+  for (const signer of signers) {
+    if (!uniqueSigners.has(signer.address)) {
+      uniqueSigners.set(signer.address, signer);
+    }
+  }
+
+  return Array.from(uniqueSigners.values());
+}
+
+function createOverviewFromBase(
+  base: SmartAccountOverviewBase
+): SmartAccountOverview {
+  return {
+    programId: base.programId,
+    settingsPda: base.settingsPda,
+    threshold: base.threshold,
+    timeLock: base.timeLock,
+    staleTransactionIndex: base.staleTransactionIndex,
+    canonicalVaultAddress: base.canonicalVaultAddress,
+    signers: base.signers,
+    policies: [],
+    spendingLimits: [],
+    vaults: base.vaults.map((vault) => createEmptyVaultSnapshot(vault)),
+    proposals: [],
+    fetchedAt: base.fetchedAt,
+  };
+}
+
+function decorateVaultsWithPolicies(args: {
+  vaults: SmartAccountVaultSnapshot[];
+  signers: SmartAccountSignerSnapshot[];
+  policies: SmartAccountPolicyOverview["policies"];
+  spendingLimits: SmartAccountPolicyOverview["spendingLimits"];
+}): SmartAccountVaultSnapshot[] {
+  const spendingLimitAccountIndexes = new Map(
+    args.spendingLimits.map((spendingLimit) => [
+      spendingLimit.address,
+      spendingLimit.accountIndex,
+    ])
+  );
+
+  return args.vaults.map((vault) => ({
+    ...vault,
+    signers: dedupeSignerSnapshots([
+      ...args.signers,
+      ...args.policies
+        .filter(
+          (policy) =>
+            spendingLimitAccountIndexes.get(policy.address) ===
+            vault.accountIndex
+        )
+        .flatMap((policy) => policy.signers),
+    ]),
+    spendingLimits: args.spendingLimits.filter(
+      (spendingLimit) => spendingLimit.accountIndex === vault.accountIndex
+    ),
+  }));
+}
+
+function mergeVaultSnapshots(
+  overview: SmartAccountOverview,
+  vaults: SmartAccountVaultSnapshot[]
+): SmartAccountOverview {
+  const byAccountIndex = new Map(
+    vaults.map((vault) => [vault.accountIndex, vault])
+  );
+  const existingIndexes = new Set(
+    overview.vaults.map((vault) => vault.accountIndex)
+  );
+  const mergedVaults = [
+    ...overview.vaults.map(
+      (vault) => byAccountIndex.get(vault.accountIndex) ?? vault
+    ),
+    ...vaults.filter((vault) => !existingIndexes.has(vault.accountIndex)),
+  ].sort((left, right) => left.accountIndex - right.accountIndex);
+
+  return {
+    ...overview,
+    vaults: decorateVaultsWithPolicies({
+      vaults: mergedVaults,
+      signers: overview.signers,
+      policies: overview.policies,
+      spendingLimits: overview.spendingLimits,
+    }),
+    fetchedAt: Date.now(),
+  };
+}
+
+function mergePolicyOverview(
+  overview: SmartAccountOverview,
+  policyOverview: SmartAccountPolicyOverview
+): SmartAccountOverview {
+  return {
+    ...overview,
+    signers: policyOverview.signers,
+    policies: policyOverview.policies,
+    spendingLimits: policyOverview.spendingLimits,
+    vaults: decorateVaultsWithPolicies({
+      vaults: overview.vaults,
+      signers: policyOverview.signers,
+      policies: policyOverview.policies,
+      spendingLimits: policyOverview.spendingLimits,
+    }),
+    fetchedAt: Date.now(),
+  };
+}
+
+const SMART_ACCOUNT_OVERVIEW_CACHE_VERSION = 1;
+const SMART_ACCOUNT_OVERVIEW_CACHE_PREFIX = "loyal.smartAccountOverview.v1";
+
+function getSmartAccountOverviewCacheKey(args: {
+  settingsPda: string;
+  solanaEnv: string;
+}) {
+  return `${SMART_ACCOUNT_OVERVIEW_CACHE_PREFIX}:${args.solanaEnv}:${args.settingsPda}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseSmartAccountOverviewCachePayload(args: {
+  raw: string;
+  settingsPda: string;
+  solanaEnv: string;
+}): SmartAccountOverviewCachePayload | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(args.raw);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed)) {
+    return null;
+  }
+
+  if (parsed.version !== SMART_ACCOUNT_OVERVIEW_CACHE_VERSION) {
+    return null;
+  }
+
+  if (parsed.settingsPda !== args.settingsPda) {
+    return null;
+  }
+
+  if (parsed.solanaEnv !== args.solanaEnv) {
+    return null;
+  }
+
+  if (!isRecord(parsed.groups)) {
+    return null;
+  }
+
+  return parsed as SmartAccountOverviewCachePayload;
+}
+
+function getSmartAccountOverviewCacheStorage(): Pick<
+  Storage,
+  "getItem" | "setItem"
+> | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function readSmartAccountOverviewCache(args: {
+  settingsPda: string;
+  solanaEnv: string;
+  storage?: Pick<Storage, "getItem"> | null;
+}): SmartAccountOverviewCachePayload | null {
+  const storage =
+    args.storage === undefined
+      ? getSmartAccountOverviewCacheStorage()
+      : args.storage;
+  if (!storage) {
+    return null;
+  }
+
+  const key = getSmartAccountOverviewCacheKey(args);
+  let raw: string | null = null;
+  try {
+    raw = storage.getItem(key);
+  } catch {
+    return null;
+  }
+
+  if (!raw) {
+    return null;
+  }
+
+  return parseSmartAccountOverviewCachePayload({
+    raw,
+    settingsPda: args.settingsPda,
+    solanaEnv: args.solanaEnv,
+  });
+}
+
+export function createOverviewFromCache(
+  cache: SmartAccountOverviewCachePayload
+): SmartAccountOverview | null {
+  const base = cache.groups.base?.data;
+  if (!base) {
+    return null;
+  }
+
+  return mergeCachedGroupsOntoOverview(createOverviewFromBase(base), cache);
+}
+
+function mergeCachedGroupsOntoOverview(
+  baseOverview: SmartAccountOverview,
+  cache: SmartAccountOverviewCachePayload | null
+): SmartAccountOverview {
+  if (!cache) {
+    return baseOverview;
+  }
+
+  let overview = baseOverview;
+
+  if (cache.groups.vaults) {
+    const expectedIndexes = new Set(
+      baseOverview.vaults.map((vault) => vault.accountIndex)
+    );
+    overview = mergeVaultSnapshots(
+      overview,
+      cache.groups.vaults.data.filter((vault) =>
+        expectedIndexes.has(vault.accountIndex)
+      )
+    );
+  }
+
+  if (cache.groups.policies) {
+    overview = mergePolicyOverview(overview, cache.groups.policies.data);
+  }
+
+  if (cache.groups.proposals) {
+    overview = {
+      ...overview,
+      proposals: cache.groups.proposals.data,
+      fetchedAt: cache.groups.proposals.savedAt,
+    };
+  }
+
+  return {
+    ...overview,
+    fetchedAt: cache.savedAt,
+  };
+}
+
+export function writeSmartAccountOverviewCacheGroup<
+  TGroupName extends SmartAccountOverviewCacheGroupName
+>(args: {
+  settingsPda: string;
+  solanaEnv: string;
+  group: TGroupName;
+  data: SmartAccountOverviewCacheGroupData[TGroupName];
+  storage?: Pick<Storage, "getItem" | "setItem"> | null;
+}) {
+  const storage =
+    args.storage === undefined
+      ? getSmartAccountOverviewCacheStorage()
+      : args.storage;
+  if (!storage) {
+    return;
+  }
+
+  const key = getSmartAccountOverviewCacheKey(args);
+  const savedAt = Date.now();
+  const existing = readSmartAccountOverviewCache({
+    settingsPda: args.settingsPda,
+    solanaEnv: args.solanaEnv,
+    storage,
+  });
+  const next: SmartAccountOverviewCachePayload = {
+    version: SMART_ACCOUNT_OVERVIEW_CACHE_VERSION,
+    settingsPda: args.settingsPda,
+    solanaEnv: args.solanaEnv,
+    savedAt,
+    groups: {
+      ...(existing?.groups ?? {}),
+      [args.group]: {
+        savedAt,
+        data: args.data,
+      },
+    },
+  };
+
+  try {
+    storage.setItem(key, JSON.stringify(next));
+  } catch {
+    // Storage can be unavailable or full; network data should still render.
+  }
+}
+
+async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
+  const response = await fetch(url.toString(), {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const errorPayload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    const message =
+      errorPayload?.error?.message ?? "Failed to load smart-account overview.";
+
+    throw new Error(message);
+  }
+
+  const payload = (await response.json()) as SmartAccountTimedRouteResponse<T>;
+  return payload.data;
 }
 
 export function getSmartAccountTotalUsd({
@@ -1118,6 +1517,7 @@ export function useSmartAccountSidebarData(
   } = {}
 ): SmartAccountSidebarData {
   const { authenticatedUserTotalUsd, onAfterTx } = options;
+  const solanaEnv = getPublicEnv().solanaEnv;
   const onAfterTxRef = useRef(onAfterTx);
   useEffect(() => {
     onAfterTxRef.current = onAfterTx;
@@ -1127,8 +1527,22 @@ export function useSmartAccountSidebarData(
   const wallet = useWallet();
   const walletDataClient = useSolanaWalletDataClient();
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isBaseLoading, setIsBaseLoading] = useState(false);
+  const [isVaultsLoading, setIsVaultsLoading] = useState(false);
+  const [isPoliciesLoading, setIsPoliciesLoading] = useState(false);
+  const [isProposalsLoading, setIsProposalsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scopedErrors, setScopedErrors] = useState<{
+    base: string | null;
+    vaults: string | null;
+    policies: string | null;
+    proposals: string | null;
+  }>({
+    base: null,
+    vaults: null,
+    policies: null,
+    proposals: null,
+  });
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(
@@ -1152,58 +1566,227 @@ export function useSmartAccountSidebarData(
   );
 
   const refresh = useCallback(
-    async (refreshOptions?: { invalidateAddresses?: string[] }) => {
+    async (refreshOptions?: {
+      invalidateAddresses?: string[];
+      readCache?: boolean;
+    }) => {
       if (!user?.settingsPda) {
         setOverview(null);
         setError(null);
+        setScopedErrors({
+          base: null,
+          vaults: null,
+          policies: null,
+          proposals: null,
+        });
         return;
       }
 
-      setIsLoading(true);
+      let baseOverview: SmartAccountOverview | null = null;
+      const shouldReadCache = refreshOptions?.readCache ?? true;
+      const cachedPayload = shouldReadCache
+        ? readSmartAccountOverviewCache({
+            settingsPda: user.settingsPda,
+            solanaEnv,
+          })
+        : null;
+      const cachedOverview = cachedPayload
+        ? createOverviewFromCache(cachedPayload)
+        : null;
+
+      if (cachedOverview) {
+        baseOverview = cachedOverview;
+        setOverview(cachedOverview);
+        setVaultActivityByAccountIndex({});
+        vaultActivityLoadPromisesRef.current.clear();
+      }
+
+      setIsBaseLoading(true);
+      setIsVaultsLoading(false);
+      setIsPoliciesLoading(false);
+      setIsProposalsLoading(false);
       setError(null);
+      setScopedErrors({
+        base: null,
+        vaults: null,
+        policies: null,
+        proposals: null,
+      });
 
       try {
-        const url = new URL(
-          "/api/smart-accounts/overview",
+        const baseUrl = new URL(
+          "/api/smart-accounts/overview/base",
           window.location.origin
         );
-        const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
-          (value) => value.length > 0
+        const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
+          baseUrl
         );
-        if (invalidateAddresses && invalidateAddresses.length > 0) {
-          url.searchParams.set("invalidate", invalidateAddresses.join(","));
-        }
-
-        const response = await fetch(url.toString(), {
-          credentials: "include",
+        writeSmartAccountOverviewCacheGroup({
+          settingsPda: user.settingsPda,
+          solanaEnv,
+          group: "base",
+          data: base,
         });
-
-        if (!response.ok) {
-          const errorPayload = (await response
-            .json()
-            .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-          const message =
-            errorPayload?.error?.message ??
-            "Failed to load smart-account overview.";
-
-          throw new Error(message);
-        }
-
-        const payload = (await response.json()) as SmartAccountRouteResponse;
-        setOverview(payload.overview);
+        baseOverview = mergeCachedGroupsOntoOverview(
+          createOverviewFromBase(base),
+          cachedPayload
+        );
+        setOverview(baseOverview);
         setVaultActivityByAccountIndex({});
         vaultActivityLoadPromisesRef.current.clear();
       } catch (nextError) {
-        setError(
+        const message =
           nextError instanceof Error
             ? nextError.message
-            : "Failed to load smart-account overview."
-        );
+            : "Failed to load smart-account overview.";
+        setError(message);
+        setScopedErrors((current) => ({
+          ...current,
+          base: message,
+        }));
+        if (!cachedOverview) {
+          setOverview(null);
+        }
+        return;
       } finally {
-        setIsLoading(false);
+        setIsBaseLoading(false);
       }
+
+      if (!baseOverview) {
+        return;
+      }
+
+      const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
+        (value) => value.length > 0
+      );
+      const loadVaults = async () => {
+        setIsVaultsLoading(true);
+
+        try {
+          const vaultsUrl = new URL(
+            "/api/smart-accounts/overview/vaults",
+            window.location.origin
+          );
+          vaultsUrl.searchParams.set(
+            "accountUtilization",
+            String(baseOverview.vaults.length - 1)
+          );
+          if (invalidateAddresses && invalidateAddresses.length > 0) {
+            vaultsUrl.searchParams.set(
+              "invalidate",
+              invalidateAddresses.join(",")
+            );
+          }
+
+          const vaults = await fetchSmartAccountGroup<
+            SmartAccountVaultSnapshot[]
+          >(vaultsUrl);
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda: user.settingsPda,
+            solanaEnv,
+            group: "vaults",
+            data: vaults,
+          });
+          setOverview((current) =>
+            current ? mergeVaultSnapshots(current, vaults) : current
+          );
+          setVaultActivityByAccountIndex({});
+          vaultActivityLoadPromisesRef.current.clear();
+        } catch (nextError) {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load vault balances.";
+          setScopedErrors((current) => ({
+            ...current,
+            vaults: message,
+          }));
+          setError((current) => current ?? message);
+        } finally {
+          setIsVaultsLoading(false);
+        }
+      };
+
+      const loadPolicies = async () => {
+        setIsPoliciesLoading(true);
+
+        try {
+          const policiesUrl = new URL(
+            "/api/smart-accounts/overview/policies",
+            window.location.origin
+          );
+          const policies =
+            await fetchSmartAccountGroup<SmartAccountPolicyOverview>(
+              policiesUrl
+            );
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda: user.settingsPda,
+            solanaEnv,
+            group: "policies",
+            data: policies,
+          });
+          setOverview((current) =>
+            current ? mergePolicyOverview(current, policies) : current
+          );
+        } catch (nextError) {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load smart-account policies.";
+          setScopedErrors((current) => ({
+            ...current,
+            policies: message,
+          }));
+          setError((current) => current ?? message);
+        } finally {
+          setIsPoliciesLoading(false);
+        }
+      };
+
+      const loadProposals = async () => {
+        setIsProposalsLoading(true);
+
+        try {
+          const proposalsUrl = new URL(
+            "/api/smart-accounts/overview/proposals",
+            window.location.origin
+          );
+          const proposals = await fetchSmartAccountGroup<
+            SmartAccountProposalSnapshot[]
+          >(proposalsUrl);
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda: user.settingsPda,
+            solanaEnv,
+            group: "proposals",
+            data: proposals,
+          });
+          setOverview((current) =>
+            current
+              ? {
+                  ...current,
+                  proposals,
+                  fetchedAt: Date.now(),
+                }
+              : current
+          );
+        } catch (nextError) {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load smart-account proposals.";
+          setScopedErrors((current) => ({
+            ...current,
+            proposals: message,
+          }));
+          setError((current) => current ?? message);
+        } finally {
+          setIsProposalsLoading(false);
+        }
+      };
+
+      await Promise.allSettled([loadVaults(), loadPolicies(), loadProposals()]);
     },
-    [user?.settingsPda]
+    [solanaEnv, user?.settingsPda]
   );
 
   useEffect(() => {
@@ -1458,7 +2041,7 @@ export function useSmartAccountSidebarData(
         });
       }
 
-      await refresh({ invalidateAddresses });
+      await refresh({ invalidateAddresses, readCache: false });
 
       const tasks: Promise<unknown>[] = [];
       if (args.accountIndex != null) {
@@ -2569,9 +3152,17 @@ export function useSmartAccountSidebarData(
     [connection, overview, refreshAfterTx, wallet]
   );
 
+  const isLoading =
+    isBaseLoading || isVaultsLoading || isPoliciesLoading || isProposalsLoading;
+
   return {
     overview,
     isLoading,
+    isBaseLoading,
+    isVaultsLoading,
+    isPoliciesLoading,
+    isProposalsLoading,
+    scopedErrors,
     error,
     totalUsd,
     vaultEntries,

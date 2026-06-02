@@ -1,10 +1,127 @@
 import { describe, expect, test } from "bun:test";
 
+import type {
+  SmartAccountOverviewBase,
+  SmartAccountPolicyOverview,
+  SmartAccountProposalSnapshot,
+  SmartAccountVaultSnapshot,
+} from "@loyal-labs/smart-account-vaults";
+
 import {
+  createOverviewFromCache,
   getSmartAccountTotalUsd,
+  readSmartAccountOverviewCache,
   type SmartAccountSignerEntry,
   type SmartAccountVaultEntry,
+  writeSmartAccountOverviewCacheGroup,
 } from "./use-smart-account-sidebar-data";
+
+function createMemoryStorage() {
+  const values = new Map<string, string>();
+
+  return {
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+  };
+}
+
+function makeOverviewBase(): SmartAccountOverviewBase {
+  return {
+    accountUtilization: 0,
+    canonicalVaultAddress: "vault-0",
+    fetchedAt: 100,
+    programId: "program",
+    settingsPda: "settings",
+    signers: [],
+    staleTransactionIndex: "0",
+    threshold: 1,
+    timeLock: 0,
+    vaults: [{ accountIndex: 0, address: "vault-0" }],
+  };
+}
+
+function makeVaultSnapshot(): SmartAccountVaultSnapshot {
+  return {
+    accountIndex: 0,
+    activity: { activities: [] },
+    address: "vault-0",
+    lamports: 5,
+    portfolio: {
+      fetchedAt: 200,
+      nativeBalanceLamports: 5,
+      owner: "vault-0",
+      positions: [],
+      totals: {
+        effectiveSolPriceUsd: null,
+        pricedCount: 0,
+        totalSol: null,
+        totalUsd: 12,
+        unpricedCount: 0,
+      },
+    },
+    signers: [],
+    spendingLimits: [],
+  };
+}
+
+function makePolicyOverview(): SmartAccountPolicyOverview {
+  return {
+    policies: [],
+    signers: [
+      {
+        address: "signer-1",
+        canExecute: true,
+        canInitiate: true,
+        canVote: true,
+        consensusAddress: "settings",
+        lamports: null,
+        permissionMask: 7,
+        permissions: ["initiate", "vote", "execute"],
+        policyAddress: null,
+        policySeed: null,
+        scope: "settings",
+        threshold: 1,
+        timeLock: 0,
+      },
+    ],
+    spendingLimits: [],
+  };
+}
+
+function makeProposal(): SmartAccountProposalSnapshot {
+  return {
+    accountIndex: null,
+    approvals: [],
+    cancellations: [],
+    consensusAddress: "settings",
+    creator: null,
+    decodedInstructions: [],
+    payloadType: "settings_transaction",
+    proposalAddress: "proposal",
+    rejections: [],
+    status: "active",
+    statusTimestamp: null,
+    summary: {
+      amountRaw: null,
+      amountUi: null,
+      decimals: null,
+      destination: null,
+      instructionCount: 0,
+      kind: "settings_change",
+      mint: null,
+      programId: null,
+      subtitle: "Settings change",
+      symbol: null,
+      title: "Settings change",
+    },
+    transactionAddress: "transaction",
+    transactionIndex: "1",
+  };
+}
 
 function makeSigner(
   address: string,
@@ -63,5 +180,109 @@ describe("getSmartAccountTotalUsd", () => {
     });
 
     expect(totalUsd).toBe(42);
+  });
+});
+
+describe("smart-account overview cache", () => {
+  test("reads matching cache entries and rejects mismatched environment", () => {
+    const storage = createMemoryStorage();
+    writeSmartAccountOverviewCacheGroup({
+      data: makeOverviewBase(),
+      group: "base",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+
+    expect(
+      readSmartAccountOverviewCache({
+        settingsPda: "settings",
+        solanaEnv: "devnet",
+        storage,
+      })?.groups.base?.data.settingsPda
+    ).toBe("settings");
+
+    expect(
+      readSmartAccountOverviewCache({
+        settingsPda: "settings",
+        solanaEnv: "mainnet",
+        storage,
+      })
+    ).toBeNull();
+  });
+
+  test("preserves existing cached groups when writing another group", () => {
+    const storage = createMemoryStorage();
+
+    writeSmartAccountOverviewCacheGroup({
+      data: makeOverviewBase(),
+      group: "base",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+    writeSmartAccountOverviewCacheGroup({
+      data: [makeVaultSnapshot()],
+      group: "vaults",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+
+    const cache = readSmartAccountOverviewCache({
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+
+    expect(cache?.groups.base?.data.settingsPda).toBe("settings");
+    expect(cache?.groups.vaults?.data[0]?.portfolio.totals.totalUsd).toBe(12);
+  });
+
+  test("rebuilds an overview from cached partial groups", () => {
+    const storage = createMemoryStorage();
+
+    writeSmartAccountOverviewCacheGroup({
+      data: makeOverviewBase(),
+      group: "base",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+    writeSmartAccountOverviewCacheGroup({
+      data: [makeVaultSnapshot()],
+      group: "vaults",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+    writeSmartAccountOverviewCacheGroup({
+      data: makePolicyOverview(),
+      group: "policies",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+    writeSmartAccountOverviewCacheGroup({
+      data: [makeProposal()],
+      group: "proposals",
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+
+    const cache = readSmartAccountOverviewCache({
+      settingsPda: "settings",
+      solanaEnv: "devnet",
+      storage,
+    });
+    expect(cache).not.toBeNull();
+
+    const overview = cache ? createOverviewFromCache(cache) : null;
+
+    expect(overview?.settingsPda).toBe("settings");
+    expect(overview?.vaults[0]?.portfolio.totals.totalUsd).toBe(12);
+    expect(overview?.vaults[0]?.signers[0]?.address).toBe("signer-1");
+    expect(overview?.proposals[0]?.proposalAddress).toBe("proposal");
   });
 });

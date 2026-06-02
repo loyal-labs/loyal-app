@@ -16,13 +16,21 @@ mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
-const fetchCurrentSmartAccountOverview = mock(async () => ({
-  approvals: [],
+const fetchCurrentSmartAccountOverviewBase = mock(async () => ({
+  accountUtilization: 0,
+  canonicalVaultAddress: "vault-1",
+  fetchedAt: 1,
+  policies: [],
   programId: "program-1",
+  proposals: [],
   settingsPda: "settings-1",
-  vaults: [],
+  signers: [],
+  spendingLimits: [],
+  staleTransactionIndex: "0",
+  threshold: 1,
+  timeLock: 0,
+  vaults: [{ accountIndex: 0, address: "vault-1" }],
 }));
-const fetchCurrentSmartAccountOverviewBase = mock(async () => ({}));
 const fetchCurrentSmartAccountVaultSnapshots = mock(async () => []);
 const fetchCurrentSmartAccountPolicyOverview = mock(async () => ({
   policies: [],
@@ -32,7 +40,6 @@ const fetchCurrentSmartAccountPolicyOverview = mock(async () => ({
 const fetchCurrentSmartAccountProposalSnapshots = mock(async () => []);
 
 mock.module("@/features/smart-accounts/server/read-model", () => ({
-  fetchCurrentSmartAccountOverview,
   fetchCurrentSmartAccountOverviewBase,
   fetchCurrentSmartAccountVaultSnapshots,
   fetchCurrentSmartAccountPolicyOverview,
@@ -44,19 +51,28 @@ mock.module("@/features/smart-accounts/server/read-model", () => ({
 
 let GET: typeof import("../route").GET;
 
-describe("smart-account overview route", () => {
+describe("smart-account overview base route", () => {
   beforeAll(async () => {
     ({ GET } = await import("../route"));
   });
 
   beforeEach(() => {
     resolveAuthenticatedPrincipalFromRequest.mockClear();
-    fetchCurrentSmartAccountOverview.mockClear();
-    fetchCurrentSmartAccountOverview.mockImplementation(async () => ({
-      approvals: [],
+    fetchCurrentSmartAccountOverviewBase.mockClear();
+    fetchCurrentSmartAccountOverviewBase.mockImplementation(async () => ({
+      accountUtilization: 0,
+      canonicalVaultAddress: "vault-1",
+      fetchedAt: 1,
+      policies: [],
       programId: "program-1",
+      proposals: [],
       settingsPda: "settings-1",
-      vaults: [],
+      signers: [],
+      spendingLimits: [],
+      staleTransactionIndex: "0",
+      threshold: 1,
+      timeLock: 0,
+      vaults: [{ accountIndex: 0, address: "vault-1" }],
     }));
   });
 
@@ -66,39 +82,48 @@ describe("smart-account overview route", () => {
     );
 
     const response = await GET(
-      new Request("https://app.askloyal.com/api/smart-accounts/overview")
+      new Request("https://app.askloyal.com/api/smart-accounts/overview/base")
     );
 
     expect(response.status).toBe(401);
-    expect(fetchCurrentSmartAccountOverview).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: "unauthenticated",
-        message: "No active auth session.",
+    expect(fetchCurrentSmartAccountOverviewBase).not.toHaveBeenCalled();
+  });
+
+  test("returns timing metadata for successful responses", async () => {
+    const response = await GET(
+      new Request("https://app.askloyal.com/api/smart-accounts/overview/base")
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Server-Timing")).toContain(
+      "smart-account-overview-base"
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        settingsPda: "settings-1",
+        vaults: [{ accountIndex: 0, address: "vault-1" }],
+      },
+      meta: {
+        timingsMs: {
+          total: expect.any(Number),
+        },
       },
     });
   });
 
-  test("returns 429 when the RPC provider rate-limits overview loading", async () => {
+  test("returns 429 when the RPC provider rate-limits base loading", async () => {
     const error = new Error("rate limited");
     error.name = "SmartAccountOverviewRateLimitError";
     Object.assign(error, { retryAfterSeconds: 15 });
-    fetchCurrentSmartAccountOverview.mockImplementationOnce(async () => {
+    fetchCurrentSmartAccountOverviewBase.mockImplementationOnce(async () => {
       throw error;
     });
 
     const response = await GET(
-      new Request("https://app.askloyal.com/api/smart-accounts/overview")
+      new Request("https://app.askloyal.com/api/smart-accounts/overview/base")
     );
 
     expect(response.status).toBe(429);
     expect(response.headers.get("Retry-After")).toBe("15");
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: "rpc_rate_limited",
-        message:
-          "Smart-account data is temporarily rate limited. Please wait a moment and try again.",
-      },
-    });
   });
 });

@@ -850,8 +850,13 @@ export function AppWalletWorkspace({
     activeDetailSelection === "earnDeposit" ||
     activeDetailSelection === "earnWithdraw";
   const isAuthResolving = !isAuthHydrated;
+  const hasSmartAccountShell = Boolean(smartAccountData.overview);
+  const hasWalletShell = Boolean(walletDesktopData.walletAddress);
   const isWorkspaceLoading =
-    isSignedIn && (walletDesktopData.isLoading || smartAccountData.isLoading);
+    isSignedIn &&
+    walletDesktopData.isLoading &&
+    !hasWalletShell &&
+    !hasSmartAccountShell;
   const isSmartAccountRateLimited =
     isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
   const showWorkspaceShell =
@@ -914,6 +919,10 @@ export function AppWalletWorkspace({
     [smartAccountData.approvals]
   );
   const selectedVaultAccountIndex = selectedVault?.entry.accountIndex ?? 0;
+  const shouldShowApprovalsSkeleton =
+    smartAccountData.isProposalsLoading &&
+    smartAccountData.approvals.length === 0 &&
+    !draftProposal;
   const selectedVaultSpendingLimit = useMemo(() => {
     const spendingLimits = selectedVault?.spendingLimits ?? [];
 
@@ -1267,7 +1276,7 @@ export function AppWalletWorkspace({
       !isSignedIn ||
       !smartAccountData.overview ||
       walletDesktopData.isLoading ||
-      smartAccountData.isLoading
+      smartAccountData.isBaseLoading
     ) {
       return;
     }
@@ -1329,7 +1338,7 @@ export function AppWalletWorkspace({
     smartAccountData,
     smartAccountData.overview,
     walletDesktopData.isLoading,
-    smartAccountData.isLoading,
+    smartAccountData.isBaseLoading,
     smartAccountData.vaultEntries,
   ]);
 
@@ -3326,7 +3335,7 @@ export function AppWalletWorkspace({
                   );
                 }}
               />
-            ) : isWorkspaceLoading ? (
+            ) : shouldShowApprovalsSkeleton ? (
               <WorkspaceApprovalsSkeleton />
             ) : (
               <ApprovalsPane

@@ -58,8 +58,10 @@ import {
 } from "./messages";
 import type {
   SmartAccountOverview,
+  SmartAccountOverviewBase,
   SmartAccountAddSignerProposalInput,
   SmartAccountCustomInstructionProposalInput,
+  SmartAccountPolicyOverview,
   SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
   SmartAccountPreparedSettingsChange,
@@ -78,6 +80,7 @@ import type {
   SmartAccountTransferProposalInput,
   SmartAccountUseSpendingLimitInput,
   SmartAccountVaultSnapshot,
+  SmartAccountVaultBaseSnapshot,
   SmartAccountVaultsClientConfig,
 } from "./types";
 import {
@@ -740,6 +743,15 @@ function deserializeSettingsTransactionAccount(args: {
   };
 }
 
+function accountMatchesDiscriminator(
+  account: AccountInfo<Buffer>,
+  discriminator: readonly number[]
+): boolean {
+  return Buffer.from(account.data)
+    .subarray(0, discriminator.length)
+    .equals(Buffer.from(discriminator));
+}
+
 function toAssetIndex(vaults: readonly SmartAccountVaultSnapshot[]) {
   const index = new Map<string, PortfolioPosition>();
 
@@ -750,6 +762,43 @@ function toAssetIndex(vaults: readonly SmartAccountVaultSnapshot[]) {
   }
 
   return index;
+}
+
+function createEmptyActivityPage() {
+  return {
+    activities: [],
+  };
+}
+
+function nowMs() {
+  return globalThis.performance?.now() ?? Date.now();
+}
+
+async function logTimedReadStep<T>(
+  label: string,
+  details: Record<string, unknown>,
+  load: () => Promise<T>,
+  summarize?: (result: T) => Record<string, unknown>
+): Promise<T> {
+  const startedAt = nowMs();
+
+  try {
+    const result = await load();
+    console.info(`[smart-account-vaults] ${label}`, {
+      ...details,
+      ...(summarize?.(result) ?? {}),
+      durationMs: Number((nowMs() - startedAt).toFixed(2)),
+    });
+    return result;
+  } catch (error) {
+    console.info(`[smart-account-vaults] ${label} failed`, {
+      ...details,
+      durationMs: Number((nowMs() - startedAt).toFixed(2)),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 function requireWalletDataClient(
@@ -996,10 +1045,7 @@ function withPolicySignerPermissions(
   if (flags.length === 0) {
     throw new Error("Signer must keep at least one permission.");
   }
-  const newMask = flags.reduce<number>(
-    (acc, flag) => acc | flag,
-    0
-  );
+  const newMask = flags.reduce<number>((acc, flag) => acc | flag, 0);
 
   const existingSigner = signers.find((entry) => entry.key.equals(signer));
   if (existingSigner) {
@@ -1349,6 +1395,84 @@ export type SmartAccountVaultsClient = ReturnType<
   typeof createSmartAccountVaultsClient
 >;
 
+type DeserializedPolicyAccount = ReturnType<typeof deserializePolicyAccount>;
+
+function toPolicySnapshot(
+  entry: DeserializedPolicyAccount
+): SmartAccountPolicySnapshot {
+  const seed = toBigInt(entry.policy.seed).toString();
+  const signers = entry.policy.signers.map((signer) =>
+    toSignerSnapshot({
+      signer,
+      scope: "policy",
+      consensusPda: entry.address,
+      threshold: entry.policy.threshold,
+      timeLock: entry.policy.timeLock,
+      policyPda: entry.address,
+      policySeed: seed,
+    })
+  );
+  const rawPolicyState = entry.policy.policyState;
+  const policyState = rawPolicyState.__kind ?? "unknown";
+  const accountIndex =
+    rawPolicyState.__kind === "SpendingLimit"
+      ? rawPolicyState.fields[0].sourceAccountIndex
+      : rawPolicyState.__kind === "ProgramInteraction"
+      ? rawPolicyState.fields[0].accountIndex
+      : null;
+  const mint =
+    rawPolicyState.__kind === "SpendingLimit"
+      ? rawPolicyState.fields[0].spendingLimit.mint.toBase58()
+      : null;
+
+  return {
+    address: entry.address.toBase58(),
+    settingsPda: entry.policy.settings.toBase58(),
+    seed,
+    threshold: entry.policy.threshold,
+    timeLock: entry.policy.timeLock,
+    transactionIndex: toBigInt(entry.policy.transactionIndex).toString(),
+    staleTransactionIndex: toBigInt(
+      entry.policy.staleTransactionIndex
+    ).toString(),
+    state: policyState,
+    accountIndex,
+    mint,
+    signers,
+  };
+}
+
+function attachOverviewDecorations(args: {
+  vaults: SmartAccountVaultSnapshot[];
+  signers: SmartAccountSignerSnapshot[];
+  policies: SmartAccountPolicySnapshot[];
+  spendingLimits: SmartAccountSpendingLimitSnapshot[];
+}) {
+  const spendingLimitAccountIndexes = new Map(
+    args.spendingLimits.map((spendingLimit) => [
+      spendingLimit.address,
+      spendingLimit.accountIndex,
+    ])
+  );
+
+  return args.vaults.map((vault) => ({
+    ...vault,
+    signers: dedupeSignerSnapshots([
+      ...args.signers,
+      ...args.policies
+        .filter(
+          (policy) =>
+            spendingLimitAccountIndexes.get(policy.address) ===
+            vault.accountIndex
+        )
+        .flatMap((policy) => policy.signers),
+    ]),
+    spendingLimits: args.spendingLimits.filter(
+      (spendingLimit) => spendingLimit.accountIndex === vault.accountIndex
+    ),
+  }));
+}
+
 export function createSmartAccountVaultsClient(
   config: SmartAccountVaultsClientConfig
 ) {
@@ -1364,6 +1488,7 @@ export function createSmartAccountVaultsClient(
     settingsPda: PublicKey;
     accountIndex?: number;
     activityLimit?: number;
+    lamports?: number;
   }): Promise<SmartAccountVaultSnapshot> {
     const accountIndex = resolveVaultAccountIndex(args.accountIndex);
     const vaultAddress = pda.getSmartAccountPda({
@@ -1373,11 +1498,13 @@ export function createSmartAccountVaultsClient(
     })[0];
     const dataClient = requireWalletDataClient(walletDataClient);
     const [lamports, portfolio, activity] = await Promise.all([
-      config.connection.getBalance(vaultAddress, "confirmed"),
+      args.lamports ?? config.connection.getBalance(vaultAddress, "confirmed"),
       dataClient.getPortfolio(vaultAddress),
-      dataClient.getActivity(vaultAddress, {
-        limit: args.activityLimit ?? 25,
-      }),
+      args.activityLimit === 0
+        ? Promise.resolve(createEmptyActivityPage())
+        : dataClient.getActivity(vaultAddress, {
+            limit: args.activityLimit ?? 25,
+          }),
     ]);
 
     return {
@@ -1408,21 +1535,55 @@ export function createSmartAccountVaultsClient(
       { length: Math.max(highestAccountIndex + 1, 1) },
       (_, index) => index
     );
+    const vaultAddresses = accountIndexes.map(
+      (accountIndex) =>
+        pda.getSmartAccountPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.settingsPda,
+          accountIndex,
+        })[0]
+    );
+    const accountInfos = await config.connection.getMultipleAccountsInfo(
+      vaultAddresses,
+      "confirmed"
+    );
 
     return Promise.all(
-      accountIndexes.map((accountIndex) =>
+      accountIndexes.map((accountIndex, index) =>
         fetchVault({
           settingsPda: args.settingsPda,
           accountIndex,
           activityLimit: args.activityLimit,
+          lamports: accountInfos[index]?.lamports ?? 0,
         })
       )
     );
   }
 
-  async function listPolicies(args: {
+  async function listVaultBaseSnapshots(args: {
     settingsPda: PublicKey;
-  }): Promise<SmartAccountPolicySnapshot[]> {
+    accountUtilization: number;
+  }): Promise<SmartAccountVaultBaseSnapshot[]> {
+    const accountIndexes = Array.from(
+      { length: Math.max(args.accountUtilization + 1, 1) },
+      (_, index) => index
+    );
+
+    return accountIndexes.map((accountIndex) => ({
+      accountIndex,
+      address: pda
+        .getSmartAccountPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.settingsPda,
+          accountIndex,
+        })[0]
+        .toBase58(),
+    }));
+  }
+
+  async function fetchPolicyAccounts(args: {
+    settingsPda: PublicKey;
+  }): Promise<DeserializedPolicyAccount[]> {
     const policyAccounts = await config.connection.getProgramAccounts(
       smartAccountsClient.programId,
       {
@@ -1431,50 +1592,16 @@ export function createSmartAccountVaultsClient(
       }
     );
 
-    return policyAccounts
-      .map((account) => deserializePolicyAccount(account))
-      .map((entry) => {
-        const seed = toBigInt(entry.policy.seed).toString();
-        const signers = entry.policy.signers.map((signer) =>
-          toSignerSnapshot({
-            signer,
-            scope: "policy",
-            consensusPda: entry.address,
-            threshold: entry.policy.threshold,
-            timeLock: entry.policy.timeLock,
-            policyPda: entry.address,
-            policySeed: seed,
-          })
-        );
-        const rawPolicyState = entry.policy.policyState;
-        const policyState = rawPolicyState.__kind ?? "unknown";
-        const accountIndex =
-          rawPolicyState.__kind === "SpendingLimit"
-            ? rawPolicyState.fields[0].sourceAccountIndex
-            : rawPolicyState.__kind === "ProgramInteraction"
-            ? rawPolicyState.fields[0].accountIndex
-            : null;
-        const mint =
-          rawPolicyState.__kind === "SpendingLimit"
-            ? rawPolicyState.fields[0].spendingLimit.mint.toBase58()
-            : null;
+    return policyAccounts.map((account) => deserializePolicyAccount(account));
+  }
 
-        return {
-          address: entry.address.toBase58(),
-          settingsPda: entry.policy.settings.toBase58(),
-          seed,
-          threshold: entry.policy.threshold,
-          timeLock: entry.policy.timeLock,
-          transactionIndex: toBigInt(entry.policy.transactionIndex).toString(),
-          staleTransactionIndex: toBigInt(
-            entry.policy.staleTransactionIndex
-          ).toString(),
-          state: policyState,
-          accountIndex,
-          mint,
-          signers,
-        } satisfies SmartAccountPolicySnapshot;
-      })
+  async function listPolicies(args: {
+    settingsPda: PublicKey;
+  }): Promise<SmartAccountPolicySnapshot[]> {
+    const policyAccounts = await fetchPolicyAccounts(args);
+
+    return policyAccounts
+      .map((entry) => toPolicySnapshot(entry))
       .sort((left, right) => (BigInt(left.seed) > BigInt(right.seed) ? 1 : -1));
   }
 
@@ -1483,18 +1610,11 @@ export function createSmartAccountVaultsClient(
     assetIndex?: Map<string, PortfolioPosition>;
     now?: number;
   }): Promise<SmartAccountSpendingLimitSnapshot[]> {
-    const policyAccounts = await config.connection.getProgramAccounts(
-      smartAccountsClient.programId,
-      {
-        commitment: "confirmed",
-        filters: createPolicyFilters(args.settingsPda),
-      }
-    );
+    const policyAccounts = await fetchPolicyAccounts(args);
     const assetIndex = args.assetIndex ?? new Map<string, PortfolioPosition>();
     const now = args.now ?? Math.floor(Date.now() / 1000);
 
     return policyAccounts
-      .map((account) => deserializePolicyAccount(account))
       .map((entry) =>
         toSpendingLimitPolicySnapshot({
           address: entry.address,
@@ -1509,47 +1629,224 @@ export function createSmartAccountVaultsClient(
       .sort((left, right) => left.address.localeCompare(right.address));
   }
 
+  async function fetchDerivedProposalAccounts(args: {
+    consensusPda: PublicKey;
+    fromTransactionIndex: bigint;
+    toTransactionIndex: bigint;
+    settingsPda: PublicKey;
+  }): Promise<{
+    proposalAccounts: { pubkey: PublicKey; account: AccountInfo<Buffer> }[];
+    transactionAccounts: { pubkey: PublicKey; account: AccountInfo<Buffer> }[];
+    settingsTransactionAccounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<Buffer>;
+    }[];
+  }> {
+    const fromTransactionIndex =
+      args.fromTransactionIndex < BigInt(1)
+        ? BigInt(1)
+        : args.fromTransactionIndex;
+
+    if (args.toTransactionIndex < fromTransactionIndex) {
+      console.info("[smart-account-vaults] proposals.derived-skip-empty", {
+        settingsPda: args.settingsPda.toBase58(),
+        consensusPda: args.consensusPda.toBase58(),
+        fromTransactionIndex: fromTransactionIndex.toString(),
+        toTransactionIndex: args.toTransactionIndex.toString(),
+      });
+      return {
+        proposalAccounts: [],
+        transactionAccounts: [],
+        settingsTransactionAccounts: [],
+      };
+    }
+
+    const transactionIndexes: bigint[] = [];
+    for (
+      let transactionIndex = fromTransactionIndex;
+      transactionIndex <= args.toTransactionIndex;
+      transactionIndex += BigInt(1)
+    ) {
+      transactionIndexes.push(transactionIndex);
+    }
+
+    const proposalPdas = transactionIndexes.map(
+      (transactionIndex) =>
+        pda.getProposalPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.consensusPda,
+          transactionIndex,
+        })[0]
+    );
+    const transactionPdas = transactionIndexes.map(
+      (transactionIndex) =>
+        pda.getTransactionPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.consensusPda,
+          transactionIndex,
+        })[0]
+    );
+    const [proposalInfos, transactionInfos] = await Promise.all([
+      logTimedReadStep(
+        "proposals.derived-proposal-accounts",
+        {
+          settingsPda: args.settingsPda.toBase58(),
+          consensusPda: args.consensusPda.toBase58(),
+          fromTransactionIndex: fromTransactionIndex.toString(),
+          toTransactionIndex: args.toTransactionIndex.toString(),
+          accountCount: proposalPdas.length,
+        },
+        () =>
+          config.connection.getMultipleAccountsInfo(proposalPdas, "confirmed"),
+        (result) => ({
+          foundCount: result.filter((account) => account !== null).length,
+        })
+      ),
+      logTimedReadStep(
+        "proposals.derived-transaction-accounts",
+        {
+          settingsPda: args.settingsPda.toBase58(),
+          consensusPda: args.consensusPda.toBase58(),
+          fromTransactionIndex: fromTransactionIndex.toString(),
+          toTransactionIndex: args.toTransactionIndex.toString(),
+          accountCount: transactionPdas.length,
+        },
+        () =>
+          config.connection.getMultipleAccountsInfo(
+            transactionPdas,
+            "confirmed"
+          ),
+        (result) => ({
+          foundCount: result.filter((account) => account !== null).length,
+        })
+      ),
+    ]);
+    const proposalAccounts = proposalInfos.flatMap((account, index) =>
+      account && accountMatchesDiscriminator(account, proposalDiscriminator)
+        ? [{ pubkey: proposalPdas[index]!, account }]
+        : []
+    );
+    const transactionAccounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<Buffer>;
+    }[] = [];
+    const settingsTransactionAccounts: {
+      pubkey: PublicKey;
+      account: AccountInfo<Buffer>;
+    }[] = [];
+
+    transactionInfos.forEach((account, index) => {
+      if (!account) {
+        return;
+      }
+
+      if (accountMatchesDiscriminator(account, transactionDiscriminator)) {
+        transactionAccounts.push({ pubkey: transactionPdas[index]!, account });
+        return;
+      }
+
+      if (
+        accountMatchesDiscriminator(account, settingsTransactionDiscriminator)
+      ) {
+        settingsTransactionAccounts.push({
+          pubkey: transactionPdas[index]!,
+          account,
+        });
+      }
+    });
+
+    console.info("[smart-account-vaults] proposals.derived-done", {
+      settingsPda: args.settingsPda.toBase58(),
+      consensusPda: args.consensusPda.toBase58(),
+      transactionIndexCount: transactionIndexes.length,
+      proposalAccountCount: proposalAccounts.length,
+      transactionAccountCount: transactionAccounts.length,
+      settingsTransactionAccountCount: settingsTransactionAccounts.length,
+    });
+
+    return {
+      proposalAccounts,
+      transactionAccounts,
+      settingsTransactionAccounts,
+    };
+  }
+
   async function listProposals(args: {
     settingsPda: PublicKey;
     assetIndex?: Map<string, PortfolioPosition>;
-    policies?: SmartAccountPolicySnapshot[];
+    policies?:
+      | SmartAccountPolicySnapshot[]
+      | Promise<SmartAccountPolicySnapshot[]>;
   }): Promise<SmartAccountProposalSnapshot[]> {
-    const policies = args.policies ?? (await listPolicies(args));
-    const policyConsensusPdas = policies.map(
-      (policy) => new PublicKey(policy.address)
+    const settingsPdaText = args.settingsPda.toBase58();
+    const startedAt = nowMs();
+    console.info("[smart-account-vaults] proposals.start", {
+      settingsPda: settingsPdaText,
+      hasPoliciesInput: Boolean(args.policies),
+      policiesInputCount: Array.isArray(args.policies)
+        ? args.policies.length
+        : null,
+    });
+    const [settings, policies] = await Promise.all([
+      logTimedReadStep(
+        "proposals.settings-fetch",
+        { settingsPda: settingsPdaText },
+        () =>
+          smartAccountsClient.smartAccounts.queries.fetchSettings(
+            args.settingsPda
+          ),
+        (result) => ({
+          transactionIndex: toBigInt(result.transactionIndex).toString(),
+          staleTransactionIndex: toBigInt(
+            result.staleTransactionIndex
+          ).toString(),
+        })
+      ),
+      args.policies
+        ? Promise.resolve(args.policies)
+        : logTimedReadStep(
+            "proposals.policy-scan",
+            { settingsPda: settingsPdaText },
+            () => listPolicies(args),
+            (result) => ({ policyCount: result.length })
+          ),
+    ]);
+    console.info("[smart-account-vaults] proposals.policy-consensus", {
+      settingsPda: settingsPdaText,
+      policyCount: policies.length,
+    });
+    const rootDerivedAccounts = await fetchDerivedProposalAccounts({
+      settingsPda: args.settingsPda,
+      consensusPda: args.settingsPda,
+      fromTransactionIndex:
+        toBigInt(settings.staleTransactionIndex) + BigInt(1),
+      toTransactionIndex: toBigInt(settings.transactionIndex),
+    });
+    const policyDerivedAccountGroups = await Promise.all(
+      policies.map((policy) =>
+        fetchDerivedProposalAccounts({
+          settingsPda: args.settingsPda,
+          consensusPda: new PublicKey(policy.address),
+          fromTransactionIndex:
+            BigInt(policy.staleTransactionIndex) + BigInt(1),
+          toTransactionIndex: BigInt(policy.transactionIndex),
+        })
+      )
     );
-    const consensusPdas = dedupePublicKeys([
-      args.settingsPda,
-      ...policyConsensusPdas,
-    ]);
-    const [
-      proposalAccountGroups,
-      transactionAccountGroups,
-      settingsTransactionAccounts,
-    ] = await Promise.all([
-      Promise.all(
-        consensusPdas.map((consensusPda) =>
-          config.connection.getProgramAccounts(smartAccountsClient.programId, {
-            commitment: "confirmed",
-            filters: createProposalFilters(consensusPda),
-          })
-        )
+    const proposalAccounts = [
+      rootDerivedAccounts.proposalAccounts,
+      ...policyDerivedAccountGroups.map((group) => group.proposalAccounts),
+    ].flat();
+    const transactionAccounts = [
+      rootDerivedAccounts.transactionAccounts,
+      ...policyDerivedAccountGroups.map((group) => group.transactionAccounts),
+    ].flat();
+    const settingsTransactionAccounts = [
+      rootDerivedAccounts.settingsTransactionAccounts,
+      ...policyDerivedAccountGroups.map(
+        (group) => group.settingsTransactionAccounts
       ),
-      Promise.all(
-        consensusPdas.map((consensusPda) =>
-          config.connection.getProgramAccounts(smartAccountsClient.programId, {
-            commitment: "confirmed",
-            filters: createTransactionFilters(consensusPda),
-          })
-        )
-      ),
-      config.connection.getProgramAccounts(smartAccountsClient.programId, {
-        commitment: "confirmed",
-        filters: createSettingsTransactionFilters(args.settingsPda),
-      }),
-    ]);
-    const proposalAccounts = proposalAccountGroups.flat();
-    const transactionAccounts = transactionAccountGroups.flat();
+    ].flat();
     const transactionsByKey = new Map(
       transactionAccounts.map((account) => {
         const deserialized = deserializeTransactionAccount(account);
@@ -1585,7 +1882,7 @@ export function createSmartAccountVaultsClient(
     );
     const assetIndex = args.assetIndex ?? new Map<string, PortfolioPosition>();
 
-    return proposalAccounts
+    const proposals = proposalAccounts
       .map((account) => deserializeProposalAccount(account))
       .map((entry) => {
         const transactionIndex = toBigInt(
@@ -1664,30 +1961,32 @@ export function createSmartAccountVaultsClient(
         } satisfies SmartAccountProposalSnapshot;
       })
       .sort(compareProposalSnapshotsByRecency);
+
+    console.info("[smart-account-vaults] proposals.done", {
+      settingsPda: settingsPdaText,
+      policyCount: policies.length,
+      proposalAccountCount: proposalAccounts.length,
+      transactionAccountCount: transactionAccounts.length,
+      settingsTransactionAccountCount: settingsTransactionAccounts.length,
+      returnedProposalCount: proposals.length,
+      durationMs: Number((nowMs() - startedAt).toFixed(2)),
+    });
+
+    return proposals;
   }
 
-  async function fetchOverview(args: {
+  async function fetchOverviewBase(args: {
     settingsPda: PublicKey;
-    activityLimit?: number;
-  }): Promise<SmartAccountOverview> {
+  }): Promise<SmartAccountOverviewBase> {
     const settings =
       await smartAccountsClient.smartAccounts.queries.fetchSettings(
         args.settingsPda
       );
-    const vaults = await listVaults({
+    const vaults = await listVaultBaseSnapshots({
       settingsPda: args.settingsPda,
       accountUtilization: settings.accountUtilization,
-      activityLimit: args.activityLimit,
     });
-    const policies = await listPolicies({
-      settingsPda: args.settingsPda,
-    });
-    const assetIndex = toAssetIndex(vaults);
-    const spendingLimits = await listSpendingLimitPolicies({
-      settingsPda: args.settingsPda,
-      assetIndex,
-    });
-    const rootSigners = settings.signers.map((signer) =>
+    const signers = settings.signers.map((signer) =>
       toSignerSnapshot({
         signer,
         scope: "settings",
@@ -1696,45 +1995,6 @@ export function createSmartAccountVaultsClient(
         timeLock: settings.timeLock,
       })
     );
-    const signerLamports = await fetchSignerLamports({
-      connection: config.connection,
-      signers: [
-        ...rootSigners,
-        ...policies.flatMap((policy) => policy.signers),
-      ],
-    });
-    const signers = withSignerLamports(rootSigners, signerLamports);
-    const policiesWithSignerLamports = policies.map((policy) => ({
-      ...policy,
-      signers: withSignerLamports(policy.signers, signerLamports),
-    }));
-    const spendingLimitAccountIndexes = new Map(
-      spendingLimits.map((spendingLimit) => [
-        spendingLimit.address,
-        spendingLimit.accountIndex,
-      ])
-    );
-    const vaultsWithSigners = vaults.map((vault) => ({
-      ...vault,
-      signers: dedupeSignerSnapshots([
-        ...signers,
-        ...policiesWithSignerLamports
-          .filter(
-            (policy) =>
-              spendingLimitAccountIndexes.get(policy.address) ===
-              vault.accountIndex
-          )
-          .flatMap((policy) => policy.signers),
-      ]),
-      spendingLimits: spendingLimits.filter(
-        (spendingLimit) => spendingLimit.accountIndex === vault.accountIndex
-      ),
-    }));
-    const proposals = await listProposals({
-      settingsPda: args.settingsPda,
-      assetIndex,
-      policies: policiesWithSignerLamports,
-    });
 
     return {
       programId: smartAccountsClient.programId.toBase58(),
@@ -1753,9 +2013,218 @@ export function createSmartAccountVaultsClient(
             accountIndex: 0,
           })[0]
           .toBase58(),
+      accountUtilization: settings.accountUtilization,
       signers,
-      policies: policiesWithSignerLamports,
-      spendingLimits,
+      vaults,
+      fetchedAt: Date.now(),
+    };
+  }
+
+  async function fetchVaultSnapshots(args: {
+    settingsPda: PublicKey;
+    accountUtilization?: number;
+    activityLimit?: number;
+  }): Promise<SmartAccountVaultSnapshot[]> {
+    return listVaults({
+      settingsPda: args.settingsPda,
+      accountUtilization: args.accountUtilization,
+      activityLimit: args.activityLimit ?? 0,
+    });
+  }
+
+  async function fetchPolicyOverview(args: {
+    settingsPda: PublicKey;
+    assetIndex?: Map<string, PortfolioPosition>;
+    rootSigners?: SmartAccountSignerSnapshot[];
+    settings?: {
+      signers: SmartAccountSigner[];
+      threshold: number;
+      timeLock: number;
+      transactionIndex?: bigint;
+    };
+  }): Promise<SmartAccountPolicyOverview> {
+    const settingsPdaText = args.settingsPda.toBase58();
+    const startedAt = nowMs();
+    console.info("[smart-account-vaults] policies.start", {
+      settingsPda: settingsPdaText,
+      hasRootSignersInput: Boolean(args.rootSigners),
+      rootSignersInputCount: args.rootSigners?.length ?? null,
+    });
+    try {
+      const settings =
+        args.settings ??
+        (args.rootSigners
+          ? null
+          : await logTimedReadStep(
+              "policies.settings-fetch",
+              { settingsPda: settingsPdaText },
+              () =>
+                smartAccountsClient.smartAccounts.queries.fetchSettings(
+                  args.settingsPda
+                ),
+              (result) => ({
+                signerCount: result.signers.length,
+                threshold: result.threshold,
+                transactionIndex: toBigInt(result.transactionIndex).toString(),
+              })
+            ));
+      const settingsTransactionIndex =
+        settings?.transactionIndex === undefined
+          ? undefined
+          : typeof settings.transactionIndex === "bigint"
+          ? settings.transactionIndex
+          : toBigInt(settings.transactionIndex);
+      const shouldScanPolicies =
+        settingsTransactionIndex === undefined ||
+        settingsTransactionIndex > BigInt(0);
+      const policyAccounts = shouldScanPolicies
+        ? await logTimedReadStep(
+            "policies.policy-account-scan",
+            { settingsPda: settingsPdaText },
+            () => fetchPolicyAccounts({ settingsPda: args.settingsPda }),
+            (result) => ({ accountCount: result.length })
+          )
+        : [];
+
+      if (!shouldScanPolicies) {
+        console.info("[smart-account-vaults] policies.policy-account-skip", {
+          settingsPda: settingsPdaText,
+          transactionIndex: settingsTransactionIndex?.toString() ?? null,
+          reason: "no-settings-transactions",
+        });
+      }
+      const rootSigners =
+        args.rootSigners ??
+        (settings?.signers ?? []).map((signer) =>
+          toSignerSnapshot({
+            signer,
+            scope: "settings",
+            consensusPda: args.settingsPda,
+            threshold: settings?.threshold ?? 0,
+            timeLock: settings?.timeLock ?? 0,
+          })
+        );
+      const policies = policyAccounts
+        .map((entry) => toPolicySnapshot(entry))
+        .sort((left, right) =>
+          BigInt(left.seed) > BigInt(right.seed) ? 1 : -1
+        );
+      const assetIndex =
+        args.assetIndex ?? new Map<string, PortfolioPosition>();
+      const now = Math.floor(Date.now() / 1000);
+      const spendingLimits = policyAccounts
+        .map((entry) =>
+          toSpendingLimitPolicySnapshot({
+            address: entry.address,
+            assetIndex,
+            now,
+            policy: entry.policy,
+          })
+        )
+        .filter(
+          (entry): entry is SmartAccountSpendingLimitSnapshot => entry !== null
+        )
+        .sort((left, right) => left.address.localeCompare(right.address));
+      const signerLamportInputs = [
+        ...rootSigners,
+        ...policies.flatMap((policy) => policy.signers),
+      ];
+      const shouldFetchSignerLamports =
+        policies.length > 0 && signerLamportInputs.length > 0;
+      const signerLamports = !shouldFetchSignerLamports
+        ? new Map<string, number>()
+        : await logTimedReadStep(
+            "policies.signer-lamports",
+            {
+              settingsPda: settingsPdaText,
+              signerCount: signerLamportInputs.length,
+              uniqueSignerCount: new Set(
+                signerLamportInputs.map((signer) => signer.address)
+              ).size,
+            },
+            () =>
+              fetchSignerLamports({
+                connection: config.connection,
+                signers: signerLamportInputs,
+              }),
+            (result) => ({ balanceCount: result.size })
+          );
+      if (!shouldFetchSignerLamports) {
+        console.info("[smart-account-vaults] policies.signer-lamports-skip", {
+          settingsPda: settingsPdaText,
+          policyCount: policies.length,
+          signerCount: signerLamportInputs.length,
+        });
+      }
+      const signers = shouldFetchSignerLamports
+        ? withSignerLamports(rootSigners, signerLamports)
+        : rootSigners;
+      const policiesWithSignerLamports = policies.map((policy) => ({
+        ...policy,
+        signers: withSignerLamports(policy.signers, signerLamports),
+      }));
+
+      return {
+        signers,
+        policies: policiesWithSignerLamports,
+        spendingLimits,
+      };
+    } finally {
+      console.info("[smart-account-vaults] policies.done", {
+        settingsPda: settingsPdaText,
+        durationMs: Number((nowMs() - startedAt).toFixed(2)),
+      });
+    }
+  }
+
+  async function fetchProposalSnapshots(args: {
+    settingsPda: PublicKey;
+    assetIndex?: Map<string, PortfolioPosition>;
+    policies?:
+      | SmartAccountPolicySnapshot[]
+      | Promise<SmartAccountPolicySnapshot[]>;
+  }): Promise<SmartAccountProposalSnapshot[]> {
+    return listProposals(args);
+  }
+
+  async function fetchOverview(args: {
+    settingsPda: PublicKey;
+    activityLimit?: number;
+  }): Promise<SmartAccountOverview> {
+    const base = await fetchOverviewBase({ settingsPda: args.settingsPda });
+    const vaults = await fetchVaultSnapshots({
+      settingsPda: args.settingsPda,
+      accountUtilization: base.accountUtilization,
+      activityLimit: args.activityLimit,
+    });
+    const assetIndex = toAssetIndex(vaults);
+    const policyOverview = await fetchPolicyOverview({
+      settingsPda: args.settingsPda,
+      assetIndex,
+      rootSigners: base.signers,
+    });
+    const vaultsWithSigners = attachOverviewDecorations({
+      vaults,
+      signers: policyOverview.signers,
+      policies: policyOverview.policies,
+      spendingLimits: policyOverview.spendingLimits,
+    });
+    const proposals = await fetchProposalSnapshots({
+      settingsPda: args.settingsPda,
+      assetIndex,
+      policies: policyOverview.policies,
+    });
+    const {
+      accountUtilization: _accountUtilization,
+      vaults: _baseVaults,
+      ...baseOverview
+    } = base;
+
+    return {
+      ...baseOverview,
+      signers: policyOverview.signers,
+      policies: policyOverview.policies,
+      spendingLimits: policyOverview.spendingLimits,
       vaults: vaultsWithSigners,
       proposals,
       fetchedAt: Date.now(),
@@ -2986,6 +3455,10 @@ export function createSmartAccountVaultsClient(
     listSpendingLimitPolicies,
     listSpendingLimits: listSpendingLimitPolicies,
     listProposals,
+    fetchOverviewBase,
+    fetchVaultSnapshots,
+    fetchPolicyOverview,
+    fetchProposalSnapshots,
     fetchOverview,
     prepareSolTransferProposal,
     prepareSplTransferProposal,

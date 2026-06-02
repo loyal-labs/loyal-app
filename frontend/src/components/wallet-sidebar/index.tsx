@@ -1280,8 +1280,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   balanceWhole={totalBalance.balanceWhole}
                   isBalanceHidden={props.isBalanceHidden}
                   isLoading={
-                    props.walletDesktopData.isLoading ||
-                    props.smartAccountData.isLoading
+                    props.walletDesktopData.isLoading &&
+                    !props.walletDesktopData.walletAddress &&
+                    !props.smartAccountData.overview
                   }
                   smartAccountError={props.smartAccountData.error}
                   onBalanceHiddenChange={props.onBalanceHiddenChange}
