@@ -25,6 +25,8 @@ import type {
   WalletEarningsSummary,
   WalletPortfolioChange24h,
 } from "@/hooks/use-wallet-desktop-data";
+import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
+import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { getVaultIcon } from "./vault-icon";
 
@@ -207,6 +209,8 @@ function EarnPortfolioRow({
   onDeposit?: () => void;
   onOpen?: () => void;
 }) {
+  const earnForecastApy = useEarnForecastApy();
+  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key === "Enter" || event.key === " ") {
@@ -331,7 +335,7 @@ function EarnPortfolioRow({
                 src="/wallet-workspace/earn-flash.svg"
                 style={{ height: "12px", width: "8px" }}
               />
-              8.46% APY
+              {earnApyLabel}
             </span>
           </div>
         </div>

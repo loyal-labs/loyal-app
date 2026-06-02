@@ -10,17 +10,24 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 
+import {
+  FALLBACK_EARN_FORECAST,
+  formatEarnApyLabel,
+  formatEarnApyPercent,
+  getEarnForecastTargetMultiplier,
+  type EarnForecastApy,
+} from "@/lib/kamino/earn-forecast.shared";
+import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
+
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
 const TOP_EARN_VAULT = {
-  apy: "8.46% APY",
   label: "Kamino · Lending Yield",
   logo: "/wallet-workspace/earn-kamino.png",
 } as const;
 
 const TOP_DEPOSIT_VAULT = {
-  apy: "8.46% APY",
   label: "Kamino · Lending Yield",
   logo: "/wallet-workspace/earn-deposit-kamino.png",
 } as const;
@@ -30,13 +37,17 @@ const EARN_CHART_HEIGHT = 260;
 const EARN_CHART_BASELINE = 238;
 const EARN_CHART_TOP = 12;
 const MIN_DEPOSIT_USDC = 0.5;
-const EARN_BALANCE_APY = 0.0846;
 const EARN_BALANCE_DECIMALS = 6;
 const EARN_BALANCE_INITIAL_VALUE = 1000.000006;
 const EARN_BALANCE_PRINCIPAL = 1000;
 const EARN_BALANCE_SAMPLE_MS = 250;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
+const FALLBACK_EARN_APY = {
+  apyBps: FALLBACK_EARN_FORECAST.apyBps,
+  rangeHighBps: FALLBACK_EARN_FORECAST.rangeHighBps,
+  rangeLowBps: FALLBACK_EARN_FORECAST.rangeLowBps,
+} as const satisfies EarnForecastApy;
 
 export type EarnDepositSourceOption = {
   addressLabel: string;
@@ -132,9 +143,6 @@ function formatForecastMoney(value: number, mutedFraction = false) {
   );
 }
 
-const FORECAST_TARGET_MULTIPLIER = 1.12048;
-const FORECAST_LOW_MULTIPLIER = 1.07;
-const FORECAST_HIGH_MULTIPLIER = 1.19;
 const FORECAST_DATES = [
   "May 2026",
   "Jun 2026",
@@ -158,11 +166,15 @@ const FORECAST_AMOUNT_PRESETS = [
   { label: "$5,000", value: 5000 },
 ] as const;
 
-function buildEarnChartPoints(principal: number): EarnChartPoint[] {
+export function buildEarnChartPoints(
+  principal: number,
+  apy: EarnForecastApy = FALLBACK_EARN_APY
+): EarnChartPoint[] {
   const months = 12;
-  const target = principal * FORECAST_TARGET_MULTIPLIER;
-  const lowTarget = principal * FORECAST_LOW_MULTIPLIER;
-  const highTarget = principal * FORECAST_HIGH_MULTIPLIER;
+  const target = principal * getEarnForecastTargetMultiplier(apy.apyBps);
+  const lowTarget = principal * getEarnForecastTargetMultiplier(apy.rangeLowBps);
+  const highTarget = principal *
+    getEarnForecastTargetMultiplier(apy.rangeHighBps);
 
   return Array.from({ length: months + 1 }, (_, index) => {
     const progress = index / months;
@@ -177,6 +189,16 @@ function buildEarnChartPoints(principal: number): EarnChartPoint[] {
       yieldUsd: value - principal,
     };
   });
+}
+
+function getEarnApyRate(apyBps: number): number {
+  return apyBps / 10_000;
+}
+
+function getEarningsRatePerSecond(apyBps: number): number {
+  return (
+    (EARN_BALANCE_PRINCIPAL * getEarnApyRate(apyBps)) / SECONDS_PER_YEAR
+  );
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -419,16 +441,15 @@ function DepositButton({
   );
 }
 
-function EarnGrowingBalance() {
+function EarnGrowingBalance({ apyBps }: { apyBps: number }) {
   const [value, setValue] = useState(EARN_BALANCE_INITIAL_VALUE);
 
   useEffect(() => {
+    const ratePerSecond = getEarningsRatePerSecond(apyBps);
     const startedAt = performance.now();
     const interval = window.setInterval(() => {
       const elapsedSeconds = (performance.now() - startedAt) / 1000;
-      const earned =
-        (EARN_BALANCE_PRINCIPAL * EARN_BALANCE_APY * elapsedSeconds) /
-        SECONDS_PER_YEAR;
+      const earned = ratePerSecond * elapsedSeconds;
 
       setValue(
         Number(
@@ -438,7 +459,7 @@ function EarnGrowingBalance() {
     }, EARN_BALANCE_SAMPLE_MS);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [apyBps]);
 
   return (
     <>
@@ -480,8 +501,6 @@ function EarnGrowingBalance() {
   );
 }
 
-const EARNINGS_RATE_PER_SECOND =
-  (EARN_BALANCE_PRINCIPAL * EARN_BALANCE_APY) / SECONDS_PER_YEAR;
 const EARNINGS_DEPOSIT_OFFSET_MS = 30 * 24 * 60 * 60 * 1000;
 const EARNINGS_CHART_HEIGHT = 242;
 const EARNINGS_DAY_MS = 24 * 60 * 60 * 1000;
@@ -543,7 +562,7 @@ function formatEarningsBarDate(endMs: number, rangeId: EarningsRangeId) {
   });
 }
 
-function EarningsBlock() {
+function EarningsBlock({ apy }: { apy: EarnForecastApy }) {
   const [activeTab, setActiveTab] = useState<"Earnings" | "Forecast">(
     "Earnings"
   );
@@ -570,7 +589,7 @@ function EarningsBlock() {
   if (forecastPrincipalRef.current === null) {
     const elapsedSec = Math.max(0, (Date.now() - depositAt) / 1000);
     forecastPrincipalRef.current =
-      EARN_BALANCE_PRINCIPAL + elapsedSec * EARNINGS_RATE_PER_SECOND;
+      EARN_BALANCE_PRINCIPAL + elapsedSec * getEarningsRatePerSecond(apy.apyBps);
   }
   const forecastAmount = forecastPrincipalRef.current;
 
@@ -582,27 +601,29 @@ function EarningsBlock() {
     return Array.from({ length: range.bars }, (_, i) => {
       const endMs = now - (range.bars - 1 - i) * range.binMs;
       const elapsedSec = Math.max(0, (endMs - depositAt) / 1000);
-      const value = elapsedSec * EARNINGS_RATE_PER_SECOND;
+      const value = elapsedSec * getEarningsRatePerSecond(apy.apyBps);
       return { endMs, value };
     });
-  }, [range.bars, range.binMs, depositAt]);
+  }, [apy.apyBps, range.bars, range.binMs, depositAt]);
 
   const maxValue = useMemo(() => {
     const peak = Math.max(...bars.map((b) => b.value), 0.01);
     return Math.max(1, Math.ceil(peak));
   }, [bars]);
 
-  const initialLive = Math.max(0, (Date.now() - depositAt) / 1000) *
-    EARNINGS_RATE_PER_SECOND;
+  const initialLive =
+    Math.max(0, (Date.now() - depositAt) / 1000) *
+    getEarningsRatePerSecond(apy.apyBps);
   const [liveTotal, setLiveTotal] = useState<number>(initialLive);
   useEffect(() => {
+    const ratePerSecond = getEarningsRatePerSecond(apy.apyBps);
     const id = window.setInterval(() => {
       const next = Math.max(0, (Date.now() - depositAt) / 1000) *
-        EARNINGS_RATE_PER_SECOND;
+        ratePerSecond;
       setLiveTotal(Number(next.toFixed(EARN_BALANCE_DECIMALS)));
     }, EARN_BALANCE_SAMPLE_MS);
     return () => window.clearInterval(id);
-  }, [depositAt]);
+  }, [apy.apyBps, depositAt]);
 
   const hoveredBarEntry = hoveredBar !== null ? bars[hoveredBar] : null;
   const displayValue = hoveredBarEntry ? hoveredBarEntry.value : liveTotal;
@@ -787,7 +808,11 @@ function EarningsBlock() {
           }}
         >
           <div style={{ padding: "12px", width: "100%" }}>
-            <DepositChart key={forecastAmount} principal={forecastAmount} />
+            <DepositChart
+              apy={apy}
+              key={forecastAmount}
+              principal={forecastAmount}
+            />
             <div
               style={{
                 display: "flex",
@@ -853,7 +878,8 @@ function EarningsBlock() {
                   }}
                 >
                   {formatForecastMoney(
-                    forecastAmount * FORECAST_TARGET_MULTIPLIER
+                    forecastAmount *
+                      getEarnForecastTargetMultiplier(apy.apyBps)
                   )}
                   <span
                     style={{
@@ -1070,6 +1096,9 @@ export function EarnDetailView({
   onDeposit?: () => void;
   onWithdraw?: () => void;
 }) {
+  const earnForecastApy = useEarnForecastApy();
+  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
+
   return (
     <div
       style={{
@@ -1161,7 +1190,7 @@ export function EarnDetailView({
           >
             {hasCurrentPosition ? (
               <>
-                Balance · <span style={{ color: "#34C759" }}>8.46% APY</span>
+                Balance · <span style={{ color: "#34C759" }}>{earnApyLabel}</span>
               </>
             ) : (
               "Balance"
@@ -1178,7 +1207,7 @@ export function EarnDetailView({
             }}
           >
             {hasCurrentPosition ? (
-              <EarnGrowingBalance />
+              <EarnGrowingBalance apyBps={earnForecastApy.apyBps} />
             ) : (
               <>
                 $0
@@ -1191,7 +1220,7 @@ export function EarnDetailView({
 
       {hasCurrentPosition ? <div style={{ height: "9px" }} /> : null}
 
-      {hasCurrentPosition ? <EarningsBlock /> : null}
+      {hasCurrentPosition ? <EarningsBlock apy={earnForecastApy} /> : null}
 
       {hasCurrentPosition ? (
         <section
@@ -1254,7 +1283,7 @@ export function EarnDetailView({
                 {TOP_EARN_VAULT.label}
               </span>
               <div>
-                <ApyBadge value={TOP_EARN_VAULT.apy} />
+                <ApyBadge value={earnApyLabel} />
               </div>
             </div>
             <span
@@ -2007,9 +2036,11 @@ function DepositVaultIcon({ logo }: { logo: string }) {
 }
 
 function DepositVaultRow({
+  apyLabel,
   vault,
 }: {
-  vault: { apy: string; label: string; logo: string };
+  apyLabel: string;
+  vault: { label: string; logo: string };
 }) {
   return (
     <div
@@ -2052,7 +2083,7 @@ function DepositVaultRow({
           {vault.label}
         </span>
         <div>
-          <ApyBadge value={vault.apy} />
+          <ApyBadge value={apyLabel} />
         </div>
       </div>
     </div>
@@ -2221,12 +2252,22 @@ function DepositSourceRow({
   );
 }
 
-function DepositChart({ principal = 1000 }: { principal?: number }) {
-  const points = useMemo(() => buildEarnChartPoints(principal), [principal]);
+function DepositChart({
+  apy = FALLBACK_EARN_APY,
+  principal = 1000,
+}: {
+  apy?: EarnForecastApy;
+  principal?: number;
+}) {
+  const points = useMemo(() => buildEarnChartPoints(principal, apy), [
+    apy,
+    principal,
+  ]);
   const defaultHoverIndex = Math.floor((points.length - 1) / 2);
   const [hoverIndex, setHoverIndex] = useState(defaultHoverIndex);
   const minValue = principal;
-  const maxValue = principal * FORECAST_HIGH_MULTIPLIER;
+  const maxValue =
+    principal * getEarnForecastTargetMultiplier(apy.rangeHighBps);
   const chartHeight = EARN_CHART_BASELINE - EARN_CHART_TOP;
   const plot = (value: number) =>
     EARN_CHART_BASELINE -
@@ -2458,8 +2499,11 @@ function DepositChart({ principal = 1000 }: { principal?: number }) {
               </span>
               yield
             </span>
-            <span>with 8.46% simulated APY</span>
-            <span>Range: 7% – 9%</span>
+            <span>with {formatEarnApyPercent(apy.apyBps)} simulated APY</span>
+            <span>
+              Range: {formatEarnApyPercent(apy.rangeLowBps)} –{" "}
+              {formatEarnApyPercent(apy.rangeHighBps)}
+            </span>
           </span>
         </div>
       </div>
@@ -2476,6 +2520,8 @@ export function EarnDepositView({
   onClose?: () => void;
   sources?: EarnDepositSourceOption[];
 }) {
+  const earnForecastApy = useEarnForecastApy();
+  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
   const amountInputRef = useRef<HTMLInputElement | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [forecastAmount, setForecastAmount] = useState<number>(
@@ -2705,7 +2751,10 @@ export function EarnDepositView({
             width: "100%",
           }}
         >
-          <DepositVaultRow vault={TOP_DEPOSIT_VAULT} />
+          <DepositVaultRow
+            apyLabel={earnApyLabel}
+            vault={TOP_DEPOSIT_VAULT}
+          />
         </section>
 
         <section style={{ display: "flex", flexDirection: "column", padding: "8px", width: "100%" }}>
@@ -2769,7 +2818,11 @@ export function EarnDepositView({
             </div>
           </div>
           <div style={{ padding: "12px", width: "100%" }}>
-            <DepositChart key={forecastAmount} principal={forecastAmount} />
+            <DepositChart
+              apy={earnForecastApy}
+              key={forecastAmount}
+              principal={forecastAmount}
+            />
             <div
               style={{
                 display: "flex",
@@ -2792,7 +2845,10 @@ export function EarnDepositView({
                   {FORECAST_DATES[FORECAST_DATES.length - 1]}
                 </span>
                 <span style={{ alignItems: "center", color: "#34C759", display: "flex", fontFamily: font, fontSize: "16px", fontWeight: 500, gap: "4px", lineHeight: "20px" }}>
-                  {formatForecastMoney(forecastAmount * FORECAST_TARGET_MULTIPLIER)}
+                  {formatForecastMoney(
+                    forecastAmount *
+                      getEarnForecastTargetMultiplier(earnForecastApy.apyBps)
+                  )}
                   <span style={{ alignItems: "center", background: "#34C759", borderRadius: "4px", display: "inline-flex", height: "16px", justifyContent: "center", width: "16px" }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img alt="" aria-hidden="true" src="/wallet-workspace/earn-growth-arrow.svg" style={{ height: "12px", width: "12px" }} />
