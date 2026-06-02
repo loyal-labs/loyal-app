@@ -70,10 +70,10 @@ export function LandingHero() {
             data-hero-reveal="left"
           >
             <h1 className="max-w-[420px] text-[56px] font-semibold leading-none lg:text-[64px]">
-              Put your money on autopilot
+              Make your money bigger
             </h1>
             <p className="w-[292px] max-w-full text-[20px] font-normal leading-none lg:mt-6 lg:w-auto lg:max-w-[320px] lg:text-[24px]">
-              Keep full control over your funds and away from prying eyes
+              A Solana wallet with on-chain guardrails for your AI agents
             </p>
           </div>
 
@@ -100,7 +100,7 @@ export function LandingHero() {
                 Yield on shielded assets
               </h2>
               <p className="mt-3 text-[20px] font-normal leading-[1.1] lg:mt-4">
-                Earn yield on USDC, SOL, and USDT while your assets stay private
+                Earn yield on USDC while your assets stay private
               </p>
             </div>
             <div className="order-1 flex w-full items-center gap-3 lg:order-2 lg:mt-8">

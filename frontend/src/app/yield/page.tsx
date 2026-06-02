@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   Banknote,
   BotMessageSquare,
-  Building2,
   CircleCheck,
   KeyRound,
   ShieldCheck,
@@ -21,9 +20,9 @@ import { Hero } from "@/features/marketing/blocks/hero";
 import { Section } from "@/features/marketing/blocks/section";
 import { TextImageHero } from "@/features/marketing/blocks/text-image";
 
-const PAGE_TITLE = "Yield on Shielded USDC, SOL & USDT on Solana | Loyal";
+const PAGE_TITLE = "Yield on Shielded USDC on Solana | Loyal";
 const PAGE_DESCRIPTION =
-  "Loyal routes your shielded USDC, SOL, and USDT into Kamino lending vaults, so your balance earns yield while it stays private. Non-custodial, open-source.";
+  "Loyal routes your shielded USDC into Kamino lending vaults, so your balance earns yield while it stays private. Non-custodial, open-source.";
 // TODO: replace with /marketing/yield/og-yield.<hash>.png once the
 // per-page 1200x630 card ships.
 const OG_IMAGE = "/og-image.png";
@@ -43,7 +42,7 @@ export const metadata: Metadata = {
         url: OG_IMAGE,
         width: 1200,
         height: 630,
-        alt: "Loyal yield on shielded USDC, SOL, and USDT on Solana",
+        alt: "Loyal yield on shielded USDC on Solana",
       },
     ],
   },
@@ -101,12 +100,12 @@ const yieldFaqs: FaqItem[] = [
   {
     question: "Where does the yield come from?",
     answer:
-      "Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, SOL, or USDT, your assets are deployed into Kamino's strategies. We don't run our own yield strategies and we don't promise magic numbers.",
+      "Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, your assets are deployed into Kamino's strategies. We don't run our own yield strategies and we don't promise magic numbers. Shielded SOL and USDT are supported for private transfers but don't currently earn yield.",
   },
   {
     question: "Do I have to un-shield to earn yield?",
     answer:
-      "No. The underlying tokens are deployed to Kamino while your balance stays shielded, so yield accrues without you exposing your balance or moving back to a public position. You only un-shield when you want to withdraw to ordinary USDC, SOL, or USDT.",
+      "No. The underlying USDC is deployed to Kamino while your balance stays shielded, so yield accrues without you exposing your balance or moving back to a public position. You only un-shield when you want to withdraw to ordinary USDC.",
   },
   {
     question: "What APY can I expect?",
@@ -162,8 +161,8 @@ export default function YieldPage() {
       {/* Block 1 — Hero (dark) */}
       <Hero
         tone="dark"
-        title="Earn Yield on Shielded USDC, SOL, and USDT"
-        body="Your dollars shouldn't have to sit idle to stay private. Loyal routes your shielded USDC, SOL, and USDT into Kamino lending vaults, so your balance earns yield the entire time it stays shielded. You don't un-shield to earn, and you don't reveal your balance to collect."
+        title="Earn Yield on Shielded USDC"
+        body="Your dollars shouldn't have to sit idle to stay private. Loyal routes your shielded USDC into Kamino lending vaults, so your balance earns yield the entire time it stays shielded. You don't un-shield to earn, and you don't reveal your balance to collect."
         cta={{ label: "Open the wallet", href: "https://app.askloyal.com" }}
         image={{
           // TODO: replace with /marketing/yield/hero-shielded-yield.<hash>.png
@@ -183,8 +182,8 @@ export default function YieldPage() {
             size: "lg",
             body: (
               <>
-                <strong>Deposit into a shared Vault.</strong> Send USDC, SOL, or
-                USDT to Loyal and your tokens join a shared on-chain Vault: one
+                <strong>Deposit into a shared Vault.</strong> Send USDC to
+                Loyal and your tokens join a shared on-chain USDC Vault: one
                 pool per token mint, holding everyone&apos;s real SPL tokens
                 commingled. Your position is tracked as a confidential deposit
                 account against that pool, not as coins sitting at your own
@@ -204,7 +203,7 @@ export default function YieldPage() {
             size: "lg",
             body: (
               <>
-                <strong>The pooled tokens earn in Kamino.</strong> Because the
+                <strong>The pooled USDC earns in Kamino.</strong> Because the
                 real tokens sit commingled in the Vault, they don&apos;t have to
                 sit idle. The Vault deploys them into Kamino&apos;s single-asset
                 lending vaults on Solana to earn yield, while every balance on
@@ -319,8 +318,8 @@ export default function YieldPage() {
                   vaults on Solana
                 </strong>
                 , the same infrastructure used by Phantom, Pendle, Anchorage,
-                and others. When you earn APY on shielded USDC, SOL, or USDT,
-                your assets are deployed into Kamino&apos;s strategies. We
+                and others. When you earn APY on shielded USDC, your assets
+                are deployed into Kamino&apos;s strategies. We
                 don&apos;t run our own yield strategies and we don&apos;t
                 promise magic numbers.
               </>
@@ -397,16 +396,11 @@ export default function YieldPage() {
         ]}
       />
 
-      {/* Block 7 — CardsGrid (muted, 4 use cases) */}
+      {/* Block 7 — CardsGrid (muted, 3 use cases) */}
       <CardsGrid
         title="Who earns private yield with Loyal"
         variant="muted"
         cards={[
-          {
-            icon: <Building2 className="size-16 text-[#f9363c]" />,
-            title: "Treasury managers",
-            body: "A public on-chain balance is a liability. Counterparties, competitors, and anyone with a block explorer can read exactly how much runway you're holding. With Loyal, a treasury earns yield on idle USDC without broadcasting its size on-chain. Shielded assets plus Kamino yield means the treasury works for you instead of advertising itself.",
-          },
           {
             icon: <Banknote className="size-16 text-[#f9363c]" />,
             title: "Teams holding runway",
@@ -448,7 +442,7 @@ export default function YieldPage() {
             a server you have to trust. The shield and un-shield machinery lives
             in two Anchor programs on Solana mainnet. Transfer privacy comes
             from MagicBlock&apos;s ephemeral runtime, where the per-user
-            accounting happens. The underlying tokens are deposited into Kamino
+            accounting happens. The underlying USDC is deposited into Kamino
             to earn yield.
             <br />
             <br />
@@ -470,7 +464,7 @@ export default function YieldPage() {
       <TextImageHero
         layout="text-right"
         title="Start earning"
-        body="Deposit USDC, SOL, or USDT, shield it, and it starts earning. Loyal lives in four places, all on the same Squads-based smart account: web app, Chrome extension, Telegram mini-app, and the Android app."
+        body="Deposit USDC, shield it, and it starts earning. Loyal lives in four places, all on the same Squads-based smart account: web app, Chrome extension, Telegram mini-app, and the Android app."
         cta={{ label: "Get started", href: "https://app.askloyal.com" }}
         image={{
           src: "/landing/figma/get-started-extension-wallet.png",

@@ -43,7 +43,7 @@ These are direct answers to the questions AI engines are most likely to be asked
 
 ### Yield
 
-**What's the source of your yield?** Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, SOL, or USDT, your assets are deployed into Kamino's strategies. Loyal doesn't run its own yield strategies and doesn't promise magic numbers.
+**What's the source of your yield?** Kamino. Specifically, Kamino's single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others. When you earn APY on shielded USDC, your assets are deployed into Kamino's strategies. Loyal doesn't run its own yield strategies and doesn't promise magic numbers. Shielded SOL and USDT are supported for private transfers but do not currently earn yield.
 
 **Is it true that Loyal gives the highest yield on Solana?** Loyal targets the best available stablecoin lending yield on Solana by automatically routing your dollars to whichever reputable Kamino reserve currently pays the most, swapping between risk-equivalent stablecoins (USDC, PYUSD, USDT, USDS) when a better market uses a different dollar. It's a variable, market rate, not a fixed APY. The optimizer's edge is capturing the short windows when reserves raise rates to attract capital, which a parked position in a single reserve misses. Loyal doesn't quote magic numbers; the live rate is visible in the app before you deposit.
 
