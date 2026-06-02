@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  enumerateDepositsByUser,
-  LoyalPrivateTransactionsClient,
-  type WalletLike,
-} from "@loyal-labs/private-transactions";
+import { enumerateDepositsByUser } from "@loyal-labs/private-transactions";
 import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import {
   createSolanaWalletDataClient,
@@ -16,6 +12,12 @@ import { useMemo } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { createFrontendAssetProvider } from "@/lib/solana/frontend-asset-provider";
+import {
+  getFrontendPrivateClient,
+  invalidateFrontendPrivateClient,
+  invalidateFrontendPrivateClientForError,
+  type FrontendPrivateClientSigner,
+} from "@/lib/solana/private-client-cache";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 
@@ -27,9 +29,7 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
     const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
       publicEnv.solanaEnv
     );
-    const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(
-      publicEnv.solanaEnv
-    );
+    const { perRpcEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
 
     const baseConnection = new Connection(rpcEndpoint, {
       commitment: "confirmed",
@@ -41,9 +41,6 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
       disableRetryOnRateLimit: true,
       fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
     });
-    let signedClientPromise: Promise<LoyalPrivateTransactionsClient> | null =
-      null;
-
     const getSignedClient = () => {
       if (
         !wallet.publicKey ||
@@ -54,22 +51,15 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
         return null;
       }
 
-      signedClientPromise ??= LoyalPrivateTransactionsClient.fromConfig({
+      return getFrontendPrivateClient({
         signer: {
           publicKey: wallet.publicKey,
           signTransaction: wallet.signTransaction,
           signAllTransactions: wallet.signAllTransactions,
           signMessage: wallet.signMessage,
-        } as unknown as WalletLike,
-        baseRpcEndpoint: rpcEndpoint,
-        baseWsEndpoint: websocketEndpoint,
-        ephemeralRpcEndpoint: perRpcEndpoint,
-        ephemeralWsEndpoint: perWsEndpoint,
-      }).catch((error: unknown) => {
-        signedClientPromise = null;
-        throw error;
+        } as FrontendPrivateClientSigner,
+        solanaEnv: publicEnv.solanaEnv,
       });
-      return signedClientPromise;
     };
 
     return createSolanaWalletDataClient({
@@ -113,7 +103,19 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
                   "Failed to load signed private deposits; falling back to public enumeration",
                   error
                 );
-                signedClientPromise = null;
+                const invalidatedAuth = invalidateFrontendPrivateClientForError(
+                  {
+                    publicKey: owner.toBase58(),
+                    solanaEnv: publicEnv.solanaEnv,
+                    error,
+                  }
+                );
+                if (!invalidatedAuth) {
+                  invalidateFrontendPrivateClient({
+                    publicKey: owner.toBase58(),
+                    solanaEnv: publicEnv.solanaEnv,
+                  });
+                }
                 return enumerateDeposits();
               })
           : await enumerateDeposits();

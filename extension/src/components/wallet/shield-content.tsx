@@ -3,7 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useShield } from "@loyal-labs/wallet-core/hooks";
 
-import type { FormButtonProps, SubView, SwapMode, SwapToken } from "@loyal-labs/wallet-core/types";
+import type {
+  FormButtonProps,
+  SubView,
+  SwapMode,
+  SwapToken,
+} from "@loyal-labs/wallet-core/types";
 
 import { getAnalyticsErrorProperties, track } from "~/src/lib/analytics";
 import { useWalletContext } from "~/src/components/wallet/wallet-provider";
@@ -345,6 +350,7 @@ function ShieldedSelectableTokenPill({
   );
 }
 
+type ShieldDirection = "shield" | "unshield";
 type ShieldPhase = "form" | "processing" | "success" | "error" | "details";
 
 export function ShieldContent({
@@ -373,19 +379,26 @@ export function ShieldContent({
   // Map extension network to SolanaEnv expected by hooks
   const solanaEnv = network === "mainnet" ? "mainnet" : "devnet";
 
-  const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield(signer, connection, solanaEnv);
+  const { executeShield: shieldFn, executeUnshield: unshieldFn } = useShield(
+    signer,
+    connection,
+    solanaEnv
+  );
   const [amount, setAmount] = useState("");
+  const [isMaxSelected, setIsMaxSelected] = useState(false);
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [resultAmount, setResultAmount] = useState("");
   const [resultUsd, setResultUsd] = useState("");
+  const [confirmedDirection, setConfirmedDirection] =
+    useState<ShieldDirection | null>(null);
 
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
   }, [phase, onFormActiveChange]);
 
   const token = tokenProp;
-  const direction: "shield" | "unshield" = token.isSecured ? "unshield" : "shield";
+  const direction: ShieldDirection = token.isSecured ? "unshield" : "shield";
   const numericAmount = Number.parseFloat(amount) || 0;
   const hasAmount = numericAmount > 0;
 
@@ -414,18 +427,29 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
+      const isMax = pct === 100;
       let val = pct === 100 ? bal : bal * (pct / 100);
-      if (token.symbol.toUpperCase() === "SOL" && sourceBalance - val < 0.00005) {
+      if (
+        token.symbol.toUpperCase() === "SOL" &&
+        sourceBalance - val < 0.00005
+      ) {
         val = Math.max(0, sourceBalance - 0.00005);
       }
+      setIsMaxSelected(isMax && val > 0);
       setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
     [sourceBalance, token.symbol]
   );
 
+  useEffect(() => {
+    setIsMaxSelected(false);
+  }, [token.mint, token.isSecured]);
+
   const handleConfirm = useCallback(async () => {
     if (!hasAmount || insufficientFunds) return;
 
+    const operationDirection = direction;
+    setConfirmedDirection(operationDirection);
     setResultAmount(String(numericAmount));
     setResultUsd(
       `$${(numericAmount * token.price).toLocaleString("en-US", {
@@ -440,18 +464,20 @@ export function ShieldContent({
       tokenSymbol: token.symbol,
       amount: numericAmount,
       tokenMint: token.mint,
+      isMax: operationDirection === "unshield" && isMaxSelected,
     };
 
     const result =
-      direction === "shield"
+      operationDirection === "shield"
         ? await shieldFn(params)
         : await unshieldFn(params);
 
     if (result.success) {
       setPhase("success");
       setAmount("");
+      setIsMaxSelected(false);
       track(
-        direction === "shield"
+        operationDirection === "shield"
           ? SHIELD_EVENTS.shieldTokens
           : SHIELD_EVENTS.unshieldTokens,
         {
@@ -463,7 +489,7 @@ export function ShieldContent({
       setErrorMessage(result.error);
       setPhase("error");
       track(
-        direction === "shield"
+        operationDirection === "shield"
           ? SHIELD_EVENTS.shieldTokensFailed
           : SHIELD_EVENTS.unshieldTokensFailed,
         {
@@ -475,6 +501,7 @@ export function ShieldContent({
   }, [
     hasAmount,
     insufficientFunds,
+    isMaxSelected,
     numericAmount,
     token.price,
     token.symbol,
@@ -515,6 +542,9 @@ export function ShieldContent({
   }, [phase]);
 
   const renderPhaseContent = (p: ShieldPhase) => {
+    const displayDirection =
+      p === "form" ? direction : confirmedDirection ?? direction;
+
     if (p === "processing") {
       return (
         <div
@@ -537,7 +567,7 @@ export function ShieldContent({
 
           <StatusHeader
             onClose={onClose}
-            title={direction === "shield" ? "Shield" : "Unshield"}
+            title={displayDirection === "shield" ? "Shield" : "Unshield"}
           />
 
           <div
@@ -595,9 +625,9 @@ export function ShieldContent({
                   }}
                 />
                 <img
-                  alt={direction === "shield" ? "Shield" : "Unshield"}
+                  alt={displayDirection === "shield" ? "Shield" : "Unshield"}
                   src={
-                    direction === "shield"
+                    displayDirection === "shield"
                       ? "/hero-new/Shield.png"
                       : "/hero-new/Unshield.svg"
                   }
@@ -622,7 +652,9 @@ export function ShieldContent({
                     color: "#000",
                   }}
                 >
-                  {direction === "shield" ? "Shielding..." : "Unshielding..."}
+                  {displayDirection === "shield"
+                    ? "Shielding..."
+                    : "Unshielding..."}
                 </span>
               </div>
             </div>
@@ -688,7 +720,7 @@ export function ShieldContent({
             onClose={onClose}
             title={
               isSuccess
-                ? direction === "shield"
+                ? displayDirection === "shield"
                   ? "Shield"
                   : "Unshield"
                 : "Shield/Unshield"
@@ -745,9 +777,11 @@ export function ShieldContent({
                 >
                   {isSuccess
                     ? `${token.symbol} ${
-                        direction === "shield" ? "Shielded" : "Unshielded"
+                        displayDirection === "shield"
+                          ? "Shielded"
+                          : "Unshielded"
                       }`
-                    : direction === "shield"
+                    : displayDirection === "shield"
                     ? "Shielding Failed"
                     : "Unshielding Failed"}
                 </span>
@@ -767,7 +801,7 @@ export function ShieldContent({
                         {resultAmount} {token.symbol}
                       </span>
                       {` moved to your ${
-                        direction === "shield" ? "secure" : "main"
+                        displayDirection === "shield" ? "secure" : "main"
                       } balance`}
                     </>
                   ) : (
@@ -816,6 +850,7 @@ export function ShieldContent({
               }
               onClick={() => {
                 setPhase("form");
+                setConfirmedDirection(null);
                 onDone();
               }}
               style={{
@@ -869,7 +904,7 @@ export function ShieldContent({
 
           <StatusHeader
             onClose={onClose}
-            title={direction === "shield" ? "Shielded" : "Unshielded"}
+            title={displayDirection === "shield" ? "Shielded" : "Unshielded"}
           />
 
           <div
@@ -908,9 +943,11 @@ export function ShieldContent({
                   />
                 </div>
                 <img
-                  alt={direction === "shield" ? "Shielded" : "Unshielded"}
+                  alt={
+                    displayDirection === "shield" ? "Shielded" : "Unshielded"
+                  }
                   src={
-                    direction === "shield"
+                    displayDirection === "shield"
                       ? "/hero-new/Shield.png"
                       : "/hero-new/Unshield.svg"
                   }
@@ -1028,6 +1065,7 @@ export function ShieldContent({
               className="shield-done-btn"
               onClick={() => {
                 setPhase("form");
+                setConfirmedDirection(null);
                 onDone();
               }}
               style={{
@@ -1202,7 +1240,10 @@ export function ShieldContent({
                   inputMode="decimal"
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
+                    if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                      setIsMaxSelected(false);
+                      setAmount(v);
+                    }
                   }}
                   placeholder="0"
                   style={{

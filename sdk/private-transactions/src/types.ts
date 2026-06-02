@@ -420,6 +420,7 @@ export interface DelegateUsernameDepositParams {
   payer: PublicKey;
   validator: PublicKey;
   rpcOptions?: RpcOptions;
+  passNotExist?: boolean;
 }
 
 /**

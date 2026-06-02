@@ -3063,12 +3063,13 @@ async function pollForLanding(connection, signature, lastValidBlockHeight, commi
     if (meetsCommitment(status?.confirmationStatus, commitment)) {
       return signature;
     }
+    let currentHeight = null;
     try {
-      const currentHeight = await connection.getBlockHeight(commitment);
-      if (currentHeight > lastValidBlockHeight && !status) {
-        throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
-      }
+      currentHeight = await connection.getBlockHeight(commitment);
     } catch {}
+    if (currentHeight !== null && currentHeight > lastValidBlockHeight && !status) {
+      throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
+    }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
   throw new Error(`Transaction confirmation timed out after 90s: ${signature}`);
@@ -3098,11 +3099,14 @@ async function sendAndConfirmWithDiagnostics(params) {
   }
   let signature;
   try {
-    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    const sendOptions = {
       skipPreflight: rpcOptions?.skipPreflight ?? false,
-      preflightCommitment,
-      maxRetries: rpcOptions?.maxRetries ?? 3
-    });
+      preflightCommitment
+    };
+    if (rpcOptions?.maxRetries !== undefined) {
+      sendOptions.maxRetries = rpcOptions.maxRetries;
+    }
+    signature = await connection.sendRawTransaction(signedTx.serialize(), sendOptions);
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
@@ -5081,11 +5085,118 @@ class LoyalPrivateTransactionsClient {
     return routerData;
   }
 }
+// src/instructions/delegateUsernameDeposit.ts
+import { SystemProgram as SystemProgram6 } from "@solana/web3.js";
+async function delegateUsernameDepositIx(program, params) {
+  const { username, tokenMint, payer, validator, passNotExist } = params;
+  validateUsername(username);
+  const [depositPda] = await findUsernameDepositPda(username, tokenMint);
+  const [bufferPda] = findBufferPda(depositPda);
+  const [delegationRecordPda] = findDelegationRecordPda(depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+  const usernameHash = await sha256hash(username);
+  const accounts = {
+    payer,
+    bufferDeposit: bufferPda,
+    delegationRecordDeposit: delegationRecordPda,
+    delegationMetadataDeposit: delegationMetadataPda,
+    deposit: depositPda,
+    validator,
+    ownerProgram: PROGRAM_ID,
+    delegationProgram: DELEGATION_PROGRAM_ID,
+    systemProgram: SystemProgram6.programId
+  };
+  const ix = await program.methods.delegateUsernameDeposit(usernameHash, tokenMint).accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: passNotExist === undefined ? false : passNotExist,
+        label: "delegateUsernameDeposit-depositPda"
+      }
+    ]
+  };
+}
+// src/instructions/transferDeposit.ts
+import { BN as BN3 } from "@coral-xyz/anchor";
+import { SystemProgram as SystemProgram7 } from "@solana/web3.js";
+async function transferDepositIx(program, params) {
+  const { user, tokenMint, destinationUser, amount, payer, sessionToken } = params;
+  const [sourceDepositPda] = findDepositPda(user, tokenMint);
+  const [destinationDepositPda] = findDepositPda(destinationUser, tokenMint);
+  const accounts = {
+    user,
+    payer,
+    sourceDeposit: sourceDepositPda,
+    destinationDeposit: destinationDepositPda,
+    tokenMint,
+    systemProgram: SystemProgram7.programId,
+    sessionToken: sessionToken ?? null
+  };
+  const ix = await program.methods.transferDeposit(new BN3(amount.toString())).accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: sourceDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferDeposit-sourceDepositPda"
+      },
+      {
+        address: destinationDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferDeposit-destinationDepositPda"
+      }
+    ]
+  };
+}
+// src/instructions/transferToUsernameDeposit.ts
+import { BN as BN4 } from "@coral-xyz/anchor";
+import { SystemProgram as SystemProgram8 } from "@solana/web3.js";
+async function transferToUsernameDepositIx(program, params) {
+  const { username, tokenMint, amount, user, payer, sessionToken } = params;
+  validateUsername(username);
+  const [sourceDepositPda] = findDepositPda(user, tokenMint);
+  const [destinationDepositPda] = await findUsernameDepositPda(username, tokenMint);
+  const accounts = {
+    user,
+    payer,
+    sourceDeposit: sourceDepositPda,
+    destinationDeposit: destinationDepositPda,
+    tokenMint,
+    systemProgram: SystemProgram8.programId,
+    sessionToken: sessionToken ?? null
+  };
+  const ix = await program.methods.transferToUsernameDeposit(new BN4(amount.toString())).accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: sourceDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferToUsernameDeposit-sourceDepositPda"
+      },
+      {
+        address: destinationDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferToUsernameDeposit-destinationDepositPda"
+      }
+    ]
+  };
+}
 // index.ts
 var IDL = telegram_private_transfer_default;
 export {
   waitForAccountOwnerChange2 as waitForAccountOwnerChange,
   unshieldTokens,
+  transferToUsernameDepositIx,
+  transferDepositIx,
   solToLamports,
   shieldTokens,
   parseKaminoReserveSnapshotFromAccountData,
@@ -5094,6 +5205,8 @@ export {
   isKeypair,
   isKaminoMainnetModifyBalanceAccounts,
   isAnchorProvider,
+  initializeUsernameDepositIx,
+  initializeDepositIx,
   getKaminoModifyBalanceAccountsForTokenMint,
   getErValidatorForSolanaEnv,
   getErValidatorForRpcEndpoint,
@@ -5106,6 +5219,8 @@ export {
   findBufferPda,
   fetchKaminoReserveSnapshot,
   enumerateDepositsByUser,
+  delegateUsernameDepositIx,
+  delegateDepositIx,
   calculateKaminoShareAmountForLiquidityAmountRaw,
   calculateKaminoRedeemableLiquidityAmountRaw,
   calculateKaminoCollateralValuation,
