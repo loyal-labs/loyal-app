@@ -1,6 +1,12 @@
 "use client";
 
-import type { ActivityRow, TransactionDetail } from "@/components/wallet-sidebar/types";
+import { ReceiptText } from "lucide-react";
+import { useEffect, useState } from "react";
+
+import type {
+  ActivityRow,
+  TransactionDetail,
+} from "@/components/wallet-sidebar/types";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -16,52 +22,18 @@ export type EarnTransactionItem = {
   destination: { label: string; icon: string | null };
 };
 
-const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
-const MAIN_ICON = "/agents/Agent-01.svg";
-const STASH_ICON = "/agents/Stashx.svg";
+type EarnTransactionsRouteResponse = {
+  transactions: EarnTransactionItem[];
+};
 
-const EARN_TRANSACTIONS: EarnTransactionItem[] = [
-  {
-    id: "earn-tx-1",
-    kind: "withdraw",
-    dateGroup: "May 29",
-    timestamp: "18:06",
-    amount: "+1,010.22 USDC",
-    rawAmount: "1,010.22",
-    source: { label: "Kamino", icon: null },
-    destination: { label: "Main", icon: MAIN_ICON },
-  },
-  {
-    id: "earn-tx-2",
-    kind: "deposit",
-    dateGroup: "May 29",
-    timestamp: "18:06",
-    amount: "−1,000.00 USDC",
-    rawAmount: "1,000.00",
-    source: { label: "Main", icon: MAIN_ICON },
-    destination: { label: "Kamino", icon: null },
-  },
-  {
-    id: "earn-tx-3",
-    kind: "withdraw",
-    dateGroup: "April 29",
-    timestamp: "18:06",
-    amount: "+1,010.00 USDC",
-    rawAmount: "1,010.00",
-    source: { label: "Kamino", icon: null },
-    destination: { label: "Stash", icon: STASH_ICON },
-  },
-  {
-    id: "earn-tx-4",
-    kind: "deposit",
-    dateGroup: "April 29",
-    timestamp: "18:06",
-    amount: "−1,000.00 USDC",
-    rawAmount: "1,000.00",
-    source: { label: "Stash", icon: STASH_ICON },
-    destination: { label: "Kamino", icon: null },
-  },
-];
+type EarnTransactionsRouteErrorResponse = {
+  error?: {
+    code?: string;
+    message?: string;
+  };
+};
+
+const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 
 export function buildEarnTransactionDetail(
   item: EarnTransactionItem
@@ -162,13 +134,7 @@ function CompoundIcon() {
   );
 }
 
-function FlowAccount({
-  label,
-  icon,
-}: {
-  label: string;
-  icon: string | null;
-}) {
+function FlowAccount({ label, icon }: { label: string; icon: string | null }) {
   return (
     <span
       style={{
@@ -321,15 +287,66 @@ function EarnTransactionRow({
   );
 }
 
-export function EarnTransactionsPane({
-  onSelectTransaction,
-  topInset = 0,
-}: {
-  onSelectTransaction: (detail: TransactionDetail) => void;
-  topInset?: number;
-}) {
+function EarnTransactionsEmptyState() {
+  return (
+    <div
+      style={{
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        justifyContent: "center",
+        minHeight: "220px",
+        padding: "24px",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          background: "rgba(0, 0, 0, 0.04)",
+          borderRadius: "9999px",
+          color: "rgba(60, 60, 67, 0.58)",
+          display: "flex",
+          height: "48px",
+          justifyContent: "center",
+          marginBottom: "12px",
+          width: "48px",
+        }}
+      >
+        <ReceiptText size={22} strokeWidth={1.8} />
+      </div>
+      <span
+        style={{
+          color: "#000",
+          fontFamily: font,
+          fontSize: "16px",
+          fontWeight: 500,
+          lineHeight: "20px",
+        }}
+      >
+        No transactions yet
+      </span>
+      <span
+        style={{
+          color: secondary,
+          fontFamily: font,
+          fontSize: "13px",
+          fontWeight: 400,
+          lineHeight: "16px",
+          marginTop: "4px",
+          maxWidth: "220px",
+        }}
+      >
+        Earn deposits and withdrawals will appear here.
+      </span>
+    </div>
+  );
+}
+
+function groupEarnTransactions(items: EarnTransactionItem[]) {
   const groups: { date: string; items: EarnTransactionItem[] }[] = [];
-  for (const item of EARN_TRANSACTIONS) {
+  for (const item of items) {
     const last = groups[groups.length - 1];
     if (last && last.date === item.dateGroup) {
       last.items.push(item);
@@ -337,6 +354,60 @@ export function EarnTransactionsPane({
       groups.push({ date: item.dateGroup, items: [item] });
     }
   }
+  return groups;
+}
+
+export function EarnTransactionsPane({
+  onSelectTransaction,
+  topInset = 0,
+}: {
+  onSelectTransaction: (detail: TransactionDetail) => void;
+  topInset?: number;
+}) {
+  const [transactions, setTransactions] = useState<EarnTransactionItem[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadTransactions = async () => {
+      const response = await fetch("/api/smart-accounts/earn-transactions", {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorPayload = (await response
+          .json()
+          .catch(() => null)) as EarnTransactionsRouteErrorResponse | null;
+        console.log("[earn-transactions] API error", {
+          error: errorPayload?.error ?? null,
+          status: response.status,
+          statusText: response.statusText,
+        });
+        const message =
+          errorPayload?.error?.message ?? "Failed to load earn transactions.";
+        throw new Error(message);
+      }
+
+      const payload = (await response.json()) as EarnTransactionsRouteResponse;
+
+      if (isMounted) {
+        setTransactions(payload.transactions);
+      }
+    };
+
+    void loadTransactions().catch((error) => {
+      console.error("Failed to load earn transactions", error);
+      if (isMounted) {
+        setTransactions([]);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const groups = groupEarnTransactions(transactions);
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item));
@@ -403,40 +474,48 @@ export function EarnTransactionsPane({
           width: "100%",
         }}
       >
-        {groups.map((group) => (
-          <div
-            key={group.date}
-            style={{ display: "flex", flexDirection: "column", width: "100%" }}
-          >
+        {transactions.length === 0 ? (
+          <EarnTransactionsEmptyState />
+        ) : (
+          groups.map((group) => (
             <div
+              key={group.date}
               style={{
-                padding: "11px 12px 8px",
+                display: "flex",
+                flexDirection: "column",
                 width: "100%",
               }}
             >
-              <p
+              <div
                 style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  letterSpacing: "-0.176px",
-                  lineHeight: "20px",
-                  margin: 0,
+                  padding: "11px 12px 8px",
+                  width: "100%",
                 }}
               >
-                {group.date}
-              </p>
+                <p
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    letterSpacing: "-0.176px",
+                    lineHeight: "20px",
+                    margin: 0,
+                  }}
+                >
+                  {group.date}
+                </p>
+              </div>
+              {group.items.map((item) => (
+                <EarnTransactionRow
+                  item={item}
+                  key={item.id}
+                  onSelect={handleSelect}
+                />
+              ))}
             </div>
-            {group.items.map((item) => (
-              <EarnTransactionRow
-                item={item}
-                key={item.id}
-                onSelect={handleSelect}
-              />
-            ))}
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );

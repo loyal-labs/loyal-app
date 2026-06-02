@@ -16,7 +16,10 @@ import {
   PublicKey,
 } from "@solana/web3.js";
 
+import { SOLANA_USDC_MINT_DEVNET } from "@/lib/kamino/kamino-usdc-position";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+
+export { SOLANA_USDC_MINT_DEVNET };
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -27,8 +30,6 @@ const TOKEN_2022_PROGRAM_ID = new PublicKey(
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const SOLANA_NETWORK = "solana";
 const DEFAULT_SUBSCRIPTION_DEBOUNCE_MS = 750;
-export const SOLANA_USDC_MINT_DEVNET =
-  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 export const USDC_ICON_URL =
   "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png";
 

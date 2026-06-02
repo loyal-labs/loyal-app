@@ -91,6 +91,7 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { trackWalletShieldPressed } from "@/lib/core/analytics";
+import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
@@ -178,6 +179,40 @@ function splitUsdcSourceBalance(value: number): {
     : "0.00";
   const [whole = "0", fraction = "00"] = formatted.split(".");
   return { fraction, whole };
+}
+
+function findEarnUsdcPosition(
+  positions: PortfolioPosition[],
+  trackedUsdcMint: string | null
+): PortfolioPosition | undefined {
+  if (trackedUsdcMint) {
+    const trackedPosition = positions.find(
+      (position) => position.asset.mint === trackedUsdcMint
+    );
+
+    if (trackedPosition) {
+      return trackedPosition;
+    }
+  }
+
+  return positions.find(
+    (position) => position.asset.symbol.toUpperCase() === "USDC"
+  );
+}
+
+function findTrackedUsdcToken(
+  tokens: SwapToken[],
+  trackedUsdcMint: string | null
+): SwapToken | undefined {
+  if (trackedUsdcMint) {
+    const trackedToken = tokens.find((token) => token.mint === trackedUsdcMint);
+
+    if (trackedToken) {
+      return trackedToken;
+    }
+  }
+
+  return tokens.find((token) => token.symbol.toUpperCase() === "USDC");
 }
 
 function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
@@ -727,6 +762,10 @@ export function AppWalletWorkspace({
   const { disconnect } = useWallet();
   const { logout } = useAuthSession();
   const publicEnv = usePublicEnv();
+  const trackedKaminoUsdcMint = useMemo(
+    () => resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv),
+    [publicEnv.solanaEnv]
+  );
   const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn, close: closeSignIn } = useSignInModal();
   const signInOpenedForConnectRef = useRef(false);
@@ -1015,8 +1054,9 @@ export function AppWalletWorkspace({
   );
   const earnDepositSources = useMemo<EarnDepositSourceOption[]>(() => {
     const sources: EarnDepositSourceOption[] = [];
-    const mainUsdcPosition = walletDesktopData.positions.find(
-      (position) => position.asset.symbol.toUpperCase() === "USDC"
+    const mainUsdcPosition = findEarnUsdcPosition(
+      walletDesktopData.positions,
+      trackedKaminoUsdcMint
     );
     const mainBalance = splitUsdcSourceBalance(
       mainUsdcPosition?.publicBalance ?? 0
@@ -1024,29 +1064,36 @@ export function AppWalletWorkspace({
 
     sources.push({
       addressLabel: formatAddressForEarnSource(walletDesktopData.walletAddress),
+      balance: mainUsdcPosition?.publicBalance ?? 0,
       balanceFraction: mainBalance.fraction,
       balanceWhole: mainBalance.whole,
+      decimals: mainUsdcPosition?.asset.decimals ?? 6,
       icon: getWalletIcon(),
       id: "main",
       label: "Main",
+      mint: mainUsdcPosition?.asset.mint ?? trackedKaminoUsdcMint,
     });
 
     for (const vault of smartAccountData.overview?.vaults ?? []) {
       const entry = smartAccountData.vaultEntries.find(
         (candidate) => candidate.accountIndex === vault.accountIndex
       );
-      const usdcPosition = vault.portfolio.positions.find(
-        (position) => position.asset.symbol.toUpperCase() === "USDC"
+      const usdcPosition = findEarnUsdcPosition(
+        vault.portfolio.positions,
+        trackedKaminoUsdcMint
       );
       const balance = splitUsdcSourceBalance(usdcPosition?.publicBalance ?? 0);
 
       sources.push({
         addressLabel: formatAddressForEarnSource(vault.address),
+        balance: usdcPosition?.publicBalance ?? 0,
         balanceFraction: balance.fraction,
         balanceWhole: balance.whole,
+        decimals: usdcPosition?.asset.decimals ?? 6,
         icon: getVaultIcon(vault.accountIndex),
         id: `vault:${vault.accountIndex}`,
         label: entry?.label ?? "Stash",
+        mint: usdcPosition?.asset.mint ?? trackedKaminoUsdcMint,
       });
     }
 
@@ -1054,6 +1101,7 @@ export function AppWalletWorkspace({
   }, [
     smartAccountData.overview?.vaults,
     smartAccountData.vaultEntries,
+    trackedKaminoUsdcMint,
     walletDesktopData.positions,
     walletDesktopData.walletAddress,
   ]);
@@ -1697,7 +1745,10 @@ export function AppWalletWorkspace({
   }, [openActionView]);
 
   const handleCommandShieldUsdc = useCallback(() => {
-    const usdcToken = derivedTokens.find((token) => token.symbol === "USDC");
+    const usdcToken = findTrackedUsdcToken(
+      derivedTokens,
+      trackedKaminoUsdcMint
+    );
 
     if (!usdcToken) return;
 
@@ -1709,7 +1760,7 @@ export function AppWalletWorkspace({
       "",
       "wallet"
     );
-  }, [derivedTokens, openActionView]);
+  }, [derivedTokens, openActionView, trackedKaminoUsdcMint]);
 
   const handleOpenEarn = useCallback(() => {
     markDetailPaneTransition("switch");
@@ -2077,7 +2128,10 @@ export function AppWalletWorkspace({
   const commandGroups = useMemo<WalletCommandGroup[]>(() => {
     const isWalletActive = activeDetailSelection === "wallet";
     const isVaultActive = activeDetailSelection === "vault";
-    const usdcToken = derivedTokens.find((token) => token.symbol === "USDC");
+    const usdcToken = findTrackedUsdcToken(
+      derivedTokens,
+      trackedKaminoUsdcMint
+    );
     const tokenCommands = walletDesktopData.allTokenRows.map((token, index) => {
       const tokenKind = token.isSecured ? "Shielded balance" : "Balance";
       const tokenValue = token.value ? ` · ${token.value}` : "";
@@ -2313,6 +2367,7 @@ export function AppWalletWorkspace({
     selectedSignerId,
     selectedVault,
     smartAccountData,
+    trackedKaminoUsdcMint,
     walletDesktopData.allTokenRows,
     walletDesktopData.walletAddress,
   ]);

@@ -21,6 +21,7 @@
     "extension:build": "bun run --cwd extension build",
     "extension:zip": "bun run --cwd extension zip",
     "frontend:dev": "bun run --cwd frontend dev",
+    "frontend:dev:1pass": "bun run --cwd frontend dev:1pass",
     "frontend:build": "bun run --cwd frontend build",
     "frontend:lint": "bun run --cwd frontend lint",
     "loyal-smart-accounts:update": "bun run scripts/update-loyal-smart-accounts.ts",
