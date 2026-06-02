@@ -4,11 +4,11 @@ Neon PostgreSQL integration using Drizzle ORM.
 
 ## Overview
 
-| File                       | Purpose                       |
-| -------------------------- | ----------------------------- |
-| `src/lib/core/database.ts` | Database connection singleton |
+| File                                | Purpose                          |
+| ----------------------------------- | -------------------------------- |
+| `src/lib/core/database.ts`          | Database connection singleton    |
 | `../packages/db-core/src/schema.ts` | Shared Drizzle table definitions |
-| `drizzle.config.ts`        | Migration configuration       |
+| `drizzle.config.ts`                 | Migration configuration          |
 
 ## Ownership and Boundaries
 
@@ -19,11 +19,11 @@ Neon PostgreSQL integration using Drizzle ORM.
 
 The app now uses three separate database surfaces. Do not treat them as interchangeable.
 
-| Database surface | Connection/config owner | Schema/entrypoint | What belongs there |
-| ---------------- | ----------------------- | ----------------- | ------------------ |
-| App Neon database | App and admin runtimes | `src/lib/core/database.ts`; shared table definitions in `../packages/db-core/src/schema.ts` | Product data: users, Telegram communities, messages, summaries, encrypted bot threads/messages, wallet auth, app smart-account records, sponsorship analytics, admin-readable app state |
-| Yield Neon database (`loyal_yield`) | Yield optimization server code | `../frontend/src/lib/yield-optimization/yield-neon-client.server.ts` | Yield control-plane data: route policies, managed vaults, vault/reserve snapshots, rebalance decisions, confirmed user yield positions, immutable confirmed deposit events |
-| Kamino Timescale database (`kamino`) | Kamino market-data readers | `../frontend/src/lib/kamino/timescale-reserve-client.server.ts` | Read-only reserve telemetry: Kamino reserve updates and latest reserve rows used for earn forecasts and safe/no-fee target selection |
+| Database surface                     | Connection/config owner        | Schema/entrypoint                                                                           | What belongs there                                                                                                                                                                        |
+| ------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App Neon database                    | App and admin runtimes         | `src/lib/core/database.ts`; shared table definitions in `../packages/db-core/src/schema.ts` | Product data: users, Telegram communities, messages, summaries, encrypted bot threads/messages, wallet auth, app smart-account records, sponsorship analytics, admin-readable app state   |
+| Yield Neon database (`loyal_yield`)  | Yield optimization server code | `../frontend/src/lib/yield-optimization/yield-neon-client.server.ts`                        | Yield control-plane data: route policies, managed vaults, vault/reserve snapshots, rebalance decisions, confirmed user yield positions, immutable confirmed deposit and withdrawal events |
+| Kamino Timescale database (`kamino`) | Kamino market-data readers     | `../frontend/src/lib/kamino/timescale-reserve-client.server.ts`                             | Read-only reserve telemetry: Kamino reserve updates and latest reserve rows used for earn forecasts and safe/no-fee target selection                                                      |
 
 ### App Neon
 
@@ -35,9 +35,11 @@ Typical rows include Telegram account state, community activity, stored messages
 
 Use Yield Neon for optimizer state that belongs to the `loyal_yield` schema. This database is shared with yield orchestration and should be accessed through server-only yield modules.
 
-The shared optimizer tables include `route_policies` for detected or app-confirmed policy metadata and `managed_vaults` for active vault metadata tied to a smart-account settings PDA. Snapshot tables such as `vault_position_snapshots`, `vault_position_snapshot_positions`, and `vault_reserve_positions_current` are optimizer read models. `rebalance_decisions` stores optimizer decisions and execution status. App-confirmed user deposits are represented by `user_yield_positions`, keyed by `cluster + settings + vault_index + target_reserve`, and `user_yield_position_deposits`, keyed by `cluster + deposit_signature`.
+The shared optimizer tables include `route_policies` for detected or app-confirmed policy metadata and `managed_vaults` for active vault metadata tied to a smart-account settings PDA. Snapshot tables such as `vault_position_snapshots`, `vault_position_snapshot_positions`, and `vault_reserve_positions_current` are optimizer read models. `rebalance_decisions` stores optimizer decisions and execution status. App-confirmed user Earn positions are represented by `user_yield_positions`, keyed by `cluster + settings + vault_index + target_reserve`; `user_yield_position_deposits`, keyed by `cluster + deposit_signature`; and `user_yield_position_withdrawals`, keyed by `cluster + withdrawal_signature`.
 
-Confirmed yield deposits should be written only after the chain transaction is confirmed. The write flow should upsert policy and vault metadata, insert the deposit event idempotently, then update the aggregate position only when the event is new.
+Confirmed yield deposits and withdrawals should be written only after the chain transaction is confirmed. The write flow should upsert policy and vault metadata, insert the immutable event idempotently, then update the aggregate position only when the event is new. Partial withdrawals decrement `principal_amount_raw`; full withdrawals close the aggregate position and mark the policy/vault inactive.
+
+The Loyal web Earn UI reads active position state through `GET /api/smart-accounts/yield-optimization/position`. That route resolves the configured Solana environment into `devnet` or `mainnet-beta`, then looks up the active `user_yield_positions` row for the authenticated wallet, smart-account settings PDA, vault index `1`, and canonical Kamino USDC reserve.
 
 ### Kamino Timescale
 
@@ -159,15 +161,15 @@ export type InsertUser = typeof users.$inferInsert;
 
 ## Tables Reference
 
-| Table                 | Purpose                                                                                |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| `admins`              | Global admin whitelist for privileged community actions (activate/deactivate/settings) |
-| `users`               | Telegram users who interact with the bot                                               |
-| `communities`         | Telegram communities tracked by the bot lifecycle; may be pre-activation/inactive      |
-| `communityMembers`    | Many-to-many: users ↔ communities                                                      |
-| `messages`            | Chat messages from tracked communities                                                 |
-| `summaries`           | AI-generated daily chat summaries with topics                                          |
-| `businessConnections` | Telegram Business bot connections to user accounts                                     |
-| `botThreads`          | Bot conversation sessions (supports Telegram threaded messages)                        |
-| `botMessages`         | Individual encrypted messages within bot threads                                       |
+| Table                          | Purpose                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `admins`                       | Global admin whitelist for privileged community actions (activate/deactivate/settings)                  |
+| `users`                        | Telegram users who interact with the bot                                                                |
+| `communities`                  | Telegram communities tracked by the bot lifecycle; may be pre-activation/inactive                       |
+| `communityMembers`             | Many-to-many: users ↔ communities                                                                       |
+| `messages`                     | Chat messages from tracked communities                                                                  |
+| `summaries`                    | AI-generated daily chat summaries with topics                                                           |
+| `businessConnections`          | Telegram Business bot connections to user accounts                                                      |
+| `botThreads`                   | Bot conversation sessions (supports Telegram threaded messages)                                         |
+| `botMessages`                  | Individual encrypted messages within bot threads                                                        |
 | `telegramHelperMessageCleanup` | Queue of helper/community bot messages scheduled for delayed deletion (idempotent by chat + message id) |
