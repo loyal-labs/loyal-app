@@ -213,10 +213,10 @@ function encodeU64InstructionData(
     throw new Error("Kamino instruction amount must fit in u64.");
   }
 
-  const data = Buffer.alloc(16);
-  Buffer.from(discriminator).copy(data, 0);
-  data.writeBigUInt64LE(amountRaw, 8);
-  return data;
+  const data = new Uint8Array(16);
+  data.set(discriminator, 0);
+  new DataView(data.buffer).setBigUint64(8, amountRaw, true);
+  return Buffer.from(data);
 }
 
 function requireLocalKaminoTargetAccounts(target: KaminoEarnTarget): {
@@ -3082,9 +3082,76 @@ export function createSmartAccountVaultsClient(
       );
   }
 
+  type ResolvedEarnYieldRoutingPolicy = {
+    account: PublicKey;
+    operation?: PreparedLoyalSmartAccountsOperation<string>;
+    seed: bigint;
+  };
+
+  async function resolveEarnYieldRoutingPolicyForCreation(args: {
+    cluster: LoyalCluster;
+    feePayer: PublicKey;
+    settingsPda: PublicKey;
+    signer: PublicKey;
+    vaultPda: PublicKey;
+    memo?: string;
+  }): Promise<ResolvedEarnYieldRoutingPolicy> {
+    const nextPolicySeed =
+      typeof config.connection.getAccountInfo === "function"
+        ? resolveNextPolicySeed(
+            await smartAccountsClient.smartAccounts.queries.fetchSettings(
+              args.settingsPda
+            )
+          )
+        : {
+            bigint: EARN_DEPOSIT_POLICY_SEED,
+            number: Number(EARN_DEPOSIT_POLICY_SEED),
+          };
+    const policyAccount = pda.getPolicyPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      policySeed: nextPolicySeed.number,
+    })[0];
+    const earnTarget = resolveKaminoEarnTarget(args.cluster);
+    const operation =
+      await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          signers: [args.signer],
+          actions: [
+            {
+              __kind: "PolicyCreate",
+              seed: toBn(nextPolicySeed.bigint),
+              policyCreationPayload:
+                createEarnProgramInteractionPolicyCreationPayload({
+                  target: earnTarget,
+                  vaultPda: args.vaultPda,
+                }),
+              signers: [createPolicySigner(args.signer)],
+              threshold: 1,
+              timeLock: 0,
+              startTimestamp: null,
+              expirationArgs: null,
+            },
+          ],
+          memo: args.memo,
+          remainingAccounts: [
+            { pubkey: policyAccount, isWritable: true, isSigner: false },
+          ],
+        } as never
+      );
+
+    return {
+      account: policyAccount,
+      operation,
+      seed: nextPolicySeed.bigint,
+    };
+  }
+
   async function resolveEarnYieldRoutingPolicyForExecution(args: {
     settingsPda: PublicKey;
-  }): Promise<{ account: PublicKey; seed: bigint }> {
+  }): Promise<ResolvedEarnYieldRoutingPolicy> {
     if (typeof config.connection.getProgramAccounts !== "function") {
       return {
         account: pda.getPolicyPda({
@@ -3601,9 +3668,23 @@ export function createSmartAccountVaultsClient(
           TOKEN_PROGRAM_ID
         )
       : null;
-    const earnPolicy = await resolveEarnYieldRoutingPolicyForExecution({
-      settingsPda: args.settingsPda,
-    });
+    const shouldInitializeYieldRoutingPolicy =
+      args.initializeYieldRoutingPolicy ?? true;
+    const policyInitialization = shouldInitializeYieldRoutingPolicy
+      ? "create"
+      : "reuse";
+    const earnPolicy = shouldInitializeYieldRoutingPolicy
+      ? await resolveEarnYieldRoutingPolicyForCreation({
+          cluster,
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          signer: args.walletAddress,
+          vaultPda,
+          memo: args.memo,
+        })
+      : await resolveEarnYieldRoutingPolicyForExecution({
+          settingsPda: args.settingsPda,
+        });
     const policyAccount = earnPolicy.account;
     const kaminoDepositInstruction =
       cluster === LoyalCluster.Devnet
@@ -3647,6 +3728,7 @@ export function createSmartAccountVaultsClient(
         },
       ],
     };
+    const policyInitializationOperation = earnPolicy.operation ?? null;
     const policyExecution =
       await smartAccountsClient.features.execution.prepare.executePolicyPayloadSync(
         {
@@ -3659,6 +3741,10 @@ export function createSmartAccountVaultsClient(
           memo: args.memo,
         } as never
       );
+    const policyOperations = [
+      ...(policyInitializationOperation ? [policyInitializationOperation] : []),
+      policyExecution,
+    ];
     const prepared = freezePreparedOperation({
       operation: "earnUsdcDeposit",
       payer: args.feePayer,
@@ -3682,9 +3768,13 @@ export function createSmartAccountVaultsClient(
           [],
           TOKEN_PROGRAM_ID
         ),
-        ...policyExecution.instructions,
+        ...policyOperations.flatMap((operation) => operation.instructions),
       ],
-      lookupTableAccounts: policyExecution.lookupTableAccounts,
+      lookupTableAccounts: dedupeLookupTableAccounts(
+        policyOperations.flatMap(
+          (operation) => operation.lookupTableAccounts ?? []
+        )
+      ),
     });
 
     return {
@@ -3721,7 +3811,7 @@ export function createSmartAccountVaultsClient(
         liquidityMint: usdcMint.toBase58(),
         depositMint: usdcMint.toBase58(),
         principalAmountRaw: args.amountRaw.toString(),
-        policyInitialization: "reuse",
+        policyInitialization,
         targetSupplyApyBps: null,
       },
     };

@@ -114,6 +114,7 @@ function body(overrides = {}) {
     market: earnTarget.market.toBase58(),
     policyAccount: policyAccountForSeed(Number(policySeed)),
     policyId: policySeed,
+    policyInitialization: "reuse",
     policySeed,
     policySignature: "deposit-sig-1",
     principalAmountRaw: "1000000",
@@ -216,6 +217,7 @@ describe("yield optimization deposit confirm route", () => {
       market: earnTarget.market.toBase58(),
       policyAccount: policyAccountForSeed(2),
       policyId: BigInt(2),
+      policyInitialization: "reuse",
       policySeed: BigInt(2),
       policySignature: "deposit-sig-1",
       principalAmountRaw: BigInt(1_000_000),
@@ -242,6 +244,29 @@ describe("yield optimization deposit confirm route", () => {
     });
   });
 
+  test("allows split first deposits to use a distinct policy signature", async () => {
+    const response = await POST(
+      request(
+        body({
+          policyInitialization: "create",
+          policySignature: "policy-sig-1",
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(recordConfirmedYieldDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depositSignature: "deposit-sig-1",
+        policyInitialization: "create",
+        policySignature: "policy-sig-1",
+      })
+    );
+    expect(getSignatureStatuses).toHaveBeenCalledWith(["deposit-sig-1"], {
+      searchTransactionHistory: true,
+    });
+  });
+
   test("returns 400 when client policy metadata is tampered", async () => {
     const response = await POST(
       request(body({ policyAccount: policyAccountForSeed(3) }))
@@ -253,6 +278,22 @@ describe("yield optimization deposit confirm route", () => {
         code: "metadata_mismatch",
         message:
           "policyAccount does not match the canonical earn deposit metadata.",
+      },
+    });
+    expect(recordConfirmedYieldDeposit).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when policy initialization is missing", async () => {
+    const payload = body();
+    delete (payload as { policyInitialization?: unknown }).policyInitialization;
+
+    const response = await POST(request(payload));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "invalid_request",
+        message: "policyInitialization must be a non-empty string.",
       },
     });
     expect(recordConfirmedYieldDeposit).not.toHaveBeenCalled();

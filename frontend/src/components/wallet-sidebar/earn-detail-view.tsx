@@ -17,6 +17,12 @@ import {
   getEarnForecastTargetMultiplier,
   type EarnForecastApy,
 } from "@/lib/kamino/earn-forecast.shared";
+import type {
+  EarnEarningsBar,
+  EarnEarningsResponse,
+  EarningsRangeId,
+} from "@/lib/yield-optimization/earnings.shared";
+import { useEarnEarnings } from "@/hooks/use-earn-earnings";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -84,11 +90,6 @@ const FALLBACK_EARN_DEPOSIT_SOURCES: EarnDepositSourceOption[] = [
   },
 ];
 
-export type EarnDepositCompletion = {
-  amount: number;
-  source: EarnDepositSourceOption;
-};
-
 export type EarnDepositDraft = {
   amount: number;
   amountLabel: string;
@@ -97,6 +98,15 @@ export type EarnDepositDraft = {
   symbol: "USDC";
   tokenDecimals: number;
   tokenMint: string | null;
+};
+
+export type EarnWithdrawDraft = {
+  amount: number;
+  amountLabel: string;
+  destination: EarnDepositSourceOption;
+  mode: "partial" | "full";
+  symbol: "USDC";
+  tokenDecimals: number;
 };
 
 type EarnChartPoint = {
@@ -109,6 +119,10 @@ type EarnChartPoint = {
 };
 
 function formatMoney(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0.00";
+  }
+
   return value.toLocaleString("en-US", {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
@@ -206,8 +220,21 @@ function getEarnApyRate(apyBps: number): number {
   return apyBps / 10_000;
 }
 
-function getEarningsRatePerSecond(apyBps: number, principal: number): number {
+export function getEarningsRatePerSecond(
+  apyBps: number,
+  principal: number
+): number {
   return (principal * getEarnApyRate(apyBps)) / SECONDS_PER_YEAR;
+}
+
+export function deriveEarnWithdrawMode({
+  amount,
+  maxWithdrawAmount,
+}: {
+  amount: number;
+  maxWithdrawAmount: number;
+}): "partial" | "full" {
+  return amount >= maxWithdrawAmount ? "full" : "partial";
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -450,28 +477,28 @@ function DepositButton({
 
 function EarnGrowingBalance({
   apyBps,
+  baseAmount,
   principalAmount,
 }: {
   apyBps: number;
+  baseAmount: number;
   principalAmount: number;
 }) {
-  const [value, setValue] = useState(principalAmount);
+  const [value, setValue] = useState(baseAmount);
 
   useEffect(() => {
-    setValue(principalAmount);
+    setValue(baseAmount);
     const ratePerSecond = getEarningsRatePerSecond(apyBps, principalAmount);
     const startedAt = performance.now();
     const interval = window.setInterval(() => {
       const elapsedSeconds = (performance.now() - startedAt) / 1000;
       const earned = ratePerSecond * elapsedSeconds;
 
-      setValue(
-        Number((principalAmount + earned).toFixed(EARN_BALANCE_DECIMALS))
-      );
+      setValue(Number((baseAmount + earned).toFixed(EARN_BALANCE_DECIMALS)));
     }, EARN_BALANCE_SAMPLE_MS);
 
     return () => window.clearInterval(interval);
-  }, [apyBps, principalAmount]);
+  }, [apyBps, baseAmount, principalAmount]);
 
   return (
     <>
@@ -513,80 +540,158 @@ function EarnGrowingBalance({
   );
 }
 
-const EARNINGS_DEPOSIT_OFFSET_MS = 30 * 24 * 60 * 60 * 1000;
 const EARNINGS_CHART_HEIGHT = 242;
-const EARNINGS_DAY_MS = 24 * 60 * 60 * 1000;
 const EARNINGS_RANGES = [
   {
-    bars: 7,
-    binMs: EARNINGS_DAY_MS,
-    id: "1W",
-    label: "1W",
-    rangeSubtitle: "Past Week",
+    id: "7D",
+    label: "7D",
+    rangeSubtitle: "Past 7 days",
   },
   {
-    bars: 30,
-    binMs: EARNINGS_DAY_MS,
-    id: "1M",
-    label: "1M",
-    rangeSubtitle: "Past Month",
+    id: "30D",
+    label: "30D",
+    rangeSubtitle: "Past 30 days",
   },
   {
-    bars: 26,
-    binMs: 7 * EARNINGS_DAY_MS,
-    id: "6M",
-    label: "6M",
-    rangeSubtitle: "Past 6 Months",
-  },
-  {
-    bars: 12,
-    binMs: Math.round((365 / 12) * EARNINGS_DAY_MS),
     id: "1Y",
     label: "1Y",
-    rangeSubtitle: "Past Year",
+    rangeSubtitle: "Past year",
+  },
+  {
+    id: "ALL",
+    label: "ALL",
+    rangeSubtitle: "All time",
   },
 ] as const;
 
-type EarningsRangeId = (typeof EARNINGS_RANGES)[number]["id"];
+const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
+
+export function deriveEstimatedEarnedAmount({
+  earningsData,
+  earningsError,
+}: {
+  earningsData: EarnEarningsResponse | null;
+  earningsError: string | null;
+}) {
+  if (earningsError || !earningsData) {
+    return 0;
+  }
+
+  return Number.isFinite(earningsData.lifetimeEarnedUsd)
+    ? earningsData.lifetimeEarnedUsd
+    : 0;
+}
+
+export function deriveEstimatedEarnBalanceAmount({
+  apyBps,
+  earningsData,
+  earningsError,
+  generatedAt,
+  principalAmount,
+}: {
+  apyBps: number;
+  earningsData: EarnEarningsResponse | null;
+  earningsError: string | null;
+  generatedAt: string | null;
+  principalAmount: number;
+}) {
+  if (earningsError || !earningsData) {
+    return principalAmount;
+  }
+
+  const principalUsd = Number.isFinite(earningsData.principalUsd)
+    ? earningsData.principalUsd
+    : principalAmount;
+  const lifetimeEarnedUsd = Number.isFinite(earningsData.lifetimeEarnedUsd)
+    ? earningsData.lifetimeEarnedUsd
+    : 0;
+  const generatedAtMs = generatedAt ? Date.parse(generatedAt) : Number.NaN;
+  const elapsedSeconds = Number.isFinite(generatedAtMs)
+    ? Math.max(0, (Date.now() - generatedAtMs) / 1000)
+    : 0;
+  const liveEarnedUsd =
+    getEarningsRatePerSecond(apyBps, principalAmount) * elapsedSeconds;
+
+  return Number(
+    (principalUsd + lifetimeEarnedUsd + liveEarnedUsd).toFixed(
+      EARN_BALANCE_DECIMALS
+    )
+  );
+}
+
+export function deriveEstimatedEarnedAmountApyBps({
+  earningsData,
+  earningsError,
+  fallbackApyBps,
+}: {
+  earningsData: EarnEarningsResponse | null;
+  earningsError: string | null;
+  fallbackApyBps: number;
+}) {
+  if (earningsError || !earningsData || earningsData.currentApyBps === null) {
+    return Number.isFinite(fallbackApyBps) ? fallbackApyBps : 0;
+  }
+
+  return Number.isFinite(earningsData.currentApyBps)
+    ? earningsData.currentApyBps
+    : 0;
+}
+
+function getEarningsFractionDigits(value: number) {
+  const absoluteValue = Math.abs(value);
+  if (absoluteValue > 0 && absoluteValue < 0.01) {
+    return EARN_BALANCE_DECIMALS;
+  }
+  return 2;
+}
 
 function formatEarningsAmount(value: number) {
+  if (!Number.isFinite(value)) {
+    return "+$0.00";
+  }
+  const fractionDigits = getEarningsFractionDigits(value);
   const formatted = value.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits,
   });
   return `+$${formatted}`;
 }
 
-function formatEarningsBarDate(endMs: number, rangeId: EarningsRangeId) {
-  const date = new Date(endMs);
-  if (rangeId === "1Y") {
-    return date.toLocaleString("en-US", { month: "short", year: "numeric" });
+function formatSignedEarningsAmount(value: number) {
+  if (!Number.isFinite(value)) {
+    return "+$0.00";
   }
-  if (rangeId === "6M") {
-    return date.toLocaleString("en-US", { day: "numeric", month: "short" });
-  }
-  return date.toLocaleString("en-US", {
-    day: "numeric",
-    hour: "numeric",
-    hour12: true,
-    minute: "2-digit",
-    month: "short",
+  const fractionDigits = getEarningsFractionDigits(value);
+  const sign = value >= 0 ? "+" : "-";
+  const formatted = Math.abs(value).toLocaleString("en-US", {
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits,
   });
+  return `${sign}$${formatted}`;
 }
 
 function EarningsBlock({
   apy,
+  earningsData,
+  earningsError,
+  isLoadingEarnings,
+  onRangeChange,
   principalAmount,
+  rangeId,
 }: {
   apy: EarnForecastApy;
+  earningsData: EarnEarningsResponse | null;
+  earningsError: string | null;
+  isLoadingEarnings: boolean;
+  onRangeChange: (rangeId: EarningsRangeId) => void;
   principalAmount: number;
+  rangeId: EarningsRangeId;
 }) {
   const [activeTab, setActiveTab] = useState<"Earnings" | "Forecast">(
     "Earnings"
   );
   const [earningsRevision, setEarningsRevision] = useState(0);
   const [forecastRevision, setForecastRevision] = useState(0);
-  const [rangeId, setRangeId] = useState<EarningsRangeId>("1M");
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const handleTabChange = (next: "Earnings" | "Forecast") => {
     if (next === activeTab) return;
@@ -598,77 +703,53 @@ function EarningsBlock({
       setForecastRevision((r) => r + 1);
     }
   };
-  const depositAtRef = useRef<number | null>(null);
-  if (depositAtRef.current === null) {
-    depositAtRef.current = Date.now() - EARNINGS_DEPOSIT_OFFSET_MS;
-  }
-  const depositAt = depositAtRef.current;
-  const forecastPrincipalRef = useRef<number | null>(null);
-  if (forecastPrincipalRef.current === null) {
-    const elapsedSec = Math.max(0, (Date.now() - depositAt) / 1000);
-    forecastPrincipalRef.current =
-      principalAmount +
-      elapsedSec * getEarningsRatePerSecond(apy.apyBps, principalAmount);
-  }
-  const forecastAmount = forecastPrincipalRef.current;
-
   const range =
     EARNINGS_RANGES.find((r) => r.id === rangeId) ?? EARNINGS_RANGES[1];
-
-  const bars = useMemo(() => {
-    const now = Date.now();
-    return Array.from({ length: range.bars }, (_, i) => {
-      const endMs = now - (range.bars - 1 - i) * range.binMs;
-      const elapsedSec = Math.max(0, (endMs - depositAt) / 1000);
-      const value = elapsedSec * getEarningsRatePerSecond(apy.apyBps);
-      return { endMs, value };
-    });
-  }, [apy.apyBps, range.bars, range.binMs, depositAt]);
-
+  const forecastAmount = principalAmount;
+  const bars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
   const maxValue = useMemo(() => {
-    const peak = Math.max(...bars.map((b) => b.value), 0.01);
-    return Math.max(1, Math.ceil(peak));
+    const peak = Math.max(...bars.map((bar) => bar.earnedUsd), 0);
+    return Math.max(0.01, peak);
   }, [bars]);
-
-  const initialLive =
-    Math.max(0, (Date.now() - depositAt) / 1000) *
-    getEarningsRatePerSecond(apy.apyBps);
-  const [liveTotal, setLiveTotal] = useState<number>(initialLive);
-  useEffect(() => {
-    const ratePerSecond = getEarningsRatePerSecond(apy.apyBps);
-    const id = window.setInterval(() => {
-      const next = Math.max(0, (Date.now() - depositAt) / 1000) * ratePerSecond;
-      setLiveTotal(Number(next.toFixed(EARN_BALANCE_DECIMALS)));
-    }, EARN_BALANCE_SAMPLE_MS);
-    return () => window.clearInterval(id);
-  }, [apy.apyBps, depositAt]);
-
   const hoveredBarEntry = hoveredBar !== null ? bars[hoveredBar] : null;
-  const displayValue = hoveredBarEntry ? hoveredBarEntry.value : liveTotal;
-
-  const subtitleNode = (() => {
+  const displayValue = hoveredBarEntry
+    ? hoveredBarEntry.earnedUsd
+    : earningsData?.lifetimeEarnedUsd ?? 0;
+  const displayFractionDigits = getEarningsFractionDigits(displayValue);
+  const rangeEarnedUsd = earningsData?.rangeEarnedUsd ?? 0;
+  const subtitleNode = useMemo(() => {
+    if (earningsError) {
+      return <span style={{ color: secondary }}>{earningsError}</span>;
+    }
+    if (isLoadingEarnings && !earningsData) {
+      return <span style={{ color: secondary }}>Loading earnings</span>;
+    }
     if (hoveredBarEntry) {
-      const prevValue =
-        hoveredBar !== null && hoveredBar > 0 ? bars[hoveredBar - 1].value : 0;
-      const diff = Math.max(0, hoveredBarEntry.value - prevValue);
       return (
         <>
-          <span style={{ color: "#34C759" }}>{formatEarningsAmount(diff)}</span>
+          <span style={{ color: "#34C759" }}>
+            {formatSignedEarningsAmount(hoveredBarEntry.earnedUsd)}
+          </span>
           <span style={{ color: secondary }}>
             {" · "}
-            {formatEarningsBarDate(hoveredBarEntry.endMs, rangeId)}
+            {hoveredBarEntry.label}
           </span>
         </>
       );
     }
-    const first = bars[0]?.value ?? 0;
-    const delta = Math.max(0, liveTotal - first);
     return (
       <span style={{ color: "#34C759" }}>
-        {formatEarningsAmount(delta)} {range.rangeSubtitle}
+        {formatSignedEarningsAmount(rangeEarnedUsd)} {range.rangeSubtitle}
       </span>
     );
-  })();
+  }, [
+    earningsData,
+    earningsError,
+    hoveredBarEntry,
+    isLoadingEarnings,
+    range.rangeSubtitle,
+    rangeEarnedUsd,
+  ]);
 
   return (
     <section
@@ -695,20 +776,38 @@ function EarningsBlock({
           color: rgba(60, 60, 67, 0.4);
         }
         .earnings-bar {
+          align-items: flex-end;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          flex: 1 0 0;
+          height: 100%;
+          min-width: 0;
+          padding: 0;
+        }
+        .earnings-bar-fill {
           background: rgba(0, 0, 0, 0.04);
           border: none;
           border-radius: 4px;
-          flex: 1 0 0;
-          min-width: 0;
-          padding: 0;
+          display: block;
           transform-origin: center bottom;
           animation: earnings-bar-rise 0.55s cubic-bezier(0.2, 0, 0, 1) both;
           animation-delay: calc(var(--bar-index, 0) * 14ms);
-          transition: background 0.18s ease;
+          transition: background 0.18s ease, border-color 0.18s ease;
+          width: 100%;
         }
-        .earnings-bar:hover,
-        .earnings-bar-active {
+        .earnings-bar:hover .earnings-bar-fill,
+        .earnings-bar-active .earnings-bar-fill {
           background: #34c759;
+        }
+        .earnings-bar-current .earnings-bar-fill {
+          background: rgba(52, 199, 89, 0.12);
+          border: 1px dashed #34c759;
+        }
+        .earnings-bar-current:hover .earnings-bar-fill,
+        .earnings-bar-current.earnings-bar-active .earnings-bar-fill {
+          background: rgba(52, 199, 89, 0.22);
         }
         @keyframes earnings-bar-rise {
           from {
@@ -726,7 +825,7 @@ function EarningsBlock({
             filter 0.34s cubic-bezier(0.2, 0, 0, 1);
         }
         @media (prefers-reduced-motion: reduce) {
-          .earnings-bar {
+          .earnings-bar-fill {
             animation: none;
           }
           .earnings-tab-panel {
@@ -967,8 +1066,8 @@ function EarningsBlock({
                   animated={hoveredBar === null}
                   className="earnings-current-flow"
                   format={{
-                    maximumFractionDigits: EARN_BALANCE_DECIMALS,
-                    minimumFractionDigits: EARN_BALANCE_DECIMALS,
+                    maximumFractionDigits: displayFractionDigits,
+                    minimumFractionDigits: displayFractionDigits,
                     useGrouping: true,
                   }}
                   opacityTiming={{ duration: 280, easing: "ease-out" }}
@@ -983,7 +1082,7 @@ function EarningsBlock({
                     easing: "cubic-bezier(0.2, 0, 0, 1)",
                   }}
                   trend={1}
-                  value={Number(displayValue.toFixed(EARN_BALANCE_DECIMALS))}
+                  value={Number(displayValue.toFixed(displayFractionDigits))}
                 />
                 <span
                   style={{
@@ -1022,25 +1121,54 @@ function EarningsBlock({
               }}
             >
               {bars.map((bar, i) => {
-                const heightPct = (bar.value / maxValue) * 100;
+                const heightPct =
+                  maxValue > 0 ? (bar.earnedUsd / maxValue) * 100 : 0;
                 const isActive = hoveredBar === i;
                 const minHeightPx = 4;
                 return (
                   <button
-                    aria-label={`Bar ${i + 1}`}
+                    aria-label={`${bar.label} earnings ${formatEarningsAmount(
+                      bar.earnedUsd
+                    )}`}
                     className={`earnings-bar${
                       isActive ? " earnings-bar-active" : ""
-                    }`}
-                    key={i}
+                    }${bar.isCurrent ? " earnings-bar-current" : ""}`}
+                    key={`${bar.startAt}:${bar.endAt}`}
                     onMouseEnter={() => setHoveredBar(i)}
                     style={{
-                      height: `max(${minHeightPx}px, ${heightPct.toFixed(2)}%)`,
                       ["--bar-index" as never]: i,
                     }}
                     type="button"
-                  />
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="earnings-bar-fill"
+                      style={{
+                        height: `max(${minHeightPx}px, ${heightPct.toFixed(
+                          2
+                        )}%)`,
+                      }}
+                    />
+                  </button>
                 );
               })}
+              {bars.length === 0 ? (
+                <div
+                  style={{
+                    alignItems: "center",
+                    color: secondary,
+                    display: "flex",
+                    flex: 1,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    height: "100%",
+                    justifyContent: "center",
+                    lineHeight: "16px",
+                  }}
+                >
+                  No earnings yet
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1066,7 +1194,7 @@ function EarningsBlock({
                   }`}
                   key={r.id}
                   onClick={() => {
-                    setRangeId(r.id);
+                    onRangeChange(r.id);
                     setHoveredBar(null);
                   }}
                   type="button"
@@ -1093,7 +1221,8 @@ function EarningsBlock({
                   whiteSpace: "nowrap",
                 }}
               >
-                $0.00
+                Today{" "}
+                {formatSignedEarningsAmount(earningsData?.todayEarnedUsd ?? 0)}
               </span>
             </div>
           </div>
@@ -1104,18 +1233,55 @@ function EarningsBlock({
 }
 
 export function EarnDetailView({
+  earningsCacheKey,
+  earningsCacheScope,
   hasCurrentPosition = false,
   onDeposit,
   onWithdraw,
   principalAmount = 0,
 }: {
+  earningsCacheKey?: string;
+  earningsCacheScope?: {
+    expectedPrincipalAmountRaw?: string | null;
+    settingsPda?: string | null;
+    solanaEnv?: string;
+    walletAddress?: string | null;
+  };
   hasCurrentPosition?: boolean;
   onDeposit?: () => void;
   onWithdraw?: () => void;
   principalAmount?: number;
 }) {
   const earnForecastApy = useEarnForecastApy();
-  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
+  const [earningsRangeId, setEarningsRangeId] =
+    useState<EarningsRangeId>("30D");
+  const {
+    data: earningsRangeSet,
+    error: earningsError,
+    isLoading: isLoadingEarnings,
+  } = useEarnEarnings({
+    cacheKey: earningsCacheKey,
+    enabled: hasCurrentPosition,
+    expectedPrincipalAmountRaw:
+      earningsCacheScope?.expectedPrincipalAmountRaw,
+    settingsPda: earningsCacheScope?.settingsPda,
+    solanaEnv: earningsCacheScope?.solanaEnv,
+    walletAddress: earningsCacheScope?.walletAddress,
+  });
+  const earningsData = earningsRangeSet?.ranges[earningsRangeId] ?? null;
+  const estimatedEarnedAmountApyBps = deriveEstimatedEarnedAmountApyBps({
+    earningsData,
+    earningsError,
+    fallbackApyBps: earnForecastApy.apyBps,
+  });
+  const displayBalanceAmount = deriveEstimatedEarnBalanceAmount({
+    apyBps: estimatedEarnedAmountApyBps,
+    earningsData,
+    earningsError,
+    generatedAt: earningsRangeSet?.generatedAt ?? null,
+    principalAmount,
+  });
+  const displayApyLabel = formatEarnApyLabel(estimatedEarnedAmountApyBps);
 
   return (
     <div
@@ -1209,7 +1375,7 @@ export function EarnDetailView({
             {hasCurrentPosition ? (
               <>
                 Balance ·{" "}
-                <span style={{ color: "#34C759" }}>{earnApyLabel}</span>
+                <span style={{ color: "#34C759" }}>{displayApyLabel}</span>
               </>
             ) : (
               "Balance"
@@ -1227,7 +1393,8 @@ export function EarnDetailView({
           >
             {hasCurrentPosition ? (
               <EarnGrowingBalance
-                apyBps={earnForecastApy.apyBps}
+                apyBps={estimatedEarnedAmountApyBps}
+                baseAmount={displayBalanceAmount}
                 principalAmount={principalAmount}
               />
             ) : (
@@ -1245,8 +1412,13 @@ export function EarnDetailView({
       {hasCurrentPosition ? (
         <EarningsBlock
           apy={earnForecastApy}
+          earningsData={earningsData}
+          earningsError={earningsError}
+          isLoadingEarnings={isLoadingEarnings}
           key={`${principalAmount}:${earnForecastApy.apyBps}`}
+          onRangeChange={setEarningsRangeId}
           principalAmount={principalAmount}
+          rangeId={earningsRangeId}
         />
       ) : null}
 
@@ -1311,7 +1483,7 @@ export function EarnDetailView({
                 {TOP_EARN_VAULT.label}
               </span>
               <div>
-                <ApyBadge value={earnApyLabel} />
+                <ApyBadge value={displayApyLabel} />
               </div>
             </div>
             <span
@@ -1325,8 +1497,7 @@ export function EarnDetailView({
                 whiteSpace: "nowrap",
               }}
             >
-              $1,000
-              <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
+              {formatForecastMoney(principalAmount, true)}
             </span>
           </div>
         </section>
@@ -1546,12 +1717,16 @@ export function EarnWithdrawView({
   isSubmitting = false,
   maxWithdrawAmount = 1280,
   onClose,
+  onDraftChange,
+  onDraftSubmit,
   onComplete,
   destinations = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
   isSubmitting?: boolean;
   maxWithdrawAmount?: number;
   onClose?: () => void;
+  onDraftChange?: (draft: EarnWithdrawDraft | null) => void;
+  onDraftSubmit?: (draft: EarnWithdrawDraft) => void | Promise<void>;
   onComplete?: (withdrawal: {
     amount: number;
     mode: "partial" | "full";
@@ -1580,7 +1755,10 @@ export function EarnWithdrawView({
   const isFullWithdraw =
     hasWithdrawAmount &&
     Number.isFinite(numericWithdrawAmount) &&
-    numericWithdrawAmount >= maxWithdrawAmount;
+    deriveEarnWithdrawMode({
+      amount: numericWithdrawAmount,
+      maxWithdrawAmount,
+    }) === "full";
   const withdrawAmountError =
     hasWithdrawAmount &&
     (!Number.isFinite(numericWithdrawAmount) || numericWithdrawAmount <= 0)
@@ -1593,6 +1771,14 @@ export function EarnWithdrawView({
     : "$0.00";
   const shouldShowWithdrawDestMenu =
     isWithdrawDestMenuOpen || isWithdrawDestMenuClosing;
+  const buildCurrentDraft = (): EarnWithdrawDraft => ({
+    amount: numericWithdrawAmount,
+    amountLabel: withdrawAmount,
+    destination: selectedDestination,
+    mode: isFullWithdraw ? "full" : "partial",
+    symbol: "USDC",
+    tokenDecimals: 6,
+  });
 
   const closeWithdrawDestMenu = () => {
     if (!isWithdrawDestMenuOpen || isWithdrawDestMenuClosing) return;
@@ -1637,6 +1823,12 @@ export function EarnWithdrawView({
       );
     }
   }, [destinationOptions, selectedDestinationId]);
+
+  useEffect(() => {
+    onDraftChange?.(null);
+  }, [onDraftChange, selectedDestination, withdrawAmount]);
+
+  useEffect(() => () => onDraftChange?.(null), [onDraftChange]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -1975,10 +2167,12 @@ export function EarnWithdrawView({
             isSubmitting || !hasWithdrawAmount || withdrawAmountError !== null
           }
           onClick={() =>
-            void onComplete?.({
-              amount: numericWithdrawAmount,
-              mode: isFullWithdraw ? "full" : "partial",
-            })
+            onDraftSubmit
+              ? void onDraftSubmit(buildCurrentDraft())
+              : void onComplete?.({
+                  amount: numericWithdrawAmount,
+                  mode: isFullWithdraw ? "full" : "partial",
+                })
           }
           style={{
             alignItems: "center",
@@ -2598,15 +2792,15 @@ function DepositChart({
 
 export function EarnDepositView({
   isSubmitting = false,
-  onComplete,
   onClose,
   onDraftChange,
+  onDraftSubmit,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
 }: {
   isSubmitting?: boolean;
-  onComplete?: (deposit: EarnDepositCompletion) => void | Promise<void>;
   onClose?: () => void;
   onDraftChange?: (draft: EarnDepositDraft | null) => void;
+  onDraftSubmit?: (draft: EarnDepositDraft) => void | Promise<void>;
   sources?: EarnDepositSourceOption[];
 }) {
   const earnForecastApy = useEarnForecastApy();
@@ -2712,6 +2906,15 @@ export function EarnDepositView({
     cancelForecastDebounce();
     setForecastAmount(value);
   };
+  const buildCurrentDraft = (): EarnDepositDraft => ({
+    amount: numericDepositAmount,
+    amountLabel: depositAmount,
+    forecastApyBps: earnForecastApy.apyBps,
+    source: selectedSource,
+    symbol: "USDC",
+    tokenDecimals: selectedSource.decimals,
+    tokenMint: selectedSource.mint,
+  });
 
   useEffect(() => {
     return () => {
@@ -2725,29 +2928,8 @@ export function EarnDepositView({
   }, []);
 
   useEffect(() => {
-    if (!hasDepositAmount || amountError !== null) {
-      onDraftChange?.(null);
-      return;
-    }
-
-    onDraftChange?.({
-      amount: numericDepositAmount,
-      amountLabel: depositAmount,
-      forecastApyBps: earnForecastApy.apyBps,
-      source: selectedSource,
-      symbol: "USDC",
-      tokenDecimals: selectedSource.decimals,
-      tokenMint: selectedSource.mint,
-    });
-  }, [
-    amountError,
-    depositAmount,
-    earnForecastApy.apyBps,
-    hasDepositAmount,
-    numericDepositAmount,
-    onDraftChange,
-    selectedSource,
-  ]);
+    onDraftChange?.(null);
+  }, [depositAmount, onDraftChange, selectedSource]);
 
   useEffect(() => () => onDraftChange?.(null), [onDraftChange]);
 
@@ -3248,12 +3430,7 @@ export function EarnDepositView({
         <button
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}
-          onClick={() =>
-            void onComplete?.({
-              amount: numericDepositAmount,
-              source: selectedSource,
-            })
-          }
+          onClick={() => void onDraftSubmit?.(buildCurrentDraft())}
           style={{
             alignItems: "center",
             background: amountError

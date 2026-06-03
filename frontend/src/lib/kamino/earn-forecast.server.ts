@@ -178,11 +178,7 @@ export function computeSafeNoFeeEarnForecast(
 }
 
 function getTimescaleDatabaseUrl(): string | null {
-  return (
-    process.env.KAMINO_TIMESCALE_DATABASE_URL ??
-    process.env.TIMESCALE_DATABASE_URL ??
-    null
-  );
+  return process.env.TIMESCALEDB_URL ?? null;
 }
 
 export function resetEarnForecastCacheForTests() {

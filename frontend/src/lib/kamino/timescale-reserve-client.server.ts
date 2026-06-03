@@ -7,7 +7,7 @@ import {
 } from "@loyal/actions/constants";
 import { RiskBasket, type Stablecoin } from "@loyal/actions/types";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { and, desc, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -72,6 +72,10 @@ export type TimescaleReserveClientTables = {
 
 export type TimescaleReserveUpdateRow =
   typeof timescaleReserveUpdates.$inferSelect;
+export type TimescaleReserveApySample = Pick<
+  TimescaleReserveUpdateRow,
+  "observedAt" | "supplyApy"
+>;
 export type CurrentBestApyReserveByStablecoin = TimescaleReserveUpdateRow & {
   stablecoin: Stablecoin;
 };
@@ -110,11 +114,7 @@ export function selectCurrentBestApyReserveByStablecoin(
 }
 
 export function getTimescaleReserveDatabaseUrl(): string | null {
-  return (
-    process.env.KAMINO_TIMESCALE_DATABASE_URL ??
-    process.env.TIMESCALE_DATABASE_URL ??
-    null
-  );
+  return process.env.TIMESCALEDB_URL ?? null;
 }
 
 export async function getCurrentBestApyReserveByStablecoin(args: {
@@ -181,6 +181,121 @@ export class TimescaleReserveClient {
         )
       )
       .orderBy(desc(table.observedAt));
+  }
+
+  async getReserveApyHistory(args: {
+    end: Date;
+    reserve: string;
+    start: Date;
+  }): Promise<TimescaleReserveUpdateRow[]> {
+    const table = this.tables.reserveUpdates;
+    const validReserveFilter = and(
+      eq(table.reserve, args.reserve),
+      eq(table.reserveLastUpdateStale, false),
+      gte(table.supplyApy, 0),
+      lt(table.supplyApy, DEFAULT_MAX_SUPPLY_APY)
+    );
+    const previousRows = await this.db
+      .select()
+      .from(table)
+      .where(and(validReserveFilter, lt(table.observedAt, args.start)))
+      .orderBy(desc(table.observedAt))
+      .limit(1);
+    const rangeRows = await this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          validReserveFilter,
+          gte(table.observedAt, args.start),
+          lte(table.observedAt, args.end)
+        )
+      )
+      .orderBy(asc(table.observedAt));
+
+    return [...previousRows, ...rangeRows].sort(
+      (a, b) => a.observedAt.getTime() - b.observedAt.getTime()
+    );
+  }
+
+  async getReserveApyHistorySamples(args: {
+    end: Date;
+    reserve: string;
+    sampleIntervalSeconds?: number;
+    start: Date;
+  }): Promise<TimescaleReserveApySample[]> {
+    const sampleIntervalSeconds = args.sampleIntervalSeconds ?? 24 * 60 * 60;
+    const endIso = args.end.toISOString();
+    const startIso = args.start.toISOString();
+    const rows = await this.sqlClient<
+      { observed_at: Date | string; supply_apy: number | string }[]
+    >`
+      WITH previous_sample AS (
+        SELECT observed_at, supply_apy
+        FROM kamino.reserve_updates
+        WHERE reserve = ${args.reserve}
+          AND reserve_last_update_stale = false
+          AND supply_apy >= 0
+          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+          AND observed_at < ${startIso}::timestamptz
+        ORDER BY observed_at DESC
+        LIMIT 1
+      ),
+      latest_sample AS (
+        SELECT observed_at, supply_apy
+        FROM kamino.reserve_updates
+        WHERE reserve = ${args.reserve}
+          AND reserve_last_update_stale = false
+          AND supply_apy >= 0
+          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+          AND observed_at <= ${endIso}::timestamptz
+        ORDER BY observed_at DESC
+        LIMIT 1
+      ),
+      range_candidates AS (
+        SELECT
+          date_bin(
+            make_interval(secs => ${sampleIntervalSeconds}),
+            observed_at,
+            ${startIso}::timestamptz
+          ) AS sample_bucket,
+          observed_at,
+          supply_apy
+        FROM kamino.reserve_updates
+        WHERE reserve = ${args.reserve}
+          AND reserve_last_update_stale = false
+          AND supply_apy >= 0
+          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+          AND observed_at >= ${startIso}::timestamptz
+          AND observed_at <= ${endIso}::timestamptz
+      ),
+      range_samples AS (
+        SELECT DISTINCT ON (sample_bucket)
+          observed_at,
+          supply_apy
+        FROM range_candidates
+        ORDER BY
+          sample_bucket,
+          observed_at DESC
+      )
+      SELECT observed_at, supply_apy
+      FROM (
+        SELECT observed_at, supply_apy FROM previous_sample
+        UNION
+        SELECT observed_at, supply_apy FROM range_samples
+        UNION
+        SELECT observed_at, supply_apy FROM latest_sample
+      ) samples
+      ORDER BY observed_at ASC
+    `;
+
+    return rows.map((row) => ({
+      observedAt:
+        row.observed_at instanceof Date
+          ? row.observed_at
+          : new Date(row.observed_at),
+      supplyApy: Number(row.supply_apy),
+    }));
   }
 
   async getCurrentBestApyReserveByStablecoin(args: {

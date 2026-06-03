@@ -7,7 +7,7 @@ import {
   type VaultYieldRoutingPolicyPlan,
 } from "@loyal/actions";
 import { PublicKey } from "@solana/web3.js";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, sql } from "drizzle-orm";
 
 import {
   getYieldOptimizationClient,
@@ -28,6 +28,7 @@ export type ConfirmedYieldDepositInput = {
   vaultPubkey: string;
   policyId: bigint;
   policyAccount: string;
+  policyInitialization: "create" | "reuse";
   policySeed: bigint;
   policySignature: string;
   depositSignature: string;
@@ -41,6 +42,11 @@ export type ConfirmedYieldDepositInput = {
 };
 
 export type UserYieldPositionRecord = typeof userYieldPositions.$inferSelect;
+export type UserYieldPositionEventRecord = {
+  amountRaw: bigint;
+  confirmedAt: Date;
+  type: "deposit" | "withdrawal";
+};
 
 export type ActiveYieldPositionLookupInput = {
   cluster: string;
@@ -48,6 +54,10 @@ export type ActiveYieldPositionLookupInput = {
   targetReserve: string;
   vaultIndex: number;
   walletAddress: string;
+};
+
+export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
+  vaultPubkey?: string;
 };
 
 export type ConfirmedYieldWithdrawalInput = {
@@ -219,8 +229,47 @@ export async function recordConfirmedYieldDeposit(
   input: ConfirmedYieldDepositInput,
   dependencies: YieldDepositRepositoryDependencies = createDependencies()
 ): Promise<UserYieldPositionRecord> {
+  if (
+    input.policyInitialization !== "create" &&
+    input.policyInitialization !== "reuse"
+  ) {
+    throw new Error("Deposit policy initialization must be create or reuse.");
+  }
+
   const { client } = dependencies;
   const now = dependencies.now();
+  const existingPosition =
+    await dependencies.client.db.query.userYieldPositions.findFirst({
+      where: and(
+        eq(userYieldPositions.cluster, input.cluster),
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.targetReserve, input.targetReserve)
+      ),
+    });
+
+  if (input.policyInitialization === "reuse" && !existingPosition) {
+    throw new Error("Top-up yield deposit requires an existing active position.");
+  }
+  if (
+    input.policyInitialization === "reuse" &&
+    existingPosition.status !== "active"
+  ) {
+    throw new Error("Top-up yield deposit requires an active yield position.");
+  }
+  const isDuplicateInitialDeposit =
+    existingPosition?.firstDepositSignature === input.depositSignature ||
+    existingPosition?.lastDepositSignature === input.depositSignature;
+  if (
+    input.policyInitialization === "create" &&
+    existingPosition?.status === "active" &&
+    !isDuplicateInitialDeposit
+  ) {
+    throw new Error(
+      "Initial yield deposit cannot recreate an active Earn policy."
+    );
+  }
+
   const routePolicyPlan = createYieldRoutingPolicyPlanFromDepositInput(input);
   const routePolicyValues = createRoutePolicyValuesFromPlan(
     routePolicyPlan,
@@ -323,15 +372,6 @@ export async function recordConfirmedYieldDeposit(
     });
   }
 
-  const existingPosition = await client.db.query.userYieldPositions.findFirst({
-    where: and(
-      eq(userYieldPositions.cluster, input.cluster),
-      eq(userYieldPositions.settings, input.settings),
-      eq(userYieldPositions.vaultIndex, input.vaultIndex),
-      eq(userYieldPositions.targetReserve, input.targetReserve)
-    ),
-  });
-
   if (!existingPosition) {
     return upsertAggregatePosition({
       client,
@@ -363,6 +403,69 @@ export async function findActiveYieldPosition(
     });
 
   return position ?? null;
+}
+
+export async function findYieldPositionEvents(
+  input: YieldPositionEventsLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionEventRecord[]> {
+  const depositFilters = [
+    eq(userYieldPositionDeposits.cluster, input.cluster),
+    eq(userYieldPositionDeposits.settings, input.settings),
+    eq(userYieldPositionDeposits.targetReserve, input.targetReserve),
+    eq(userYieldPositionDeposits.vaultIndex, input.vaultIndex),
+    eq(userYieldPositionDeposits.walletAddress, input.walletAddress),
+  ];
+  const withdrawalFilters = [
+    eq(userYieldPositionWithdrawals.cluster, input.cluster),
+    eq(userYieldPositionWithdrawals.settings, input.settings),
+    eq(userYieldPositionWithdrawals.targetReserve, input.targetReserve),
+    eq(userYieldPositionWithdrawals.vaultIndex, input.vaultIndex),
+    eq(userYieldPositionWithdrawals.walletAddress, input.walletAddress),
+  ];
+
+  if (input.vaultPubkey) {
+    depositFilters.push(
+      eq(userYieldPositionDeposits.vaultPubkey, input.vaultPubkey)
+    );
+    withdrawalFilters.push(
+      eq(userYieldPositionWithdrawals.vaultPubkey, input.vaultPubkey)
+    );
+  }
+
+  const [deposits, withdrawals] = await dependencies.client.db.batch([
+    dependencies.client.db
+      .select({
+        amountRaw: userYieldPositionDeposits.principalAmountRaw,
+        confirmedAt: userYieldPositionDeposits.confirmedAt,
+      })
+      .from(userYieldPositionDeposits)
+      .where(and(...depositFilters))
+      .orderBy(asc(userYieldPositionDeposits.confirmedAt)),
+    dependencies.client.db
+      .select({
+        amountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
+        confirmedAt: userYieldPositionWithdrawals.confirmedAt,
+      })
+      .from(userYieldPositionWithdrawals)
+      .where(and(...withdrawalFilters))
+      .orderBy(asc(userYieldPositionWithdrawals.confirmedAt)),
+  ]);
+
+  return [
+    ...deposits.map((deposit) => ({
+      amountRaw: deposit.amountRaw,
+      confirmedAt: deposit.confirmedAt,
+      type: "deposit" as const,
+    })),
+    ...withdrawals.map((withdrawal) => ({
+      amountRaw: withdrawal.amountRaw,
+      confirmedAt: withdrawal.confirmedAt,
+      type: "withdrawal" as const,
+    })),
+  ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());
 }
 
 export async function recordConfirmedYieldWithdrawal(

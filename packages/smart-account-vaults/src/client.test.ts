@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { STABLECOIN_MINTS, Stablecoin } from "@loyal/actions";
+import { Policy } from "@loyal-labs/loyal-smart-accounts-core";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   decodeTransferCheckedInstruction,
@@ -171,6 +172,42 @@ function deriveVaultUsdcAta() {
   );
 }
 
+function createSerializedEarnPolicyAccount() {
+  const [data] = Policy.fromArgs({
+    bump: 255,
+    expiration: null,
+    policyState: {
+      __kind: "ProgramInteraction",
+      fields: [
+        {
+          accountIndex: 1,
+          instructionsConstraints: [],
+          postHook: null,
+          preHook: null,
+          spendingLimits: [],
+        },
+      ],
+    },
+    rentCollector: walletAddress,
+    seed: BigInt(1),
+    settings: settingsPda,
+    signers: [],
+    staleTransactionIndex: BigInt(0),
+    start: BigInt(0),
+    threshold: 1,
+    timeLock: 0,
+    transactionIndex: BigInt(0),
+  }).serialize();
+
+  return {
+    data,
+    executable: false,
+    lamports: 1,
+    owner: programId,
+    rentEpoch: 0,
+  };
+}
+
 describe("prepareEarnUsdcDeposit", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -221,7 +258,7 @@ describe("prepareEarnUsdcDeposit", () => {
       programId.toBase58()
     );
     expect(result.policy.seed).toBe(BigInt(1));
-    expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 3]);
+    expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.vault.accountIndex).toBe(1);
     expect(result.vault.pubkey.toBase58()).toBe(deriveVault().toBase58());
     expect(result.targetReserve.reserve.toBase58()).toBe(
@@ -320,7 +357,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       programId.toBase58()
     );
     expect(result.policy.withdrawInstructionConstraintIndex).toBe(0);
-    expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 3]);
+    expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.mode).toBe("partial");
     expect(result.amountRaw).toBe(BigInt(1_000_000));
     expect(result.persistence).toMatchObject({
@@ -329,6 +366,41 @@ describe("prepareEarnUsdcWithdraw", () => {
       policySeed: "1",
       withdrawnAmountRaw: "1000000",
       vaultIndex: 1,
+    });
+  });
+
+  test("builds the full withdraw flow with policy cleanup", async () => {
+    mockKaminoWithdrawInstruction();
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async () => createSerializedEarnPolicyAccount()),
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      amountRaw: BigInt(1_000_000),
+      mode: "full",
+    });
+
+    expect(result.prepared.instructions).toHaveLength(4);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
+    );
+    expect(result.prepared.instructions.slice(1).map((instruction) =>
+      instruction.programId.toBase58()
+    )).toEqual([
+      programId.toBase58(),
+      programId.toBase58(),
+      programId.toBase58(),
+    ]);
+    expect(result.mode).toBe("full");
+    expect(result.persistence).toMatchObject({
+      mode: "full",
+      withdrawnAmountRaw: "1000000",
     });
   });
 

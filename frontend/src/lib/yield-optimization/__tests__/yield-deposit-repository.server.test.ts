@@ -47,6 +47,7 @@ function input(overrides = {}) {
     market: "Main",
     policyAccount: "policy-account-1",
     policyId: BigInt(42),
+    policyInitialization: "create" as const,
     policySeed: BigInt(7),
     policySignature: "policy-sig-1",
     principalAmountRaw: BigInt(1_000_000),
@@ -359,6 +360,9 @@ describe("recordConfirmedYieldDeposit", () => {
 
   test("second distinct deposit into the same target updates aggregate principal", async () => {
     const fake = createFakeClient({
+      existingPosition: position({
+        principalAmountRaw: BigInt(1_000_000),
+      }),
       upsertedPosition: position({
         lastConfirmedSlot: BigInt(130),
         lastDepositSignature: "deposit-sig-2",
@@ -370,6 +374,7 @@ describe("recordConfirmedYieldDeposit", () => {
       input({
         confirmedSlot: BigInt(130),
         depositSignature: "deposit-sig-2",
+        policyInitialization: "reuse" as const,
         principalAmountRaw: BigInt(1_500_000),
       }),
       {
@@ -384,6 +389,40 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(aggregateCall?.values?.principalAmountRaw).toBe(BigInt(1_500_000));
     expect(result.principalAmountRaw).toBe(BigInt(2_500_000));
     expect(result.lastDepositSignature).toBe("deposit-sig-2");
+  });
+
+  test("rejects top-up deposits without an active position", async () => {
+    const fake = createFakeClient({});
+
+    await expect(
+      recordConfirmedYieldDeposit(input({ policyInitialization: "reuse" }), {
+        client: fake.client as never,
+        now: () => new Date("2026-06-01T00:00:00.000Z"),
+      })
+    ).rejects.toThrow("Top-up yield deposit requires an existing active position.");
+    expect(fake.insertCalls).toHaveLength(0);
+  });
+
+  test("rejects first deposits when an active Earn position already exists", async () => {
+    const fake = createFakeClient({
+      existingPosition: position({
+        principalAmountRaw: BigInt(1_000_000),
+      }),
+    });
+
+    await expect(
+      recordConfirmedYieldDeposit(
+        input({
+          depositSignature: "deposit-sig-new-create",
+          policyInitialization: "create",
+        }),
+        {
+          client: fake.client as never,
+          now: () => new Date("2026-06-01T00:00:00.000Z"),
+        }
+      )
+    ).rejects.toThrow("Initial yield deposit cannot recreate an active Earn policy.");
+    expect(fake.insertCalls).toHaveLength(0);
   });
 });
 

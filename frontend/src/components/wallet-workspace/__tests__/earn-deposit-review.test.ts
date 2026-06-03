@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import type { EarnDepositDraft } from "@/components/wallet-sidebar/earn-detail-view";
+import type {
+  EarnDepositDraft,
+  EarnWithdrawDraft,
+} from "@/components/wallet-sidebar/earn-detail-view";
 import { STABLECOIN_MINTS } from "@loyal/actions/constants";
 import { Stablecoin } from "@loyal/actions/types";
 
-import { buildEarnDepositReviewItem } from "../earn-deposit-review";
+import {
+  buildEarnDepositReviewItem,
+  buildEarnWithdrawReviewItem,
+} from "../earn-deposit-review";
 
 function makeDraft(): EarnDepositDraft {
   return {
@@ -25,6 +31,30 @@ function makeDraft(): EarnDepositDraft {
     symbol: "USDC",
     tokenDecimals: 6,
     tokenMint: "usdc-mint",
+  };
+}
+
+function makeWithdrawDraft(
+  overrides: Partial<EarnWithdrawDraft> = {}
+): EarnWithdrawDraft {
+  return {
+    amount: 25.25,
+    amountLabel: "25.25",
+    destination: {
+      addressLabel: "2Lzb...UQUu",
+      balance: 1000,
+      balanceFraction: "00",
+      balanceWhole: "1,000",
+      decimals: 6,
+      icon: "/agents/Agent-01.svg",
+      id: "main",
+      label: "Main",
+      mint: "usdc-mint",
+    },
+    mode: "partial",
+    symbol: "USDC",
+    tokenDecimals: 6,
+    ...overrides,
   };
 }
 
@@ -135,5 +165,45 @@ describe("buildEarnDepositReviewItem", () => {
           "Earn vault sends $125.5 USDC to Main Market USDC reserve (D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59)",
       },
     ]);
+  });
+});
+
+describe("buildEarnWithdrawReviewItem", () => {
+  test("projects a partial withdraw draft into review sections", () => {
+    const review = buildEarnWithdrawReviewItem({
+      draft: makeWithdrawDraft(),
+    });
+
+    expect(review.title).toBe("Withdraw");
+    expect(review.amount).toBe("25.25");
+    expect(review.symbol).toBe("USDC");
+    expect(review.summaryLabel).toBe("Withdraw from Earn vault");
+    expect(review.sourceLabel).toBe("Earn vault");
+    expect(review.destinationLabel).toBe("Main");
+    expect(review.reviewSections?.map((section) => section.title)).toEqual([
+      "Transaction #1",
+    ]);
+    expect(review.reviewSections?.[0]?.rows).toEqual([
+      {
+        label: "Withdraw",
+        value: "Withdraw $25.25 USDC from Earn vault",
+      },
+      {
+        label: "Destination",
+        value: "Main (2Lzb...UQUu)",
+      },
+    ]);
+  });
+
+  test("labels full withdraw drafts as withdraw all", () => {
+    const review = buildEarnWithdrawReviewItem({
+      draft: makeWithdrawDraft({ mode: "full" }),
+    });
+
+    expect(review.title).toBe("Withdraw all");
+    expect(review.reviewSections?.[0]?.rows[0]).toEqual({
+      label: "Withdraw",
+      value: "Withdraw all $25.25 USDC from Earn vault",
+    });
   });
 });

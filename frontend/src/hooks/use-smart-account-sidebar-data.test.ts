@@ -11,7 +11,9 @@ import {
   createOverviewFromCache,
   type CurrentBestApyReserveByStablecoinCache,
   getSmartAccountTotalUsd,
+  hasInitializedEarnYieldRoutingPolicy,
   readSmartAccountOverviewCache,
+  shouldInitializeEarnYieldRoutingPolicyForDeposit,
   type SmartAccountSignerEntry,
   type SmartAccountVaultEntry,
   writeSmartAccountOverviewCacheGroup,
@@ -204,6 +206,71 @@ describe("getSmartAccountTotalUsd", () => {
     });
 
     expect(totalUsd).toBe(42);
+  });
+});
+
+describe("Earn policy detection", () => {
+  test("treats missing Earn policy as a first deposit", () => {
+    expect(
+      hasInitializedEarnYieldRoutingPolicy({
+        policies: [],
+      } as never)
+    ).toBe(false);
+  });
+
+  test("treats seed 1 ProgramInteraction policy on vault 1 as a top-up", () => {
+    expect(
+      hasInitializedEarnYieldRoutingPolicy({
+        policies: [
+          {
+            accountIndex: 1,
+            seed: "1",
+            state: "ProgramInteraction",
+          },
+        ],
+      } as never)
+    ).toBe(true);
+  });
+
+  test("ignores ProgramInteraction policies on other seeds or vaults", () => {
+    expect(
+      hasInitializedEarnYieldRoutingPolicy({
+        policies: [
+          {
+            accountIndex: 1,
+            seed: "2",
+            state: "ProgramInteraction",
+          },
+          {
+            accountIndex: 0,
+            seed: "1",
+            state: "ProgramInteraction",
+          },
+        ],
+      } as never)
+    ).toBe(false);
+  });
+
+  test("uses active Earn position as top-up evidence when policy overview is stale", () => {
+    expect(
+      shouldInitializeEarnYieldRoutingPolicyForDeposit({
+        hasActiveEarnPosition: true,
+        overview: {
+          policies: [],
+        } as never,
+      })
+    ).toBe(false);
+  });
+
+  test("initializes policy when neither overview policy nor active position exists", () => {
+    expect(
+      shouldInitializeEarnYieldRoutingPolicyForDeposit({
+        hasActiveEarnPosition: false,
+        overview: {
+          policies: [],
+        } as never,
+      })
+    ).toBe(true);
   });
 });
 

@@ -2,7 +2,10 @@ import type {
   ApprovalReviewDisplayItem,
   ApprovalReviewDisplaySection,
 } from "@/components/wallet-sidebar/approval-review-content";
-import type { EarnDepositDraft } from "@/components/wallet-sidebar/earn-detail-view";
+import type {
+  EarnDepositDraft,
+  EarnWithdrawDraft,
+} from "@/components/wallet-sidebar/earn-detail-view";
 import {
   KAMINO_ETHENA_MARKET,
   KAMINO_FIGURE_MARKET,
@@ -122,5 +125,42 @@ export function buildEarnDepositReviewItem(args: {
     summaryLabel: "Launch yield optimization policy",
     symbol: args.draft.symbol,
     title: "Deposit",
+  };
+}
+
+export function buildEarnWithdrawReviewItem(args: {
+  draft: EarnWithdrawDraft;
+}): ApprovalReviewDisplayItem {
+  const actionLabel =
+    args.draft.mode === "full" ? "Withdraw all" : "Withdraw";
+  const reviewSections: ApprovalReviewDisplaySection[] = [
+    {
+      title: "Transaction #1",
+      rows: [
+        {
+          label: "Withdraw",
+          value: `${actionLabel} $${args.draft.amountLabel} ${args.draft.symbol} from ${EARN_VAULT_LABEL}`,
+        },
+        {
+          label: "Destination",
+          value: `${args.draft.destination.label} (${args.draft.destination.addressLabel})`,
+        },
+      ],
+    },
+  ];
+
+  return {
+    actionMode: "vote",
+    amount: args.draft.amountLabel,
+    destinationLabel: args.draft.destination.label,
+    primaryActionLabel: "Continue",
+    reviewSections,
+    secondaryActionLabel: "Cancel",
+    sourceLabel: EARN_VAULT_LABEL,
+    status: "draft",
+    statusLabel: "Ready to review",
+    summaryLabel: "Withdraw from Earn vault",
+    symbol: args.draft.symbol,
+    title: actionLabel,
   };
 }

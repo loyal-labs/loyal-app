@@ -199,11 +199,13 @@ function EarnYieldIcon({ size = 48 }: { size?: number }) {
 }
 
 function EarnPortfolioRow({
+  balance = 0,
   hasPosition = false,
   isSelected,
   onDeposit,
   onOpen,
 }: {
+  balance?: number;
   hasPosition?: boolean;
   isSelected?: boolean;
   onDeposit?: () => void;
@@ -211,6 +213,14 @@ function EarnPortfolioRow({
 }) {
   const earnForecastApy = useEarnForecastApy();
   const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
+  const displayBalance =
+    hasPosition && Number.isFinite(balance) ? Math.max(0, balance) : 0;
+  const [balanceWhole, balanceFraction] = displayBalance
+    .toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    })
+    .split(".");
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key === "Enter" || event.key === " ") {
@@ -234,9 +244,7 @@ function EarnPortfolioRow({
           outline-offset: 2px;
         }
         .portfolio-earn-deposit-btn {
-          transition:
-            background 0.15s ease,
-            transform 0.15s ease;
+          transition: background 0.15s ease, transform 0.15s ease;
         }
         .portfolio-earn-deposit-btn:hover {
           background: #e72f34 !important;
@@ -289,8 +297,10 @@ function EarnPortfolioRow({
               whiteSpace: "nowrap",
             }}
           >
-            {hasPosition ? "$1,000" : "$0"}
-            <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
+            ${balanceWhole}
+            <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+              .{balanceFraction ?? "00"}
+            </span>
           </span>
           <div
             style={{
@@ -506,9 +516,7 @@ function SignerTreeRow({
             {signer.balanceWhole}
             <span
               style={{
-                color: isBalanceHidden
-                  ? "#BBBBC0"
-                  : "rgba(60, 60, 67, 0.4)",
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
               }}
             >
               {signer.balanceFraction}
@@ -653,6 +661,7 @@ export function PortfolioContent({
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
+  earnBalance = 0,
   hasEarnPosition = false,
   selectedSignerId = null,
   selectedVaultIndex = null,
@@ -689,6 +698,7 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
+  earnBalance?: number;
   hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
@@ -760,7 +770,9 @@ export function PortfolioContent({
           </div>
 
           {showActionButtons && (
-            <div style={{ padding: "0 12px 24px", display: "flex", gap: "12px" }}>
+            <div
+              style={{ padding: "0 12px 24px", display: "flex", gap: "12px" }}
+            >
               <div style={skeletonBar("74px", "44px")} />
               <div style={skeletonBar("74px", "44px")} />
               <div style={skeletonBar("74px", "44px")} />
@@ -777,7 +789,9 @@ export function PortfolioContent({
               background: "rgba(0, 0, 0, 0.04)",
             }}
           >
-            <div style={{ ...skeletonBar("64px", "64px"), borderRadius: "20px" }} />
+            <div
+              style={{ ...skeletonBar("64px", "64px"), borderRadius: "20px" }}
+            />
             <div
               style={{
                 flex: 1,
@@ -815,7 +829,9 @@ export function PortfolioContent({
                 gap: "12px",
               }}
             >
-              <div style={{ ...skeletonBar("56px", "56px"), borderRadius: "18px" }} />
+              <div
+                style={{ ...skeletonBar("56px", "56px"), borderRadius: "18px" }}
+              />
               <div
                 style={{
                   flex: 1,
@@ -971,58 +987,58 @@ export function PortfolioContent({
         ) : null}
         */}
         {showHeaderControls && (
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            alignItems: "center",
-            paddingLeft: "12px",
-          }}
-        >
-          {onDisconnect && (
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+              paddingLeft: "12px",
+            }}
+          >
+            {onDisconnect && (
+              <button
+                className="portfolio-disconnect-btn"
+                onClick={onDisconnect}
+                style={{
+                  background: "rgba(60, 60, 67, 0.06)",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "2px 8px",
+                  fontFamily: font,
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  lineHeight: "18px",
+                  color: "rgba(60, 60, 67, 0.45)",
+                  cursor: "pointer",
+                  transition: "background 0.15s ease, color 0.15s ease",
+                  flexShrink: 0,
+                }}
+                type="button"
+              >
+                Disconnect
+              </button>
+            )}
             <button
-              className="portfolio-disconnect-btn"
-              onClick={onDisconnect}
+              className="portfolio-close-btn"
+              onClick={onClose}
               style={{
-                background: "rgba(60, 60, 67, 0.06)",
+                width: "36px",
+                height: "36px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.04)",
                 border: "none",
-                borderRadius: "6px",
-                padding: "2px 8px",
-                fontFamily: font,
-                fontSize: "12px",
-                fontWeight: 500,
-                lineHeight: "18px",
-                color: "rgba(60, 60, 67, 0.45)",
+                borderRadius: "9999px",
                 cursor: "pointer",
-                transition: "background 0.15s ease, color 0.15s ease",
-                flexShrink: 0,
+                transition: "all 0.2s ease",
+                color: "#3C3C43",
               }}
               type="button"
             >
-              Disconnect
+              <X size={24} />
             </button>
-          )}
-          <button
-            className="portfolio-close-btn"
-            onClick={onClose}
-            style={{
-              width: "36px",
-              height: "36px",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              background: "rgba(0, 0, 0, 0.04)",
-              border: "none",
-              borderRadius: "9999px",
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              color: "#3C3C43",
-            }}
-            type="button"
-          >
-            <X size={24} />
-          </button>
-        </div>
+          </div>
         )}
       </div>
 
@@ -1140,7 +1156,11 @@ export function PortfolioContent({
               {hasChange && (
                 <>
                   <span style={{ color: changeColor }}>
-                    {`${sign(portfolioChange24h.percent)}${portfolioChange24h.percent.toFixed(2)}% (${sign(portfolioChange24h.usdAmount)}${formatUsd(portfolioChange24h.usdAmount)})`}
+                    {`${sign(
+                      portfolioChange24h.percent
+                    )}${portfolioChange24h.percent.toFixed(2)}% (${sign(
+                      portfolioChange24h.usdAmount
+                    )}${formatUsd(portfolioChange24h.usdAmount)})`}
                   </span>
                   {" · 24h"}
                 </>
@@ -1158,106 +1178,112 @@ export function PortfolioContent({
 
       {/* Action buttons: receive, send, swap + Shield pill */}
       {showActionButtons && (
-      <div
-        style={{
-          display: "flex",
-          gap: "16px",
-          alignItems: "center",
-          padding: "8px 20px",
-        }}
-      >
-        <button
-          className="portfolio-action-btn"
-          onClick={onOpenReceive}
+        <div
           style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
             display: "flex",
+            gap: "16px",
             alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-            flexShrink: 0,
+            padding: "8px 20px",
           }}
-          type="button"
         >
-          <ArrowDownLeft size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="portfolio-action-btn"
-          onClick={onOpenSend}
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-            flexShrink: 0,
-          }}
-          type="button"
-        >
-          <ArrowUpRight size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="portfolio-action-btn"
-          onClick={onOpenSwap}
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-            flexShrink: 0,
-          }}
-          type="button"
-        >
-          <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="portfolio-shield-btn"
-          onClick={onOpenShield}
-          style={{
-            flex: 1,
-            display: "flex",
-            gap: "6px",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 16px 10px 8px",
-            borderRadius: "9999px",
-            background: "transparent",
-            border: "2px solid rgba(60, 60, 67, 0.18)",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-          }}
-          type="button"
-        >
-          <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
-          <span
+          <button
+            className="portfolio-action-btn"
+            onClick={onOpenReceive}
             style={{
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 400,
-              lineHeight: "20px",
-              color: "#000",
+              width: "44px",
+              height: "44px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              flexShrink: 0,
             }}
+            type="button"
           >
-            Shield
-          </span>
-        </button>
-      </div>
+            <ArrowDownLeft
+              size={24}
+              style={{ color: "rgba(60, 60, 67, 0.6)" }}
+            />
+          </button>
+          <button
+            className="portfolio-action-btn"
+            onClick={onOpenSend}
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              flexShrink: 0,
+            }}
+            type="button"
+          >
+            <ArrowUpRight
+              size={24}
+              style={{ color: "rgba(60, 60, 67, 0.6)" }}
+            />
+          </button>
+          <button
+            className="portfolio-action-btn"
+            onClick={onOpenSwap}
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              flexShrink: 0,
+            }}
+            type="button"
+          >
+            <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
+          </button>
+          <button
+            className="portfolio-shield-btn"
+            onClick={onOpenShield}
+            style={{
+              flex: 1,
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
+              borderRadius: "9999px",
+              background: "transparent",
+              border: "2px solid rgba(60, 60, 67, 0.18)",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#000",
+              }}
+            >
+              Shield
+            </span>
+          </button>
+        </div>
       )}
 
       {/* Scrollable content */}
@@ -1274,8 +1300,12 @@ export function PortfolioContent({
           overflowY: "auto",
           overflowX: "hidden",
           scrollbarWidth: "none",
-          borderTop: isScrolled ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid transparent",
-          boxShadow: isScrolled ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)" : "none",
+          borderTop: isScrolled
+            ? "1px solid rgba(0, 0, 0, 0.08)"
+            : "1px solid transparent",
+          boxShadow: isScrolled
+            ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)"
+            : "none",
           transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         }}
       >
@@ -1285,6 +1315,7 @@ export function PortfolioContent({
         >
           {onOpenEarn ? (
             <EarnPortfolioRow
+              balance={earnBalance}
               hasPosition={hasEarnPosition}
               isSelected={isEarnSelected}
               onDeposit={onOpenEarnDeposit}
@@ -1553,83 +1584,85 @@ export function PortfolioContent({
 
         {/* Approvals section */}
         {showApprovals && (
-        <div
-          style={{ display: "flex", flexDirection: "column", padding: "8px" }}
-        >
-          {/* Section header */}
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "3px 12px 1px",
-            }}
+            style={{ display: "flex", flexDirection: "column", padding: "8px" }}
           >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-                padding: "12px 0 8px",
-              }}
-            >
-              Approvals
-            </span>
-            {approvals.length > 0 && (
-              <button
-                className="portfolio-link-btn"
-                onClick={onSeeAllApprovals}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: "12px 0 8px",
-                  cursor: "pointer",
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: "#F9363C",
-                  transition: "opacity 0.15s ease",
-                }}
-                type="button"
-              >
-                See All
-              </button>
-            )}
-          </div>
-
-          {/* Approval rows */}
-          {smartAccountError ? (
-            <SmartAccountInlineError
-              error={smartAccountError}
-              onRetry={onSmartAccountRetry}
-            />
-          ) : approvals.length === 0 && (
+            {/* Section header */}
             <div
-              style={{
-                padding: "32px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: "rgba(60, 60, 67, 0.6)",
-              }}
-            >
-              No smart-account proposals yet.
-            </div>
-          )}
-          {approvals.slice(0, 3).map((approval) => (
-            <div
-              key={approval.id}
               style={{
                 display: "flex",
-                padding: "0 12px",
-                borderRadius: "16px",
-                background: "transparent",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "3px 12px 1px",
               }}
             >
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  color: "#000",
+                  letterSpacing: "-0.176px",
+                  padding: "12px 0 8px",
+                }}
+              >
+                Approvals
+              </span>
+              {approvals.length > 0 && (
+                <button
+                  className="portfolio-link-btn"
+                  onClick={onSeeAllApprovals}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: "12px 0 8px",
+                    cursor: "pointer",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#F9363C",
+                    transition: "opacity 0.15s ease",
+                  }}
+                  type="button"
+                >
+                  See All
+                </button>
+              )}
+            </div>
+
+            {/* Approval rows */}
+            {smartAccountError ? (
+              <SmartAccountInlineError
+                error={smartAccountError}
+                onRetry={onSmartAccountRetry}
+              />
+            ) : (
+              approvals.length === 0 && (
+                <div
+                  style={{
+                    padding: "32px 20px",
+                    textAlign: "center",
+                    fontFamily: font,
+                    fontSize: "14px",
+                    color: "rgba(60, 60, 67, 0.6)",
+                  }}
+                >
+                  No smart-account proposals yet.
+                </div>
+              )
+            )}
+            {approvals.slice(0, 3).map((approval) => (
+              <div
+                key={approval.id}
+                style={{
+                  display: "flex",
+                  padding: "0 12px",
+                  borderRadius: "16px",
+                  background: "transparent",
+                }}
+              >
                 {/* Stacked icon: token (40px) + account badge (24px) */}
                 <div
                   style={{
@@ -1720,8 +1753,9 @@ export function PortfolioContent({
                           color: secondary,
                         }}
                       >
-                        {approval.status.charAt(0).toUpperCase() + approval.status.slice(1)} · to{" "}
-                        {approval.destinationLabel}
+                        {approval.status.charAt(0).toUpperCase() +
+                          approval.status.slice(1)}{" "}
+                        · to {approval.destinationLabel}
                       </span>
                     </div>
                     <div
@@ -1796,8 +1830,7 @@ export function PortfolioContent({
                     const pillLabel =
                       approval.status === "active"
                         ? "Review & Respond"
-                        : approval.status === "approved" &&
-                          approval.canExecute
+                        : approval.status === "approved" && approval.canExecute
                         ? "Execute"
                         : null;
                     if (!pillLabel) return null;
@@ -1835,7 +1868,7 @@ export function PortfolioContent({
                 </div>
               </div>
             ))}
-        </div>
+          </div>
         )}
       </div>
     </div>

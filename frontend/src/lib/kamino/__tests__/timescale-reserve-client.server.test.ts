@@ -4,6 +4,7 @@ mock.module("server-only", () => ({}));
 
 const {
   TimescaleReserveClient,
+  getTimescaleReserveDatabaseUrl,
   selectCurrentBestApyReserveByStablecoin,
   timescaleLatestReserveUpdates,
   timescaleReserveUpdates,
@@ -58,6 +59,23 @@ describe("timescale reserve client", () => {
     );
 
     await client.close();
+  });
+
+  test("reads the Timescale connection from TIMESCALEDB_URL", () => {
+    const previousTimescaledb = process.env.TIMESCALEDB_URL;
+    process.env.TIMESCALEDB_URL = "postgres://timescaledb/test";
+
+    try {
+      expect(getTimescaleReserveDatabaseUrl()).toBe(
+        "postgres://timescaledb/test"
+      );
+    } finally {
+      if (previousTimescaledb === undefined) {
+        delete process.env.TIMESCALEDB_URL;
+      } else {
+        process.env.TIMESCALEDB_URL = previousTimescaledb;
+      }
+    }
   });
 
   test("selects the current highest APY reserve for each supported stablecoin", () => {

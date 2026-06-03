@@ -40,6 +40,7 @@ type ConfirmDepositRequestBody = {
   targetSupplyApyBps?: unknown;
   depositMint?: unknown;
   principalAmountRaw?: unknown;
+  policyInitialization?: unknown;
 };
 
 function jsonError(
@@ -101,6 +102,16 @@ function readOptionalBigIntString(
   return BigInt(value);
 }
 
+function readPolicyInitialization(
+  body: ConfirmDepositRequestBody
+): "create" | "reuse" {
+  const value = readRequiredString(body, "policyInitialization");
+  if (value !== "create" && value !== "reuse") {
+    throw new Error("policyInitialization must be create or reuse.");
+  }
+  return value;
+}
+
 function readVaultIndex(body: ConfirmDepositRequestBody): number {
   const value = body.vaultIndex;
   if (
@@ -143,6 +154,7 @@ function parseRequestBody(body: unknown): ConfirmedYieldDepositInput {
     market: readOptionalString(record, "market"),
     policyAccount: readRequiredString(record, "policyAccount"),
     policyId: readBigIntString(record, "policyId"),
+    policyInitialization: readPolicyInitialization(record),
     policySeed: readBigIntString(record, "policySeed"),
     policySignature: readRequiredString(record, "policySignature"),
     principalAmountRaw: readBigIntString(record, "principalAmountRaw"),
@@ -198,7 +210,6 @@ function createCanonicalDepositInput(
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
-    policySignature: requestInput.depositSignature,
     targetReserve: earnTarget.reserve.toBase58(),
     targetSupplyApyBps: null,
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
@@ -232,11 +243,6 @@ function createCanonicalDepositInput(
     requestInput.policySeed,
     canonicalInput.policySeed,
     "policySeed"
-  );
-  assertCanonicalField(
-    requestInput.policySignature,
-    canonicalInput.policySignature,
-    "policySignature"
   );
   assertCanonicalField(
     requestInput.targetReserve,

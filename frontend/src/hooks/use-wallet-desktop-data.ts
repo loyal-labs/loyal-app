@@ -17,6 +17,10 @@ import type {
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
+  readClientCache,
+  writeClientCache,
+} from "@/lib/client-cache/client-cache";
+import {
   enrichSnapshotWithKaminoUsdcEarnings,
   type KaminoEarnings,
 } from "@/lib/kamino/enrich-portfolio";
@@ -464,6 +468,86 @@ function mapPositionToSecuredTokenRow(
 }
 
 const EMPTY_EARNINGS_BY_MINT: ReadonlyMap<string, KaminoEarnings> = new Map();
+const WALLET_DESKTOP_CACHE_VERSION = 1;
+
+export type WalletDesktopCachePayload = {
+  portfolioSnapshot: PortfolioSnapshot;
+  earningsSummary: WalletEarningsSummary | null;
+  earningsByMintEntries: [string, KaminoEarnings][];
+};
+
+function getWalletDesktopCacheKey(args: {
+  solanaEnv: string;
+  walletAddress: string;
+}): string {
+  return [
+    "loyal",
+    "wallet-desktop",
+    WALLET_DESKTOP_CACHE_VERSION,
+    args.solanaEnv,
+    args.walletAddress,
+  ].join(":");
+}
+
+function writeWalletDesktopCache(args: {
+  solanaEnv: string;
+  walletAddress: string;
+  portfolioSnapshot: PortfolioSnapshot;
+  earningsByMint: ReadonlyMap<string, KaminoEarnings>;
+  earningsSummary: WalletEarningsSummary | null;
+}) {
+  writeClientCache<WalletDesktopCachePayload>({
+    key: getWalletDesktopCacheKey(args),
+    version: WALLET_DESKTOP_CACHE_VERSION,
+    solanaEnv: args.solanaEnv,
+    walletAddress: args.walletAddress,
+    data: {
+      portfolioSnapshot: args.portfolioSnapshot,
+      earningsSummary: args.earningsSummary,
+      earningsByMintEntries: Array.from(args.earningsByMint.entries()),
+    },
+  });
+}
+
+function readWalletDesktopCache(args: {
+  solanaEnv: string;
+  walletAddress: string;
+}): WalletDesktopCachePayload | null {
+  return readClientCache<WalletDesktopCachePayload>({
+    key: getWalletDesktopCacheKey(args),
+    version: WALLET_DESKTOP_CACHE_VERSION,
+    solanaEnv: args.solanaEnv,
+    walletAddress: args.walletAddress,
+    validate: (data): data is WalletDesktopCachePayload =>
+      typeof data === "object" &&
+      data !== null &&
+      "portfolioSnapshot" in data &&
+      "earningsByMintEntries" in data &&
+      Array.isArray(
+        (data as { earningsByMintEntries?: unknown }).earningsByMintEntries
+      ),
+  });
+}
+
+function toWalletEarningsSummary(
+  earningsTotals: {
+    totalEarnedUsd: number;
+    totalPrincipalUsd: number;
+  } | null
+): WalletEarningsSummary | null {
+  return earningsTotals
+    ? {
+        totalEarnedUsd: earningsTotals.totalEarnedUsd,
+        totalPrincipalUsd: earningsTotals.totalPrincipalUsd,
+        changePercent:
+          earningsTotals.totalPrincipalUsd > 0
+            ? (earningsTotals.totalEarnedUsd /
+                earningsTotals.totalPrincipalUsd) *
+              100
+            : 0,
+      }
+    : null;
+}
 
 export function useWalletDesktopData(): WalletDesktopData {
   const client = useSolanaWalletDataClient();
@@ -505,6 +589,31 @@ export function useWalletDesktopData(): WalletDesktopData {
   const [localDetails, setLocalDetails] = useState<
     Record<string, TransactionDetail>
   >({});
+
+  const applyPortfolioState = useCallback(
+    (args: {
+      portfolioSnapshot: PortfolioSnapshot;
+      earningsByMint: ReadonlyMap<string, KaminoEarnings>;
+      earningsSummary: WalletEarningsSummary | null;
+      walletAddress: string;
+      persist?: boolean;
+    }) => {
+      setPortfolioSnapshot(args.portfolioSnapshot);
+      setEarningsByMint(args.earningsByMint);
+      setEarningsSummary(args.earningsSummary);
+
+      if (args.persist !== false) {
+        writeWalletDesktopCache({
+          solanaEnv: publicEnv.solanaEnv,
+          walletAddress: args.walletAddress,
+          portfolioSnapshot: args.portfolioSnapshot,
+          earningsByMint: args.earningsByMint,
+          earningsSummary: args.earningsSummary,
+        });
+      }
+    },
+    [publicEnv.solanaEnv]
+  );
 
   const applyEnrichment = useCallback(
     async (snapshot: PortfolioSnapshot, address: string) => {
@@ -626,22 +735,12 @@ export function useWalletDesktopData(): WalletDesktopData {
           if (ownerAddressRef.current !== address) {
             return;
           }
-          setPortfolioSnapshot(enriched.snapshot);
-          setEarningsByMint(enriched.earningsByMint);
-          setEarningsSummary(
-            enriched.earningsTotals
-              ? {
-                  totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
-                  totalPrincipalUsd: enriched.earningsTotals.totalPrincipalUsd,
-                  changePercent:
-                    enriched.earningsTotals.totalPrincipalUsd > 0
-                      ? (enriched.earningsTotals.totalEarnedUsd /
-                          enriched.earningsTotals.totalPrincipalUsd) *
-                        100
-                      : 0,
-                }
-              : null
-          );
+          applyPortfolioState({
+            portfolioSnapshot: enriched.snapshot,
+            earningsByMint: enriched.earningsByMint,
+            earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
+            walletAddress: address,
+          });
         })
         .catch((error) => {
           console.error("Failed to refresh wallet portfolio", error);
@@ -667,7 +766,13 @@ export function useWalletDesktopData(): WalletDesktopData {
     }
 
     await Promise.all(tasks);
-  }, [applyEnrichment, client, hasRequestedActivity, ownerPublicKey]);
+  }, [
+    applyEnrichment,
+    applyPortfolioState,
+    client,
+    hasRequestedActivity,
+    ownerPublicKey,
+  ]);
 
   useEffect(() => {
     ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
@@ -687,10 +792,25 @@ export function useWalletDesktopData(): WalletDesktopData {
     }
 
     let cancelled = false;
-    setIsLoading(true);
 
     const publicKey = ownerPublicKey;
     const address = publicKey.toBase58();
+    const cached = readWalletDesktopCache({
+      solanaEnv: publicEnv.solanaEnv,
+      walletAddress: address,
+    });
+
+    if (cached) {
+      applyPortfolioState({
+        portfolioSnapshot: cached.portfolioSnapshot,
+        earningsByMint: new Map(cached.earningsByMintEntries),
+        earningsSummary: cached.earningsSummary,
+        walletAddress: address,
+        persist: false,
+      });
+    }
+
+    setIsLoading(!cached);
 
     void client
       .getPortfolio(publicKey)
@@ -704,22 +824,12 @@ export function useWalletDesktopData(): WalletDesktopData {
           return;
         }
 
-        setPortfolioSnapshot(enriched.snapshot);
-        setEarningsByMint(enriched.earningsByMint);
-        setEarningsSummary(
-          enriched.earningsTotals
-            ? {
-                totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
-                totalPrincipalUsd: enriched.earningsTotals.totalPrincipalUsd,
-                changePercent:
-                  enriched.earningsTotals.totalPrincipalUsd > 0
-                    ? (enriched.earningsTotals.totalEarnedUsd /
-                        enriched.earningsTotals.totalPrincipalUsd) *
-                      100
-                    : 0,
-              }
-            : null
-        );
+        applyPortfolioState({
+          portfolioSnapshot: enriched.snapshot,
+          earningsByMint: enriched.earningsByMint,
+          earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
+          walletAddress: address,
+        });
         setIsLoading(false);
       })
       .catch((error) => {
@@ -732,7 +842,13 @@ export function useWalletDesktopData(): WalletDesktopData {
     return () => {
       cancelled = true;
     };
-  }, [client, ownerPublicKey, applyEnrichment]);
+  }, [
+    client,
+    ownerPublicKey,
+    applyEnrichment,
+    applyPortfolioState,
+    publicEnv.solanaEnv,
+  ]);
 
   useEffect(() => {
     if (!ownerPublicKey) {
@@ -754,23 +870,14 @@ export function useWalletDesktopData(): WalletDesktopData {
           void applyEnrichment(snapshot, subscriptionAddress).then(
             (enriched) => {
               if (closed) return;
-              setPortfolioSnapshot(enriched.snapshot);
-              setEarningsByMint(enriched.earningsByMint);
-              setEarningsSummary(
-                enriched.earningsTotals
-                  ? {
-                      totalEarnedUsd: enriched.earningsTotals.totalEarnedUsd,
-                      totalPrincipalUsd:
-                        enriched.earningsTotals.totalPrincipalUsd,
-                      changePercent:
-                        enriched.earningsTotals.totalPrincipalUsd > 0
-                          ? (enriched.earningsTotals.totalEarnedUsd /
-                              enriched.earningsTotals.totalPrincipalUsd) *
-                            100
-                          : 0,
-                    }
-                  : null
-              );
+              applyPortfolioState({
+                portfolioSnapshot: enriched.snapshot,
+                earningsByMint: enriched.earningsByMint,
+                earningsSummary: toWalletEarningsSummary(
+                  enriched.earningsTotals
+                ),
+                walletAddress: subscriptionAddress,
+              });
             }
           );
         },
@@ -837,7 +944,13 @@ export function useWalletDesktopData(): WalletDesktopData {
         void unsubscribeActivity();
       }
     };
-  }, [client, ownerPublicKey, applyEnrichment, hasRequestedActivity]);
+  }, [
+    client,
+    ownerPublicKey,
+    applyEnrichment,
+    applyPortfolioState,
+    hasRequestedActivity,
+  ]);
 
   // Fetch LOYAL token price for the always-visible placeholder row.
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);

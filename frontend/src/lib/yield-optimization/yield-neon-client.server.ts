@@ -306,6 +306,7 @@ export const yieldOptimizationSchema = {
   rebalanceDecisions,
   routePolicies,
   userYieldPositionDeposits,
+  userYieldPositionWithdrawals,
   userYieldPositions,
   vaultPositionSnapshotPositions,
   vaultPositionSnapshots,
