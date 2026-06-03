@@ -1942,8 +1942,16 @@ export function EarnWithdrawView({
           }}
         >
           <div
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest("button")) {
+                return;
+              }
+              withdrawAmountInputRef.current?.focus();
+              withdrawAmountInputRef.current?.select();
+            }}
             style={{
               alignItems: "center",
+              cursor: "text",
               display: "flex",
               justifyContent: "space-between",
               width: "100%",
@@ -2376,6 +2384,7 @@ function DepositSourceRow({
   isHighlighted = false,
   isOpen = false,
   isSelected = false,
+  isStatic = false,
   isTrigger = false,
   onClick,
   source,
@@ -2383,6 +2392,7 @@ function DepositSourceRow({
   isHighlighted?: boolean;
   isOpen?: boolean;
   isSelected?: boolean;
+  isStatic?: boolean;
   isTrigger?: boolean;
   onClick?: () => void;
   source: EarnDepositSourceOption;
@@ -2416,7 +2426,13 @@ function DepositSourceRow({
         }
       `}</style>
       <button
-        className={isTrigger ? "earn-source-trigger" : "earn-source-option"}
+        className={
+          isStatic
+            ? undefined
+            : isTrigger
+            ? "earn-source-trigger"
+            : "earn-source-option"
+        }
         onClick={onClick}
         style={{
           alignItems: "center",
@@ -2428,7 +2444,7 @@ function DepositSourceRow({
             ? "rgba(0, 0, 0, 0.04)"
             : "transparent",
           border: "none",
-          borderRadius: isTrigger ? "16px" : "8px",
+          borderRadius: isTrigger || isStatic ? "16px" : "8px",
           cursor: onClick ? "pointer" : "default",
           display: "flex",
           minHeight: "60px",
@@ -2810,11 +2826,6 @@ export function EarnDepositView({
   const [forecastAmount, setForecastAmount] = useState<number>(
     FORECAST_AMOUNT_PRESETS[2].value
   );
-  const [isSourceMenuOpen, setIsSourceMenuOpen] = useState(false);
-  const [isSourceMenuClosing, setIsSourceMenuClosing] = useState(false);
-  const sourceCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
   const sourceOptions =
     sources.length > 0 ? sources : FALLBACK_EARN_DEPOSIT_SOURCES;
   const [selectedSourceId, setSelectedSourceId] = useState(
@@ -2839,51 +2850,6 @@ export function EarnDepositView({
       : null;
   const isDepositButtonDisabled =
     isSubmitting || !hasDepositAmount || amountError !== null;
-  const shouldShowSourceMenu = isSourceMenuOpen || isSourceMenuClosing;
-  const openSourceMenu = () => {
-    if (sourceCloseTimerRef.current) {
-      clearTimeout(sourceCloseTimerRef.current);
-      sourceCloseTimerRef.current = null;
-    }
-    setIsSourceMenuClosing(false);
-    setIsSourceMenuOpen(true);
-  };
-  const closeSourceMenu = () => {
-    if (!isSourceMenuOpen || isSourceMenuClosing) return;
-    setIsSourceMenuClosing(true);
-    sourceCloseTimerRef.current = setTimeout(() => {
-      setIsSourceMenuOpen(false);
-      setIsSourceMenuClosing(false);
-      sourceCloseTimerRef.current = null;
-    }, 180);
-  };
-  const toggleSourceMenu = () => {
-    if (isSourceMenuClosing) {
-      openSourceMenu();
-      return;
-    }
-    if (isSourceMenuOpen) {
-      closeSourceMenu();
-      return;
-    }
-    openSourceMenu();
-  };
-  const handleSourceSelect = (sourceId: string) => {
-    const nextSource =
-      sourceOptions.find((source) => source.id === sourceId) ?? selectedSource;
-    const clampedAmount = clampDepositAmountInput(
-      depositAmount,
-      nextSource.balance
-    );
-
-    setSelectedSourceId(sourceId);
-    if (clampedAmount !== null && clampedAmount !== depositAmount) {
-      setDepositAmount(clampedAmount);
-      scheduleForecastFromInput(clampedAmount);
-    }
-    closeSourceMenu();
-  };
-
   const forecastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -2918,9 +2884,6 @@ export function EarnDepositView({
 
   useEffect(() => {
     return () => {
-      if (sourceCloseTimerRef.current) {
-        clearTimeout(sourceCloseTimerRef.current);
-      }
       if (forecastDebounceRef.current) {
         clearTimeout(forecastDebounceRef.current);
       }
@@ -3237,8 +3200,16 @@ export function EarnDepositView({
             }}
           >
             <div
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("button")) {
+                  return;
+                }
+                amountInputRef.current?.focus();
+                amountInputRef.current?.select();
+              }}
               style={{
                 alignItems: "center",
+                cursor: "text",
                 display: "flex",
                 gap: "4px",
                 width: "100%",
@@ -3366,55 +3337,7 @@ export function EarnDepositView({
                 From
               </p>
             </div>
-            <DepositSourceRow
-              isOpen={isSourceMenuOpen}
-              isTrigger
-              onClick={toggleSourceMenu}
-              source={selectedSource}
-            />
-            {shouldShowSourceMenu ? (
-              <div
-                className={`earn-source-sheet ${
-                  isSourceMenuClosing ? "earn-source-sheet-closing" : ""
-                }`}
-                style={{
-                  backdropFilter: "blur(16px)",
-                  background: "rgba(255, 255, 255, 0.7)",
-                  borderRadius: "16px",
-                  boxShadow:
-                    "0 0 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08)",
-                  display: "flex",
-                  flexDirection: "column",
-                  left: "8px",
-                  overflow: "hidden",
-                  padding: "8px",
-                  position: "absolute",
-                  right: "8px",
-                  top: "44px",
-                  WebkitBackdropFilter: "blur(16px)",
-                  zIndex: 4,
-                }}
-              >
-                {sourceOptions.map((source, index) => (
-                  <DepositSourceRow
-                    isHighlighted={
-                      source.id !== selectedSource.id &&
-                      index ===
-                        Math.min(
-                          sourceOptions.findIndex(
-                            (option) => option.id === selectedSource.id
-                          ) + 1,
-                          sourceOptions.length - 1
-                        )
-                    }
-                    isSelected={source.id === selectedSource.id}
-                    key={source.id}
-                    onClick={() => handleSourceSelect(source.id)}
-                    source={source}
-                  />
-                ))}
-              </div>
-            ) : null}
+            <DepositSourceRow isStatic source={selectedSource} />
           </div>
         </section>
       </div>
