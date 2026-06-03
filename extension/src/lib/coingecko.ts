@@ -5,6 +5,19 @@ function getHeaders(): HeadersInit {
   return apiKey ? { "x-cg-pro-api-key": apiKey } : {};
 }
 
+/**
+ * Thrown when CoinGecko has no record of a token (HTTP 404). Callers can treat
+ * this distinctly from transient/auth failures and fall back to on-chain
+ * metadata while marking the token as unverified. Any other failure should
+ * surface as a retryable error rather than mislabeling a legitimate token.
+ */
+export class CoinGeckoNotFoundError extends Error {
+  constructor(public readonly mint: string) {
+    super(`Token not found on CoinGecko: ${mint}`);
+    this.name = "CoinGeckoNotFoundError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -75,6 +88,9 @@ export async function fetchTokenData(
     `${BASE_URL}/onchain/networks/solana/tokens/${mint}`,
     { headers: getHeaders() },
   );
+  if (res.status === 404) {
+    throw new CoinGeckoNotFoundError(mint);
+  }
   if (!res.ok) {
     throw new Error(`fetchTokenData failed: ${res.status} ${res.statusText}`);
   }
@@ -108,6 +124,9 @@ export async function fetchTokenInfo(
     `${BASE_URL}/onchain/networks/solana/tokens/${mint}/info`,
     { headers: getHeaders() },
   );
+  if (res.status === 404) {
+    throw new CoinGeckoNotFoundError(mint);
+  }
   if (!res.ok) {
     throw new Error(`fetchTokenInfo failed: ${res.status} ${res.statusText}`);
   }

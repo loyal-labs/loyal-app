@@ -2,7 +2,7 @@
   "name": "@loyal-labs/extension",
   "description": "Loyal wallet browser extension",
   "private": true,
-  "version": "0.5.8",
+  "version": "0.5.10",
   "type": "module",
   "scripts": {
     "dev": "wxt",
