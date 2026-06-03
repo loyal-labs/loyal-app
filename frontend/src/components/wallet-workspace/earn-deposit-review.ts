@@ -1,6 +1,7 @@
 import type {
   ApprovalReviewDisplayItem,
   ApprovalReviewDisplaySection,
+  ApprovalReviewPage,
 } from "@/components/wallet-sidebar/approval-review-content";
 import type {
   EarnDepositDraft,
@@ -112,10 +113,61 @@ export function buildEarnDepositReviewItem(args: {
     },
   ];
 
+  const pages: ApprovalReviewPage[] = [
+    {
+      title: "Approval 1 of 2",
+      heading: "Set up yield routing",
+      subheading: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} across Kamino's Safe markets.`,
+      rows: [
+        {
+          label: "What you're approving",
+          value: `Deposit, withdraw, and swap permissions for ${args.draft.symbol} yield.`,
+        },
+      ],
+      collapsibles: [
+        {
+          title: "Policy details",
+          rows: [
+            { label: "Kamino yield policy", value: "Deposit, withdraw" },
+            { label: "Markets", value: safeMarketLabels },
+            { label: "Swap policy", value: "Swap via Jupiter" },
+            { label: "Stablecoins", value: stablecoinMintLabels },
+          ],
+        },
+      ],
+    },
+    {
+      title: "Approval 2 of 2",
+      amount: args.draft.amountLabel,
+      symbol: args.draft.symbol,
+      heading: `Deposit into ${EARN_VAULT_LABEL}`,
+      rows: [
+        { label: "From", value: args.draft.source.label },
+        { label: "Earning in", value: "Kamino Main Market USDC reserve" },
+      ],
+      collapsibles: [
+        {
+          title: "Transaction details",
+          rows: [
+            {
+              label: "Reserve address",
+              value: USDC_MAIN_MARKET_RESERVE_ADDRESS,
+            },
+            {
+              label: "Movement",
+              value: `${EARN_VAULT_LABEL} sends $${args.draft.amountLabel} ${args.draft.symbol} to the Main Market USDC reserve.`,
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
   return {
     actionMode: "vote",
     amount: args.draft.amountLabel,
     destinationLabel: EARN_VAULT_LABEL,
+    pages,
     primaryActionLabel: "Continue",
     reviewSections,
     secondaryActionLabel: "Cancel",

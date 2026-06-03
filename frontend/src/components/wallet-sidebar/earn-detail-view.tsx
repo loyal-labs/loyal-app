@@ -39,9 +39,9 @@ const TOP_DEPOSIT_VAULT = {
 } as const;
 
 const EARN_CHART_WIDTH = 508;
-const EARN_CHART_HEIGHT = 260;
-const EARN_CHART_BASELINE = 238;
-const EARN_CHART_TOP = 12;
+const EARN_CHART_HEIGHT = 400;
+const EARN_CHART_BASELINE = 392;
+const EARN_CHART_TOP = 8;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
 const EARN_BALANCE_SAMPLE_MS = 250;
@@ -214,6 +214,103 @@ export function buildEarnChartPoints(
       yieldUsd: value - principal,
     };
   });
+}
+
+type EarnComparisonSeriesKey = "kamino" | "loyal" | "source3";
+
+const EARN_COMPARISON_SERIES: {
+  apyOffsetBps: number;
+  color: string;
+  dashed: boolean;
+  key: EarnComparisonSeriesKey;
+  label: string;
+}[] = [
+  {
+    apyOffsetBps: 0,
+    color: "#34C759",
+    dashed: false,
+    key: "loyal",
+    label: "Loyal Smart Earn",
+  },
+  {
+    apyOffsetBps: 300,
+    color: "#2688EB",
+    dashed: true,
+    key: "kamino",
+    label: "Static Kamino",
+  },
+  {
+    apyOffsetBps: 500,
+    color: "#FFA000",
+    dashed: true,
+    key: "source3",
+    label: "Static Yield Source 3",
+  },
+];
+
+const EARN_COMPARISON_MIN_APY_BPS = 50;
+
+type EarnComparisonPoint = {
+  date: string;
+  index: number;
+  values: Record<EarnComparisonSeriesKey, number>;
+};
+
+function getEarnComparisonApyBps(apyBps: number, offsetBps: number): number {
+  return Math.max(apyBps - offsetBps, EARN_COMPARISON_MIN_APY_BPS);
+}
+
+export function buildEarnComparisonPoints(
+  principal: number,
+  apy: EarnForecastApy = FALLBACK_EARN_APY
+): EarnComparisonPoint[] {
+  const months = 12;
+  const targets = EARN_COMPARISON_SERIES.reduce(
+    (acc, series) => {
+      const apyBps = getEarnComparisonApyBps(apy.apyBps, series.apyOffsetBps);
+      acc[series.key] = principal * getEarnForecastTargetMultiplier(apyBps);
+      return acc;
+    },
+    {} as Record<EarnComparisonSeriesKey, number>
+  );
+
+  return Array.from({ length: months + 1 }, (_, index) => {
+    const progress = index / months;
+    const eased = Math.pow(progress, 1.08);
+    const values = EARN_COMPARISON_SERIES.reduce(
+      (acc, series) => {
+        acc[series.key] = principal + (targets[series.key] - principal) * eased;
+        return acc;
+      },
+      {} as Record<EarnComparisonSeriesKey, number>
+    );
+    return {
+      date: FORECAST_DATES[index] ?? FORECAST_DATES[FORECAST_DATES.length - 1],
+      index,
+      values,
+    };
+  });
+}
+
+function niceCeilStep(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 1;
+  }
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  if (normalized <= 1) {
+    return magnitude;
+  }
+  if (normalized <= 2) {
+    return 2 * magnitude;
+  }
+  if (normalized <= 2.5) {
+    return 2.5 * magnitude;
+  }
+  if (normalized <= 5) {
+    return 5 * magnitude;
+  }
+  return 10 * magnitude;
 }
 
 function getEarnApyRate(apyBps: number): number {
@@ -929,95 +1026,6 @@ function EarningsBlock({
               key={forecastAmount}
               principal={forecastAmount}
             />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                overflow: "hidden",
-                paddingTop: "8px",
-                width: "100%",
-              }}
-            >
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: "2px" }}
-              >
-                <span
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                  }}
-                >
-                  {FORECAST_DATES[0]}
-                </span>
-                <span
-                  style={{
-                    color: "#000",
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 500,
-                    lineHeight: "20px",
-                  }}
-                >
-                  {formatForecastMoney(forecastAmount, true)}
-                </span>
-              </div>
-              <div
-                style={{
-                  alignItems: "flex-end",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                }}
-              >
-                <span
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                  }}
-                >
-                  {FORECAST_DATES[FORECAST_DATES.length - 1]}
-                </span>
-                <span
-                  style={{
-                    alignItems: "center",
-                    color: "#34C759",
-                    display: "flex",
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 500,
-                    gap: "4px",
-                    lineHeight: "20px",
-                  }}
-                >
-                  {formatForecastMoney(
-                    forecastAmount * getEarnForecastTargetMultiplier(apy.apyBps)
-                  )}
-                  <span
-                    style={{
-                      alignItems: "center",
-                      background: "#34C759",
-                      borderRadius: "4px",
-                      display: "inline-flex",
-                      height: "16px",
-                      justifyContent: "center",
-                      width: "16px",
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      src="/wallet-workspace/earn-growth-arrow.svg"
-                      style={{ height: "12px", width: "12px" }}
-                    />
-                  </span>
-                </span>
-              </div>
-            </div>
           </div>
         </div>
         <div
@@ -2548,43 +2556,61 @@ function DepositChart({
   principal?: number;
 }) {
   const points = useMemo(
-    () => buildEarnChartPoints(principal, apy),
+    () => buildEarnComparisonPoints(principal, apy),
     [apy, principal]
   );
   const defaultHoverIndex = Math.floor((points.length - 1) / 2);
   const [hoverIndex, setHoverIndex] = useState(defaultHoverIndex);
+
+  const loyalApyBps = getEarnComparisonApyBps(apy.apyBps, 0);
+  const loyalTarget =
+    principal * getEarnForecastTargetMultiplier(loyalApyBps);
   const minValue = principal;
-  const maxValue =
-    principal * getEarnForecastTargetMultiplier(apy.rangeHighBps);
-  const chartHeight = EARN_CHART_BASELINE - EARN_CHART_TOP;
+  const axisStep = niceCeilStep(Math.max(loyalTarget - principal, 1) / 4);
+  const maxValue = minValue + axisStep * 4;
+  const plotRange = EARN_CHART_BASELINE - EARN_CHART_TOP;
   const plot = (value: number) =>
     EARN_CHART_BASELINE -
-    ((value - minValue) / (maxValue - minValue)) * chartHeight;
+    ((value - minValue) / (maxValue - minValue)) * plotRange;
   const xForIndex = (index: number) =>
     (index / (points.length - 1)) * EARN_CHART_WIDTH;
-  const plotted = points.map((point) => ({
-    ...point,
-    highY: plot(point.highValue),
-    lowY: plot(point.lowValue),
-    x: xForIndex(point.index),
-    y: plot(point.value),
+
+  const gridLines = Array.from({ length: 5 }, (_, level) => {
+    const value = minValue + axisStep * level;
+    const y = plot(value);
+    return {
+      label: `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+      level,
+      topPercent: (y / EARN_CHART_HEIGHT) * 100,
+      y,
+    };
+  });
+
+  const seriesPaths = EARN_COMPARISON_SERIES.map((series) => ({
+    ...series,
+    d: points
+      .map((point, index) => {
+        const x = xForIndex(index);
+        const y = plot(point.values[series.key]);
+        return `${index === 0 ? "M" : "L"}${x},${y}`;
+      })
+      .join(" "),
   }));
-  const pathFrom = (key: "highY" | "lowY" | "y") =>
-    plotted
-      .map(
-        (point, index) => `${index === 0 ? "M" : "L"}${point.x},${point[key]}`
-      )
-      .join(" ");
-  const areaPath = [
-    `M${plotted[0]?.x ?? 0},${EARN_CHART_BASELINE}`,
-    ...plotted.map((point) => `L${point.x},${point.y}`),
-    `L${EARN_CHART_WIDTH},${EARN_CHART_BASELINE}`,
-    "Z",
-  ].join(" ");
-  const hoverPoint = plotted[Math.min(hoverIndex, plotted.length - 1)];
-  const hoverLeft = (hoverPoint.x / EARN_CHART_WIDTH) * 100;
+
+  const hoverPoint = points[Math.min(hoverIndex, points.length - 1)];
+  const hoverLeft = (xForIndex(hoverPoint.index) / EARN_CHART_WIDTH) * 100;
   const tooltipLeft = Math.min(Math.max(hoverLeft, 21), 79);
-  const pointTop = (value: number) => (value / EARN_CHART_HEIGHT) * 100;
+  const pointTop = (value: number) => (plot(value) / EARN_CHART_HEIGHT) * 100;
+  const loyalValue = hoverPoint.values.loyal;
+  const loyalGain = loyalValue - principal;
+  const staticSeries = EARN_COMPARISON_SERIES.filter(
+    (series) => series.key !== "loyal"
+  );
+  const axisDates = [
+    points[0].date,
+    points[defaultHoverIndex].date,
+    points[points.length - 1].date,
+  ];
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -2595,14 +2621,9 @@ function DepositChart({
 
   return (
     <div
-      onPointerLeave={() => setHoverIndex(defaultHoverIndex)}
-      onPointerMove={handlePointerMove}
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: "10px",
-        height: "300px",
-        justifyContent: "center",
         padding: "2px 0",
         position: "relative",
         width: "100%",
@@ -2639,168 +2660,375 @@ function DepositChart({
           }
         }
       `}</style>
-      <div
-        style={{ flex: 1, minHeight: 0, position: "relative", width: "100%" }}
-      >
-        <svg
-          aria-label="Estimated earnings chart"
-          preserveAspectRatio="none"
-          role="img"
-          style={{ display: "block", height: "100%", width: "100%" }}
-          viewBox={`0 0 ${EARN_CHART_WIDTH} ${EARN_CHART_HEIGHT}`}
-        >
-          <defs>
-            <linearGradient
-              gradientUnits="userSpaceOnUse"
-              id="earn-chart-area"
-              x1="254"
-              x2="254"
-              y1="0"
-              y2={EARN_CHART_BASELINE}
-            >
-              <stop stopColor="#34C759" stopOpacity="0.28" />
-              <stop offset="1" stopColor="#34C759" stopOpacity="0" />
-            </linearGradient>
-            <clipPath
-              clipPathUnits="userSpaceOnUse"
-              id="earn-chart-reveal-clip"
-            >
-              <rect
-                className="earn-chart-reveal-rect"
-                height={EARN_CHART_HEIGHT}
-                width={EARN_CHART_WIDTH}
-                x={0}
-                y={0}
-              />
-            </clipPath>
-          </defs>
-          <g clipPath="url(#earn-chart-reveal-clip)">
-            <path d={areaPath} fill="url(#earn-chart-area)" />
-            <path
-              d={pathFrom("highY")}
-              fill="none"
-              stroke="#A7E2BC"
-              strokeDasharray="6 6"
-              strokeLinecap="round"
-            />
-            <path
-              d={pathFrom("lowY")}
-              fill="none"
-              stroke="#A7E2BC"
-              strokeDasharray="6 6"
-              strokeLinecap="round"
-            />
-            <path
-              d={pathFrom("y")}
-              fill="none"
-              stroke="#34C759"
-              strokeLinecap="round"
-              strokeWidth="2"
-            />
-            <rect
-              fill="#fff"
-              fillOpacity="0.7"
-              height={EARN_CHART_HEIGHT}
-              width={Math.max(EARN_CHART_WIDTH - hoverPoint.x, 0)}
-              x={hoverPoint.x}
-              y={0}
-            />
-          </g>
-        </svg>
+
+      <div style={{ display: "flex", gap: "8px", width: "100%" }}>
         <div
-          aria-hidden="true"
-          className="earn-chart-hover-elements"
+          onPointerLeave={() => setHoverIndex(defaultHoverIndex)}
+          onPointerMove={handlePointerMove}
           style={{
-            borderLeft: "1px dashed rgba(60, 60, 67, 0.18)",
-            bottom: `${
-              ((EARN_CHART_HEIGHT - EARN_CHART_BASELINE) / EARN_CHART_HEIGHT) *
-              100
-            }%`,
-            left: `${hoverLeft}%`,
-            pointerEvents: "none",
-            position: "absolute",
-            top: `${(EARN_CHART_TOP / EARN_CHART_HEIGHT) * 100}%`,
+            flex: 1,
+            height: `${EARN_CHART_HEIGHT}px`,
+            minWidth: 0,
+            position: "relative",
           }}
-        />
-        {[
-          { color: "#A7E2BC", top: pointTop(hoverPoint.highY) },
-          { color: "#34C759", top: pointTop(hoverPoint.y) },
-          { color: "#A7E2BC", top: pointTop(hoverPoint.lowY) },
-        ].map((dot) => (
-          <span
+        >
+          <svg
+            aria-label="Projected earnings comparison chart"
+            preserveAspectRatio="none"
+            role="img"
+            style={{ display: "block", height: "100%", width: "100%" }}
+            viewBox={`0 0 ${EARN_CHART_WIDTH} ${EARN_CHART_HEIGHT}`}
+          >
+            <defs>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="earn-chart-reveal-clip"
+              >
+                <rect
+                  className="earn-chart-reveal-rect"
+                  height={EARN_CHART_HEIGHT}
+                  width={EARN_CHART_WIDTH}
+                  x={0}
+                  y={0}
+                />
+              </clipPath>
+            </defs>
+            {gridLines.map((grid) => (
+              <line
+                key={grid.level}
+                stroke={
+                  grid.level === 0
+                    ? "rgba(60, 60, 67, 0.18)"
+                    : "rgba(60, 60, 67, 0.08)"
+                }
+                strokeWidth="1"
+                x1={0}
+                x2={EARN_CHART_WIDTH}
+                y1={grid.y}
+                y2={grid.y}
+              />
+            ))}
+            <g clipPath="url(#earn-chart-reveal-clip)">
+              {seriesPaths.map((series) => (
+                <path
+                  d={series.d}
+                  fill="none"
+                  key={series.key}
+                  stroke={series.color}
+                  strokeDasharray={series.dashed ? "6 6" : undefined}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeOpacity={series.dashed ? 0.4 : undefined}
+                  strokeWidth={series.dashed ? 1.5 : 2}
+                />
+              ))}
+            </g>
+          </svg>
+
+          <div
             aria-hidden="true"
             className="earn-chart-hover-elements"
-            key={`${dot.color}-${dot.top}`}
             style={{
-              background: dot.color,
-              borderRadius: "9999px",
-              height: "8px",
+              borderLeft: "1px dashed rgba(60, 60, 67, 0.18)",
+              height: `${(plotRange / EARN_CHART_HEIGHT) * 100}%`,
               left: `${hoverLeft}%`,
               pointerEvents: "none",
               position: "absolute",
-              top: `${dot.top}%`,
-              transform: "translate(-50%, -50%)",
-              width: "8px",
+              top: `${(EARN_CHART_TOP / EARN_CHART_HEIGHT) * 100}%`,
             }}
           />
-        ))}
-        <div
-          className="earn-chart-hover-elements"
-          style={{
-            background: "#F5F5F5",
-            borderRadius: "16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            left: `${tooltipLeft}%`,
-            overflow: "hidden",
-            padding: "8px 12px",
-            pointerEvents: "none",
-            position: "absolute",
-            top: 0,
-            transform: "translateX(-50%)",
-            width: "200px",
-          }}
-        >
-          <span
+
+          {EARN_COMPARISON_SERIES.map((series) => (
+            <span
+              aria-hidden="true"
+              className="earn-chart-hover-elements"
+              key={series.key}
+              style={{
+                background: series.color,
+                borderRadius: "9999px",
+                boxShadow: "0 0 0 2px #fff",
+                height: "8px",
+                left: `${hoverLeft}%`,
+                pointerEvents: "none",
+                position: "absolute",
+                top: `${pointTop(hoverPoint.values[series.key])}%`,
+                transform: "translate(-50%, -50%)",
+                width: "8px",
+              }}
+            />
+          ))}
+
+          <div
+            className="earn-chart-hover-elements"
             style={{
-              color: "#000",
-              fontFamily: font,
-              fontSize: "20px",
-              fontWeight: 600,
-              lineHeight: "24px",
-            }}
-          >
-            ${formatMoney(hoverPoint.value).split(".")[0]}
-            <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
-              .{formatMoney(hoverPoint.value).split(".")[1]}
-            </span>
-          </span>
-          <span
-            style={{
-              color: secondary,
+              background: "#F5F5F5",
+              borderRadius: "16px",
               display: "flex",
               flexDirection: "column",
+              gap: "2px",
+              left: `${tooltipLeft}%`,
+              overflow: "hidden",
+              padding: "8px 12px",
+              pointerEvents: "none",
+              position: "absolute",
+              top: "8px",
+              transform: "translateX(-50%)",
+              width: "194px",
+            }}
+          >
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                paddingBottom: "8px",
+              }}
+            >
+              {hoverPoint.date}
+            </span>
+
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "2px" }}
+            >
+              <div
+                style={{ alignItems: "center", display: "flex", gap: "6px" }}
+              >
+                <span
+                  style={{
+                    background: "#34C759",
+                    borderRadius: "3px",
+                    height: "10px",
+                    width: "10px",
+                  }}
+                />
+                <span
+                  style={{
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    lineHeight: "16px",
+                  }}
+                >
+                  Loyal Smart Earn
+                </span>
+              </div>
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "20px",
+                  fontWeight: 600,
+                  lineHeight: "24px",
+                }}
+              >
+                ${formatMoney(loyalValue).split(".")[0]}
+                <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                  .{formatMoney(loyalValue).split(".")[1]}
+                </span>
+              </span>
+              <span
+                style={{
+                  color: "#34C759",
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                }}
+              >
+                +${formatMoney(loyalGain)}
+              </span>
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                }}
+              >
+                with avg. {formatEarnApyPercent(loyalApyBps)} APY
+              </span>
+            </div>
+
+            {staticSeries.map((series) => {
+              const seriesApyBps = getEarnComparisonApyBps(
+                apy.apyBps,
+                series.apyOffsetBps
+              );
+              const seriesValue = hoverPoint.values[series.key];
+              return (
+                <div
+                  key={series.key}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                  }}
+                >
+                  <div style={{ padding: "6px 0" }}>
+                    <div
+                      style={{
+                        background: "rgba(0, 0, 0, 0.08)",
+                        height: "1px",
+                        width: "100%",
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      alignItems: "center",
+                      display: "flex",
+                      gap: "6px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        background: series.color,
+                        borderRadius: "3px",
+                        height: "10px",
+                        width: "10px",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                      }}
+                    >
+                      {series.label}
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      color: "#000",
+                      fontFamily: font,
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      lineHeight: "16px",
+                    }}
+                  >
+                    ${formatMoney(seriesValue).split(".")[0]}
+                    <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                      .{formatMoney(seriesValue).split(".")[1]}
+                    </span>
+                  </span>
+                  <span
+                    style={{
+                      color: secondary,
+                      fontFamily: font,
+                      fontSize: "13px",
+                      fontWeight: 400,
+                      lineHeight: "16px",
+                    }}
+                  >
+                    with {formatEarnApyPercent(seriesApyBps)} APY
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div
+          aria-hidden="true"
+          style={{
+            height: `${EARN_CHART_HEIGHT}px`,
+            position: "relative",
+            width: "40px",
+          }}
+        >
+          {gridLines.map((grid) => (
+            <span
+              key={grid.level}
+              style={{
+                color: "rgba(60, 60, 67, 0.4)",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                position: "absolute",
+                right: 0,
+                top: `${grid.topPercent}%`,
+                transform: "translateY(-50%)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {grid.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          paddingRight: "48px",
+          paddingTop: "8px",
+          width: "100%",
+        }}
+      >
+        {axisDates.map((date) => (
+          <span
+            key={date}
+            style={{
+              color: "rgba(60, 60, 67, 0.4)",
               fontFamily: font,
               fontSize: "13px",
               fontWeight: 400,
               lineHeight: "16px",
+              whiteSpace: "nowrap",
             }}
           >
-            <span>{hoverPoint.date}</span>
-            <span>
-              <span style={{ color: "#000" }}>
-                +{formatMoney(hoverPoint.yieldUsd)} USDC{" "}
-              </span>
-              yield
-            </span>
-            <span>with {formatEarnApyPercent(apy.apyBps)} simulated APY</span>
-            <span>
-              Range: {formatEarnApyPercent(apy.rangeLowBps)} –{" "}
-              {formatEarnApyPercent(apy.rangeHighBps)}
-            </span>
+            {date}
           </span>
-        </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          columnGap: "16px",
+          display: "flex",
+          flexWrap: "wrap",
+          paddingRight: "48px",
+          paddingTop: "16px",
+          rowGap: "8px",
+          width: "100%",
+        }}
+      >
+        {EARN_COMPARISON_SERIES.map((series) => (
+          <div
+            key={series.key}
+            style={{ alignItems: "center", display: "flex", gap: "6px" }}
+          >
+            <span
+              style={{
+                background: series.color,
+                borderRadius: "3px",
+                height: "10px",
+                width: "10px",
+              }}
+            />
+            <span
+              style={{
+                color: series.key === "loyal" ? "#000" : secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: series.key === "loyal" ? 500 : 400,
+                lineHeight: "16px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {series.label}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -3089,96 +3317,6 @@ export function EarnDepositView({
               key={forecastAmount}
               principal={forecastAmount}
             />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                overflow: "hidden",
-                paddingTop: "8px",
-                width: "100%",
-              }}
-            >
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: "2px" }}
-              >
-                <span
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                  }}
-                >
-                  {FORECAST_DATES[0]}
-                </span>
-                <span
-                  style={{
-                    color: "#000",
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 500,
-                    lineHeight: "20px",
-                  }}
-                >
-                  {formatForecastMoney(forecastAmount, true)}
-                </span>
-              </div>
-              <div
-                style={{
-                  alignItems: "flex-end",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                }}
-              >
-                <span
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                  }}
-                >
-                  {FORECAST_DATES[FORECAST_DATES.length - 1]}
-                </span>
-                <span
-                  style={{
-                    alignItems: "center",
-                    color: "#34C759",
-                    display: "flex",
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 500,
-                    gap: "4px",
-                    lineHeight: "20px",
-                  }}
-                >
-                  {formatForecastMoney(
-                    forecastAmount *
-                      getEarnForecastTargetMultiplier(earnForecastApy.apyBps)
-                  )}
-                  <span
-                    style={{
-                      alignItems: "center",
-                      background: "#34C759",
-                      borderRadius: "4px",
-                      display: "inline-flex",
-                      height: "16px",
-                      justifyContent: "center",
-                      width: "16px",
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      src="/wallet-workspace/earn-growth-arrow.svg"
-                      style={{ height: "12px", width: "12px" }}
-                    />
-                  </span>
-                </span>
-              </div>
-            </div>
           </div>
         </section>
 
@@ -3350,6 +3488,19 @@ export function EarnDepositView({
           width: "100%",
         }}
       >
+        <p
+          style={{
+            color: secondary,
+            fontFamily: font,
+            fontSize: "13px",
+            lineHeight: "17px",
+            margin: "0 0 12px",
+            textAlign: "center",
+          }}
+        >
+          Keep at least $5 of SOL in your wallet to cover network fees,
+          otherwise the deposit won&apos;t go through.
+        </p>
         <button
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}

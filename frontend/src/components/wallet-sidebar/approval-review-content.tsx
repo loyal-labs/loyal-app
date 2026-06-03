@@ -20,11 +20,27 @@ export type ApprovalReviewDisplaySection = {
   title: string;
 };
 
+export type ApprovalReviewCollapsible = {
+  rows: ApprovalReviewDisplayRow[];
+  title: string;
+};
+
+export type ApprovalReviewPage = {
+  amount?: string;
+  collapsibles?: ApprovalReviewCollapsible[];
+  heading: string;
+  rows?: ApprovalReviewDisplayRow[];
+  subheading?: string;
+  symbol?: string;
+  title: string;
+};
+
 export type ApprovalReviewDisplayItem = {
   actionMode?: "execute" | "none" | "vote";
   amount: string;
   destinationLabel: string;
   disabledActionLabel?: string;
+  pages?: ApprovalReviewPage[];
   primaryActionLabel?: string;
   proposal?: Pick<SmartAccountApprovalItem["proposal"], "decodedInstructions">;
   reviewRows?: ApprovalReviewDisplayRow[];
@@ -90,6 +106,32 @@ export function ApprovalReviewContent({
           Select a proposal to review.
         </div>
       </div>
+    );
+  }
+
+  const pages = "pages" in approval ? approval.pages : undefined;
+  if (pages && pages.length > 0) {
+    const pagedSecondary =
+      "secondaryActionLabel" in approval && approval.secondaryActionLabel
+        ? approval.secondaryActionLabel
+        : "Cancel";
+    const pagedPrimary =
+      "primaryActionLabel" in approval && approval.primaryActionLabel
+        ? approval.primaryActionLabel
+        : "Continue";
+    return (
+      <PagedApprovalReview
+        actionError={actionError}
+        isSubmitting={isSubmitting}
+        onApprove={onApprove}
+        onBack={onBack}
+        onClose={onClose}
+        onDecline={onDecline}
+        pages={pages}
+        primaryActionLabel={pagedPrimary}
+        secondaryActionLabel={pagedSecondary}
+        showClose={showClose}
+      />
     );
   }
 
@@ -739,6 +781,414 @@ function InstructionMetadata({
           {account.label ?? `Account ${index + 1}`}: {account.address}
         </span>
       ))}
+    </div>
+  );
+}
+
+function isAddressLikeValue(value: string): boolean {
+  return value.length > 24 && !value.includes(" ");
+}
+
+function ReviewKeyValue({ row }: { row: ApprovalReviewDisplayRow }) {
+  const isAddressLike = isAddressLikeValue(row.value);
+  return (
+    <div style={{ padding: "9px 12px" }}>
+      <span
+        style={{
+          fontFamily: font,
+          fontSize: "13px",
+          fontWeight: 400,
+          lineHeight: "16px",
+          color: secondary,
+          display: "block",
+        }}
+      >
+        {row.label}
+      </span>
+      <span
+        style={{
+          fontFamily: isAddressLike ? mono : font,
+          fontSize: isAddressLike ? "13px" : "16px",
+          fontWeight: 400,
+          lineHeight: isAddressLike ? "18px" : "20px",
+          color: "#000",
+          display: "block",
+          marginTop: "2px",
+          overflowWrap: "anywhere",
+        }}
+      >
+        {row.value}
+      </span>
+    </div>
+  );
+}
+
+function ReviewKeyValueCompact({ row }: { row: ApprovalReviewDisplayRow }) {
+  const isAddressLike = isAddressLikeValue(row.value);
+  return (
+    <div>
+      <span
+        style={{
+          fontFamily: font,
+          fontSize: "13px",
+          fontWeight: 400,
+          lineHeight: "16px",
+          color: secondary,
+          display: "block",
+        }}
+      >
+        {row.label}
+      </span>
+      <span
+        style={{
+          fontFamily: isAddressLike ? mono : font,
+          fontSize: isAddressLike ? "13px" : "16px",
+          fontWeight: 400,
+          lineHeight: isAddressLike ? "18px" : "20px",
+          color: "#000",
+          display: "block",
+          marginTop: "2px",
+          overflowWrap: "anywhere",
+        }}
+      >
+        {row.value}
+      </span>
+    </div>
+  );
+}
+
+function CollapsibleRows({
+  collapsible,
+}: {
+  collapsible: ApprovalReviewCollapsible;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div
+      style={{
+        background: "rgba(0, 0, 0, 0.04)",
+        borderRadius: "16px",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={() => setIsOpen((current) => !current)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "13px 12px",
+          fontFamily: font,
+          fontSize: "14px",
+          fontWeight: 500,
+          color: "#000",
+          textAlign: "left",
+        }}
+        type="button"
+      >
+        <span>{collapsible.title}</span>
+        {isOpen ? (
+          <ChevronUp color={secondary} size={16} />
+        ) : (
+          <ChevronDown color={secondary} size={16} />
+        )}
+      </button>
+      {isOpen ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            padding: "0 12px 12px",
+          }}
+        >
+          {collapsible.rows.map((row) => (
+            <ReviewKeyValueCompact key={row.label} row={row} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PagedApprovalReview({
+  actionError,
+  isSubmitting,
+  onApprove,
+  onBack,
+  onClose,
+  onDecline,
+  pages,
+  primaryActionLabel,
+  secondaryActionLabel,
+  showClose,
+}: {
+  actionError: string | null;
+  isSubmitting: boolean;
+  onApprove: () => void;
+  onBack: () => void;
+  onClose: () => void;
+  onDecline: () => void;
+  pages: ApprovalReviewPage[];
+  primaryActionLabel: string;
+  secondaryActionLabel: string;
+  showClose: boolean;
+}) {
+  const [pageIndex, setPageIndex] = useState(0);
+  const safeIndex = Math.min(pageIndex, pages.length - 1);
+  const page = pages[safeIndex];
+  const isFirst = safeIndex === 0;
+  const isLast = safeIndex === pages.length - 1;
+
+  const goBack = () => {
+    if (isFirst) {
+      onBack();
+      return;
+    }
+    setPageIndex((current) => Math.max(0, current - 1));
+  };
+
+  const handleSecondary = () => {
+    if (isFirst) {
+      onDecline();
+      return;
+    }
+    setPageIndex((current) => Math.max(0, current - 1));
+  };
+
+  const handlePrimary = () => {
+    if (isLast) {
+      onApprove();
+      return;
+    }
+    setPageIndex((current) => Math.min(pages.length - 1, current + 1));
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <style jsx>{`
+        .review-decline-btn:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
+        }
+        .review-back-btn:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .review-primary-btn:hover {
+          background: #222 !important;
+        }
+      `}</style>
+
+      <SubViewHeader
+        onBack={goBack}
+        onClose={onClose}
+        showClose={showClose}
+        title={page.title}
+      />
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          padding: "8px",
+          overflowY: "auto",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+            padding: "32px 12px 24px",
+            width: "100%",
+          }}
+        >
+          {page.amount ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+                fontFamily: font,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{ fontSize: "40px", lineHeight: "48px", color: "#000" }}
+              >
+                {page.amount}
+              </span>
+              {page.symbol ? (
+                <span
+                  style={{
+                    fontSize: "28px",
+                    lineHeight: "32px",
+                    color: "rgba(60, 60, 67, 0.4)",
+                    letterSpacing: "0.4px",
+                  }}
+                >
+                  {page.symbol}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "24px",
+                fontWeight: 600,
+                lineHeight: "30px",
+                color: "#000",
+              }}
+            >
+              {page.heading}
+            </span>
+          )}
+          {page.amount ? (
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+              }}
+            >
+              {page.heading}
+            </span>
+          ) : null}
+          {page.subheading ? (
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 400,
+                lineHeight: "19px",
+                color: secondary,
+              }}
+            >
+              {page.subheading}
+            </span>
+          ) : null}
+        </div>
+
+        <div
+          style={{
+            width: "100%",
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+          }}
+        >
+          {page.rows && page.rows.length > 0 ? (
+            <div
+              style={{
+                background: "rgba(0, 0, 0, 0.04)",
+                borderRadius: "16px",
+                padding: "4px 0",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {page.rows.map((row) => (
+                <ReviewKeyValue key={row.label} row={row} />
+              ))}
+            </div>
+          ) : null}
+
+          {page.collapsibles && page.collapsibles.length > 0 ? (
+            <div
+              key={`page-${safeIndex}`}
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
+              {page.collapsibles.map((collapsible) => (
+                <CollapsibleRows
+                  collapsible={collapsible}
+                  key={collapsible.title}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div style={{ padding: "16px 20px" }}>
+        {actionError ? (
+          <div
+            style={{
+              marginBottom: "8px",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              background: "rgba(249, 54, 60, 0.10)",
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "18px",
+              color: "#9D1B1F",
+            }}
+          >
+            {actionError}
+          </div>
+        ) : null}
+        <div style={{ display: "flex", gap: "10px", width: "100%" }}>
+          <button
+            className={isFirst ? "review-decline-btn" : "review-back-btn"}
+            disabled={isSubmitting}
+            onClick={handleSecondary}
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              background: isFirst
+                ? "rgba(249, 54, 60, 0.14)"
+                : "rgba(0, 0, 0, 0.04)",
+              border: "none",
+              cursor: isSubmitting ? "default" : "pointer",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: isFirst ? "#F9363C" : "#000",
+              textAlign: "center",
+              transition: "background 0.15s ease",
+              opacity: isSubmitting ? 0.6 : 1,
+            }}
+            type="button"
+          >
+            {isFirst ? secondaryActionLabel : "Back"}
+          </button>
+          <button
+            className="review-primary-btn"
+            disabled={isSubmitting}
+            onClick={handlePrimary}
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              background: "#000",
+              border: "none",
+              cursor: isSubmitting ? "default" : "pointer",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "#fff",
+              textAlign: "center",
+              transition: "background 0.15s ease",
+              opacity: isSubmitting ? 0.6 : 1,
+            }}
+            type="button"
+          >
+            {isLast ? primaryActionLabel : "Continue"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
