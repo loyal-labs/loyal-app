@@ -883,17 +883,22 @@ function canSerializePreparedForWallet(
 function createDepositPreparedWithoutPolicyInitialization(
   prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"]
 ): SmartAccountPreparedEarnUsdcDeposit["prepared"] {
-  if (prepared.instructions.length !== 4) {
+  // Composed first-deposit layout (policy init included) is:
+  //   [createVaultUsdcAta, (createVaultCollateralAta?), transferUsdc, policyInit, execute]
+  // i.e. 4 instructions without the collateral ATA, 5 with it. The policy-init
+  // instruction is always second-to-last (the execute is last). When the policy
+  // is sent as its own transaction, strip that single instruction and keep the rest.
+  const count = prepared.instructions.length;
+  if (count !== 4 && count !== 5) {
     return prepared;
   }
 
+  const policyInitIndex = count - 2;
   return {
     ...prepared,
-    instructions: [
-      prepared.instructions[0],
-      prepared.instructions[1],
-      prepared.instructions[3],
-    ],
+    instructions: prepared.instructions.filter(
+      (_, index) => index !== policyInitIndex
+    ),
   };
 }
 

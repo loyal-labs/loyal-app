@@ -3758,6 +3758,20 @@ export function createSmartAccountVaultsClient(
           usdcMint,
           TOKEN_PROGRAM_ID
         ),
+        // The Kamino deposit CPI receives reserve collateral (cTokens) into the
+        // vault's collateral ATA, so it must exist and be Token-owned before the
+        // smart-account program validates the interaction. Create it idempotently.
+        ...(vaultCollateralAta && earnTarget.reserveCollateralMint
+          ? [
+              createAssociatedTokenAccountIdempotentInstruction(
+                args.feePayer,
+                vaultCollateralAta,
+                vaultPda,
+                earnTarget.reserveCollateralMint,
+                TOKEN_PROGRAM_ID
+              ),
+            ]
+          : []),
         createTransferCheckedInstruction(
           walletUsdcAta,
           usdcMint,
