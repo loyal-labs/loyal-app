@@ -634,6 +634,115 @@ function AddSignerTreeRow({
   );
 }
 
+function MainAccountRow({
+  isBalanceHidden,
+  isSelected,
+  onOpen,
+  signer,
+}: {
+  isBalanceHidden: boolean;
+  isSelected: boolean;
+  onOpen: () => void;
+  signer: SmartAccountSignerEntry;
+}) {
+  return (
+    <button
+      className="portfolio-account-row"
+      onClick={onOpen}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        minHeight: "68px",
+        padding: "4px 12px",
+        borderRadius: "16px",
+        background: isSelected ? rowHoverBackground : "transparent",
+        border: "none",
+        cursor: "pointer",
+        width: "100%",
+        transition: "background 0.15s ease",
+        textAlign: "left",
+      }}
+      title={signer.address}
+      type="button"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={signer.label}
+        src={signer.icon}
+        style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "12px",
+          flexShrink: 0,
+          marginRight: "12px",
+        }}
+      />
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: "2px",
+          padding: "9px 0",
+        }}
+      >
+        <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              letterSpacing: "-0.22px",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
+              display: "block",
+            }}
+          >
+            {signer.balanceWhole}
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
+              {signer.balanceFraction}
+            </span>
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: secondary,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {signer.label} · {signer.shortAddress}
+          </span>
+          <RowCopyAddress address={signer.address} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export function PortfolioContent({
   balanceFraction,
   balanceWhole,
@@ -670,6 +779,7 @@ export function PortfolioContent({
   showActionButtons = true,
   showApprovals = true,
   showHeaderControls = true,
+  showMainAccountOnly = false,
   topInset = 0,
 }: {
   balanceFraction: string;
@@ -707,6 +817,7 @@ export function PortfolioContent({
   showActionButtons?: boolean;
   showApprovals?: boolean;
   showHeaderControls?: boolean;
+  showMainAccountOnly?: boolean;
   topInset?: number;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1330,6 +1441,23 @@ export function PortfolioContent({
           ) : hasVaultAccount ? (
             <>
               {sortedVaultEntries.map((vault) => {
+                if (showMainAccountOnly) {
+                  const mainSigner = vault.signers.find(
+                    (entry) => entry.label === "Main Account"
+                  );
+                  if (!mainSigner) {
+                    return null;
+                  }
+                  return (
+                    <MainAccountRow
+                      isBalanceHidden={isBalanceHidden}
+                      isSelected={selectedSignerId === mainSigner.id}
+                      key={vault.address}
+                      onOpen={() => onOpenAgent(mainSigner)}
+                      signer={mainSigner}
+                    />
+                  );
+                }
                 const signersExpanded = expandedSignerVaults.has(
                   vault.accountIndex
                 );

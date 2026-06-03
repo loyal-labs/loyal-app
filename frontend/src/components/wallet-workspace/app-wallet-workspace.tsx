@@ -622,7 +622,14 @@ function WalletRail({
 
         <nav className="wallet-workspace-rail-nav">
           <RailNavButton
-            icon={<Wallet size={24} strokeWidth={1.8} />}
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt=""
+                src="/agents/Stashx.svg"
+                style={{ width: 24, height: 24 }}
+              />
+            }
             isActive={activeSection === "wallet"}
             label="Wallet"
             onClick={() => onSectionChange("wallet")}
@@ -3672,6 +3679,7 @@ export function AppWalletWorkspace({
                 showActionButtons={false}
                 showApprovals={false}
                 showHeaderControls={false}
+                showMainAccountOnly
                 smartAccountError={smartAccountData.error}
                 topInset={47}
                 vaultEntries={smartAccountData.vaultEntries}
