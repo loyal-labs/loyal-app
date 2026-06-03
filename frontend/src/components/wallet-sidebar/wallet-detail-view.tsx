@@ -481,6 +481,7 @@ export function WalletDetailView({
           </button>
         </div>
 
+        {/* Access level section hidden from Main Account center pane (commented out per request)
         {accessLevel && (
           <div
             style={{
@@ -687,7 +688,9 @@ export function WalletDetailView({
             </div>
           </div>
         )}
+        */}
 
+        {/* Spending limit section hidden from Main Account center pane (commented out per request)
         {(onSetSpendingLimit || onDeleteSpendingLimit) && (
           <SpendingLimitSection
             isBalanceHidden={isBalanceHidden}
@@ -703,6 +706,7 @@ export function WalletDetailView({
             spendingLimit={spendingLimit ?? null}
           />
         )}
+        */}
 
         <div
           style={{
