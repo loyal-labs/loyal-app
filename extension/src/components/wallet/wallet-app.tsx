@@ -100,6 +100,11 @@ function getBaseTokenId(id?: string | null): string | null {
   return id ? id.replace(/-secured$/, "") : null;
 }
 
+// Identity comparison for swap tokens — prefer mint, fall back to symbol.
+function isSameSwapToken(a: SwapToken, b: SwapToken): boolean {
+  return a.mint && b.mint ? a.mint === b.mint : a.symbol === b.symbol;
+}
+
 // ---------------------------------------------------------------------------
 // 3-layer sliding navigation
 // ---------------------------------------------------------------------------
@@ -1395,19 +1400,31 @@ function WalletInterface() {
     const extras = popularTokens.filter(
       (t) => t.mint && !heldMints.has(t.mint)
     );
-    return [...swapTokens, ...extras];
+    const combined = [...swapTokens, ...extras];
+
+    // LOYAL must always sit at the very top of the receive list — pin it,
+    // reusing the held entry (real price/balance) when available.
+    const loyal =
+      combined.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN;
+    return [loyal, ...combined.filter((t) => t.mint !== LOYL_TOKEN.mint)];
   }, [swapTokens, popularTokens]);
 
   // Sync token state when real positions load
   useEffect(() => {
     if (swapTokens.length > 0 && swapTokens[0].mint) {
-      setFromToken(swapTokens[0]);
-      setSendToken(swapTokens[0]);
+      const nextFrom = swapTokens[0];
+      setFromToken(nextFrom);
+      setSendToken(nextFrom);
       if (shieldTokens.length > 0) {
         setShieldToken(shieldTokens[0]);
       }
+      const loyalTarget =
+        swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN;
+      // Never default to a self-swap when the top holding is already LOYAL.
       setToToken(
-        swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
+        isSameSwapToken(loyalTarget, nextFrom)
+          ? swapTokens.find((t) => !isSameSwapToken(t, nextFrom)) ?? SOL_TOKEN
+          : loyalTarget
       );
     }
   }, [positions.length]);
@@ -1614,6 +1631,10 @@ function WalletInterface() {
             setSubView(null);
           }}
           onSwap={() => {
+            // Don't land on a self-swap when swapping from the receive token.
+            if (isSameSwapToken(asSwapToken, toToken)) {
+              setToToken(fromToken);
+            }
             setFromToken(asSwapToken);
             setSwapMode("swap");
             handleTabChange("swap");
@@ -1638,8 +1659,16 @@ function WalletInterface() {
           currentToken={subView.field === "from" ? fromToken : toToken}
           onSelect={(token) => {
             if (subView.field === "from") {
+              // Avoid from === to by flipping the receive side to the old from.
+              if (isSameSwapToken(token, toToken)) {
+                setToToken(fromToken);
+              }
               setFromToken(token);
             } else {
+              // Avoid to === from by flipping the pay side to the old to.
+              if (isSameSwapToken(token, fromToken)) {
+                setFromToken(toToken);
+              }
               setToToken(token);
             }
             setSubView(null);
