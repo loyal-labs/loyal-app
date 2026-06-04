@@ -15,10 +15,15 @@ import type { BlogPageResult, BlogPost, BlogPostFull } from "./types";
 export const BLOG_POSTS_PER_PAGE = 9;
 
 /**
- * Posts live in `public/blog/<slug>/index.md`, with media (hero, inline
- * images, avatars) colocated in the same folder and served statically.
+ * Each post is a folder `public/blog/<slug>/` holding the markdown body
+ * (`post.md`) and its colocated media (hero, inline images, avatars), all
+ * served statically. The body is deliberately NOT named `index.md`: Vercel's
+ * static layer serves a directory's `index.*` at its clean URL, which made a
+ * direct load of `/blog/<slug>` return the raw markdown instead of this route
+ * (client-side navigation was unaffected). Any non-`index` name avoids that.
  */
 const BLOG_CONTENT_DIR = path.join(process.cwd(), "public", "blog");
+const POST_FILENAME = "post.md";
 
 const WORDS_PER_MINUTE = 200;
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -63,9 +68,9 @@ function resolveMedia(slug: string, ref: string): string {
   return `/blog/${slug}/${ref.replace(/^\.\//, "")}`;
 }
 
-/** Reads and parses a single post directory; returns null if it has no index.md. */
+/** Reads and parses a single post directory; returns null if it has no post.md. */
 async function loadPost(slug: string): Promise<BlogPostFull | null> {
-  const file = path.join(BLOG_CONTENT_DIR, slug, "index.md");
+  const file = path.join(BLOG_CONTENT_DIR, slug, POST_FILENAME);
   let raw: string;
   try {
     raw = await fs.readFile(file, "utf8");
@@ -77,7 +82,7 @@ async function loadPost(slug: string): Promise<BlogPostFull | null> {
   const parsed = FrontmatterSchema.safeParse(data);
   if (!parsed.success) {
     throw new Error(
-      `Invalid frontmatter in blog/${slug}/index.md: ${parsed.error.message}`
+      `Invalid frontmatter in blog/${slug}/${POST_FILENAME}: ${parsed.error.message}`
     );
   }
 

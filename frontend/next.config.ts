@@ -30,9 +30,11 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_GIT_COMMIT_HASH: commitHash,
     NEXT_PUBLIC_GIT_BRANCH: branch,
   },
-  // Blog posts are read from public/blog/<slug>/index.md at request time by the
-  // (dynamic) /blog listing. public/ assets aren't bundled into serverless
-  // functions by default, so include the markdown sources explicitly.
+  // The (dynamic) /blog listing reads post markdown from
+  // public/blog/<slug>/post.md at request time. public/ assets aren't bundled
+  // into the serverless function by default, so include them explicitly. (The
+  // body is named post.md, not index.md, so Vercel's static layer doesn't serve
+  // the raw markdown at /blog/<slug> — see src/features/blog/data.ts.)
   outputFileTracingIncludes: {
     "/blog": ["./public/blog/**/*.md"],
   },
