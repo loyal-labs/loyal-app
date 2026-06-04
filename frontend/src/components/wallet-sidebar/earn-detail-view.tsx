@@ -637,7 +637,7 @@ function EarnGrowingBalance({
   );
 }
 
-const EARNINGS_CHART_HEIGHT = 242;
+const EARNINGS_CHART_HEIGHT = EARN_CHART_HEIGHT; // match the Forecast chart height
 const EARNINGS_RANGES = [
   {
     id: "7D",
@@ -662,6 +662,85 @@ const EARNINGS_RANGES = [
 ] as const;
 
 const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
+
+// Skeleton bars for a freshly-funded position before real earnings data lands,
+// so the chart always shows the current period (today / this month) as the last
+// bar instead of a blank "No earnings yet". Mirrors the server bucketing shape.
+function buildPlaceholderEarningsBars(
+  rangeId: EarningsRangeId
+): EarnEarningsBar[] {
+  const now = new Date();
+  const dayFormatter = new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+  });
+  const monthFormatter = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    year: "numeric",
+  });
+  const makeBar = (
+    startAt: Date,
+    endAt: Date,
+    label: string,
+    isCurrent: boolean
+  ): EarnEarningsBar => ({
+    apyBps: null,
+    avgPrincipalUsd: 0,
+    earnedUsd: 0,
+    endAt: endAt.toISOString(),
+    isCurrent,
+    label,
+    principalAmountRaw: "0",
+    principalUsd: 0,
+    startAt: startAt.toISOString(),
+  });
+
+  if (rangeId === "7D" || rangeId === "30D") {
+    const count = rangeId === "7D" ? 7 : 30;
+    return Array.from({ length: count }, (_, index) => {
+      const offset = count - 1 - index;
+      const dayStart = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - offset
+      );
+      const dayEnd = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() - offset + 1
+      );
+      const isCurrent = offset === 0;
+      return makeBar(
+        dayStart,
+        isCurrent ? now : dayEnd,
+        dayFormatter.format(dayStart),
+        isCurrent
+      );
+    });
+  }
+
+  if (rangeId === "1Y") {
+    return Array.from({ length: 12 }, (_, index) => {
+      const offset = 11 - index;
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      const monthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth() - offset + 1,
+        1
+      );
+      const isCurrent = offset === 0;
+      return makeBar(
+        monthStart,
+        isCurrent ? now : monthEnd,
+        monthFormatter.format(monthStart),
+        isCurrent
+      );
+    });
+  }
+
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  return [makeBar(monthStart, now, monthFormatter.format(monthStart), true)];
+}
 
 export function deriveEstimatedEarnedAmount({
   earningsData,
@@ -770,7 +849,6 @@ function formatSignedEarningsAmount(value: number) {
 function EarningsBlock({
   apy,
   earningsData,
-  earningsError,
   isLoadingEarnings,
   onRangeChange,
   principalAmount,
@@ -778,7 +856,6 @@ function EarningsBlock({
 }: {
   apy: EarnForecastApy;
   earningsData: EarnEarningsResponse | null;
-  earningsError: string | null;
   isLoadingEarnings: boolean;
   onRangeChange: (rangeId: EarningsRangeId) => void;
   principalAmount: number;
@@ -803,21 +880,36 @@ function EarningsBlock({
   const range =
     EARNINGS_RANGES.find((r) => r.id === rangeId) ?? EARNINGS_RANGES[1];
   const forecastAmount = principalAmount;
-  const bars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
-  const maxValue = useMemo(() => {
-    const peak = Math.max(...bars.map((bar) => bar.earnedUsd), 0);
-    return Math.max(0.01, peak);
+  const placeholderBars = useMemo(
+    () =>
+      principalAmount > 0
+        ? buildPlaceholderEarningsBars(rangeId)
+        : EMPTY_EARNINGS_BARS,
+    [principalAmount, rangeId]
+  );
+  const realBars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
+  const bars = realBars.length > 0 ? realBars : placeholderBars;
+  // Display earnings cumulatively (running total): earnings only accrue, so each
+  // period is never lower than the previous — "today" >= "yesterday".
+  const cumulativeBars = useMemo(() => {
+    let running = 0;
+    return bars.map((bar) => {
+      running += Math.max(0, bar.earnedUsd);
+      return { ...bar, cumulativeUsd: running };
+    });
   }, [bars]);
-  const hoveredBarEntry = hoveredBar !== null ? bars[hoveredBar] : null;
+  const maxValue = useMemo(() => {
+    const peak = Math.max(...cumulativeBars.map((bar) => bar.cumulativeUsd), 0);
+    return Math.max(0.01, peak);
+  }, [cumulativeBars]);
+  const hoveredBarEntry =
+    hoveredBar !== null ? cumulativeBars[hoveredBar] : null;
   const displayValue = hoveredBarEntry
-    ? hoveredBarEntry.earnedUsd
+    ? hoveredBarEntry.cumulativeUsd
     : earningsData?.lifetimeEarnedUsd ?? 0;
   const displayFractionDigits = getEarningsFractionDigits(displayValue);
   const rangeEarnedUsd = earningsData?.rangeEarnedUsd ?? 0;
   const subtitleNode = useMemo(() => {
-    if (earningsError) {
-      return <span style={{ color: secondary }}>{earningsError}</span>;
-    }
     if (isLoadingEarnings && !earningsData) {
       return <span style={{ color: secondary }}>Loading earnings</span>;
     }
@@ -825,7 +917,7 @@ function EarningsBlock({
       return (
         <>
           <span style={{ color: "#34C759" }}>
-            {formatSignedEarningsAmount(hoveredBarEntry.earnedUsd)}
+            {formatSignedEarningsAmount(hoveredBarEntry.cumulativeUsd)}
           </span>
           <span style={{ color: secondary }}>
             {" · "}
@@ -841,7 +933,6 @@ function EarningsBlock({
     );
   }, [
     earningsData,
-    earningsError,
     hoveredBarEntry,
     isLoadingEarnings,
     range.rangeSubtitle,
@@ -1128,15 +1219,15 @@ function EarningsBlock({
                 width: "100%",
               }}
             >
-              {bars.map((bar, i) => {
+              {cumulativeBars.map((bar, i) => {
                 const heightPct =
-                  maxValue > 0 ? (bar.earnedUsd / maxValue) * 100 : 0;
+                  maxValue > 0 ? (bar.cumulativeUsd / maxValue) * 100 : 0;
                 const isActive = hoveredBar === i;
                 const minHeightPx = 4;
                 return (
                   <button
                     aria-label={`${bar.label} earnings ${formatEarningsAmount(
-                      bar.earnedUsd
+                      bar.cumulativeUsd
                     )}`}
                     className={`earnings-bar${
                       isActive ? " earnings-bar-active" : ""
@@ -1160,7 +1251,7 @@ function EarningsBlock({
                   </button>
                 );
               })}
-              {bars.length === 0 ? (
+              {cumulativeBars.length === 0 ? (
                 <div
                   style={{
                     alignItems: "center",
@@ -1421,7 +1512,6 @@ export function EarnDetailView({
         <EarningsBlock
           apy={earnForecastApy}
           earningsData={earningsData}
-          earningsError={earningsError}
           isLoadingEarnings={isLoadingEarnings}
           key={`${principalAmount}:${earnForecastApy.apyBps}`}
           onRangeChange={setEarningsRangeId}
@@ -1597,6 +1687,7 @@ function WithdrawRouteRow({
   isOpen = false,
   isPosition = false,
   isSelected = false,
+  isStatic = false,
   onClick,
   subtitle,
 }: {
@@ -1606,6 +1697,7 @@ function WithdrawRouteRow({
   isOpen?: boolean;
   isPosition?: boolean;
   isSelected?: boolean;
+  isStatic?: boolean;
   onClick?: () => void;
   subtitle: string;
 }) {
@@ -1619,7 +1711,7 @@ function WithdrawRouteRow({
         alignItems: "center",
         background: isOpen ? "rgba(0, 0, 0, 0.04)" : "transparent",
         border: "none",
-        borderRadius: isDropdown ? "16px" : "8px",
+        borderRadius: isDropdown || isStatic ? "16px" : "8px",
         cursor: onClick ? "pointer" : "default",
         display: "flex",
         minHeight: "60px",
@@ -1742,13 +1834,7 @@ export function EarnWithdrawView({
   destinations?: EarnDepositSourceOption[];
 }) {
   const withdrawAmountInputRef = useRef<HTMLInputElement | null>(null);
-  const withdrawDestCloseTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [isWithdrawDestMenuOpen, setIsWithdrawDestMenuOpen] = useState(false);
-  const [isWithdrawDestMenuClosing, setIsWithdrawDestMenuClosing] =
-    useState(false);
   const destinationOptions =
     destinations.length > 0 ? destinations : FALLBACK_EARN_DEPOSIT_SOURCES;
   const [selectedDestinationId, setSelectedDestinationId] = useState(
@@ -1777,8 +1863,6 @@ export function EarnWithdrawView({
   const withdrawUsdDisplay = hasWithdrawAmount
     ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
-  const shouldShowWithdrawDestMenu =
-    isWithdrawDestMenuOpen || isWithdrawDestMenuClosing;
   const buildCurrentDraft = (): EarnWithdrawDraft => ({
     amount: numericWithdrawAmount,
     amountLabel: withdrawAmount,
@@ -1787,42 +1871,6 @@ export function EarnWithdrawView({
     symbol: "USDC",
     tokenDecimals: 6,
   });
-
-  const closeWithdrawDestMenu = () => {
-    if (!isWithdrawDestMenuOpen || isWithdrawDestMenuClosing) return;
-    setIsWithdrawDestMenuClosing(true);
-    withdrawDestCloseTimerRef.current = setTimeout(() => {
-      setIsWithdrawDestMenuOpen(false);
-      setIsWithdrawDestMenuClosing(false);
-      withdrawDestCloseTimerRef.current = null;
-    }, 180);
-  };
-
-  const openWithdrawDestMenu = () => {
-    if (withdrawDestCloseTimerRef.current) {
-      clearTimeout(withdrawDestCloseTimerRef.current);
-      withdrawDestCloseTimerRef.current = null;
-    }
-    setIsWithdrawDestMenuClosing(false);
-    setIsWithdrawDestMenuOpen(true);
-  };
-
-  const toggleWithdrawDestMenu = () => {
-    if (isWithdrawDestMenuClosing) {
-      openWithdrawDestMenu();
-      return;
-    }
-    if (isWithdrawDestMenuOpen) {
-      closeWithdrawDestMenu();
-      return;
-    }
-    openWithdrawDestMenu();
-  };
-
-  const handleDestinationSelect = (destinationId: string) => {
-    setSelectedDestinationId(destinationId);
-    closeWithdrawDestMenu();
-  };
 
   useEffect(() => {
     if (!destinationOptions.some((dest) => dest.id === selectedDestinationId)) {
@@ -1844,9 +1892,6 @@ export function EarnWithdrawView({
     });
     return () => {
       window.cancelAnimationFrame(frame);
-      if (withdrawDestCloseTimerRef.current) {
-        clearTimeout(withdrawDestCloseTimerRef.current);
-      }
     };
   }, []);
 
@@ -1877,34 +1922,6 @@ export function EarnWithdrawView({
         .earn-withdraw-amount-input::placeholder {
           color: rgba(60, 60, 67, 0.4);
           opacity: 1;
-        }
-        .earn-withdraw-source-sheet {
-          animation: earn-withdraw-source-sheet-open 0.18s ease forwards;
-          transform-origin: top center;
-        }
-        .earn-withdraw-source-sheet-closing {
-          animation: earn-withdraw-source-sheet-close 0.18s ease forwards;
-          pointer-events: none;
-        }
-        @keyframes earn-withdraw-source-sheet-open {
-          0% {
-            opacity: 0;
-            transform: translateY(-6px) scale(0.985);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-        @keyframes earn-withdraw-source-sheet-close {
-          0% {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(-6px) scale(0.985);
-          }
         }
       `}</style>
       <div
@@ -2124,48 +2141,9 @@ export function EarnWithdrawView({
           <WithdrawRouteRow
             amount={`${selectedDestination.balanceWhole}.${selectedDestination.balanceFraction}`}
             icon={selectedDestination.icon}
-            isDropdown
-            isOpen={isWithdrawDestMenuOpen}
-            onClick={toggleWithdrawDestMenu}
+            isStatic
             subtitle={`${selectedDestination.label} · ${selectedDestination.addressLabel}`}
           />
-          {shouldShowWithdrawDestMenu ? (
-            <div
-              className={`earn-withdraw-source-sheet ${
-                isWithdrawDestMenuClosing
-                  ? "earn-withdraw-source-sheet-closing"
-                  : ""
-              }`}
-              style={{
-                backdropFilter: "blur(16px)",
-                background: "rgba(255, 255, 255, 0.7)",
-                borderRadius: "16px",
-                boxShadow:
-                  "0 0 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08)",
-                display: "flex",
-                flexDirection: "column",
-                left: "8px",
-                overflow: "hidden",
-                padding: "8px",
-                position: "absolute",
-                right: "8px",
-                top: "232px",
-                WebkitBackdropFilter: "blur(16px)",
-                zIndex: 4,
-              }}
-            >
-              {destinationOptions.map((dest) => (
-                <WithdrawRouteRow
-                  amount={`${dest.balanceWhole}.${dest.balanceFraction}`}
-                  icon={dest.icon}
-                  isSelected={dest.id === selectedDestination.id}
-                  key={dest.id}
-                  onClick={() => handleDestinationSelect(dest.id)}
-                  subtitle={`${dest.label} · ${dest.addressLabel}`}
-                />
-              ))}
-            </div>
-          ) : null}
         </section>
       </div>
 
@@ -2888,6 +2866,7 @@ function DepositChart({
                       style={{
                         background: series.color,
                         borderRadius: "3px",
+                        flexShrink: 0,
                         height: "10px",
                         width: "10px",
                       }}
@@ -2901,7 +2880,7 @@ function DepositChart({
                         lineHeight: "16px",
                       }}
                     >
-                      {series.label}
+                      {series.label} ({formatEarnApyPercent(seriesApyBps)})
                     </span>
                   </div>
                   <span
@@ -2917,17 +2896,6 @@ function DepositChart({
                     <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
                       .{formatMoney(seriesValue).split(".")[1]}
                     </span>
-                  </span>
-                  <span
-                    style={{
-                      color: secondary,
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 400,
-                      lineHeight: "16px",
-                    }}
-                  >
-                    with {formatEarnApyPercent(seriesApyBps)} APY
                   </span>
                 </div>
               );
