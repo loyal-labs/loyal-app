@@ -30,6 +30,12 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_GIT_COMMIT_HASH: commitHash,
     NEXT_PUBLIC_GIT_BRANCH: branch,
   },
+  // Blog posts are read from public/blog/<slug>/index.md at request time by the
+  // (dynamic) /blog listing. public/ assets aren't bundled into serverless
+  // functions by default, so include the markdown sources explicitly.
+  outputFileTracingIncludes: {
+    "/blog": ["./public/blog/**/*.md"],
+  },
   images: {
     remotePatterns: [
       {

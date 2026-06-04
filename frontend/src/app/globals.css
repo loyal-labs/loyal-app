@@ -941,8 +941,8 @@
     line-height: 22px !important;
   }
 
-  /* Blockquote */
-  blockquote {
+  /* Blockquote (scoped to streamdown chat markdown; the blog renders its own) */
+  [data-streamdown] blockquote {
     border-left: 3px solid rgba(0, 0, 0, 0.2) !important;
     color: rgba(0, 0, 0, 0.7) !important;
   }
