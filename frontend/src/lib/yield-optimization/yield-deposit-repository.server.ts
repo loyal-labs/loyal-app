@@ -253,7 +253,7 @@ export async function recordConfirmedYieldDeposit(
   }
   if (
     input.policyInitialization === "reuse" &&
-    existingPosition.status !== "active"
+    existingPosition?.status !== "active"
   ) {
     throw new Error("Top-up yield deposit requires an active yield position.");
   }
