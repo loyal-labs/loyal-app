@@ -861,20 +861,24 @@ function EarningsBlock({
   principalAmount: number;
   rangeId: EarningsRangeId;
 }) {
-  const [activeTab, setActiveTab] = useState<"Earnings" | "Forecast">(
-    "Earnings"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "Earnings" | "Forecast" | "Historical"
+  >("Forecast");
   const [earningsRevision, setEarningsRevision] = useState(0);
   const [forecastRevision, setForecastRevision] = useState(0);
+  const [historicalRevision, setHistoricalRevision] = useState(0);
+  const [historicalRange, setHistoricalRange] = useState<EarningsRangeId>("30D");
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
-  const handleTabChange = (next: "Earnings" | "Forecast") => {
+  const handleTabChange = (next: "Earnings" | "Forecast" | "Historical") => {
     if (next === activeTab) return;
     setActiveTab(next);
     setHoveredBar(null);
     if (next === "Earnings") {
       setEarningsRevision((r) => r + 1);
-    } else {
+    } else if (next === "Forecast") {
       setForecastRevision((r) => r + 1);
+    } else {
+      setHistoricalRevision((r) => r + 1);
     }
   };
   const range =
@@ -1060,7 +1064,7 @@ function EarningsBlock({
             minWidth: 0,
           }}
         >
-          {(["Earnings", "Forecast"] as const).map((tab) => {
+          {(["Historical", "Earnings", "Forecast"] as const).map((tab) => {
             const isActive = activeTab === tab;
             return (
               <button
@@ -1096,6 +1100,45 @@ function EarningsBlock({
           width: "100%",
         }}
       >
+        <div
+          aria-hidden={activeTab !== "Historical"}
+          className="earnings-tab-panel"
+          key={`historical-${historicalRevision}`}
+          style={{
+            filter: activeTab === "Historical" ? "blur(0)" : "blur(2px)",
+            gridArea: "panel",
+            opacity: activeTab === "Historical" ? 1 : 0,
+            pointerEvents: activeTab === "Historical" ? "auto" : "none",
+            transform:
+              activeTab === "Historical"
+                ? "translateY(0) scale(1)"
+                : "translateY(6px) scale(0.985)",
+          }}
+        >
+          <div style={{ padding: "12px", width: "100%" }}>
+            <HistoricalApyChart key={historicalRange} rangeId={historicalRange} />
+            <div style={{ display: "flex", paddingTop: "8px", width: "100%" }}>
+              <div
+                style={{ display: "flex", flex: 1, gap: "8px", minWidth: 0 }}
+              >
+                {EARNINGS_RANGES.map((r) => (
+                  <button
+                    className={`earnings-range-chip${
+                      r.id === historicalRange
+                        ? " earnings-range-chip-active"
+                        : ""
+                    }`}
+                    key={r.id}
+                    onClick={() => setHistoricalRange(r.id)}
+                    type="button"
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
         <div
           aria-hidden={activeTab !== "Forecast"}
           className="earnings-tab-panel"
@@ -2523,6 +2566,267 @@ function DepositSourceRow({
         ) : null}
       </button>
     </>
+  );
+}
+
+type HistoricalApySample = { apyPercent: number; date: string };
+
+const HISTORICAL_APY_BASELINE = 5;
+const HISTORICAL_APY_MIN = 2.5;
+const HISTORICAL_RANGE_CONFIG: Record<
+  EarningsRangeId,
+  { points: number; seed: number; spanDays: number }
+> = {
+  "7D": { points: 112, seed: 17, spanDays: 7 },
+  "30D": { points: 168, seed: 30, spanDays: 30 },
+  "1Y": { points: 184, seed: 365, spanDays: 365 },
+  ALL: { points: 208, seed: 540, spanDays: 540 },
+};
+// Fixed spike positions/magnitudes so the mocked line resembles the reference
+// screenshot: a calm ~5% baseline with a sharp burst up to ~33% APY.
+const HISTORICAL_APY_SPIKES = [
+  { at: 0.31, magnitude: 7, width: 0.006 },
+  { at: 0.34, magnitude: 28, width: 0.005 },
+  { at: 0.38, magnitude: 18, width: 0.006 },
+  { at: 0.42, magnitude: 8, width: 0.008 },
+  { at: 0.46, magnitude: 9, width: 0.006 },
+  { at: 0.54, magnitude: 4, width: 0.016 },
+  { at: 0.86, magnitude: 3, width: 0.02 },
+];
+
+// Deterministic PRNG (mulberry32) keyed per range so the mocked series is
+// stable across re-renders and only changes when the period changes.
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+function formatHistoricalAxisDate(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}`;
+}
+
+function buildHistoricalApySamples(
+  rangeId: EarningsRangeId,
+  now: Date
+): HistoricalApySample[] {
+  const config = HISTORICAL_RANGE_CONFIG[rangeId];
+  const random = mulberry32(config.seed);
+  const endMs = now.getTime();
+  const spanMs = config.spanDays * 24 * 60 * 60 * 1000;
+
+  return Array.from({ length: config.points }, (_, index) => {
+    const progress = index / (config.points - 1);
+    let apyPercent =
+      HISTORICAL_APY_BASELINE +
+      (random() - 0.5) * 1.2 +
+      Math.sin(index * 0.7 + config.seed) * 0.35;
+
+    for (const spike of HISTORICAL_APY_SPIKES) {
+      const distance = (progress - spike.at) / spike.width;
+      if (Math.abs(distance) < 6) {
+        apyPercent +=
+          spike.magnitude *
+          Math.exp(-(distance * distance)) *
+          (0.85 + random() * 0.3);
+      }
+    }
+
+    return {
+      apyPercent: Math.max(HISTORICAL_APY_MIN, apyPercent),
+      date: formatHistoricalAxisDate(new Date(endMs - spanMs * (1 - progress))),
+    };
+  });
+}
+
+function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
+  const samples = useMemo(
+    () => buildHistoricalApySamples(rangeId, new Date()),
+    [rangeId]
+  );
+  const maxApy = samples.reduce((max, sample) => Math.max(max, sample.apyPercent), 0);
+  const axisStep = niceCeilStep(Math.max(maxApy, 1) / 7);
+  const levelCount = Math.max(2, Math.ceil(maxApy / axisStep) + 1);
+  const axisMax = axisStep * (levelCount - 1);
+  const plotRange = EARN_CHART_BASELINE - EARN_CHART_TOP;
+  const plot = (value: number) =>
+    EARN_CHART_BASELINE - (value / axisMax) * plotRange;
+  const xForIndex = (index: number) =>
+    (index / Math.max(samples.length - 1, 1)) * EARN_CHART_WIDTH;
+  const gridLines = Array.from({ length: levelCount }, (_, level) => {
+    const value = axisStep * level;
+    const y = plot(value);
+    return {
+      label: `${value.toFixed(2)}%`,
+      level,
+      topPercent: (y / EARN_CHART_HEIGHT) * 100,
+      y,
+    };
+  });
+  const linePath = samples
+    .map(
+      (sample, index) =>
+        `${index === 0 ? "M" : "L"}${xForIndex(index)},${plot(sample.apyPercent)}`
+    )
+    .join(" ");
+  const axisDateCount = Math.min(7, samples.length);
+  const axisDates = Array.from({ length: axisDateCount }, (_, slot) => {
+    const index = Math.round(
+      (slot / Math.max(axisDateCount - 1, 1)) * (samples.length - 1)
+    );
+    return samples[index].date;
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        padding: "2px 0",
+        position: "relative",
+        width: "100%",
+      }}
+    >
+      <style jsx>{`
+        .historical-chart-reveal-rect {
+          animation: historical-chart-reveal 0.7s cubic-bezier(0.2, 0, 0, 1) both;
+          transform-origin: 0 0;
+        }
+        @keyframes historical-chart-reveal {
+          0% {
+            transform: scaleX(0);
+          }
+          100% {
+            transform: scaleX(1);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .historical-chart-reveal-rect {
+            animation: none;
+          }
+        }
+      `}</style>
+
+      <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+        <div
+          style={{
+            flex: 1,
+            height: `${EARN_CHART_HEIGHT}px`,
+            minWidth: 0,
+            position: "relative",
+          }}
+        >
+          <svg
+            aria-label="Historical APY chart"
+            preserveAspectRatio="none"
+            role="img"
+            style={{ display: "block", height: "100%", width: "100%" }}
+            viewBox={`0 0 ${EARN_CHART_WIDTH} ${EARN_CHART_HEIGHT}`}
+          >
+            <defs>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="historical-chart-reveal-clip"
+              >
+                <rect
+                  className="historical-chart-reveal-rect"
+                  height={EARN_CHART_HEIGHT}
+                  width={EARN_CHART_WIDTH}
+                  x={0}
+                  y={0}
+                />
+              </clipPath>
+            </defs>
+            {gridLines.map((grid) => (
+              <line
+                key={grid.level}
+                stroke={
+                  grid.level === 0
+                    ? "rgba(60, 60, 67, 0.18)"
+                    : "rgba(60, 60, 67, 0.08)"
+                }
+                strokeWidth="1"
+                x1={0}
+                x2={EARN_CHART_WIDTH}
+                y1={grid.y}
+                y2={grid.y}
+              />
+            ))}
+            <g clipPath="url(#historical-chart-reveal-clip)">
+              <path
+                d={linePath}
+                fill="none"
+                stroke="#34C759"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+              />
+            </g>
+          </svg>
+        </div>
+
+        <div
+          aria-hidden="true"
+          style={{
+            height: `${EARN_CHART_HEIGHT}px`,
+            position: "relative",
+            width: "56px",
+          }}
+        >
+          {gridLines.map((grid) => (
+            <span
+              key={grid.level}
+              style={{
+                color: "rgba(60, 60, 67, 0.4)",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                position: "absolute",
+                right: 0,
+                top: `${grid.topPercent}%`,
+                transform: "translateY(-50%)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {grid.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          paddingRight: "56px",
+          paddingTop: "8px",
+          width: "100%",
+        }}
+      >
+        {axisDates.map((date, index) => (
+          <span
+            key={`${date}-${index}`}
+            style={{
+              color: "rgba(60, 60, 67, 0.4)",
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {date}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
