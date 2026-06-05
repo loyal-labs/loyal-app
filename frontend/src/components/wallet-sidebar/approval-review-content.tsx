@@ -1,5 +1,6 @@
 "use client";
 
+import { DogWithMood } from "@/components/chat-input";
 import type { SmartAccountApprovalItem } from "@/hooks/use-smart-account-sidebar-data";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
@@ -29,6 +30,7 @@ export type ApprovalReviewPage = {
   amount?: string;
   collapsibles?: ApprovalReviewCollapsible[];
   heading: string;
+  mascotNote?: string;
   rows?: ApprovalReviewDisplayRow[];
   subheading?: string;
   symbol?: string;
@@ -921,6 +923,124 @@ function CollapsibleRows({
   );
 }
 
+function ApprovalMascotNote({ text }: { text: string }) {
+  return (
+    <div className="approval-mascot-note">
+      <style jsx>{`
+        .approval-mascot-note {
+          display: flex;
+          width: 100%;
+          align-items: flex-end;
+          justify-content: flex-end;
+          gap: 12px;
+          padding: 4px 20px 12px;
+        }
+        .approval-mascot-bubble {
+          position: relative;
+          max-width: 300px;
+          padding: 12px 16px;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          border-radius: 18px;
+          background: #fff;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
+            0 2px 6px rgba(0, 0, 0, 0.04);
+          color: rgba(0, 0, 0, 0.86);
+          font-family: var(--font-geist-sans), sans-serif;
+          font-size: 15px;
+          font-weight: 500;
+          line-height: 21px;
+          transform-origin: 100% 50%;
+          animation: approval-mascot-bubble-unravel 0.62s
+            cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+        }
+        .approval-mascot-bubble-content {
+          display: block;
+          animation: approval-mascot-bubble-content 0.62s
+            cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+        }
+        .approval-mascot-bubble::before {
+          content: "";
+          position: absolute;
+          right: -6px;
+          bottom: 18px;
+          width: 11px;
+          height: 11px;
+          background: #fff;
+          border-top: 1px solid rgba(0, 0, 0, 0.08);
+          border-right: 1px solid rgba(0, 0, 0, 0.08);
+          transform: rotate(45deg);
+          animation: approval-mascot-bubble-tail 0.62s
+            cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+        }
+        .approval-mascot-dog {
+          flex-shrink: 0;
+          width: 88px;
+          height: 70px;
+          animation: approval-mascot-dog-slide-in 0.5s
+            cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .approval-mascot-dog :global(svg) {
+          display: block;
+          width: 100%;
+          height: 100%;
+        }
+        @keyframes approval-mascot-bubble-unravel {
+          from {
+            opacity: 0;
+            transform: translateX(4px) scaleX(0.08);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0) scaleX(1);
+          }
+        }
+        @keyframes approval-mascot-bubble-content {
+          from {
+            clip-path: inset(0 0 0 100%);
+          }
+          to {
+            clip-path: inset(0 0 0 0);
+          }
+        }
+        @keyframes approval-mascot-bubble-tail {
+          from {
+            opacity: 0;
+            transform: translateX(4px) rotate(45deg) scale(0.3);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0) rotate(45deg) scale(1);
+          }
+        }
+        @keyframes approval-mascot-dog-slide-in {
+          from {
+            opacity: 0;
+            transform: translateX(28px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .approval-mascot-bubble,
+          .approval-mascot-bubble-content,
+          .approval-mascot-bubble::before,
+          .approval-mascot-dog {
+            animation: none;
+          }
+        }
+      `}</style>
+      <div className="approval-mascot-bubble" key={text}>
+        <span className="approval-mascot-bubble-content">{text}</span>
+      </div>
+      <div className="approval-mascot-dog">
+        <DogWithMood />
+      </div>
+    </div>
+  );
+}
+
 function PagedApprovalReview({
   actionError,
   isSubmitting,
@@ -1126,6 +1246,8 @@ function PagedApprovalReview({
           ) : null}
         </div>
       </div>
+
+      {page.mascotNote ? <ApprovalMascotNote text={page.mascotNote} /> : null}
 
       <div style={{ padding: "16px 20px" }}>
         {actionError ? (

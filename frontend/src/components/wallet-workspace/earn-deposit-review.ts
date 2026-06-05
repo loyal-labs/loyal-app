@@ -117,7 +117,7 @@ export function buildEarnDepositReviewItem(args: {
     {
       title: "Approval 1 of 2",
       heading: "Set up yield routing",
-      subheading: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} across Kamino's Safe markets.`,
+      mascotNote: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} across Kamino's Safe markets.`,
       rows: [
         {
           label: "What you're approving",
@@ -141,6 +141,7 @@ export function buildEarnDepositReviewItem(args: {
       amount: args.draft.amountLabel,
       symbol: args.draft.symbol,
       heading: `Deposit into ${EARN_VAULT_LABEL}`,
+      mascotNote: "Now, last step to put the money in!",
       rows: [
         { label: "From", value: args.draft.source.label },
         { label: "Earning in", value: "Kamino Main Market USDC reserve" },
