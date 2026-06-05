@@ -160,6 +160,7 @@ type PersistedWorkspaceSelection =
       signerAddress: string;
       signerId: string;
     }
+  | { type: "earn" }
   | { type: "vault"; accountIndex: number }
   | { type: "wallet" };
 const PANE_WIDTH_STORAGE_KEY = "loyal-wallet-workspace-pane-widths";
@@ -247,6 +248,10 @@ function readPersistedWorkspaceSelection(): PersistedWorkspaceSelection | null {
 
     if (parsed.type === "wallet") {
       return { type: "wallet" };
+    }
+
+    if (parsed.type === "earn") {
+      return { type: "earn" };
     }
 
     if (parsed.type === "vault" && typeof parsed.accountIndex === "number") {
@@ -1204,6 +1209,10 @@ export function AppWalletWorkspace({
         : null,
     [detailSelection, pendingEarnWithdrawDraft]
   );
+  // An Earn deposit/withdraw approval is being reviewed in the right pane.
+  const isReviewApprovalFocused = Boolean(
+    earnDepositReviewItem || earnWithdrawReviewItem
+  );
   const hasEarnPosition =
     activeEarnPosition?.status === "active" &&
     BigInt(activeEarnPosition.principalAmountRaw) > BigInt(0);
@@ -1501,6 +1510,9 @@ export function AppWalletWorkspace({
     const storedSelection = readPersistedWorkspaceSelection();
 
     if (!storedSelection) {
+      setDetailSelection("earn");
+      setSelectedSignerId(null);
+      setSelectedDetail("Earn");
       hasRestoredSelectionRef.current = true;
       return;
     }
@@ -1509,6 +1521,14 @@ export function AppWalletWorkspace({
       setDetailSelection("wallet");
       setSelectedSignerId(null);
       setSelectedDetail("My Wallet");
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    if (storedSelection.type === "earn") {
+      setDetailSelection("earn");
+      setSelectedSignerId(null);
+      setSelectedDetail("Earn");
       hasRestoredSelectionRef.current = true;
       return;
     }
@@ -1578,6 +1598,12 @@ export function AppWalletWorkspace({
               signerId: selectedAgent.id,
             }
           : { type: "wallet" };
+    } else if (
+      stableSelection === "earn" ||
+      stableSelection === "earnDeposit" ||
+      stableSelection === "earnWithdraw"
+    ) {
+      selectionToPersist = { type: "earn" };
     } else if (stableSelection === "vault" && selectedVault) {
       selectionToPersist = {
         type: "vault",
@@ -3587,6 +3613,7 @@ export function AppWalletWorkspace({
       className="wallet-workspace"
       data-policy-view={activeSection === "policies" ? policyView : undefined}
       data-rate-limited={isSmartAccountRateLimited}
+      data-review-focused={isReviewApprovalFocused}
       data-signed-in={showWorkspaceShell}
       data-workspace-section={activeSection}
       style={
@@ -3698,7 +3725,10 @@ export function AppWalletWorkspace({
         </>
       ) : null}
 
-      <section className="wallet-workspace-pane wallet-workspace-detail-pane">
+      <section
+        className="wallet-workspace-pane wallet-workspace-detail-pane"
+        data-earn-detail={isEarnReviewContext}
+      >
         <div
           className="wallet-workspace-detail-transition"
           data-transition={detailPaneTransition}
@@ -3756,6 +3786,8 @@ export function AppWalletWorkspace({
                 onClose={handleOpenEarn}
                 onDecline={handleDismissEarnDepositPreview}
                 onExecute={handleCompleteEarnDeposit}
+                showBack={false}
+                showClose={false}
               />
             ) : earnWithdrawReviewItem ? (
               <ApprovalReviewContent
@@ -3767,6 +3799,8 @@ export function AppWalletWorkspace({
                 onClose={handleBackFromEarnWithdraw}
                 onDecline={handleDismissEarnWithdrawPreview}
                 onExecute={() => void handleCompleteEarnWithdraw()}
+                showBack={false}
+                showClose={false}
               />
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
@@ -4244,6 +4278,35 @@ export function AppWalletWorkspace({
         .wallet-workspace-detail-pane > div {
           min-height: 0;
           width: 100%;
+        }
+
+        .wallet-workspace-detail-pane[data-earn-detail="true"] > div {
+          max-width: 768px;
+          margin-inline: auto;
+        }
+
+        /* Focus the active approval: darken everything with a scrim and lift
+           the review pane above it so only the approval stays bright. */
+        .wallet-workspace::after {
+          content: "";
+          position: fixed;
+          inset: 0;
+          z-index: 40;
+          background: rgba(0, 0, 0, 0.5);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
+        }
+
+        .wallet-workspace[data-review-focused="true"]::after {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .wallet-workspace[data-review-focused="true"]
+          .wallet-workspace-review-pane {
+          position: relative;
+          z-index: 50;
         }
 
         .wallet-workspace-detail-transition {
@@ -4859,6 +4922,20 @@ export function AppWalletWorkspace({
             display: none;
           }
 
+          /* Keep an active approval visible when the grid drops the review
+             column — float it as an overlay over the dimmed panes. */
+          .wallet-workspace[data-review-focused="true"]
+            .wallet-workspace-review-pane {
+            display: block;
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: min(100vw, 420px);
+            z-index: 50;
+            box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+          }
+
           .wallet-workspace[data-signed-in="false"] {
             grid-template-columns: 60px 32px minmax(0, 1fr);
           }
@@ -4890,6 +4967,15 @@ export function AppWalletWorkspace({
           .wallet-workspace-detail-pane,
           .wallet-workspace-review-pane {
             display: none;
+          }
+
+          .wallet-workspace[data-review-focused="true"]
+            .wallet-workspace-review-pane {
+            display: block;
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            z-index: 50;
           }
 
           .wallet-workspace[data-rate-limited="true"]

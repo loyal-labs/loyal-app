@@ -66,6 +66,7 @@ export function ApprovalReviewContent({
   onDecline,
   onApprove,
   onExecute,
+  showBack = true,
   showClose = true,
   actionError = null,
 }: {
@@ -76,6 +77,7 @@ export function ApprovalReviewContent({
   onDecline: () => void;
   onApprove: () => void;
   onExecute: () => void;
+  showBack?: boolean;
   showClose?: boolean;
   actionError?: string | null;
 }) {
@@ -87,6 +89,7 @@ export function ApprovalReviewContent({
         <SubViewHeader
           onBack={onBack}
           onClose={onClose}
+          showBack={showBack}
           showClose={showClose}
           title="Approval"
         />
@@ -130,6 +133,7 @@ export function ApprovalReviewContent({
         pages={pages}
         primaryActionLabel={pagedPrimary}
         secondaryActionLabel={pagedSecondary}
+        showBack={showBack}
         showClose={showClose}
       />
     );
@@ -186,6 +190,7 @@ export function ApprovalReviewContent({
       <SubViewHeader
         onBack={onBack}
         onClose={onClose}
+        showBack={showBack}
         showClose={showClose}
         title="Approval"
       />
@@ -926,6 +931,7 @@ function PagedApprovalReview({
   pages,
   primaryActionLabel,
   secondaryActionLabel,
+  showBack,
   showClose,
 }: {
   actionError: string | null;
@@ -937,6 +943,7 @@ function PagedApprovalReview({
   pages: ApprovalReviewPage[];
   primaryActionLabel: string;
   secondaryActionLabel: string;
+  showBack: boolean;
   showClose: boolean;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
@@ -986,6 +993,7 @@ function PagedApprovalReview({
       <SubViewHeader
         onBack={goBack}
         onClose={onClose}
+        showBack={showBack}
         showClose={showClose}
         title={page.title}
       />
