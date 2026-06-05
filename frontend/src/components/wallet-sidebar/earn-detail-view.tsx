@@ -216,35 +216,35 @@ export function buildEarnChartPoints(
   });
 }
 
-type EarnComparisonSeriesKey = "kamino" | "loyal" | "source3";
+type EarnComparisonSeriesKey = "loyal" | "prime" | "tBill";
 
 const EARN_COMPARISON_SERIES: {
-  apyOffsetBps: number;
   color: string;
   dashed: boolean;
+  fixedApyBps: number | null;
   key: EarnComparisonSeriesKey;
   label: string;
 }[] = [
   {
-    apyOffsetBps: 0,
     color: "#34C759",
     dashed: false,
+    fixedApyBps: null,
     key: "loyal",
     label: "Loyal Smart Earn",
   },
   {
-    apyOffsetBps: 300,
     color: "#2688EB",
     dashed: true,
-    key: "kamino",
-    label: "Static Kamino",
+    fixedApyBps: 559,
+    key: "prime",
+    label: "USDC Prime Reserve",
   },
   {
-    apyOffsetBps: 500,
-    color: "#FFA000",
+    color: "#8E8E93",
     dashed: true,
-    key: "source3",
-    label: "Static Yield Source 3",
+    fixedApyBps: 365,
+    key: "tBill",
+    label: "T-Bill",
   },
 ];
 
@@ -256,8 +256,11 @@ type EarnComparisonPoint = {
   values: Record<EarnComparisonSeriesKey, number>;
 };
 
-function getEarnComparisonApyBps(apyBps: number, offsetBps: number): number {
-  return Math.max(apyBps - offsetBps, EARN_COMPARISON_MIN_APY_BPS);
+function getEarnComparisonApyBps(
+  forecastApyBps: number,
+  fixedApyBps: number | null
+): number {
+  return Math.max(fixedApyBps ?? forecastApyBps, EARN_COMPARISON_MIN_APY_BPS);
 }
 
 export function buildEarnComparisonPoints(
@@ -267,7 +270,10 @@ export function buildEarnComparisonPoints(
   const months = 12;
   const targets = EARN_COMPARISON_SERIES.reduce(
     (acc, series) => {
-      const apyBps = getEarnComparisonApyBps(apy.apyBps, series.apyOffsetBps);
+      const apyBps = getEarnComparisonApyBps(
+        apy.apyBps,
+        series.fixedApyBps
+      );
       acc[series.key] = principal * getEarnForecastTargetMultiplier(apyBps);
       return acc;
     },
@@ -846,6 +852,17 @@ function formatSignedEarningsAmount(value: number) {
   return `${sign}$${formatted}`;
 }
 
+type EarnChartTab = "Earnings" | "Forecast" | "Historical";
+
+const EARN_CHART_TABS: readonly {
+  id: EarnChartTab;
+  label: string;
+}[] = [
+  { id: "Forecast", label: "Forecast" },
+  { id: "Historical", label: "APY" },
+  { id: "Earnings", label: "Earned" },
+];
+
 function EarningsBlock({
   apy,
   earningsData,
@@ -861,15 +878,12 @@ function EarningsBlock({
   principalAmount: number;
   rangeId: EarningsRangeId;
 }) {
-  const [activeTab, setActiveTab] = useState<
-    "Earnings" | "Forecast" | "Historical"
-  >("Forecast");
+  const [activeTab, setActiveTab] = useState<EarnChartTab>("Forecast");
   const [earningsRevision, setEarningsRevision] = useState(0);
   const [forecastRevision, setForecastRevision] = useState(0);
   const [historicalRevision, setHistoricalRevision] = useState(0);
-  const [historicalRange, setHistoricalRange] = useState<EarningsRangeId>("30D");
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
-  const handleTabChange = (next: "Earnings" | "Forecast" | "Historical") => {
+  const handleTabChange = (next: EarnChartTab) => {
     if (next === activeTab) return;
     setActiveTab(next);
     setHoveredBar(null);
@@ -1064,12 +1078,12 @@ function EarningsBlock({
             minWidth: 0,
           }}
         >
-          {(["Historical", "Earnings", "Forecast"] as const).map((tab) => {
-            const isActive = activeTab === tab;
+          {EARN_CHART_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
             return (
               <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
                 style={{
                   background: isActive ? "#F5F5F5" : "transparent",
                   border: "none",
@@ -1085,7 +1099,7 @@ function EarningsBlock({
                 }}
                 type="button"
               >
-                {tab}
+                {tab.label}
               </button>
             );
           })}
@@ -1116,27 +1130,7 @@ function EarningsBlock({
           }}
         >
           <div style={{ padding: "12px", width: "100%" }}>
-            <HistoricalApyChart key={historicalRange} rangeId={historicalRange} />
-            <div style={{ display: "flex", paddingTop: "8px", width: "100%" }}>
-              <div
-                style={{ display: "flex", flex: 1, gap: "8px", minWidth: 0 }}
-              >
-                {EARNINGS_RANGES.map((r) => (
-                  <button
-                    className={`earnings-range-chip${
-                      r.id === historicalRange
-                        ? " earnings-range-chip-active"
-                        : ""
-                    }`}
-                    key={r.id}
-                    onClick={() => setHistoricalRange(r.id)}
-                    type="button"
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <HistoricalApyChart key="30D" rangeId="30D" />
           </div>
         </div>
         <div
@@ -2774,7 +2768,11 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
     () => buildHistoricalApySamples(rangeId, new Date()),
     [rangeId]
   );
-  const maxApy = samples.reduce((max, sample) => Math.max(max, sample.apyPercent), 0);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const maxApy = samples.reduce(
+    (max, sample) => Math.max(max, sample.apyPercent),
+    0
+  );
   const axisStep = niceCeilStep(Math.max(maxApy, 1) / 7);
   const levelCount = Math.max(2, Math.ceil(maxApy / axisStep) + 1);
   const axisMax = axisStep * (levelCount - 1);
@@ -2806,6 +2804,27 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
     );
     return samples[index].date;
   });
+  const hoveredSample =
+    hoverIndex === null
+      ? null
+      : samples[Math.min(hoverIndex, samples.length - 1)];
+  const hoverLeft =
+    hoveredSample === null
+      ? 0
+      : (xForIndex(Math.min(hoverIndex ?? 0, samples.length - 1)) /
+          EARN_CHART_WIDTH) *
+        100;
+  const tooltipLeft = Math.min(Math.max(hoverLeft, 16), 84);
+  const hoverTop =
+    hoveredSample === null
+      ? 0
+      : (plot(hoveredSample.apyPercent) / EARN_CHART_HEIGHT) * 100;
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    setHoverIndex(Math.round((x / rect.width) * (samples.length - 1)));
+  };
 
   return (
     <div
@@ -2822,6 +2841,9 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
           animation: historical-chart-reveal 0.7s cubic-bezier(0.2, 0, 0, 1) both;
           transform-origin: 0 0;
         }
+        .historical-chart-hover-elements {
+          animation: historical-chart-hover-fade 0.18s ease both;
+        }
         @keyframes historical-chart-reveal {
           0% {
             transform: scaleX(0);
@@ -2831,14 +2853,25 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
           }
         }
         @media (prefers-reduced-motion: reduce) {
+          .historical-chart-hover-elements,
           .historical-chart-reveal-rect {
             animation: none;
+          }
+        }
+        @keyframes historical-chart-hover-fade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
           }
         }
       `}</style>
 
       <div style={{ display: "flex", gap: "8px", width: "100%" }}>
         <div
+          onPointerLeave={() => setHoverIndex(null)}
+          onPointerMove={handlePointerMove}
           style={{
             flex: 1,
             height: `${EARN_CHART_HEIGHT}px`,
@@ -2893,6 +2926,90 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
               />
             </g>
           </svg>
+
+          {hoveredSample ? (
+            <>
+              <div
+                aria-hidden="true"
+                className="historical-chart-hover-elements"
+                style={{
+                  borderLeft: "1px dashed rgba(60, 60, 67, 0.18)",
+                  height: `${(plotRange / EARN_CHART_HEIGHT) * 100}%`,
+                  left: `${hoverLeft}%`,
+                  pointerEvents: "none",
+                  position: "absolute",
+                  top: `${(EARN_CHART_TOP / EARN_CHART_HEIGHT) * 100}%`,
+                }}
+              />
+              <span
+                aria-hidden="true"
+                className="historical-chart-hover-elements"
+                style={{
+                  background: "#34C759",
+                  borderRadius: "9999px",
+                  boxShadow: "0 0 0 2px #fff",
+                  height: "8px",
+                  left: `${hoverLeft}%`,
+                  pointerEvents: "none",
+                  position: "absolute",
+                  top: `${hoverTop}%`,
+                  transform: "translate(-50%, -50%)",
+                  width: "8px",
+                }}
+              />
+              <div
+                className="historical-chart-hover-elements"
+                style={{
+                  background: "#F5F5F5",
+                  borderRadius: "16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                  left: `${tooltipLeft}%`,
+                  padding: "8px 12px",
+                  pointerEvents: "none",
+                  position: "absolute",
+                  top: "8px",
+                  transform: "translateX(-50%)",
+                  width: "126px",
+                }}
+              >
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                  }}
+                >
+                  {hoveredSample.date}
+                </span>
+                <span
+                  style={{
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    lineHeight: "24px",
+                  }}
+                >
+                  {hoveredSample.apyPercent.toFixed(2)}%
+                </span>
+                <span
+                  style={{
+                    color: "#34C759",
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                  }}
+                >
+                  APY
+                </span>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div
@@ -2968,7 +3085,7 @@ function DepositChart({
   const defaultHoverIndex = Math.floor((points.length - 1) / 2);
   const [hoverIndex, setHoverIndex] = useState(defaultHoverIndex);
 
-  const loyalApyBps = getEarnComparisonApyBps(apy.apyBps, 0);
+  const loyalApyBps = getEarnComparisonApyBps(apy.apyBps, null);
   const loyalTarget =
     principal * getEarnForecastTargetMultiplier(loyalApyBps);
   const minValue = principal;
@@ -3251,7 +3368,7 @@ function DepositChart({
             {staticSeries.map((series) => {
               const seriesApyBps = getEarnComparisonApyBps(
                 apy.apyBps,
-                series.apyOffsetBps
+                series.fixedApyBps
               );
               const seriesValue = hoverPoint.values[series.key];
               return (
