@@ -47,7 +47,7 @@ export type YieldPlanningMetadata = Record<string, unknown>;
 export const routePolicies = loyalYieldSchema.table(
   "route_policies",
   {
-    id: bigint("id", { mode: "bigint" }).primaryKey(),
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
     cluster: text("cluster").notNull(),
     settings: text("settings").notNull(),
     authority: text("authority").notNull(),

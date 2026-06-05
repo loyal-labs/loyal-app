@@ -129,7 +129,6 @@ export function createRoutePolicyValuesFromPlan(
     cluster: input.cluster,
     delegatedSigners: [input.walletAddress],
     firstSeenAt: now,
-    id: input.policyId,
     kaminoLiquidityMints: plan.persistence.kaminoLiquidityMints,
     kaminoMarkets: plan.persistence.kaminoMarkets,
     lastSeenAt: now,
@@ -276,9 +275,40 @@ export async function recordConfirmedYieldDeposit(
     input,
     now
   );
+  const [routePolicy] = await client.db
+    .insert(routePolicies)
+    .values(routePolicyValues)
+    .onConflictDoUpdate({
+      target: [routePolicies.cluster, routePolicies.policyAccount],
+      set: {
+        active: true,
+        authority: sql`excluded.authority`,
+        delegatedSigners: sql`excluded.delegated_signers`,
+        kaminoLiquidityMints: sql`excluded.kamino_liquidity_mints`,
+        kaminoMarkets: sql`excluded.kamino_markets`,
+        lastSeenAt: now,
+        lastSeenSignature: input.policySignature,
+        lastSeenSlot: input.confirmedSlot,
+        policySeed: input.policySeed,
+        riskProfile: sql`excluded.risk_profile`,
+        routeModes: sql`excluded.route_modes`,
+        stableMints: sql`excluded.stable_mints`,
+        swapLanes: sql`excluded.swap_lanes`,
+        threshold: sql`excluded.threshold`,
+        universePreset: sql`excluded.universe_preset`,
+        vaultIndex: routePolicyValues.vaultIndex,
+        vaultPubkey: routePolicyValues.vaultPubkey,
+      },
+    })
+    .returning({ id: routePolicies.id });
+
+  if (!routePolicy) {
+    throw new Error("Failed to record confirmed yield route policy.");
+  }
+
   const managedVaultValues = {
     active: true,
-    activePolicyId: input.policyId,
+    activePolicyId: routePolicy.id,
     cluster: input.cluster,
     firstSeenAt: now,
     lastSeenAt: now,
@@ -309,32 +339,7 @@ export async function recordConfirmedYieldDeposit(
     walletAddress: input.walletAddress,
   };
 
-  const [, , insertedDeposits] = await client.db.batch([
-    client.db
-      .insert(routePolicies)
-      .values(routePolicyValues)
-      .onConflictDoUpdate({
-        target: [routePolicies.cluster, routePolicies.policyAccount],
-        set: {
-          active: true,
-          authority: sql`excluded.authority`,
-          delegatedSigners: sql`excluded.delegated_signers`,
-          kaminoLiquidityMints: sql`excluded.kamino_liquidity_mints`,
-          kaminoMarkets: sql`excluded.kamino_markets`,
-          lastSeenAt: now,
-          lastSeenSignature: input.policySignature,
-          lastSeenSlot: input.confirmedSlot,
-          policySeed: input.policySeed,
-          riskProfile: sql`excluded.risk_profile`,
-          routeModes: sql`excluded.route_modes`,
-          stableMints: sql`excluded.stable_mints`,
-          swapLanes: sql`excluded.swap_lanes`,
-          threshold: sql`excluded.threshold`,
-          universePreset: sql`excluded.universe_preset`,
-          vaultIndex: routePolicyValues.vaultIndex,
-          vaultPubkey: routePolicyValues.vaultPubkey,
-        },
-      }),
+  const [, insertedDeposits] = await client.db.batch([
     client.db
       .insert(managedVaults)
       .values(managedVaultValues)
@@ -347,7 +352,7 @@ export async function recordConfirmedYieldDeposit(
         ],
         set: {
           active: true,
-          activePolicyId: input.policyId,
+          activePolicyId: routePolicy.id,
           lastSeenAt: now,
         },
       }),

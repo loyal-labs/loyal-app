@@ -117,6 +117,7 @@ function createFakeClient(args: {
   duplicateDeposit?: boolean;
   duplicateWithdrawal?: boolean;
   existingPosition?: ReturnType<typeof position>;
+  upsertedRoutePolicyId?: bigint;
   upsertedPosition?: ReturnType<typeof position>;
   updatedPosition?: ReturnType<typeof position>;
 }) {
@@ -148,12 +149,15 @@ function createFakeClient(args: {
       return this;
     }
 
-    returning() {
+    returning(_selection?: unknown) {
       this.returnsSelection = true;
       return this;
     }
 
     async execute() {
+      if (this.call.table === routePolicies && this.returnsSelection) {
+        return [{ id: args.upsertedRoutePolicyId ?? BigInt(4200) }];
+      }
       if (this.call.table === userYieldPositionDeposits) {
         return args.duplicateDeposit ? [] : [{ id: BigInt(99) }];
       }
@@ -282,6 +286,7 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(routePolicyCall?.values).toEqual(
       createRoutePolicyValuesFromPlan(plan, depositInput, now)
     );
+    expect(routePolicyCall?.values).not.toHaveProperty("id");
     expect(routePolicyCall?.values?.authority).toBe(walletAddress.toBase58());
     expect(routePolicyCall?.values?.delegatedSigners).toEqual([
       walletAddress.toBase58(),
@@ -301,6 +306,10 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(managedVaultCall?.values?.vaultPubkey).toBe(
       plan.metadata.vault.toBase58()
     );
+    expect(managedVaultCall?.values?.activePolicyId).toBe(BigInt(4200));
+    expect(managedVaultCall?.values?.activePolicyId).not.toBe(
+      depositInput.policyId
+    );
     expect(
       (managedVaultCall?.conflict as { target: unknown[] }).target
     ).toEqual([
@@ -309,6 +318,73 @@ describe("recordConfirmedYieldDeposit", () => {
       managedVaults.vaultIndex,
       managedVaults.vaultPubkey,
     ]);
+  });
+
+  test("allows same on-chain policy seed across different policy accounts", async () => {
+    const firstFake = createFakeClient({
+      upsertedPosition: position({ policyAccount: "policy-account-a" }),
+      upsertedRoutePolicyId: BigInt(101),
+    });
+    const secondSettings = new PublicKey("11111111111111111111111111111116");
+    const secondFake = createFakeClient({
+      upsertedPosition: position({
+        policyAccount: "policy-account-b",
+        settings: secondSettings.toBase58(),
+      }),
+      upsertedRoutePolicyId: BigInt(202),
+    });
+
+    await recordConfirmedYieldDeposit(
+      input({
+        policyAccount: "policy-account-a",
+        policyId: BigInt(1),
+        policySeed: BigInt(1),
+      }),
+      {
+        client: firstFake.client as never,
+        now: () => new Date("2026-06-01T00:00:00.000Z"),
+      }
+    );
+    await recordConfirmedYieldDeposit(
+      input({
+        depositSignature: "deposit-sig-2",
+        policyAccount: "policy-account-b",
+        policyId: BigInt(1),
+        policySeed: BigInt(1),
+        policySignature: "policy-sig-2",
+        settings: secondSettings.toBase58(),
+      }),
+      {
+        client: secondFake.client as never,
+        now: () => new Date("2026-06-01T00:00:00.000Z"),
+      }
+    );
+
+    const firstRoutePolicyCall = firstFake.insertCalls.find(
+      (call) => call.table === routePolicies
+    );
+    const firstManagedVaultCall = firstFake.insertCalls.find(
+      (call) => call.table === managedVaults
+    );
+    const secondRoutePolicyCall = secondFake.insertCalls.find(
+      (call) => call.table === routePolicies
+    );
+    const secondManagedVaultCall = secondFake.insertCalls.find(
+      (call) => call.table === managedVaults
+    );
+
+    expect(firstRoutePolicyCall?.values).not.toHaveProperty("id");
+    expect(secondRoutePolicyCall?.values).not.toHaveProperty("id");
+    expect(firstRoutePolicyCall?.values).toMatchObject({
+      policyAccount: "policy-account-a",
+      policySeed: BigInt(1),
+    });
+    expect(secondRoutePolicyCall?.values).toMatchObject({
+      policyAccount: "policy-account-b",
+      policySeed: BigInt(1),
+    });
+    expect(firstManagedVaultCall?.values?.activePolicyId).toBe(BigInt(101));
+    expect(secondManagedVaultCall?.values?.activePolicyId).toBe(BigInt(202));
   });
 
   test("duplicate deposit signature returns the existing position without another aggregate upsert", async () => {
