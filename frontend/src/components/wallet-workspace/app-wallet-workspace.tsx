@@ -631,7 +631,7 @@ function WalletRail({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 alt=""
-                src="/agents/Stashx.svg"
+                src="/agents/StashLink.svg"
                 style={{ width: 24, height: 24 }}
               />
             }

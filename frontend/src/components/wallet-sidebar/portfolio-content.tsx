@@ -349,30 +349,140 @@ function EarnPortfolioRow({
             </span>
           </div>
         </div>
-        {hasPosition ? null : (
-          <button
-            className="portfolio-earn-deposit-btn"
-            onClick={handleDepositClick}
+        <button
+          className="portfolio-earn-deposit-btn"
+          onClick={handleDepositClick}
+          style={{
+            background: "#F9363C",
+            border: "none",
+            borderRadius: "9999px",
+            color: "#fff",
+            cursor: "pointer",
+            flexShrink: 0,
+            fontFamily: font,
+            fontSize: "14px",
+            fontWeight: 500,
+            lineHeight: "20px",
+            marginLeft: "12px",
+            padding: "6px 16px",
+            whiteSpace: "nowrap",
+          }}
+          type="button"
+        >
+          Deposit
+        </button>
+      </div>
+    </>
+  );
+}
+
+function AutodepositPromoCard({ onSetUp }: { onSetUp?: () => void }) {
+  return (
+    <>
+      <style jsx>{`
+        .autodeposit-promo-btn {
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .autodeposit-promo-btn:hover {
+          background: #e72f34 !important;
+          transform: translateY(-1px);
+        }
+        .autodeposit-promo-btn:active {
+          transform: translateY(0);
+        }
+      `}</style>
+      <div
+        style={{
+          alignItems: "flex-start",
+          background:
+            "linear-gradient(90deg, rgba(249, 54, 60, 0.04) 0%, rgba(249, 54, 60, 0.08) 100%)",
+          borderRadius: "16px",
+          display: "flex",
+          marginBottom: "22px",
+          overflow: "hidden",
+          padding: "0 32px 0 12px",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            padding: "12px 12px 6px 0",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            src="/wallet-workspace/earn-coin-icon.svg"
+            style={{ flexShrink: 0, height: "48px", width: "48px" }}
+          />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            flexDirection: "column",
+            minWidth: 0,
+          }}
+        >
+          <div
             style={{
-              background: "#F9363C",
-              border: "none",
-              borderRadius: "9999px",
-              color: "#fff",
-              cursor: "pointer",
-              flexShrink: 0,
-              fontFamily: font,
-              fontSize: "14px",
-              fontWeight: 500,
-              lineHeight: "20px",
-              marginLeft: "12px",
-              padding: "6px 16px",
-              whiteSpace: "nowrap",
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              padding: "12px 0 10px",
             }}
-            type="button"
           >
-            Deposit
-          </button>
-        )}
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 600,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+              }}
+            >
+              Earn more without even noticing
+            </span>
+            <span
+              style={{
+                color: "rgba(60, 60, 67, 0.6)",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+              }}
+            >
+              Set up autodeposit and automatically put idle stablecoins to work
+              in Earn. You won’t even have to think about it.
+            </span>
+          </div>
+          <div style={{ display: "flex", paddingBottom: "12px" }}>
+            <button
+              className="autodeposit-promo-btn"
+              onClick={onSetUp}
+              style={{
+                background: "#F9363C",
+                border: "none",
+                borderRadius: "9999px",
+                color: "#fff",
+                cursor: "pointer",
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 500,
+                lineHeight: "20px",
+                padding: "6px 16px",
+                whiteSpace: "nowrap",
+              }}
+              type="button"
+            >
+              Set up Autodeposit
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
@@ -1424,6 +1534,7 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
+          {onOpenEarn ? <AutodepositPromoCard onSetUp={onOpenEarn} /> : null}
           {onOpenEarn ? (
             <EarnPortfolioRow
               balance={earnBalance}

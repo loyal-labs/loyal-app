@@ -1374,6 +1374,126 @@ function EarningsBlock({
   );
 }
 
+function AutodepositCard() {
+  return (
+    <>
+      <style jsx>{`
+        .earn-autodeposit-btn {
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .earn-autodeposit-btn:hover {
+          background: #1a1a1a !important;
+          transform: translateY(-1px);
+        }
+        .earn-autodeposit-btn:active {
+          transform: translateY(0);
+        }
+      `}</style>
+      <section
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          padding: "8px",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            alignItems: "center",
+            borderRadius: "16px",
+            display: "flex",
+            overflow: "hidden",
+            padding: "0 12px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              padding: "6px 12px 6px 0",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              src="/wallet-workspace/earn-coin-icon.svg"
+              style={{ flexShrink: 0, height: "48px", width: "48px" }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: 0,
+              padding: "10px 0",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+              }}
+            >
+              Autodeposit
+            </span>
+            <span
+              style={{
+                color: "rgba(60, 60, 67, 0.6)",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                maxWidth: "300px",
+              }}
+            >
+              Automatically deposits stablecoins above your set minimum balance
+              to Earn
+            </span>
+          </div>
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              height: "52px",
+              justifyContent: "flex-end",
+              paddingLeft: "12px",
+            }}
+          >
+            <button
+              className="earn-autodeposit-btn"
+              style={{
+                background: "#000",
+                border: "none",
+                borderRadius: "9999px",
+                color: "#fff",
+                cursor: "pointer",
+                flexShrink: 0,
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 500,
+                lineHeight: "20px",
+                padding: "6px 16px",
+                whiteSpace: "nowrap",
+              }}
+              type="button"
+            >
+              Set up
+            </button>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
 export function EarnDetailView({
   earningsCacheKey,
   earningsCacheScope,
@@ -1427,12 +1547,14 @@ export function EarnDetailView({
 
   return (
     <div
+      className="scrollbar-hide"
       style={{
         background: "#fff",
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        overflow: "hidden",
+        overflowX: "hidden",
+        overflowY: "auto",
         width: "100%",
       }}
     >
@@ -1643,6 +1765,8 @@ export function EarnDetailView({
           </div>
         </section>
       ) : null}
+
+      <AutodepositCard />
     </div>
   );
 }
@@ -3094,7 +3218,7 @@ function DepositChart({
                     lineHeight: "16px",
                   }}
                 >
-                  Loyal Smart Earn
+                  Loyal Smart Earn ({formatEarnApyPercent(loyalApyBps)})
                 </span>
               </div>
               <span
@@ -3121,17 +3245,6 @@ function DepositChart({
                 }}
               >
                 +${formatMoney(loyalGain)}
-              </span>
-              <span
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                }}
-              >
-                with avg. {formatEarnApyPercent(loyalApyBps)} APY
               </span>
             </div>
 
