@@ -27,6 +27,8 @@ import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
+const POSITIVE_AMOUNT_COLOR = "#34C759";
+const LOYAL_EARN_BRAND_COLOR = "#F9363C";
 
 const TOP_EARN_VAULT = {
   label: "Kamino · Lending Yield",
@@ -226,11 +228,11 @@ const EARN_COMPARISON_SERIES: {
   label: string;
 }[] = [
   {
-    color: "#34C759",
+    color: LOYAL_EARN_BRAND_COLOR,
     dashed: false,
     fixedApyBps: null,
     key: "loyal",
-    label: "Loyal Smart Earn",
+    label: "Loyal Earn",
   },
   {
     color: "#2688EB",
@@ -1679,6 +1681,8 @@ export function EarnDetailView({
         />
       ) : null}
 
+      <AutodepositCard />
+
       {hasCurrentPosition ? (
         <section
           style={{
@@ -1759,8 +1763,6 @@ export function EarnDetailView({
           </div>
         </section>
       ) : null}
-
-      <AutodepositCard />
     </div>
   );
 }
@@ -2007,26 +2009,39 @@ export function EarnWithdrawView({
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
   const numericWithdrawAmount = Number(withdrawAmount.replace(/,/g, ""));
+  const isMaximumWithdrawMode = withdrawAmount.length === 0;
+  const effectiveWithdrawAmount = isMaximumWithdrawMode
+    ? maxWithdrawAmount
+    : numericWithdrawAmount;
+  const effectiveWithdrawAmountLabel = isMaximumWithdrawMode
+    ? formatDepositAmount(maxWithdrawAmount)
+    : withdrawAmount;
   const isFullWithdraw =
-    hasWithdrawAmount &&
-    Number.isFinite(numericWithdrawAmount) &&
+    Number.isFinite(effectiveWithdrawAmount) &&
     deriveEarnWithdrawMode({
-      amount: numericWithdrawAmount,
+      amount: effectiveWithdrawAmount,
       maxWithdrawAmount,
     }) === "full";
   const withdrawAmountError =
-    hasWithdrawAmount &&
-    (!Number.isFinite(numericWithdrawAmount) || numericWithdrawAmount <= 0)
+    !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
       ? "Enter an amount"
       : hasWithdrawAmount && numericWithdrawAmount > maxWithdrawAmount
       ? "Insufficient balance"
       : null;
+  const isWithdrawButtonDisabled =
+    isSubmitting || withdrawAmountError !== null;
+  const withdrawButtonLabel = isSubmitting
+    ? "Withdrawing..."
+    : withdrawAmountError ??
+      (isMaximumWithdrawMode
+        ? "Withdraw all"
+        : `Withdraw ${withdrawAmount} USDC`);
   const withdrawUsdDisplay = hasWithdrawAmount
     ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
   const buildCurrentDraft = (): EarnWithdrawDraft => ({
-    amount: numericWithdrawAmount,
-    amountLabel: withdrawAmount,
+    amount: effectiveWithdrawAmount,
+    amountLabel: effectiveWithdrawAmountLabel,
     destination: selectedDestination,
     mode: isFullWithdraw ? "full" : "partial",
     symbol: "USDC",
@@ -2068,14 +2083,8 @@ export function EarnWithdrawView({
       }}
     >
       <style jsx>{`
-        .earn-withdraw-chip:hover {
-          background: rgba(0, 0, 0, 0.08) !important;
-        }
-        .earn-withdraw-submit:hover {
+        .earn-withdraw-submit:not(:disabled):hover {
           background: #222 !important;
-        }
-        .earn-withdraw-submit:disabled:hover {
-          background: rgba(0, 0, 0, 0.04) !important;
         }
         .earn-withdraw-amount-input::selection {
           background: rgba(249, 54, 60, 0.18);
@@ -2128,10 +2137,7 @@ export function EarnWithdrawView({
           }}
         >
           <div
-            onClick={(event) => {
-              if ((event.target as HTMLElement).closest("button")) {
-                return;
-              }
+            onClick={() => {
               withdrawAmountInputRef.current?.focus();
               withdrawAmountInputRef.current?.select();
             }}
@@ -2190,55 +2196,6 @@ export function EarnWithdrawView({
               >
                 USDC
               </span>
-            </div>
-            <div style={{ display: "flex", gap: "4px" }}>
-              <button
-                className="earn-withdraw-chip"
-                style={{
-                  background: "rgba(0, 0, 0, 0.04)",
-                  border: "none",
-                  borderRadius: "9999px",
-                  color: "#000",
-                  cursor: "pointer",
-                  fontFamily: font,
-                  fontSize: "14px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  padding: "6px 16px",
-                  transition: "background 0.15s ease",
-                }}
-                type="button"
-              >
-                Earnings
-              </button>
-              <button
-                className="earn-withdraw-submit"
-                disabled={isSubmitting}
-                onClick={() =>
-                  setWithdrawAmount(
-                    maxWithdrawAmount.toLocaleString("en-US", {
-                      maximumFractionDigits: 6,
-                      minimumFractionDigits: 0,
-                    })
-                  )
-                }
-                style={{
-                  background: "#000",
-                  border: "none",
-                  borderRadius: "9999px",
-                  color: "#fff",
-                  cursor: isSubmitting ? "default" : "pointer",
-                  fontFamily: font,
-                  fontSize: "14px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  padding: "6px 16px",
-                  transition: "background 0.15s ease",
-                }}
-                type="button"
-              >
-                MAX
-              </button>
             </div>
           </div>
           <span
@@ -2318,33 +2275,24 @@ export function EarnWithdrawView({
       >
         <button
           className="earn-withdraw-submit"
-          disabled={
-            isSubmitting || !hasWithdrawAmount || withdrawAmountError !== null
-          }
+          disabled={isWithdrawButtonDisabled}
           onClick={() =>
             onDraftSubmit
               ? void onDraftSubmit(buildCurrentDraft())
               : void onComplete?.({
-                  amount: numericWithdrawAmount,
+                  amount: effectiveWithdrawAmount,
                   mode: isFullWithdraw ? "full" : "partial",
                 })
           }
           style={{
             alignItems: "center",
-            background:
-              hasWithdrawAmount && withdrawAmountError === null && !isSubmitting
-                ? "#000"
-                : "rgba(0, 0, 0, 0.04)",
+            background: isWithdrawButtonDisabled
+              ? "rgba(0, 0, 0, 0.04)"
+              : "#000",
             border: "none",
             borderRadius: "78px",
-            color:
-              hasWithdrawAmount && withdrawAmountError === null && !isSubmitting
-                ? "#fff"
-                : secondary,
-            cursor:
-              hasWithdrawAmount && withdrawAmountError === null && !isSubmitting
-                ? "pointer"
-                : "default",
+            color: isWithdrawButtonDisabled ? secondary : "#fff",
+            cursor: isWithdrawButtonDisabled ? "default" : "pointer",
             display: "flex",
             fontFamily: font,
             fontSize: "17px",
@@ -2358,10 +2306,7 @@ export function EarnWithdrawView({
           }}
           type="button"
         >
-          {isSubmitting
-            ? "Withdrawing..."
-            : withdrawAmountError ??
-              (isFullWithdraw ? "Withdraw all" : "Withdraw")}
+          {withdrawButtonLabel}
         </button>
       </div>
     </div>
@@ -2919,7 +2864,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
               <path
                 d={linePath}
                 fill="none"
-                stroke="#34C759"
+                stroke={LOYAL_EARN_BRAND_COLOR}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
@@ -2945,7 +2890,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                 aria-hidden="true"
                 className="historical-chart-hover-elements"
                 style={{
-                  background: "#34C759",
+                  background: LOYAL_EARN_BRAND_COLOR,
                   borderRadius: "9999px",
                   boxShadow: "0 0 0 2px #fff",
                   height: "8px",
@@ -2998,7 +2943,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                 </span>
                 <span
                   style={{
-                    color: "#34C759",
+                    color: LOYAL_EARN_BRAND_COLOR,
                     fontFamily: font,
                     fontSize: "13px",
                     fontWeight: 400,
@@ -3320,7 +3265,7 @@ function DepositChart({
               >
                 <span
                   style={{
-                    background: "#34C759",
+                    background: LOYAL_EARN_BRAND_COLOR,
                     borderRadius: "3px",
                     height: "10px",
                     width: "10px",
@@ -3335,7 +3280,7 @@ function DepositChart({
                     lineHeight: "16px",
                   }}
                 >
-                  Loyal Smart Earn ({formatEarnApyPercent(loyalApyBps)})
+                  Loyal Earn ({formatEarnApyPercent(loyalApyBps)})
                 </span>
               </div>
               <span
@@ -3354,7 +3299,7 @@ function DepositChart({
               </span>
               <span
                 style={{
-                  color: "#34C759",
+                  color: POSITIVE_AMOUNT_COLOR,
                   fontFamily: font,
                   fontSize: "13px",
                   fontWeight: 400,
@@ -3569,17 +3514,30 @@ export function EarnDepositView({
   const numericDepositAmount =
     Number.parseFloat(depositAmount.replace(/,/g, "")) || 0;
   const hasDepositAmount = depositAmount.length > 0;
+  const isMaximumDepositMode = depositAmount.length === 0;
+  const effectiveDepositAmount = isMaximumDepositMode
+    ? selectedSourceBalance
+    : numericDepositAmount;
+  const effectiveDepositAmountLabel = isMaximumDepositMode
+    ? formatDepositAmount(selectedSourceBalance)
+    : depositAmount;
   const depositUsdDisplay = hasDepositAmount
     ? `$${depositAmount}${depositAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
   const amountError =
-    hasDepositAmount && numericDepositAmount < MIN_DEPOSIT_USDC
+    effectiveDepositAmount < MIN_DEPOSIT_USDC
       ? `Minimum deposit is ${MIN_DEPOSIT_USDC} USDC`
       : hasDepositAmount && numericDepositAmount > selectedSourceBalance
       ? "Insufficient balance"
       : null;
   const isDepositButtonDisabled =
-    isSubmitting || !hasDepositAmount || amountError !== null;
+    isSubmitting || amountError !== null;
+  const depositButtonLabel = isSubmitting
+    ? "Depositing..."
+    : amountError ??
+      (isMaximumDepositMode
+        ? "Deposit all"
+        : `Deposit ${depositAmount} USDC`);
   const forecastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -3603,8 +3561,8 @@ export function EarnDepositView({
     setForecastAmount(value);
   };
   const buildCurrentDraft = (): EarnDepositDraft => ({
-    amount: numericDepositAmount,
-    amountLabel: depositAmount,
+    amount: effectiveDepositAmount,
+    amountLabel: effectiveDepositAmountLabel,
     forecastApyBps: earnForecastApy.apyBps,
     source: selectedSource,
     symbol: "USDC",
@@ -3653,7 +3611,6 @@ export function EarnDepositView({
       }}
     >
       <style jsx>{`
-        .earn-deposit-max:hover,
         .earn-deposit-submit:not(:disabled):hover {
           background: #222 !important;
         }
@@ -3840,10 +3797,7 @@ export function EarnDepositView({
             }}
           >
             <div
-              onClick={(event) => {
-                if ((event.target as HTMLElement).closest("button")) {
-                  return;
-                }
+              onClick={() => {
                 amountInputRef.current?.focus();
                 amountInputRef.current?.select();
               }}
@@ -3909,31 +3863,6 @@ export function EarnDepositView({
                   USDC
                 </span>
               </div>
-              <button
-                className="earn-deposit-max"
-                onClick={() => {
-                  const maxValue = formatDepositAmount(selectedSource.balance);
-                  setDepositAmount(maxValue);
-                  scheduleForecastFromInput(maxValue);
-                }}
-                style={{
-                  background: "#000",
-                  border: "none",
-                  borderRadius: "9999px",
-                  color: "#fff",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                  fontFamily: font,
-                  fontSize: "14px",
-                  fontWeight: 500,
-                  lineHeight: "20px",
-                  padding: "6px 16px",
-                  transition: "background 0.15s ease",
-                }}
-                type="button"
-              >
-                MAX
-              </button>
             </div>
             <span
               style={{
@@ -4035,7 +3964,7 @@ export function EarnDepositView({
           }}
           type="button"
         >
-          {isSubmitting ? "Depositing..." : amountError ?? "Deposit"}
+          {depositButtonLabel}
         </button>
       </div>
     </div>
