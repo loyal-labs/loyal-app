@@ -165,6 +165,7 @@ export type SmartAccountOverview = {
   settingsPda: string;
   threshold: number;
   timeLock: number;
+  transactionIndex: string;
   staleTransactionIndex: string;
   canonicalVaultAddress: string;
   signers: SmartAccountSignerSnapshot[];
@@ -370,6 +371,10 @@ export type SmartAccountEarnUsdcDepositInput = {
   amountRaw: bigint;
   cluster?: LoyalCluster;
   initializeYieldRoutingPolicy?: boolean;
+  yieldRoutingPolicy?: {
+    account: PublicKey;
+    seed: bigint;
+  };
   memo?: string;
 };
 

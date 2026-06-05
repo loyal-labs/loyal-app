@@ -42,6 +42,7 @@ export type ConfirmedYieldDepositInput = {
 };
 
 export type UserYieldPositionRecord = typeof userYieldPositions.$inferSelect;
+export type RoutePolicyRecord = typeof routePolicies.$inferSelect;
 export type UserYieldPositionEventRecord = {
   amountRaw: bigint;
   confirmedAt: Date;
@@ -408,6 +409,27 @@ export async function findActiveYieldPosition(
     });
 
   return position ?? null;
+}
+
+export async function findActiveYieldRoutePolicy(input: {
+  authority: string;
+  cluster: string;
+  settings: string;
+  vaultIndex: number;
+}): Promise<RoutePolicyRecord | null> {
+  const client = getYieldOptimizationClient();
+  const policy = await client.db.query.routePolicies.findFirst({
+    where: and(
+      eq(routePolicies.authority, input.authority),
+      eq(routePolicies.cluster, input.cluster),
+      eq(routePolicies.settings, input.settings),
+      eq(routePolicies.vaultIndex, input.vaultIndex),
+      eq(routePolicies.active, true)
+    ),
+    orderBy: [asc(routePolicies.id)],
+  });
+
+  return policy ?? null;
 }
 
 export async function findYieldPositionEvents(

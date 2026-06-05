@@ -17,8 +17,36 @@ const FRONTEND_SOLANA_ENDPOINTS_BY_ENV: Partial<
   },
 };
 
+function readEndpointOverride(env: SolanaEnv): SolanaEndpoints | null {
+  const envSource =
+    typeof process === "undefined"
+      ? undefined
+      : (process.env as Record<string, string | undefined>);
+  const envPrefix = env.toUpperCase();
+  const rpcEndpoint =
+    envSource?.[`SOLANA_${envPrefix}_RPC_URL`]?.trim() ||
+    (env === "mainnet" ? envSource?.SOLANA_RPC_URL?.trim() : undefined);
+  if (!rpcEndpoint || env === "localnet") {
+    return null;
+  }
+
+  return {
+    rpcEndpoint,
+    websocketEndpoint:
+      envSource?.[`SOLANA_${envPrefix}_WEBSOCKET_URL`]?.trim() ||
+      envSource?.SOLANA_WEBSOCKET_URL?.trim() ||
+      FRONTEND_SOLANA_ENDPOINTS_BY_ENV[env]?.websocketEndpoint ||
+      getSharedSolanaEndpoints(env).websocketEndpoint,
+  };
+}
+
 export function getFrontendSolanaEndpoints(
   env: SolanaEnv
 ): SolanaEndpoints {
+  const override = readEndpointOverride(env);
+  if (override) {
+    return override;
+  }
+
   return FRONTEND_SOLANA_ENDPOINTS_BY_ENV[env] ?? getSharedSolanaEndpoints(env);
 }

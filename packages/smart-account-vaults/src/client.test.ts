@@ -8,6 +8,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
+import BN from "bn.js";
 
 import { createSmartAccountVaultsClient } from "./client";
 
@@ -189,14 +190,14 @@ function createSerializedEarnPolicyAccount() {
       ],
     },
     rentCollector: walletAddress,
-    seed: BigInt(1),
+    seed: new BN(1),
     settings: settingsPda,
     signers: [],
-    staleTransactionIndex: BigInt(0),
-    start: BigInt(0),
+    staleTransactionIndex: new BN(0),
+    start: new BN(0),
     threshold: 1,
     timeLock: 0,
-    transactionIndex: BigInt(0),
+    transactionIndex: new BN(0),
   }).serialize();
 
   return {
@@ -305,6 +306,39 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(result.persistence).toMatchObject({
       policyInitialization: "reuse",
       principalAmountRaw: "500000",
+    });
+  });
+
+  test("uses a provided earn routing policy for top-up without scanning policies", async () => {
+    mockKaminoDepositInstruction();
+    const getProgramAccounts = mock(async () => {
+      throw new Error("policy scan should not run");
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getProgramAccounts } as never,
+      programId,
+    });
+    const policyAccount = new PublicKey("11111111111111111111111111111117");
+
+    const result = await client.prepareEarnUsdcDeposit({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      amountRaw: BigInt(500_000),
+      initializeYieldRoutingPolicy: false,
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(getProgramAccounts).not.toHaveBeenCalled();
+    expect(result.policy.account.toBase58()).toBe(policyAccount.toBase58());
+    expect(result.policy.seed).toBe(BigInt(7));
+    expect(result.persistence).toMatchObject({
+      policyAccount: policyAccount.toBase58(),
+      policyInitialization: "reuse",
+      policySeed: "7",
     });
   });
 

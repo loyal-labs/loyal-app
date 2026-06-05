@@ -77,11 +77,28 @@ type SmartAccountRouteErrorResponse = {
   };
 };
 
-type ActiveEarnPositionResponse = {
+type EarnStateResponse = {
+  canonicalVaultPubkey: string;
+  defaultPolicy: {
+    account: string;
+    seed: string;
+  };
+  policy: {
+    account: string;
+    id: string;
+    seed: string;
+    vaultIndex: number;
+    vaultPubkey: string;
+  } | null;
   position: {
     principalAmountRaw: string;
     status: string;
   } | null;
+  settingsPda: string;
+  vault: {
+    accountIndex: 1;
+    pubkey: string;
+  };
 };
 
 type SmartAccountOverviewCacheGroup<T> = {
@@ -524,6 +541,30 @@ function createOverviewFromBase(
   };
 }
 
+function mergeEarnVaultIntoOverview(
+  overview: SmartAccountOverview,
+  earnState: EarnStateResponse
+): SmartAccountOverview {
+  if (
+    overview.vaults.some(
+      (vault) => vault.accountIndex === earnState.vault.accountIndex
+    )
+  ) {
+    return overview;
+  }
+
+  return {
+    ...overview,
+    vaults: [
+      ...overview.vaults,
+      createEmptyVaultSnapshot({
+        accountIndex: earnState.vault.accountIndex,
+        address: earnState.vault.pubkey,
+      }),
+    ].sort((left, right) => left.accountIndex - right.accountIndex),
+  };
+}
+
 function decorateVaultsWithPolicies(args: {
   vaults: SmartAccountVaultSnapshot[];
   signers: SmartAccountSignerSnapshot[];
@@ -750,6 +791,15 @@ export function writeSmartAccountOverviewCacheGroup<
   });
 }
 
+export function shouldSkipSmartAccountProposalLoad(
+  base: Pick<
+    SmartAccountOverviewBase,
+    "staleTransactionIndex" | "transactionIndex"
+  >
+): boolean {
+  return BigInt(base.staleTransactionIndex) >= BigInt(base.transactionIndex);
+}
+
 async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
   const response = await fetch(url.toString(), {
     credentials: "include",
@@ -767,6 +817,25 @@ async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
 
   const payload = (await response.json()) as SmartAccountTimedRouteResponse<T>;
   return payload.data;
+}
+
+async function fetchEarnState(): Promise<EarnStateResponse | null> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/earn-state",
+    {
+      credentials: "include",
+    }
+  );
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as EarnStateResponse;
 }
 
 async function postConfirmedEarnDeposit(args: {
@@ -850,14 +919,32 @@ export function hasInitializedEarnYieldRoutingPolicy(
 
 export function shouldInitializeEarnYieldRoutingPolicyForDeposit({
   hasActiveEarnPosition,
+  hasEarnPolicy = false,
   overview,
 }: {
   hasActiveEarnPosition: boolean;
+  hasEarnPolicy?: boolean;
   overview: SmartAccountOverview | null;
 }): boolean {
   return (
-    !hasActiveEarnPosition && !hasInitializedEarnYieldRoutingPolicy(overview)
+    !hasActiveEarnPosition &&
+    !hasEarnPolicy &&
+    !hasInitializedEarnYieldRoutingPolicy(overview)
   );
+}
+
+function isActiveEarnStatePosition(
+  earnState: EarnStateResponse | null | undefined
+): boolean {
+  if (earnState?.position?.status !== "active") {
+    return false;
+  }
+
+  try {
+    return BigInt(earnState.position.principalAmountRaw) > BigInt(0);
+  } catch {
+    return false;
+  }
 }
 
 function canSerializePreparedForWallet(
@@ -900,26 +987,6 @@ function createDepositPreparedWithoutPolicyInitialization(
       (_, index) => index !== policyInitIndex
     ),
   };
-}
-
-async function hasActiveEarnPositionFromServer(): Promise<boolean> {
-  const response = await fetch("/api/smart-accounts/yield-optimization/position", {
-    credentials: "include",
-  });
-
-  if (response.status === 401) {
-    return false;
-  }
-
-  if (!response.ok) {
-    return false;
-  }
-
-  const payload = (await response.json()) as ActiveEarnPositionResponse;
-  return (
-    payload.position?.status === "active" &&
-    BigInt(payload.position.principalAmountRaw) > BigInt(0)
-  );
 }
 
 function resolveEarnLoyalCluster(solanaEnv: string): LoyalCluster {
@@ -1740,6 +1807,7 @@ export function useSmartAccountSidebarData(
     useState(false);
   const [bestApyReservesByStablecoin, setBestApyReservesByStablecoin] =
     useState<CurrentBestApyReserveByStablecoinCache | null>(null);
+  const [earnState, setEarnState] = useState<EarnStateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scopedErrors, setScopedErrors] = useState<{
     base: string | null;
@@ -1792,6 +1860,7 @@ export function useSmartAccountSidebarData(
           bestApyReserves: null,
         });
         setBestApyReservesByStablecoin(null);
+        setEarnState(null);
         return;
       }
 
@@ -1837,6 +1906,8 @@ export function useSmartAccountSidebarData(
         bestApyReserves: null,
       });
 
+      const earnStatePromise = fetchEarnState().catch(() => null);
+
       try {
         const baseUrl = new URL(
           "/api/smart-accounts/overview/base",
@@ -1880,94 +1951,39 @@ export function useSmartAccountSidebarData(
         return;
       }
 
-      const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
-        (value) => value.length > 0
-      );
-      const loadVaults = async () => {
-        setIsVaultsLoading(true);
-
-        try {
-          const vaultsUrl = new URL(
-            "/api/smart-accounts/overview/vaults",
-            window.location.origin
-          );
-          vaultsUrl.searchParams.set(
-            "accountUtilization",
-            String(baseOverview.vaults.length - 1)
-          );
-          if (invalidateAddresses && invalidateAddresses.length > 0) {
-            vaultsUrl.searchParams.set(
-              "invalidate",
-              invalidateAddresses.join(",")
-            );
-          }
-
-          const vaults = await fetchSmartAccountGroup<
-            SmartAccountVaultSnapshot[]
-          >(vaultsUrl);
-          writeSmartAccountOverviewCacheGroup({
-            settingsPda,
-            solanaEnv,
-            group: "vaults",
-            data: vaults,
-          });
-          setOverview((current) =>
-            current ? mergeVaultSnapshots(current, vaults) : current
-          );
-          setVaultActivityByAccountIndex({});
-          vaultActivityLoadPromisesRef.current.clear();
-        } catch (nextError) {
-          const message =
-            nextError instanceof Error
-              ? nextError.message
-              : "Failed to load vault balances.";
-          setScopedErrors((current) => ({
-            ...current,
-            vaults: message,
-          }));
-          setError((current) => current ?? message);
-        } finally {
-          setIsVaultsLoading(false);
+      const loadEarnState = async () => {
+        const nextEarnState = await earnStatePromise;
+        setEarnState(nextEarnState);
+        if (!nextEarnState) {
+          return;
         }
-      };
 
-      const loadPolicies = async () => {
-        setIsPoliciesLoading(true);
-
-        try {
-          const policiesUrl = new URL(
-            "/api/smart-accounts/overview/policies",
-            window.location.origin
-          );
-          const policies =
-            await fetchSmartAccountGroup<SmartAccountPolicyOverview>(
-              policiesUrl
-            );
-          writeSmartAccountOverviewCacheGroup({
-            settingsPda,
-            solanaEnv,
-            group: "policies",
-            data: policies,
-          });
-          setOverview((current) =>
-            current ? mergePolicyOverview(current, policies) : current
-          );
-        } catch (nextError) {
-          const message =
-            nextError instanceof Error
-              ? nextError.message
-              : "Failed to load smart-account policies.";
-          setScopedErrors((current) => ({
-            ...current,
-            policies: message,
-          }));
-          setError((current) => current ?? message);
-        } finally {
-          setIsPoliciesLoading(false);
-        }
+        setOverview((current) =>
+          current ? mergeEarnVaultIntoOverview(current, nextEarnState) : current
+        );
       };
 
       const loadProposals = async () => {
+        if (shouldSkipSmartAccountProposalLoad(baseOverview)) {
+          const proposals: SmartAccountProposalSnapshot[] = [];
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "proposals",
+            data: proposals,
+          });
+          setOverview((current) =>
+            current
+              ? {
+                  ...current,
+                  proposals,
+                  fetchedAt: Date.now(),
+                }
+              : current
+          );
+          return;
+        }
+
         setIsProposalsLoading(true);
 
         try {
@@ -2058,8 +2074,7 @@ export function useSmartAccountSidebarData(
       };
 
       await Promise.allSettled([
-        loadVaults(),
-        loadPolicies(),
+        loadEarnState(),
         loadProposals(),
         loadBestApyReserves(),
       ]);
@@ -3490,15 +3505,26 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
-        const hasEarnPolicy = hasInitializedEarnYieldRoutingPolicy(overview);
-        const hasActiveEarnPosition = hasEarnPolicy
-          ? true
-          : await hasActiveEarnPositionFromServer();
+        const nextEarnState = earnState ?? (await fetchEarnState());
+        if (nextEarnState && nextEarnState !== earnState) {
+          setEarnState(nextEarnState);
+        }
+        const hasEarnPolicy = Boolean(nextEarnState?.policy);
+        const hasActiveEarnPosition =
+          hasEarnPolicy || isActiveEarnStatePosition(nextEarnState);
         const shouldInitializeYieldRoutingPolicy =
           shouldInitializeEarnYieldRoutingPolicyForDeposit({
             hasActiveEarnPosition,
+            hasEarnPolicy,
             overview,
           });
+        const yieldRoutingPolicy =
+          !shouldInitializeYieldRoutingPolicy && nextEarnState?.policy
+            ? {
+                account: new PublicKey(nextEarnState.policy.account),
+                seed: BigInt(nextEarnState.policy.seed),
+              }
+            : undefined;
 
         console.log("[executeEarnDeposit] preparing Earn USDC deposit", {
           amountRaw: request.amountRaw.toString(),
@@ -3515,6 +3541,7 @@ export function useSmartAccountSidebarData(
           amountRaw: request.amountRaw,
           cluster: resolveEarnLoyalCluster(solanaEnv),
           initializeYieldRoutingPolicy: shouldInitializeYieldRoutingPolicy,
+          yieldRoutingPolicy,
         });
         let policySignature: string | undefined;
         let preparedToSend = preparedDeposit.prepared;
@@ -3605,6 +3632,7 @@ export function useSmartAccountSidebarData(
     },
     [
       connection,
+      earnState,
       overview,
       refreshAfterTx,
       solanaEnv,

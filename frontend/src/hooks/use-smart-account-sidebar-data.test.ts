@@ -14,6 +14,7 @@ import {
   hasInitializedEarnYieldRoutingPolicy,
   readSmartAccountOverviewCache,
   shouldInitializeEarnYieldRoutingPolicyForDeposit,
+  shouldSkipSmartAccountProposalLoad,
   type SmartAccountSignerEntry,
   type SmartAccountVaultEntry,
   writeSmartAccountOverviewCacheGroup,
@@ -43,6 +44,7 @@ function makeOverviewBase(): SmartAccountOverviewBase {
     staleTransactionIndex: "0",
     threshold: 1,
     timeLock: 0,
+    transactionIndex: "0",
     vaults: [{ accountIndex: 0, address: "vault-0" }],
   };
 }
@@ -262,10 +264,23 @@ describe("Earn policy detection", () => {
     ).toBe(false);
   });
 
+  test("uses DB-backed Earn policy as top-up evidence when overview policy is absent", () => {
+    expect(
+      shouldInitializeEarnYieldRoutingPolicyForDeposit({
+        hasActiveEarnPosition: false,
+        hasEarnPolicy: true,
+        overview: {
+          policies: [],
+        } as never,
+      })
+    ).toBe(false);
+  });
+
   test("initializes policy when neither overview policy nor active position exists", () => {
     expect(
       shouldInitializeEarnYieldRoutingPolicyForDeposit({
         hasActiveEarnPosition: false,
+        hasEarnPolicy: false,
         overview: {
           policies: [],
         } as never,
@@ -405,5 +420,31 @@ describe("smart-account overview cache", () => {
     expect(overview?.vaults[0]?.portfolio.totals.totalUsd).toBe(12);
     expect(overview?.vaults[0]?.signers[0]?.address).toBe("signer-1");
     expect(overview?.proposals[0]?.proposalAddress).toBe("proposal");
+  });
+});
+
+describe("smart-account proposals fast path", () => {
+  test("skips proposal loading when root settings has no fresh transactions", () => {
+    expect(
+      shouldSkipSmartAccountProposalLoad({
+        staleTransactionIndex: "0",
+        transactionIndex: "0",
+      })
+    ).toBe(true);
+    expect(
+      shouldSkipSmartAccountProposalLoad({
+        staleTransactionIndex: "2",
+        transactionIndex: "2",
+      })
+    ).toBe(true);
+  });
+
+  test("loads proposals when root settings has unprocessed transactions", () => {
+    expect(
+      shouldSkipSmartAccountProposalLoad({
+        staleTransactionIndex: "0",
+        transactionIndex: "1",
+      })
+    ).toBe(false);
   });
 });

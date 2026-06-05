@@ -29,6 +29,7 @@ const fetchCurrentSmartAccountOverviewBase = mock(async () => ({
   staleTransactionIndex: "0",
   threshold: 1,
   timeLock: 0,
+  transactionIndex: "0",
   vaults: [{ accountIndex: 0, address: "vault-1" }],
 }));
 const fetchCurrentSmartAccountVaultSnapshots = mock(async () => []);
@@ -72,6 +73,7 @@ describe("smart-account overview base route", () => {
       staleTransactionIndex: "0",
       threshold: 1,
       timeLock: 0,
+      transactionIndex: "0",
       vaults: [{ accountIndex: 0, address: "vault-1" }],
     }));
   });
@@ -101,6 +103,7 @@ describe("smart-account overview base route", () => {
     await expect(response.json()).resolves.toMatchObject({
       data: {
         settingsPda: "settings-1",
+        transactionIndex: "0",
         vaults: [{ accountIndex: 0, address: "vault-1" }],
       },
       meta: {

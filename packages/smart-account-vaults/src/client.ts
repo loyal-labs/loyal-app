@@ -2288,6 +2288,7 @@ export function createSmartAccountVaultsClient(
     policies?:
       | SmartAccountPolicySnapshot[]
       | Promise<SmartAccountPolicySnapshot[]>;
+    rootOnly?: boolean;
   }): Promise<SmartAccountProposalSnapshot[]> {
     const settingsPdaText = args.settingsPda.toBase58();
     const startedAt = nowMs();
@@ -2313,7 +2314,9 @@ export function createSmartAccountVaultsClient(
           ).toString(),
         })
       ),
-      args.policies
+      args.rootOnly
+        ? Promise.resolve([])
+        : args.policies
         ? Promise.resolve(args.policies)
         : logTimedReadStep(
             "proposals.policy-scan",
@@ -2512,6 +2515,7 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda.toBase58(),
       threshold: settings.threshold,
       timeLock: settings.timeLock,
+      transactionIndex: toBigInt(settings.transactionIndex).toString(),
       staleTransactionIndex: toBigInt(
         settings.staleTransactionIndex
       ).toString(),
@@ -2694,6 +2698,7 @@ export function createSmartAccountVaultsClient(
     policies?:
       | SmartAccountPolicySnapshot[]
       | Promise<SmartAccountPolicySnapshot[]>;
+    rootOnly?: boolean;
   }): Promise<SmartAccountProposalSnapshot[]> {
     return listProposals(args);
   }
@@ -3682,6 +3687,11 @@ export function createSmartAccountVaultsClient(
           vaultPda,
           memo: args.memo,
         })
+      : args.yieldRoutingPolicy
+      ? {
+          account: args.yieldRoutingPolicy.account,
+          seed: args.yieldRoutingPolicy.seed,
+        }
       : await resolveEarnYieldRoutingPolicyForExecution({
           settingsPda: args.settingsPda,
         });
