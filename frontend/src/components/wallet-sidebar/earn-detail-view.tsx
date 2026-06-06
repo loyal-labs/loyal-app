@@ -1491,6 +1491,8 @@ function AutodepositCard() {
 }
 
 export function EarnDetailView({
+  currentPositionApyLabel,
+  currentPositionLabel = TOP_EARN_VAULT.label,
   earningsCacheKey,
   earningsCacheScope,
   hasCurrentPosition = false,
@@ -1498,6 +1500,8 @@ export function EarnDetailView({
   onWithdraw,
   principalAmount = 0,
 }: {
+  currentPositionApyLabel?: string;
+  currentPositionLabel?: string;
   earningsCacheKey?: string;
   earningsCacheScope?: {
     expectedPrincipalAmountRaw?: string | null;
@@ -1737,11 +1741,13 @@ export function EarnDetailView({
                   whiteSpace: "nowrap",
                 }}
               >
-                {TOP_EARN_VAULT.label}
+                {currentPositionLabel}
               </span>
-              <div>
-                <ApyBadge value={displayApyLabel} />
-              </div>
+              {currentPositionApyLabel ? (
+                <div>
+                  <ApyBadge value={currentPositionApyLabel} />
+                </div>
+              ) : null}
             </div>
             <span
               style={{

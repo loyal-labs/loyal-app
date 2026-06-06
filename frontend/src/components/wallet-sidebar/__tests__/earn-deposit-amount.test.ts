@@ -115,6 +115,26 @@ describe("earn forecast APY", () => {
     expect(`${earnDetail}\n${portfolio}`).not.toContain("11.97% APY");
     expect(earnDetail).toContain("FALLBACK_EARN_FORECAST");
   });
+
+  test("current position label comes from active position metadata", () => {
+    const earnDetail = readFileSync(
+      resolve(import.meta.dir, "../earn-detail-view.tsx"),
+      "utf8"
+    );
+    const workspace = readFileSync(
+      resolve(import.meta.dir, "../../wallet-workspace/app-wallet-workspace.tsx"),
+      "utf8"
+    );
+
+    expect(earnDetail).toContain("currentPositionLabel");
+    expect(earnDetail).toContain("currentPositionApyLabel");
+    expect(earnDetail).toContain("{currentPositionLabel}");
+    expect(earnDetail).toContain("<ApyBadge value={currentPositionApyLabel} />");
+    expect(workspace).toContain("activeEarnPosition?.display?.label");
+    expect(workspace).toContain("activeEarnPositionApyLabel");
+    expect(workspace).toContain("currentSupplyApyBps");
+    expect(workspace).toContain("Main Market · USDC");
+  });
 });
 
 describe("historical APY chart", () => {

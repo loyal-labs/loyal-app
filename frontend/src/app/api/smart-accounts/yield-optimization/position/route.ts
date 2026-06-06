@@ -7,6 +7,11 @@ import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import {
+  getCurrentReserveUpdatesByReserve,
+  type TimescaleReserveUpdateRow,
+} from "@/lib/kamino/timescale-reserve-client.server";
+import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
+import {
   findActiveYieldPosition,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -21,10 +26,43 @@ function resolveConfiguredCluster(): LoyalCluster {
     : LoyalCluster.MainnetBeta;
 }
 
-function serializePosition(position: UserYieldPositionRecord) {
+function toApyBps(supplyApy: number): string {
+  return Math.round(supplyApy * 10_000).toString();
+}
+
+function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
+  const mainnetEarnTarget = getKaminoUsdcEarnTargetForCluster(
+    LoyalCluster.MainnetBeta
+  );
+  const devnetEarnTarget = getKaminoUsdcEarnTargetForCluster(
+    LoyalCluster.Devnet
+  );
+
+  if (
+    position.targetReserve === devnetEarnTarget.reserve.toBase58() &&
+    position.market === devnetEarnTarget.market.toBase58() &&
+    position.liquidityMint === devnetEarnTarget.liquidityMint.toBase58()
+  ) {
+    return mainnetEarnTarget.reserve.toBase58();
+  }
+
+  return position.targetReserve;
+}
+
+function serializePosition(
+  position: UserYieldPositionRecord,
+  currentReserve: TimescaleReserveUpdateRow | null = null
+) {
   return {
     ...position,
     createdAt: position.createdAt.toISOString(),
+    currentSupplyApyBps: currentReserve
+      ? toApyBps(currentReserve.supplyApy)
+      : null,
+    display: resolveEarnPositionDisplay({
+      liquidityMint: position.liquidityMint,
+      market: position.market,
+    }),
     firstDepositSignature: position.firstDepositSignature,
     id: position.id.toString(),
     lastConfirmedSlot: position.lastConfirmedSlot.toString(),
@@ -60,8 +98,32 @@ export async function GET(request: Request) {
     vaultIndex: EARN_VAULT_INDEX,
     walletAddress: principal.walletAddress,
   });
+  const timescaleReserve = position
+    ? resolveTimescaleReserveForPosition(position)
+    : null;
+  const currentReserveRows = position
+    ? await getCurrentReserveUpdatesByReserve({
+        reserves: [timescaleReserve ?? position.targetReserve],
+      }).catch((error) => {
+        console.warn("[earn-position] current Timescale reserve lookup failed", {
+          error,
+          targetReserve: position.targetReserve,
+          timescaleReserve,
+        });
+        return [];
+      })
+    : [];
+  const currentReserveByReserve = new Map(
+    currentReserveRows.map((row) => [row.reserve, row])
+  );
 
   return NextResponse.json({
-    position: position ? serializePosition(position) : null,
+    position: position
+      ? serializePosition(
+          position,
+          currentReserveByReserve.get(timescaleReserve ?? position.targetReserve) ??
+            null
+        )
+      : null,
   });
 }

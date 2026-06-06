@@ -11,8 +11,18 @@ import {
 const EARN_POSITION_CACHE_VERSION = 1;
 
 export type ActiveEarnPosition = {
+  currentSupplyApyBps: string | null;
+  depositMint: string;
+  display: {
+    label: string;
+    marketName: string;
+    mintSymbol: string;
+  };
+  liquidityMint: string;
+  market: string | null;
   principalAmountRaw: string;
   status: string;
+  targetSupplyApyBps: string | null;
 };
 
 export type EarnPositionCachePayload = {

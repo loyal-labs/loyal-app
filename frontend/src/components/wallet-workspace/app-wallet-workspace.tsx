@@ -106,6 +106,7 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { trackWalletShieldPressed } from "@/lib/core/analytics";
+import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
@@ -832,6 +833,11 @@ export function AppWalletWorkspace({
     solanaEnv: publicEnv.solanaEnv,
     walletAddress: walletDesktopData.walletAddress,
   });
+  const activeEarnPositionApyBps = activeEarnPosition?.currentSupplyApyBps;
+  const activeEarnPositionApyLabel =
+    activeEarnPositionApyBps !== null && activeEarnPositionApyBps !== undefined
+      ? formatEarnApyLabel(Number(activeEarnPositionApyBps))
+      : undefined;
   const signInOpenedForConnectRef = useRef(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const routeSection: WorkspaceSection =
@@ -2070,10 +2076,22 @@ export function AppWalletWorkspace({
       invalidateEarnEarningsCache();
       setActiveEarnPosition((current) => {
         const next = {
+          depositMint:
+            current?.depositMint ?? pendingEarnDepositDraft.tokenMint ?? "",
+          display: current?.display ?? {
+            label: "Main Market · USDC",
+            marketName: "Main Market",
+            mintSymbol: "USDC",
+          },
+          liquidityMint:
+            current?.liquidityMint ?? pendingEarnDepositDraft.tokenMint ?? "",
+          market: current?.market ?? null,
           principalAmountRaw: (
             BigInt(current?.principalAmountRaw ?? "0") + amountRaw
           ).toString(),
           status: "active" as const,
+          currentSupplyApyBps: current?.currentSupplyApyBps ?? null,
+          targetSupplyApyBps: current?.targetSupplyApyBps ?? null,
         };
         console.log("[earn-position] optimistic post-deposit update", {
           current,
@@ -2892,6 +2910,8 @@ export function AppWalletWorkspace({
     if (detailSelection === "earn") {
       return (
         <EarnDetailView
+          currentPositionApyLabel={activeEarnPositionApyLabel}
+          currentPositionLabel={activeEarnPosition?.display?.label}
           earningsCacheKey={earnEarningsCacheKey}
           earningsCacheScope={{
             expectedPrincipalAmountRaw: activeEarnPosition?.principalAmountRaw,

@@ -151,6 +151,22 @@ export async function getCurrentBestApyReserveByStablecoin(args: {
   }
 }
 
+export async function getCurrentReserveUpdatesByReserve(args: {
+  reserves: readonly string[];
+}): Promise<TimescaleReserveUpdateRow[]> {
+  const databaseUrl = getTimescaleReserveDatabaseUrl();
+  if (!databaseUrl) {
+    return [];
+  }
+
+  const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
+  try {
+    return await client.getCurrentReserveUpdatesByReserve(args);
+  } finally {
+    await client.close();
+  }
+}
+
 export class TimescaleReserveClient {
   readonly db: PostgresJsDatabase;
   readonly tables: TimescaleReserveClientTables = {
@@ -393,6 +409,40 @@ export class TimescaleReserveClient {
           : new Date(row.observed_at),
       supplyApy: Number(row.supply_apy),
     }));
+  }
+
+  async getCurrentReserveUpdatesByReserve(args: {
+    reserves: readonly string[];
+  }): Promise<TimescaleReserveUpdateRow[]> {
+    if (args.reserves.length === 0) {
+      return [];
+    }
+
+    const reserveUpdates = this.tables.reserveUpdates;
+    const latestReserveUpdates = this.tables.latestReserveUpdates;
+
+    const rows = await this.db
+      .select()
+      .from(reserveUpdates)
+      .innerJoin(
+        latestReserveUpdates,
+        and(
+          eq(reserveUpdates.reserve, latestReserveUpdates.reserve),
+          eq(reserveUpdates.slot, latestReserveUpdates.slot),
+          eq(reserveUpdates.observedAt, latestReserveUpdates.observedAt)
+        )
+      )
+      .where(
+        and(
+          eq(reserveUpdates.reserveLastUpdateStale, false),
+          gte(reserveUpdates.supplyApy, 0),
+          lt(reserveUpdates.supplyApy, DEFAULT_MAX_SUPPLY_APY),
+          inArray(reserveUpdates.reserve, [...new Set(args.reserves)])
+        )
+      )
+      .orderBy(asc(reserveUpdates.reserve));
+
+    return rows.map((row) => row.reserve_updates);
   }
 
   async getCurrentBestApyReserveByStablecoin(args: {
