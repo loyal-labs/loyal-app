@@ -144,7 +144,7 @@ function SmartAccountInlineError({
   );
 }
 
-function EarnYieldIcon({ size = 48 }: { size?: number }) {
+export function EarnYieldIcon({ size = 48 }: { size?: number }) {
   const scale = size / 48;
 
   return (

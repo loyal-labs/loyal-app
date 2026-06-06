@@ -7,6 +7,7 @@ import type {
   ActivityRow,
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
+import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -36,6 +37,7 @@ type EarnTransactionsRouteErrorResponse = {
 };
 
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
+const EARN_VAULT_LABEL = "Earn vault";
 
 export function buildEarnTransactionDetail(
   item: EarnTransactionItem
@@ -258,7 +260,9 @@ function FlowAccount({ label, icon }: { label: string; icon: string | null }) {
         whiteSpace: "nowrap",
       }}
     >
-      {icon ? (
+      {label === EARN_VAULT_LABEL ? (
+        <EarnYieldIcon size={16} />
+      ) : icon ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           alt=""

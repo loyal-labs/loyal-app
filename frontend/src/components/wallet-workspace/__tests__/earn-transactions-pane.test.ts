@@ -7,7 +7,7 @@ import {
 
 function transaction(overrides: Partial<EarnTransactionItem> = {}) {
   return {
-    amount: "1.25 USDC",
+    amount: "-1.25 USDC",
     confirmedSlot: "123",
     dateGroup: "June 1",
     destination: { icon: null, label: "Earn vault" },
@@ -26,7 +26,7 @@ describe("buildEarnTransactionDetail", () => {
     const detail = buildEarnTransactionDetail(transaction());
 
     expect(detail.activity.id).toBe("signature-1");
-    expect(detail.activity.amount).toBe("1.25 USDC");
+    expect(detail.activity.amount).toBe("-1.25 USDC");
     expect(detail.usdValue).toBe("1.250000 USDC");
     expect(detail.activity.type).toBe("sent");
     expect(detail.activity.counterparty).toBe("Earn vault");
@@ -37,12 +37,14 @@ describe("buildEarnTransactionDetail", () => {
       transaction({
         destination: { icon: null, label: "Main USDC" },
         kind: "withdraw",
+        amount: "+1.25 USDC",
         signature: "withdraw-signature-1",
         source: { icon: null, label: "Earn vault" },
       })
     );
 
     expect(detail.activity.id).toBe("withdraw-signature-1");
+    expect(detail.activity.amount).toBe("+1.25 USDC");
     expect(detail.activity.type).toBe("received");
     expect(detail.activity.counterparty).toBe("Earn vault");
   });

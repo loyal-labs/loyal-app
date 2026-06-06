@@ -15,6 +15,8 @@ const EARN_VAULT_INDEX = 1;
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const MAIN_USDC_LABEL = "Main USDC";
 const EARN_VAULT_LABEL = "Earn vault";
+const MAIN_USDC_ICON = "/agents/Agent-01.svg";
+const EARN_VAULT_ICON = null;
 
 function resolveConfiguredCluster(): LoyalCluster {
   const solanaEnv = resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
@@ -32,8 +34,11 @@ function formatExactUsdcAmount(rawAmount: bigint): string {
   return `${sign}${whole.toString()}.${fraction} USDC`;
 }
 
-function formatDisplayUsdcAmount(rawAmount: bigint): string {
-  const sign = rawAmount < BigInt(0) ? "-" : "";
+function formatDisplayUsdcAmount(
+  rawAmount: bigint,
+  direction: "in" | "out"
+): string {
+  const sign = direction === "in" ? "+" : "-";
   const absolute = rawAmount < BigInt(0) ? -rawAmount : rawAmount;
   const whole = absolute / BigInt(1_000_000);
   const remainder = absolute % BigInt(1_000_000);
@@ -70,13 +75,14 @@ function formatTimestamp(date: Date): string {
 
 function serializeEvent(event: UserYieldPositionHistoryEventRecord) {
   const kind = event.type === "deposit" ? "deposit" : "withdraw";
+  const direction = kind === "deposit" ? "out" : "in";
 
   return {
-    amount: formatDisplayUsdcAmount(event.amountRaw),
+    amount: formatDisplayUsdcAmount(event.amountRaw, direction),
     confirmedSlot: event.confirmedSlot.toString(),
     dateGroup: formatDateGroup(event.confirmedAt),
     destination: {
-      icon: null,
+      icon: kind === "deposit" ? EARN_VAULT_ICON : MAIN_USDC_ICON,
       label: kind === "deposit" ? EARN_VAULT_LABEL : MAIN_USDC_LABEL,
     },
     id: event.signature,
@@ -84,7 +90,7 @@ function serializeEvent(event: UserYieldPositionHistoryEventRecord) {
     rawAmount: formatExactUsdcAmount(event.amountRaw),
     signature: event.signature,
     source: {
-      icon: null,
+      icon: kind === "deposit" ? MAIN_USDC_ICON : EARN_VAULT_ICON,
       label: kind === "deposit" ? MAIN_USDC_LABEL : EARN_VAULT_LABEL,
     },
     timestamp: formatTimestamp(event.confirmedAt),

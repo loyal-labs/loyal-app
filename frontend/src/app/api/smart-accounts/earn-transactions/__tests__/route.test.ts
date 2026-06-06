@@ -120,10 +120,10 @@ describe("smart-account earn transactions route", () => {
     await expect(response.json()).resolves.toEqual({
       transactions: [
         {
-          amount: "2.5 USDC",
+          amount: "+2.5 USDC",
           confirmedSlot: "222",
           dateGroup: "June 2",
-          destination: { icon: null, label: "Main USDC" },
+          destination: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
           id: "withdraw-sig-2",
           kind: "withdraw",
           rawAmount: "2.500000 USDC",
@@ -132,7 +132,7 @@ describe("smart-account earn transactions route", () => {
           timestamp: "9:30 AM",
         },
         {
-          amount: "<0.01 USDC",
+          amount: "-<0.01 USDC",
           confirmedSlot: "221",
           dateGroup: "June 2",
           destination: { icon: null, label: "Earn vault" },
@@ -140,11 +140,11 @@ describe("smart-account earn transactions route", () => {
           kind: "deposit",
           rawAmount: "0.000001 USDC",
           signature: "dust-deposit-sig-3",
-          source: { icon: null, label: "Main USDC" },
+          source: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
           timestamp: "9:29 AM",
         },
         {
-          amount: "1.25 USDC",
+          amount: "-1.25 USDC",
           confirmedSlot: "111",
           dateGroup: "June 1",
           destination: { icon: null, label: "Earn vault" },
@@ -152,7 +152,7 @@ describe("smart-account earn transactions route", () => {
           kind: "deposit",
           rawAmount: "1.250000 USDC",
           signature: "deposit-sig-1",
-          source: { icon: null, label: "Main USDC" },
+          source: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
           timestamp: "6:05 PM",
         },
       ],
