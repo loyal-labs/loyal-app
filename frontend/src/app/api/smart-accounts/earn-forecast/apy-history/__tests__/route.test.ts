@@ -9,8 +9,44 @@ const forecast = {
     riskProfile: "medium" as const,
     samples: [
       {
+        apyBps: 870,
+        observedAt: "2026-05-15T00:00:00.000Z",
+      },
+      {
         apyBps: 910,
         observedAt: "2026-05-31T00:00:00.000Z",
+      },
+    ],
+    series: [
+      {
+        key: "loyal" as const,
+        label: "Loyal Earn",
+        metadata: {
+          metric: "cumulative_annualized_apy_bps",
+        },
+        samples: [
+          {
+            apyBps: 870,
+            observedAt: "2026-05-15T00:00:00.000Z",
+          },
+          {
+            apyBps: 910,
+            observedAt: "2026-05-31T00:00:00.000Z",
+          },
+        ],
+      },
+      {
+        key: "mainUsdcReserve" as const,
+        label: "Kamino Main USDC",
+        metadata: {
+          metric: "cumulative_annualized_apy_bps",
+        },
+        samples: [
+          {
+            apyBps: 560,
+            observedAt: "2026-05-31T00:00:00.000Z",
+          },
+        ],
       },
     ],
     window: {
@@ -37,15 +73,15 @@ mock.module("@/lib/kamino/earn-forecast.server", () => ({
 
 let GET: typeof import("../route").GET;
 
-describe("smart-account earn forecast route", () => {
+describe("smart-account earn forecast APY history route", () => {
   beforeAll(async () => {
     ({ GET } = await import("../route"));
   });
 
-  test("returns the Medium 1bps forecast summary shape", async () => {
+  test("returns ordered Medium 1bps APY samples", async () => {
     const response = await GET();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(forecast.summary);
+    await expect(response.json()).resolves.toEqual(forecast.history);
   });
 });

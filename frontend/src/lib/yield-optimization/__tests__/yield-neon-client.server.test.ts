@@ -4,11 +4,13 @@ mock.module("server-only", () => ({}));
 
 const {
   YieldOptimizationClient,
+  earnForecastSnapshots,
   getYieldOptimizationClient,
   managedVaults,
   rebalanceDecisions,
   routePolicies,
   userYieldPositionDeposits,
+  userYieldPositionWithdrawals,
   userYieldPositions,
   vaultPositionSnapshotPositions,
   vaultPositionSnapshots,
@@ -30,6 +32,11 @@ describe("yield optimization Neon client", () => {
     expect(userYieldPositionDeposits.depositSignature.name).toBe(
       "deposit_signature"
     );
+    expect(userYieldPositionWithdrawals.withdrawalSignature.name).toBe(
+      "withdrawal_signature"
+    );
+    expect(earnForecastSnapshots.samples.name).toBe("samples");
+    expect(earnForecastSnapshots.windowEndedAt.name).toBe("window_ended_at");
   });
 
   test("creates a Drizzle-backed client without fetching data", () => {
@@ -52,6 +59,10 @@ describe("yield optimization Neon client", () => {
     expect(client.tables.userYieldPositionDeposits).toBe(
       userYieldPositionDeposits
     );
+    expect(client.tables.userYieldPositionWithdrawals).toBe(
+      userYieldPositionWithdrawals
+    );
+    expect(client.tables.earnForecastSnapshots).toBe(earnForecastSnapshots);
   });
 
   test("lazy singleton reads only the yield optimization database URL", () => {

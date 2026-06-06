@@ -17,29 +17,29 @@ describe("earn forecast APY cache", () => {
     const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
-          apyBps: 1197,
-          rangeHighBps: 1325,
-          rangeLowBps: 856,
-          strategy: "safe_no_fees",
+          apyBps: 910,
+          rangeHighBps: 940,
+          rangeLowBps: 870,
+          strategy: "medium_fee_aware_1bps",
           updatedAt: "2026-06-01T00:00:00.000Z",
           window: {
             endedAt: "2026-06-01T00:00:00.000Z",
-            startedAt: "2026-05-25T00:00:00.000Z",
+            startedAt: "2026-05-02T00:00:00.000Z",
           },
         })
       );
     });
-    globalThis.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(fetchEarnForecastApy()).resolves.toEqual({
-      apyBps: 1197,
-      rangeHighBps: 1325,
-      rangeLowBps: 856,
+      apyBps: 910,
+      rangeHighBps: 940,
+      rangeLowBps: 870,
     });
     await expect(fetchEarnForecastApy()).resolves.toEqual({
-      apyBps: 1197,
-      rangeHighBps: 1325,
-      rangeLowBps: 856,
+      apyBps: 910,
+      rangeHighBps: 940,
+      rangeLowBps: 870,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

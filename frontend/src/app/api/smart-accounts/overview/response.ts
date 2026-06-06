@@ -33,10 +33,6 @@ export async function withSmartAccountOverviewResponse<T>(
   }
 
   const startedAt = performance.now();
-  console.info(`[smart-account-overview] ${args.timingName}.start`, {
-    settingsPda: principal.settingsPda,
-    pathname: new URL(request.url).pathname,
-  });
 
   try {
     const data = await args.load({ settingsPda: principal.settingsPda });
@@ -50,10 +46,6 @@ export async function withSmartAccountOverviewResponse<T>(
         },
       },
     };
-    console.info(`[smart-account-overview] ${args.timingName}.done`, {
-      settingsPda: principal.settingsPda,
-      durationMs: Number(durationMs.toFixed(2)),
-    });
 
     return NextResponse.json(payload, {
       headers: {

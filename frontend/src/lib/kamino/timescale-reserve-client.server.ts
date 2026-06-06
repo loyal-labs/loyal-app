@@ -59,6 +59,21 @@ export const timescaleLatestReserveUpdates = kaminoTimescaleSchema.table(
   }
 );
 
+export const timescaleSupportedReserves = kaminoTimescaleSchema.table(
+  "supported_reserves",
+  {
+    active: boolean("active").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    liquidityMint: text("liquidity_mint").notNull(),
+    market: text("market").notNull(),
+    marketName: text("market_name"),
+    reserve: text("reserve").notNull(),
+    riskBaskets: text("risk_baskets").array().notNull(),
+    source: text("source").notNull(),
+    symbol: text("symbol"),
+  }
+);
+
 export type TimescaleReserveClientConfig = {
   databaseUrl: string;
   maxConnections?: number;
@@ -68,10 +83,13 @@ export type TimescaleReserveClientConfig = {
 export type TimescaleReserveClientTables = {
   latestReserveUpdates: typeof timescaleLatestReserveUpdates;
   reserveUpdates: typeof timescaleReserveUpdates;
+  supportedReserves: typeof timescaleSupportedReserves;
 };
 
 export type TimescaleReserveUpdateRow =
   typeof timescaleReserveUpdates.$inferSelect;
+export type TimescaleSupportedReserveRow =
+  typeof timescaleSupportedReserves.$inferSelect;
 export type TimescaleReserveApySample = Pick<
   TimescaleReserveUpdateRow,
   "observedAt" | "supplyApy"
@@ -138,6 +156,7 @@ export class TimescaleReserveClient {
   readonly tables: TimescaleReserveClientTables = {
     latestReserveUpdates: timescaleLatestReserveUpdates,
     reserveUpdates: timescaleReserveUpdates,
+    supportedReserves: timescaleSupportedReserves,
   };
 
   private readonly sqlClient: Sql;
@@ -181,6 +200,84 @@ export class TimescaleReserveClient {
         )
       )
       .orderBy(desc(table.observedAt));
+  }
+
+  async getMediumStableSupportedReserves(): Promise<
+    TimescaleSupportedReserveRow[]
+  > {
+    const table = this.tables.supportedReserves;
+    const marketAddresses = RISK_BASKET_MARKETS[RiskBasket.Medium].map(
+      (market) => market.toBase58()
+    );
+    const stablecoinLiquidityMints = STABLECOINS.map((stablecoin) =>
+      STABLECOIN_MINTS[stablecoin].toBase58()
+    );
+
+    return this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          eq(table.active, true),
+          inArray(table.market, marketAddresses),
+          inArray(table.liquidityMint, stablecoinLiquidityMints)
+        )
+      )
+      .orderBy(asc(table.market), asc(table.liquidityMint), asc(table.reserve));
+  }
+
+  async getReserveUpdatesWithSeedRows(args: {
+    end: Date;
+    reserves: readonly string[];
+    start: Date;
+  }): Promise<TimescaleReserveUpdateRow[]> {
+    if (args.reserves.length === 0) {
+      return [];
+    }
+
+    const table = this.tables.reserveUpdates;
+    const previousRows = await Promise.all(
+      args.reserves.map((reserve) =>
+        this.db
+          .select()
+          .from(table)
+          .where(
+            and(
+              eq(table.reserve, reserve),
+              eq(table.reserveLastUpdateStale, false),
+              gte(table.supplyApy, 0),
+              lt(table.supplyApy, DEFAULT_MAX_SUPPLY_APY),
+              lt(table.observedAt, args.start)
+            )
+          )
+          .orderBy(desc(table.observedAt))
+          .limit(1)
+      )
+    );
+    const rangeRows = await this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          inArray(table.reserve, [...args.reserves]),
+          eq(table.reserveLastUpdateStale, false),
+          gt(
+            table.totalSupplyUsdEstimate,
+            DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE
+          ),
+          gte(table.supplyApy, 0),
+          lt(table.supplyApy, DEFAULT_MAX_SUPPLY_APY),
+          gte(table.observedAt, args.start),
+          lte(table.observedAt, args.end)
+        )
+      )
+      .orderBy(asc(table.observedAt), asc(table.reserve));
+
+    return [...previousRows.flat(), ...rangeRows].sort(
+      (a, b) =>
+        a.observedAt.getTime() - b.observedAt.getTime() ||
+        a.reserve.localeCompare(b.reserve)
+    );
   }
 
   async getReserveApyHistory(args: {

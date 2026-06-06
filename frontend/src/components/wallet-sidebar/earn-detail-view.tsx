@@ -16,6 +16,7 @@ import {
   formatEarnApyPercent,
   getEarnForecastTargetMultiplier,
   type EarnForecastApy,
+  type EarnForecastApyHistoryResponse,
 } from "@/lib/kamino/earn-forecast.shared";
 import type {
   EarnEarningsBar,
@@ -24,6 +25,7 @@ import type {
 } from "@/lib/yield-optimization/earnings.shared";
 import { useEarnEarnings } from "@/hooks/use-earn-earnings";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
+import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -138,6 +140,18 @@ function formatDepositAmount(value: number) {
   });
 }
 
+export function formatEarnActionAmount(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0.00";
+  }
+
+  const roundedUpValue = Math.ceil(value * 100) / 100;
+  return roundedUpValue.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  });
+}
+
 export function clampDepositAmountInput(rawValue: string, balance: number) {
   if (rawValue === "") {
     return "";
@@ -218,7 +232,7 @@ export function buildEarnChartPoints(
   });
 }
 
-type EarnComparisonSeriesKey = "loyal" | "prime" | "tBill";
+type EarnComparisonSeriesKey = "loyal" | "mainUsdcReserve" | "tBill";
 
 const EARN_COMPARISON_SERIES: {
   color: string;
@@ -238,8 +252,8 @@ const EARN_COMPARISON_SERIES: {
     color: "#2688EB",
     dashed: true,
     fixedApyBps: 559,
-    key: "prime",
-    label: "USDC Prime Reserve",
+    key: "mainUsdcReserve",
+    label: "Main Market USDC",
   },
   {
     color: "#8E8E93",
@@ -258,6 +272,10 @@ type EarnComparisonPoint = {
   values: Record<EarnComparisonSeriesKey, number>;
 };
 
+type EarnComparisonApyOverrides = Partial<
+  Record<Exclude<EarnComparisonSeriesKey, "loyal">, number>
+>;
+
 function getEarnComparisonApyBps(
   forecastApyBps: number,
   fixedApyBps: number | null
@@ -267,37 +285,46 @@ function getEarnComparisonApyBps(
 
 export function buildEarnComparisonPoints(
   principal: number,
-  apy: EarnForecastApy = FALLBACK_EARN_APY
+  apy: EarnForecastApy = FALLBACK_EARN_APY,
+  apyOverrides: EarnComparisonApyOverrides = {}
 ): EarnComparisonPoint[] {
   const months = 12;
-  const targets = EARN_COMPARISON_SERIES.reduce(
-    (acc, series) => {
-      const apyBps = getEarnComparisonApyBps(
-        apy.apyBps,
-        series.fixedApyBps
-      );
-      acc[series.key] = principal * getEarnForecastTargetMultiplier(apyBps);
-      return acc;
-    },
-    {} as Record<EarnComparisonSeriesKey, number>
-  );
+  const targets = EARN_COMPARISON_SERIES.reduce((acc, series) => {
+    const overrideApyBps =
+      series.key === "loyal" ? undefined : apyOverrides[series.key];
+    const apyBps = getEarnComparisonApyBps(
+      apy.apyBps,
+      overrideApyBps ?? series.fixedApyBps
+    );
+    acc[series.key] = principal * getEarnForecastTargetMultiplier(apyBps);
+    return acc;
+  }, {} as Record<EarnComparisonSeriesKey, number>);
 
   return Array.from({ length: months + 1 }, (_, index) => {
     const progress = index / months;
     const eased = Math.pow(progress, 1.08);
-    const values = EARN_COMPARISON_SERIES.reduce(
-      (acc, series) => {
-        acc[series.key] = principal + (targets[series.key] - principal) * eased;
-        return acc;
-      },
-      {} as Record<EarnComparisonSeriesKey, number>
-    );
+    const values = EARN_COMPARISON_SERIES.reduce((acc, series) => {
+      acc[series.key] = principal + (targets[series.key] - principal) * eased;
+      return acc;
+    }, {} as Record<EarnComparisonSeriesKey, number>);
     return {
       date: FORECAST_DATES[index] ?? FORECAST_DATES[FORECAST_DATES.length - 1],
       index,
       values,
     };
   });
+}
+
+export function deriveMainUsdcReserveForecastApyBps(
+  history: Pick<EarnForecastApyHistoryResponse, "series">,
+  fallbackApyBps = 559
+): number {
+  const latestSample = history.series
+    ?.find((series) => series.key === "mainUsdcReserve")
+    ?.samples.at(-1);
+  return Number.isFinite(latestSample?.apyBps)
+    ? latestSample.apyBps
+    : fallbackApyBps;
 }
 
 function niceCeilStep(value: number): number {
@@ -646,28 +673,8 @@ function EarnGrowingBalance({
 }
 
 const EARNINGS_CHART_HEIGHT = EARN_CHART_HEIGHT; // match the Forecast chart height
-const EARNINGS_RANGES = [
-  {
-    id: "7D",
-    label: "7D",
-    rangeSubtitle: "Past 7 days",
-  },
-  {
-    id: "30D",
-    label: "30D",
-    rangeSubtitle: "Past 30 days",
-  },
-  {
-    id: "1Y",
-    label: "1Y",
-    rangeSubtitle: "Past year",
-  },
-  {
-    id: "ALL",
-    label: "ALL",
-    rangeSubtitle: "All time",
-  },
-] as const;
+const EARNINGS_MONTHLY_RANGE_ID = "1Y" satisfies EarningsRangeId;
+const EARNINGS_MONTHLY_RANGE_SUBTITLE = "Past 12 months";
 
 const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
 
@@ -730,7 +737,11 @@ function buildPlaceholderEarningsBars(
   if (rangeId === "1Y") {
     return Array.from({ length: 12 }, (_, index) => {
       const offset = 11 - index;
-      const monthStart = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      const monthStart = new Date(
+        now.getFullYear(),
+        now.getMonth() - offset,
+        1
+      );
       const monthEnd = new Date(
         now.getFullYear(),
         now.getMonth() - offset + 1,
@@ -829,6 +840,14 @@ function getEarningsFractionDigits(value: number) {
   return 2;
 }
 
+export function formatMonthlyEarningsBarLabel(value: string | Date): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 function formatEarningsAmount(value: number) {
   if (!Number.isFinite(value)) {
     return "+$0.00";
@@ -869,16 +888,12 @@ function EarningsBlock({
   apy,
   earningsData,
   isLoadingEarnings,
-  onRangeChange,
   principalAmount,
-  rangeId,
 }: {
   apy: EarnForecastApy;
   earningsData: EarnEarningsResponse | null;
   isLoadingEarnings: boolean;
-  onRangeChange: (rangeId: EarningsRangeId) => void;
   principalAmount: number;
-  rangeId: EarningsRangeId;
 }) {
   const [activeTab, setActiveTab] = useState<EarnChartTab>("Forecast");
   const [earningsRevision, setEarningsRevision] = useState(0);
@@ -897,15 +912,13 @@ function EarningsBlock({
       setHistoricalRevision((r) => r + 1);
     }
   };
-  const range =
-    EARNINGS_RANGES.find((r) => r.id === rangeId) ?? EARNINGS_RANGES[1];
   const forecastAmount = principalAmount;
   const placeholderBars = useMemo(
     () =>
       principalAmount > 0
-        ? buildPlaceholderEarningsBars(rangeId)
+        ? buildPlaceholderEarningsBars(EARNINGS_MONTHLY_RANGE_ID)
         : EMPTY_EARNINGS_BARS,
-    [principalAmount, rangeId]
+    [principalAmount]
   );
   const realBars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
   const bars = realBars.length > 0 ? realBars : placeholderBars;
@@ -915,7 +928,11 @@ function EarningsBlock({
     let running = 0;
     return bars.map((bar) => {
       running += Math.max(0, bar.earnedUsd);
-      return { ...bar, cumulativeUsd: running };
+      return {
+        ...bar,
+        cumulativeUsd: running,
+        label: formatMonthlyEarningsBarLabel(bar.startAt),
+      };
     });
   }, [bars]);
   const maxValue = useMemo(() => {
@@ -924,6 +941,14 @@ function EarningsBlock({
   }, [cumulativeBars]);
   const hoveredBarEntry =
     hoveredBar !== null ? cumulativeBars[hoveredBar] : null;
+  const earningsAxisLabels =
+    cumulativeBars.length > 0
+      ? [
+          cumulativeBars[0].label,
+          cumulativeBars[Math.floor((cumulativeBars.length - 1) / 2)].label,
+          cumulativeBars[cumulativeBars.length - 1].label,
+        ]
+      : [];
   const displayValue = hoveredBarEntry
     ? hoveredBarEntry.cumulativeUsd
     : earningsData?.lifetimeEarnedUsd ?? 0;
@@ -948,16 +973,11 @@ function EarningsBlock({
     }
     return (
       <span style={{ color: "#34C759" }}>
-        {formatSignedEarningsAmount(rangeEarnedUsd)} {range.rangeSubtitle}
+        {formatSignedEarningsAmount(rangeEarnedUsd)}{" "}
+        {EARNINGS_MONTHLY_RANGE_SUBTITLE}
       </span>
     );
-  }, [
-    earningsData,
-    hoveredBarEntry,
-    isLoadingEarnings,
-    range.rangeSubtitle,
-    rangeEarnedUsd,
-  ]);
+  }, [earningsData, hoveredBarEntry, isLoadingEarnings, rangeEarnedUsd]);
 
   return (
     <section
@@ -1009,13 +1029,34 @@ function EarningsBlock({
         .earnings-bar-active .earnings-bar-fill {
           background: #34c759;
         }
+        .earnings-bar-zero .earnings-bar-fill {
+          background: #34c759;
+        }
+        .earnings-bar-current-positive .earnings-bar-fill {
+          background: #34c759;
+        }
         .earnings-bar-current .earnings-bar-fill {
           background: rgba(52, 199, 89, 0.12);
           border: 1px dashed #34c759;
         }
+        .earnings-bar-zero.earnings-bar-current .earnings-bar-fill {
+          background: #34c759;
+          border: none;
+        }
+        .earnings-bar-current-positive .earnings-bar-fill {
+          border: none;
+        }
         .earnings-bar-current:hover .earnings-bar-fill,
         .earnings-bar-current.earnings-bar-active .earnings-bar-fill {
           background: rgba(52, 199, 89, 0.22);
+        }
+        .earnings-bar-zero:hover .earnings-bar-fill,
+        .earnings-bar-zero.earnings-bar-active .earnings-bar-fill {
+          background: #34c759;
+        }
+        .earnings-bar-current-positive:hover .earnings-bar-fill,
+        .earnings-bar-current-positive.earnings-bar-active .earnings-bar-fill {
+          background: #34c759;
         }
         @keyframes earnings-bar-rise {
           from {
@@ -1039,26 +1080,6 @@ function EarningsBlock({
           .earnings-tab-panel {
             transition: none;
           }
-        }
-        .earnings-range-chip {
-          background: transparent;
-          border: none;
-          border-radius: 9999px;
-          color: ${secondary};
-          cursor: pointer;
-          font-family: ${font};
-          font-size: 14px;
-          font-weight: 500;
-          line-height: 20px;
-          padding: 6px 12px;
-          transition: background 0.15s ease;
-        }
-        .earnings-range-chip:hover:not(.earnings-range-chip-active) {
-          background: rgba(0, 0, 0, 0.04);
-        }
-        .earnings-range-chip-active {
-          background: rgba(0, 0, 0, 0.04);
-          color: #000;
         }
       `}</style>
 
@@ -1247,7 +1268,7 @@ function EarningsBlock({
             </div>
 
             <div
-              key={`earnings-bars-${rangeId}`}
+              key="earnings-bars-monthly"
               onMouseLeave={() => setHoveredBar(null)}
               style={{
                 alignItems: "flex-end",
@@ -1261,6 +1282,12 @@ function EarningsBlock({
               {cumulativeBars.map((bar, i) => {
                 const heightPct =
                   maxValue > 0 ? (bar.cumulativeUsd / maxValue) * 100 : 0;
+                const isZeroValue = bar.cumulativeUsd <= 0;
+                const isCurrentPositive =
+                  bar.isCurrent && bar.cumulativeUsd > 0;
+                const visualHeightPct = isCurrentPositive
+                  ? Math.max(heightPct, 18)
+                  : heightPct;
                 const isActive = hoveredBar === i;
                 const minHeightPx = 4;
                 return (
@@ -1270,7 +1297,11 @@ function EarningsBlock({
                     )}`}
                     className={`earnings-bar${
                       isActive ? " earnings-bar-active" : ""
-                    }${bar.isCurrent ? " earnings-bar-current" : ""}`}
+                    }${bar.isCurrent ? " earnings-bar-current" : ""}${
+                      isZeroValue ? " earnings-bar-zero" : ""
+                    }${
+                      isCurrentPositive ? " earnings-bar-current-positive" : ""
+                    }`}
                     key={`${bar.startAt}:${bar.endAt}`}
                     onMouseEnter={() => setHoveredBar(i)}
                     style={{
@@ -1282,7 +1313,7 @@ function EarningsBlock({
                       aria-hidden="true"
                       className="earnings-bar-fill"
                       style={{
-                        height: `max(${minHeightPx}px, ${heightPct.toFixed(
+                        height: `max(${minHeightPx}px, ${visualHeightPct.toFixed(
                           2
                         )}%)`,
                       }}
@@ -1313,44 +1344,14 @@ function EarningsBlock({
           <div
             style={{
               display: "flex",
+              justifyContent: "space-between",
               padding: "8px 12px 0",
               width: "100%",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                flex: 1,
-                gap: "8px",
-                minWidth: 0,
-              }}
-            >
-              {EARNINGS_RANGES.map((r) => (
-                <button
-                  className={`earnings-range-chip${
-                    r.id === rangeId ? " earnings-range-chip-active" : ""
-                  }`}
-                  key={r.id}
-                  onClick={() => {
-                    onRangeChange(r.id);
-                    setHoveredBar(null);
-                  }}
-                  type="button"
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flex: 1,
-                justifyContent: "flex-end",
-                minWidth: 0,
-                paddingLeft: "12px",
-              }}
-            >
+            {earningsAxisLabels.map((label, index) => (
               <span
+                key={`${label}-${index}`}
                 style={{
                   color: secondary,
                   fontFamily: font,
@@ -1359,10 +1360,9 @@ function EarningsBlock({
                   whiteSpace: "nowrap",
                 }}
               >
-                Today{" "}
-                {formatSignedEarningsAmount(earningsData?.todayEarnedUsd ?? 0)}
+                {label}
               </span>
-            </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1511,8 +1511,6 @@ export function EarnDetailView({
   principalAmount?: number;
 }) {
   const earnForecastApy = useEarnForecastApy();
-  const [earningsRangeId, setEarningsRangeId] =
-    useState<EarningsRangeId>("30D");
   const {
     data: earningsRangeSet,
     error: earningsError,
@@ -1520,13 +1518,13 @@ export function EarnDetailView({
   } = useEarnEarnings({
     cacheKey: earningsCacheKey,
     enabled: hasCurrentPosition,
-    expectedPrincipalAmountRaw:
-      earningsCacheScope?.expectedPrincipalAmountRaw,
+    expectedPrincipalAmountRaw: earningsCacheScope?.expectedPrincipalAmountRaw,
     settingsPda: earningsCacheScope?.settingsPda,
     solanaEnv: earningsCacheScope?.solanaEnv,
     walletAddress: earningsCacheScope?.walletAddress,
   });
-  const earningsData = earningsRangeSet?.ranges[earningsRangeId] ?? null;
+  const earningsData =
+    earningsRangeSet?.ranges[EARNINGS_MONTHLY_RANGE_ID] ?? null;
   const estimatedEarnedAmountApyBps = deriveEstimatedEarnedAmountApyBps({
     earningsData,
     earningsError,
@@ -1675,9 +1673,7 @@ export function EarnDetailView({
           earningsData={earningsData}
           isLoadingEarnings={isLoadingEarnings}
           key={`${principalAmount}:${earnForecastApy.apyBps}`}
-          onRangeChange={setEarningsRangeId}
           principalAmount={principalAmount}
-          rangeId={earningsRangeId}
         />
       ) : null}
 
@@ -2028,14 +2024,15 @@ export function EarnWithdrawView({
       : hasWithdrawAmount && numericWithdrawAmount > maxWithdrawAmount
       ? "Insufficient balance"
       : null;
-  const isWithdrawButtonDisabled =
-    isSubmitting || withdrawAmountError !== null;
+  const isWithdrawButtonDisabled = isSubmitting || withdrawAmountError !== null;
   const withdrawButtonLabel = isSubmitting
     ? "Withdrawing..."
     : withdrawAmountError ??
       (isMaximumWithdrawMode
-        ? "Withdraw all"
-        : `Withdraw ${withdrawAmount} USDC`);
+        ? `Withdraw all (${formatEarnActionAmount(
+            effectiveWithdrawAmount
+          )} USDC)`
+        : `Withdraw ${formatEarnActionAmount(effectiveWithdrawAmount)} USDC`);
   const withdrawUsdDisplay = hasWithdrawAmount
     ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
@@ -2632,10 +2629,30 @@ function DepositSourceRow({
   );
 }
 
-type HistoricalApySample = { apyPercent: number; date: string };
+type HistoricalApySample = {
+  apyPercent: number;
+  date: string;
+  observedAtMs: number;
+};
+type HistoricalApyBenchmarkLine = {
+  apyPercentAtHover: number;
+  color: string;
+  d: string;
+  key: Exclude<EarnComparisonSeriesKey, "loyal">;
+  label: string;
+  samples?: HistoricalApySample[];
+  topPercent: number;
+};
 
 const HISTORICAL_APY_BASELINE = 5;
 const HISTORICAL_APY_MIN = 2.5;
+const HISTORICAL_APY_STATIC_BENCHMARKS = EARN_COMPARISON_SERIES.filter(
+  (
+    series
+  ): series is (typeof EARN_COMPARISON_SERIES)[number] & {
+    fixedApyBps: number;
+  } => series.key !== "loyal" && series.key !== "mainUsdcReserve"
+);
 const HISTORICAL_RANGE_CONFIG: Record<
   EarningsRangeId,
   { points: number; seed: number; spanDays: number }
@@ -2669,10 +2686,19 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function formatHistoricalAxisDate(date: Date): string {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  return `${day}/${month}`;
+export function formatHistoricalAxisDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+export function formatHistoricalApyDelta(
+  deltaPercent: number,
+  benchmarkLabel = "Main Market USDC"
+): string {
+  const sign = deltaPercent >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(deltaPercent).toFixed(2)}% vs ${benchmarkLabel}`;
 }
 
 function buildHistoricalApySamples(
@@ -2704,22 +2730,93 @@ function buildHistoricalApySamples(
     return {
       apyPercent: Math.max(HISTORICAL_APY_MIN, apyPercent),
       date: formatHistoricalAxisDate(new Date(endMs - spanMs * (1 - progress))),
+      observedAtMs: endMs - spanMs * (1 - progress),
     };
   });
 }
 
+function toHistoricalApySamples(
+  history: ReturnType<typeof useEarnForecastApyHistory>
+): HistoricalApySample[] {
+  const loyalSeries = history.series?.find((series) => series.key === "loyal");
+  const samples = loyalSeries?.samples.length ? loyalSeries.samples : history.samples;
+
+  return samples.map((sample) => ({
+    apyPercent: sample.apyBps / 100,
+    date: formatHistoricalAxisDate(new Date(sample.observedAt)),
+    observedAtMs: Date.parse(sample.observedAt),
+  }));
+}
+
+function toHistoricalBenchmarkSamples(
+  history: ReturnType<typeof useEarnForecastApyHistory>,
+  key: Exclude<EarnComparisonSeriesKey, "loyal">
+): HistoricalApySample[] {
+  const series = history.series?.find((item) => item.key === key);
+  if (!series) {
+    return [];
+  }
+
+  return series.samples.map((sample) => ({
+    apyPercent: sample.apyBps / 100,
+    date: formatHistoricalAxisDate(new Date(sample.observedAt)),
+    observedAtMs: Date.parse(sample.observedAt),
+  }));
+}
+
+function nearestHistoricalApyPercent(
+  samples: readonly HistoricalApySample[] | undefined,
+  observedAtMs: number,
+  fallback: number
+): number {
+  if (!samples || samples.length === 0) {
+    return fallback;
+  }
+
+  return samples.reduce((nearest, sample) =>
+    Math.abs(sample.observedAtMs - observedAtMs) <
+    Math.abs(nearest.observedAtMs - observedAtMs)
+      ? sample
+      : nearest
+  ).apyPercent;
+}
+
 function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
-  const samples = useMemo(
-    () => buildHistoricalApySamples(rangeId, new Date()),
-    [rangeId]
-  );
+  const apyHistory = useEarnForecastApyHistory();
+  const samples = useMemo(() => {
+    const fetchedSamples = toHistoricalApySamples(apyHistory);
+    if (rangeId === "30D" && fetchedSamples.length > 0) {
+      return fetchedSamples;
+    }
+
+    return buildHistoricalApySamples(rangeId, new Date());
+  }, [apyHistory, rangeId]);
+  const mainUsdcSamples = useMemo(() => {
+    if (rangeId !== "30D") {
+      return [];
+    }
+
+    return toHistoricalBenchmarkSamples(apyHistory, "mainUsdcReserve");
+  }, [apyHistory, rangeId]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const maxApy = samples.reduce(
     (max, sample) => Math.max(max, sample.apyPercent),
     0
   );
-  const axisStep = niceCeilStep(Math.max(maxApy, 1) / 7);
-  const levelCount = Math.max(2, Math.ceil(maxApy / axisStep) + 1);
+  const maxMainUsdcApy = mainUsdcSamples.reduce(
+    (max, sample) => Math.max(max, sample.apyPercent),
+    0
+  );
+  const maxStaticBenchmarkApy = HISTORICAL_APY_STATIC_BENCHMARKS.reduce(
+    (max, series) => Math.max(max, series.fixedApyBps / 100),
+    0
+  );
+  const maxBenchmarkApy = Math.max(maxMainUsdcApy, maxStaticBenchmarkApy);
+  const axisStep = niceCeilStep(Math.max(maxApy, maxBenchmarkApy, 1) / 7);
+  const levelCount = Math.max(
+    2,
+    Math.ceil(Math.max(maxApy, maxBenchmarkApy) / axisStep) + 1
+  );
   const axisMax = axisStep * (levelCount - 1);
   const plotRange = EARN_CHART_BASELINE - EARN_CHART_TOP;
   const plot = (value: number) =>
@@ -2733,26 +2830,98 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
       label: `${value.toFixed(2)}%`,
       level,
       topPercent: (y / EARN_CHART_HEIGHT) * 100,
-      y,
     };
   });
   const linePath = samples
     .map(
       (sample, index) =>
-        `${index === 0 ? "M" : "L"}${xForIndex(index)},${plot(sample.apyPercent)}`
+        `${index === 0 ? "M" : "L"}${xForIndex(index)},${plot(
+          sample.apyPercent
+        )}`
     )
     .join(" ");
-  const axisDateCount = Math.min(7, samples.length);
-  const axisDates = Array.from({ length: axisDateCount }, (_, slot) => {
-    const index = Math.round(
-      (slot / Math.max(axisDateCount - 1, 1)) * (samples.length - 1)
+  const xForObservedAtMs = (observedAtMs: number) => {
+    const startedAtMs = samples[0]?.observedAtMs ?? 0;
+    const endedAtMs = samples.at(-1)?.observedAtMs ?? startedAtMs;
+    if (endedAtMs <= startedAtMs) {
+      return 0;
+    }
+    const progress = Math.min(
+      Math.max((observedAtMs - startedAtMs) / (endedAtMs - startedAtMs), 0),
+      1
     );
-    return samples[index].date;
-  });
+    return progress * EARN_CHART_WIDTH;
+  };
+  const mainUsdcBenchmark =
+    mainUsdcSamples.length > 0
+      ? (() => {
+          const fallbackApyPercent = mainUsdcSamples.at(-1)?.apyPercent ?? 0;
+          const path = mainUsdcSamples
+            .map(
+              (sample, index) =>
+                `${index === 0 ? "M" : "L"}${xForObservedAtMs(
+                  sample.observedAtMs
+                )},${plot(sample.apyPercent)}`
+            )
+            .join(" ");
+          const hoverObservedAtMs =
+            hoverIndex === null
+              ? samples.at(-1)?.observedAtMs
+              : samples[Math.min(hoverIndex, samples.length - 1)]?.observedAtMs;
+          const apyPercentAtHover =
+            hoverObservedAtMs === undefined
+              ? fallbackApyPercent
+              : nearestHistoricalApyPercent(
+                  mainUsdcSamples,
+                  hoverObservedAtMs,
+                  fallbackApyPercent
+                );
+          const y = plot(apyPercentAtHover);
+
+          return {
+            apyPercentAtHover,
+            color: "#2688EB",
+            d: path,
+            key: "mainUsdcReserve" as const,
+            label: "Main Market USDC",
+            samples: mainUsdcSamples,
+            topPercent: (y / EARN_CHART_HEIGHT) * 100,
+          };
+        })()
+      : null;
+  const benchmarkLines: HistoricalApyBenchmarkLine[] = [
+    ...(mainUsdcBenchmark ? [mainUsdcBenchmark] : []),
+    ...HISTORICAL_APY_STATIC_BENCHMARKS.map((series) => {
+      const apyPercent = series.fixedApyBps / 100;
+      const y = plot(apyPercent);
+      return {
+        apyPercentAtHover: apyPercent,
+        color: series.color,
+        d: `M0,${y}L${EARN_CHART_WIDTH},${y}`,
+        key: series.key,
+        label: series.label,
+        topPercent: (y / EARN_CHART_HEIGHT) * 100,
+      };
+    }),
+  ];
+  const mainUsdcBenchmarkLine =
+    benchmarkLines.find((series) => series.key === "mainUsdcReserve") ??
+    benchmarkLines[0];
+  const midpointIndex = Math.floor((samples.length - 1) / 2);
+  const axisDates = [
+    samples[0].date,
+    samples[midpointIndex].date,
+    samples[samples.length - 1].date,
+  ];
   const hoveredSample =
     hoverIndex === null
       ? null
       : samples[Math.min(hoverIndex, samples.length - 1)];
+  const hoveredApyDelta =
+    hoveredSample === null
+      ? 0
+      : hoveredSample.apyPercent -
+        (mainUsdcBenchmarkLine?.apyPercentAtHover ?? 0);
   const hoverLeft =
     hoveredSample === null
       ? 0
@@ -2783,7 +2952,8 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
     >
       <style jsx>{`
         .historical-chart-reveal-rect {
-          animation: historical-chart-reveal 0.7s cubic-bezier(0.2, 0, 0, 1) both;
+          animation: historical-chart-reveal 0.7s cubic-bezier(0.2, 0, 0, 1)
+            both;
           transform-origin: 0 0;
         }
         .historical-chart-hover-elements {
@@ -2845,21 +3015,6 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                 />
               </clipPath>
             </defs>
-            {gridLines.map((grid) => (
-              <line
-                key={grid.level}
-                stroke={
-                  grid.level === 0
-                    ? "rgba(60, 60, 67, 0.18)"
-                    : "rgba(60, 60, 67, 0.08)"
-                }
-                strokeWidth="1"
-                x1={0}
-                x2={EARN_CHART_WIDTH}
-                y1={grid.y}
-                y2={grid.y}
-              />
-            ))}
             <g clipPath="url(#historical-chart-reveal-clip)">
               <path
                 d={linePath}
@@ -2869,6 +3024,18 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                 strokeLinejoin="round"
                 strokeWidth={2}
               />
+              {benchmarkLines.map((series) => (
+                <path
+                  d={series.d}
+                  fill="none"
+                  key={series.key}
+                  stroke={series.color}
+                  strokeDasharray="6 6"
+                  strokeLinecap="round"
+                  strokeOpacity={0.4}
+                  strokeWidth={1.5}
+                />
+              ))}
             </g>
           </svg>
 
@@ -2902,6 +3069,25 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                   width: "8px",
                 }}
               />
+              {benchmarkLines.map((series) => (
+                <span
+                  aria-hidden="true"
+                  className="historical-chart-hover-elements"
+                  key={series.key}
+                  style={{
+                    background: series.color,
+                    borderRadius: "9999px",
+                    boxShadow: "0 0 0 2px #fff",
+                    height: "8px",
+                    left: `${hoverLeft}%`,
+                    pointerEvents: "none",
+                    position: "absolute",
+                    top: `${series.topPercent}%`,
+                    transform: "translate(-50%, -50%)",
+                    width: "8px",
+                  }}
+                />
+              ))}
               <div
                 className="historical-chart-hover-elements"
                 style={{
@@ -2916,7 +3102,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                   position: "absolute",
                   top: "8px",
                   transform: "translateX(-50%)",
-                  width: "126px",
+                  width: "194px",
                 }}
               >
                 <span
@@ -2943,20 +3129,59 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                 </span>
                 <span
                   style={{
-                    color: LOYAL_EARN_BRAND_COLOR,
+                    color:
+                      hoveredApyDelta >= 0
+                        ? POSITIVE_AMOUNT_COLOR
+                        : LOYAL_EARN_BRAND_COLOR,
                     fontFamily: font,
                     fontSize: "13px",
                     fontWeight: 400,
                     lineHeight: "16px",
                   }}
                 >
-                  APY
+                  {formatHistoricalApyDelta(
+                    hoveredApyDelta,
+                    mainUsdcBenchmarkLine?.label
+                  )}
                 </span>
+                {benchmarkLines.map((series) => (
+                  <div
+                    key={series.key}
+                    style={{
+                      alignItems: "center",
+                      display: "flex",
+                      gap: "6px",
+                      paddingTop: "6px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        background: series.color,
+                        borderRadius: "3px",
+                        flexShrink: 0,
+                        height: "10px",
+                        width: "10px",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 400,
+                        lineHeight: "16px",
+                      }}
+                    >
+                      {`${series.label} (${formatEarnApyPercent(
+                        Math.round(series.apyPercentAtHover * 100)
+                      )})`}
+                    </span>
+                  </div>
+                ))}
               </div>
             </>
           ) : null}
         </div>
-
         <div
           aria-hidden="true"
           style={{
@@ -3012,27 +3237,82 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
           </span>
         ))}
       </div>
+
+      <div
+        style={{
+          columnGap: "16px",
+          display: "flex",
+          flexWrap: "wrap",
+          paddingRight: "56px",
+          paddingTop: "16px",
+          rowGap: "8px",
+          width: "100%",
+        }}
+      >
+        {[
+          {
+            color: LOYAL_EARN_BRAND_COLOR,
+            key: "loyal",
+            label: "Loyal Earn",
+          },
+          ...benchmarkLines.map((series) => ({
+            color: series.color,
+            key: series.key,
+            label: series.label,
+          })),
+        ].map((series) => (
+          <div
+            key={series.key}
+            style={{ alignItems: "center", display: "flex", gap: "6px" }}
+          >
+            <span
+              style={{
+                background: series.color,
+                borderRadius: "3px",
+                height: "10px",
+                width: "10px",
+              }}
+            />
+            <span
+              style={{
+                color: series.key === "loyal" ? "#000" : secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: series.key === "loyal" ? 500 : 400,
+                lineHeight: "16px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {series.label}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 function DepositChart({
   apy = FALLBACK_EARN_APY,
+  mainUsdcReserveApyBps = 559,
   principal = 1000,
 }: {
   apy?: EarnForecastApy;
+  mainUsdcReserveApyBps?: number;
   principal?: number;
 }) {
   const points = useMemo(
-    () => buildEarnComparisonPoints(principal, apy),
-    [apy, principal]
+    () =>
+      buildEarnComparisonPoints(principal, apy, {
+        mainUsdcReserve: mainUsdcReserveApyBps,
+      }),
+    [apy, mainUsdcReserveApyBps, principal]
   );
   const defaultHoverIndex = Math.floor((points.length - 1) / 2);
   const [hoverIndex, setHoverIndex] = useState(defaultHoverIndex);
 
   const loyalApyBps = getEarnComparisonApyBps(apy.apyBps, null);
-  const loyalTarget =
-    principal * getEarnForecastTargetMultiplier(loyalApyBps);
+  const loyalTarget = principal * getEarnForecastTargetMultiplier(loyalApyBps);
   const minValue = principal;
   const axisStep = niceCeilStep(Math.max(loyalTarget - principal, 1) / 4);
   const maxValue = minValue + axisStep * 4;
@@ -3161,21 +3441,6 @@ function DepositChart({
                 />
               </clipPath>
             </defs>
-            {gridLines.map((grid) => (
-              <line
-                key={grid.level}
-                stroke={
-                  grid.level === 0
-                    ? "rgba(60, 60, 67, 0.18)"
-                    : "rgba(60, 60, 67, 0.08)"
-                }
-                strokeWidth="1"
-                x1={0}
-                x2={EARN_CHART_WIDTH}
-                y1={grid.y}
-                y2={grid.y}
-              />
-            ))}
             <g clipPath="url(#earn-chart-reveal-clip)">
               {seriesPaths.map((series) => (
                 <path
@@ -3313,7 +3578,9 @@ function DepositChart({
             {staticSeries.map((series) => {
               const seriesApyBps = getEarnComparisonApyBps(
                 apy.apyBps,
-                series.fixedApyBps
+                series.key === "mainUsdcReserve"
+                  ? mainUsdcReserveApyBps
+                  : series.fixedApyBps
               );
               const seriesValue = hoverPoint.values[series.key];
               return (
@@ -3495,6 +3762,10 @@ export function EarnDepositView({
   sources?: EarnDepositSourceOption[];
 }) {
   const earnForecastApy = useEarnForecastApy();
+  const earnForecastApyHistory = useEarnForecastApyHistory();
+  const mainUsdcReserveApyBps = deriveMainUsdcReserveForecastApyBps(
+    earnForecastApyHistory
+  );
   const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
   const amountInputRef = useRef<HTMLInputElement | null>(null);
   const [depositAmount, setDepositAmount] = useState("");
@@ -3530,14 +3801,13 @@ export function EarnDepositView({
       : hasDepositAmount && numericDepositAmount > selectedSourceBalance
       ? "Insufficient balance"
       : null;
-  const isDepositButtonDisabled =
-    isSubmitting || amountError !== null;
+  const isDepositButtonDisabled = isSubmitting || amountError !== null;
   const depositButtonLabel = isSubmitting
     ? "Depositing..."
     : amountError ??
       (isMaximumDepositMode
-        ? "Deposit all"
-        : `Deposit ${depositAmount} USDC`);
+        ? `Deposit all (${formatEarnActionAmount(effectiveDepositAmount)} USDC)`
+        : `Deposit ${formatEarnActionAmount(effectiveDepositAmount)} USDC`);
   const forecastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -3774,6 +4044,7 @@ export function EarnDepositView({
             <DepositChart
               apy={earnForecastApy}
               key={forecastAmount}
+              mainUsdcReserveApyBps={mainUsdcReserveApyBps}
               principal={forecastAmount}
             />
           </div>

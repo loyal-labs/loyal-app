@@ -18,6 +18,8 @@ export type EarnTransactionItem = {
   timestamp: string;
   amount: string;
   rawAmount: string;
+  signature: string;
+  confirmedSlot: string;
   source: { label: string; icon: string | null };
   destination: { label: string; icon: string | null };
 };
@@ -40,7 +42,7 @@ export function buildEarnTransactionDetail(
 ): TransactionDetail {
   const isWithdraw = item.kind === "withdraw";
   const activity: ActivityRow = {
-    id: item.id,
+    id: item.signature,
     type: isWithdraw ? "received" : "sent",
     counterparty: isWithdraw ? item.source.label : item.destination.label,
     amount: item.amount,
@@ -50,11 +52,123 @@ export function buildEarnTransactionDetail(
   };
   return {
     activity,
-    usdValue: `$${item.rawAmount}`,
+    usdValue: item.rawAmount,
     status: "Completed",
     networkFee: "~0.000005 SOL",
     networkFeeUsd: "~$0.0005",
   };
+}
+
+function EarnTransactionsLoadingState() {
+  return (
+    <div
+      aria-label="Loading earn transactions"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        padding: "8px 12px",
+      }}
+    >
+      {[0, 1, 2].map((index) => (
+        <div
+          key={index}
+          style={{
+            alignItems: "center",
+            display: "flex",
+            gap: "12px",
+            height: "60px",
+            width: "100%",
+          }}
+        >
+          <span
+            style={{
+              background: "rgba(0, 0, 0, 0.06)",
+              borderRadius: "9999px",
+              height: "48px",
+              width: "48px",
+            }}
+          />
+          <span
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            <span
+              style={{
+                background: "rgba(0, 0, 0, 0.06)",
+                borderRadius: "9999px",
+                height: "14px",
+                width: "104px",
+              }}
+            />
+            <span
+              style={{
+                background: "rgba(0, 0, 0, 0.05)",
+                borderRadius: "9999px",
+                height: "12px",
+                width: "72px",
+              }}
+            />
+          </span>
+          <span
+            style={{
+              background: "rgba(0, 0, 0, 0.06)",
+              borderRadius: "9999px",
+              height: "14px",
+              width: "92px",
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EarnTransactionsErrorState({ message }: { message: string }) {
+  return (
+    <div
+      role="status"
+      style={{
+        alignItems: "center",
+        display: "flex",
+        flex: 1,
+        flexDirection: "column",
+        justifyContent: "center",
+        minHeight: "220px",
+        padding: "24px",
+        textAlign: "center",
+      }}
+    >
+      <span
+        style={{
+          color: "#000",
+          fontFamily: font,
+          fontSize: "16px",
+          fontWeight: 500,
+          lineHeight: "20px",
+        }}
+      >
+        Transactions unavailable
+      </span>
+      <span
+        style={{
+          color: secondary,
+          fontFamily: font,
+          fontSize: "13px",
+          fontWeight: 400,
+          lineHeight: "16px",
+          marginTop: "4px",
+          maxWidth: "240px",
+        }}
+      >
+        {message}
+      </span>
+    </div>
+  );
 }
 
 function CompoundIcon() {
@@ -365,11 +479,16 @@ export function EarnTransactionsPane({
   topInset?: number;
 }) {
   const [transactions, setTransactions] = useState<EarnTransactionItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadTransactions = async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+
       const response = await fetch("/api/smart-accounts/earn-transactions", {
         credentials: "include",
       });
@@ -378,7 +497,7 @@ export function EarnTransactionsPane({
         const errorPayload = (await response
           .json()
           .catch(() => null)) as EarnTransactionsRouteErrorResponse | null;
-        console.log("[earn-transactions] API error", {
+        console.warn("[earn-transactions] API error", {
           error: errorPayload?.error ?? null,
           status: response.status,
           statusText: response.statusText,
@@ -392,15 +511,27 @@ export function EarnTransactionsPane({
 
       if (isMounted) {
         setTransactions(payload.transactions);
+        setErrorMessage(null);
       }
     };
 
-    void loadTransactions().catch((error) => {
-      console.error("Failed to load earn transactions", error);
-      if (isMounted) {
-        setTransactions([]);
-      }
-    });
+    void loadTransactions()
+      .catch((error) => {
+        console.warn("[earn-transactions] failed to load transactions", error);
+        if (isMounted) {
+          setTransactions([]);
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Failed to load earn transactions."
+          );
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
 
     return () => {
       isMounted = false;
@@ -474,7 +605,11 @@ export function EarnTransactionsPane({
           width: "100%",
         }}
       >
-        {transactions.length === 0 ? (
+        {isLoading ? (
+          <EarnTransactionsLoadingState />
+        ) : errorMessage ? (
+          <EarnTransactionsErrorState message={errorMessage} />
+        ) : transactions.length === 0 ? (
           <EarnTransactionsEmptyState />
         ) : (
           groups.map((group) => (

@@ -271,11 +271,6 @@ export async function loadSmartAccountReadModel<T>(args: {
     return existingLoad as Promise<T>;
   }
 
-  console.info("[smart-account-read-model] load.start", {
-    cacheKey: args.cacheKey,
-    bypassCache: Boolean(args.bypassCache),
-    retryMissingSettings: Boolean(args.retryMissingSettings),
-  });
   const loadPromise = (async () => {
     let lastError: unknown;
     const maxAttempt = args.retryMissingSettings
@@ -287,10 +282,6 @@ export async function loadSmartAccountReadModel<T>(args: {
         const result = await args.load();
         overviewRateLimitCooldownUntilByKey.delete(args.cacheKey);
         setCompletedOverviewResult(args.cacheKey, result);
-        console.info("[smart-account-read-model] load.done", {
-          cacheKey: args.cacheKey,
-          durationMs: Number((performance.now() - startedAt).toFixed(2)),
-        });
         return result;
       } catch (error) {
         if (isRpcRateLimitError(error)) {

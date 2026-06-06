@@ -17,6 +17,7 @@ const {
 } = await import("../yield-neon-client.server");
 const {
   createRoutePolicyValuesFromPlan,
+  findYieldPositionHistoryEvents,
   recordConfirmedYieldDeposit,
   recordConfirmedYieldWithdrawal,
 } = await import("../yield-deposit-repository.server");
@@ -34,6 +35,12 @@ type InsertCall = {
 type UpdateCall = {
   table: unknown;
   set?: Record<string, unknown>;
+  where?: unknown;
+};
+
+type SelectCall = {
+  selection: unknown;
+  table?: unknown;
   where?: unknown;
 };
 
@@ -59,6 +66,127 @@ function input(overrides = {}) {
     vaultPubkey: "11111111111111111111111111111115",
     walletAddress: walletAddress.toBase58(),
     ...overrides,
+  };
+}
+
+function collectPrimitiveValues(
+  value: unknown,
+  values: unknown[] = [],
+  seen = new WeakSet<object>()
+) {
+  if (value === null || value === undefined) {
+    return values;
+  }
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    values.push(value);
+    return values;
+  }
+  if (value instanceof Date) {
+    values.push(value.toISOString());
+    return values;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectPrimitiveValues(item, values, seen);
+    }
+    return values;
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) {
+      return values;
+    }
+    seen.add(value);
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collectPrimitiveValues(item, values, seen);
+    }
+  }
+  return values;
+}
+
+function createHistoryFakeClient() {
+  const selectCalls: SelectCall[] = [];
+
+  const depositRows = [
+    {
+      amountRaw: BigInt(1_000_000),
+      confirmedAt: new Date("2026-06-01T12:00:00.000Z"),
+      confirmedSlot: BigInt(100),
+      id: BigInt(1),
+      signature: "deposit-sig-1",
+    },
+    {
+      amountRaw: BigInt(3_000_000),
+      confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
+      confirmedSlot: BigInt(300),
+      id: BigInt(3),
+      signature: "deposit-sig-3",
+    },
+  ];
+  const withdrawalRows = [
+    {
+      amountRaw: BigInt(500_000),
+      confirmedAt: new Date("2026-06-02T12:00:00.000Z"),
+      confirmedSlot: BigInt(200),
+      id: BigInt(2),
+      signature: "withdrawal-sig-2",
+    },
+    {
+      amountRaw: BigInt(250_000),
+      confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
+      confirmedSlot: BigInt(4),
+      id: BigInt(4),
+      signature: "aaa-withdrawal-sig-4",
+    },
+  ];
+
+  class SelectBuilder {
+    readonly call: SelectCall;
+
+    constructor(selection: unknown) {
+      this.call = { selection };
+      selectCalls.push(this.call);
+    }
+
+    from(table: unknown) {
+      this.call.table = table;
+      return this;
+    }
+
+    where(where: unknown) {
+      this.call.where = where;
+      return this;
+    }
+
+    async execute() {
+      if (!this.call.where) {
+        throw new Error("history queries must include filters");
+      }
+      if (this.call.table === userYieldPositionDeposits) {
+        return depositRows;
+      }
+      if (this.call.table === userYieldPositionWithdrawals) {
+        return withdrawalRows;
+      }
+      return [];
+    }
+  }
+
+  const db = {
+    batch: mock(async (queries: SelectBuilder[]) =>
+      Promise.all(queries.map((query) => query.execute()))
+    ),
+    select: mock((selection: unknown) => new SelectBuilder(selection)),
+  };
+
+  return {
+    client: { db },
+    db,
+    selectCalls,
   };
 }
 
@@ -499,6 +627,93 @@ describe("recordConfirmedYieldDeposit", () => {
       )
     ).rejects.toThrow("Initial yield deposit cannot recreate an active Earn policy.");
     expect(fake.insertCalls).toHaveLength(0);
+  });
+});
+
+describe("findYieldPositionHistoryEvents", () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test("combines deposits and withdrawals newest first with deterministic ties", async () => {
+    const fake = createHistoryFakeClient();
+
+    const result = await findYieldPositionHistoryEvents(
+      {
+        cluster: "devnet",
+        settings: settings.toBase58(),
+        targetReserve: "reserve-1",
+        vaultIndex: 1,
+        walletAddress: walletAddress.toBase58(),
+      },
+      { client: fake.client as never }
+    );
+
+    expect(result).toEqual([
+      {
+        amountRaw: BigInt(250_000),
+        confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
+        confirmedSlot: BigInt(4),
+        id: BigInt(4),
+        signature: "aaa-withdrawal-sig-4",
+        type: "withdrawal",
+      },
+      {
+        amountRaw: BigInt(3_000_000),
+        confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
+        confirmedSlot: BigInt(300),
+        id: BigInt(3),
+        signature: "deposit-sig-3",
+        type: "deposit",
+      },
+      {
+        amountRaw: BigInt(500_000),
+        confirmedAt: new Date("2026-06-02T12:00:00.000Z"),
+        confirmedSlot: BigInt(200),
+        id: BigInt(2),
+        signature: "withdrawal-sig-2",
+        type: "withdrawal",
+      },
+      {
+        amountRaw: BigInt(1_000_000),
+        confirmedAt: new Date("2026-06-01T12:00:00.000Z"),
+        confirmedSlot: BigInt(100),
+        id: BigInt(1),
+        signature: "deposit-sig-1",
+        type: "deposit",
+      },
+    ]);
+    expect(fake.selectCalls.map((call) => call.table)).toEqual([
+      userYieldPositionDeposits,
+      userYieldPositionWithdrawals,
+    ]);
+  });
+
+  test("filters event queries by authenticated wallet, settings, reserve, and vault", async () => {
+    const fake = createHistoryFakeClient();
+
+    await findYieldPositionHistoryEvents(
+      {
+        cluster: "devnet",
+        settings: settings.toBase58(),
+        targetReserve: "reserve-1",
+        vaultIndex: 1,
+        walletAddress: walletAddress.toBase58(),
+      },
+      { client: fake.client as never }
+    );
+
+    expect(fake.selectCalls).toHaveLength(2);
+    for (const call of fake.selectCalls) {
+      const values = collectPrimitiveValues(call.where);
+      expect(values).toContain("devnet");
+      expect(values).toContain(settings.toBase58());
+      expect(values).toContain("reserve-1");
+      expect(values).toContain(1);
+      expect(values).toContain(walletAddress.toBase58());
+      expect(values).not.toContain("active");
+      expect(values).not.toContain("closed");
+    }
   });
 });
 

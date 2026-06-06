@@ -1,8 +1,8 @@
 const FALLBACK_UPDATED_AT = "2026-06-01T00:00:00.000Z";
-const DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type EarnForecastResponse = {
-  strategy: "safe_no_fees";
+  strategy: "safe_no_fees" | "medium_fee_aware_1bps";
   apyBps: number;
   rangeLowBps: number;
   rangeHighBps: number;
@@ -14,6 +14,27 @@ export type EarnForecastApy = Pick<
   EarnForecastResponse,
   "apyBps" | "rangeHighBps" | "rangeLowBps"
 >;
+
+export type EarnForecastApyHistorySample = {
+  observedAt: string;
+  apyBps: number;
+};
+
+export type EarnForecastApyHistorySeries = {
+  key: "loyal" | "mainUsdcReserve";
+  label: string;
+  metadata?: Record<string, string | number | boolean | null>;
+  samples: EarnForecastApyHistorySample[];
+};
+
+export type EarnForecastApyHistoryResponse = {
+  feeBps: 1;
+  generatedAt: string;
+  riskProfile: "medium";
+  samples: EarnForecastApyHistorySample[];
+  series?: EarnForecastApyHistorySeries[];
+  window: { startedAt: string; endedAt: string };
+};
 
 export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
   apyBps: 1197,

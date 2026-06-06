@@ -6,6 +6,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  date,
   integer,
   jsonb,
   pgSchema,
@@ -16,6 +17,10 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { getRequiredEnv } from "@/lib/core/config/shared";
+import type {
+  EarnForecastApyHistorySample,
+  EarnForecastApyHistorySeries,
+} from "@/lib/kamino/earn-forecast.shared";
 
 const loyalYieldSchema = pgSchema("loyal_yield");
 const YIELD_OPTIMIZATION_DATABASE_URL_ENV_NAME = "NEON_DATABASE_URL";
@@ -43,6 +48,7 @@ export const decisionReason = loyalYieldSchema.enum("decision_reason", [
 export type YieldSwapLane = Record<string, unknown>;
 export type YieldSnapshotContext = Record<string, unknown>;
 export type YieldPlanningMetadata = Record<string, unknown>;
+export type EarnForecastSnapshotSample = EarnForecastApyHistorySample;
 
 export const routePolicies = loyalYieldSchema.table(
   "route_policies",
@@ -271,6 +277,39 @@ export const vaultReservePositionsCurrent = loyalYieldSchema.table(
   }
 );
 
+export const earnForecastSnapshots = loyalYieldSchema.table(
+  "earn_forecast_snapshots",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    strategy: text("strategy").notNull(),
+    riskProfile: text("risk_profile").notNull(),
+    feeBps: smallint("fee_bps").notNull(),
+    snapshotDate: date("snapshot_date", { mode: "date" }).notNull(),
+    windowStartedAt: timestamp("window_started_at", {
+      withTimezone: true,
+    }).notNull(),
+    windowEndedAt: timestamp("window_ended_at", {
+      withTimezone: true,
+    }).notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull(),
+    apyBps: integer("apy_bps").notNull(),
+    rangeLowBps: integer("range_low_bps").notNull(),
+    rangeHighBps: integer("range_high_bps").notNull(),
+    samples: jsonb("samples").$type<EarnForecastSnapshotSample[]>().notNull(),
+    series: jsonb("series").$type<EarnForecastApyHistorySeries[]>().notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_forecast_snapshots_latest_key_uidx").on(
+      table.cluster,
+      table.strategy,
+      table.riskProfile,
+      table.feeBps,
+      table.snapshotDate
+    ),
+  ]
+);
+
 export const rebalanceDecisions = loyalYieldSchema.table(
   "rebalance_decisions",
   {
@@ -302,6 +341,7 @@ export const rebalanceDecisions = loyalYieldSchema.table(
 );
 
 export const yieldOptimizationSchema = {
+  earnForecastSnapshots,
   managedVaults,
   rebalanceDecisions,
   routePolicies,
@@ -322,10 +362,12 @@ export type YieldOptimizationClientConfig = {
 };
 
 export type YieldOptimizationClientTables = {
+  earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
   rebalanceDecisions: typeof rebalanceDecisions;
   routePolicies: typeof routePolicies;
   userYieldPositionDeposits: typeof userYieldPositionDeposits;
+  userYieldPositionWithdrawals: typeof userYieldPositionWithdrawals;
   userYieldPositions: typeof userYieldPositions;
   vaultPositionSnapshotPositions: typeof vaultPositionSnapshotPositions;
   vaultPositionSnapshots: typeof vaultPositionSnapshots;
@@ -335,10 +377,12 @@ export type YieldOptimizationClientTables = {
 export class YieldOptimizationClient {
   readonly db: YieldOptimizationDatabase;
   readonly tables: YieldOptimizationClientTables = {
+    earnForecastSnapshots,
     managedVaults,
     rebalanceDecisions,
     routePolicies,
     userYieldPositionDeposits,
+    userYieldPositionWithdrawals,
     userYieldPositions,
     vaultPositionSnapshotPositions,
     vaultPositionSnapshots,

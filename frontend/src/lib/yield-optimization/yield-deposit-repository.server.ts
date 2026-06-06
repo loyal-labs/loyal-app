@@ -48,6 +48,14 @@ export type UserYieldPositionEventRecord = {
   confirmedAt: Date;
   type: "deposit" | "withdrawal";
 };
+export type UserYieldPositionHistoryEventRecord = {
+  amountRaw: bigint;
+  confirmedAt: Date;
+  confirmedSlot: bigint;
+  id: bigint;
+  signature: string;
+  type: "deposit" | "withdrawal";
+};
 
 export type ActiveYieldPositionLookupInput = {
   cluster: string;
@@ -493,6 +501,82 @@ export async function findYieldPositionEvents(
       type: "withdrawal" as const,
     })),
   ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());
+}
+
+export async function findYieldPositionHistoryEvents(
+  input: ActiveYieldPositionLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionHistoryEventRecord[]> {
+  const depositFilters = [
+    eq(userYieldPositionDeposits.cluster, input.cluster),
+    eq(userYieldPositionDeposits.settings, input.settings),
+    eq(userYieldPositionDeposits.targetReserve, input.targetReserve),
+    eq(userYieldPositionDeposits.vaultIndex, input.vaultIndex),
+    eq(userYieldPositionDeposits.walletAddress, input.walletAddress),
+  ];
+  const withdrawalFilters = [
+    eq(userYieldPositionWithdrawals.cluster, input.cluster),
+    eq(userYieldPositionWithdrawals.settings, input.settings),
+    eq(userYieldPositionWithdrawals.targetReserve, input.targetReserve),
+    eq(userYieldPositionWithdrawals.vaultIndex, input.vaultIndex),
+    eq(userYieldPositionWithdrawals.walletAddress, input.walletAddress),
+  ];
+
+  const [deposits, withdrawals] = await dependencies.client.db.batch([
+    dependencies.client.db
+      .select({
+        amountRaw: userYieldPositionDeposits.principalAmountRaw,
+        confirmedAt: userYieldPositionDeposits.confirmedAt,
+        confirmedSlot: userYieldPositionDeposits.confirmedSlot,
+        id: userYieldPositionDeposits.id,
+        signature: userYieldPositionDeposits.depositSignature,
+      })
+      .from(userYieldPositionDeposits)
+      .where(and(...depositFilters)),
+    dependencies.client.db
+      .select({
+        amountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
+        confirmedAt: userYieldPositionWithdrawals.confirmedAt,
+        confirmedSlot: userYieldPositionWithdrawals.confirmedSlot,
+        id: userYieldPositionWithdrawals.id,
+        signature: userYieldPositionWithdrawals.withdrawalSignature,
+      })
+      .from(userYieldPositionWithdrawals)
+      .where(and(...withdrawalFilters)),
+  ]);
+
+  return [
+    ...deposits.map((deposit) => ({
+      amountRaw: deposit.amountRaw,
+      confirmedAt: deposit.confirmedAt,
+      confirmedSlot: deposit.confirmedSlot,
+      id: deposit.id,
+      signature: deposit.signature,
+      type: "deposit" as const,
+    })),
+    ...withdrawals.map((withdrawal) => ({
+      amountRaw: withdrawal.amountRaw,
+      confirmedAt: withdrawal.confirmedAt,
+      confirmedSlot: withdrawal.confirmedSlot,
+      id: withdrawal.id,
+      signature: withdrawal.signature,
+      type: "withdrawal" as const,
+    })),
+  ].sort((a, b) => {
+    const confirmedAtDelta = b.confirmedAt.getTime() - a.confirmedAt.getTime();
+    if (confirmedAtDelta !== 0) {
+      return confirmedAtDelta;
+    }
+
+    const signatureDelta = a.signature.localeCompare(b.signature);
+    if (signatureDelta !== 0) {
+      return signatureDelta;
+    }
+
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 export async function recordConfirmedYieldWithdrawal(
