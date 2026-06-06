@@ -54,6 +54,7 @@ import {
 } from "@/components/wallet-sidebar/shield-content";
 import type { DraftProposalView } from "@/components/wallet-sidebar/draft-preview-content";
 import {
+  AutodepositSetupView,
   EarnDepositView,
   EarnDetailView,
   EarnWithdrawView,
@@ -142,6 +143,7 @@ type DetailSelection =
   | "approval"
   | "connect"
   | "earn"
+  | "earnAutodeposit"
   | "earnDeposit"
   | "earnWithdraw"
   | "overview"
@@ -815,7 +817,7 @@ export function AppWalletWorkspace({
     onAfterTx: walletDesktopData.refresh,
   });
   const { disconnect } = useWallet();
-  const { logout } = useAuthSession();
+  const { logout, user } = useAuthSession();
   const publicEnv = usePublicEnv();
   const trackedKaminoUsdcMint = useMemo(
     () => resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv),
@@ -863,8 +865,12 @@ export function AppWalletWorkspace({
     useState<string>("Wallet overview");
   const hasRestoredSelectionRef = useRef(false);
   const hasLocalDetailSelectionRef = useRef(false);
+  // Gates the detail pane: stays false until the persisted workspace selection
+  // has been restored, so the pane never paints the default selection before
+  // the user's actual pane on load (avoids an Earn/Stash flash on refresh).
+  const [isSelectionRestored, setIsSelectionRestored] = useState(false);
   const [detailSelection, setDetailSelectionState] =
-    useState<DetailSelection>("vault");
+    useState<DetailSelection>("earn");
   const setDetailSelection = useCallback(
     (selection: SetStateAction<DetailSelection>) => {
       if (!hasRestoredSelectionRef.current) {
@@ -937,6 +943,15 @@ export function AppWalletWorkspace({
     useState<EarnDepositDraft | null>(null);
   const [pendingEarnWithdrawDraft, setPendingEarnWithdrawDraft] =
     useState<EarnWithdrawDraft | null>(null);
+  // Autodeposit is not wired yet — this client-side demo state drives the
+  // setup/edit flow and the configured/not-configured card states. `amount` is
+  // a whole-dollar digit string (resets on refresh, by design).
+  const [autodepositConfig, setAutodepositConfig] = useState<{
+    amount: string;
+  } | null>(null);
+  const autodepositAmountLabel = autodepositConfig
+    ? `$${Number(autodepositConfig.amount || 0).toLocaleString("en-US")}.00`
+    : undefined;
   const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
     useState(false);
   const [spendingLimitDraftError, setSpendingLimitDraftError] = useState<
@@ -972,6 +987,7 @@ export function AppWalletWorkspace({
     detailSelection === "action" ? actionReturnSelection : detailSelection;
   const isEarnReviewContext =
     activeDetailSelection === "earn" ||
+    activeDetailSelection === "earnAutodeposit" ||
     activeDetailSelection === "earnDeposit" ||
     activeDetailSelection === "earnWithdraw";
   const isAuthResolving = !isAuthHydrated;
@@ -1478,6 +1494,7 @@ export function AppWalletWorkspace({
     if (!isSignedIn) {
       hasRestoredSelectionRef.current = false;
       hasLocalDetailSelectionRef.current = false;
+      setIsSelectionRestored(false);
     }
   }, [isSignedIn]);
 
@@ -1507,6 +1524,11 @@ export function AppWalletWorkspace({
     ) {
       return;
     }
+
+    // Past the loading guard, the persisted selection is resolvable this tick
+    // (batched with the setDetailSelection calls below), so unblock the detail
+    // pane to render the restored pane directly instead of the default first.
+    setIsSelectionRestored(true);
 
     if (hasLocalDetailSelectionRef.current) {
       hasRestoredSelectionRef.current = true;
@@ -1551,9 +1573,12 @@ export function AppWalletWorkspace({
     smartAccountData.setSelectedVaultIndex(storedVault.accountIndex);
 
     if (storedSelection.type === "vault") {
-      setDetailSelection("vault");
+      // Stash/vault detail was removed from this workspace UI, so a stale
+      // persisted vault selection must fall back to the default Earn pane
+      // instead of briefly resurrecting the removed Stash pane on load.
+      setDetailSelection("earn");
       setSelectedSignerId(null);
-      setSelectedDetail(storedVault.label);
+      setSelectedDetail("Earn");
       hasRestoredSelectionRef.current = true;
       return;
     }
@@ -1565,9 +1590,12 @@ export function AppWalletWorkspace({
     );
 
     if (!storedSigner) {
-      setDetailSelection("vault");
+      // The signer is gone; the old fallback opened the parent vault detail,
+      // but that Stash pane was removed from this workspace UI, so fall back
+      // to the default Earn pane instead of resurrecting it on load.
+      setDetailSelection("earn");
       setSelectedSignerId(null);
-      setSelectedDetail(storedVault.label);
+      setSelectedDetail("Earn");
       hasRestoredSelectionRef.current = true;
       return;
     }
@@ -1606,6 +1634,7 @@ export function AppWalletWorkspace({
           : { type: "wallet" };
     } else if (
       stableSelection === "earn" ||
+      stableSelection === "earnAutodeposit" ||
       stableSelection === "earnDeposit" ||
       stableSelection === "earnWithdraw"
     ) {
@@ -1998,6 +2027,35 @@ export function AppWalletWorkspace({
     setDetailSelection("earn");
     setSelectedDetail("Earn");
   }, [markDetailPaneTransition, setDetailSelection]);
+
+  const handleOpenAutodeposit = useCallback(() => {
+    markDetailPaneTransition("forward");
+    setSelectedSignerId(null);
+    setDetailSelection("earnAutodeposit");
+    setSelectedDetail("Autodeposit");
+  }, [markDetailPaneTransition, setDetailSelection]);
+
+  const handleBackFromAutodeposit = useCallback(() => {
+    markDetailPaneTransition("back");
+    setSelectedSignerId(null);
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
+  }, [markDetailPaneTransition, setDetailSelection]);
+
+  const handleSaveAutodeposit = useCallback(
+    (amount: string) => {
+      setAutodepositConfig({ amount });
+      markDetailPaneTransition("back");
+      setSelectedSignerId(null);
+      setDetailSelection("earn");
+      setSelectedDetail("Earn");
+    },
+    [markDetailPaneTransition, setDetailSelection]
+  );
+
+  const handleDisableAutodeposit = useCallback(() => {
+    setAutodepositConfig(null);
+  }, []);
 
   const handleDismissEarnDepositPreview = useCallback(() => {
     console.log("[earn-deposit] preview dismissed");
@@ -2878,6 +2936,18 @@ export function AppWalletWorkspace({
       );
     }
 
+    // Hold the skeleton until the persisted selection is restored, so the pane
+    // paints the user's actual selection directly instead of briefly flashing
+    // the default (Earn) first. `isWorkspaceLoading` clears as soon as the
+    // wallet address loads — which is before `overview`/restore — so without
+    // this guard the default pane paints in that gap. Gated on `settingsPda`
+    // (known from the session before `overview` loads) so users with no smart
+    // account — whose data load no-ops and never restores — don't hang here,
+    // and placed after the error check so a load failure still surfaces.
+    if (isSignedIn && Boolean(user?.settingsPda) && !isSelectionRestored) {
+      return <WorkspaceDetailSkeleton />;
+    }
+
     if (detailSelection === "action") {
       return renderActionView();
     }
@@ -2910,6 +2980,7 @@ export function AppWalletWorkspace({
     if (detailSelection === "earn") {
       return (
         <EarnDetailView
+          autodepositAmountLabel={autodepositAmountLabel}
           currentPositionApyLabel={activeEarnPositionApyLabel}
           currentPositionLabel={activeEarnPosition?.display?.label}
           earningsCacheKey={earnEarningsCacheKey}
@@ -2920,9 +2991,28 @@ export function AppWalletWorkspace({
             walletAddress: walletDesktopData.walletAddress,
           }}
           hasCurrentPosition={hasEarnPosition}
+          isAutodepositConfigured={Boolean(autodepositConfig)}
+          isBalanceHidden={isBalanceHidden}
           onDeposit={handleOpenEarnDeposit}
+          onDisableAutodeposit={handleDisableAutodeposit}
+          onOpenAutodeposit={handleOpenAutodeposit}
           onWithdraw={handleOpenEarnWithdraw}
           principalAmount={earnWithdrawMaxAmount}
+        />
+      );
+    }
+
+    if (detailSelection === "earnAutodeposit") {
+      return (
+        <AutodepositSetupView
+          earnBalance={earnWithdrawMaxAmount}
+          initialAmount={autodepositConfig?.amount ?? "100"}
+          isEditing={Boolean(autodepositConfig)}
+          mainSource={
+            earnDepositSources.find((source) => source.id === "main") ?? null
+          }
+          onBack={handleBackFromAutodeposit}
+          onSubmit={handleSaveAutodeposit}
         />
       );
     }
@@ -3700,6 +3790,8 @@ export function AppWalletWorkspace({
                 onOpenEarn={
                   hasEarnPosition ? handleOpenEarn : handleOpenEarnDeposit
                 }
+                onOpenAutodeposit={handleOpenAutodeposit}
+                isAutodepositConfigured={Boolean(autodepositConfig)}
                 onOpenVault={handleOpenVault}
                 onSmartAccountRetry={() => {
                   void smartAccountData.refresh();
@@ -3714,6 +3806,7 @@ export function AppWalletWorkspace({
                 selectedVaultIndex={smartAccountData.selectedVaultIndex}
                 isEarnSelected={
                   activeDetailSelection === "earn" ||
+                  activeDetailSelection === "earnAutodeposit" ||
                   activeDetailSelection === "earnDeposit" ||
                   activeDetailSelection === "earnWithdraw"
                 }
@@ -3745,10 +3838,7 @@ export function AppWalletWorkspace({
         </>
       ) : null}
 
-      <section
-        className="wallet-workspace-pane wallet-workspace-detail-pane"
-        data-earn-detail={isEarnReviewContext}
-      >
+      <section className="wallet-workspace-pane wallet-workspace-detail-pane">
         <div
           className="wallet-workspace-detail-transition"
           data-transition={detailPaneTransition}
@@ -3824,6 +3914,7 @@ export function AppWalletWorkspace({
               />
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
+                isBalanceHidden={isBalanceHidden}
                 onSelectTransaction={(detail) => {
                   openActionView(
                     { type: "transaction", detail, from: "portfolio" },
@@ -4300,7 +4391,12 @@ export function AppWalletWorkspace({
           width: 100%;
         }
 
-        .wallet-workspace-detail-pane[data-earn-detail="true"] > div {
+        /* Constrain every center pane to the same readable fixed width the Earn
+           pane uses. Excludes the policies section, whose workflow builder is
+           intentionally full-width. */
+        .wallet-workspace:not([data-workspace-section="policies"])
+          .wallet-workspace-detail-pane
+          > div {
           max-width: 768px;
           margin-inline: auto;
         }

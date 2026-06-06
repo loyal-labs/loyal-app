@@ -201,12 +201,14 @@ export function EarnYieldIcon({ size = 48 }: { size?: number }) {
 function EarnPortfolioRow({
   balance = 0,
   hasPosition = false,
+  isBalanceHidden = false,
   isSelected,
   onDeposit,
   onOpen,
 }: {
   balance?: number;
   hasPosition?: boolean;
+  isBalanceHidden?: boolean;
   isSelected?: boolean;
   onDeposit?: () => void;
   onOpen?: () => void;
@@ -288,17 +290,24 @@ function EarnPortfolioRow({
         >
           <span
             style={{
-              color: "#000",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
               display: "block",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
               fontFamily: font,
               fontSize: "20px",
               fontWeight: 600,
               lineHeight: "24px",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
               whiteSpace: "nowrap",
             }}
           >
             ${balanceWhole}
-            <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
               .{balanceFraction ?? "00"}
             </span>
           </span>
@@ -873,6 +882,7 @@ export function PortfolioContent({
   onOpenShield,
   onOpenEarnDeposit,
   onOpenEarn,
+  onOpenAutodeposit,
   onOpenCommandMenu,
   onOpenVault,
   onOpenAgent,
@@ -882,6 +892,7 @@ export function PortfolioContent({
   earningsSummary = null,
   earnBalance = 0,
   hasEarnPosition = false,
+  isAutodepositConfigured = false,
   selectedSignerId = null,
   selectedVaultIndex = null,
   isEarnSelected = false,
@@ -911,6 +922,8 @@ export function PortfolioContent({
   onOpenShield: () => void;
   onOpenEarnDeposit?: () => void;
   onOpenEarn?: () => void;
+  onOpenAutodeposit?: () => void;
+  isAutodepositConfigured?: boolean;
   onOpenCommandMenu?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
@@ -1376,7 +1389,14 @@ export function PortfolioContent({
             >
               {hasChange && (
                 <>
-                  <span style={{ color: changeColor }}>
+                  <span
+                    style={{
+                      color: isBalanceHidden ? "#BBBBC0" : changeColor,
+                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                      transition: "filter 0.15s ease, color 0.15s ease",
+                      userSelect: isBalanceHidden ? "none" : "auto",
+                    }}
+                  >
                     {`${sign(
                       portfolioChange24h.percent
                     )}${portfolioChange24h.percent.toFixed(2)}% (${sign(
@@ -1388,7 +1408,14 @@ export function PortfolioContent({
               )}
               {hasChange && hasEarned ? " · " : null}
               {hasEarned && (
-                <span style={{ color: "#34C759" }}>
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#BBBBC0" : "#34C759",
+                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                    transition: "filter 0.15s ease, color 0.15s ease",
+                    userSelect: isBalanceHidden ? "none" : "auto",
+                  }}
+                >
                   {`+${formatUsd(earnedUsd)} earned`}
                 </span>
               )}
@@ -1534,11 +1561,14 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
-          {onOpenEarn ? <AutodepositPromoCard onSetUp={onOpenEarn} /> : null}
+          {onOpenAutodeposit && !isAutodepositConfigured ? (
+            <AutodepositPromoCard onSetUp={onOpenAutodeposit} />
+          ) : null}
           {onOpenEarn ? (
             <EarnPortfolioRow
               balance={earnBalance}
               hasPosition={hasEarnPosition}
+              isBalanceHidden={isBalanceHidden}
               isSelected={isEarnSelected}
               onDeposit={onOpenEarnDeposit}
               onOpen={onOpenEarn}

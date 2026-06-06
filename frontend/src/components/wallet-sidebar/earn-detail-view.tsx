@@ -2,13 +2,22 @@
 
 import NumberFlow, { continuous } from "@number-flow/react";
 import {
+  ArrowLeft,
   ArrowUp,
   Check,
   ChevronsDownUp,
   ChevronsUpDown,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 
 import {
   FALLBACK_EARN_FORECAST,
@@ -610,10 +619,12 @@ function DepositButton({
 function EarnGrowingBalance({
   apyBps,
   baseAmount,
+  isHidden = false,
   principalAmount,
 }: {
   apyBps: number;
   baseAmount: number;
+  isHidden?: boolean;
   principalAmount: number;
 }) {
   const [value, setValue] = useState(baseAmount);
@@ -638,7 +649,7 @@ function EarnGrowingBalance({
         :global(.earn-growing-balance-flow) {
           --number-flow-mask-height: 0.12em;
           --number-flow-mask-width: 0.24em;
-          color: #000;
+          color: ${isHidden ? "#BBBBC0" : "#000"};
           font-family: ${font};
           font-size: 40px;
           font-variant-numeric: tabular-nums;
@@ -647,7 +658,7 @@ function EarnGrowingBalance({
         }
         :global(.earn-growing-balance-flow::part(decimal)),
         :global(.earn-growing-balance-flow::part(fraction)) {
-          color: rgba(60, 60, 67, 0.4);
+          color: ${isHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)"};
         }
       `}</style>
       <NumberFlow
@@ -887,11 +898,13 @@ const EARN_CHART_TABS: readonly {
 function EarningsBlock({
   apy,
   earningsData,
+  isBalanceHidden = false,
   isLoadingEarnings,
   principalAmount,
 }: {
   apy: EarnForecastApy;
   earningsData: EarnEarningsResponse | null;
+  isBalanceHidden?: boolean;
   isLoadingEarnings: boolean;
   principalAmount: number;
 }) {
@@ -992,7 +1005,7 @@ function EarningsBlock({
         :global(.earnings-current-flow) {
           --number-flow-mask-height: 0.12em;
           --number-flow-mask-width: 0.24em;
-          color: #000;
+          color: ${isBalanceHidden ? "#BBBBC0" : "#000"};
           font-family: ${font};
           font-size: 28px;
           font-variant-numeric: tabular-nums;
@@ -1001,7 +1014,7 @@ function EarningsBlock({
         }
         :global(.earnings-current-flow::part(decimal)),
         :global(.earnings-current-flow::part(fraction)) {
-          color: rgba(60, 60, 67, 0.4);
+          color: ${isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)"};
         }
         .earnings-bar {
           align-items: flex-end;
@@ -1174,6 +1187,7 @@ function EarningsBlock({
           <div style={{ padding: "12px", width: "100%" }}>
             <DepositChart
               apy={apy}
+              isBalanceHidden={isBalanceHidden}
               key={forecastAmount}
               principal={forecastAmount}
             />
@@ -1215,10 +1229,13 @@ function EarningsBlock({
               <div
                 style={{
                   display: "flex",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   flex: 1,
                   flexDirection: "column",
                   gap: "2px",
                   minWidth: 0,
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
                 }}
               >
                 <NumberFlow
@@ -1255,12 +1272,15 @@ function EarningsBlock({
               </div>
               <span
                 style={{
-                  color: secondary,
+                  color: isBalanceHidden ? "#BBBBC0" : secondary,
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   flexShrink: 0,
                   fontFamily: font,
                   fontSize: "13px",
                   lineHeight: "16px",
                   paddingBottom: "2px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
                 }}
               >
                 ${maxValue.toFixed(2)}
@@ -1370,7 +1390,167 @@ function EarningsBlock({
   );
 }
 
-function AutodepositCard() {
+function AutodepositToggle({
+  isOn,
+  onToggle,
+}: {
+  isOn: boolean;
+  onToggle?: () => void;
+}) {
+  return (
+    <button
+      aria-checked={isOn}
+      aria-label="Disable autodeposit"
+      onClick={onToggle}
+      role="switch"
+      style={{
+        alignItems: "center",
+        background: isOn ? LOYAL_EARN_BRAND_COLOR : "rgba(120, 120, 128, 0.32)",
+        border: "none",
+        borderRadius: "9999px",
+        cursor: "pointer",
+        display: "inline-flex",
+        flexShrink: 0,
+        height: "31px",
+        justifyContent: isOn ? "flex-end" : "flex-start",
+        padding: "2px",
+        transition: "background 0.2s ease",
+        width: "51px",
+      }}
+      type="button"
+    >
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: "9999px",
+          boxShadow: "0 3px 8px rgba(0, 0, 0, 0.15)",
+          height: "27px",
+          width: "27px",
+        }}
+      />
+    </button>
+  );
+}
+
+function AutodepositCard({
+  amountLabel,
+  isConfigured = false,
+  onDisable,
+  onSetUp,
+}: {
+  amountLabel?: string;
+  isConfigured?: boolean;
+  onDisable?: () => void;
+  onSetUp?: () => void;
+}) {
+  if (isConfigured) {
+    return (
+      <>
+        <style jsx>{`
+          .earn-autodeposit-settings {
+            transition: background 0.15s ease;
+          }
+          .earn-autodeposit-settings:hover {
+            background: rgba(0, 0, 0, 0.06) !important;
+          }
+        `}</style>
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              alignItems: "center",
+              borderRadius: "16px",
+              display: "flex",
+              gap: "8px",
+              overflow: "hidden",
+              padding: "0 12px",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                alignItems: "center",
+                display: "flex",
+                padding: "6px 12px 6px 0",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                src="/wallet-workspace/earn-coin-icon.svg"
+                style={{ flexShrink: 0, height: "48px", width: "48px" }}
+              />
+            </div>
+            <div
+              style={{
+                display: "flex",
+                flex: 1,
+                flexDirection: "column",
+                gap: "2px",
+                minWidth: 0,
+                padding: "10px 0",
+              }}
+            >
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  letterSpacing: "-0.176px",
+                  lineHeight: "20px",
+                }}
+              >
+                Autodeposit
+              </span>
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                }}
+              >
+                Anything above {amountLabel}
+              </span>
+            </div>
+            <button
+              aria-label="Edit autodeposit"
+              className="earn-autodeposit-settings"
+              onClick={onSetUp}
+              style={{
+                alignItems: "center",
+                background: "transparent",
+                border: "none",
+                borderRadius: "9999px",
+                color: "#3C3C43",
+                cursor: "pointer",
+                display: "inline-flex",
+                flexShrink: 0,
+                height: "32px",
+                justifyContent: "center",
+                padding: "4px",
+                width: "32px",
+              }}
+              type="button"
+            >
+              <SlidersHorizontal size={20} strokeWidth={2} />
+            </button>
+            <AutodepositToggle isOn onToggle={onDisable} />
+          </div>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <style jsx>{`
@@ -1465,6 +1645,7 @@ function AutodepositCard() {
           >
             <button
               className="earn-autodeposit-btn"
+              onClick={onSetUp}
               style={{
                 background: "#000",
                 border: "none",
@@ -1491,15 +1672,21 @@ function AutodepositCard() {
 }
 
 export function EarnDetailView({
+  autodepositAmountLabel,
   currentPositionApyLabel,
   currentPositionLabel = TOP_EARN_VAULT.label,
   earningsCacheKey,
   earningsCacheScope,
   hasCurrentPosition = false,
+  isAutodepositConfigured = false,
+  isBalanceHidden = false,
   onDeposit,
+  onDisableAutodeposit,
+  onOpenAutodeposit,
   onWithdraw,
   principalAmount = 0,
 }: {
+  autodepositAmountLabel?: string;
   currentPositionApyLabel?: string;
   currentPositionLabel?: string;
   earningsCacheKey?: string;
@@ -1510,7 +1697,11 @@ export function EarnDetailView({
     walletAddress?: string | null;
   };
   hasCurrentPosition?: boolean;
+  isAutodepositConfigured?: boolean;
+  isBalanceHidden?: boolean;
   onDeposit?: () => void;
+  onDisableAutodeposit?: () => void;
+  onOpenAutodeposit?: () => void;
   onWithdraw?: () => void;
   principalAmount?: number;
 }) {
@@ -1556,6 +1747,36 @@ export function EarnDetailView({
         width: "100%",
       }}
     >
+      {/* SVG pixelation filters */}
+      <svg
+        aria-hidden="true"
+        height="0"
+        style={{
+          position: "absolute",
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+        }}
+        width="0"
+      >
+        <defs>
+          <filter id="rs-pixelate-lg" x="0" y="0" width="100%" height="100%">
+            <feFlood x="4" y="4" height="2" width="2" />
+            <feComposite width="10" height="10" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="5" />
+          </filter>
+          <filter id="rs-pixelate-sm" x="0" y="0" width="100%" height="100%">
+            <feFlood x="3" y="3" height="2" width="2" />
+            <feComposite width="8" height="8" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="4" />
+          </filter>
+        </defs>
+      </svg>
+
       <div
         style={{
           alignItems: "center",
@@ -1645,11 +1866,14 @@ export function EarnDetailView({
           </span>
           <span
             style={{
-              color: "#000",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              filter: isBalanceHidden ? "url(#rs-pixelate-lg)" : "none",
               fontFamily: font,
               fontSize: "40px",
               fontWeight: 600,
               lineHeight: "48px",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
               whiteSpace: "nowrap",
             }}
           >
@@ -1657,12 +1881,21 @@ export function EarnDetailView({
               <EarnGrowingBalance
                 apyBps={estimatedEarnedAmountApyBps}
                 baseAmount={displayBalanceAmount}
+                isHidden={isBalanceHidden}
                 principalAmount={principalAmount}
               />
             ) : (
               <>
                 $0
-                <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
+                <span
+                  style={{
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
+                  }}
+                >
+                  .00
+                </span>
               </>
             )}
           </span>
@@ -1675,13 +1908,19 @@ export function EarnDetailView({
         <EarningsBlock
           apy={earnForecastApy}
           earningsData={earningsData}
+          isBalanceHidden={isBalanceHidden}
           isLoadingEarnings={isLoadingEarnings}
           key={`${principalAmount}:${earnForecastApy.apyBps}`}
           principalAmount={principalAmount}
         />
       ) : null}
 
-      <AutodepositCard />
+      <AutodepositCard
+        amountLabel={autodepositAmountLabel}
+        isConfigured={isAutodepositConfigured}
+        onDisable={onDisableAutodeposit}
+        onSetUp={onOpenAutodeposit}
+      />
 
       {hasCurrentPosition ? (
         <section
@@ -1751,12 +1990,15 @@ export function EarnDetailView({
             </div>
             <span
               style={{
-                color: "#000",
+                color: isBalanceHidden ? "#BBBBC0" : "#000",
+                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 500,
                 lineHeight: "20px",
                 marginLeft: "12px",
+                transition: "filter 0.15s ease, color 0.15s ease",
+                userSelect: isBalanceHidden ? "none" : "auto",
                 whiteSpace: "nowrap",
               }}
             >
@@ -3300,10 +3542,12 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
 
 function DepositChart({
   apy = FALLBACK_EARN_APY,
+  isBalanceHidden = false,
   mainUsdcReserveApyBps = 559,
   principal = 1000,
 }: {
   apy?: EarnForecastApy;
+  isBalanceHidden?: boolean;
   mainUsdcReserveApyBps?: number;
   principal?: number;
 }) {
@@ -3556,25 +3800,37 @@ function DepositChart({
               </div>
               <span
                 style={{
-                  color: "#000",
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   fontFamily: font,
                   fontSize: "20px",
                   fontWeight: 600,
                   lineHeight: "24px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
                 }}
               >
                 ${formatMoney(loyalValue).split(".")[0]}
-                <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                <span
+                  style={{
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
+                  }}
+                >
                   .{formatMoney(loyalValue).split(".")[1]}
                 </span>
               </span>
               <span
                 style={{
-                  color: POSITIVE_AMOUNT_COLOR,
+                  color: isBalanceHidden ? "#BBBBC0" : POSITIVE_AMOUNT_COLOR,
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   fontFamily: font,
                   fontSize: "13px",
                   fontWeight: 400,
                   lineHeight: "16px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
                 }}
               >
                 +${formatMoney(loyalGain)}
@@ -3637,15 +3893,24 @@ function DepositChart({
                   </div>
                   <span
                     style={{
-                      color: "#000",
+                      color: isBalanceHidden ? "#BBBBC0" : "#000",
+                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                       fontFamily: font,
                       fontSize: "13px",
                       fontWeight: 600,
                       lineHeight: "16px",
+                      transition: "filter 0.15s ease, color 0.15s ease",
+                      userSelect: isBalanceHidden ? "none" : "auto",
                     }}
                   >
                     ${formatMoney(seriesValue).split(".")[0]}
-                    <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                    <span
+                      style={{
+                        color: isBalanceHidden
+                          ? "#BBBBC0"
+                          : "rgba(60, 60, 67, 0.4)",
+                      }}
+                    >
                       .{formatMoney(seriesValue).split(".")[1]}
                     </span>
                   </span>
@@ -3667,7 +3932,8 @@ function DepositChart({
             <span
               key={grid.level}
               style={{
-                color: "rgba(60, 60, 67, 0.4)",
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                 fontFamily: font,
                 fontSize: "13px",
                 fontWeight: 400,
@@ -3676,6 +3942,8 @@ function DepositChart({
                 right: 0,
                 top: `${grid.topPercent}%`,
                 transform: "translateY(-50%)",
+                transition: "filter 0.15s ease, color 0.15s ease",
+                userSelect: isBalanceHidden ? "none" : "auto",
                 whiteSpace: "nowrap",
               }}
             >
@@ -4242,6 +4510,497 @@ export function EarnDepositView({
           type="button"
         >
           {depositButtonLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AutodepositWarningDot() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        alignItems: "center",
+        background: LOYAL_EARN_BRAND_COLOR,
+        borderRadius: "9999px",
+        color: "#fff",
+        display: "inline-flex",
+        flexShrink: 0,
+        fontFamily: font,
+        fontSize: "12px",
+        fontWeight: 700,
+        height: "18px",
+        justifyContent: "center",
+        lineHeight: 1,
+        marginTop: "1px",
+        width: "18px",
+      }}
+    >
+      !
+    </span>
+  );
+}
+
+// Green bar-chart "Earn" badge, drawn inline to match the design exactly
+// without depending on an exported asset.
+function AutodepositEarnIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        background: "#32B67C",
+        borderRadius: "12px",
+        flexShrink: 0,
+        height: "48px",
+        overflow: "hidden",
+        position: "relative",
+        width: "48px",
+      }}
+    >
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: "2px",
+          height: "16px",
+          left: "8px",
+          position: "absolute",
+          top: "24px",
+          width: "6px",
+        }}
+      />
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: "2px",
+          height: "32px",
+          left: "21px",
+          position: "absolute",
+          top: "8px",
+          width: "6px",
+        }}
+      />
+      <span
+        style={{
+          background: "#fff",
+          borderRadius: "2px",
+          height: "24px",
+          left: "34px",
+          position: "absolute",
+          top: "16px",
+          width: "6px",
+        }}
+      />
+    </span>
+  );
+}
+
+function AutodepositSummaryRow({
+  fraction,
+  icon,
+  title,
+  whole,
+}: {
+  fraction: string;
+  icon: ReactNode;
+  title: string;
+  whole: string;
+}) {
+  return (
+    <div
+      style={{
+        alignItems: "center",
+        borderRadius: "16px",
+        display: "flex",
+        overflow: "hidden",
+        padding: "0 12px",
+        width: "100%",
+      }}
+    >
+      <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>{icon}</div>
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          gap: "2px",
+          height: "60px",
+          justifyContent: "center",
+          minWidth: 0,
+          padding: "9px 0",
+        }}
+      >
+        <span
+          style={{
+            color: secondary,
+            fontFamily: font,
+            fontSize: "13px",
+            lineHeight: "16px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {title}
+        </span>
+        <span
+          style={{
+            color: "#000",
+            fontFamily: font,
+            fontSize: "20px",
+            fontWeight: 600,
+            lineHeight: "24px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          ${whole}
+          <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.{fraction}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Autodeposit setup / edit pane. Mirrors the Deposit pane structure (amount
+// input + To/From rows + bottom button). `isEditing` flips the title button to
+// "Save Autodeposit" and the amount is preset by `initialAmount`. Autodeposit
+// is not wired yet — this drives a client-side demo flow only.
+export function AutodepositSetupView({
+  earnBalance = 0,
+  initialAmount = "100",
+  isEditing = false,
+  mainSource,
+  onBack,
+  onSubmit,
+}: {
+  earnBalance?: number;
+  initialAmount?: string;
+  isEditing?: boolean;
+  mainSource?: EarnDepositSourceOption | null;
+  onBack?: () => void;
+  onSubmit?: (amount: string) => void;
+}) {
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
+  const [amount, setAmount] = useState(initialAmount);
+  const earnBalanceLabel = formatMoney(earnBalance);
+  const [earnWhole, earnFraction = "00"] = earnBalanceLabel.split(".");
+  const hasAmount = Number(amount) > 0;
+
+  const focusAmount = () => {
+    amountInputRef.current?.focus();
+    amountInputRef.current?.select();
+  };
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(focusAmount);
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <div
+      style={{
+        background: "#fff",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        width: "100%",
+      }}
+    >
+      <style jsx>{`
+        .autodeposit-back:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .autodeposit-submit:not(:disabled):hover {
+          background: #222 !important;
+        }
+        .autodeposit-amount-input::placeholder {
+          color: rgba(60, 60, 67, 0.4);
+          opacity: 1;
+        }
+      `}</style>
+
+      <div
+        style={{
+          alignItems: "center",
+          display: "flex",
+          gap: "8px",
+          padding: "16px 20px 8px",
+        }}
+      >
+        <button
+          aria-label="Back"
+          className="autodeposit-back"
+          onClick={onBack}
+          style={{
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            color: "#3C3C43",
+            cursor: "pointer",
+            display: "inline-flex",
+            height: "36px",
+            justifyContent: "center",
+            padding: "6px",
+            transition: "background 0.15s ease",
+            width: "36px",
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} strokeWidth={2} />
+        </button>
+        <h2
+          style={{
+            color: "#000",
+            flex: 1,
+            fontFamily: font,
+            fontSize: "20px",
+            fontWeight: 600,
+            lineHeight: "28px",
+            margin: 0,
+            minWidth: 0,
+          }}
+        >
+          Autodeposit
+        </h2>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          minHeight: 0,
+          overflowY: "auto",
+          scrollbarWidth: "none",
+          width: "100%",
+        }}
+      >
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px 20px",
+            width: "100%",
+          }}
+        >
+          <div
+            onClick={focusAmount}
+            style={{
+              cursor: "text",
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              padding: "8px 0",
+            }}
+          >
+            <p
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+                margin: 0,
+              }}
+            >
+              Deposit anything above
+            </p>
+            <div style={{ alignItems: "baseline", display: "flex" }}>
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "40px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.44px",
+                  lineHeight: "48px",
+                }}
+              >
+                $
+              </span>
+              <input
+                className="autodeposit-amount-input"
+                inputMode="numeric"
+                onChange={(event) => {
+                  const next = event.target.value
+                    .replace(/[^0-9]/g, "")
+                    .replace(/^0+(?=\d)/, "")
+                    .slice(0, 9);
+                  setAmount(next);
+                }}
+                placeholder="0"
+                ref={amountInputRef}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "40px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.44px",
+                  lineHeight: "48px",
+                  minWidth: 0,
+                  outline: "none",
+                  padding: 0,
+                  width: `${Math.max(amount.length, 1)}ch`,
+                }}
+                type="text"
+                value={amount}
+              />
+              <span
+                style={{
+                  color: "rgba(60, 60, 67, 0.4)",
+                  fontFamily: font,
+                  fontSize: "40px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.44px",
+                  lineHeight: "48px",
+                }}
+              >
+                .00
+              </span>
+            </div>
+          </div>
+          <div
+            style={{
+              alignItems: "flex-start",
+              display: "flex",
+              gap: "8px",
+              width: "100%",
+            }}
+          >
+            <AutodepositWarningDot />
+            <p
+              style={{
+                color: LOYAL_EARN_BRAND_COLOR,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                margin: 0,
+              }}
+            >
+              Any stablecoin balance above this amount will automatically go to
+              Earn
+            </p>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div style={{ padding: "3px 12px 1px" }}>
+            <p
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                margin: 0,
+                padding: "12px 0 4px",
+              }}
+            >
+              To
+            </p>
+          </div>
+          <AutodepositSummaryRow
+            fraction={earnFraction}
+            icon={<AutodepositEarnIcon />}
+            title="Earn"
+            whole={earnWhole}
+          />
+        </section>
+
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div style={{ padding: "3px 12px 1px" }}>
+            <p
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                margin: 0,
+                padding: "12px 0 4px",
+              }}
+            >
+              From
+            </p>
+          </div>
+          <AutodepositSummaryRow
+            fraction={mainSource?.balanceFraction ?? "00"}
+            icon={
+              mainSource?.icon ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  src={mainSource.icon}
+                  style={{
+                    borderRadius: "12px",
+                    flexShrink: 0,
+                    height: "48px",
+                    objectFit: "cover",
+                    width: "48px",
+                  }}
+                />
+              ) : (
+                <AutodepositEarnIcon />
+              )
+            }
+            title="Main Account"
+            whole={mainSource?.balanceWhole ?? "0"}
+          />
+        </section>
+      </div>
+
+      <div
+        style={{
+          background:
+            "linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 28%)",
+          padding: "16px 20px 24px",
+          width: "100%",
+        }}
+      >
+        <button
+          className="autodeposit-submit"
+          disabled={!hasAmount}
+          onClick={() => onSubmit?.(amount)}
+          style={{
+            alignItems: "center",
+            background: hasAmount ? "#000" : "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "78px",
+            color: hasAmount ? "#fff" : secondary,
+            cursor: hasAmount ? "pointer" : "default",
+            display: "flex",
+            fontFamily: font,
+            fontSize: "17px",
+            fontWeight: 500,
+            height: "50px",
+            justifyContent: "center",
+            lineHeight: "22px",
+            padding: "15px 12px",
+            transition: "background 0.15s ease",
+            width: "100%",
+          }}
+          type="button"
+        >
+          {isEditing ? "Save Autodeposit" : "Create Autodeposit"}
         </button>
       </div>
     </div>

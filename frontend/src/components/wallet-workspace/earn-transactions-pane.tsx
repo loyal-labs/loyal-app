@@ -292,9 +292,11 @@ function FlowAccount({ label, icon }: { label: string; icon: string | null }) {
 }
 
 function EarnTransactionRow({
+  isBalanceHidden = false,
   item,
   onSelect,
 }: {
+  isBalanceHidden?: boolean;
   item: EarnTransactionItem;
   onSelect: (item: EarnTransactionItem) => void;
 }) {
@@ -367,10 +369,17 @@ function EarnTransactionRow({
       >
         <span
           style={{
-            color: isWithdraw ? "#34C759" : "#000",
+            color: isBalanceHidden
+              ? "#BBBBC0"
+              : isWithdraw
+              ? "#34C759"
+              : "#000",
+            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
             fontFamily: font,
             fontSize: "16px",
             lineHeight: "20px",
+            transition: "filter 0.15s ease, color 0.15s ease",
+            userSelect: isBalanceHidden ? "none" : "auto",
             whiteSpace: "nowrap",
           }}
         >
@@ -476,9 +485,11 @@ function groupEarnTransactions(items: EarnTransactionItem[]) {
 }
 
 export function EarnTransactionsPane({
+  isBalanceHidden = false,
   onSelectTransaction,
   topInset = 0,
 }: {
+  isBalanceHidden?: boolean;
   onSelectTransaction: (detail: TransactionDetail) => void;
   topInset?: number;
 }) {
@@ -569,6 +580,28 @@ export function EarnTransactionsPane({
           outline-offset: -2px;
         }
       `}</style>
+      {/* SVG pixelation filters */}
+      <svg
+        aria-hidden="true"
+        height="0"
+        style={{
+          position: "absolute",
+          width: 0,
+          height: 0,
+          overflow: "hidden",
+        }}
+        width="0"
+      >
+        <defs>
+          <filter id="rs-pixelate-sm" x="0" y="0" width="100%" height="100%">
+            <feFlood x="3" y="3" height="2" width="2" />
+            <feComposite width="8" height="8" />
+            <feTile result="a" />
+            <feComposite in="SourceGraphic" in2="a" operator="in" />
+            <feMorphology operator="dilate" radius="4" />
+          </filter>
+        </defs>
+      </svg>
       <div
         style={{
           alignItems: "center",
@@ -647,6 +680,7 @@ export function EarnTransactionsPane({
               </div>
               {group.items.map((item) => (
                 <EarnTransactionRow
+                  isBalanceHidden={isBalanceHidden}
                   item={item}
                   key={item.id}
                   onSelect={handleSelect}
