@@ -531,6 +531,7 @@ function createOverviewFromBase(
     threshold: base.threshold,
     timeLock: base.timeLock,
     staleTransactionIndex: base.staleTransactionIndex,
+    transactionIndex: base.transactionIndex,
     canonicalVaultAddress: base.canonicalVaultAddress,
     signers: base.signers,
     policies: [],

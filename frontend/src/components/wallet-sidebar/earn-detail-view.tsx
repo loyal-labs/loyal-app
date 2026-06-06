@@ -331,7 +331,7 @@ export function deriveMainUsdcReserveForecastApyBps(
   const latestSample = history.series
     ?.find((series) => series.key === "mainUsdcReserve")
     ?.samples.at(-1);
-  return Number.isFinite(latestSample?.apyBps)
+  return latestSample && Number.isFinite(latestSample.apyBps)
     ? latestSample.apyBps
     : fallbackApyBps;
 }
@@ -3146,7 +3146,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
         apyPercentAtHover: apyPercent,
         color: series.color,
         d: `M0,${y}L${EARN_CHART_WIDTH},${y}`,
-        key: series.key,
+        key: series.key as Exclude<EarnComparisonSeriesKey, "loyal">,
         label: series.label,
         topPercent: (y / EARN_CHART_HEIGHT) * 100,
       };
