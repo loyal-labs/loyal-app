@@ -10,6 +10,13 @@ Loyal is a non-custodial Solana wallet built around two ideas: programmable smar
 - [Loyal Web App](https://app.askloyal.com): the authenticated wallet (passkey + smart-account onboarding)
 - [Chrome Web Store extension](https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack): browser extension build
 
+## Features
+
+- [Agent wallet on Solana](https://askloyal.com/agents): Smart Accounts with on-chain policies and spending caps that keep AI agents within bounds
+- [Anonymous crypto wallet](https://askloyal.com/private-payments): private USDC, SOL, and USDT transfers via Confidential VM-shielded balances
+- [Yield on shielded USDC](https://askloyal.com/yield): shielded USDC routed into Kamino lending vaults so your balance earns while it stays private
+- [Best available stablecoin yield](https://askloyal.com/earn): routes stablecoins to the highest-paying Solana lending reserve, bounded by an on-chain policy, non-custodial
+
 ## Documentation
 
 - [docs.askloyal.com](https://docs.askloyal.com): canonical product and developer docs
