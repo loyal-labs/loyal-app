@@ -1,19 +1,36 @@
 import { PublicKey } from "@solana/web3.js";
 import {
   DEFAULT_MAX_FEE_BPS,
+  YIELD_ROUTE_STANDALONE_ACTION_SEED,
   getKaminoUsdcEarnTargetForCluster,
   getRiskBasketMarketsForCluster,
+  getStablecoinMintForCluster,
   getStablecoinMintsForCluster,
   getStablecoinsForCluster,
 } from "./constants.ts";
 import { clusterConfigFor } from "./cluster.ts";
-import { kaminoDepositConstraint, kaminoWithdrawConstraint, jupiterConstraint, loyalHubConstraint, uniquePubkeys } from "./internal/protocols.ts";
+import {
+  kaminoDepositConstraint,
+  kaminoWithdrawConstraint,
+  jupiterConstraint,
+  loyalHubConstraint,
+  subscriptionSweepConstraint,
+  uniquePubkeys,
+} from "./internal/protocols.ts";
 import { createProgramInteractionPolicyInstruction, deriveActionAccount } from "./internal/squads.ts";
-import { LoyalCluster, MaxFeeBps, RiskBasket, SwapLane } from "./types.ts";
+import {
+  deriveSubscriptionAuthority,
+  deriveSubscriptionEventAuthority,
+  normalizeU64,
+} from "./subscriptions.ts";
+import { LoyalCluster, MaxFeeBps, RiskBasket, Stablecoin, SwapLane } from "./types.ts";
 import type {
+  CreateSubscriptionSweepPolicyPlanInput,
   CreateVaultYieldRoutingPolicyPlanInput,
+  CreateVaultSubscriptionSweepPolicyPlanInput,
   CreateYieldRoutePolicyPlanInput,
   CreateLoyalActionsSdkConfig,
+  InitSubscriptionSweepPolicyInput,
   InitYieldRoutePolicyInput,
   InitYieldRoutePolicyResult,
   InitYieldRoutingPolicyInput,
@@ -21,6 +38,7 @@ import type {
   LoyalActionsSdk,
   LoyalActionRoute3,
   LoyalSmartAccountConfig,
+  SubscriptionSweepPolicyPlan,
   VaultYieldRoutingPolicyPlan,
   YieldRoutePolicyPlan,
 } from "./types.ts";
@@ -62,7 +80,15 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
   ];
   const kaminoEarnTarget = getKaminoUsdcEarnTargetForCluster(input.cluster);
   const kaminoLiquidityMints = [...stableMints];
-  const actionAccount = deriveActionAccount(clusterConfig, input.squads.settings);
+  const policySeed = normalizeU64(
+    input.policySeed ?? YIELD_ROUTE_STANDALONE_ACTION_SEED,
+    "policySeed",
+  );
+  const actionAccount = deriveActionAccount(
+    clusterConfig,
+    input.squads.settings,
+    policySeed,
+  );
   const constraints = [
     kaminoWithdrawConstraint(
       clusterConfig,
@@ -87,7 +113,12 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
     ),
   ];
 
-  const instruction = createProgramInteractionPolicyInstruction(clusterConfig, input.squads, constraints);
+  const instruction = createProgramInteractionPolicyInstruction(
+    clusterConfig,
+    input.squads,
+    constraints,
+    policySeed,
+  );
   const depositIndex = 1 + input.swapLanes.length;
   const routes: Record<string, unknown> = {
     sameMint: {
@@ -128,6 +159,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
       maxFeeBps,
     },
     metadata: {
+      policySeed,
       vaultIndex: input.squads.accountIndex,
       vault: input.squads.vault,
       lockKey: `${input.squads.settings.toBase58()}:${input.squads.accountIndex}`,
@@ -162,6 +194,7 @@ export function createVaultYieldRoutingPolicyPlan(
 
   return createYieldRoutePolicyPlan({
     cluster: input.cluster,
+    policySeed: input.policySeed,
     risk: input.risk,
     swapLanes: DEFAULT_YIELD_ROUTING_SWAP_LANES,
     maxFeeBps: input.maxFeeBps,
@@ -170,6 +203,101 @@ export function createVaultYieldRoutingPolicyPlan(
       accountIndex: input.vaultIndex,
       vault,
     },
+  });
+}
+
+export function createSubscriptionSweepPolicyPlan(
+  input: CreateSubscriptionSweepPolicyPlanInput,
+): SubscriptionSweepPolicyPlan {
+  if (!Object.values(LoyalCluster).includes(input.cluster)) {
+    throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
+  }
+  const clusterConfig = clusterConfigFor(input.cluster);
+  validateSubscriptionSweepInput(input);
+  const policySeed = requirePolicySeed(input.policySeed);
+  const mint = getStablecoinMintForCluster(input.cluster, Stablecoin.USDC);
+  const delegatorUsdcAta =
+    input.delegatorUsdcAta ??
+    deriveAssociatedTokenAccount(
+      clusterConfig,
+      input.delegator,
+      mint,
+    );
+  const vaultUsdcAta =
+    input.vaultUsdcAta ??
+    deriveAssociatedTokenAccount(clusterConfig, input.squads.vault, mint);
+  const subscriptionAuthority = deriveSubscriptionAuthority(
+    input.delegator,
+    mint,
+  );
+  const eventAuthority = deriveSubscriptionEventAuthority();
+  const actionAccount = deriveActionAccount(
+    clusterConfig,
+    input.squads.settings,
+    policySeed,
+  );
+  const instruction = createProgramInteractionPolicyInstruction(
+    clusterConfig,
+    input.squads,
+    [
+      subscriptionSweepConstraint(
+        clusterConfig,
+        input.delegator,
+        input.squads.vault,
+        mint,
+        delegatorUsdcAta,
+        vaultUsdcAta,
+        input.maxAmountPerPeriodRaw,
+      ),
+    ],
+    policySeed,
+  );
+
+  return {
+    instructions: [instruction],
+    actionAccount,
+    metadata: {
+      policySeed,
+      vaultIndex: input.squads.accountIndex,
+      vault: input.squads.vault,
+      delegator: input.delegator,
+      mint,
+      subscriptionAuthority,
+      eventAuthority,
+      delegatorUsdcAta,
+      vaultUsdcAta,
+      lockKey: `${input.squads.settings.toBase58()}:${input.squads.accountIndex}`,
+    },
+  };
+}
+
+export function createVaultSubscriptionSweepPolicyPlan(
+  input: CreateVaultSubscriptionSweepPolicyPlanInput,
+): SubscriptionSweepPolicyPlan {
+  if (!Object.values(LoyalCluster).includes(input.cluster)) {
+    throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
+  }
+  const clusterConfig = clusterConfigFor(input.cluster);
+  validateVaultSubscriptionSweepInput(input);
+  const smartAccount = requireSmartAccountConfig(input.smartAccount);
+  const vault = deriveSquadsVault(
+    clusterConfig.squadsSmartAccountProgramId,
+    smartAccount.settings,
+    input.vaultIndex,
+  );
+
+  return createSubscriptionSweepPolicyPlan({
+    cluster: input.cluster,
+    policySeed: input.policySeed,
+    squads: {
+      ...smartAccount,
+      accountIndex: input.vaultIndex,
+      vault,
+    },
+    delegator: input.delegator,
+    maxAmountPerPeriodRaw: input.maxAmountPerPeriodRaw,
+    delegatorUsdcAta: input.delegatorUsdcAta,
+    vaultUsdcAta: input.vaultUsdcAta,
   });
 }
 
@@ -197,6 +325,25 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
     });
   }
 
+  function createSubscriptionSweepPolicyPlanForSdk(
+    input: Omit<CreateSubscriptionSweepPolicyPlanInput, "cluster">,
+  ): SubscriptionSweepPolicyPlan {
+    return createSubscriptionSweepPolicyPlan({
+      ...input,
+      cluster: config.cluster,
+    });
+  }
+
+  function createVaultSubscriptionSweepPolicyPlanForSdk(
+    input: InitSubscriptionSweepPolicyInput,
+  ): SubscriptionSweepPolicyPlan {
+    return createVaultSubscriptionSweepPolicyPlan({
+      ...input,
+      cluster: config.cluster,
+      smartAccount: requireSmartAccountConfig(config.smartAccount),
+    });
+  }
+
   function initYieldRoutePolicy<const Lanes extends readonly SwapLane[]>(
     input: InitYieldRoutePolicyInput<Lanes>,
   ): InitYieldRoutePolicyResult<Lanes> {
@@ -206,11 +353,19 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
   return {
     createYieldRoutePolicyPlan: createYieldRoutePolicyPlanForSdk,
     createVaultYieldRoutingPolicyPlan: createVaultYieldRoutingPolicyPlanForSdk,
+    createSubscriptionSweepPolicyPlan: createSubscriptionSweepPolicyPlanForSdk,
+    createVaultSubscriptionSweepPolicyPlan:
+      createVaultSubscriptionSweepPolicyPlanForSdk,
     initYieldRoutePolicy,
     initYieldRoutingPolicy(
       input: InitYieldRoutingPolicyInput,
     ): InitYieldRoutingPolicyResult {
       return createVaultYieldRoutingPolicyPlanForSdk(input);
+    },
+    initSubscriptionSweepPolicy(
+      input: InitSubscriptionSweepPolicyInput,
+    ): SubscriptionSweepPolicyPlan {
+      return createVaultSubscriptionSweepPolicyPlanForSdk(input);
     },
   };
 }
@@ -236,6 +391,9 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
   if (!VALID_MAX_FEE_BPS.has(maxFeeBps)) {
     throw new Error(`unsupported maxFeeBps: ${String(maxFeeBps)}`);
   }
+  if (input.policySeed !== undefined) {
+    normalizeU64(input.policySeed, "policySeed");
+  }
   if (!Number.isInteger(input.squads.accountIndex) || input.squads.accountIndex < 0 || input.squads.accountIndex > 255) {
     throw new Error("squads.accountIndex must be a u8");
   }
@@ -257,7 +415,46 @@ function validateYieldRoutingInput(input: InitYieldRoutingPolicyInput): void {
   if (!VALID_MAX_FEE_BPS.has(maxFeeBps)) {
     throw new Error(`unsupported maxFeeBps: ${String(maxFeeBps)}`);
   }
+  if (input.policySeed !== undefined) {
+    normalizeU64(input.policySeed, "policySeed");
+  }
   validateVaultIndex(input.vaultIndex, "vaultIndex");
+}
+
+function validateSubscriptionSweepInput(
+  input: CreateSubscriptionSweepPolicyPlanInput,
+): void {
+  requirePolicySeed(input.policySeed);
+  validateVaultIndex(input.squads.accountIndex, "squads.accountIndex");
+  requirePublicKey(input.delegator, "delegator");
+  normalizeU64(input.maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw");
+  for (const [name, value] of Object.entries(input.squads)) {
+    if (name === "accountIndex") {
+      continue;
+    }
+    requirePublicKey(value, `squads.${name}`);
+  }
+  if (input.delegatorUsdcAta !== undefined) {
+    requirePublicKey(input.delegatorUsdcAta, "delegatorUsdcAta");
+  }
+  if (input.vaultUsdcAta !== undefined) {
+    requirePublicKey(input.vaultUsdcAta, "vaultUsdcAta");
+  }
+}
+
+function validateVaultSubscriptionSweepInput(
+  input: InitSubscriptionSweepPolicyInput,
+): void {
+  requirePolicySeed(input.policySeed);
+  validateVaultIndex(input.vaultIndex, "vaultIndex");
+  requirePublicKey(input.delegator, "delegator");
+  normalizeU64(input.maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw");
+  if (input.delegatorUsdcAta !== undefined) {
+    requirePublicKey(input.delegatorUsdcAta, "delegatorUsdcAta");
+  }
+  if (input.vaultUsdcAta !== undefined) {
+    requirePublicKey(input.vaultUsdcAta, "vaultUsdcAta");
+  }
 }
 
 function validateVaultIndex(vaultIndex: number, name: string): void {
@@ -282,6 +479,22 @@ function requireSmartAccountConfig(
   return smartAccount;
 }
 
+function requirePolicySeed(policySeed: unknown): bigint {
+  if (policySeed === undefined || policySeed === null) {
+    throw new Error("policySeed is required");
+  }
+  if (typeof policySeed !== "number" && typeof policySeed !== "bigint") {
+    throw new Error("policySeed must be an integer");
+  }
+  return normalizeU64(policySeed, "policySeed");
+}
+
+function requirePublicKey(value: unknown, name: string): asserts value is PublicKey {
+  if (!(value instanceof PublicKey)) {
+    throw new Error(`${name} must be a PublicKey`);
+  }
+}
+
 function deriveSquadsVault(
   programId: PublicKey,
   settings: PublicKey,
@@ -296,5 +509,16 @@ function deriveSquadsVault(
       Uint8Array.from([vaultIndex]),
     ],
     programId,
+  )[0];
+}
+
+function deriveAssociatedTokenAccount(
+  config: ReturnType<typeof clusterConfigFor>,
+  owner: PublicKey,
+  mint: PublicKey,
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [owner.toBytes(), config.tokenProgramId.toBytes(), mint.toBytes()],
+    config.associatedTokenProgramId,
   )[0];
 }

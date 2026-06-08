@@ -32,6 +32,12 @@ export class BytesEncoder {
     }
   }
 
+  pushI64(value: bigint): void {
+    const encoded =
+      value < BigInt(0) ? (BigInt(1) << BigInt(64)) + value : value;
+    this.pushU64(encoded);
+  }
+
   pushBytes(bytes: Uint8Array | readonly number[]): void {
     this.bytes.push(...bytes);
   }

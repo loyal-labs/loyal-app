@@ -5,6 +5,17 @@ import {
   KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
   KAMINO_LEND_PROGRAM_ID,
   KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR,
+  SUBSCRIPTIONS_PROGRAM_ID,
+  SUBSCRIPTIONS_TRANSFER_RECURRING,
+  SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET,
+  SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET,
+  SUBSCRIPTION_TRANSFER_MINT_OFFSET,
 } from "../constants.ts";
 import {
   CONFIG_SEED,
@@ -14,6 +25,12 @@ import {
   swapExactInAccounts,
 } from "../generated/loyal-hub-abi.ts";
 import type { LoyalClusterConfig } from "../cluster.ts";
+import type { U64Amount } from "../types.ts";
+import {
+  deriveSubscriptionAuthority,
+  deriveSubscriptionEventAuthority,
+  normalizeU64,
+} from "../subscriptions.ts";
 import type { DataConstraint, InstructionConstraint } from "./squads.ts";
 
 const SPL_TOKEN_ACCOUNT_AUTHORITY_OFFSET = BigInt(32);
@@ -154,6 +171,49 @@ export function loyalHubConstraint(
   };
 }
 
+export function subscriptionSweepConstraint(
+  config: LoyalClusterConfig,
+  delegator: PublicKey,
+  vault: PublicKey,
+  mint: PublicKey,
+  delegatorUsdcAta: PublicKey,
+  vaultUsdcAta: PublicKey,
+  maxAmountPerPeriodRaw: U64Amount,
+): InstructionConstraint {
+  const subscriptionAuthority = deriveSubscriptionAuthority(delegator, mint);
+  const eventAuthority = deriveSubscriptionEventAuthority();
+
+  return {
+    programId: SUBSCRIPTIONS_PROGRAM_ID,
+    accountConstraints: [
+      recurringDelegationAccountConstraint(
+        delegator,
+        vault,
+        subscriptionAuthority,
+        mint,
+        maxAmountPerPeriodRaw,
+      ),
+      pubkeyConstraint(1, [subscriptionAuthority], SUBSCRIPTIONS_PROGRAM_ID),
+      pubkeyConstraint(2, [delegatorUsdcAta], config.tokenProgramId),
+      pubkeyConstraint(3, [vaultUsdcAta], config.tokenProgramId),
+      pubkeyConstraint(4, [mint], config.tokenProgramId),
+      pubkeyConstraint(5, [config.tokenProgramId]),
+      pubkeyConstraint(6, [vault]),
+      pubkeyConstraint(7, [eventAuthority]),
+      pubkeyConstraint(8, [SUBSCRIPTIONS_PROGRAM_ID]),
+    ],
+    dataConstraints: [
+      dataU8Equals(BigInt(0), SUBSCRIPTIONS_TRANSFER_RECURRING),
+      dataSliceEquals(BigInt(SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET), [
+        ...delegator.toBytes(),
+      ]),
+      dataSliceEquals(BigInt(SUBSCRIPTION_TRANSFER_MINT_OFFSET), [
+        ...mint.toBytes(),
+      ]),
+    ],
+  };
+}
+
 export function deriveLoyalHubConfig(loyalHubProgramId: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([CONFIG_SEED], loyalHubProgramId)[0];
 }
@@ -197,6 +257,48 @@ function splTokenAuthorityConstraint(
   };
 }
 
+function recurringDelegationAccountConstraint(
+  delegator: PublicKey,
+  vault: PublicKey,
+  subscriptionAuthority: PublicKey,
+  mint: PublicKey,
+  maxAmountPerPeriodRaw: U64Amount,
+) {
+  return {
+    accountIndex: 0,
+    kind: {
+      type: "accountData" as const,
+      dataConstraints: [
+        dataU8Equals(
+          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET),
+          SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+        ),
+        dataSliceEquals(
+          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET),
+          [...delegator.toBytes()],
+        ),
+        dataSliceEquals(
+          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET),
+          [...vault.toBytes()],
+        ),
+        dataSliceEquals(
+          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET),
+          [...subscriptionAuthority.toBytes()],
+        ),
+        dataSliceEquals(
+          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET),
+          [...mint.toBytes()],
+        ),
+        dataU64LeLessThanOrEqualTo(
+          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET),
+          normalizeU64(maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw"),
+        ),
+      ],
+    },
+    owner: SUBSCRIPTIONS_PROGRAM_ID,
+  };
+}
+
 function discriminatorConstraint(
   discriminator: readonly number[]
 ): DataConstraint[] {
@@ -229,6 +331,17 @@ function dataU16LeLessThanOrEqualTo(
   return {
     dataOffset: offset,
     dataValue: { type: "u16Le", value },
+    operator: "lessThanOrEqualTo",
+  };
+}
+
+function dataU64LeLessThanOrEqualTo(
+  offset: bigint,
+  value: bigint,
+): DataConstraint {
+  return {
+    dataOffset: offset,
+    dataValue: { type: "u64Le", value },
     operator: "lessThanOrEqualTo",
   };
 }

@@ -4,6 +4,7 @@ import {
   RiskBasket,
   SwapLane,
   createLoyalActionsSdk,
+  createVaultSubscriptionSweepPolicyPlan,
   createVaultYieldRoutingPolicyPlan,
 } from "../src/index.js";
 
@@ -118,6 +119,75 @@ createVaultYieldRoutingPolicyPlan({
   vaultIndex: 0,
   // @ts-expect-error Vault-indexed policy plans always enable the default lanes.
   swapLanes: [SwapLane.Jupiter],
+});
+
+const subscriptionPolicy = routingSdk.initSubscriptionSweepPolicy({
+  policySeed: 2,
+  vaultIndex: 1,
+  delegator: key,
+  maxAmountPerPeriodRaw: 100n,
+});
+void subscriptionPolicy.metadata.subscriptionAuthority;
+
+routingSdk.initSubscriptionSweepPolicy({
+  vaultIndex: 1,
+  delegator: key,
+  maxAmountPerPeriodRaw: 100n,
+  // @ts-expect-error Subscription sweep policies require a caller-owned seed.
+  policySeed: undefined,
+});
+
+routingSdk.initSubscriptionSweepPolicy({
+  policySeed: 2,
+  vaultIndex: 1,
+  delegator: key,
+  maxAmountPerPeriodRaw: 100n,
+  // @ts-expect-error Subscription builders do not accept yield risk inputs.
+  risk: RiskBasket.Safe,
+});
+
+routingSdk.initSubscriptionSweepPolicy({
+  policySeed: 2,
+  vaultIndex: 1,
+  delegator: key,
+  maxAmountPerPeriodRaw: 100n,
+  // @ts-expect-error Subscription builders do not accept yield swap lanes.
+  swapLanes: [SwapLane.Jupiter],
+});
+
+createVaultSubscriptionSweepPolicyPlan({
+  cluster: LoyalCluster.MainnetBeta,
+  smartAccount: {
+    settings: key,
+    authority: key,
+    delegatedSigner: key,
+  },
+  vaultIndex: 1,
+  delegator: key,
+  maxAmountPerPeriodRaw: 100n,
+  // @ts-expect-error Vault subscription plans require a caller-owned seed.
+  policySeed: undefined,
+});
+
+createVaultSubscriptionSweepPolicyPlan({
+  cluster: LoyalCluster.MainnetBeta,
+  smartAccount: {
+    settings: key,
+    authority: key,
+    delegatedSigner: key,
+  },
+  policySeed: 2,
+  vaultIndex: 1,
+  delegator: key,
+  maxAmountPerPeriodRaw: 100n,
+  // @ts-expect-error Vault subscription plans derive Squads vault context internally.
+  squads: {
+    settings: key,
+    authority: key,
+    delegatedSigner: key,
+    accountIndex: 1,
+    vault: key,
+  },
 });
 
 createVaultYieldRoutingPolicyPlan({

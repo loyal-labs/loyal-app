@@ -5,6 +5,8 @@ import {
 } from "@solana/web3.js";
 import { YIELD_ROUTE_STANDALONE_ACTION_SEED } from "../constants.ts";
 import type { LoyalClusterConfig } from "../cluster.ts";
+import type { PolicySeed } from "../types.ts";
+import { normalizeU64 } from "../subscriptions.ts";
 import { BytesEncoder } from "./bytes.ts";
 
 const SQUADS_SEED_PREFIX = new TextEncoder().encode("smart_account");
@@ -57,14 +59,12 @@ export type SquadsContext = {
 
 export function deriveActionAccount(
   config: LoyalClusterConfig,
-  settings: PublicKey
+  settings: PublicKey,
+  policySeed: PolicySeed = YIELD_ROUTE_STANDALONE_ACTION_SEED,
 ): PublicKey {
+  const normalizedSeed = normalizeU64(policySeed, "policySeed");
   const seedBytes = new Uint8Array(8);
-  new DataView(seedBytes.buffer).setBigUint64(
-    0,
-    YIELD_ROUTE_STANDALONE_ACTION_SEED,
-    true
-  );
+  new DataView(seedBytes.buffer).setBigUint64(0, normalizedSeed, true);
   return PublicKey.findProgramAddressSync(
     [SQUADS_SEED_PREFIX, SQUADS_SEED_POLICY, settings.toBytes(), seedBytes],
     config.squadsSmartAccountProgramId
@@ -74,12 +74,14 @@ export function deriveActionAccount(
 export function createProgramInteractionPolicyInstruction(
   config: LoyalClusterConfig,
   context: SquadsContext,
-  constraints: readonly InstructionConstraint[]
+  constraints: readonly InstructionConstraint[],
+  policySeed: PolicySeed = YIELD_ROUTE_STANDALONE_ACTION_SEED,
 ): TransactionInstruction {
-  const actionAccount = deriveActionAccount(config, context.settings);
+  const normalizedSeed = normalizeU64(policySeed, "policySeed");
+  const actionAccount = deriveActionAccount(config, context.settings, normalizedSeed);
   const data = serializeSettingsActions(
     context.delegatedSigner,
-    BigInt(YIELD_ROUTE_STANDALONE_ACTION_SEED),
+    normalizedSeed,
     compileProgramInteractionPayload(context.accountIndex, constraints)
   );
 

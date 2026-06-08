@@ -2,6 +2,9 @@ import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
 
 export type Address = PublicKey;
 export type IInstruction = TransactionInstruction;
+export type PolicySeed = number | bigint;
+export type U64Amount = number | bigint;
+export type I64Timestamp = number | bigint;
 
 export enum LoyalCluster {
   Devnet = "devnet",
@@ -61,6 +64,7 @@ export type LoyalActionRoute3 = {
 export type InitYieldRoutePolicyInput<
   Lanes extends readonly SwapLane[] = readonly SwapLane[],
 > = {
+  policySeed?: PolicySeed;
   risk: RiskBasket;
   swapLanes: Lanes;
   maxFeeBps?: MaxFeeBps;
@@ -80,6 +84,7 @@ export type CreateYieldRoutePolicyPlanInput<
 };
 
 export type InitYieldRoutingPolicyInput = {
+  policySeed?: PolicySeed;
   risk: RiskBasket;
   vaultIndex: number;
   maxFeeBps?: MaxFeeBps;
@@ -119,6 +124,7 @@ export type InitYieldRoutePolicyResult<
     maxFeeBps: MaxFeeBps;
   };
   metadata: {
+    policySeed: bigint;
     vaultIndex: number;
     vault: Address;
     lockKey: string;
@@ -151,6 +157,69 @@ export type InitYieldRoutingPolicyResult = InitYieldRoutePolicyResult<
   readonly [SwapLane.Jupiter]
 >;
 
+export type SubscriptionCreateRecurringDelegationDataInput = {
+  nonce: U64Amount;
+  amountPerPeriodRaw: U64Amount;
+  periodLengthSeconds: U64Amount;
+  startTimestamp: I64Timestamp;
+  expiryTimestamp: I64Timestamp;
+  expectedSubscriptionAuthorityInitId: I64Timestamp;
+};
+
+export type SubscriptionTransferRecurringDataInput = {
+  amountRaw: U64Amount;
+  delegator: Address;
+  mint: Address;
+};
+
+export type InitSubscriptionSweepPolicyInput = {
+  policySeed: PolicySeed;
+  vaultIndex: number;
+  delegator: Address;
+  maxAmountPerPeriodRaw: U64Amount;
+  delegatorUsdcAta?: Address;
+  vaultUsdcAta?: Address;
+};
+
+export type CreateSubscriptionSweepPolicyPlanInput = {
+  cluster: LoyalCluster;
+  policySeed: PolicySeed;
+  squads: {
+    settings: Address;
+    authority: Address;
+    delegatedSigner: Address;
+    accountIndex: number;
+    vault: Address;
+  };
+  delegator: Address;
+  maxAmountPerPeriodRaw: U64Amount;
+  delegatorUsdcAta?: Address;
+  vaultUsdcAta?: Address;
+};
+
+export type CreateVaultSubscriptionSweepPolicyPlanInput =
+  InitSubscriptionSweepPolicyInput & {
+    cluster: LoyalCluster;
+    smartAccount: LoyalSmartAccountConfig;
+  };
+
+export type SubscriptionSweepPolicyPlan = {
+  instructions: IInstruction[];
+  actionAccount: Address;
+  metadata: {
+    policySeed: bigint;
+    vaultIndex: number;
+    vault: Address;
+    delegator: Address;
+    mint: Address;
+    subscriptionAuthority: Address;
+    eventAuthority: Address;
+    delegatorUsdcAta: Address;
+    vaultUsdcAta: Address;
+    lockKey: string;
+  };
+};
+
 export type LoyalActionsSdk = {
   createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane[]>(
     input: Omit<CreateYieldRoutePolicyPlanInput<Lanes>, "cluster">,
@@ -158,10 +227,19 @@ export type LoyalActionsSdk = {
   createVaultYieldRoutingPolicyPlan(
     input: Omit<CreateVaultYieldRoutingPolicyPlanInput, "cluster" | "smartAccount">,
   ): VaultYieldRoutingPolicyPlan;
+  createSubscriptionSweepPolicyPlan(
+    input: Omit<CreateSubscriptionSweepPolicyPlanInput, "cluster">,
+  ): SubscriptionSweepPolicyPlan;
+  createVaultSubscriptionSweepPolicyPlan(
+    input: Omit<CreateVaultSubscriptionSweepPolicyPlanInput, "cluster" | "smartAccount">,
+  ): SubscriptionSweepPolicyPlan;
   initYieldRoutePolicy<const Lanes extends readonly SwapLane[]>(
     input: InitYieldRoutePolicyInput<Lanes>,
   ): InitYieldRoutePolicyResult<Lanes>;
   initYieldRoutingPolicy(
     input: InitYieldRoutingPolicyInput,
   ): InitYieldRoutingPolicyResult;
+  initSubscriptionSweepPolicy(
+    input: InitSubscriptionSweepPolicyInput,
+  ): SubscriptionSweepPolicyPlan;
 };
