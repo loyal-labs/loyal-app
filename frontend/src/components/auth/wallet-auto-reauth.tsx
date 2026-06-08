@@ -4,6 +4,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
@@ -15,6 +16,18 @@ export function WalletAutoReauth() {
   const authApiClient = useAuthApiClient();
   const { isOpen: isSignInModalOpen } = useSignInModal();
   const { connected, publicKey, signMessage, disconnect } = useWallet();
+  const { turnstile } = usePublicEnv();
+
+  // Silent re-auth has no captcha UI, so resolve a Turnstile token for the
+  // gated challenge endpoint without one. Bypass (local) and misconfigured
+  // envs resolve immediately; in widget mode there is no token to obtain
+  // silently, so we defer to the interactive sign-in (which renders the widget).
+  const silentTurnstileToken =
+    turnstile.mode === "bypass"
+      ? turnstile.verificationToken
+      : turnstile.mode === "misconfigured"
+        ? "captcha-skipped"
+        : null;
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);
@@ -40,6 +53,10 @@ export function WalletAutoReauth() {
       return;
     }
 
+    if (!silentTurnstileToken) {
+      return;
+    }
+
     const walletAddress = publicKey.toBase58();
 
     if (attemptedAddressRef.current === walletAddress || failedRef.current) {
@@ -54,6 +71,7 @@ export function WalletAutoReauth() {
           authApiClient,
           messageSigner: signMessage,
           onStatusChange: setStatus,
+          turnstileToken: silentTurnstileToken ?? undefined,
           walletAddress,
         });
         await refreshSession();
@@ -78,7 +96,7 @@ export function WalletAutoReauth() {
     }
 
     void reauthenticate();
-  }, [authApiClient, connected, isAuthenticated, isHydrated, publicKey, refreshSession, signMessage, retryCount]);
+  }, [authApiClient, connected, isAuthenticated, isHydrated, publicKey, refreshSession, signMessage, silentTurnstileToken, retryCount]);
 
   // Auto-dismiss "done" banner after delay
   useEffect(() => {

@@ -14,6 +14,7 @@ type WalletProofFlowArgs = {
   authApiClient: AuthApiClient;
   messageSigner: WalletProofSignMessage | undefined;
   onStatusChange?: (status: WalletProofStatus) => void;
+  turnstileToken?: string;
   walletAddress: string;
 };
 
@@ -23,6 +24,7 @@ export async function runWalletProofFlow({
   authApiClient,
   messageSigner,
   onStatusChange,
+  turnstileToken,
   walletAddress,
 }: WalletProofFlowArgs): Promise<AuthSessionUser> {
   const existingProof = inFlightProofs.get(walletAddress);
@@ -34,6 +36,7 @@ export async function runWalletProofFlow({
   const proof = (async () => {
     const challenge = await authApiClient.challengeWalletAuth({
       walletAddress,
+      turnstileToken,
     });
 
     onStatusChange?.("awaiting_signature");

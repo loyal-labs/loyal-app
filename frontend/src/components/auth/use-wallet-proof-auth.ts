@@ -53,8 +53,12 @@ function mapWalletProofError(error: unknown): {
 
 export function useWalletProofAuth({
   onFlowStart,
+  onTurnstileConsumed,
+  turnstileToken,
 }: {
   onFlowStart?: () => void;
+  onTurnstileConsumed?: () => void;
+  turnstileToken?: string;
 }) {
   const authApiClient = useAuthApiClient();
   const { refreshSession } = useAuthSession();
@@ -77,6 +81,10 @@ export function useWalletProofAuth({
   const connectAttemptedRef = useRef(false);
   const selectedWalletNameRef = useRef<WalletName | null>(null);
   const verifyAttemptedForAddressRef = useRef<string | null>(null);
+  const turnstileTokenRef = useRef(turnstileToken);
+  turnstileTokenRef.current = turnstileToken;
+  const onTurnstileConsumedRef = useRef(onTurnstileConsumed);
+  onTurnstileConsumedRef.current = onTurnstileConsumed;
 
   const installedWallets = useMemo(
     () =>
@@ -112,6 +120,7 @@ export function useWalletProofAuth({
         authApiClient,
         messageSigner: signMessage,
         onStatusChange: (status) => dispatch({ type: status }),
+        turnstileToken: turnstileTokenRef.current,
         walletAddress,
       });
       await refreshSession();
@@ -120,6 +129,10 @@ export function useWalletProofAuth({
     } catch (error) {
       verifyAttemptedForAddressRef.current = null;
       handleFailure(error);
+    } finally {
+      // The Turnstile token is single-use once the challenge consumes it, so
+      // ask the modal to issue a fresh one before any subsequent attempt.
+      onTurnstileConsumedRef.current?.();
     }
   }, [authApiClient, close, handleFailure, publicKey, refreshSession, signMessage]);
 

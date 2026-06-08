@@ -1964,6 +1964,94 @@ export function useSmartAccountSidebarData(
         );
       };
 
+      const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
+        (value) => value.length > 0
+      );
+
+      const loadVaults = async () => {
+        setIsVaultsLoading(true);
+
+        try {
+          const vaultsUrl = new URL(
+            "/api/smart-accounts/overview/vaults",
+            window.location.origin
+          );
+          vaultsUrl.searchParams.set(
+            "accountUtilization",
+            String(baseOverview.vaults.length - 1)
+          );
+          if (invalidateAddresses && invalidateAddresses.length > 0) {
+            vaultsUrl.searchParams.set(
+              "invalidate",
+              invalidateAddresses.join(",")
+            );
+          }
+
+          const vaults = await fetchSmartAccountGroup<
+            SmartAccountVaultSnapshot[]
+          >(vaultsUrl);
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "vaults",
+            data: vaults,
+          });
+          setOverview((current) =>
+            current ? mergeVaultSnapshots(current, vaults) : current
+          );
+          setVaultActivityByAccountIndex({});
+          vaultActivityLoadPromisesRef.current.clear();
+        } catch (nextError) {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load vault balances.";
+          setScopedErrors((current) => ({
+            ...current,
+            vaults: message,
+          }));
+          setError((current) => current ?? message);
+        } finally {
+          setIsVaultsLoading(false);
+        }
+      };
+
+      const loadPolicies = async () => {
+        setIsPoliciesLoading(true);
+
+        try {
+          const policiesUrl = new URL(
+            "/api/smart-accounts/overview/policies",
+            window.location.origin
+          );
+          const policies =
+            await fetchSmartAccountGroup<SmartAccountPolicyOverview>(
+              policiesUrl
+            );
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "policies",
+            data: policies,
+          });
+          setOverview((current) =>
+            current ? mergePolicyOverview(current, policies) : current
+          );
+        } catch (nextError) {
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load smart-account policies.";
+          setScopedErrors((current) => ({
+            ...current,
+            policies: message,
+          }));
+          setError((current) => current ?? message);
+        } finally {
+          setIsPoliciesLoading(false);
+        }
+      };
+
       const loadProposals = async () => {
         if (shouldSkipSmartAccountProposalLoad(baseOverview)) {
           const proposals: SmartAccountProposalSnapshot[] = [];
@@ -2075,6 +2163,8 @@ export function useSmartAccountSidebarData(
       };
 
       await Promise.allSettled([
+        loadVaults(),
+        loadPolicies(),
         loadEarnState(),
         loadProposals(),
         loadBestApyReserves(),

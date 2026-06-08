@@ -1581,7 +1581,7 @@ export function PortfolioContent({
             />
           ) : hasVaultAccount ? (
             <>
-              {sortedVaultEntries.map((vault) => {
+              {sortedVaultEntries.map((vault, vaultIndex) => {
                 if (showMainAccountOnly) {
                   const mainSigner = vault.signers.find(
                     (entry) => entry.label === "Main Account"
@@ -1589,11 +1589,23 @@ export function PortfolioContent({
                   if (!mainSigner) {
                     return null;
                   }
+                  // The root signer is mirrored into every vault, so render the
+                  // single Main Account row only for the first vault that has
+                  // it — otherwise it duplicates once per vault.
+                  const firstVaultWithMainAccount = sortedVaultEntries.findIndex(
+                    (candidate) =>
+                      candidate.signers.some(
+                        (entry) => entry.label === "Main Account"
+                      )
+                  );
+                  if (vaultIndex !== firstVaultWithMainAccount) {
+                    return null;
+                  }
                   return (
                     <MainAccountRow
                       isBalanceHidden={isBalanceHidden}
                       isSelected={selectedSignerId === mainSigner.id}
-                      key={vault.address}
+                      key={mainSigner.id}
                       onOpen={() => onOpenAgent(mainSigner)}
                       signer={mainSigner}
                     />

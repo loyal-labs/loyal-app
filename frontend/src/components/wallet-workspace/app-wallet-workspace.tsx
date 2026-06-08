@@ -37,6 +37,7 @@ import {
   type SetStateAction,
 } from "react";
 
+import { WalletSignIn } from "@/components/auth/wallet-sign-in";
 import { DogWithMood } from "@/components/chat-input";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import { ApprovalReviewContent } from "@/components/wallet-sidebar/approval-review-content";
@@ -681,19 +682,52 @@ function WalletRail({
   );
 }
 
-function SignedOutDetailPane({ onSignIn }: { onSignIn: () => void }) {
+function SignedOutDetailPane() {
   return (
     <div className="wallet-workspace-auth-detail">
-      <div className="wallet-workspace-auth-detail-main">
-        <button
-          className="wallet-workspace-auth-cta"
-          onClick={onSignIn}
-          type="button"
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 440,
+          borderRadius: 28,
+          border: "1px solid rgba(0, 0, 0, 0.08)",
+          background: "#fff",
+          padding: 24,
+          boxShadow: "0 16px 48px rgba(0, 0, 0, 0.08)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            marginBottom: 20,
+          }}
         >
-          <span className="wallet-workspace-auth-cta-label">
-            Connect wallet
-          </span>
-        </button>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 28,
+              fontWeight: 600,
+              lineHeight: "32px",
+              letterSpacing: "-0.3px",
+              color: "#0a0a0a",
+            }}
+          >
+            Sign In
+          </h2>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 14,
+              lineHeight: "20px",
+              color: "rgba(60, 60, 67, 0.6)",
+            }}
+          >
+            Choose your preferred sign-in method.
+          </p>
+        </div>
+        <WalletSignIn />
       </div>
     </div>
   );
@@ -998,6 +1032,15 @@ export function AppWalletWorkspace({
     walletDesktopData.isLoading &&
     !hasWalletShell &&
     !hasSmartAccountShell;
+  // Keep the portfolio pane in its loading skeleton until the smart-account
+  // overview is established. The wallet shell loads faster than the overview
+  // (base + vaults), and the settings PDA can arrive a beat after auth, so
+  // without this the pane briefly flashes "No vaults found" before the Main
+  // Account appears.
+  const isSmartAccountShellLoading =
+    isSignedIn &&
+    !hasSmartAccountShell &&
+    (smartAccountData.isLoading || !user?.settingsPda);
   const isSmartAccountRateLimited =
     isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
   const showWorkspaceShell =
@@ -2943,7 +2986,7 @@ export function AppWalletWorkspace({
     }
 
     if (!isSignedIn) {
-      return <SignedOutDetailPane onSignIn={openSignIn} />;
+      return <SignedOutDetailPane />;
     }
 
     if (smartAccountData.error && !smartAccountData.overview) {
@@ -3796,7 +3839,7 @@ export function AppWalletWorkspace({
                 hasEarnPosition={hasEarnPosition}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
-                isLoading={isWorkspaceLoading}
+                isLoading={isWorkspaceLoading || isSmartAccountShellLoading}
                 onBalanceHiddenChange={setIsBalanceHidden}
                 onClose={() => undefined}
                 onDisconnect={handleDisconnect}

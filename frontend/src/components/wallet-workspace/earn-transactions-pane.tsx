@@ -8,6 +8,7 @@ import type {
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
+import { useAuthSession } from "@/contexts/auth-session-context";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -515,11 +516,21 @@ export function EarnTransactionsPane({
   onSelectTransaction: (detail: TransactionDetail) => void;
   topInset?: number;
 }) {
+  const { isAuthenticated, isHydrated } = useAuthSession();
   const [transactions, setTransactions] = useState<EarnTransactionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for the auth session to hydrate and become active before fetching.
+    // Firing right after wallet connect (before the session cookie lands) 401s
+    // with "No active auth session" and would leave the pane stuck until a full
+    // reload. Keying on isAuthenticated lets it self-heal once the session is
+    // ready; the loading skeleton shows in the meantime.
+    if (!isHydrated || !isAuthenticated) {
+      return;
+    }
+
     let isMounted = true;
 
     const loadTransactions = async () => {
@@ -573,7 +584,7 @@ export function EarnTransactionsPane({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAuthenticated, isHydrated]);
 
   const groups = groupEarnTransactions(transactions);
 
