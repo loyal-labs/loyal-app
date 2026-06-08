@@ -12,17 +12,31 @@ const EARN_POSITION_CACHE_VERSION = 1;
 
 export type ActiveEarnPosition = {
   currentSupplyApyBps: string | null;
-  depositMint: string;
   display: {
     label: string;
     marketName: string;
     mintSymbol: string;
   };
-  liquidityMint: string;
-  market: string | null;
+  initialHolding: {
+    liquidityMint: string;
+    market: string | null;
+    reserve: string;
+    supplyApyBps: string | null;
+  };
+  currentHolding: {
+    amountRaw: string;
+    liquidityMint: string;
+    market: string | null;
+    observedAt: string;
+    observedSlot: string;
+    provenance: {
+      lastHoldingEventId: string | null;
+      lastRebalanceDecisionId: string | null;
+    };
+    reserve: string;
+  };
   principalAmountRaw: string;
   status: string;
-  targetSupplyApyBps: string | null;
 };
 
 export type EarnPositionCachePayload = {

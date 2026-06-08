@@ -3,6 +3,17 @@ import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "
 mock.module("server-only", () => ({}));
 
 const TEST_ENV_KEYS = ["TELEGRAM_SETUP_SECRET", "ASKLOYAL_TGBOT_KEY"] as const;
+const bot = { api: {} };
+const getBot = mock(async () => bot);
+const registerBotCommands = mock(async () => {});
+
+mock.module("@/lib/telegram/bot-api/bot", () => ({
+  getBot,
+}));
+
+mock.module("@/lib/telegram/bot-api/register-commands", () => ({
+  registerBotCommands,
+}));
 
 function clearTestEnv(): void {
   for (const key of TEST_ENV_KEYS) {
@@ -20,23 +31,26 @@ describe("setup-commands route auth", () => {
 
   beforeEach(() => {
     clearTestEnv();
+    getBot.mockClear();
+    registerBotCommands.mockClear();
   });
 
   afterEach(() => {
     clearTestEnv();
   });
 
-  test("returns 500 when TELEGRAM_SETUP_SECRET is missing", async () => {
+  test("registers bot commands with a valid setup token", async () => {
+    process.env.TELEGRAM_SETUP_SECRET = "expected-secret";
     const request = new Request("http://localhost/api/telegram/setup-commands", {
       method: "POST",
-      headers: { authorization: "Bearer any-token" },
+      headers: { authorization: "Bearer expected-secret" },
     });
 
     const response = await POST(request);
-    expect(response.status).toBe(500);
-
-    const payload = await response.json();
-    expect(payload).toEqual({ error: "Server misconfigured" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ success: true });
+    expect(getBot).toHaveBeenCalledTimes(1);
+    expect(registerBotCommands).toHaveBeenCalledWith(bot);
   });
 
   test("returns 401 when Authorization does not match TELEGRAM_SETUP_SECRET", async () => {
@@ -49,8 +63,6 @@ describe("setup-commands route auth", () => {
 
     const response = await POST(request);
     expect(response.status).toBe(401);
-
-    const payload = await response.json();
-    expect(payload).toEqual({ error: "Unauthorized" });
+    expect(registerBotCommands).not.toHaveBeenCalled();
   });
 });

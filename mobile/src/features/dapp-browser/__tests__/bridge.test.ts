@@ -61,24 +61,84 @@ describe("dapp browser bridge", () => {
     });
   });
 
-  it("injects a wallet-standard compatible Loyal provider", () => {
-    const script = buildInjectedProviderScript();
+  it("injects a wallet-standard compatible Loyal provider", async () => {
+    const postedMessages: string[] = [];
+    let registeredWallet: unknown;
+    const runtime = globalThis as any;
+    const previousWindow = runtime.window;
+    const previousCustomEvent = runtime.CustomEvent;
 
-    expect(script).toContain("window.ReactNativeWebView.postMessage");
-    expect(script).toContain("window.loyal");
-    expect(script).toContain("wallet-standard:register-wallet");
-    expect(script).toContain("wallet-standard:app-ready");
-    expect(script).toContain("window.navigator.wallets");
-    expect(script).toContain('features: {');
-    expect(script).toContain('"standard:connect"');
-    expect(script).toContain('"standard:disconnect"');
-    expect(script).toContain('"standard:events"');
-    expect(script).toContain('"solana:signTransaction"');
-    expect(script).toContain('"solana:signMessage"');
-    expect(script).toContain("data:image/svg+xml");
-    expect(script).toContain("emit(\"change\"");
-    expect(script).toContain("accounts: []");
-    expect(script).toContain("signAndSendTransaction(payload)");
-    expect(script).toContain("loyal-mobile-wallet");
+    class TestCustomEvent {
+      detail: unknown;
+
+      constructor(
+        readonly type: string,
+        init?: { detail?: unknown },
+      ) {
+        this.detail = init?.detail;
+      }
+    }
+
+    runtime.CustomEvent = TestCustomEvent;
+    runtime.window = {
+      ReactNativeWebView: {
+        postMessage: (message: string) => postedMessages.push(message),
+      },
+      addEventListener: jest.fn(),
+      dispatchEvent: (event: { detail?: (api: unknown) => void }) => {
+        event.detail?.({
+          register: (wallet: unknown) => {
+            registeredWallet = wallet;
+          },
+        });
+      },
+      navigator: {},
+    } as any;
+
+    try {
+      eval(buildInjectedProviderScript());
+
+      const loyal = (
+        globalThis.window as typeof globalThis.window & {
+          loyal: {
+            connect: () => Promise<unknown>;
+            request: (input: { method: string; params?: unknown }) => Promise<unknown>;
+            wallet: {
+              accounts: unknown[];
+              features: Record<string, unknown>;
+              icon: string;
+              name: string;
+            };
+          };
+        }
+      ).loyal;
+
+      expect(registeredWallet).toBe(loyal.wallet);
+      expect(loyal.wallet.name).toBe("Loyal");
+      expect(loyal.wallet.icon.startsWith("data:image/svg+xml")).toBe(true);
+      expect(Object.keys(loyal.wallet.features)).toEqual([
+        "standard:connect",
+        "standard:disconnect",
+        "standard:events",
+        "solana:signTransaction",
+        "solana:signMessage",
+      ]);
+      await expect(
+        (
+          loyal.wallet.features["standard:connect"] as {
+            connect: (input?: { silent?: boolean }) => Promise<{ accounts: unknown[] }>;
+          }
+        ).connect({ silent: true }),
+      ).resolves.toEqual({ accounts: [] });
+
+      void loyal.request({ method: "connect" });
+      expect(JSON.parse(postedMessages[0] ?? "{}")).toMatchObject({
+        source: "loyal-mobile-wallet",
+        type: "connect",
+      });
+    } finally {
+      runtime.window = previousWindow;
+      runtime.CustomEvent = previousCustomEvent;
+    }
   });
 });

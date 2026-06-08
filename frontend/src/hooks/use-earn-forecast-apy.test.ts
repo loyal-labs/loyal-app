@@ -31,17 +31,18 @@ describe("earn forecast APY cache", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(fetchEarnForecastApy()).resolves.toEqual({
-      apyBps: 910,
-      rangeHighBps: 940,
-      rangeLowBps: 870,
-    });
-    await expect(fetchEarnForecastApy()).resolves.toEqual({
-      apyBps: 910,
-      rangeHighBps: 940,
-      rangeLowBps: 870,
-    });
+    const firstForecast = await fetchEarnForecastApy();
+    const secondForecast = await fetchEarnForecastApy();
 
+    expect(firstForecast).toMatchObject({
+      apyBps: 910,
+      rangeHighBps: 940,
+      rangeLowBps: 870,
+    });
+    expect(secondForecast).toBe(firstForecast);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/smart-accounts/earn-forecast", {
+      cache: "no-store",
+    });
   });
 });

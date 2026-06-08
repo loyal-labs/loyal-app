@@ -112,6 +112,18 @@ export const yieldPositionStatus = loyalYieldSchema.enum(
   ["active", "closed"]
 );
 
+export const userYieldHoldingEventType = loyalYieldSchema.enum(
+  "user_yield_holding_event_type",
+  [
+    "deposit_initialized",
+    "deposit_top_up",
+    "withdrawal_partial",
+    "withdrawal_full",
+    "rebalance_confirmed",
+    "snapshot_reconciled",
+  ]
+);
+
 export const userYieldPositions = loyalYieldSchema.table(
   "user_yield_positions",
   {
@@ -125,16 +137,32 @@ export const userYieldPositions = loyalYieldSchema.table(
     policyId: bigint("policy_id", { mode: "bigint" }).notNull(),
     policyAccount: text("policy_account").notNull(),
     policySeed: bigint("policy_seed", { mode: "bigint" }).notNull(),
-    targetReserve: text("target_reserve").notNull(),
-    market: text("market"),
-    liquidityMint: text("liquidity_mint").notNull(),
-    targetSupplyApyBps: bigint("target_supply_apy_bps", {
+    initialReserve: text("initial_reserve").notNull(),
+    initialMarket: text("initial_market"),
+    initialLiquidityMint: text("initial_liquidity_mint").notNull(),
+    initialSupplyApyBps: bigint("initial_supply_apy_bps", {
       mode: "bigint",
     }),
     depositMint: text("deposit_mint").notNull(),
     principalAmountRaw: bigint("principal_amount_raw", {
       mode: "bigint",
     }).notNull(),
+    currentReserve: text("current_reserve").notNull(),
+    currentMarket: text("current_market"),
+    currentLiquidityMint: text("current_liquidity_mint").notNull(),
+    currentAmountRaw: bigint("current_amount_raw", {
+      mode: "bigint",
+    }).notNull(),
+    currentObservedSlot: bigint("current_observed_slot", {
+      mode: "bigint",
+    }).notNull(),
+    currentObservedAt: timestamp("current_observed_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastHoldingEventId: bigint("last_holding_event_id", { mode: "bigint" }),
+    lastRebalanceDecisionId: bigint("last_rebalance_decision_id", {
+      mode: "bigint",
+    }),
     firstDepositSignature: text("first_deposit_signature").notNull(),
     lastDepositSignature: text("last_deposit_signature").notNull(),
     lastConfirmedSlot: bigint("last_confirmed_slot", {
@@ -149,9 +177,35 @@ export const userYieldPositions = loyalYieldSchema.table(
       table.cluster,
       table.settings,
       table.vaultIndex,
-      table.targetReserve
+      table.initialReserve
     ),
   ]
+);
+
+export const userYieldPositionHoldingEvents = loyalYieldSchema.table(
+  "user_yield_position_holding_events",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    positionId: bigint("position_id", { mode: "bigint" }).notNull(),
+    cluster: text("cluster").notNull(),
+    eventType: userYieldHoldingEventType("event_type").notNull(),
+    reserve: text("reserve").notNull(),
+    market: text("market"),
+    liquidityMint: text("liquidity_mint").notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    principalDeltaRaw: bigint("principal_delta_raw", { mode: "bigint" }),
+    holdingDeltaRaw: bigint("holding_delta_raw", { mode: "bigint" }),
+    observedSlot: bigint("observed_slot", { mode: "bigint" }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    sourceSignature: text("source_signature"),
+    sourceDepositId: bigint("source_deposit_id", { mode: "bigint" }),
+    sourceWithdrawalId: bigint("source_withdrawal_id", { mode: "bigint" }),
+    sourceRebalanceDecisionId: bigint("source_rebalance_decision_id", {
+      mode: "bigint",
+    }),
+    sourceSnapshotId: bigint("source_snapshot_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  }
 );
 
 export const userYieldPositionDeposits = loyalYieldSchema.table(
@@ -346,6 +400,7 @@ export const yieldOptimizationSchema = {
   rebalanceDecisions,
   routePolicies,
   userYieldPositionDeposits,
+  userYieldPositionHoldingEvents,
   userYieldPositionWithdrawals,
   userYieldPositions,
   vaultPositionSnapshotPositions,
@@ -367,6 +422,7 @@ export type YieldOptimizationClientTables = {
   rebalanceDecisions: typeof rebalanceDecisions;
   routePolicies: typeof routePolicies;
   userYieldPositionDeposits: typeof userYieldPositionDeposits;
+  userYieldPositionHoldingEvents: typeof userYieldPositionHoldingEvents;
   userYieldPositionWithdrawals: typeof userYieldPositionWithdrawals;
   userYieldPositions: typeof userYieldPositions;
   vaultPositionSnapshotPositions: typeof vaultPositionSnapshotPositions;
@@ -382,6 +438,7 @@ export class YieldOptimizationClient {
     rebalanceDecisions,
     routePolicies,
     userYieldPositionDeposits,
+    userYieldPositionHoldingEvents,
     userYieldPositionWithdrawals,
     userYieldPositions,
     vaultPositionSnapshotPositions,

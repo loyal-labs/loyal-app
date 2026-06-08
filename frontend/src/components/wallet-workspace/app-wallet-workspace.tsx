@@ -2133,23 +2133,44 @@ export function AppWalletWorkspace({
       setPendingEarnDepositDraft(null);
       invalidateEarnEarningsCache();
       setActiveEarnPosition((current) => {
+        const nowIso = new Date().toISOString();
+        const tokenMint = pendingEarnDepositDraft.tokenMint ?? "";
         const next = {
-          depositMint:
-            current?.depositMint ?? pendingEarnDepositDraft.tokenMint ?? "",
           display: current?.display ?? {
             label: "Main Market · USDC",
             marketName: "Main Market",
             mintSymbol: "USDC",
           },
-          liquidityMint:
-            current?.liquidityMint ?? pendingEarnDepositDraft.tokenMint ?? "",
-          market: current?.market ?? null,
+          initialHolding: current?.initialHolding ?? {
+            liquidityMint: tokenMint,
+            market: null,
+            reserve: "",
+            supplyApyBps: null,
+          },
+          currentHolding: current?.currentHolding
+            ? {
+                ...current.currentHolding,
+                amountRaw: (
+                  BigInt(current.currentHolding.amountRaw) + amountRaw
+                ).toString(),
+              }
+            : {
+                amountRaw: amountRaw.toString(),
+                liquidityMint: tokenMint,
+                market: null,
+                observedAt: nowIso,
+                observedSlot: "0",
+                provenance: {
+                  lastHoldingEventId: null,
+                  lastRebalanceDecisionId: null,
+                },
+                reserve: "",
+              },
           principalAmountRaw: (
             BigInt(current?.principalAmountRaw ?? "0") + amountRaw
           ).toString(),
           status: "active" as const,
           currentSupplyApyBps: current?.currentSupplyApyBps ?? null,
-          targetSupplyApyBps: current?.targetSupplyApyBps ?? null,
         };
         console.log("[earn-position] optimistic post-deposit update", {
           current,

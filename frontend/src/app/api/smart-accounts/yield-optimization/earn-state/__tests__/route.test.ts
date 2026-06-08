@@ -2,6 +2,12 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { PublicKey } from "@solana/web3.js";
 
+import {
+  createYieldDepositRepositoryMock,
+  findActiveYieldPosition,
+  findActiveYieldRoutePolicy,
+} from "@/test/yield-route-mocks";
+
 mock.module("server-only", () => ({}));
 
 const programId = "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG";
@@ -18,9 +24,6 @@ const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   settingsPda,
 }));
 
-const findActiveYieldPosition = mock(async () => null);
-const findActiveYieldRoutePolicy = mock(async () => null);
-
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
@@ -31,10 +34,10 @@ mock.module("@/lib/core/config/server", () => ({
   }),
 }));
 
-mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findActiveYieldPosition,
-  findActiveYieldRoutePolicy,
-}));
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
 
 let GET: typeof import("../route").GET;
 

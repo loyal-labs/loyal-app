@@ -39,14 +39,14 @@ function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
   );
 
   if (
-    position.targetReserve === devnetEarnTarget.reserve.toBase58() &&
-    position.market === devnetEarnTarget.market.toBase58() &&
-    position.liquidityMint === devnetEarnTarget.liquidityMint.toBase58()
+    position.currentReserve === devnetEarnTarget.reserve.toBase58() &&
+    position.currentMarket === devnetEarnTarget.market.toBase58() &&
+    position.currentLiquidityMint === devnetEarnTarget.liquidityMint.toBase58()
   ) {
     return mainnetEarnTarget.reserve.toBase58();
   }
 
-  return position.targetReserve;
+  return position.currentReserve;
 }
 
 function serializePosition(
@@ -54,23 +54,35 @@ function serializePosition(
   currentReserve: TimescaleReserveUpdateRow | null = null
 ) {
   return {
-    ...position,
-    createdAt: position.createdAt.toISOString(),
+    currentHolding: {
+      amountRaw: position.currentAmountRaw.toString(),
+      liquidityMint: position.currentLiquidityMint,
+      market: position.currentMarket,
+      observedAt: position.currentObservedAt.toISOString(),
+      observedSlot: position.currentObservedSlot.toString(),
+      provenance: {
+        lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
+        lastRebalanceDecisionId:
+          position.lastRebalanceDecisionId?.toString() ?? null,
+      },
+      reserve: position.currentReserve,
+    },
     currentSupplyApyBps: currentReserve
       ? toApyBps(currentReserve.supplyApy)
       : null,
     display: resolveEarnPositionDisplay({
-      liquidityMint: position.liquidityMint,
-      market: position.market,
+      liquidityMint: position.currentLiquidityMint,
+      market: position.currentMarket,
     }),
-    firstDepositSignature: position.firstDepositSignature,
     id: position.id.toString(),
-    lastConfirmedSlot: position.lastConfirmedSlot.toString(),
-    policyId: position.policyId.toString(),
-    policySeed: position.policySeed.toString(),
+    initialHolding: {
+      liquidityMint: position.initialLiquidityMint,
+      market: position.initialMarket,
+      reserve: position.initialReserve,
+      supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
+    },
     principalAmountRaw: position.principalAmountRaw.toString(),
-    targetSupplyApyBps: position.targetSupplyApyBps?.toString() ?? null,
-    updatedAt: position.updatedAt.toISOString(),
+    status: position.status,
   };
 }
 
@@ -93,8 +105,8 @@ export async function GET(request: Request) {
   const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
   const position = await findActiveYieldPosition({
     cluster,
+    initialReserve: earnTarget.reserve.toBase58(),
     settings: principal.settingsPda,
-    targetReserve: earnTarget.reserve.toBase58(),
     vaultIndex: EARN_VAULT_INDEX,
     walletAddress: principal.walletAddress,
   });
@@ -103,13 +115,16 @@ export async function GET(request: Request) {
     : null;
   const currentReserveRows = position
     ? await getCurrentReserveUpdatesByReserve({
-        reserves: [timescaleReserve ?? position.targetReserve],
+        reserves: [timescaleReserve ?? position.currentReserve],
       }).catch((error) => {
-        console.warn("[earn-position] current Timescale reserve lookup failed", {
-          error,
-          targetReserve: position.targetReserve,
-          timescaleReserve,
-        });
+        console.warn(
+          "[earn-position] current Timescale reserve lookup failed",
+          {
+            error,
+            currentReserve: position.currentReserve,
+            timescaleReserve,
+          }
+        );
         return [];
       })
     : [];
@@ -121,8 +136,9 @@ export async function GET(request: Request) {
     position: position
       ? serializePosition(
           position,
-          currentReserveByReserve.get(timescaleReserve ?? position.targetReserve) ??
-            null
+          currentReserveByReserve.get(
+            timescaleReserve ?? position.currentReserve
+          ) ?? null
         )
       : null,
   });

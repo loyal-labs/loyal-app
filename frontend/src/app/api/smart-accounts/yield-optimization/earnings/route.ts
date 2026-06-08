@@ -114,8 +114,8 @@ export async function GET(request: Request) {
   try {
     const events = await findYieldPositionEvents({
       cluster,
+      initialReserve: earnTarget.reserve.toBase58(),
       settings: principal.settingsPda,
-      targetReserve: earnTarget.reserve.toBase58(),
       vaultIndex: EARN_VAULT_INDEX,
       walletAddress: principal.walletAddress,
     });

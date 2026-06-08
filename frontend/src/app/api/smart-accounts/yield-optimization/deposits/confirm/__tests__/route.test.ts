@@ -14,6 +14,11 @@ import {
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { PublicKey, Connection } from "@solana/web3.js";
 
+import {
+  createYieldDepositRepositoryMock,
+  recordConfirmedYieldDeposit,
+} from "@/test/yield-route-mocks";
+
 mock.module("server-only", () => ({}));
 
 const settings = new PublicKey("11111111111111111111111111111112");
@@ -41,9 +46,11 @@ const getSignatureStatuses = mock(async () => ({
   ],
 }));
 
-(Connection.prototype as unknown as {
-  getSignatureStatuses: typeof getSignatureStatuses;
-}).getSignatureStatuses = getSignatureStatuses;
+(
+  Connection.prototype as unknown as {
+    getSignatureStatuses: typeof getSignatureStatuses;
+  }
+).getSignatureStatuses = getSignatureStatuses;
 
 const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   authMethod: "wallet" as const,
@@ -54,39 +61,14 @@ const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   walletAddress: walletAddress.toBase58(),
 }));
 
-const recordConfirmedYieldDeposit = mock(async () => ({
-  cluster: "devnet",
-  createdAt: new Date("2026-06-01T00:00:00.000Z"),
-  depositMint: "USDC-mint",
-  firstDepositSignature: "deposit-sig-1",
-  id: BigInt(1),
-  lastConfirmedSlot: BigInt(123),
-  lastDepositSignature: "deposit-sig-1",
-  liquidityMint: "USDC-mint",
-  market: "Main",
-  policyAccount: "policy-account-1",
-  policyId: BigInt(42),
-  policySeed: BigInt(7),
-  principalAmountRaw: BigInt(1_000_000),
-  settings: settings.toBase58(),
-  smartAccountAddress: smartAccountAddress.toBase58(),
-  status: "active" as const,
-  targetReserve: earnTarget.reserve.toBase58(),
-  targetSupplyApyBps: null,
-  updatedAt: new Date("2026-06-01T00:00:00.000Z"),
-  vaultIndex: 1,
-  vaultPubkey: vaultPubkey.toBase58(),
-  walletAddress: walletAddress.toBase58(),
-}));
-
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
-mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  recordConfirmedYieldDeposit,
-  recordConfirmedYieldWithdrawal: mock(async () => null),
-}));
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
 
 mock.module("@/lib/solana/rpc-endpoints", () => ({
   getFrontendSolanaEndpoints: () => ({
@@ -175,6 +157,37 @@ describe("yield optimization deposit confirm route", () => {
       subjectAddress: walletAddress.toBase58(),
       walletAddress: walletAddress.toBase58(),
     }));
+    recordConfirmedYieldDeposit.mockImplementation(async () => ({
+      cluster: "devnet",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      firstDepositSignature: "deposit-sig-1",
+      currentAmountRaw: BigInt(1_000_000),
+      currentLiquidityMint: "USDC-mint",
+      currentMarket: "Main",
+      currentObservedAt: new Date("2026-06-01T00:00:00.000Z"),
+      currentObservedSlot: BigInt(123),
+      currentReserve: earnTarget.reserve.toBase58(),
+      id: BigInt(1),
+      initialLiquidityMint: "USDC-mint",
+      initialMarket: "Main",
+      initialReserve: earnTarget.reserve.toBase58(),
+      initialSupplyApyBps: null,
+      lastConfirmedSlot: BigInt(123),
+      lastDepositSignature: "deposit-sig-1",
+      lastHoldingEventId: BigInt(99),
+      lastRebalanceDecisionId: null,
+      policyAccount: "policy-account-1",
+      policyId: BigInt(42),
+      policySeed: BigInt(7),
+      principalAmountRaw: BigInt(1_000_000),
+      settings: settings.toBase58(),
+      smartAccountAddress: smartAccountAddress.toBase58(),
+      status: "active" as const,
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+      vaultIndex: 1,
+      vaultPubkey: vaultPubkey.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    }));
   });
 
   test("returns 401 without an authenticated wallet session", async () => {
@@ -234,12 +247,19 @@ describe("yield optimization deposit confirm route", () => {
     });
     await expect(response.json()).resolves.toMatchObject({
       position: {
+        currentHolding: {
+          amountRaw: "1000000",
+          provenance: {
+            lastHoldingEventId: "99",
+            lastRebalanceDecisionId: null,
+          },
+        },
         id: "1",
-        lastConfirmedSlot: "123",
-        policyId: "42",
-        policySeed: "7",
+        initialHolding: {
+          supplyApyBps: null,
+        },
         principalAmountRaw: "1000000",
-        targetSupplyApyBps: null,
+        status: "active",
       },
     });
   });

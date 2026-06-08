@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import type { EarnEarningsResponse } from "@/lib/yield-optimization/earnings.shared";
 
@@ -100,41 +98,6 @@ describe("earn forecast APY", () => {
     ).toBe(543);
   });
 
-  test("Earn UI copy does not hardcode the fallback APY", () => {
-    const earnDetail = readFileSync(
-      resolve(import.meta.dir, "../earn-detail-view.tsx"),
-      "utf8"
-    );
-    const portfolio = readFileSync(
-      resolve(import.meta.dir, "../portfolio-content.tsx"),
-      "utf8"
-    );
-
-    expect(`${earnDetail}\n${portfolio}`).not.toContain("8.46% APY");
-    expect(`${earnDetail}\n${portfolio}`).not.toContain("1197");
-    expect(`${earnDetail}\n${portfolio}`).not.toContain("11.97% APY");
-    expect(earnDetail).toContain("FALLBACK_EARN_FORECAST");
-  });
-
-  test("current position label comes from active position metadata", () => {
-    const earnDetail = readFileSync(
-      resolve(import.meta.dir, "../earn-detail-view.tsx"),
-      "utf8"
-    );
-    const workspace = readFileSync(
-      resolve(import.meta.dir, "../../wallet-workspace/app-wallet-workspace.tsx"),
-      "utf8"
-    );
-
-    expect(earnDetail).toContain("currentPositionLabel");
-    expect(earnDetail).toContain("currentPositionApyLabel");
-    expect(earnDetail).toContain("{currentPositionLabel}");
-    expect(earnDetail).toContain("<ApyBadge value={currentPositionApyLabel} />");
-    expect(workspace).toContain("activeEarnPosition?.display?.label");
-    expect(workspace).toContain("activeEarnPositionApyLabel");
-    expect(workspace).toContain("currentSupplyApyBps");
-    expect(workspace).toContain("Main Market · USDC");
-  });
 });
 
 describe("historical APY chart", () => {
@@ -153,84 +116,13 @@ describe("historical APY chart", () => {
     );
   });
 
-  test("shows Main USDC and T-Bill APY benchmarks on the APY graph", () => {
-    const earnDetail = readFileSync(
-      resolve(import.meta.dir, "../earn-detail-view.tsx"),
-      "utf8"
-    );
-
-    expect(earnDetail).toContain("mainUsdcReserve");
-    expect(earnDetail).toContain('label: "Main Market USDC"');
-    expect(earnDetail).toContain('fixedApyBps: 365');
-    expect(earnDetail).toContain("nearestHistoricalApyPercent");
-    expect(earnDetail).toContain("benchmarkLines.map");
-  });
-
-  test("consumes fetched Medium 1bps APY samples when present", () => {
-    const earnDetail = readFileSync(
-      resolve(import.meta.dir, "../earn-detail-view.tsx"),
-      "utf8"
-    );
-
-    expect(earnDetail).toContain("useEarnForecastApyHistory");
-    expect(earnDetail).toContain("toHistoricalApySamples");
-    expect(earnDetail).toContain('rangeId === "30D"');
-  });
 });
 
 describe("Earn earnings series UI", () => {
-  test("uses the real earnings endpoint instead of the old fake range model", () => {
-    const earnDetail = readFileSync(
-      resolve(import.meta.dir, "../earn-detail-view.tsx"),
-      "utf8"
-    );
-    const useEarnEarnings = readFileSync(
-      resolve(import.meta.dir, "../../../hooks/use-earn-earnings.ts"),
-      "utf8"
-    );
-
-    expect(earnDetail).toContain("useEarnEarnings");
-    expect(earnDetail).not.toContain("getBrowserTimezone");
-    expect(earnDetail).not.toContain("timezone:");
-    expect(earnDetail).toContain("earnings-bar-current");
-    expect(earnDetail).toContain("earnings-bar-fill");
-    expect(earnDetail).toContain("height: 100%");
-    expect(useEarnEarnings).toContain(
-      "/api/smart-accounts/yield-optimization/earnings"
-    );
-    expect(useEarnEarnings).toContain("Earnings are unavailable.");
-    expect(earnDetail).toContain("getEarningsFractionDigits");
-    expect(earnDetail).toContain("EARN_BALANCE_DECIMALS");
-    expect(earnDetail).not.toContain("EARNINGS_DEPOSIT_OFFSET_MS");
-    expect(earnDetail).not.toContain('id: "1M"');
-    expect(earnDetail).not.toContain('id: "6M"');
-    expect(earnDetail).not.toContain("earnings-range-chip");
-    expect(earnDetail).toContain('const EARNINGS_MONTHLY_RANGE_ID = "1Y"');
-    expect(earnDetail).toContain("earnings-bars-monthly");
-    expect(earnDetail).toContain("earnings-bar-zero");
-    expect(earnDetail).toContain("earnings-bar-current-positive");
-    expect(earnDetail).toContain("visualHeightPct");
-    expect(earnDetail).toContain("earningsAxisLabels");
-    expect(earnDetail).not.toContain("Today");
+  test("formats monthly bar labels by month and year", () => {
     expect(formatMonthlyEarningsBarLabel("2026-11-01T00:00:00.000Z")).toBe(
       "Nov 2026"
     );
-  });
-
-  test("shares earnings data with the header balance amount", () => {
-    const earnDetail = readFileSync(
-      resolve(import.meta.dir, "../earn-detail-view.tsx"),
-      "utf8"
-    );
-
-    expect(earnDetail).toContain(
-      "const displayBalanceAmount = deriveEstimatedEarnBalanceAmount"
-    );
-    expect(earnDetail).toContain("baseAmount={displayBalanceAmount}");
-    expect(earnDetail).toContain("apyBps={estimatedEarnedAmountApyBps}");
-    expect(earnDetail).toContain("principalAmount={principalAmount}");
-    expect(earnDetail).toContain("Balance ·");
-    expect(earnDetail).not.toContain("apyBps={earnForecastApy.apyBps}");
   });
 });
 

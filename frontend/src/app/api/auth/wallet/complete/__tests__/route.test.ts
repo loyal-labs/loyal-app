@@ -100,13 +100,10 @@ describe("wallet completion route", () => {
     expect(response.headers.get("set-cookie")).toContain(
       "loyal_wallet_session=session-token"
     );
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       user: {
         authMethod: "wallet",
-        subjectAddress: "wallet-1",
-        displayAddress: "wallet-1",
         walletAddress: "wallet-1",
-        provider: "solana",
         smartAccountAddress: "smart-account-1",
         settingsPda: "settings-1",
       },

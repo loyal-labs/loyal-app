@@ -10,6 +10,7 @@ const {
   rebalanceDecisions,
   routePolicies,
   userYieldPositionDeposits,
+  userYieldPositionHoldingEvents,
   userYieldPositionWithdrawals,
   userYieldPositions,
   vaultPositionSnapshotPositions,
@@ -18,28 +19,7 @@ const {
 } = await import("../yield-neon-client.server");
 
 describe("yield optimization Neon client", () => {
-  test("exposes loyal_yield table models", () => {
-    expect(routePolicies.policyAccount.name).toBe("policy_account");
-    expect(routePolicies.swapLanes.name).toBe("swap_lanes");
-    expect(managedVaults.activePolicyId.name).toBe("active_policy_id");
-    expect(vaultPositionSnapshots.isCurrent.name).toBe("is_current");
-    expect(vaultPositionSnapshotPositions.amountRaw.name).toBe("amount_raw");
-    expect(vaultReservePositionsCurrent.reserve.name).toBe("reserve");
-    expect(rebalanceDecisions.decisionReason.name).toBe("decision_reason");
-    expect(userYieldPositions.principalAmountRaw.name).toBe(
-      "principal_amount_raw"
-    );
-    expect(userYieldPositionDeposits.depositSignature.name).toBe(
-      "deposit_signature"
-    );
-    expect(userYieldPositionWithdrawals.withdrawalSignature.name).toBe(
-      "withdrawal_signature"
-    );
-    expect(earnForecastSnapshots.samples.name).toBe("samples");
-    expect(earnForecastSnapshots.windowEndedAt.name).toBe("window_ended_at");
-  });
-
-  test("creates a Drizzle-backed client without fetching data", () => {
+  test("creates a Drizzle-backed client with the loyal_yield export surface", () => {
     const client = new YieldOptimizationClient({
       databaseUrl: "postgresql://user:password@localhost/test",
     });
@@ -58,6 +38,9 @@ describe("yield optimization Neon client", () => {
     expect(client.tables.userYieldPositions).toBe(userYieldPositions);
     expect(client.tables.userYieldPositionDeposits).toBe(
       userYieldPositionDeposits
+    );
+    expect(client.tables.userYieldPositionHoldingEvents).toBe(
+      userYieldPositionHoldingEvents
     );
     expect(client.tables.userYieldPositionWithdrawals).toBe(
       userYieldPositionWithdrawals

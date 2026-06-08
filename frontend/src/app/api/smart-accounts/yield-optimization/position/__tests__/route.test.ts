@@ -1,5 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  createTimescaleReserveClientMock,
+  createYieldDepositRepositoryMock,
+  findActiveYieldPosition,
+  getCurrentReserveUpdatesByReserve,
+} from "@/test/yield-route-mocks";
+
 mock.module("server-only", () => ({}));
 
 const canonicalTargetReserve = "9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy";
@@ -7,8 +14,7 @@ const canonicalMainnetTargetReserve =
   "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
 const canonicalDevnetMainMarket =
   "27MKCQo5qP7ijrwWSMKX2Jeb3PhK2NZmHQ9befWVRS4J";
-const canonicalDevnetUsdcMint =
-  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+const canonicalDevnetUsdcMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 
 const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   authMethod: "wallet" as const,
@@ -20,49 +26,19 @@ const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   walletAddress: "wallet-1",
 }));
 
-const findActiveYieldPosition = mock(async () => ({
-  cluster: "devnet",
-  createdAt: new Date("2026-06-01T00:00:00.000Z"),
-  depositMint: canonicalDevnetUsdcMint,
-  firstDepositSignature: "deposit-sig-1",
-  id: BigInt(1),
-  lastConfirmedSlot: BigInt(123),
-  lastDepositSignature: "deposit-sig-2",
-  liquidityMint: canonicalDevnetUsdcMint,
-  market: canonicalDevnetMainMarket,
-  policyAccount: "policy-account-1",
-  policyId: BigInt(7),
-  policySeed: BigInt(1),
-  principalAmountRaw: BigInt(1250000),
-  settings: "settings-1",
-  smartAccountAddress: "smart-account-1",
-  status: "active",
-  targetReserve: canonicalTargetReserve,
-  targetSupplyApyBps: BigInt(846),
-  updatedAt: new Date("2026-06-01T00:01:00.000Z"),
-  vaultIndex: 1,
-  vaultPubkey: "vault-1",
-  walletAddress: "wallet-1",
-}));
-
-const getCurrentReserveUpdatesByReserve = mock(async () => [
-  {
-    reserve: canonicalMainnetTargetReserve,
-    supplyApy: 0.1048,
-  },
-]);
-
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
-mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findActiveYieldPosition,
-}));
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
 
-mock.module("@/lib/kamino/timescale-reserve-client.server", () => ({
-  getCurrentReserveUpdatesByReserve,
-}));
+mock.module(
+  "@/lib/kamino/timescale-reserve-client.server",
+  createTimescaleReserveClientMock
+);
 
 let GET: typeof import("../route").GET;
 
@@ -76,6 +52,37 @@ describe("smart-account active yield position route", () => {
     resolveAuthenticatedPrincipalFromRequest.mockClear();
     findActiveYieldPosition.mockClear();
     getCurrentReserveUpdatesByReserve.mockClear();
+    findActiveYieldPosition.mockImplementation(async () => ({
+      cluster: "devnet",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      firstDepositSignature: "deposit-sig-1",
+      currentAmountRaw: BigInt(1250000),
+      currentLiquidityMint: canonicalDevnetUsdcMint,
+      currentMarket: canonicalDevnetMainMarket,
+      currentObservedAt: new Date("2026-06-01T00:01:00.000Z"),
+      currentObservedSlot: BigInt(124),
+      currentReserve: canonicalTargetReserve,
+      id: BigInt(1),
+      initialLiquidityMint: canonicalDevnetUsdcMint,
+      initialMarket: canonicalDevnetMainMarket,
+      initialReserve: canonicalTargetReserve,
+      initialSupplyApyBps: BigInt(846),
+      lastConfirmedSlot: BigInt(123),
+      lastDepositSignature: "deposit-sig-2",
+      lastHoldingEventId: BigInt(44),
+      lastRebalanceDecisionId: null,
+      policyAccount: "policy-account-1",
+      policyId: BigInt(7),
+      policySeed: BigInt(1),
+      principalAmountRaw: BigInt(1250000),
+      settings: "settings-1",
+      smartAccountAddress: "smart-account-1",
+      status: "active",
+      updatedAt: new Date("2026-06-01T00:01:00.000Z"),
+      vaultIndex: 1,
+      vaultPubkey: "vault-1",
+      walletAddress: "wallet-1",
+    }));
     getCurrentReserveUpdatesByReserve.mockImplementation(async () => [
       {
         reserve: canonicalMainnetTargetReserve,
@@ -125,44 +132,34 @@ describe("smart-account active yield position route", () => {
     expect(response.status).toBe(200);
     expect(findActiveYieldPosition).toHaveBeenCalledWith({
       cluster: "devnet",
+      initialReserve: canonicalTargetReserve,
       settings: "settings-1",
-      targetReserve: canonicalTargetReserve,
       vaultIndex: 1,
       walletAddress: "wallet-1",
     });
     expect(getCurrentReserveUpdatesByReserve).toHaveBeenCalledWith({
       reserves: [canonicalMainnetTargetReserve],
     });
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       position: {
-        cluster: "devnet",
-        createdAt: "2026-06-01T00:00:00.000Z",
+        currentHolding: {
+          amountRaw: "1250000",
+          provenance: {
+            lastHoldingEventId: "44",
+            lastRebalanceDecisionId: null,
+          },
+        },
         currentSupplyApyBps: "1048",
-        depositMint: canonicalDevnetUsdcMint,
         display: {
           label: "Main Market · USDC",
-          marketName: "Main Market",
           mintSymbol: "USDC",
         },
-        firstDepositSignature: "deposit-sig-1",
-        id: "1",
-        lastConfirmedSlot: "123",
-        lastDepositSignature: "deposit-sig-2",
-        liquidityMint: canonicalDevnetUsdcMint,
-        market: canonicalDevnetMainMarket,
-        policyAccount: "policy-account-1",
-        policyId: "7",
-        policySeed: "1",
+        initialHolding: {
+          reserve: canonicalTargetReserve,
+          supplyApyBps: "846",
+        },
         principalAmountRaw: "1250000",
-        settings: "settings-1",
-        smartAccountAddress: "smart-account-1",
         status: "active",
-        targetReserve: canonicalTargetReserve,
-        targetSupplyApyBps: "846",
-        updatedAt: "2026-06-01T00:01:00.000Z",
-        vaultIndex: 1,
-        vaultPubkey: "vault-1",
-        walletAddress: "wallet-1",
       },
     });
   });
@@ -179,8 +176,8 @@ describe("smart-account active yield position route", () => {
     expect(response.status).toBe(200);
     expect(findActiveYieldPosition).toHaveBeenCalledWith({
       cluster: "mainnet-beta",
+      initialReserve: canonicalMainnetTargetReserve,
       settings: "settings-1",
-      targetReserve: canonicalMainnetTargetReserve,
       vaultIndex: 1,
       walletAddress: "wallet-1",
     });
@@ -198,7 +195,7 @@ describe("smart-account active yield position route", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.position.currentSupplyApyBps).toBeNull();
-    expect(payload.position.targetSupplyApyBps).toBe("846");
+    expect(payload.position.initialHolding.supplyApyBps).toBe("846");
   });
 
   test("returns null when no active earn position exists", async () => {

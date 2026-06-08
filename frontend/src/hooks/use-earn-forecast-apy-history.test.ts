@@ -68,9 +68,19 @@ describe("earn forecast APY history cache", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(fetchEarnForecastApyHistory()).resolves.toEqual(history);
-    await expect(fetchEarnForecastApyHistory()).resolves.toEqual(history);
+    const firstHistory = await fetchEarnForecastApyHistory();
+    const secondHistory = await fetchEarnForecastApyHistory();
 
+    expect(firstHistory.samples).toHaveLength(2);
+    expect(firstHistory.series?.map((series) => series.key)).toEqual([
+      "loyal",
+      "mainUsdcReserve",
+    ]);
+    expect(secondHistory).toBe(firstHistory);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/smart-accounts/earn-forecast/apy-history",
+      { cache: "no-store" }
+    );
   });
 });

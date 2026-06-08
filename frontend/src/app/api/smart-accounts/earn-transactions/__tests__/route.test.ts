@@ -1,5 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  createYieldDepositRepositoryMock,
+  findYieldPositionHistoryEvents,
+} from "@/test/yield-route-mocks";
+
 mock.module("server-only", () => ({}));
 
 const canonicalTargetReserve = "9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy";
@@ -14,40 +19,14 @@ const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   walletAddress: "wallet-1",
 }));
 
-const findYieldPositionHistoryEvents = mock(async () => [
-  {
-    amountRaw: BigInt(2_500_000),
-    confirmedAt: new Date("2026-06-02T09:30:00.000Z"),
-    confirmedSlot: BigInt(222),
-    id: BigInt(2),
-    signature: "withdraw-sig-2",
-    type: "withdrawal" as const,
-  },
-  {
-    amountRaw: BigInt(1),
-    confirmedAt: new Date("2026-06-02T09:29:00.000Z"),
-    confirmedSlot: BigInt(221),
-    id: BigInt(3),
-    signature: "dust-deposit-sig-3",
-    type: "deposit" as const,
-  },
-  {
-    amountRaw: BigInt(1_250_000),
-    confirmedAt: new Date("2026-06-01T18:05:00.000Z"),
-    confirmedSlot: BigInt(111),
-    id: BigInt(1),
-    signature: "deposit-sig-1",
-    type: "deposit" as const,
-  },
-]);
-
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
-mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findYieldPositionHistoryEvents,
-}));
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
 
 let GET: typeof import("../route").GET;
 
@@ -69,6 +48,32 @@ describe("smart-account earn transactions route", () => {
       subjectAddress: "wallet-1",
       walletAddress: "wallet-1",
     }));
+    findYieldPositionHistoryEvents.mockImplementation(async () => [
+      {
+        amountRaw: BigInt(2_500_000),
+        confirmedAt: new Date("2026-06-02T09:30:00.000Z"),
+        confirmedSlot: BigInt(222),
+        id: BigInt(2),
+        signature: "withdraw-sig-2",
+        type: "withdrawal" as const,
+      },
+      {
+        amountRaw: BigInt(1),
+        confirmedAt: new Date("2026-06-02T09:29:00.000Z"),
+        confirmedSlot: BigInt(221),
+        id: BigInt(3),
+        signature: "dust-deposit-sig-3",
+        type: "deposit" as const,
+      },
+      {
+        amountRaw: BigInt(1_250_000),
+        confirmedAt: new Date("2026-06-01T18:05:00.000Z"),
+        confirmedSlot: BigInt(111),
+        id: BigInt(1),
+        signature: "deposit-sig-1",
+        type: "deposit" as const,
+      },
+    ]);
   });
 
   test("returns 401 without an authenticated wallet session", async () => {
@@ -102,14 +107,14 @@ describe("smart-account earn transactions route", () => {
     expect(response.status).toBe(200);
     expect(findYieldPositionHistoryEvents).toHaveBeenCalledWith({
       cluster: "devnet",
+      initialReserve: canonicalTargetReserve,
       settings: "settings-1",
-      targetReserve: canonicalTargetReserve,
       vaultIndex: 1,
       walletAddress: "wallet-1",
     });
   });
 
-  test("serializes deposits and withdrawals in repository order", async () => {
+  test("returns serialized transactions in repository order", async () => {
     const response = await GET(
       new Request(
         "https://app.askloyal.com/api/smart-accounts/earn-transactions"
@@ -117,46 +122,22 @@ describe("smart-account earn transactions route", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      transactions: [
-        {
+    const body = await response.json();
+    expect(
+      body.transactions.map((transaction: { id: string }) => transaction.id)
+    ).toEqual(["withdraw-sig-2", "dust-deposit-sig-3", "deposit-sig-1"]);
+    expect(body.transactions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
           amount: "+2.5 USDC",
-          confirmedSlot: "222",
-          dateGroup: "June 2",
-          destination: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
-          id: "withdraw-sig-2",
           kind: "withdraw",
-          rawAmount: "2.500000 USDC",
-          signature: "withdraw-sig-2",
-          source: { icon: null, label: "Earn vault" },
-          timestamp: "9:30 AM",
-        },
-        {
+        }),
+        expect.objectContaining({
           amount: "-<0.01 USDC",
-          confirmedSlot: "221",
-          dateGroup: "June 2",
-          destination: { icon: null, label: "Earn vault" },
-          id: "dust-deposit-sig-3",
           kind: "deposit",
-          rawAmount: "0.000001 USDC",
-          signature: "dust-deposit-sig-3",
-          source: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
-          timestamp: "9:29 AM",
-        },
-        {
-          amount: "-1.25 USDC",
-          confirmedSlot: "111",
-          dateGroup: "June 1",
-          destination: { icon: null, label: "Earn vault" },
-          id: "deposit-sig-1",
-          kind: "deposit",
-          rawAmount: "1.250000 USDC",
-          signature: "deposit-sig-1",
-          source: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
-          timestamp: "6:05 PM",
-        },
-      ],
-    });
+        }),
+      ])
+    );
   });
 
   test("returns an empty transaction list", async () => {

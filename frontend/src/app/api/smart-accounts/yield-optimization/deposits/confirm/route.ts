@@ -174,7 +174,9 @@ function assertCanonicalField(
   label: string
 ) {
   if (actual !== expected) {
-    throw new Error(`${label} does not match the canonical earn deposit metadata.`);
+    throw new Error(
+      `${label} does not match the canonical earn deposit metadata.`
+    );
   }
 }
 
@@ -238,7 +240,11 @@ function createCanonicalDepositInput(
     requestInput.policySeed,
     "policyId"
   );
-  assertCanonicalField(requestInput.policyId, canonicalInput.policyId, "policyId");
+  assertCanonicalField(
+    requestInput.policyId,
+    canonicalInput.policyId,
+    "policyId"
+  );
   assertCanonicalField(
     requestInput.policySeed,
     canonicalInput.policySeed,
@@ -274,7 +280,8 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } =
+    getFrontendSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -315,16 +322,28 @@ async function resolveConfirmedSignatureSlot(args: {
 
 function serializePosition(position: UserYieldPositionRecord) {
   return {
-    ...position,
-    createdAt: position.createdAt.toISOString(),
-    firstDepositSignature: position.firstDepositSignature,
+    currentHolding: {
+      amountRaw: position.currentAmountRaw.toString(),
+      liquidityMint: position.currentLiquidityMint,
+      market: position.currentMarket,
+      observedAt: position.currentObservedAt.toISOString(),
+      observedSlot: position.currentObservedSlot.toString(),
+      provenance: {
+        lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
+        lastRebalanceDecisionId:
+          position.lastRebalanceDecisionId?.toString() ?? null,
+      },
+      reserve: position.currentReserve,
+    },
     id: position.id.toString(),
-    lastConfirmedSlot: position.lastConfirmedSlot.toString(),
-    policyId: position.policyId.toString(),
-    policySeed: position.policySeed.toString(),
+    initialHolding: {
+      liquidityMint: position.initialLiquidityMint,
+      market: position.initialMarket,
+      reserve: position.initialReserve,
+      supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
+    },
     principalAmountRaw: position.principalAmountRaw.toString(),
-    targetSupplyApyBps: position.targetSupplyApyBps?.toString() ?? null,
-    updatedAt: position.updatedAt.toISOString(),
+    status: position.status,
   };
 }
 

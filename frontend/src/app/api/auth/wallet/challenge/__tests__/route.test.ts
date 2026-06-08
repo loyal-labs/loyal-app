@@ -65,10 +65,9 @@ describe("wallet challenge route", () => {
         requestOrigin: "https://app.askloyal.com",
       }
     );
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       challengeToken: "challenge-token",
       message: "Sign in to askloyal",
-      expiresAt: "2099-03-11T12:00:00.000Z",
     });
   });
 

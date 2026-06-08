@@ -288,16 +288,28 @@ async function resolveConfirmedSignatureSlot(args: {
 
 function serializePosition(position: UserYieldPositionRecord) {
   return {
-    ...position,
-    createdAt: position.createdAt.toISOString(),
-    firstDepositSignature: position.firstDepositSignature,
+    currentHolding: {
+      amountRaw: position.currentAmountRaw.toString(),
+      liquidityMint: position.currentLiquidityMint,
+      market: position.currentMarket,
+      observedAt: position.currentObservedAt.toISOString(),
+      observedSlot: position.currentObservedSlot.toString(),
+      provenance: {
+        lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
+        lastRebalanceDecisionId:
+          position.lastRebalanceDecisionId?.toString() ?? null,
+      },
+      reserve: position.currentReserve,
+    },
     id: position.id.toString(),
-    lastConfirmedSlot: position.lastConfirmedSlot.toString(),
-    policyId: position.policyId.toString(),
-    policySeed: position.policySeed.toString(),
+    initialHolding: {
+      liquidityMint: position.initialLiquidityMint,
+      market: position.initialMarket,
+      reserve: position.initialReserve,
+      supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
+    },
     principalAmountRaw: position.principalAmountRaw.toString(),
-    targetSupplyApyBps: position.targetSupplyApyBps?.toString() ?? null,
-    updatedAt: position.updatedAt.toISOString(),
+    status: position.status,
   };
 }
 

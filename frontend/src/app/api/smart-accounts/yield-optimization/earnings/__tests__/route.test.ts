@@ -1,5 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  closeTimescaleReserveClient as close,
+  createTimescaleReserveClientMock,
+  createYieldDepositRepositoryMock,
+  findYieldPositionEvents,
+  getReserveApyHistorySamples,
+} from "@/test/yield-route-mocks";
+
 mock.module("server-only", () => ({}));
 
 const canonicalTargetReserve = "9uKMtFU9UJ9DfbwzCReGENb31appi79KTEeDGdCnvMjy";
@@ -14,39 +22,19 @@ const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   walletAddress: "wallet-1",
 }));
 
-const findYieldPositionEvents = mock(async () => [
-  {
-    amountRaw: BigInt(100_000_000),
-    confirmedAt: new Date("2026-06-01T00:00:00.000Z"),
-    type: "deposit" as const,
-  },
-]);
-
-const getReserveApyHistorySamples = mock(async () => [
-  {
-    observedAt: new Date("2026-06-01T00:00:00.000Z"),
-    supplyApy: 0.1,
-  },
-]);
-const close = mock(async () => {});
-
-class MockTimescaleReserveClient {
-  getReserveApyHistorySamples = getReserveApyHistorySamples;
-  close = close;
-}
-
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
-mock.module("@/lib/kamino/timescale-reserve-client.server", () => ({
-  TimescaleReserveClient: MockTimescaleReserveClient,
-  getTimescaleReserveDatabaseUrl: () => process.env.TIMESCALEDB_URL ?? null,
-}));
+mock.module(
+  "@/lib/kamino/timescale-reserve-client.server",
+  createTimescaleReserveClientMock
+);
 
-mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findYieldPositionEvents,
-}));
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
 
 let GET: typeof import("../route").GET;
 
@@ -129,8 +117,8 @@ describe("smart-account Earn earnings route", () => {
     expect(response.status).toBe(200);
     expect(findYieldPositionEvents.mock.calls[0]?.[0]).toEqual({
       cluster: "devnet",
+      initialReserve: canonicalTargetReserve,
       settings: "settings-1",
-      targetReserve: canonicalTargetReserve,
       vaultIndex: 1,
       walletAddress: "wallet-1",
     });

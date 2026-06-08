@@ -12,6 +12,7 @@ const {
   managedVaults,
   routePolicies,
   userYieldPositionDeposits,
+  userYieldPositionHoldingEvents,
   userYieldPositionWithdrawals,
   userYieldPositions,
 } = await import("../yield-neon-client.server");
@@ -110,37 +111,68 @@ function collectPrimitiveValues(
 
 function createHistoryFakeClient() {
   const selectCalls: SelectCall[] = [];
+  const findFirst = mock(async () => position());
 
-  const depositRows = [
+  const holdingEventRows = [
     {
       amountRaw: BigInt(1_000_000),
       confirmedAt: new Date("2026-06-01T12:00:00.000Z"),
       confirmedSlot: BigInt(100),
+      eventType: "deposit_initialized",
       id: BigInt(1),
+      liquidityMint: "USDC-mint",
+      market: "Main",
+      reserve: "reserve-1",
       signature: "deposit-sig-1",
+      sourceDepositId: BigInt(1),
+      sourceRebalanceDecisionId: null,
+      sourceSnapshotId: null,
+      sourceWithdrawalId: null,
+    },
+    {
+      amountRaw: BigInt(500_000),
+      confirmedAt: new Date("2026-06-02T12:00:00.000Z"),
+      confirmedSlot: BigInt(200),
+      eventType: "withdrawal_partial",
+      id: BigInt(2),
+      liquidityMint: "USDC-mint",
+      market: "Main",
+      reserve: "reserve-1",
+      signature: "withdrawal-sig-2",
+      sourceDepositId: null,
+      sourceRebalanceDecisionId: null,
+      sourceSnapshotId: null,
+      sourceWithdrawalId: BigInt(2),
     },
     {
       amountRaw: BigInt(3_000_000),
       confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
       confirmedSlot: BigInt(300),
+      eventType: "deposit_top_up",
       id: BigInt(3),
+      liquidityMint: "USDC-mint",
+      market: "Main",
+      reserve: "reserve-1",
       signature: "deposit-sig-3",
-    },
-  ];
-  const withdrawalRows = [
-    {
-      amountRaw: BigInt(500_000),
-      confirmedAt: new Date("2026-06-02T12:00:00.000Z"),
-      confirmedSlot: BigInt(200),
-      id: BigInt(2),
-      signature: "withdrawal-sig-2",
+      sourceDepositId: BigInt(3),
+      sourceRebalanceDecisionId: null,
+      sourceSnapshotId: null,
+      sourceWithdrawalId: null,
     },
     {
       amountRaw: BigInt(250_000),
       confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
       confirmedSlot: BigInt(4),
+      eventType: "withdrawal_partial",
       id: BigInt(4),
+      liquidityMint: "USDC-mint",
+      market: "Main",
+      reserve: "reserve-1",
       signature: "aaa-withdrawal-sig-4",
+      sourceDepositId: null,
+      sourceRebalanceDecisionId: null,
+      sourceSnapshotId: null,
+      sourceWithdrawalId: BigInt(4),
     },
   ];
 
@@ -166,26 +198,30 @@ function createHistoryFakeClient() {
       if (!this.call.where) {
         throw new Error("history queries must include filters");
       }
-      if (this.call.table === userYieldPositionDeposits) {
-        return depositRows;
-      }
-      if (this.call.table === userYieldPositionWithdrawals) {
-        return withdrawalRows;
+      if (this.call.table === userYieldPositionHoldingEvents) {
+        return holdingEventRows;
       }
       return [];
+    }
+
+    then(resolve: (value: unknown) => void, reject: (error: unknown) => void) {
+      return this.execute().then(resolve, reject);
     }
   }
 
   const db = {
-    batch: mock(async (queries: SelectBuilder[]) =>
-      Promise.all(queries.map((query) => query.execute()))
-    ),
+    query: {
+      userYieldPositions: {
+        findFirst,
+      },
+    },
     select: mock((selection: unknown) => new SelectBuilder(selection)),
   };
 
   return {
     client: { db },
     db,
+    findFirst,
     selectCalls,
   };
 }
@@ -220,10 +256,20 @@ function position(overrides = {}) {
     depositMint: "USDC-mint",
     firstDepositSignature: "deposit-sig-1",
     id: BigInt(1),
+    currentAmountRaw: BigInt(1_000_000),
+    currentLiquidityMint: "USDC-mint",
+    currentMarket: "Main",
+    currentObservedAt: now,
+    currentObservedSlot: BigInt(123),
+    currentReserve: "reserve-1",
+    initialLiquidityMint: "USDC-mint",
+    initialMarket: "Main",
+    initialReserve: "reserve-1",
+    initialSupplyApyBps: BigInt(523),
     lastConfirmedSlot: BigInt(123),
     lastDepositSignature: "deposit-sig-1",
-    liquidityMint: "USDC-mint",
-    market: "Main",
+    lastHoldingEventId: BigInt(500),
+    lastRebalanceDecisionId: null,
     policyAccount: "policy-account-1",
     policyId: BigInt(42),
     policySeed: BigInt(7),
@@ -231,8 +277,6 @@ function position(overrides = {}) {
     settings: settings.toBase58(),
     smartAccountAddress: smartAccountAddress.toBase58(),
     status: "active" as const,
-    targetReserve: "reserve-1",
-    targetSupplyApyBps: BigInt(523),
     updatedAt: now,
     vaultIndex: 1,
     vaultPubkey: "11111111111111111111111111111115",
@@ -277,7 +321,7 @@ function createFakeClient(args: {
       return this;
     }
 
-    returning(_selection?: unknown) {
+    returning() {
       this.returnsSelection = true;
       return this;
     }
@@ -291,6 +335,74 @@ function createFakeClient(args: {
       }
       if (this.call.table === userYieldPositionWithdrawals) {
         return args.duplicateWithdrawal ? [] : [{ id: BigInt(100) }];
+      }
+      if (this.call.table === userYieldPositionHoldingEvents) {
+        return [
+          {
+            amountRaw:
+              (this.call.values?.amountRaw as bigint | undefined) ??
+              BigInt(1_000_000),
+            cluster:
+              (this.call.values?.cluster as string | undefined) ?? "devnet",
+            createdAt:
+              (this.call.values?.createdAt as Date | undefined) ??
+              new Date("2026-06-01T00:00:00.000Z"),
+            eventType:
+              (this.call.values?.eventType as string | undefined) ??
+              "deposit_initialized",
+            holdingDeltaRaw:
+              (this.call.values?.holdingDeltaRaw as
+                | bigint
+                | null
+                | undefined) ?? null,
+            id: BigInt(500),
+            liquidityMint:
+              (this.call.values?.liquidityMint as string | undefined) ??
+              "USDC-mint",
+            market:
+              (this.call.values?.market as string | null | undefined) ?? null,
+            observedAt:
+              (this.call.values?.observedAt as Date | undefined) ??
+              new Date("2026-06-01T00:00:00.000Z"),
+            observedSlot:
+              (this.call.values?.observedSlot as bigint | undefined) ??
+              BigInt(123),
+            positionId:
+              (this.call.values?.positionId as bigint | undefined) ?? BigInt(1),
+            principalDeltaRaw:
+              (this.call.values?.principalDeltaRaw as
+                | bigint
+                | null
+                | undefined) ?? null,
+            reserve:
+              (this.call.values?.reserve as string | undefined) ?? "reserve-1",
+            sourceDepositId:
+              (this.call.values?.sourceDepositId as
+                | bigint
+                | null
+                | undefined) ?? null,
+            sourceRebalanceDecisionId:
+              (this.call.values?.sourceRebalanceDecisionId as
+                | bigint
+                | null
+                | undefined) ?? null,
+            sourceSignature:
+              (this.call.values?.sourceSignature as
+                | string
+                | null
+                | undefined) ?? null,
+            sourceSnapshotId:
+              (this.call.values?.sourceSnapshotId as
+                | bigint
+                | null
+                | undefined) ?? null,
+            sourceWithdrawalId:
+              (this.call.values?.sourceWithdrawalId as
+                | bigint
+                | null
+                | undefined) ?? null,
+          },
+        ];
       }
       if (this.call.table === userYieldPositions && this.returnsSelection) {
         return [args.upsertedPosition ?? position()];
@@ -381,6 +493,10 @@ describe("recordConfirmedYieldDeposit", () => {
       managedVaults,
       userYieldPositionDeposits,
       userYieldPositions,
+      userYieldPositionHoldingEvents,
+    ]);
+    expect(fake.updateCalls.map((call) => call.table)).toEqual([
+      userYieldPositions,
     ]);
   });
 
@@ -411,11 +527,19 @@ describe("recordConfirmedYieldDeposit", () => {
       (call) => call.table === managedVaults
     );
 
-    expect(routePolicyCall?.values).toEqual(
-      createRoutePolicyValuesFromPlan(plan, depositInput, now)
-    );
+    expect(routePolicyCall?.values).toMatchObject({
+      active: true,
+      authority: walletAddress.toBase58(),
+      cluster: depositInput.cluster,
+      firstSeenAt: now,
+      lastSeenSignature: depositInput.policySignature,
+      lastSeenSlot: depositInput.confirmedSlot,
+      policyAccount: depositInput.policyAccount,
+      policySeed: depositInput.policySeed,
+      settings: depositInput.settings,
+      vaultIndex: depositInput.vaultIndex,
+    });
     expect(routePolicyCall?.values).not.toHaveProperty("id");
-    expect(routePolicyCall?.values?.authority).toBe(walletAddress.toBase58());
     expect(routePolicyCall?.values?.delegatedSigners).toEqual([
       walletAddress.toBase58(),
     ]);
@@ -567,6 +691,11 @@ describe("recordConfirmedYieldDeposit", () => {
       existingPosition: position({
         principalAmountRaw: BigInt(1_000_000),
       }),
+      updatedPosition: position({
+        lastConfirmedSlot: BigInt(130),
+        lastDepositSignature: "deposit-sig-2",
+        principalAmountRaw: BigInt(2_500_000),
+      }),
       upsertedPosition: position({
         lastConfirmedSlot: BigInt(130),
         lastDepositSignature: "deposit-sig-2",
@@ -593,6 +722,9 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(aggregateCall?.values?.principalAmountRaw).toBe(BigInt(1_500_000));
     expect(result.principalAmountRaw).toBe(BigInt(2_500_000));
     expect(result.lastDepositSignature).toBe("deposit-sig-2");
+    expect(fake.insertCalls.map((call) => call.table)).toContain(
+      userYieldPositionHoldingEvents
+    );
   });
 
   test("rejects top-up deposits without an active position", async () => {
@@ -603,7 +735,9 @@ describe("recordConfirmedYieldDeposit", () => {
         client: fake.client as never,
         now: () => new Date("2026-06-01T00:00:00.000Z"),
       })
-    ).rejects.toThrow("Top-up yield deposit requires an existing active position.");
+    ).rejects.toThrow(
+      "Top-up yield deposit requires an existing active position."
+    );
     expect(fake.insertCalls).toHaveLength(0);
   });
 
@@ -625,7 +759,9 @@ describe("recordConfirmedYieldDeposit", () => {
           now: () => new Date("2026-06-01T00:00:00.000Z"),
         }
       )
-    ).rejects.toThrow("Initial yield deposit cannot recreate an active Earn policy.");
+    ).rejects.toThrow(
+      "Initial yield deposit cannot recreate an active Earn policy."
+    );
     expect(fake.insertCalls).toHaveLength(0);
   });
 });
@@ -641,51 +777,44 @@ describe("findYieldPositionHistoryEvents", () => {
     const result = await findYieldPositionHistoryEvents(
       {
         cluster: "devnet",
+        initialReserve: "reserve-1",
         settings: settings.toBase58(),
-        targetReserve: "reserve-1",
         vaultIndex: 1,
         walletAddress: walletAddress.toBase58(),
       },
       { client: fake.client as never }
     );
 
-    expect(result).toEqual([
+    expect(
+      result.map((event) => ({
+        amountRaw: event.amountRaw,
+        signature: event.signature,
+        type: event.type,
+      }))
+    ).toEqual([
       {
         amountRaw: BigInt(250_000),
-        confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
-        confirmedSlot: BigInt(4),
-        id: BigInt(4),
         signature: "aaa-withdrawal-sig-4",
         type: "withdrawal",
       },
       {
         amountRaw: BigInt(3_000_000),
-        confirmedAt: new Date("2026-06-03T12:00:00.000Z"),
-        confirmedSlot: BigInt(300),
-        id: BigInt(3),
         signature: "deposit-sig-3",
         type: "deposit",
       },
       {
         amountRaw: BigInt(500_000),
-        confirmedAt: new Date("2026-06-02T12:00:00.000Z"),
-        confirmedSlot: BigInt(200),
-        id: BigInt(2),
         signature: "withdrawal-sig-2",
         type: "withdrawal",
       },
       {
         amountRaw: BigInt(1_000_000),
-        confirmedAt: new Date("2026-06-01T12:00:00.000Z"),
-        confirmedSlot: BigInt(100),
-        id: BigInt(1),
         signature: "deposit-sig-1",
         type: "deposit",
       },
     ]);
     expect(fake.selectCalls.map((call) => call.table)).toEqual([
-      userYieldPositionDeposits,
-      userYieldPositionWithdrawals,
+      userYieldPositionHoldingEvents,
     ]);
   });
 
@@ -695,22 +824,28 @@ describe("findYieldPositionHistoryEvents", () => {
     await findYieldPositionHistoryEvents(
       {
         cluster: "devnet",
+        initialReserve: "reserve-1",
         settings: settings.toBase58(),
-        targetReserve: "reserve-1",
         vaultIndex: 1,
         walletAddress: walletAddress.toBase58(),
       },
       { client: fake.client as never }
     );
 
-    expect(fake.selectCalls).toHaveLength(2);
+    expect(fake.findFirst).toHaveBeenCalledTimes(1);
+    const findFirstValues = collectPrimitiveValues(
+      fake.findFirst.mock.calls[0]
+    );
+    expect(findFirstValues).toContain("devnet");
+    expect(findFirstValues).toContain(settings.toBase58());
+    expect(findFirstValues).toContain("reserve-1");
+    expect(findFirstValues).toContain(1);
+    expect(findFirstValues).toContain(walletAddress.toBase58());
+    expect(fake.selectCalls).toHaveLength(1);
     for (const call of fake.selectCalls) {
       const values = collectPrimitiveValues(call.where);
       expect(values).toContain("devnet");
-      expect(values).toContain(settings.toBase58());
-      expect(values).toContain("reserve-1");
-      expect(values).toContain(1);
-      expect(values).toContain(walletAddress.toBase58());
+      expect(values).toContain(BigInt(1));
       expect(values).not.toContain("active");
       expect(values).not.toContain("closed");
     }
@@ -739,6 +874,7 @@ describe("recordConfirmedYieldWithdrawal", () => {
     expect(result.principalAmountRaw).toBe(BigInt(750_000));
     expect(fake.insertCalls.map((call) => call.table)).toEqual([
       userYieldPositionWithdrawals,
+      userYieldPositionHoldingEvents,
     ]);
     expect(fake.updateCalls.map((call) => call.table)).toEqual([
       userYieldPositions,

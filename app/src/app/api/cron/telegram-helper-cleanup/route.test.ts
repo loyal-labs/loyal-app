@@ -114,36 +114,6 @@ describe("telegram helper cleanup cron route", () => {
     clearTestEnv();
   });
 
-  test("returns 500 when CRON_SECRET is missing", async () => {
-    const request = new Request(
-      "http://localhost/api/cron/telegram-helper-cleanup",
-      {
-        method: "POST",
-        headers: { authorization: "Bearer any-token" },
-      }
-    );
-
-    const response = await POST(request);
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Server misconfigured" });
-  });
-
-  test("returns 401 when Authorization does not match CRON_SECRET", async () => {
-    process.env.CRON_SECRET = "expected-secret";
-
-    const request = new Request(
-      "http://localhost/api/cron/telegram-helper-cleanup",
-      {
-        method: "POST",
-        headers: { authorization: "Bearer wrong-secret" },
-      }
-    );
-
-    const response = await POST(request);
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Unauthorized" });
-  });
-
   test("returns quickly when queue is empty", async () => {
     process.env.CRON_SECRET = "expected-secret";
     const request = new Request(

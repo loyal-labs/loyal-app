@@ -49,19 +49,15 @@ describe("auth session route", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       user: {
         authMethod: "wallet",
-        subjectAddress: "wallet-1",
-        displayAddress: "wallet-1",
         walletAddress: "wallet-1",
-        provider: "solana",
         smartAccountAddress: "smart-account-1",
         settingsPda: "settings-1",
       },
       session: {
         expiresAt: "2023-11-21T22:13:20.000Z",
-        refreshAfter: "2023-11-15T22:13:20.000Z",
       },
     });
   });

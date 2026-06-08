@@ -14,6 +14,11 @@ import {
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { Connection, PublicKey } from "@solana/web3.js";
 
+import {
+  createYieldDepositRepositoryMock,
+  recordConfirmedYieldWithdrawal,
+} from "@/test/yield-route-mocks";
+
 mock.module("server-only", () => ({}));
 
 const settings = new PublicKey("11111111111111111111111111111112");
@@ -56,38 +61,14 @@ const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
   walletAddress: walletAddress.toBase58(),
 }));
 
-const recordConfirmedYieldWithdrawal = mock(async () => ({
-  cluster: "devnet",
-  createdAt: new Date("2026-06-01T00:00:00.000Z"),
-  depositMint: "USDC-mint",
-  firstDepositSignature: "deposit-sig-1",
-  id: BigInt(1),
-  lastConfirmedSlot: BigInt(123),
-  lastDepositSignature: "deposit-sig-1",
-  liquidityMint: earnTarget.liquidityMint.toBase58(),
-  market: earnTarget.market.toBase58(),
-  policyAccount: policyAccountForSeed(2),
-  policyId: BigInt(2),
-  policySeed: BigInt(2),
-  principalAmountRaw: BigInt(750_000),
-  settings: settings.toBase58(),
-  smartAccountAddress: smartAccountAddress.toBase58(),
-  status: "active" as const,
-  targetReserve: earnTarget.reserve.toBase58(),
-  targetSupplyApyBps: BigInt(523),
-  updatedAt: new Date("2026-06-01T00:00:00.000Z"),
-  vaultIndex: 1,
-  vaultPubkey: vaultPubkey.toBase58(),
-  walletAddress: walletAddress.toBase58(),
-}));
-
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
-mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  recordConfirmedYieldWithdrawal,
-}));
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
 
 mock.module("@/lib/solana/rpc-endpoints", () => ({
   getFrontendSolanaEndpoints: () => ({
@@ -173,6 +154,37 @@ describe("yield optimization withdrawal confirm route", () => {
       subjectAddress: walletAddress.toBase58(),
       walletAddress: walletAddress.toBase58(),
     }));
+    recordConfirmedYieldWithdrawal.mockImplementation(async () => ({
+      cluster: "devnet",
+      createdAt: new Date("2026-06-01T00:00:00.000Z"),
+      firstDepositSignature: "deposit-sig-1",
+      currentAmountRaw: BigInt(750_000),
+      currentLiquidityMint: earnTarget.liquidityMint.toBase58(),
+      currentMarket: earnTarget.market.toBase58(),
+      currentObservedAt: new Date("2026-06-01T00:00:00.000Z"),
+      currentObservedSlot: BigInt(123),
+      currentReserve: earnTarget.reserve.toBase58(),
+      id: BigInt(1),
+      initialLiquidityMint: earnTarget.liquidityMint.toBase58(),
+      initialMarket: earnTarget.market.toBase58(),
+      initialReserve: earnTarget.reserve.toBase58(),
+      initialSupplyApyBps: BigInt(523),
+      lastConfirmedSlot: BigInt(123),
+      lastDepositSignature: "deposit-sig-1",
+      lastHoldingEventId: BigInt(100),
+      lastRebalanceDecisionId: null,
+      policyAccount: policyAccountForSeed(2),
+      policyId: BigInt(2),
+      policySeed: BigInt(2),
+      principalAmountRaw: BigInt(750_000),
+      settings: settings.toBase58(),
+      smartAccountAddress: smartAccountAddress.toBase58(),
+      status: "active" as const,
+      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+      vaultIndex: 1,
+      vaultPubkey: vaultPubkey.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    }));
   });
 
   test("returns 401 without an authenticated wallet session", async () => {
@@ -229,12 +241,19 @@ describe("yield optimization withdrawal confirm route", () => {
     });
     await expect(response.json()).resolves.toMatchObject({
       position: {
+        currentHolding: {
+          amountRaw: "750000",
+          provenance: {
+            lastHoldingEventId: "100",
+            lastRebalanceDecisionId: null,
+          },
+        },
         id: "1",
-        lastConfirmedSlot: "123",
-        policyId: "2",
-        policySeed: "2",
+        initialHolding: {
+          supplyApyBps: "523",
+        },
         principalAmountRaw: "750000",
-        targetSupplyApyBps: "523",
+        status: "active",
       },
     });
   });

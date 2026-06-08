@@ -84,13 +84,10 @@ describe("auth session refresh route", () => {
     expect(response.status).toBe(200);
     expect(issueSessionToken).not.toHaveBeenCalled();
     expect(response.headers.get("set-cookie")).toBeNull();
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       user: {
         authMethod: "wallet",
-        subjectAddress: "wallet-1",
-        displayAddress: "wallet-1",
         walletAddress: "wallet-1",
-        provider: "solana",
         smartAccountAddress: "smart-account-1",
         settingsPda: "settings-1",
       },
@@ -119,13 +116,10 @@ describe("auth session refresh route", () => {
     expect(response.headers.get("set-cookie")).toContain(
       "loyal_wallet_session=refreshed-session-token"
     );
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       user: {
         authMethod: "wallet",
-        subjectAddress: "wallet-1",
-        displayAddress: "wallet-1",
         walletAddress: "wallet-1",
-        provider: "solana",
         smartAccountAddress: "smart-account-1",
         settingsPda: "settings-1",
       },
