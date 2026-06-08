@@ -17,7 +17,9 @@ import {
   Repeat2,
   Settings,
   Shield as ShieldIcon,
+  SlidersHorizontal,
   Sparkles,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
@@ -108,7 +110,7 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { trackWalletShieldPressed } from "@/lib/core/analytics";
-import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
+import { formatEarnApyPercent } from "@/lib/kamino/earn-forecast.shared";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { AddSignerPane } from "./add-signer-pane";
@@ -682,52 +684,73 @@ function WalletRail({
   );
 }
 
+function SignInValueRow({
+  desc,
+  icon,
+  title,
+}: {
+  desc: string;
+  icon: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="wallet-signin-value">
+      <span aria-hidden="true" className="wallet-signin-value-icon">
+        {icon}
+      </span>
+      <div className="wallet-signin-value-copy">
+        <strong>{title}</strong>
+        <small>{desc}</small>
+      </div>
+    </div>
+  );
+}
+
 function SignedOutDetailPane() {
   return (
-    <div className="wallet-workspace-auth-detail">
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 440,
-          borderRadius: 28,
-          border: "1px solid rgba(0, 0, 0, 0.08)",
-          background: "#fff",
-          padding: 24,
-          boxShadow: "0 16px 48px rgba(0, 0, 0, 0.08)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-            marginBottom: 20,
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 28,
-              fontWeight: 600,
-              lineHeight: "32px",
-              letterSpacing: "-0.3px",
-              color: "#0a0a0a",
-            }}
-          >
-            Sign In
-          </h2>
-          <p
-            style={{
-              margin: 0,
-              fontSize: 14,
-              lineHeight: "20px",
-              color: "rgba(60, 60, 67, 0.6)",
-            }}
-          >
-            Choose your preferred sign-in method.
+    <div className="wallet-signin-screen">
+      <div className="wallet-signin-card">
+        <div className="wallet-signin-brand">
+          <div aria-hidden="true" className="wallet-signin-mascot">
+            <DogWithMood />
+          </div>
+          <div className="wallet-signin-headline">
+            <h2>Put your money on autopilot</h2>
+            <p>
+              Open a self-custodial smart account in seconds — it earns,
+              shields, and runs on your rules.
+            </p>
+          </div>
+          <div className="wallet-signin-values">
+            <SignInValueRow
+              desc="Yield on SOL, USDC and USDT without locking up funds"
+              icon={<TrendingUp size={18} strokeWidth={1.9} />}
+              title="Earn in the background"
+            />
+            <SignInValueRow
+              desc="Shielded balances and secure transactions"
+              icon={<ShieldIcon size={18} strokeWidth={1.9} />}
+              title="Private by default"
+            />
+            <SignInValueRow
+              desc="Granular permissions for every agent"
+              icon={<SlidersHorizontal size={18} strokeWidth={1.9} />}
+              title="You set the rules"
+            />
+          </div>
+        </div>
+
+        <div className="wallet-signin-form">
+          <div className="wallet-signin-form-head">
+            <h3>Sign in</h3>
+            <p>Connect your Solana wallet to continue.</p>
+          </div>
+          <WalletSignIn />
+          <p className="wallet-signin-form-foot">
+            <KeyRound size={13} strokeWidth={1.9} />
+            Self-custodial — your keys never leave your device.
           </p>
         </div>
-        <WalletSignIn />
       </div>
     </div>
   );
@@ -872,7 +895,7 @@ export function AppWalletWorkspace({
   const activeEarnPositionApyBps = activeEarnPosition?.currentSupplyApyBps;
   const activeEarnPositionApyLabel =
     activeEarnPositionApyBps !== null && activeEarnPositionApyBps !== undefined
-      ? formatEarnApyLabel(Number(activeEarnPositionApyBps))
+      ? `${formatEarnApyPercent(Number(activeEarnPositionApyBps))} 30d APY`
       : undefined;
   const signInOpenedForConnectRef = useRef(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
@@ -4922,6 +4945,200 @@ export function AppWalletWorkspace({
           display: flex;
           align-items: center;
           justify-content: center;
+        }
+
+        .wallet-signin-screen {
+          display: flex;
+          height: 100%;
+          min-height: 0;
+          align-items: center;
+          justify-content: center;
+          padding: 44px;
+          overflow-y: auto;
+        }
+
+        .wallet-signin-card {
+          display: grid;
+          grid-template-columns: 1.05fr 0.95fr;
+          width: 100%;
+          max-width: 880px;
+          overflow: hidden;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          border-radius: 32px;
+          background: #fff;
+          box-shadow:
+            0 1px 4px rgba(0, 0, 0, 0.04),
+            0 8px 24px rgba(0, 0, 0, 0.08);
+        }
+
+        .wallet-signin-brand {
+          display: flex;
+          flex-direction: column;
+          gap: 26px;
+          padding: 44px;
+          border-right: 1px solid rgba(0, 0, 0, 0.07);
+          background: #f7f7f8;
+        }
+
+        .wallet-signin-mascot {
+          width: 124px;
+          margin-left: -6px;
+        }
+
+        .wallet-signin-mascot svg {
+          width: 124px;
+          height: auto;
+        }
+
+        .wallet-signin-headline {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .wallet-signin-headline h2 {
+          margin: 0;
+          color: #0a0a0a;
+          font-size: 32px;
+          font-weight: 600;
+          line-height: 34px;
+          letter-spacing: -0.4px;
+        }
+
+        .wallet-signin-headline p {
+          margin: 0;
+          max-width: 320px;
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 15px;
+          line-height: 21px;
+        }
+
+        .wallet-signin-values {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          margin-top: 2px;
+        }
+
+        .wallet-signin-value {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+        }
+
+        .wallet-signin-value-icon {
+          display: inline-flex;
+          width: 38px;
+          height: 38px;
+          flex: 0 0 auto;
+          align-items: center;
+          justify-content: center;
+          border-radius: 11px;
+          background: rgba(249, 54, 60, 0.1);
+          color: #f9363c;
+        }
+
+        .wallet-signin-value-copy {
+          display: flex;
+          min-width: 0;
+          flex-direction: column;
+          gap: 2px;
+          padding-top: 1px;
+        }
+
+        .wallet-signin-value-copy strong {
+          color: #0a0a0a;
+          font-size: 14px;
+          font-weight: 500;
+          line-height: 18px;
+        }
+
+        .wallet-signin-value-copy small {
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 13px;
+          line-height: 17px;
+        }
+
+        .wallet-signin-form {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 22px;
+          padding: 44px;
+          background: #fff;
+        }
+
+        .wallet-signin-form-head {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .wallet-signin-form-head h3 {
+          margin: 0;
+          color: #0a0a0a;
+          font-size: 22px;
+          font-weight: 600;
+          line-height: 28px;
+          letter-spacing: -0.2px;
+        }
+
+        .wallet-signin-form-head p {
+          margin: 0;
+          color: rgba(60, 60, 67, 0.6);
+          font-size: 14px;
+          line-height: 20px;
+        }
+
+        .wallet-signin-form-foot {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          margin: 0;
+          color: rgba(60, 60, 67, 0.45);
+          font-size: 12px;
+          line-height: 16px;
+        }
+
+        .wallet-signin-form-foot svg {
+          flex: 0 0 auto;
+          color: rgba(60, 60, 67, 0.4);
+        }
+
+        @media (max-width: 860px) {
+          .wallet-signin-screen {
+            align-items: flex-start;
+            padding: 36px 24px;
+          }
+
+          .wallet-signin-card {
+            max-width: 440px;
+            grid-template-columns: 1fr;
+          }
+
+          .wallet-signin-brand {
+            gap: 18px;
+            padding: 28px;
+            border-right: 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+          }
+
+          .wallet-signin-mascot {
+            width: 104px;
+          }
+
+          .wallet-signin-mascot svg {
+            width: 104px;
+          }
+
+          .wallet-signin-headline h2 {
+            font-size: 27px;
+            line-height: 29px;
+          }
+
+          .wallet-signin-form {
+            padding: 28px;
+          }
         }
 
         .wallet-workspace-auth-cta {

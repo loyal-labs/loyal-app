@@ -685,7 +685,6 @@ function EarnGrowingBalance({
 
 const EARNINGS_CHART_HEIGHT = EARN_CHART_HEIGHT; // match the Forecast chart height
 const EARNINGS_MONTHLY_RANGE_ID = "1Y" satisfies EarningsRangeId;
-const EARNINGS_MONTHLY_RANGE_SUBTITLE = "Past 12 months";
 
 const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
 
@@ -898,14 +897,14 @@ const EARN_CHART_TABS: readonly {
 function EarningsBlock({
   apy,
   earningsData,
+  estimatedEarnedUsd,
   isBalanceHidden = false,
-  isLoadingEarnings,
   principalAmount,
 }: {
   apy: EarnForecastApy;
   earningsData: EarnEarningsResponse | null;
+  estimatedEarnedUsd: number;
   isBalanceHidden?: boolean;
-  isLoadingEarnings: boolean;
   principalAmount: number;
 }) {
   const [activeTab, setActiveTab] = useState<EarnChartTab>("Forecast");
@@ -941,13 +940,19 @@ function EarningsBlock({
     let running = 0;
     return bars.map((bar) => {
       running += Math.max(0, bar.earnedUsd);
+      // The current (last) period usually has no settled earnings yet, which
+      // would render an empty bar. Fall back to the live estimate so it always
+      // shows a real, non-zero bar.
+      const cumulativeUsd = bar.isCurrent
+        ? Math.max(running, estimatedEarnedUsd)
+        : running;
       return {
         ...bar,
-        cumulativeUsd: running,
+        cumulativeUsd,
         label: formatMonthlyEarningsBarLabel(bar.startAt),
       };
     });
-  }, [bars]);
+  }, [bars, estimatedEarnedUsd]);
   const maxValue = useMemo(() => {
     const peak = Math.max(...cumulativeBars.map((bar) => bar.cumulativeUsd), 0);
     return Math.max(0.01, peak);
@@ -962,35 +967,17 @@ function EarningsBlock({
           cumulativeBars[cumulativeBars.length - 1].label,
         ]
       : [];
-  const displayValue = hoveredBarEntry
-    ? hoveredBarEntry.cumulativeUsd
-    : earningsData?.lifetimeEarnedUsd ?? 0;
-  const displayFractionDigits = getEarningsFractionDigits(displayValue);
-  const rangeEarnedUsd = earningsData?.rangeEarnedUsd ?? 0;
-  const subtitleNode = useMemo(() => {
-    if (isLoadingEarnings && !earningsData) {
-      return <span style={{ color: secondary }}>Loading earnings</span>;
-    }
-    if (hoveredBarEntry) {
-      return (
-        <>
-          <span style={{ color: "#34C759" }}>
-            {formatSignedEarningsAmount(hoveredBarEntry.cumulativeUsd)}
-          </span>
-          <span style={{ color: secondary }}>
-            {" · "}
-            {hoveredBarEntry.label}
-          </span>
-        </>
-      );
-    }
-    return (
-      <span style={{ color: "#34C759" }}>
-        {formatSignedEarningsAmount(rangeEarnedUsd)}{" "}
-        {EARNINGS_MONTHLY_RANGE_SUBTITLE}
-      </span>
-    );
-  }, [earningsData, hoveredBarEntry, isLoadingEarnings, rangeEarnedUsd]);
+  const hoveredFractionDigits = hoveredBarEntry
+    ? getEarningsFractionDigits(hoveredBarEntry.cumulativeUsd)
+    : 2;
+  // Anchor the hover card to the bar's center and shift it by the same fraction
+  // of its own width, so it tracks the bar across the full range and never
+  // overflows the chart edges (left-aligned near the start, right-aligned near
+  // the end) instead of clamping halfway.
+  const hoverFraction =
+    hoveredBar !== null && cumulativeBars.length > 0
+      ? (hoveredBar + 0.5) / cumulativeBars.length
+      : 0;
 
   return (
     <section
@@ -1020,56 +1007,32 @@ function EarningsBlock({
           align-items: flex-end;
           background: transparent;
           border: none;
+          border-radius: 6px;
           cursor: pointer;
           display: flex;
           flex: 1 0 0;
           height: 100%;
           min-width: 0;
           padding: 0;
+          transition: background 0.18s ease;
+        }
+        .earnings-bar:hover,
+        .earnings-bar-active {
+          background: rgba(0, 0, 0, 0.04);
         }
         .earnings-bar-fill {
-          background: rgba(0, 0, 0, 0.04);
+          background: #34c759;
           border: none;
           border-radius: 4px;
           display: block;
           transform-origin: center bottom;
           animation: earnings-bar-rise 0.55s cubic-bezier(0.2, 0, 0, 1) both;
           animation-delay: calc(var(--bar-index, 0) * 14ms);
-          transition: background 0.18s ease, border-color 0.18s ease;
+          transition: background 0.18s ease;
           width: 100%;
         }
-        .earnings-bar:hover .earnings-bar-fill,
-        .earnings-bar-active .earnings-bar-fill {
-          background: #34c759;
-        }
         .earnings-bar-zero .earnings-bar-fill {
-          background: #34c759;
-        }
-        .earnings-bar-current-positive .earnings-bar-fill {
-          background: #34c759;
-        }
-        .earnings-bar-current .earnings-bar-fill {
-          background: rgba(52, 199, 89, 0.12);
-          border: 1px dashed #34c759;
-        }
-        .earnings-bar-zero.earnings-bar-current .earnings-bar-fill {
-          background: #34c759;
-          border: none;
-        }
-        .earnings-bar-current-positive .earnings-bar-fill {
-          border: none;
-        }
-        .earnings-bar-current:hover .earnings-bar-fill,
-        .earnings-bar-current.earnings-bar-active .earnings-bar-fill {
-          background: rgba(52, 199, 89, 0.22);
-        }
-        .earnings-bar-zero:hover .earnings-bar-fill,
-        .earnings-bar-zero.earnings-bar-active .earnings-bar-fill {
-          background: #34c759;
-        }
-        .earnings-bar-current-positive:hover .earnings-bar-fill,
-        .earnings-bar-current-positive.earnings-bar-active .earnings-bar-fill {
-          background: #34c759;
+          background: rgba(52, 199, 89, 0.32);
         }
         @keyframes earnings-bar-rise {
           from {
@@ -1081,13 +1044,25 @@ function EarningsBlock({
             opacity: 1;
           }
         }
+        .earnings-bar-tooltip {
+          animation: earnings-tooltip-fade 0.16s ease both;
+        }
+        @keyframes earnings-tooltip-fade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
         .earnings-tab-panel {
           transition: opacity 0.34s cubic-bezier(0.2, 0, 0, 1),
             transform 0.34s cubic-bezier(0.2, 0, 0, 1),
             filter 0.34s cubic-bezier(0.2, 0, 0, 1);
         }
         @media (prefers-reduced-motion: reduce) {
-          .earnings-bar-fill {
+          .earnings-bar-fill,
+          .earnings-bar-tooltip {
             animation: none;
           }
           .earnings-tab-panel {
@@ -1212,81 +1187,11 @@ function EarningsBlock({
             style={{
               display: "flex",
               flexDirection: "column",
-              padding: "2px 14px",
+              padding: "14px 14px 0",
               width: "100%",
             }}
           >
-            <div
-              style={{
-                alignItems: "flex-end",
-                display: "flex",
-                gap: "8px",
-                justifyContent: "space-between",
-                paddingBottom: "8px",
-                width: "100%",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                  flex: 1,
-                  flexDirection: "column",
-                  gap: "2px",
-                  minWidth: 0,
-                  transition: "filter 0.15s ease, color 0.15s ease",
-                  userSelect: isBalanceHidden ? "none" : "auto",
-                }}
-              >
-                <NumberFlow
-                  animated={hoveredBar === null}
-                  className="earnings-current-flow"
-                  format={{
-                    maximumFractionDigits: displayFractionDigits,
-                    minimumFractionDigits: displayFractionDigits,
-                    useGrouping: true,
-                  }}
-                  opacityTiming={{ duration: 280, easing: "ease-out" }}
-                  plugins={EARN_NUMBER_FLOW_PLUGINS}
-                  prefix="$"
-                  spinTiming={{
-                    duration: 900,
-                    easing: "cubic-bezier(0.2, 0, 0, 1)",
-                  }}
-                  transformTiming={{
-                    duration: 900,
-                    easing: "cubic-bezier(0.2, 0, 0, 1)",
-                  }}
-                  trend={1}
-                  value={Number(displayValue.toFixed(displayFractionDigits))}
-                />
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                  }}
-                >
-                  {subtitleNode}
-                </span>
-              </div>
-              <span
-                style={{
-                  color: isBalanceHidden ? "#BBBBC0" : secondary,
-                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                  flexShrink: 0,
-                  fontFamily: font,
-                  fontSize: "13px",
-                  lineHeight: "16px",
-                  paddingBottom: "2px",
-                  transition: "filter 0.15s ease, color 0.15s ease",
-                  userSelect: isBalanceHidden ? "none" : "auto",
-                }}
-              >
-                ${maxValue.toFixed(2)}
-              </span>
-            </div>
-
+            <div style={{ position: "relative", width: "100%" }}>
             <div
               key="earnings-bars-monthly"
               onMouseLeave={() => setHoveredBar(null)}
@@ -1317,11 +1222,7 @@ function EarningsBlock({
                     )}`}
                     className={`earnings-bar${
                       isActive ? " earnings-bar-active" : ""
-                    }${bar.isCurrent ? " earnings-bar-current" : ""}${
-                      isZeroValue ? " earnings-bar-zero" : ""
-                    }${
-                      isCurrentPositive ? " earnings-bar-current-positive" : ""
-                    }`}
+                    }${isZeroValue ? " earnings-bar-zero" : ""}`}
                     key={`${bar.startAt}:${bar.endAt}`}
                     onMouseEnter={() => setHoveredBar(i)}
                     style={{
@@ -1358,6 +1259,62 @@ function EarningsBlock({
                   No earnings yet
                 </div>
               ) : null}
+            </div>
+
+            {hoveredBarEntry ? (
+              <div
+                className="earnings-bar-tooltip"
+                style={{
+                  background: "#fff",
+                  border: "1px solid rgba(0, 0, 0, 0.08)",
+                  borderRadius: "14px",
+                  boxShadow: "0 8px 22px rgba(0, 0, 0, 0.12)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                  left: `clamp(100px, ${
+                    hoverFraction * 100
+                  }%, calc(100% - 100px))`,
+                  padding: "8px 12px",
+                  pointerEvents: "none",
+                  position: "absolute",
+                  top: "8px",
+                  transform: "translateX(-50%)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#BBBBC0" : "#000",
+                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                    fontFamily: font,
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    lineHeight: "24px",
+                  }}
+                >
+                  {`$${hoveredBarEntry.cumulativeUsd.toLocaleString("en-US", {
+                    maximumFractionDigits: hoveredFractionDigits,
+                    minimumFractionDigits: hoveredFractionDigits,
+                  })}`}
+                </span>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
+                  <span style={{ color: POSITIVE_AMOUNT_COLOR }}>
+                    {formatSignedEarningsAmount(hoveredBarEntry.cumulativeUsd)}
+                  </span>
+                  <span style={{ color: secondary }}>
+                    {" · "}
+                    {hoveredBarEntry.label}
+                  </span>
+                </span>
+              </div>
+            ) : null}
             </div>
           </div>
 
@@ -1706,11 +1663,7 @@ export function EarnDetailView({
   principalAmount?: number;
 }) {
   const earnForecastApy = useEarnForecastApy();
-  const {
-    data: earningsRangeSet,
-    error: earningsError,
-    isLoading: isLoadingEarnings,
-  } = useEarnEarnings({
+  const { data: earningsRangeSet, error: earningsError } = useEarnEarnings({
     cacheKey: earningsCacheKey,
     enabled: hasCurrentPosition,
     expectedPrincipalAmountRaw: earningsCacheScope?.expectedPrincipalAmountRaw,
@@ -1732,7 +1685,13 @@ export function EarnDetailView({
     generatedAt: earningsRangeSet?.generatedAt ?? null,
     principalAmount,
   });
-  const displayApyLabel = formatEarnApyLabel(estimatedEarnedAmountApyBps);
+  const estimatedEarnedUsd = Math.max(
+    0,
+    displayBalanceAmount - principalAmount
+  );
+  const displayApyLabel = `${formatEarnApyPercent(
+    estimatedEarnedAmountApyBps
+  )} 30d APY`;
 
   return (
     <div
@@ -1908,8 +1867,8 @@ export function EarnDetailView({
         <EarningsBlock
           apy={earnForecastApy}
           earningsData={earningsData}
+          estimatedEarnedUsd={estimatedEarnedUsd}
           isBalanceHidden={isBalanceHidden}
-          isLoadingEarnings={isLoadingEarnings}
           key={`${principalAmount}:${earnForecastApy.apyBps}`}
           principalAmount={principalAmount}
         />
