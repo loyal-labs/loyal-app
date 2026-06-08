@@ -92,6 +92,30 @@ EPHEMERAL_WS_ENDPOINT="ws://localhost:7800" \
 anchor test --provider.cluster localnet --skip-local-validator --skip-build --skip-deploy
 ```
 
+## Test Design Guardrails
+
+Prefer tests that protect behavior and invariants over tests that mirror
+implementation shape. Keep coverage for money movement, auth/session
+boundaries, confirmed-chain writes, generated SDK parity, public API contracts,
+webhook retry behavior, config parsing, and pure calculations.
+
+Route tests should assert status codes, branch discriminants, fields consumed by
+callers, and side effects. Do not snapshot full JSON response bodies unless the
+entire shape is a public contract.
+
+Repository tests should assert persistence rules, conflict/idempotency behavior,
+ownership boundaries, and state transitions. Do not assert every `.values()`
+field just because a column exists.
+
+Schema and column-name tests are allowed only for migrations, ownership
+boundaries, unique constraints, conflict behavior, or cross-database routing.
+User-visible copy tests are allowed only when the copy is a product or ops
+contract.
+
+Live RPC/devnet tests must be opt-in smoke tests with explicit environment
+requirements and no checked-in key material. They must not run in default
+`bun test` suites.
+
 ### Root Level
 
 ```bash

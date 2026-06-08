@@ -30,6 +30,12 @@ import {
 } from "../index";
 import type { TelegramVerification } from "../../../target/types/telegram_verification";
 
+const RUN_PRIVATE_TRANSACTIONS_DEVNET_SMOKE =
+    process.env.RUN_PRIVATE_TRANSACTIONS_DEVNET_SMOKE === "true";
+const describeIfEnabled = RUN_PRIVATE_TRANSACTIONS_DEVNET_SMOKE
+    ? describe
+    : describe.skip;
+
 const VALIDATION_BYTES: Uint8Array = new Uint8Array([
     56, 48, 54, 53, 49, 52, 48, 52, 57, 57, 58, 87, 101, 98, 65, 112, 112, 68,
     97, 116, 97, 10, 97, 117, 116, 104, 95, 100, 97, 116, 101, 61, 49, 55, 54,
@@ -150,26 +156,23 @@ const persistMint = async (mint: PublicKey) => {
     );
 };
 
-describe("private-transactions SDK (PER)", () => {
-    // 4WRGdAZ8LHmbPC3CfdCR8sspKhBATs9EZ8H83RYJQ8RG
-    const userKp = Keypair.fromSecretKey(
-        Uint8Array.from([
-            54, 229, 115, 67, 69, 71, 205, 239, 251, 81, 102, 40, 48, 237, 241,
-            66, 8, 22, 241, 216, 209, 140, 214, 111, 51, 58, 171, 169, 14, 90,
-            182, 255, 52, 28, 88, 128, 77, 91, 157, 211, 179, 122, 209, 150, 17,
-            24, 121, 242, 177, 212, 235, 216, 109, 5, 94, 31, 222, 100, 124,
-            166, 124, 52, 149, 131,
-        ]),
-    );
-    // 3cd5zjx8DAPDUciSrJtbrtniuNpDWhGLSKtk7xxCMCpP
-    const otherUserKp = Keypair.fromSecretKey(
-        Uint8Array.from([
-            112, 50, 255, 102, 148, 177, 8, 136, 48, 146, 49, 69, 16, 165, 113,
-            81, 123, 225, 207, 149, 216, 229, 105, 50, 249, 48, 232, 27, 165,
-            181, 239, 97, 38, 215, 129, 64, 75, 228, 54, 138, 179, 234, 24, 136,
-            233, 6, 252, 59, 233, 186, 135, 194, 87, 255, 97, 59, 189, 140, 157,
-            56, 221, 35, 43, 56,
-        ]),
+function loadDevnetSmokeKeypair(envName: string): Keypair {
+    const raw = process.env[envName];
+    if (!raw) {
+        throw new Error(`${envName} is required for the devnet smoke test.`);
+    }
+    const secret = JSON.parse(raw) as number[];
+    return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+describeIfEnabled("private-transactions SDK (PER)", () => {
+    if (!RUN_PRIVATE_TRANSACTIONS_DEVNET_SMOKE) {
+        return;
+    }
+
+    const userKp = loadDevnetSmokeKeypair("PRIVATE_TRANSACTIONS_DEVNET_USER_KEYPAIR");
+    const otherUserKp = loadDevnetSmokeKeypair(
+        "PRIVATE_TRANSACTIONS_DEVNET_OTHER_USER_KEYPAIR",
     );
     const user = userKp.publicKey;
     const otherUser = otherUserKp.publicKey;
