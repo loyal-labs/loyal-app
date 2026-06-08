@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildEarnTransactionDetail,
+  getEarnTransactionRowLabel,
   type EarnTransactionItem,
 } from "../earn-transactions-pane";
 
@@ -47,5 +48,48 @@ describe("buildEarnTransactionDetail", () => {
     expect(detail.activity.amount).toBe("+1.25 USDC");
     expect(detail.activity.type).toBe("received");
     expect(detail.activity.counterparty).toBe("Earn vault");
+  });
+
+  test("maps rebalances as movement details", () => {
+    const detail = buildEarnTransactionDetail(
+      transaction({
+        amount: "1.25 USDC",
+        destination: { icon: null, label: "Dest...1111" },
+        kind: "rebalance",
+        signature: "rebalance-signature-1",
+        source: { icon: null, label: "Src...2222" },
+      })
+    );
+
+    expect(detail.activity.id).toBe("rebalance-signature-1");
+    expect(detail.activity.amount).toBe("1.25 USDC");
+    expect(detail.activity.type).toBe("sent");
+    expect(detail.activity.counterparty).toBe("Moved Src...2222 -> Dest...1111");
+  });
+
+  test("maps reconciliations as movement details", () => {
+    const detail = buildEarnTransactionDetail(
+      transaction({
+        amount: "2 USDC",
+        destination: { icon: null, label: "Reserve B" },
+        kind: "reconciliation",
+        signature: "reconciliation-signature-1",
+        source: { icon: null, label: "Reserve A" },
+      })
+    );
+
+    expect(detail.activity.id).toBe("reconciliation-signature-1");
+    expect(detail.activity.amount).toBe("2 USDC");
+    expect(detail.activity.type).toBe("sent");
+    expect(detail.activity.counterparty).toBe("Moved Reserve A -> Reserve B");
+  });
+});
+
+describe("getEarnTransactionRowLabel", () => {
+  test("uses explicit row labels for every Earn transaction kind", () => {
+    expect(getEarnTransactionRowLabel("deposit")).toBe("Deposit");
+    expect(getEarnTransactionRowLabel("withdraw")).toBe("Withdraw");
+    expect(getEarnTransactionRowLabel("rebalance")).toBe("Moved");
+    expect(getEarnTransactionRowLabel("reconciliation")).toBe("Updated");
   });
 });

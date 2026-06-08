@@ -14,7 +14,7 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 
 export type EarnTransactionItem = {
   id: string;
-  kind: "deposit" | "withdraw";
+  kind: "deposit" | "withdraw" | "rebalance" | "reconciliation";
   dateGroup: string;
   timestamp: string;
   amount: string;
@@ -39,14 +39,35 @@ type EarnTransactionsRouteErrorResponse = {
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
 
+export function getEarnTransactionRowLabel(
+  kind: EarnTransactionItem["kind"]
+) {
+  switch (kind) {
+    case "deposit":
+      return "Deposit";
+    case "withdraw":
+      return "Withdraw";
+    case "rebalance":
+      return "Moved";
+    case "reconciliation":
+      return "Updated";
+  }
+}
+
 export function buildEarnTransactionDetail(
   item: EarnTransactionItem
 ): TransactionDetail {
   const isWithdraw = item.kind === "withdraw";
+  const isMovement =
+    item.kind === "rebalance" || item.kind === "reconciliation";
   const activity: ActivityRow = {
     id: item.signature,
     type: isWithdraw ? "received" : "sent",
-    counterparty: isWithdraw ? item.source.label : item.destination.label,
+    counterparty: isMovement
+      ? `Moved ${item.source.label} -> ${item.destination.label}`
+      : isWithdraw
+      ? item.source.label
+      : item.destination.label,
     amount: item.amount,
     timestamp: item.timestamp,
     date: item.dateGroup,
@@ -301,6 +322,7 @@ function EarnTransactionRow({
   onSelect: (item: EarnTransactionItem) => void;
 }) {
   const isWithdraw = item.kind === "withdraw";
+  const label = getEarnTransactionRowLabel(item.kind);
   return (
     <button
       className="earn-tx-row"
@@ -343,7 +365,7 @@ function EarnTransactionRow({
             lineHeight: "20px",
           }}
         >
-          {isWithdraw ? "Withdraw" : "Deposit"}
+          {label}
         </span>
         <span
           style={{
