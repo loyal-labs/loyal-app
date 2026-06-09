@@ -207,7 +207,6 @@ export function createRoutePolicyValuesFromPlan(
   return {
     active: true,
     authority: input.walletAddress,
-    cluster: input.cluster,
     delegatedSigners: [input.walletAddress],
     firstSeenAt: now,
     kaminoLiquidityMints: plan.persistence.kaminoLiquidityMints,
@@ -248,7 +247,6 @@ async function upsertAggregatePosition(args: {
   const [position] = await client.db
     .insert(userYieldPositions)
     .values({
-      cluster: input.cluster,
       createdAt: now,
       depositMint: input.depositMint,
       firstDepositSignature: input.depositSignature,
@@ -278,7 +276,6 @@ async function upsertAggregatePosition(args: {
     })
     .onConflictDoUpdate({
       target: [
-        userYieldPositions.cluster,
         userYieldPositions.settings,
         userYieldPositions.vaultIndex,
         userYieldPositions.initialReserve,
@@ -314,7 +311,6 @@ async function upsertAggregatePosition(args: {
 async function insertHoldingEvent(args: {
   client: YieldOptimizationClient;
   positionId: bigint;
-  cluster: string;
   eventType:
     | "deposit_initialized"
     | "deposit_top_up"
@@ -341,7 +337,6 @@ async function insertHoldingEvent(args: {
     .insert(userYieldPositionHoldingEvents)
     .values({
       amountRaw: args.amountRaw,
-      cluster: args.cluster,
       createdAt: args.createdAt,
       eventType: args.eventType,
       holdingDeltaRaw: args.holdingDeltaRaw,
@@ -433,7 +428,6 @@ export async function recordConfirmedYieldDeposit(
   const existingPosition =
     await dependencies.client.db.query.userYieldPositions.findFirst({
       where: and(
-        eq(userYieldPositions.cluster, input.cluster),
         eq(userYieldPositions.settings, input.settings),
         eq(userYieldPositions.vaultIndex, input.vaultIndex),
         eq(userYieldPositions.initialReserve, input.targetReserve)
@@ -474,7 +468,7 @@ export async function recordConfirmedYieldDeposit(
     .insert(routePolicies)
     .values(routePolicyValues)
     .onConflictDoUpdate({
-      target: [routePolicies.cluster, routePolicies.policyAccount],
+      target: [routePolicies.policyAccount],
       set: {
         active: true,
         authority: sql`excluded.authority`,
@@ -504,7 +498,6 @@ export async function recordConfirmedYieldDeposit(
   const managedVaultValues = {
     active: true,
     activePolicyId: routePolicy.id,
-    cluster: input.cluster,
     firstSeenAt: now,
     lastSeenAt: now,
     settings: input.settings,
@@ -512,7 +505,6 @@ export async function recordConfirmedYieldDeposit(
     vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
   };
   const depositValues = {
-    cluster: input.cluster,
     confirmedAt: now,
     confirmedSlot: input.confirmedSlot,
     createdAt: now,
@@ -540,7 +532,6 @@ export async function recordConfirmedYieldDeposit(
       .values(managedVaultValues)
       .onConflictDoUpdate({
         target: [
-          managedVaults.cluster,
           managedVaults.settings,
           managedVaults.vaultIndex,
           managedVaults.vaultPubkey,
@@ -555,10 +546,7 @@ export async function recordConfirmedYieldDeposit(
       .insert(userYieldPositionDeposits)
       .values(depositValues)
       .onConflictDoNothing({
-        target: [
-          userYieldPositionDeposits.cluster,
-          userYieldPositionDeposits.depositSignature,
-        ],
+        target: [userYieldPositionDeposits.depositSignature],
       })
       .returning({ id: userYieldPositionDeposits.id }),
   ]);
@@ -583,7 +571,6 @@ export async function recordConfirmedYieldDeposit(
     const event = await insertHoldingEvent({
       amountRaw: nextCurrentAmountRaw,
       client,
-      cluster: input.cluster,
       createdAt: now,
       eventType: existingPosition ? "deposit_top_up" : "deposit_initialized",
       holdingDeltaRaw: sameCurrentHolding ? input.principalAmountRaw : null,
@@ -631,7 +618,6 @@ export async function findActiveYieldPosition(
   const position =
     await dependencies.client.db.query.userYieldPositions.findFirst({
       where: and(
-        eq(userYieldPositions.cluster, input.cluster),
         eq(userYieldPositions.settings, input.settings),
         eq(userYieldPositions.initialReserve, input.initialReserve),
         eq(userYieldPositions.vaultIndex, input.vaultIndex),
@@ -653,7 +639,6 @@ export async function findActiveYieldRoutePolicy(input: {
   const policy = await client.db.query.routePolicies.findFirst({
     where: and(
       eq(routePolicies.authority, input.authority),
-      eq(routePolicies.cluster, input.cluster),
       eq(routePolicies.settings, input.settings),
       eq(routePolicies.vaultIndex, input.vaultIndex),
       eq(routePolicies.active, true)
@@ -671,14 +656,12 @@ export async function findYieldPositionEvents(
   }
 ): Promise<UserYieldPositionEventRecord[]> {
   const depositFilters = [
-    eq(userYieldPositionDeposits.cluster, input.cluster),
     eq(userYieldPositionDeposits.settings, input.settings),
     eq(userYieldPositionDeposits.targetReserve, input.initialReserve),
     eq(userYieldPositionDeposits.vaultIndex, input.vaultIndex),
     eq(userYieldPositionDeposits.walletAddress, input.walletAddress),
   ];
   const withdrawalFilters = [
-    eq(userYieldPositionWithdrawals.cluster, input.cluster),
     eq(userYieldPositionWithdrawals.settings, input.settings),
     eq(userYieldPositionWithdrawals.targetReserve, input.initialReserve),
     eq(userYieldPositionWithdrawals.vaultIndex, input.vaultIndex),
@@ -756,12 +739,7 @@ export async function findYieldPositionHistoryEvents(
       sourceWithdrawalId: userYieldPositionHoldingEvents.sourceWithdrawalId,
     })
     .from(userYieldPositionHoldingEvents)
-    .where(
-      and(
-        eq(userYieldPositionHoldingEvents.cluster, input.cluster),
-        eq(userYieldPositionHoldingEvents.positionId, position.id)
-      )
-    );
+    .where(and(eq(userYieldPositionHoldingEvents.positionId, position.id)));
 
   let previousReserve: string | null = position.initialReserve;
   const chronologicalEvents = [...events].sort((a, b) => {
@@ -851,7 +829,6 @@ export async function recordConfirmedYieldWithdrawal(
   const now = dependencies.now();
   const existingPosition = await client.db.query.userYieldPositions.findFirst({
     where: and(
-      eq(userYieldPositions.cluster, input.cluster),
       eq(userYieldPositions.settings, input.settings),
       eq(userYieldPositions.vaultIndex, input.vaultIndex),
       eq(userYieldPositions.initialReserve, input.targetReserve)
@@ -872,7 +849,6 @@ export async function recordConfirmedYieldWithdrawal(
   }
 
   const withdrawalValues = {
-    cluster: input.cluster,
     confirmedAt: now,
     confirmedSlot: input.confirmedSlot,
     createdAt: now,
@@ -899,10 +875,7 @@ export async function recordConfirmedYieldWithdrawal(
     .insert(userYieldPositionWithdrawals)
     .values(withdrawalValues)
     .onConflictDoNothing({
-      target: [
-        userYieldPositionWithdrawals.cluster,
-        userYieldPositionWithdrawals.withdrawalSignature,
-      ],
+      target: [userYieldPositionWithdrawals.withdrawalSignature],
     })
     .returning({ id: userYieldPositionWithdrawals.id });
 
@@ -918,7 +891,6 @@ export async function recordConfirmedYieldWithdrawal(
   const event = await insertHoldingEvent({
     amountRaw: nextHoldingAmountRaw,
     client,
-    cluster: input.cluster,
     createdAt: now,
     eventType: input.mode === "full" ? "withdrawal_full" : "withdrawal_partial",
     holdingDeltaRaw: -input.withdrawnAmountRaw,
@@ -957,7 +929,6 @@ export async function recordConfirmedYieldWithdrawal(
         })
         .where(
           and(
-            eq(routePolicies.cluster, input.cluster),
             eq(routePolicies.settings, input.settings),
             eq(routePolicies.vaultIndex, input.vaultIndex)
           )
@@ -967,7 +938,6 @@ export async function recordConfirmedYieldWithdrawal(
         .set({ active: false, lastSeenAt: now })
         .where(
           and(
-            eq(managedVaults.cluster, input.cluster),
             eq(managedVaults.settings, input.settings),
             eq(managedVaults.vaultIndex, input.vaultIndex)
           )
@@ -991,7 +961,6 @@ export async function recordConfirmedYieldRebalance(
   const event = await insertHoldingEvent({
     amountRaw: input.amountRaw,
     client: dependencies.client,
-    cluster: input.cluster,
     createdAt: now,
     eventType: "rebalance_confirmed",
     holdingDeltaRaw: null,
@@ -1024,7 +993,6 @@ export async function recordSnapshotReconciledYieldHolding(
   const event = await insertHoldingEvent({
     amountRaw: input.amountRaw,
     client: dependencies.client,
-    cluster: input.cluster,
     createdAt: now,
     eventType: "snapshot_reconciled",
     holdingDeltaRaw: null,
@@ -1136,7 +1104,6 @@ export async function verifyUserYieldPositions(
           .from(userYieldPositionDeposits)
           .where(
             and(
-              eq(userYieldPositionDeposits.cluster, position.cluster),
               eq(userYieldPositionDeposits.settings, position.settings),
               eq(userYieldPositionDeposits.vaultIndex, position.vaultIndex),
               eq(
@@ -1156,7 +1123,6 @@ export async function verifyUserYieldPositions(
           .from(userYieldPositionWithdrawals)
           .where(
             and(
-              eq(userYieldPositionWithdrawals.cluster, position.cluster),
               eq(userYieldPositionWithdrawals.settings, position.settings),
               eq(userYieldPositionWithdrawals.vaultIndex, position.vaultIndex),
               eq(
@@ -1174,7 +1140,6 @@ export async function verifyUserYieldPositions(
           .from(userYieldPositionHoldingEvents)
           .where(
             and(
-              eq(userYieldPositionHoldingEvents.cluster, position.cluster),
               eq(userYieldPositionHoldingEvents.positionId, position.id)
             )
           ),

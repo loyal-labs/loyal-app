@@ -1,6 +1,5 @@
 CREATE TABLE loyal_yield.earn_forecast_snapshots (
   id BIGSERIAL PRIMARY KEY,
-  cluster TEXT NOT NULL,
   strategy TEXT NOT NULL,
   risk_profile TEXT NOT NULL,
   fee_bps SMALLINT NOT NULL,
@@ -18,7 +17,6 @@ CREATE TABLE loyal_yield.earn_forecast_snapshots (
 
 CREATE UNIQUE INDEX earn_forecast_snapshots_latest_key_uidx
   ON loyal_yield.earn_forecast_snapshots (
-    cluster,
     strategy,
     risk_profile,
     fee_bps,
@@ -27,7 +25,6 @@ CREATE UNIQUE INDEX earn_forecast_snapshots_latest_key_uidx
 
 CREATE INDEX earn_forecast_snapshots_latest_lookup_idx
   ON loyal_yield.earn_forecast_snapshots (
-    cluster,
     strategy,
     risk_profile,
     fee_bps,

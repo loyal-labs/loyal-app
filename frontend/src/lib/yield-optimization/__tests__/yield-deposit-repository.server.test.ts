@@ -342,8 +342,6 @@ function createFakeClient(args: {
             amountRaw:
               (this.call.values?.amountRaw as bigint | undefined) ??
               BigInt(1_000_000),
-            cluster:
-              (this.call.values?.cluster as string | undefined) ?? "devnet",
             createdAt:
               (this.call.values?.createdAt as Date | undefined) ??
               new Date("2026-06-01T00:00:00.000Z"),
@@ -530,7 +528,6 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(routePolicyCall?.values).toMatchObject({
       active: true,
       authority: walletAddress.toBase58(),
-      cluster: depositInput.cluster,
       firstSeenAt: now,
       lastSeenSignature: depositInput.policySignature,
       lastSeenSlot: depositInput.confirmedSlot,
@@ -565,7 +562,6 @@ describe("recordConfirmedYieldDeposit", () => {
     expect(
       (managedVaultCall?.conflict as { target: unknown[] }).target
     ).toEqual([
-      managedVaults.cluster,
       managedVaults.settings,
       managedVaults.vaultIndex,
       managedVaults.vaultPubkey,
@@ -836,7 +832,6 @@ describe("findYieldPositionHistoryEvents", () => {
     const findFirstValues = collectPrimitiveValues(
       fake.findFirst.mock.calls[0]
     );
-    expect(findFirstValues).toContain("devnet");
     expect(findFirstValues).toContain(settings.toBase58());
     expect(findFirstValues).toContain("reserve-1");
     expect(findFirstValues).toContain(1);
@@ -844,7 +839,6 @@ describe("findYieldPositionHistoryEvents", () => {
     expect(fake.selectCalls).toHaveLength(1);
     for (const call of fake.selectCalls) {
       const values = collectPrimitiveValues(call.where);
-      expect(values).toContain("devnet");
       expect(values).toContain(BigInt(1));
       expect(values).not.toContain("active");
       expect(values).not.toContain("closed");

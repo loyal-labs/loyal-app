@@ -33,13 +33,13 @@ Typical rows include Telegram account state, community activity, stored messages
 
 ### Yield Neon
 
-Use Yield Neon for optimizer state that belongs to the `loyal_yield` schema. This database is shared with yield orchestration and should be accessed through server-only yield modules.
+Use Yield Neon for optimizer state that belongs to the `loyal_yield` schema. This database is shared with yield orchestration and should be accessed through server-only yield modules. Mainnet and devnet data live on separate long-lived Neon branches; each deployment points `NEON_DATABASE_URL` at the intended branch instead of filtering rows by a `cluster` column.
 
-The shared optimizer tables include `route_policies` for detected or app-confirmed policy metadata and `managed_vaults` for active vault metadata tied to a smart-account settings PDA. Snapshot tables such as `vault_position_snapshots`, `vault_position_snapshot_positions`, and `vault_reserve_positions_current` are optimizer read models. `rebalance_decisions` stores optimizer decisions and execution status. App-confirmed user Earn positions are represented by `user_yield_positions`, keyed by `cluster + settings + vault_index + target_reserve`; `user_yield_position_deposits`, keyed by `cluster + deposit_signature`; and `user_yield_position_withdrawals`, keyed by `cluster + withdrawal_signature`.
+The shared optimizer tables include `route_policies` for detected or app-confirmed policy metadata and `managed_vaults` for active vault metadata tied to a smart-account settings PDA. Snapshot tables such as `vault_position_snapshots`, `vault_position_snapshot_positions`, and `vault_reserve_positions_current` are optimizer read models. `rebalance_decisions` stores optimizer decisions and execution status. App-confirmed user Earn positions are represented by `user_yield_positions`, keyed by `settings + vault_index + initial_reserve`; `user_yield_position_deposits`, keyed by `deposit_signature`; and `user_yield_position_withdrawals`, keyed by `withdrawal_signature`.
 
 Confirmed yield deposits and withdrawals should be written only after the chain transaction is confirmed. The write flow should upsert policy and vault metadata, insert the immutable event idempotently, then update the aggregate position only when the event is new. Partial withdrawals decrement `principal_amount_raw`; full withdrawals close the aggregate position and mark the policy/vault inactive.
 
-The Loyal web Earn UI reads active position state through `GET /api/smart-accounts/yield-optimization/position`. That route resolves the configured Solana environment into `devnet` or `mainnet-beta`, then looks up the active `user_yield_positions` row for the authenticated wallet, smart-account settings PDA, vault index `1`, and canonical Kamino USDC reserve.
+The Loyal web Earn UI reads active position state through `GET /api/smart-accounts/yield-optimization/position`. That route resolves the configured Solana environment to choose chain-specific constants, then looks up the active `user_yield_positions` row in the deployment's Yield Neon branch for the authenticated wallet, smart-account settings PDA, vault index `1`, and canonical Kamino USDC reserve.
 
 ### Kamino Timescale
 

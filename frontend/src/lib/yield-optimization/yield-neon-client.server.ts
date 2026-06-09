@@ -54,7 +54,6 @@ export const routePolicies = loyalYieldSchema.table(
   "route_policies",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    cluster: text("cluster").notNull(),
     settings: text("settings").notNull(),
     authority: text("authority").notNull(),
     policySeed: bigint("policy_seed", { mode: "bigint" }).notNull(),
@@ -77,10 +76,7 @@ export const routePolicies = loyalYieldSchema.table(
     lastSeenSignature: text("last_seen_signature").notNull(),
   },
   (table) => [
-    uniqueIndex("route_policies_cluster_policy_account_uidx").on(
-      table.cluster,
-      table.policyAccount
-    ),
+    uniqueIndex("route_policies_policy_account_uidx").on(table.policyAccount),
   ]
 );
 
@@ -88,7 +84,6 @@ export const managedVaults = loyalYieldSchema.table(
   "managed_vaults",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    cluster: text("cluster").notNull(),
     settings: text("settings").notNull(),
     vaultIndex: smallint("vault_index").notNull(),
     vaultPubkey: text("vault_pubkey").notNull(),
@@ -98,8 +93,7 @@ export const managedVaults = loyalYieldSchema.table(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
   },
   (table) => [
-    uniqueIndex("managed_vaults_cluster_settings_index_uidx").on(
-      table.cluster,
+    uniqueIndex("managed_vaults_settings_index_uidx").on(
       table.settings,
       table.vaultIndex,
       table.vaultPubkey
@@ -128,7 +122,6 @@ export const userYieldPositions = loyalYieldSchema.table(
   "user_yield_positions",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    cluster: text("cluster").notNull(),
     walletAddress: text("wallet_address").notNull(),
     smartAccountAddress: text("smart_account_address").notNull(),
     settings: text("settings").notNull(),
@@ -174,7 +167,6 @@ export const userYieldPositions = loyalYieldSchema.table(
   },
   (table) => [
     uniqueIndex("user_yield_positions_target_uidx").on(
-      table.cluster,
       table.settings,
       table.vaultIndex,
       table.initialReserve
@@ -187,7 +179,6 @@ export const userYieldPositionHoldingEvents = loyalYieldSchema.table(
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
     positionId: bigint("position_id", { mode: "bigint" }).notNull(),
-    cluster: text("cluster").notNull(),
     eventType: userYieldHoldingEventType("event_type").notNull(),
     reserve: text("reserve").notNull(),
     market: text("market"),
@@ -212,7 +203,6 @@ export const userYieldPositionDeposits = loyalYieldSchema.table(
   "user_yield_position_deposits",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    cluster: text("cluster").notNull(),
     depositSignature: text("deposit_signature").notNull(),
     policySignature: text("policy_signature").notNull(),
     confirmedSlot: bigint("confirmed_slot", { mode: "bigint" }).notNull(),
@@ -239,7 +229,6 @@ export const userYieldPositionDeposits = loyalYieldSchema.table(
   },
   (table) => [
     uniqueIndex("user_yield_position_deposits_signature_uidx").on(
-      table.cluster,
       table.depositSignature
     ),
   ]
@@ -249,7 +238,6 @@ export const userYieldPositionWithdrawals = loyalYieldSchema.table(
   "user_yield_position_withdrawals",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    cluster: text("cluster").notNull(),
     withdrawalSignature: text("withdrawal_signature").notNull(),
     confirmedSlot: bigint("confirmed_slot", { mode: "bigint" }).notNull(),
     walletAddress: text("wallet_address").notNull(),
@@ -272,7 +260,6 @@ export const userYieldPositionWithdrawals = loyalYieldSchema.table(
   },
   (table) => [
     uniqueIndex("user_yield_position_withdrawals_signature_uidx").on(
-      table.cluster,
       table.withdrawalSignature
     ),
   ]
@@ -335,7 +322,6 @@ export const earnForecastSnapshots = loyalYieldSchema.table(
   "earn_forecast_snapshots",
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
-    cluster: text("cluster").notNull(),
     strategy: text("strategy").notNull(),
     riskProfile: text("risk_profile").notNull(),
     feeBps: smallint("fee_bps").notNull(),
@@ -355,7 +341,6 @@ export const earnForecastSnapshots = loyalYieldSchema.table(
   },
   (table) => [
     uniqueIndex("earn_forecast_snapshots_latest_key_uidx").on(
-      table.cluster,
       table.strategy,
       table.riskProfile,
       table.feeBps,

@@ -2,7 +2,6 @@ CREATE TYPE loyal_yield.yield_position_status AS ENUM ('active', 'closed');
 
 CREATE TABLE loyal_yield.user_yield_positions (
   id BIGSERIAL PRIMARY KEY,
-  cluster TEXT NOT NULL,
   wallet_address TEXT NOT NULL,
   smart_account_address TEXT NOT NULL,
   settings TEXT NOT NULL,
@@ -27,7 +26,6 @@ CREATE TABLE loyal_yield.user_yield_positions (
 
 CREATE UNIQUE INDEX user_yield_positions_target_uidx
   ON loyal_yield.user_yield_positions (
-    cluster,
     settings,
     vault_index,
     target_reserve
@@ -35,14 +33,12 @@ CREATE UNIQUE INDEX user_yield_positions_target_uidx
 
 CREATE INDEX user_yield_positions_wallet_idx
   ON loyal_yield.user_yield_positions (
-    cluster,
     wallet_address,
     status
   );
 
 CREATE TABLE loyal_yield.user_yield_position_deposits (
   id BIGSERIAL PRIMARY KEY,
-  cluster TEXT NOT NULL,
   deposit_signature TEXT NOT NULL,
   policy_signature TEXT NOT NULL,
   confirmed_slot BIGINT NOT NULL,
@@ -66,13 +62,11 @@ CREATE TABLE loyal_yield.user_yield_position_deposits (
 
 CREATE UNIQUE INDEX user_yield_position_deposits_signature_uidx
   ON loyal_yield.user_yield_position_deposits (
-    cluster,
     deposit_signature
   );
 
 CREATE INDEX user_yield_position_deposits_position_idx
   ON loyal_yield.user_yield_position_deposits (
-    cluster,
     settings,
     vault_index,
     target_reserve,
@@ -81,7 +75,6 @@ CREATE INDEX user_yield_position_deposits_position_idx
 
 CREATE TABLE loyal_yield.user_yield_position_withdrawals (
   id BIGSERIAL PRIMARY KEY,
-  cluster TEXT NOT NULL,
   withdrawal_signature TEXT NOT NULL,
   confirmed_slot BIGINT NOT NULL,
   wallet_address TEXT NOT NULL,
@@ -103,13 +96,11 @@ CREATE TABLE loyal_yield.user_yield_position_withdrawals (
 
 CREATE UNIQUE INDEX user_yield_position_withdrawals_signature_uidx
   ON loyal_yield.user_yield_position_withdrawals (
-    cluster,
     withdrawal_signature
   );
 
 CREATE INDEX user_yield_position_withdrawals_position_idx
   ON loyal_yield.user_yield_position_withdrawals (
-    cluster,
     settings,
     vault_index,
     target_reserve,

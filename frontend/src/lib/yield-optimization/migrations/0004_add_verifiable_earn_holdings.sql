@@ -52,7 +52,6 @@ ALTER TABLE loyal_yield.user_yield_positions
 CREATE TABLE loyal_yield.user_yield_position_holding_events (
   id BIGSERIAL PRIMARY KEY,
   position_id BIGINT NOT NULL REFERENCES loyal_yield.user_yield_positions(id),
-  cluster TEXT NOT NULL,
   event_type loyal_yield.user_yield_holding_event_type NOT NULL,
   reserve TEXT NOT NULL,
   market TEXT,
@@ -87,7 +86,6 @@ CREATE TABLE loyal_yield.user_yield_position_holding_events (
 WITH inserted_holding_events AS (
   INSERT INTO loyal_yield.user_yield_position_holding_events (
     position_id,
-    cluster,
     event_type,
     reserve,
     market,
@@ -106,7 +104,6 @@ WITH inserted_holding_events AS (
   )
   SELECT
     p.id,
-    p.cluster,
     'snapshot_reconciled'::loyal_yield.user_yield_holding_event_type,
     p.current_reserve,
     p.current_market,
@@ -126,8 +123,7 @@ WITH inserted_holding_events AS (
   LEFT JOIN LATERAL (
     SELECT deposit.id
     FROM loyal_yield.user_yield_position_deposits deposit
-    WHERE deposit.cluster = p.cluster
-      AND deposit.settings = p.settings
+    WHERE deposit.settings = p.settings
       AND deposit.vault_index = p.vault_index
       AND deposit.target_reserve = p.initial_reserve
       AND deposit.wallet_address = p.wallet_address
@@ -148,12 +144,6 @@ CREATE INDEX user_yield_position_holding_events_position_idx
     observed_slot,
     observed_at,
     id
-  );
-
-CREATE INDEX user_yield_position_holding_events_cluster_position_idx
-  ON loyal_yield.user_yield_position_holding_events (
-    cluster,
-    position_id
   );
 
 ALTER TABLE loyal_yield.user_yield_positions

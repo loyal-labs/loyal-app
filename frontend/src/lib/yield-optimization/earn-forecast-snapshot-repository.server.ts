@@ -144,7 +144,6 @@ export async function getLatestEarnForecastSnapshot(
     .from(earnForecastSnapshots)
     .where(
       and(
-        eq(earnForecastSnapshots.cluster, input.cluster),
         eq(earnForecastSnapshots.strategy, input.strategy),
         eq(earnForecastSnapshots.riskProfile, input.riskProfile),
         eq(earnForecastSnapshots.feeBps, input.feeBps)
@@ -167,7 +166,6 @@ export async function upsertEarnForecastSnapshot(
     .insert(earnForecastSnapshots)
     .values({
       apyBps: input.apyBps,
-      cluster: input.cluster,
       feeBps: input.feeBps,
       generatedAt: input.generatedAt,
       rangeHighBps: input.rangeHighBps,
@@ -182,7 +180,6 @@ export async function upsertEarnForecastSnapshot(
     })
     .onConflictDoUpdate({
       target: [
-        earnForecastSnapshots.cluster,
         earnForecastSnapshots.strategy,
         earnForecastSnapshots.riskProfile,
         earnForecastSnapshots.feeBps,
