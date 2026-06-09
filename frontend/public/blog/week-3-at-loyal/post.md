@@ -8,7 +8,7 @@ author:
 ---
 Here's what we shipped this week and where we're headed.
 
-**A Smarter Way to Send**
+## A Smarter Way to Send
 
 Telegram transactions now work from desktop, no Telegram app required.
 
@@ -18,7 +18,7 @@ Just type naturally and the interface adapts!
 
 Once sent, recipients get a claimable link. You can also refund the transaction if you accidentally sent it to the wrong person.
 
-**Introducing Canvas**
+## Introducing Canvas
 
 This is the big one.
 
@@ -30,13 +30,13 @@ The idea: your dashboard should be yours. A community manager might pin salary p
 
 We're also building Recipes. Those are saved action templates you can execute with one click. Set up "Send 0.1 SOL to
 
-[@candyflipline](https://x.com/@candyflipline)
+[@candyflipline](https://x.com/candyflipline)
 
 once, reuse it forever.
 
 Still experimental. But this is where we're going.
 
-**Group Chat Summaries Are Live**
+## Group Chat Summaries Are Live
 
 Open the Loyal mini-app and you'll see summaries of every chat where the bot is installed.
 
@@ -48,7 +48,7 @@ Summaries will also become draggable Canvas elements, so you can pin the communi
 
 Check it out yourself!
 
-**Q4 2025 Report + Buyback Complete**
+## Q4 2025 Report + Buyback Complete
 
 We published our first transparency report covering October 21 – December 31. Every expense, every major event — all public. Find it in our website footer or pinned on X.
 
@@ -56,7 +56,7 @@ The buyback also concluded: **1.5M USDC** spent to acquire **~6.35M tokens**, no
 
 With most sellers cleared out, upward movement requires fewer buyers. The market is lighter now.
 
-**What's Next**
+## What's Next
 
 - Continued iteration on Canvas
 

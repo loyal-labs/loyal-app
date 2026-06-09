@@ -8,7 +8,7 @@ author:
 ---
 Infrastructure-heavy week! We migrated to a new database solution to speed up our feature velocity, introduced a brand-new light design concept to the mini app, laid the groundwork for private swaps and shielded assets.
 
-**Community Chat Summaries — Now Live**
+## Community Chat Summaries — Now Live
 
 Every 24 hours, our system generates a set of topics from everything discussed across your community chats. Those topics are served on the frontend for you to browse, and a brief digest message is posted directly in the group chat.
 
@@ -24,7 +24,7 @@ We want to think of it as a fundamentally new and easier way to stay on top of y
 
 Improved haptic feedback makes summaries feel genuinely physical to interact with
 
-**Moving Past nilDB**
+## Moving Past nilDB
 
 This one was painful but necessary. The infrastructure we'd built on top of nilDB wasn't scaling the way we needed it to. The product was too raw and not feature-complete enough for production use. C'est la vie ¯\_(ツ)_/¯
 
@@ -40,7 +40,7 @@ The goal was twofold: make it work seamlessly with the new infrastructure, and l
 
 The full pipeline — capture, process, encrypt, store incoming messages — is now complete and production-ready. This unblocks a wave of features that were waiting on secure message handling.
 
-**Light Design Concept**
+## Light Design Concept
 
 ![](img-2.jpg)
 
@@ -50,7 +50,7 @@ Vlad built a new light design concept in a single day, and honestly, it might be
 
 This isn't just a color-swapped dark theme. It's a different design direction entirely — minimalist, clean, and solid. No blur, no transparency. Every element feels intentional. In a sea of dark-mode-by-default crypto wallets (Phantom, Solflare, etc.), the light aesthetic stands out immediately.
 
-**Swaps and Shielded Assets — What's Coming**
+## Swaps and Shielded Assets — What's Coming
 
 We're building private ephemeral transfers over a private ephemeral rollup through MagicBlock. In plain terms: you'll be able to send assets to friends without publicizing the amount or the recipient.
 
@@ -66,7 +66,7 @@ Testing target: end of next week on Devnet. Mainnet target: end of the following
 
 Going from Devnet implementation to Mainnet deployment within a week is aggressive. We're asking the community to help us test next week to make that timeline real.
 
-**Plans for Next Week**
+## Plans for Next Week
 
 - **Private message processing** — encryption pipeline is done, now wiring it into the product
 

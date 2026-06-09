@@ -13,8 +13,7 @@ We love the ecosystem that Solana Mobile team has fostered. Since August 2025, t
 
 Loyal will be available for Seeker users through the Seeker dApp Store. We will be sponsoring gasless private transactions for every Seeker user!
 
-## **Why Seeker**
-
+## Why Seeker
 We believe in importance of simplicity and distribution. Seeker has both.
 
 There are over 200,000 Solana power users who have gone the extra mile in making Solana a core part of their daily lives. That’s distribution no one can compete with.
@@ -25,8 +24,7 @@ Securing our position among the Seeker userbase would give us a reliable platfor
 
 ![](img-1.png)
 
-## **What Loyal Brings To Seeker**
-
+## What Loyal Brings To Seeker
 We are the only app that rewards you for keeping your money private. We are not charging swap fees or transaction fees intentionally. Our only incentive is delivering a great product and helping users multiply their money.
 
 We believe that the best way to avoid catastrophic losses and multiple your fortunes is to keep it away from the prying eyes and make it easy to hold it long-term.

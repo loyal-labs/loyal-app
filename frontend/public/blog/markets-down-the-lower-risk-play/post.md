@@ -20,7 +20,7 @@ The mechanism behind safe yield on crypto is identical to the mechanism your ban
 
 The only difference is who keeps the margin.
 
-**How Your Bank Makes Money on Your Savings**
+## How Your Bank Makes Money on Your Savings
 
 You deposit £5,000 in a savings account. The bank pays you 1.5%.
 
@@ -34,7 +34,7 @@ The mechanism has been working for centuries.
 
 Here is the crypto version.
 
-**The Same Thing, Different Pipes**
+## The Same Thing, Different Pipes
 
 Lending protocols like Kamino on Solana connect stablecoin holders with borrowers who need short-term liquidity - typically traders who want to open leveraged positions and need to borrow USDC or USDT to do it.
 
@@ -64,7 +64,7 @@ Research shows that 82% of Americans don't use high-yield savings accounts despi
 
 Crypto is no different. Most stablecoin holders are earning nothing through habit or fear. The mechanism that would change that has been available for years.
 
-**Why "Yield" Sounds Dangerous When It Usually Isn't**
+## Why "Yield" Sounds Dangerous When It Usually Isn't
 
 The association between crypto yield and disaster comes from a specific category of products and it's worth separating them cleanly:
 
@@ -78,9 +78,7 @@ The association between crypto yield and disaster comes from a specific category
 
 - "Yield farms" requiring simultaneous exposure to multiple volatile assets
 
-[**@Kamino**](https://x.com/@Kamino)
-
-**structural differences:**
+**[@Kamino](https://x.com/Kamino)'s structural differences:**
 
 - Single-asset lending vaults where you deposit one stablecoin and receive interest on it
 
@@ -110,7 +108,7 @@ On Kamino: a trader is paying you because they need your USDC to open a leverage
 
 A clean, verifiable source.
 
-**The Part Nobody Says Out Loud**
+## The Part Nobody Says Out Loud
 
 Your bank has been lending your money out for the entire time you have had a savings account. It has been collecting the interest spread, and it's been keeping most of it because banks are large, inefficient, and greedy.
 
@@ -120,19 +118,7 @@ DeFi lending does the same thing - except the protocol's operating costs are low
 
 It is also worth noting the timing. The ECB meets on June 11, the Fed on June 17, the Bank of England on June 18. With inflation rising across most major economies, rate hikes are back on the table for the first time in years. If rates go up, traditional savings accounts may improve. But even if the ECB hikes back to 1.5%, Kamino's USDC vaults will still be paying 4% to 5%, and the outlier vaults will still be closer to 10%.
 
-The infrastructure running this - Kamino's single-asset vaults - is the same infrastructure used by
-
-[@Phantom](https://x.com/@Phantom)
-
-,
-
-[@Anchorage](https://x.com/@Anchorage)
-
-, and
-
-[@pendle_fi](https://x.com/@pendle_fi)
-
-. Not exactly fringe protocols, right?
+The infrastructure running this - Kamino's single-asset vaults - is the same infrastructure used by [@Phantom](https://x.com/Phantom), [@Anchorage](https://x.com/Anchorage), and [@pendle_fi](https://x.com/pendle_fi). Not exactly fringe protocols, right?
 
 The only thing standing between a stablecoin holder and these incredible, low-risk returns is an over-complicated setup process where most interfaces assumed they already knew what they were doing.
 

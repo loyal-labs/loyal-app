@@ -1,7 +1,7 @@
 ---
 title: "Loyal: Open-source and E2E encryption won’t keep you safe"
 date: "2025-10-16"
-hero: hero.jpg
+hero: hero.png
 description: "Privacy, technology, and consumer choices have shifted."
 author:
   name: "Rodion, founder"
@@ -26,7 +26,7 @@ You can read more in the architecture docs:
 
 .
 
-**Open source and E2E is not enough anymore**
+## Open source and E2E is not enough anymore
 
 Anyone and inspect open source code. E2E protects user data in transit and at rest. But neither of these things address fundamental concerns about data in use:
 
@@ -40,11 +40,11 @@ We cannot in good faith keep protecting the old paradigm. E2E and open source ar
 
 ![](img-2.jpg)
 
-**How Loyal works**
+## How Loyal works
 
 Fundamentally, Loyal rebuilds the root of trust starting with the hardware. We use Intel chips with built-in hardware encryption keys. These chips allow us to do two important things: run virtual machines with encrypted RAM and take a cast of the launch parameters of each machine to show the code it is running. On top of that, we use Nvidia Hopper GPUs. They allow us to run confidential compute within them and guarantee that no one can access your data at no point in time.
 
-**Request flow**
+## Request flow
 
 1. **Client key generation**The client creates or loads an asymmetric keypair. The public key identifies the user. The private key never leaves the client.
 
@@ -64,7 +64,7 @@ This is intentionally high level – see
 
 for the architectural details.
 
-**Loyal is just better**
+## Loyal is just better
 
 - **Trust minimization** – You do not grant blanket trust to a hosting provider. You verify the code identity and confine plaintext to a hardware-enforced enclave.
 
@@ -74,21 +74,21 @@ for the architectural details.
 
 - **Permissionless access** – Sub-cent micropayments replace brittle API key distribution. Anyone can build a client that speaks the protocol and pays for what it uses.
 
-**Why it matters**
+## Why it matters
 
-**Individuals**
+## Individuals
 
 - Bring-your-own frontend that talks to the same encrypted history. Switch from a terminal UI to a web UI without migrating chats.
 
 - Private cross-app memory under your keys – reuse context across projects without uploading files to multiple vendors.
 
-**Teams**
+## Teams
 
 - Shared spaces with per-member keys and auditable access. Collaborate while keeping prompts and outputs unreadable to the operator.
 
 - Least-privilege integrations – grant a bot access to a subset of artifacts by sharing only the needed decryption keys.
 
-**Enterprises**
+## Enterprises
 
 - Regulated workflows with verifiable compute boundaries. Prove that sensitive prompts and outputs never left attested TEEs.
 
@@ -96,11 +96,11 @@ for the architectural details.
 
 Services positioned as “private AI assistants” – for example,
 
-[Lumo.ai](https://x.com//Lumo.ai)
+[Lumo.ai](https://lumo.ai)
 
 – aim to improve privacy within a conventional SaaS approach. The hard limit remains the compute trust boundary: without confidential machines, the host can access data in use. Loyal’s design addresses that exact gap while preserving cloud-class performance and model choice.
 
-**Conclusion**
+## Conclusion
 
 Open source and E2E encryption remain essential. However, In cloud LLM settings, they are no longer sufficient on their own because the provider sees data in use. Loyal moves the trust boundary into attested hardware, stores artifacts encrypted on-chain for portability, and replaces static API keys with micropayments. The result is a practical step up in privacy without giving up modern models or the convenience of cloud compute.
 

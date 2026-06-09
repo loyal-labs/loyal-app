@@ -10,13 +10,13 @@ Most DAOs are broken because they use "voting", but voting is free, which means 
 
 Loyal is different - we use
 
-[@MetaDAOProject](https://x.com/@MetaDAOProject)
+[@MetaDAOProject](https://x.com/MetaDAOProject)
 
 for governance which means we don't ask you to vote; we ask you to trade in your own best interest.
 
 This system is called "Futarchy." It sounds complex, but it’s actually very simple. It’s based on one rule: Money talks, bullshit walks.
 
-**The Concept: Two Timelines**
+## The Concept: Two Timelines
 
 Imagine you have a time machine that lets you see two different futures:
 
@@ -32,7 +32,7 @@ In MetaDAO, we create a temporary token for each of these timelines.
 
 *(Note: The same is true of USDC-PASS, and USDC-FAIL.)*
 
-**How to Make Your Voice Heard**
+## How to Make Your Voice Heard
 
 You don't cast a ballot. You simply buy the token of the future you believe is more valuable.
 
@@ -52,7 +52,7 @@ In this case you are betting that the plan is a bad idea and
 
 is better off without it.
 
-**How the Winner is Decided**
+## How the Winner is Decided
 
 The market runs for 3 days (the Loyal buyback proposal will end just after 21:00 CET on Saturday, November 29th) so we'll be watching the price of both tokens.
 
@@ -62,7 +62,7 @@ The market runs for 3 days (the Loyal buyback proposal will end just after 21:00
 
 We don't care how many people like the idea. We care which idea makes the network more valuable.
 
-**The Risk (Your Skin in the Game)**
+## The Risk (Your Skin in the Game)
 
 Here is why this system works better than voting: You have to be right.
 
@@ -72,7 +72,7 @@ Here is why this system works better than voting: You have to be right.
 
 This forces you to think. You can't just blindly support everything. If you support a bad idea that tanks the price, you lose money. If you support a good idea that raises the value, you profit.
 
-**Step-by-Step Instructions to make your voice count**
+## Step-by-Step Instructions to make your voice count
 
 ![](img-1.jpg)
 
@@ -96,7 +96,7 @@ The Loyal buyback proposal
 
 - If your side lost (e.g., you bought "Pass" but the proposal "Failed"), your prediction was wrong, and those specific conditional tokens go to zero.
 
-**TL;DR:**
+## TL;DR:
 
 Stop voting. Start trading.
 
@@ -106,7 +106,7 @@ If you think it makes Loyal weaker, buy the FAIL token.
 
 ![](img-2.jpg)
 
-**FAQ: User questions from the last 24h**
+## FAQ: User questions from the last 24h
 
 Q: Why allocate $1.5M? This seems high?
 
@@ -162,7 +162,7 @@ Q: How do I vote?
 
 *A: Loyal uses*
 
-[*@MetaDAOProject*](https://x.com/@MetaDAOProject)
+[*@MetaDAOProject*](https://x.com/MetaDAOProject)
 
 *(a ‘futarchy’ model) for governance, you can find the proposal linked below:*
 

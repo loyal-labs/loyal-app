@@ -1,12 +1,12 @@
 ---
 title: "Loyal: Monthly Updates, Telegram Agent and GTM"
 date: "2025-12-20"
-hero: hero.jpg
+hero: hero.png
 description: "Breakpoint was a good experience."
 author:
   name: "Rodion, founder"
 ---
-**TL;DR**
+## TL;DR
 
 - Breakpoint helped us validate distribution + get feedback on what users actually want from Loyal Telegram Agent
 
@@ -14,7 +14,7 @@ author:
 
 - Next: ship summaries + storage + the first “real” agent loop **before the end of the year** (waitlist ~60)
 
-**Solana Breakpoint**
+## Solana Breakpoint
 
 Breakpoint was a good experience. Only **2 people** from our team attended, which meant the rest of the team kept shipping without interruptions. We were able to distribute the app, get feedback, and pressure-test our assumptions in real conversations.
 
@@ -22,19 +22,19 @@ The most important conversations we had were:
 
 - with **Squads** (with Stepan)
 
-- with [**P2P.org**](https://x.com//P2P.org) and several large validators
+- with [**P2P.org**](https://p2p.org) and several large validators
 
 The most useful feedback loop we got was around **Loyal Telegram Agent**. The takeaway is that people indeed want an AI tool that eliminates chaos in Telegram. There are plenty of tools for email workflows and almost nothing comparable for Telegram, even though Telegram is where most day-to-day communication in crypto actually happens.
 
 We also talked to a lead from **Solana Seeker**, and we’re seriously considering launching on **Solana Mobile**. The user base isn’t huge, but it’s active, and distribution there is direct: ship something useful and it gets seen.
 
-**Loyal Telegram Agent: things we shipped, and why we started here**
+## Loyal Telegram Agent: things we shipped, and why we started here
 
 Loyal is an infrastructure that allows developers to use AI for their on-chain apps. But if you want to build infra (especially on Solana), you still need user adoption and developer attention and the fastest way to earn both is to ship real apps. That’s why we’re releasing Loyal Telegram Agent first. It’s a clean wedge: distribution is natural, use-cases are obvious, and go-to-market is very easy.
 
 We currently have ~50 people on the waitlist, and we’re using that group to validate what should ship first and what can wait.
 
-**Why Telegram**
+## Why Telegram
 
 Crypto is very different from the other industries in terms of how people communicate and just generally discover each other. Discovery in crypto happens on X, but the real communication doesn’t. It happens mostly in Telegram.
 
@@ -56,11 +56,11 @@ Email had  more than 30 years of tooling evolution: clients, filters, smart inbo
 
 That gap is what we're aiming to close with  Loyal Telegram Agent.
 
-**What Loyal Telegram Agent is**
+## What Loyal Telegram Agent is
 
 1is a Telegram mini app with AI on top of Loyal infra. It can work with your personal chats, group chats, and new messages across Telegram. If you want, you can restrict access to certain chats using Telegram’s native tooling.
 
-**What it does: shipped vs next vs later**
+## What it does: shipped vs next vs later
 
 Shipped (mainnet)
 
@@ -84,7 +84,7 @@ Later (roadmap)
 
 - Payments + automations: “send 20 USDC to the most active community members this week” → sign → done, without collecting addresses
 
-**Where GTM fits in**
+## Where GTM fits in
 
 This is a strong go-to-market strategy for three reasons:
 
@@ -94,7 +94,7 @@ This is a strong go-to-market strategy for three reasons:
 
 3. Distribution is cheap**.**The app is currently free and we’ll have a free tier. The target audience is easy to identify, and we already talk to founder communities daily. Distribution cost here is close to zero.
 
-**What this means for holders**
+## What this means for holders
 
 Telegram agent itself isn't the end goal but rather a leverage.
 
@@ -110,7 +110,7 @@ If we get Loyal Telegram Agent into daily workflows for founders/BD/operators, w
 
 That’s how this becomes meaningful at the ecosystem level: **a product that wins attention first**, then expands into infrastructure adoption.
 
-**What’s next**
+## What’s next
 
 - Finishing wiring summaries end-to-end (backend ↔ frontend ↔ model)
 
@@ -118,7 +118,7 @@ That’s how this becomes meaningful at the ecosystem level: **a product that wi
 
 - Onboarding from the **~60-person waitlist** and iterate quickly based on what they actually use
 
-**Community updates**
+## Community updates
 
 There are a lot of things we need your attention during the next week:
 

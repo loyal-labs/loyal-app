@@ -20,7 +20,7 @@ You are training the models that will automate you by providing data which is ex
 
 I’m a co-founder of Loyal Private Intelligence, and I’ll examine the data-extraction pipeline of data extraction from scrapers to brokers to large companies that love to yap about how they bring humanity forward — forgetting to mention the catch. Then, we’ll work together to regain control.
 
-**1\. There is no consent.**
+## 1\. There is no consent.
 
 The industry standard is simple: You get convenience, they get your mind.
 
@@ -30,7 +30,7 @@ You may be surprised by just how many people really believe that by clicking “
 
 OpenAI’s ToS allow them to hand over data to law enforcement. If you are a founder asking about legal loopholes, or a regular person asking about sensitive personal issues, that text is permanent evidence.
 
-**2\. There is no accountability**
+## 2\. There is no accountability
 
 Why is data extracted at this scale?
 
@@ -45,7 +45,7 @@ What if your data gets leaked (which it, statistically, will)?
 
 _… I mean, aside from not using LLMs._
 
-**3\. There is no privacy**
+## 3\. There is no privacy
 
 However, it doesn’t stop at targeting. The data needs to be stored, and may be compromised in so many different ways. And if you think it’s stored in the most secure fashion possible, just think again about the centralized servers.
 
@@ -64,7 +64,6 @@ There are only two realistic ways of dismantling the extraction pipeline: self-h
 *   **Self-hosting** is what you may already be using as an “advanced user”, but it’s fair to say it’ll not become the default or even a popular choice for most, including the most affluent.
 *   **Verifiable privacy** was not practically viable at scale even ten years ago_,_ but today it could become the default answer to the pipeline problem. With it, you don’t trust people. Instead, you verify and rely on hardware-enforced confidential computing like TEEs / confidential VMs.
 
-This is what we’ve built at [@loyal\_hq](https://x.com/@loyal_hq)
- **combined the speed of the data center with the privacy of self-hosting.**
+This is what we’ve built at [@loyal\_hq](https://x.com/loyal_hq): we combined the speed of the data center with the privacy of self-hosting.
 
 _Share your setup for secure inference. And I invite you to learn more about ours in the upcoming articles._

@@ -1,7 +1,7 @@
 ---
 title: "May was good to us"
 date: "2026-06-07"
-hero: /og-image.png
+hero: hero.png
 description: "Seeker launch was a success."
 author:
   name: "Rodion, founder"
@@ -12,7 +12,7 @@ We shipped one-of-a-kind private yield. It takes $0.10 and one Solana block to s
 
 Within this newsletter, we'll go over those updates in more depth. We'll finish up with a note on our treasury, funds and runway. From now on, weekly videos will cover day-to-day things, while this newsletter will give you a clearer picture of the macro dynamics.
 
-**Seeker goes loyal**
+## Seeker goes loyal
 
 Our Seeker app has shielded balances, swaps, sends and the same approval flow our users loved in our extension and web app. We layered push notifications, OTA updates for quick fixes and token due diligence pages to push that experience further. After the initial feedback, we also included raw instruction preview to make experience clearer for the users.
 
@@ -20,7 +20,7 @@ In a month since app launch, we've got 70 reviews with an average rating of 4.2.
 
 This traction and retention is the reason we prioritized Seeker. The launch was a success and landed us a spot in the upcoming Seeker Summer event in July. We'll be featured through Solana Mobile surfaces very soon. We'll leverage it to grow our metrics further.
 
-**One Account, Every Surface**
+## One Account, Every Surface
 
 The web app went live in May, and it is the surface we have been moving toward all year. Open it, connect a wallet, and you land on the same shielded balance and yield logic that runs on mobile and desktop, in a browser, with nothing to install. That matters for the people who do not want another app on their phone or their dock.
 
@@ -28,21 +28,21 @@ What it ships with is the part worth pausing on. USDC shielding is wired straigh
 
 The desktop app got rebuilt at the same time, from a sidebar to three panels. The old layout pinned tokens to one side and put the input in the middle. It worked, but it does not scale to what the app has to do now, which is hold a wallet, a multisig vault, and the wallets of any agents you have connected in one view. Three panels give us that, and the room to grow as automations take more of the screen. The new
 
-[askloyal.com](https://x.com//askloyal.com)
+[askloyal.com](https://askloyal.com)
 
 landing went up to match, brighter and built around the product instead of slogans.
 
-**A note on the treasury, OTC and runway**
+## A note on the treasury, OTC and runway
 
 There's ~20K USDC in the treasury. We have ~100K USDC in operating wallets. We have 200K in hard commitments and more in soft commitments for the OTC deal in July. We have 400K in liquidity, we don't need as much after the buyback restructuring in January.
 
 Our next step here is to raise a proposal that covers the OTC deal, liquidity rebalancing, migration to the new incentive program and other important updates. We work closely with gentlemen from
 
-[@01Resolved](https://x.com/@01Resolved)
+[@01Resolved](https://x.com/01Resolved)
 
 to make sure you're well informed before the proposal goes live. Expect to hear more on that in mid-late June.
 
-**What's next**
+## What's next
 
 Our first agentic use case goes live -- that's our Earn feature. We can push 9-11% yield on stablecoins without significant increases in your risk profile or having you give up custody of your finances.
 
