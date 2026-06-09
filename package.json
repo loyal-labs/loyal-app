@@ -20,7 +20,7 @@
     "extension:dev": "bun run --cwd extension dev",
     "extension:build": "bun run --cwd extension build",
     "extension:zip": "bun run --cwd extension zip",
-    "dev:1pass": "bun run dev:1pass:dev",
+    "dev:1pass": "bun run dev:1pass:main",
     "dev:1pass:dev": "bun run --cwd frontend dev:1pass:dev",
     "dev:1pass:main": "bun run --cwd frontend dev:1pass:main",
     "frontend:dev": "bun run --cwd frontend dev",
