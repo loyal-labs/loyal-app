@@ -3,9 +3,9 @@ import {
   getKaminoUsdcEarnTargetForCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal/actions";
-import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   TimescaleReserveClient,
   getTimescaleReserveDatabaseUrl,
@@ -20,7 +20,6 @@ import type { EarnEarningsRangeSetResponse } from "@/lib/yield-optimization/earn
 import { findYieldPositionEvents } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_VAULT_INDEX = 1;
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
 class MissingTimescaleDatabaseUrlError extends Error {
   constructor() {
@@ -30,7 +29,7 @@ class MissingTimescaleDatabaseUrlError extends Error {
 }
 
 function resolveConfiguredCluster() {
-  const solanaEnv = resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
+  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 

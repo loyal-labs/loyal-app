@@ -106,12 +106,12 @@ function body(overrides = {}) {
   };
 }
 
-function request(payload = body()) {
+function request(payload = body(), headers: HeadersInit = {}) {
   return new Request(
     "https://app.askloyal.com/api/smart-accounts/yield-optimization/policies/confirm",
     {
       body: JSON.stringify(payload),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       method: "POST",
     }
   );
@@ -284,6 +284,31 @@ describe("yield optimization policy confirm route", () => {
         liquidityMint: mainnetTarget.liquidityMint.toBase58(),
         market: mainnetTarget.market.toBase58(),
         targetReserve: mainnetTarget.reserve.toBase58(),
+      })
+    );
+  });
+
+  test("accepts mainnet-beta policy metadata when configured env is unset", async () => {
+    delete process.env.NEXT_PUBLIC_SOLANA_ENV;
+    const mainnetTarget = getKaminoUsdcEarnTargetForCluster(
+      LoyalCluster.MainnetBeta
+    );
+
+    const response = await POST(
+      request(
+        body({
+          cluster: "mainnet-beta",
+          liquidityMint: mainnetTarget.liquidityMint.toBase58(),
+          market: mainnetTarget.market.toBase58(),
+          targetReserve: mainnetTarget.reserve.toBase58(),
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(recordConfirmedYieldRoutePolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cluster: "mainnet-beta",
       })
     );
   });

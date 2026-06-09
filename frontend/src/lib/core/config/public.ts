@@ -1,7 +1,5 @@
-import {
-  resolveSolanaEnv,
-  type SolanaEnv,
-} from "@loyal-labs/solana-rpc";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
   getOptionalEnv,
@@ -18,7 +16,6 @@ const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
 const GRID_AUTH_BASE_URL_ENV_NAME = "NEXT_PUBLIC_GRID_AUTH_BASE_URL";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
@@ -97,7 +94,7 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
   const appEnvironment = resolveAppEnvironment(
     getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
   );
-  const solanaEnv = resolveSolanaEnv(getOptionalEnv(env, SOLANA_ENV_ENV_NAME));
+  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(env);
 
   return {
     appEnvironment,

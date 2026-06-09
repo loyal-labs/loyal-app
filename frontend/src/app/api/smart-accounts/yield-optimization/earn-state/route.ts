@@ -4,11 +4,11 @@ import {
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import { PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   findActiveYieldPosition,
   findActiveYieldRoutePolicy,
@@ -17,10 +17,9 @@ import {
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_VAULT_INDEX = 1;
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
 function resolveConfiguredCluster() {
-  const solanaEnv = resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
+  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 

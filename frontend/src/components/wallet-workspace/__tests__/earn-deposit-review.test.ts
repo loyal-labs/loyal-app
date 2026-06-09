@@ -8,8 +8,11 @@ import { STABLECOIN_MINTS } from "@loyal/actions/constants";
 import { Stablecoin } from "@loyal/actions/types";
 
 import {
+  advanceEarnDepositReviewAfterPolicySetup,
+  applyEarnDepositFormDraftChange,
   buildEarnDepositReviewItem,
   buildEarnWithdrawReviewItem,
+  createSubmittedEarnDepositReviewState,
 } from "../earn-deposit-review";
 
 function makeDraft(): EarnDepositDraft {
@@ -165,6 +168,58 @@ describe("buildEarnDepositReviewItem", () => {
         }),
       ])
     );
+  });
+});
+
+describe("Earn deposit review state", () => {
+  test("keeps a submitted policy draft and advances it to deposit approval", () => {
+    const draft = makeDraft();
+    const submitted = createSubmittedEarnDepositReviewState({
+      draft,
+      requiresPolicySetup: true,
+    });
+    const advanced = advanceEarnDepositReviewAfterPolicySetup(submitted);
+
+    expect(submitted).toMatchObject({
+      draft,
+      isPolicySetupFlow: true,
+      stage: "policy",
+    });
+    expect(advanced).toMatchObject({
+      draft,
+      isPolicySetupFlow: true,
+      stage: "deposit",
+    });
+    expect(advanced.draft?.amountLabel).toBe("125.5");
+    expect(advanced.draft?.source.id).toBe("main");
+  });
+
+  test("ignores form cleanup while a submitted deposit review is active", () => {
+    const draft = makeDraft();
+    const submitted = createSubmittedEarnDepositReviewState({
+      draft,
+      requiresPolicySetup: true,
+    });
+
+    const afterInputChange = applyEarnDepositFormDraftChange(submitted, null);
+
+    expect(afterInputChange).toBe(submitted);
+    expect(afterInputChange.draft).toBe(draft);
+    expect(afterInputChange.stage).toBe("policy");
+  });
+
+  test("keeps top-up deposits on the direct deposit approval path", () => {
+    const draft = makeDraft();
+    const submitted = createSubmittedEarnDepositReviewState({
+      draft,
+      requiresPolicySetup: false,
+    });
+
+    expect(submitted).toMatchObject({
+      draft,
+      isPolicySetupFlow: false,
+      stage: "deposit",
+    });
   });
 });
 

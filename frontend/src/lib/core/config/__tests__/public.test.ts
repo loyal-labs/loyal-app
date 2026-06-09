@@ -67,12 +67,12 @@ describe("public config", () => {
     expect(env.gitCommitHash).toBe("unknown");
   });
 
-  test("defaults the solana env to devnet", () => {
+  test("defaults the solana env to mainnet", () => {
     const env = createPublicEnv({});
 
-    expect(env.solanaEnv).toBe("devnet");
+    expect(env.solanaEnv).toBe("mainnet");
     expect(env.solanaRpcEndpoint).toBe(
-      "https://aurora-o23cd4-fast-devnet.helius-rpc.com"
+      "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com"
     );
   });
 
@@ -87,14 +87,14 @@ describe("public config", () => {
     );
   });
 
-  test("falls back to devnet for invalid solana env values", () => {
+  test("falls back to mainnet for invalid solana env values", () => {
     const env = createPublicEnv({
       NEXT_PUBLIC_SOLANA_ENV: "staging",
     });
 
-    expect(env.solanaEnv).toBe("devnet");
+    expect(env.solanaEnv).toBe("mainnet");
     expect(env.solanaRpcEndpoint).toBe(
-      "https://aurora-o23cd4-fast-devnet.helius-rpc.com"
+      "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com"
     );
   });
 

@@ -115,8 +115,12 @@ import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
 import { BuilderBlocksPane } from "./builder-blocks-pane";
 import {
+  advanceEarnDepositReviewAfterPolicySetup,
+  applyEarnDepositFormDraftChange,
   buildEarnDepositReviewItem,
   buildEarnWithdrawReviewItem,
+  createSubmittedEarnDepositReviewState,
+  type EarnDepositReviewStage,
 } from "./earn-deposit-review";
 import { EarnTransactionsPane } from "./earn-transactions-pane";
 import {
@@ -176,7 +180,6 @@ const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
 const REVIEW_PANE_MIN_WIDTH = 320;
 const REVIEW_PANE_MAX_WIDTH = 520;
 const REVIEW_PANE_DEFAULT_WIDTH = 400;
-type EarnDepositReviewStage = "deposit" | "policy";
 
 function clampWidth(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -2183,6 +2186,36 @@ export function AppWalletWorkspace({
     [handleDismissFocusedEarnPreview]
   );
 
+  const handleEarnDepositFormDraftChange = useCallback(
+    (draft: EarnDepositDraft | null) => {
+      const nextReview = applyEarnDepositFormDraftChange(
+        {
+          draft: pendingEarnDepositDraft,
+          isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+          stage: earnDepositReviewStage,
+        },
+        draft
+      );
+
+      if (
+        nextReview.draft === pendingEarnDepositDraft &&
+        nextReview.isPolicySetupFlow === isEarnDepositPolicySetupFlow &&
+        nextReview.stage === earnDepositReviewStage
+      ) {
+        return;
+      }
+
+      setPendingEarnDepositDraft(nextReview.draft);
+      setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
+      setEarnDepositReviewStage(nextReview.stage);
+    },
+    [
+      earnDepositReviewStage,
+      isEarnDepositPolicySetupFlow,
+      pendingEarnDepositDraft,
+    ]
+  );
+
   const handleSubmitEarnDepositDraft = useCallback(
     (draft: EarnDepositDraft) => {
       console.log("[earn-deposit] deposit button submitted preview draft", {
@@ -2195,9 +2228,13 @@ export function AppWalletWorkspace({
       });
       const requiresPolicySetup =
         smartAccountData.requiresEarnPolicySetupForDeposit;
-      setIsEarnDepositPolicySetupFlow(requiresPolicySetup);
-      setEarnDepositReviewStage(requiresPolicySetup ? "policy" : "deposit");
-      setPendingEarnDepositDraft(draft);
+      const nextReview = createSubmittedEarnDepositReviewState({
+        draft,
+        requiresPolicySetup,
+      });
+      setPendingEarnDepositDraft(nextReview.draft);
+      setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
+      setEarnDepositReviewStage(nextReview.stage);
     },
     [smartAccountData.requiresEarnPolicySetupForDeposit]
   );
@@ -2229,7 +2266,16 @@ export function AppWalletWorkspace({
         throw new Error(result.error ?? "Earn policy setup failed.");
       }
 
-      setEarnDepositReviewStage("deposit");
+      const nextReview = advanceEarnDepositReviewAfterPolicySetup({
+        draft: pendingEarnDepositDraft,
+        isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+        stage: earnDepositReviewStage,
+      });
+      setPendingEarnDepositDraft(nextReview.draft);
+      setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
+      setEarnDepositReviewStage(nextReview.stage);
+      setDetailSelection("earnDeposit");
+      setSelectedDetail("Deposit");
     } catch (error) {
       const raw =
         error instanceof Error ? error.message : "Earn policy setup failed.";
@@ -2239,7 +2285,13 @@ export function AppWalletWorkspace({
       });
       setProposalActionError(raw);
     }
-  }, [pendingEarnDepositDraft, smartAccountData]);
+  }, [
+    earnDepositReviewStage,
+    isEarnDepositPolicySetupFlow,
+    pendingEarnDepositDraft,
+    setDetailSelection,
+    smartAccountData,
+  ]);
 
   const handleCompleteEarnDeposit = useCallback(async () => {
     console.log("[earn-deposit] approve clicked", {
@@ -3176,7 +3228,7 @@ export function AppWalletWorkspace({
       return (
         <EarnDepositView
           isSubmitting={smartAccountData.isActionPending}
-          onDraftChange={setPendingEarnDepositDraft}
+          onDraftChange={handleEarnDepositFormDraftChange}
           onClose={handleOpenEarn}
           onDraftSubmit={handleSubmitEarnDepositDraft}
           sources={earnDepositSources}

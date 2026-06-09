@@ -113,12 +113,12 @@ function body(overrides = {}) {
   };
 }
 
-function request(payload = body()) {
+function request(payload = body(), headers: HeadersInit = {}) {
   return new Request(
     "https://app.askloyal.com/api/smart-accounts/yield-optimization/deposits/confirm",
     {
       body: JSON.stringify(payload),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...headers },
       method: "POST",
     }
   );

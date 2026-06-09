@@ -2,7 +2,8 @@ import "server-only";
 
 import { PublicKey } from "@solana/web3.js";
 import { PROGRAM_ADDRESS } from "@loyal-labs/loyal-smart-accounts";
-import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   isStrictTrue,
   isVercelPreviewEnv,
@@ -17,7 +18,6 @@ import {
 export type { AppEnvironment } from "./shared";
 
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const LOYAL_SMART_ACCOUNTS_PROGRAM_ID_ENV_NAME =
   "LOYAL_SMART_ACCOUNTS_PROGRAM_ID";
 const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME =
@@ -107,7 +107,7 @@ function createLoyalSmartAccountsRuntimeConfig(
 }
 
 export function createServerEnv(env: EnvSource): ServerEnv {
-  const solanaEnv = resolveSolanaEnv(getOptionalEnv(env, SOLANA_ENV_ENV_NAME));
+  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(env);
 
   return {
     appEnvironment: resolveAppEnvironment(

@@ -22,6 +22,14 @@ const EARN_VAULT_LABEL = "Earn vault";
 const USDC_MAIN_MARKET_RESERVE_ADDRESS =
   "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
 
+export type EarnDepositReviewStage = "deposit" | "policy";
+
+export type EarnDepositReviewState = {
+  draft: EarnDepositDraft | null;
+  isPolicySetupFlow: boolean;
+  stage: EarnDepositReviewStage;
+};
+
 const KAMINO_MARKET_NAMES = new Map<string, string>([
   [KAMINO_MAIN_MARKET.toBase58(), "Main"],
   [KAMINO_FIGURE_MARKET.toBase58(), "Figure"],
@@ -61,10 +69,50 @@ function formatSwapLaneLabel(lane: SwapLane): string {
   return lane.charAt(0).toUpperCase() + lane.slice(1);
 }
 
+export function createSubmittedEarnDepositReviewState(args: {
+  draft: EarnDepositDraft;
+  requiresPolicySetup: boolean;
+}): EarnDepositReviewState {
+  return {
+    draft: args.draft,
+    isPolicySetupFlow: args.requiresPolicySetup,
+    stage: args.requiresPolicySetup ? "policy" : "deposit",
+  };
+}
+
+export function advanceEarnDepositReviewAfterPolicySetup(
+  state: EarnDepositReviewState
+): EarnDepositReviewState {
+  if (!state.draft) {
+    return state;
+  }
+
+  return {
+    draft: state.draft,
+    isPolicySetupFlow: true,
+    stage: "deposit",
+  };
+}
+
+export function applyEarnDepositFormDraftChange(
+  state: EarnDepositReviewState,
+  draft: EarnDepositDraft | null
+): EarnDepositReviewState {
+  if (draft === null && state.draft) {
+    return state;
+  }
+
+  return {
+    draft,
+    isPolicySetupFlow: draft ? state.isPolicySetupFlow : false,
+    stage: draft ? state.stage : "deposit",
+  };
+}
+
 export function buildEarnDepositReviewItem(args: {
   draft: EarnDepositDraft;
   isPolicySetupFlow?: boolean;
-  stage?: "deposit" | "policy";
+  stage?: EarnDepositReviewStage;
 }): ApprovalReviewDisplayItem {
   const stage = args.stage ?? "policy";
   const isPolicySetupFlow = args.isPolicySetupFlow ?? stage === "policy";

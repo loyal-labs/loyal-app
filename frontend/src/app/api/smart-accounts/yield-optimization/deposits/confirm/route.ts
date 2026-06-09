@@ -5,10 +5,11 @@ import {
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnDepositConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
@@ -19,7 +20,6 @@ import {
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -32,11 +32,7 @@ function jsonError(
 }
 
 function getConfiguredSolanaEnv(): SolanaEnv {
-  return resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
-}
-
-function getConfiguredLoyalCluster() {
-  return resolveLoyalClusterForSolanaEnv(getConfiguredSolanaEnv());
+  return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
 function assertCanonicalField(
@@ -266,7 +262,7 @@ export async function POST(request: Request) {
   }
 
   const solanaEnv = getConfiguredSolanaEnv();
-  const configuredCluster = getConfiguredLoyalCluster();
+  const configuredCluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   if (input.cluster !== configuredCluster) {
     return jsonError(
       400,

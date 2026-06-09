@@ -64,7 +64,7 @@ describe("server config", () => {
       DATABASE_URL: "postgresql://localhost/test",
     });
 
-    expect(env.solanaEnv).toBe("devnet");
+    expect(env.solanaEnv).toBe("mainnet");
     expect(env.loyalSmartAccounts.programId).toBe(PROGRAM_ADDRESS);
   });
 
