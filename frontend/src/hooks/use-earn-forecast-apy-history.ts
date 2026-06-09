@@ -9,7 +9,7 @@ const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 const EMPTY_HISTORY: EarnForecastApyHistoryResponse = {
   feeBps: 1,
   generatedAt: "2026-06-01T00:00:00.000Z",
-  riskProfile: "medium",
+  riskProfile: "safe",
   samples: [],
   window: {
     endedAt: "2026-06-01T00:00:00.000Z",

@@ -2,7 +2,7 @@ const FALLBACK_UPDATED_AT = "2026-06-01T00:00:00.000Z";
 const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type EarnForecastResponse = {
-  strategy: "safe_no_fees" | "medium_fee_aware_1bps";
+  strategy: "safe_no_fees" | "safe_fee_aware_1bps" | "medium_fee_aware_1bps";
   apyBps: number;
   rangeLowBps: number;
   rangeHighBps: number;
@@ -30,7 +30,7 @@ export type EarnForecastApyHistorySeries = {
 export type EarnForecastApyHistoryResponse = {
   feeBps: 1;
   generatedAt: string;
-  riskProfile: "medium";
+  riskProfile: "safe" | "medium";
   samples: EarnForecastApyHistorySample[];
   series?: EarnForecastApyHistorySeries[];
   window: { startedAt: string; endedAt: string };

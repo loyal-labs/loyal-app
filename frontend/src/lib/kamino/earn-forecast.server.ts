@@ -15,6 +15,7 @@ import type {
   TimescaleSupportedReserveRow,
 } from "./timescale-reserve-client.server";
 import {
+  getLatestEarnApyHourlyForecast,
   getLatestEarnForecastSnapshot,
   snapshotRecordToEarnForecast,
   toEarnForecastSnapshotInput,
@@ -37,7 +38,9 @@ export const KAMINO_MAIN_MARKET_USDC_RESERVE =
 export const KAMINO_MAIN_MARKET_USDC_MINT =
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
+const SAFE_FEE_AWARE_STRATEGY = "safe_fee_aware_1bps";
 const MEDIUM_FEE_AWARE_STRATEGY = "medium_fee_aware_1bps";
+const SAFE_RISK_PROFILE = "safe";
 const MEDIUM_RISK_PROFILE = "medium";
 const STABLECOIN_MINT_SET = new Set(
   STABLECOINS.map((stablecoin) => STABLECOIN_MINTS[stablecoin].toBase58())
@@ -610,6 +613,20 @@ export async function getMediumFeeAwareEarnForecastFromClient(
 
 async function getPersistedMediumFeeAwareEarnForecast(): Promise<MediumFeeAwareEarnForecastResult | null> {
   try {
+    try {
+      const hourly = await getLatestEarnApyHourlyForecast({
+        cluster: resolveEarnForecastCluster(),
+        feeBps: CROSS_MINT_FEE_BPS,
+        riskProfile: SAFE_RISK_PROFILE,
+        strategy: SAFE_FEE_AWARE_STRATEGY,
+      });
+      if (hourly) {
+        return hourly;
+      }
+    } catch (error) {
+      console.warn("[earn-forecast] failed to load hourly persisted snapshot", error);
+    }
+
     const snapshot = await getLatestEarnForecastSnapshot({
       cluster: resolveEarnForecastCluster(),
       feeBps: CROSS_MINT_FEE_BPS,

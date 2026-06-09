@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 
 import type {
   EarnForecastApyHistoryResponse,
@@ -10,6 +10,7 @@ import type {
 } from "@/lib/kamino/earn-forecast.shared";
 
 import {
+  earnApyHourlySnapshots,
   earnForecastSnapshots,
   getYieldOptimizationClient,
   type YieldOptimizationClient,
@@ -17,6 +18,8 @@ import {
 
 export type EarnForecastSnapshotRecord =
   typeof earnForecastSnapshots.$inferSelect;
+export type EarnApyHourlySnapshotRecord =
+  typeof earnApyHourlySnapshots.$inferSelect;
 
 export type EarnForecastSnapshotLookupInput = {
   cluster: string;
@@ -113,7 +116,7 @@ export function snapshotRecordToEarnForecast(
     history: {
       feeBps: 1,
       generatedAt: snapshot.generatedAt.toISOString(),
-      riskProfile: "medium",
+      riskProfile: snapshot.riskProfile as EarnForecastApyHistoryResponse["riskProfile"],
       samples: snapshot.samples,
       series,
       window: {
@@ -125,7 +128,7 @@ export function snapshotRecordToEarnForecast(
       apyBps: snapshot.apyBps,
       rangeHighBps: snapshot.rangeHighBps,
       rangeLowBps: snapshot.rangeLowBps,
-      strategy: "medium_fee_aware_1bps",
+      strategy: snapshot.strategy as EarnForecastResponse["strategy"],
       updatedAt: snapshot.generatedAt.toISOString(),
       window: {
         endedAt: snapshot.windowEndedAt.toISOString(),
@@ -156,6 +159,108 @@ export async function getLatestEarnForecastSnapshot(
     .limit(1);
 
   return snapshot ?? null;
+}
+
+export async function getLatestEarnApyHourlyForecast(
+  input: EarnForecastSnapshotLookupInput,
+  dependencies: EarnForecastSnapshotRepositoryDependencies = createDependencies()
+): Promise<EarnForecastSnapshotResult | null> {
+  const latestRows = await dependencies.client.db
+    .select()
+    .from(earnApyHourlySnapshots)
+    .where(
+      and(
+        eq(earnApyHourlySnapshots.strategy, input.strategy),
+        eq(earnApyHourlySnapshots.riskProfile, input.riskProfile),
+        eq(earnApyHourlySnapshots.feeBps, input.feeBps)
+      )
+    )
+    .orderBy(desc(earnApyHourlySnapshots.sampleHour))
+    .limit(1);
+  const latest = latestRows[0];
+  if (!latest) {
+    return null;
+  }
+
+  const windowStartedAt = new Date(latest.sampleHour);
+  windowStartedAt.setUTCDate(windowStartedAt.getUTCDate() - 30);
+  const rows = await dependencies.client.db
+    .select()
+    .from(earnApyHourlySnapshots)
+    .where(
+      and(
+        eq(earnApyHourlySnapshots.strategy, input.strategy),
+        eq(earnApyHourlySnapshots.riskProfile, input.riskProfile),
+        eq(earnApyHourlySnapshots.feeBps, input.feeBps),
+        gte(earnApyHourlySnapshots.sampleHour, windowStartedAt)
+      )
+    )
+    .orderBy(asc(earnApyHourlySnapshots.sampleHour));
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return hourlyRowsToEarnForecast(rows);
+}
+
+function hourlyRowsToEarnForecast(
+  rows: EarnApyHourlySnapshotRecord[]
+): EarnForecastSnapshotResult {
+  const latest = rows[rows.length - 1];
+  const loyalSamples = rows.map((row) => ({
+    apyBps: row.loyalApyBps,
+    observedAt: row.sampleHour.toISOString(),
+  }));
+  const mainUsdcReserveSamples = rows.map((row) => ({
+    apyBps: row.mainUsdcReserveApyBps,
+    observedAt: row.sampleHour.toISOString(),
+  }));
+  const sampleBps = loyalSamples.map((sample) => sample.apyBps);
+  const rangeLowBps = Math.min(...sampleBps, latest.loyalApyBps);
+  const rangeHighBps = Math.max(...sampleBps, latest.loyalApyBps);
+
+  return {
+    history: {
+      feeBps: 1,
+      generatedAt: latest.generatedAt.toISOString(),
+      riskProfile: latest.riskProfile as EarnForecastApyHistoryResponse["riskProfile"],
+      samples: loyalSamples,
+      series: [
+        {
+          key: "loyal",
+          label: "Loyal Earn",
+          metadata: {
+            metric: "rolling_time_weighted_apy_bps",
+          },
+          samples: loyalSamples,
+        },
+        {
+          key: "mainUsdcReserve",
+          label: "Main Market USDC",
+          metadata: {
+            metric: "rolling_time_weighted_apy_bps",
+          },
+          samples: mainUsdcReserveSamples,
+        },
+      ],
+      window: {
+        endedAt: latest.windowEndedAt.toISOString(),
+        startedAt: rows[0].windowStartedAt.toISOString(),
+      },
+    },
+    summary: {
+      apyBps: latest.loyalApyBps,
+      rangeHighBps,
+      rangeLowBps,
+      strategy: latest.strategy as EarnForecastResponse["strategy"],
+      updatedAt: latest.generatedAt.toISOString(),
+      window: {
+        endedAt: latest.windowEndedAt.toISOString(),
+        startedAt: rows[0].windowStartedAt.toISOString(),
+      },
+    },
+  };
 }
 
 export async function upsertEarnForecastSnapshot(

@@ -349,6 +349,37 @@ export const earnForecastSnapshots = loyalYieldSchema.table(
   ]
 );
 
+export const earnApyHourlySnapshots = loyalYieldSchema.table(
+  "earn_apy_hourly_snapshots",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    strategy: text("strategy").notNull(),
+    riskProfile: text("risk_profile").notNull(),
+    feeBps: smallint("fee_bps").notNull(),
+    sampleHour: timestamp("sample_hour", { withTimezone: true }).notNull(),
+    windowStartedAt: timestamp("window_started_at", {
+      withTimezone: true,
+    }).notNull(),
+    windowEndedAt: timestamp("window_ended_at", {
+      withTimezone: true,
+    }).notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull(),
+    loyalApyBps: integer("loyal_apy_bps").notNull(),
+    mainUsdcReserveApyBps: integer("main_usdc_reserve_apy_bps").notNull(),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_apy_hourly_snapshots_key_uidx").on(
+      table.strategy,
+      table.riskProfile,
+      table.feeBps,
+      table.sampleHour
+    ),
+  ]
+);
+
 export const rebalanceDecisions = loyalYieldSchema.table(
   "rebalance_decisions",
   {
@@ -380,6 +411,7 @@ export const rebalanceDecisions = loyalYieldSchema.table(
 );
 
 export const yieldOptimizationSchema = {
+  earnApyHourlySnapshots,
   earnForecastSnapshots,
   managedVaults,
   rebalanceDecisions,
@@ -402,6 +434,7 @@ export type YieldOptimizationClientConfig = {
 };
 
 export type YieldOptimizationClientTables = {
+  earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
   rebalanceDecisions: typeof rebalanceDecisions;
@@ -418,6 +451,7 @@ export type YieldOptimizationClientTables = {
 export class YieldOptimizationClient {
   readonly db: YieldOptimizationDatabase;
   readonly tables: YieldOptimizationClientTables = {
+    earnApyHourlySnapshots,
     earnForecastSnapshots,
     managedVaults,
     rebalanceDecisions,
