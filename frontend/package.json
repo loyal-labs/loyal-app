@@ -5,7 +5,9 @@
   "scripts": {
     "predev": "bun run --cwd .. build:packages",
     "dev": "next dev --turbopack",
-    "dev:1pass": "op run --env-file=../.env.1password -- sh -c 'bun dev'",
+    "dev:1pass": "bun run dev:1pass:dev",
+    "dev:1pass:dev": "op run --env-file=../.env.1password -- sh -c 'bun dev'",
+    "dev:1pass:main": "op run --env-file=../.env.mainnet.1password -- sh -c 'bun dev'",
     "generate-grpc": "buf generate src/lib/proto",
     "prebuild": "bun run --cwd .. build:packages",
     "build": "next build",
