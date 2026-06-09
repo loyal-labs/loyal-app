@@ -161,6 +161,18 @@ export function formatEarnActionAmount(value: number) {
   });
 }
 
+function formatEarnActionCtaAmount(value: number) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  const roundedUpValue = Math.ceil(value * 100) / 100;
+  return roundedUpValue.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  });
+}
+
 export function clampDepositAmountInput(rawValue: string, balance: number) {
   if (rawValue === "") {
     return "";
@@ -4038,9 +4050,7 @@ export function EarnDepositView({
   const depositButtonLabel = isSubmitting
     ? "Depositing..."
     : amountError ??
-      (isMaximumDepositMode
-        ? `Deposit all (${formatEarnActionAmount(effectiveDepositAmount)} USDC)`
-        : `Deposit ${formatEarnActionAmount(effectiveDepositAmount)} USDC`);
+      `Deposit ${formatEarnActionCtaAmount(effectiveDepositAmount)} USDC`;
   const forecastDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -4423,19 +4433,6 @@ export function EarnDepositView({
           width: "100%",
         }}
       >
-        <p
-          style={{
-            color: secondary,
-            fontFamily: font,
-            fontSize: "13px",
-            lineHeight: "17px",
-            margin: "0 0 12px",
-            textAlign: "center",
-          }}
-        >
-          Keep at least $5 of SOL in your wallet to cover network fees,
-          otherwise the deposit won&apos;t go through.
-        </p>
         <button
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}
