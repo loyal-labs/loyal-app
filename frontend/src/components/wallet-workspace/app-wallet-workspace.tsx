@@ -2140,6 +2140,14 @@ export function AppWalletWorkspace({
     setAutodepositConfig(null);
   }, []);
 
+  const handleDeleteAutodeposit = useCallback(() => {
+    setAutodepositConfig(null);
+    markDetailPaneTransition("back");
+    setSelectedSignerId(null);
+    setDetailSelection("earn");
+    setSelectedDetail("Earn");
+  }, [markDetailPaneTransition, setDetailSelection]);
+
   const handleDismissEarnDepositPreview = useCallback(() => {
     console.log("[earn-deposit] preview dismissed");
     setPendingEarnDepositDraft(null);
@@ -3330,6 +3338,7 @@ export function AppWalletWorkspace({
             earnDepositSources.find((source) => source.id === "main") ?? null
           }
           onBack={handleBackFromAutodeposit}
+          onDelete={handleDeleteAutodeposit}
           onSubmit={handleSaveAutodeposit}
         />
       );
@@ -5195,9 +5204,6 @@ export function AppWalletWorkspace({
           border: 1px solid rgba(0, 0, 0, 0.08);
           border-radius: 32px;
           background: #fff;
-          box-shadow:
-            0 1px 4px rgba(0, 0, 0, 0.04),
-            0 8px 24px rgba(0, 0, 0, 0.08);
         }
 
         .wallet-signin-brand {

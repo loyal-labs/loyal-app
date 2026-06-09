@@ -7,6 +7,7 @@ import {
   Check,
   ChevronsDownUp,
   ChevronsUpDown,
+  Clock,
   SlidersHorizontal,
   X,
 } from "lucide-react";
@@ -296,24 +297,27 @@ export function buildForecastAmountOptions(
     balance,
     currentAmount
   );
-  return [
-    ...(currentForecastAmount === null
-      ? []
-      : [
-          {
-            id: USER_FORECAST_SELECTION,
-            label: formatForecastAmountLabel(currentForecastAmount),
-            selection: USER_FORECAST_SELECTION,
-            value: currentForecastAmount,
-          },
-        ]),
-    ...FORECAST_AMOUNT_PRESETS.map((preset) => ({
+  const options: ForecastAmountOption[] = [];
+
+  if (currentForecastAmount !== null) {
+    options.push({
+      id: USER_FORECAST_SELECTION,
+      label: formatForecastAmountLabel(currentForecastAmount),
+      selection: USER_FORECAST_SELECTION,
+      value: currentForecastAmount,
+    });
+  }
+
+  for (const preset of FORECAST_AMOUNT_PRESETS) {
+    options.push({
       id: `preset:${preset.value}`,
       label: preset.label,
       selection: preset.value,
       value: preset.value,
-    })),
-  ];
+    });
+  }
+
+  return options;
 }
 
 export function buildEarnChartPoints(
@@ -480,56 +484,22 @@ export function deriveEarnWithdrawMode({
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
-  const scale = size / 64;
-
   return (
-    <span
+    <svg
       aria-hidden="true"
-      style={{
-        background: "#32B67C",
-        borderRadius: `${16 * scale}px`,
-        display: "inline-block",
-        flexShrink: 0,
-        height: size,
-        overflow: "hidden",
-        position: "relative",
-        width: size,
-      }}
+      fill="none"
+      height={size}
+      style={{ display: "inline-block", flexShrink: 0 }}
+      viewBox="0 0 64 64"
+      width={size}
     >
-      <span
-        style={{
-          background: "#fff",
-          borderRadius: `${2.667 * scale}px`,
-          height: `${21.333 * scale}px`,
-          left: `${10.67 * scale}px`,
-          position: "absolute",
-          top: `${32 * scale}px`,
-          width: `${8 * scale}px`,
-        }}
+      <rect fill="#F9363C" height="64" rx="16" width="64" />
+      <path
+        d="M36 9.39795C36.22 9.35546 36.4427 9.3335 36.667 9.3335C41.4533 9.33394 45.3329 19.1837 45.333 31.3335C45.333 43.4835 41.4533 53.3331 36.667 53.3335C36.4427 53.3335 36.22 53.3125 36 53.27V53.3335H28L28 9.3335H36V9.39795Z"
+        fill="#FD9528"
       />
-      <span
-        style={{
-          background: "#fff",
-          borderRadius: `${2.667 * scale}px`,
-          height: `${42.667 * scale}px`,
-          left: `${28 * scale}px`,
-          position: "absolute",
-          top: `${10.67 * scale}px`,
-          width: `${8 * scale}px`,
-        }}
-      />
-      <span
-        style={{
-          background: "#fff",
-          borderRadius: `${2.667 * scale}px`,
-          height: `${32 * scale}px`,
-          left: `${45.33 * scale}px`,
-          position: "absolute",
-          top: `${21.33 * scale}px`,
-          width: `${8 * scale}px`,
-        }}
-      />
-    </span>
+      <ellipse cx="27.3346" cy="31.3335" fill="#FFD41B" rx="8.66667" ry="22" />
+    </svg>
   );
 }
 
@@ -4595,29 +4565,267 @@ export function EarnDepositView({
   );
 }
 
-function AutodepositWarningDot() {
+const AUTODEPOSIT_AMOUNT_PRESETS = [100, 200, 500, 1000, 2000] as const;
+
+const AUTODEPOSIT_FREQUENCIES = [
+  { id: "day", label: "Every day" },
+  { id: "week", label: "Every week" },
+  { id: "twoWeeks", label: "Every two weeks" },
+  { id: "month", label: "Every month" },
+] as const;
+
+type AutodepositFrequencyId = (typeof AUTODEPOSIT_FREQUENCIES)[number]["id"];
+
+function AutodepositAmountChips({
+  onSelect,
+}: {
+  onSelect: (value: string) => void;
+}) {
   return (
-    <span
-      aria-hidden="true"
+    <div
       style={{
         alignItems: "center",
-        background: LOYAL_EARN_BRAND_COLOR,
-        borderRadius: "9999px",
-        color: "#fff",
-        display: "inline-flex",
-        flexShrink: 0,
-        fontFamily: font,
-        fontSize: "12px",
-        fontWeight: 700,
-        height: "18px",
-        justifyContent: "center",
-        lineHeight: 1,
-        marginTop: "1px",
-        width: "18px",
+        display: "flex",
+        gap: "8px",
+        paddingBottom: "12px",
+        width: "100%",
       }}
     >
-      !
-    </span>
+      <style jsx>{`
+        .autodeposit-chip:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .autodeposit-chip:active {
+          scale: 0.96;
+        }
+      `}</style>
+      {AUTODEPOSIT_AMOUNT_PRESETS.map((preset) => (
+        <button
+          className="autodeposit-chip"
+          key={preset}
+          onClick={() => onSelect(String(preset))}
+          style={{
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            color: secondary,
+            cursor: "pointer",
+            fontFamily: font,
+            fontSize: "14px",
+            fontWeight: 500,
+            lineHeight: "20px",
+            padding: "6px 12px",
+            transition: "background 0.15s ease, scale 0.1s ease",
+            whiteSpace: "nowrap",
+          }}
+          type="button"
+        >
+          ${preset.toLocaleString("en-US")}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Frequency picker. The trigger mirrors a To/From row (clock badge + label +
+// "Starting tomorrow"); tapping it reveals a floating action sheet with the
+// cadence options and a brand-red check on the active one.
+function AutodepositFrequencyField({
+  onChange,
+  value,
+}: {
+  onChange: (value: AutodepositFrequencyId) => void;
+  value: AutodepositFrequencyId;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selected =
+    AUTODEPOSIT_FREQUENCIES.find((option) => option.id === value) ??
+    AUTODEPOSIT_FREQUENCIES[3];
+
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      <style jsx>{`
+        .autodeposit-freq-trigger:hover {
+          background: rgba(0, 0, 0, 0.04) !important;
+        }
+        .autodeposit-freq-option:hover {
+          background: rgba(0, 0, 0, 0.04) !important;
+        }
+        .autodeposit-freq-panel {
+          animation: autodeposit-freq-pop 0.16s cubic-bezier(0.2, 0, 0, 1);
+        }
+        @keyframes autodeposit-freq-pop {
+          from {
+            opacity: 0;
+            transform: translateY(-4px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .autodeposit-freq-panel {
+            animation: none;
+          }
+        }
+      `}</style>
+
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        className="autodeposit-freq-trigger"
+        onClick={() => setIsOpen((current) => !current)}
+        style={{
+          alignItems: "center",
+          background: isOpen ? "rgba(0, 0, 0, 0.04)" : "transparent",
+          border: "none",
+          borderRadius: "16px",
+          cursor: "pointer",
+          display: "flex",
+          overflow: "hidden",
+          padding: "0 12px",
+          textAlign: "left",
+          transition: "background 0.15s ease",
+          width: "100%",
+        }}
+        type="button"
+      >
+        <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+          <span
+            style={{
+              alignItems: "center",
+              background: "rgba(0, 0, 0, 0.04)",
+              borderRadius: "12px",
+              color: secondary,
+              display: "flex",
+              flexShrink: 0,
+              height: "48px",
+              justifyContent: "center",
+              width: "48px",
+            }}
+          >
+            <Clock size={24} strokeWidth={2} />
+          </span>
+        </span>
+        <span
+          style={{
+            display: "flex",
+            flex: 1,
+            flexDirection: "column",
+            gap: "2px",
+            minWidth: 0,
+            padding: "10px 0",
+          }}
+        >
+          <span
+            style={{
+              color: "#000",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 500,
+              letterSpacing: "-0.176px",
+              lineHeight: "20px",
+            }}
+          >
+            {selected.label}
+          </span>
+          <span
+            style={{
+              color: secondary,
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "16px",
+            }}
+          >
+            Starting tomorrow
+          </span>
+        </span>
+        <span style={{ color: secondary, display: "flex", paddingLeft: "12px" }}>
+          <ChevronsUpDown size={24} strokeWidth={2} />
+        </span>
+      </button>
+
+      {isOpen ? (
+        <>
+          <div
+            onClick={() => setIsOpen(false)}
+            style={{ inset: 0, position: "fixed", zIndex: 10 }}
+          />
+          <div
+            className="autodeposit-freq-panel"
+            role="listbox"
+            style={{
+              backdropFilter: "blur(16px)",
+              background: "rgba(255, 255, 255, 0.7)",
+              borderRadius: "16px",
+              boxShadow:
+                "0 0 2px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.08)",
+              display: "flex",
+              flexDirection: "column",
+              left: 0,
+              padding: "8px",
+              position: "absolute",
+              right: 0,
+              top: "calc(100% + 4px)",
+              WebkitBackdropFilter: "blur(16px)",
+              zIndex: 20,
+            }}
+          >
+            {AUTODEPOSIT_FREQUENCIES.map((option) => {
+              const isSelected = option.id === value;
+              return (
+                <button
+                  aria-selected={isSelected}
+                  className="autodeposit-freq-option"
+                  key={option.id}
+                  onClick={() => {
+                    onChange(option.id);
+                    setIsOpen(false);
+                  }}
+                  role="option"
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    display: "flex",
+                    gap: "8px",
+                    padding: "10px 12px",
+                    textAlign: "left",
+                    transition: "background 0.15s ease",
+                    width: "100%",
+                  }}
+                  type="button"
+                >
+                  <span
+                    style={{
+                      color: "#000",
+                      flex: 1,
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: isSelected ? 500 : 400,
+                      lineHeight: "20px",
+                      minWidth: 0,
+                    }}
+                  >
+                    {option.label}
+                  </span>
+                  {isSelected ? (
+                    <Check
+                      color={LOYAL_EARN_BRAND_COLOR}
+                      size={20}
+                      strokeWidth={2}
+                    />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -4748,6 +4956,7 @@ export function AutodepositSetupView({
   isEditing = false,
   mainSource,
   onBack,
+  onDelete,
   onSubmit,
 }: {
   earnBalance?: number;
@@ -4755,10 +4964,13 @@ export function AutodepositSetupView({
   isEditing?: boolean;
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
+  onDelete?: () => void;
   onSubmit?: (amount: string) => void;
 }) {
   const amountInputRef = useRef<HTMLInputElement | null>(null);
   const [amount, setAmount] = useState(initialAmount);
+  const [frequency, setFrequency] = useState<AutodepositFrequencyId>("month");
+  const [keepAmount, setKeepAmount] = useState("100");
   const earnBalanceLabel = formatMoney(earnBalance);
   const [earnWhole, earnFraction = "00"] = earnBalanceLabel.split(".");
   const hasAmount = Number(amount) > 0;
@@ -4787,6 +4999,9 @@ export function AutodepositSetupView({
       <style jsx>{`
         .autodeposit-back:hover {
           background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .autodeposit-delete:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
         }
         .autodeposit-submit:not(:disabled):hover {
           background: #222 !important;
@@ -4841,6 +5056,33 @@ export function AutodepositSetupView({
         >
           Autodeposit
         </h2>
+        {isEditing && onDelete ? (
+          <button
+            className="autodeposit-delete"
+            onClick={onDelete}
+            style={{
+              alignItems: "center",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              borderRadius: "9999px",
+              color: LOYAL_EARN_BRAND_COLOR,
+              cursor: "pointer",
+              display: "inline-flex",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              justifyContent: "center",
+              lineHeight: "20px",
+              padding: "6px 16px",
+              transition: "background 0.15s ease",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            Delete Autodeposit
+          </button>
+        ) : null}
       </div>
 
       <div
@@ -4858,112 +5100,100 @@ export function AutodepositSetupView({
           style={{
             display: "flex",
             flexDirection: "column",
-            padding: "8px 20px",
+            padding: "22px 20px 0",
             width: "100%",
           }}
         >
           <div
             onClick={focusAmount}
             style={{
+              alignItems: "baseline",
               cursor: "text",
               display: "flex",
-              flexDirection: "column",
-              gap: "2px",
               padding: "8px 0",
             }}
           >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "40px",
+                fontWeight: 600,
+                letterSpacing: "-0.44px",
+                lineHeight: "48px",
+              }}
+            >
+              $
+            </span>
+            <input
+              className="autodeposit-amount-input"
+              inputMode="numeric"
+              onChange={(event) => {
+                const next = event.target.value
+                  .replace(/[^0-9]/g, "")
+                  .replace(/^0+(?=\d)/, "")
+                  .slice(0, 9);
+                setAmount(next);
+              }}
+              placeholder="0"
+              ref={amountInputRef}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#000",
+                fontFamily: font,
+                fontSize: "40px",
+                fontWeight: 600,
+                letterSpacing: "-0.44px",
+                lineHeight: "48px",
+                minWidth: 0,
+                outline: "none",
+                padding: 0,
+                width: `${Math.max(amount.length, 1)}ch`,
+              }}
+              type="text"
+              value={amount}
+            />
+            <span
+              style={{
+                color: "rgba(60, 60, 67, 0.4)",
+                fontFamily: font,
+                fontSize: "40px",
+                fontWeight: 600,
+                letterSpacing: "-0.44px",
+                lineHeight: "48px",
+              }}
+            >
+              .00
+            </span>
+          </div>
+          <AutodepositAmountChips onSelect={setAmount} />
+        </section>
+
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div style={{ padding: "3px 12px 1px" }}>
             <p
               style={{
                 color: secondary,
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
-                letterSpacing: "-0.176px",
                 lineHeight: "20px",
                 margin: 0,
+                padding: "12px 0 4px",
               }}
             >
-              Deposit anything above
-            </p>
-            <div style={{ alignItems: "baseline", display: "flex" }}>
-              <span
-                style={{
-                  color: "#000",
-                  fontFamily: font,
-                  fontSize: "40px",
-                  fontWeight: 600,
-                  letterSpacing: "-0.44px",
-                  lineHeight: "48px",
-                }}
-              >
-                $
-              </span>
-              <input
-                className="autodeposit-amount-input"
-                inputMode="numeric"
-                onChange={(event) => {
-                  const next = event.target.value
-                    .replace(/[^0-9]/g, "")
-                    .replace(/^0+(?=\d)/, "")
-                    .slice(0, 9);
-                  setAmount(next);
-                }}
-                placeholder="0"
-                ref={amountInputRef}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#000",
-                  fontFamily: font,
-                  fontSize: "40px",
-                  fontWeight: 600,
-                  letterSpacing: "-0.44px",
-                  lineHeight: "48px",
-                  minWidth: 0,
-                  outline: "none",
-                  padding: 0,
-                  width: `${Math.max(amount.length, 1)}ch`,
-                }}
-                type="text"
-                value={amount}
-              />
-              <span
-                style={{
-                  color: "rgba(60, 60, 67, 0.4)",
-                  fontFamily: font,
-                  fontSize: "40px",
-                  fontWeight: 600,
-                  letterSpacing: "-0.44px",
-                  lineHeight: "48px",
-                }}
-              >
-                .00
-              </span>
-            </div>
-          </div>
-          <div
-            style={{
-              alignItems: "flex-start",
-              display: "flex",
-              gap: "8px",
-              width: "100%",
-            }}
-          >
-            <AutodepositWarningDot />
-            <p
-              style={{
-                color: LOYAL_EARN_BRAND_COLOR,
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "16px",
-                margin: 0,
-              }}
-            >
-              Any stablecoin balance above this amount will automatically go to
-              Earn
+              How often to deposit
             </p>
           </div>
+          <AutodepositFrequencyField onChange={setFrequency} value={frequency} />
         </section>
 
         <section
@@ -4991,7 +5221,7 @@ export function AutodepositSetupView({
           </div>
           <AutodepositSummaryRow
             fraction={earnFraction}
-            icon={<AutodepositEarnIcon />}
+            icon={<EarnYieldIcon size={48} />}
             title="Earn"
             whole={earnWhole}
           />
@@ -5045,6 +5275,119 @@ export function AutodepositSetupView({
             whole={mainSource?.balanceWhole ?? "0"}
           />
         </section>
+
+        <section
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            padding: "8px",
+            width: "100%",
+          }}
+        >
+          <div style={{ padding: "3px 12px 1px" }}>
+            <p
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                margin: 0,
+                padding: "12px 0 4px",
+              }}
+            >
+              Keep at least in Main Account
+            </p>
+          </div>
+          <div style={{ padding: "4px 0 0" }}>
+            <label
+              style={{
+                alignItems: "center",
+                border: "1px solid rgba(0, 0, 0, 0.08)",
+                borderRadius: "16px",
+                cursor: "text",
+                display: "flex",
+                height: "60px",
+                overflow: "hidden",
+                padding: "0 12px",
+                width: "100%",
+              }}
+            >
+              <span
+                style={{
+                  alignItems: "baseline",
+                  display: "flex",
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    lineHeight: "24px",
+                  }}
+                >
+                  $
+                </span>
+                <input
+                  className="autodeposit-amount-input"
+                  inputMode="numeric"
+                  onChange={(event) => {
+                    const next = event.target.value
+                      .replace(/[^0-9]/g, "")
+                      .replace(/^0+(?=\d)/, "")
+                      .slice(0, 9);
+                    setKeepAmount(next);
+                  }}
+                  placeholder="0"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#000",
+                    fontFamily: font,
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    lineHeight: "24px",
+                    minWidth: 0,
+                    outline: "none",
+                    padding: 0,
+                    width: `${Math.max(keepAmount.length, 1)}ch`,
+                  }}
+                  type="text"
+                  value={keepAmount}
+                />
+                <span
+                  style={{
+                    color: "rgba(60, 60, 67, 0.4)",
+                    fontFamily: font,
+                    fontSize: "20px",
+                    fontWeight: 600,
+                    lineHeight: "24px",
+                  }}
+                >
+                  .00
+                </span>
+              </span>
+            </label>
+          </div>
+          <div style={{ padding: "8px 12px 4px" }}>
+            <p
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                margin: 0,
+              }}
+            >
+              Autodeposits will never reduce your Main Account below this amount
+            </p>
+          </div>
+        </section>
       </div>
 
       <div
@@ -5061,25 +5404,28 @@ export function AutodepositSetupView({
           onClick={() => onSubmit?.(amount)}
           style={{
             alignItems: "center",
-            background: hasAmount ? "#000" : "rgba(0, 0, 0, 0.04)",
+            background: hasAmount ? "#000" : "rgba(249, 54, 60, 0.14)",
             border: "none",
-            borderRadius: "78px",
-            color: hasAmount ? "#fff" : secondary,
+            borderRadius: "9999px",
+            color: hasAmount ? "#fff" : LOYAL_EARN_BRAND_COLOR,
             cursor: hasAmount ? "pointer" : "default",
             display: "flex",
             fontFamily: font,
-            fontSize: "17px",
-            fontWeight: 500,
-            height: "50px",
+            fontSize: "16px",
+            fontWeight: hasAmount && !isEditing ? 400 : 500,
             justifyContent: "center",
-            lineHeight: "22px",
-            padding: "15px 12px",
+            lineHeight: "20px",
+            padding: "12px 16px",
             transition: "background 0.15s ease",
             width: "100%",
           }}
           type="button"
         >
-          {isEditing ? "Save Autodeposit" : "Create Autodeposit"}
+          {hasAmount
+            ? isEditing
+              ? "Save changes"
+              : "Create Autodeposit"
+            : "Enter amount"}
         </button>
       </div>
     </div>

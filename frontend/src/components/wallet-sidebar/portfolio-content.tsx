@@ -145,56 +145,22 @@ function SmartAccountInlineError({
 }
 
 export function EarnYieldIcon({ size = 48 }: { size?: number }) {
-  const scale = size / 48;
-
   return (
-    <span
+    <svg
       aria-hidden="true"
-      style={{
-        background: "#32B67C",
-        borderRadius: `${12 * scale}px`,
-        display: "inline-block",
-        flexShrink: 0,
-        height: size,
-        overflow: "hidden",
-        position: "relative",
-        width: size,
-      }}
+      fill="none"
+      height={size}
+      style={{ display: "inline-block", flexShrink: 0 }}
+      viewBox="0 0 64 64"
+      width={size}
     >
-      <span
-        style={{
-          background: "#fff",
-          borderRadius: `${2 * scale}px`,
-          height: `${16 * scale}px`,
-          left: `${8 * scale}px`,
-          position: "absolute",
-          top: `${24 * scale}px`,
-          width: `${6 * scale}px`,
-        }}
+      <rect fill="#F9363C" height="64" rx="16" width="64" />
+      <path
+        d="M36 9.39795C36.22 9.35546 36.4427 9.3335 36.667 9.3335C41.4533 9.33394 45.3329 19.1837 45.333 31.3335C45.333 43.4835 41.4533 53.3331 36.667 53.3335C36.4427 53.3335 36.22 53.3125 36 53.27V53.3335H28L28 9.3335H36V9.39795Z"
+        fill="#FD9528"
       />
-      <span
-        style={{
-          background: "#fff",
-          borderRadius: `${2 * scale}px`,
-          height: `${32 * scale}px`,
-          left: `${21 * scale}px`,
-          position: "absolute",
-          top: `${8 * scale}px`,
-          width: `${6 * scale}px`,
-        }}
-      />
-      <span
-        style={{
-          background: "#fff",
-          borderRadius: `${2 * scale}px`,
-          height: `${24 * scale}px`,
-          left: `${34 * scale}px`,
-          position: "absolute",
-          top: `${16 * scale}px`,
-          width: `${6 * scale}px`,
-        }}
-      />
-    </span>
+      <ellipse cx="27.3346" cy="31.3335" fill="#FFD41B" rx="8.66667" ry="22" />
+    </svg>
   );
 }
 
