@@ -47,12 +47,12 @@ import type {
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   getClientCacheStorage,
   readClientCache,
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
-import { getPublicEnv } from "@/lib/core/config/public";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
   buildEarnDepositConfirmRequestBody,
@@ -1893,7 +1893,7 @@ export function useSmartAccountSidebarData(
   } = {}
 ): SmartAccountSidebarData {
   const { authenticatedUserTotalUsd, onAfterTx } = options;
-  const solanaEnv = getPublicEnv().solanaEnv;
+  const solanaEnv = usePublicEnv().solanaEnv;
   const onAfterTxRef = useRef(onAfterTx);
   useEffect(() => {
     onAfterTxRef.current = onAfterTx;
