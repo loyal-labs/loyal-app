@@ -60,6 +60,35 @@ function toStatusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
+function ButtonSpinner() {
+  return (
+    <span aria-hidden="true" className="review-btn-spinner">
+      <style jsx>{`
+        .review-btn-spinner {
+          display: inline-block;
+          width: 18px;
+          height: 18px;
+          vertical-align: middle;
+          border-radius: 9999px;
+          border: 2px solid rgba(255, 255, 255, 0.35);
+          border-top-color: #fff;
+          animation: review-btn-spinner-rotate 0.6s linear infinite;
+        }
+        @keyframes review-btn-spinner-rotate {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .review-btn-spinner {
+            animation-duration: 1.1s;
+          }
+        }
+      `}</style>
+    </span>
+  );
+}
+
 export function ApprovalReviewContent({
   approval,
   isSubmitting,
@@ -518,11 +547,11 @@ export function ApprovalReviewContent({
                 color: "#fff",
                 textAlign: "center",
                 transition: "background 0.15s ease",
-                opacity: isSubmitting ? 0.6 : 1,
+                opacity: 1,
               }}
               type="button"
             >
-              {primaryActionLabel}
+              {isSubmitting ? <ButtonSpinner /> : primaryActionLabel}
             </button>
           </div>
         ) : canExecute ? (
@@ -544,11 +573,11 @@ export function ApprovalReviewContent({
               color: "#fff",
               textAlign: "center",
               transition: "background 0.15s ease",
-              opacity: isSubmitting ? 0.6 : 1,
+              opacity: 1,
             }}
             type="button"
           >
-            {primaryActionLabel}
+            {isSubmitting ? <ButtonSpinner /> : primaryActionLabel}
           </button>
         ) : (
           <button
@@ -1311,11 +1340,17 @@ function PagedApprovalReview({
               color: "#fff",
               textAlign: "center",
               transition: "background 0.15s ease",
-              opacity: isSubmitting ? 0.6 : 1,
+              opacity: 1,
             }}
             type="button"
           >
-            {isLast ? primaryActionLabel : "Continue"}
+            {isSubmitting ? (
+              <ButtonSpinner />
+            ) : isLast ? (
+              primaryActionLabel
+            ) : (
+              "Continue"
+            )}
           </button>
         </div>
       </div>
