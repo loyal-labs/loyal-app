@@ -102,10 +102,13 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ## Testing
 
-- Write assertions inside `it()` or `test()` blocks
-- Avoid done callbacks in async tests - use async/await instead
-- Don't use `.only` or `.skip` in committed code
-- Keep test suites reasonably flat - avoid excessive `describe` nesting
+- **Do NOT write unit tests.** Do not create `*.test.ts`, `*.test.tsx`,
+  `__tests__/` directories, or any `bun:test` / Vitest / Jest suite.
+- This is a hard rule — the unit-test suite was intentionally removed. Do not
+  reintroduce it, not even a single regression or helper test. If you think a
+  change truly needs automated coverage, ask the maintainer first.
+- Verify changes with `next lint`, `tsc --noEmit`, and a manual smoke check of
+  the affected flow instead.
 
 ## When Biome Can't Help
 

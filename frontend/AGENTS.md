@@ -102,22 +102,23 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ## Testing
 
-Write assertions inside `it()` or `test()` blocks, use async/await instead of
-done callbacks, and do not commit `.only` or `.skip`. Keep suites reasonably
-flat.
+**Do NOT write unit tests. Do NOT create `*.test.ts`, `*.test.tsx`, `__tests__/`
+directories, or any `bun:test` / Vitest / Jest suite in this project.**
 
-Prefer behavior and invariants over field mirrors. Earn and smart-account route
-tests should assert status, branch discriminants, caller-consumed fields, and
-repository side effects. Repository tests should cover idempotency, ownership
-boundaries, state transitions, confirmed-chain writes, and over-withdrawal or
-holding rules. Avoid enumerating every Drizzle column in `.values()` calls.
+This is a hard rule. The unit-test suite was deliberately removed because it was
+not earning its keep. Do not reintroduce it — not "just one small test", not a
+regression test for a bug you fixed, not a helper test alongside a refactor. If
+you believe a change genuinely requires automated coverage, stop and ask the
+maintainer first; do not add tests on your own initiative.
 
-Put Earn transaction presentation formatting in a helper. Unit-test deposits,
-withdrawals, reserve movement, and dust amounts there; keep route tests scoped
-to auth and repository query scope.
+Verify your work instead with:
 
-Live RPC/devnet checks must be explicit smoke tests with env requirements and
-no checked-in key material. They must not run in default `bun test`.
+- `next lint` and `tsc --noEmit` for static correctness
+- a manual smoke check of the affected flow in the running app
+
+Live RPC/devnet checks, if ever needed, must be explicit standalone scripts with
+env requirements and no checked-in key material — never part of an automated
+test runner.
 
 ## When Biome Can't Help
 
