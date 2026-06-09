@@ -66,7 +66,7 @@ describe("smart-account earn transactions route", () => {
         type: "deposit" as const,
       },
       {
-        amountRaw: BigInt(1_250_000),
+        amountRaw: BigInt(5_008_000),
         confirmedAt: new Date("2026-06-01T18:05:00.000Z"),
         confirmedSlot: BigInt(111),
         id: BigInt(1),
@@ -129,11 +129,15 @@ describe("smart-account earn transactions route", () => {
     expect(body.transactions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          amount: "+2.5 USDC",
+          amount: "-2.50 USDC",
           kind: "withdraw",
         }),
         expect.objectContaining({
-          amount: "-<0.01 USDC",
+          amount: "+0.01 USDC",
+          kind: "deposit",
+        }),
+        expect.objectContaining({
+          amount: "+5.01 USDC",
           kind: "deposit",
         }),
       ])

@@ -5,14 +5,21 @@ import {
   type SerializedEarnTransaction,
 } from "../formatter";
 
-function event(overrides = {}) {
+function event(
+  overrides: Partial<Parameters<typeof serializeEarnTransactionEvent>[0]> = {}
+) {
+  const amountRaw = overrides.amountRaw ?? BigInt(1_250_000);
   return {
-    amountRaw: BigInt(1_250_000),
+    amountRaw,
     confirmedAt: new Date("2026-06-01T18:05:00.000Z"),
     confirmedSlot: BigInt(111),
     id: BigInt(1),
     liquidityMint: "USDC-mint",
     market: "Main",
+    principalDeltaRaw:
+      overrides.principalDeltaRaw !== undefined
+        ? overrides.principalDeltaRaw
+        : amountRaw,
     reserve: "reserve-1",
     signature: "deposit-sig-1",
     type: "deposit" as const,
@@ -33,7 +40,7 @@ function pickContract(transaction: SerializedEarnTransaction) {
 describe("serializeEarnTransactionEvent", () => {
   test("formats deposits from Main USDC into the Earn vault", () => {
     expect(pickContract(serializeEarnTransactionEvent(event()))).toEqual({
-      amount: "-1.25 USDC",
+      amount: "+1.25 USDC",
       destination: { icon: null, label: "Earn vault" },
       kind: "deposit",
       rawAmount: "1.250000 USDC",
@@ -53,7 +60,7 @@ describe("serializeEarnTransactionEvent", () => {
         )
       )
     ).toEqual({
-      amount: "+2.5 USDC",
+      amount: "-2.50 USDC",
       destination: { icon: "/agents/Agent-01.svg", label: "Main USDC" },
       kind: "withdraw",
       rawAmount: "2.500000 USDC",
@@ -69,8 +76,45 @@ describe("serializeEarnTransactionEvent", () => {
       })
     );
 
-    expect(transaction.amount).toBe("-<0.01 USDC");
+    expect(transaction.amount).toBe("+0.01 USDC");
     expect(transaction.rawAmount).toBe("0.000001 USDC");
+  });
+
+  test("rounds display amounts up to two decimal places", () => {
+    const transaction = serializeEarnTransactionEvent(
+      event({
+        amountRaw: BigInt(5_008_000),
+        signature: "fractional-deposit-sig-1",
+      })
+    );
+
+    expect(transaction.amount).toBe("+5.01 USDC");
+    expect(transaction.rawAmount).toBe("5.008000 USDC");
+  });
+
+  test("formats top-up deposits from the principal delta, not the cumulative holding", () => {
+    const transaction = serializeEarnTransactionEvent(
+      event({
+        amountRaw: BigInt(7_008_000),
+        principalDeltaRaw: BigInt(2_000_000),
+        signature: "top-up-deposit-sig-1",
+      })
+    );
+
+    expect(transaction.amount).toBe("+2.00 USDC");
+    expect(transaction.rawAmount).toBe("2.000000 USDC");
+  });
+
+  test("keeps two display decimals for whole amounts", () => {
+    const transaction = serializeEarnTransactionEvent(
+      event({
+        amountRaw: BigInt(5_000_000),
+        signature: "whole-deposit-sig-1",
+      })
+    );
+
+    expect(transaction.amount).toBe("+5.00 USDC");
+    expect(transaction.rawAmount).toBe("5.000000 USDC");
   });
 
   test("formats reserve-to-reserve movement events by short reserve labels", () => {
@@ -108,7 +152,7 @@ describe("serializeEarnTransactionEvent", () => {
         )
       )
     ).toEqual({
-      amount: "2 USDC",
+      amount: "2.00 USDC",
       destination: { icon: null, label: "ShortDest" },
       kind: "reconciliation",
       rawAmount: "2.000000 USDC",

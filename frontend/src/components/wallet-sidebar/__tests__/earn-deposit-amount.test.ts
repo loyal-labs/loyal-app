@@ -13,6 +13,7 @@ import {
   deriveEstimatedEarnedAmountApyBps,
   deriveEarnWithdrawMode,
   formatEarnActionAmount,
+  formatEarnActionCtaAmount,
   formatHistoricalApyDelta,
   formatHistoricalAxisDate,
   formatMonthlyEarningsBarLabel,
@@ -43,6 +44,12 @@ describe("Earn action amount formatting", () => {
   test("formats all-mode amounts with two upward-rounded decimals", () => {
     expect(formatEarnActionAmount(1280)).toBe("1,280.00");
     expect(formatEarnActionAmount(12.340001)).toBe("12.35");
+  });
+
+  test("formats button amounts like the deposit CTA", () => {
+    expect(formatEarnActionCtaAmount(1280)).toBe("1,280");
+    expect(formatEarnActionCtaAmount(12.340001)).toBe("12.35");
+    expect(formatEarnActionCtaAmount(5.008)).toBe("5.01");
   });
 });
 

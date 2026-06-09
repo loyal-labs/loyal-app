@@ -138,7 +138,7 @@ describe("buildEarnDepositReviewItem", () => {
     )?.rows?.[0]?.value;
 
     expect(review.destinationLabel).toBe("Earn vault");
-    expect(review.primaryActionLabel).toBe("Continue");
+    expect(review.primaryActionLabel).toBe("Deposit 125.5 USDC");
     expect(review.pages).toHaveLength(1);
     expect(review.pages?.[0]?.title).toBe("Approval 2 of 2");
     expect(reserveTransfer).toContain("Main Market USDC reserve");
@@ -153,7 +153,7 @@ describe("buildEarnDepositReviewItem", () => {
     });
 
     expect(review.summaryLabel).toBe("Deposit into Earn vault");
-    expect(review.primaryActionLabel).toBe("Continue");
+    expect(review.primaryActionLabel).toBe("Deposit 125.5 USDC");
     expect(review.pages).toHaveLength(1);
     expect(review.pages?.[0]?.title).toBe("Deposit");
     expect(review.pages?.[0]?.rows).toEqual(

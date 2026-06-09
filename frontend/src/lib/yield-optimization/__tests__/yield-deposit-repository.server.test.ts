@@ -143,6 +143,7 @@ function createHistoryFakeClient() {
       id: BigInt(1),
       liquidityMint: "USDC-mint",
       market: "Main",
+      principalDeltaRaw: BigInt(1_000_000),
       reserve: "reserve-1",
       signature: "deposit-sig-1",
       sourceDepositId: BigInt(1),
@@ -158,6 +159,7 @@ function createHistoryFakeClient() {
       id: BigInt(2),
       liquidityMint: "USDC-mint",
       market: "Main",
+      principalDeltaRaw: BigInt(-500_000),
       reserve: "reserve-1",
       signature: "withdrawal-sig-2",
       sourceDepositId: null,
@@ -173,6 +175,7 @@ function createHistoryFakeClient() {
       id: BigInt(3),
       liquidityMint: "USDC-mint",
       market: "Main",
+      principalDeltaRaw: BigInt(2_500_000),
       reserve: "reserve-1",
       signature: "deposit-sig-3",
       sourceDepositId: BigInt(3),
@@ -188,6 +191,7 @@ function createHistoryFakeClient() {
       id: BigInt(4),
       liquidityMint: "USDC-mint",
       market: "Main",
+      principalDeltaRaw: BigInt(-250_000),
       reserve: "reserve-1",
       signature: "aaa-withdrawal-sig-4",
       sourceDepositId: null,
@@ -809,6 +813,56 @@ describe("recordConfirmedYieldDeposit", () => {
     ]);
   });
 
+  test("initial deposit after a closed position resets aggregate and records initialization", async () => {
+    const fake = createFakeClient({
+      existingPosition: position({
+        currentAmountRaw: BigInt(0),
+        principalAmountRaw: BigInt(0),
+        status: "closed",
+      }),
+      updatedPosition: position({
+        currentAmountRaw: BigInt(1_000_000),
+        firstDepositSignature: "deposit-sig-after-close",
+        principalAmountRaw: BigInt(1_000_000),
+        status: "active",
+      }),
+      upsertedPosition: position({
+        currentAmountRaw: BigInt(1_000_000),
+        firstDepositSignature: "deposit-sig-after-close",
+        principalAmountRaw: BigInt(1_000_000),
+        status: "active",
+      }),
+    });
+
+    const result = await recordConfirmedYieldDeposit(
+      input({
+        depositSignature: "deposit-sig-after-close",
+        policyInitialization: "create",
+        policySignature: "deposit-sig-after-close",
+      }),
+      {
+        client: fake.client as never,
+        now: () => new Date("2026-06-01T00:00:00.000Z"),
+      }
+    );
+
+    const aggregateCall = fake.insertCalls.find(
+      (call) => call.table === userYieldPositions
+    );
+    const holdingEventCall = fake.insertCalls.find(
+      (call) => call.table === userYieldPositionHoldingEvents
+    );
+
+    expect(result.status).toBe("active");
+    expect(result.firstDepositSignature).toBe("deposit-sig-after-close");
+    expect(aggregateCall?.values?.principalAmountRaw).toBe(BigInt(1_000_000));
+    expect(holdingEventCall?.values).toMatchObject({
+      eventType: "deposit_initialized",
+      principalDeltaRaw: BigInt(1_000_000),
+      sourceSignature: "deposit-sig-after-close",
+    });
+  });
+
   test("rejects first deposits when an active Earn position already exists", async () => {
     const fake = createFakeClient({
       existingPosition: position({
@@ -856,27 +910,32 @@ describe("findYieldPositionHistoryEvents", () => {
     expect(
       result.map((event) => ({
         amountRaw: event.amountRaw,
+        principalDeltaRaw: event.principalDeltaRaw,
         signature: event.signature,
         type: event.type,
       }))
     ).toEqual([
       {
         amountRaw: BigInt(250_000),
+        principalDeltaRaw: BigInt(-250_000),
         signature: "aaa-withdrawal-sig-4",
         type: "withdrawal",
       },
       {
         amountRaw: BigInt(3_000_000),
+        principalDeltaRaw: BigInt(2_500_000),
         signature: "deposit-sig-3",
         type: "deposit",
       },
       {
         amountRaw: BigInt(500_000),
+        principalDeltaRaw: BigInt(-500_000),
         signature: "withdrawal-sig-2",
         type: "withdrawal",
       },
       {
         amountRaw: BigInt(1_000_000),
+        principalDeltaRaw: BigInt(1_000_000),
         signature: "deposit-sig-1",
         type: "deposit",
       },

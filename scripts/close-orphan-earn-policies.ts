@@ -36,7 +36,9 @@ const EARN_VAULT_INDEX = 1;
 const YIELD_DATABASE_URL_ENV_NAME = "NEON_DATABASE_URL";
 
 type ParsedArgs = {
+  deleteDbRows: boolean;
   execute: boolean;
+  includeStaleDbPolicies: boolean;
   programId: PublicKey;
   rpcUrl: string | null;
   settingsPda: PublicKey;
@@ -54,7 +56,7 @@ type OrphanEarnPolicyInput = {
 };
 
 type OrphanEarnPolicyCandidate = OrphanEarnPolicyInput & {
-  expectedAction: "close";
+  expectedAction: "close" | "close-and-delete-db";
 };
 
 function printHelpAndExit(): never {
@@ -66,6 +68,11 @@ Required:
 
 Options:
   --execute                 Close orphan Earn policies. Omit for dry-run.
+  --include-stale-db-policies
+                            Also close DB-present Earn policies that no longer match the current Earn target
+                            and are not referenced by active positions.
+  --delete-db-rows          After confirmed close, delete closed policy rows from loyal_yield.managed_vaults
+                            and loyal_yield.route_policies.
   --rpc-url <URL>           Override RPC endpoint.
   --program-id <PUBKEY>     Override smart-account program id.
 
@@ -86,7 +93,9 @@ function readFlagValue(args: string[], index: number, flag: string): string {
 }
 
 function parseArgs(argv = process.argv.slice(2)): ParsedArgs {
+  let deleteDbRows = false;
   let execute = false;
+  let includeStaleDbPolicies = false;
   let settingsPda: PublicKey | null = null;
   let rpcUrl: string | null = null;
   let programId = new PublicKey(
@@ -102,6 +111,12 @@ function parseArgs(argv = process.argv.slice(2)): ParsedArgs {
         break;
       case "--execute":
         execute = true;
+        break;
+      case "--include-stale-db-policies":
+        includeStaleDbPolicies = true;
+        break;
+      case "--delete-db-rows":
+        deleteDbRows = true;
         break;
       case "--settings-pda":
         settingsPda = new PublicKey(readFlagValue(argv, index, arg));
@@ -124,7 +139,18 @@ function parseArgs(argv = process.argv.slice(2)): ParsedArgs {
     throw new Error("--settings-pda is required.");
   }
 
-  return { execute, programId, rpcUrl, settingsPda };
+  if (deleteDbRows && !execute) {
+    throw new Error("--delete-db-rows requires --execute.");
+  }
+
+  return {
+    deleteDbRows,
+    execute,
+    includeStaleDbPolicies,
+    programId,
+    rpcUrl,
+    settingsPda,
+  };
 }
 
 function parseSecretKeyBytes(raw: string): Uint8Array {
@@ -328,18 +354,95 @@ function isEarnYieldRoutingPolicy(args: {
   );
 }
 
-function filterOrphanEarnPolicies(
-  policies: OrphanEarnPolicyInput[]
-): OrphanEarnPolicyCandidate[] {
-  return policies
-    .filter(
-      (policy) =>
-        policy.state === "ProgramInteraction" &&
-        policy.accountIndex === EARN_VAULT_INDEX &&
-        !policy.dbPresent &&
-        !policy.referencedByActivePosition
-    )
-    .map((policy) => ({ ...policy, expectedAction: "close" as const }));
+function filterOrphanEarnPolicies(args: {
+  includeStaleDbPolicies: boolean;
+  policies: OrphanEarnPolicyInput[];
+}): OrphanEarnPolicyCandidate[] {
+  return args.policies.flatMap((policy) => {
+    if (
+      policy.state === "ProgramInteraction" &&
+      policy.accountIndex === EARN_VAULT_INDEX &&
+      !policy.referencedByActivePosition
+    ) {
+      if (!policy.dbPresent) {
+        return [{ ...policy, expectedAction: "close" as const }];
+      }
+
+      if (args.includeStaleDbPolicies && !policy.matchesEarnYieldRouting) {
+        return [
+          { ...policy, expectedAction: "close-and-delete-db" as const },
+        ];
+      }
+    }
+
+    return [];
+  });
+}
+
+async function deleteClosedPolicyRows(args: {
+  candidates: OrphanEarnPolicyCandidate[];
+  settingsPda: PublicKey;
+}) {
+  const databaseUrl = process.env[YIELD_DATABASE_URL_ENV_NAME];
+  if (!databaseUrl) {
+    throw new Error(`${YIELD_DATABASE_URL_ENV_NAME} is required.`);
+  }
+
+  const policyAccounts = args.candidates
+    .filter((candidate) => candidate.dbPresent)
+    .map((candidate) => candidate.address);
+
+  if (policyAccounts.length === 0) {
+    return {
+      deletedManagedVaults: [],
+      deletedRoutePolicies: [],
+    };
+  }
+
+  const sql = neon(databaseUrl);
+  const settings = args.settingsPda.toBase58();
+  const activePositions = await sql`
+    SELECT policy_account
+    FROM loyal_yield.user_yield_positions
+    WHERE settings = ${settings}
+      AND vault_index = ${EARN_VAULT_INDEX}
+      AND status = 'active'
+      AND policy_account = ANY(${policyAccounts})
+  `;
+
+  if (activePositions.length > 0) {
+    throw new Error(
+      `Refusing to delete DB rows referenced by active positions: ${activePositions
+        .map((row) => String(row.policy_account))
+        .join(", ")}`
+    );
+  }
+
+  const deletedManagedVaults = await sql`
+    DELETE FROM loyal_yield.managed_vaults
+    WHERE settings = ${settings}
+      AND vault_index = ${EARN_VAULT_INDEX}
+      AND active_policy_id IN (
+        SELECT id
+        FROM loyal_yield.route_policies
+        WHERE settings = ${settings}
+          AND vault_index = ${EARN_VAULT_INDEX}
+          AND policy_account = ANY(${policyAccounts})
+      )
+    RETURNING id, vault_pubkey, active_policy_id
+  `;
+  const deletedRoutePolicies = await sql`
+    DELETE FROM loyal_yield.route_policies
+    WHERE settings = ${settings}
+      AND vault_index = ${EARN_VAULT_INDEX}
+      AND policy_account = ANY(${policyAccounts})
+    RETURNING id, policy_account, policy_seed
+  `;
+
+  return {
+    deletedManagedVaults,
+    deletedRoutePolicies,
+  };
 }
 
 function createWalletAdapter(wallet: Keypair) {
@@ -618,7 +721,10 @@ async function main() {
       };
     })
   );
-  const candidates = filterOrphanEarnPolicies(policyRows);
+  const candidates = filterOrphanEarnPolicies({
+    includeStaleDbPolicies: args.includeStaleDbPolicies,
+    policies: policyRows,
+  });
 
   console.log("");
   console.log("All on-chain policies:");
@@ -665,6 +771,18 @@ async function main() {
   }
   console.log("closed policies:");
   printPolicyTable(candidates);
+
+  if (args.deleteDbRows) {
+    const dbResult = await deleteClosedPolicyRows({
+      candidates,
+      settingsPda: args.settingsPda,
+    });
+    console.log("");
+    console.log("deleted managed_vaults rows:");
+    console.table(dbResult.deletedManagedVaults);
+    console.log("deleted route_policies rows:");
+    console.table(dbResult.deletedRoutePolicies);
+  }
 }
 
 if (import.meta.main) {

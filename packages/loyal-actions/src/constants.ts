@@ -204,13 +204,13 @@ export function getKaminoUsdcEarnTargetForCluster(cluster: LoyalCluster): {
 }
 
 export const KAMINO_LEND_PROGRAM_ID = new PublicKey(
-  "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd"
+  "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 );
 export const KAMINO_DEVNET_LEND_PROGRAM_ID = new PublicKey(
   "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 );
 export const KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR = [
-  242, 35, 198, 137, 82, 225, 242, 182,
+  216, 224, 191, 27, 204, 151, 102, 175,
 ] as const;
 export const KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR = [
   235, 52, 119, 152, 149, 197, 20, 7,

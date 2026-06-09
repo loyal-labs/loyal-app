@@ -7,7 +7,7 @@ import {
   type VaultYieldRoutingPolicyPlan,
 } from "@loyal/actions";
 import { PublicKey } from "@solana/web3.js";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import {
   getYieldOptimizationClient,
@@ -75,6 +75,7 @@ export type UserYieldPositionHistoryEventRecord = {
   id: bigint;
   reserve: string;
   market: string | null;
+  principalDeltaRaw: bigint | null;
   liquidityMint: string;
   sourceReserve?: string | null;
   destinationReserve?: string | null;
@@ -530,6 +531,7 @@ export async function recordConfirmedYieldDeposit(
       "Initial yield deposit cannot recreate an active Earn policy."
     );
   }
+  const hasActiveExistingPosition = existingPosition?.status === "active";
 
   await upsertConfirmedYieldRoutePolicy({
     client,
@@ -571,14 +573,16 @@ export async function recordConfirmedYieldDeposit(
     const position = await upsertAggregatePosition({
       client,
       input,
-      mode: "increment-principal",
+      mode: hasActiveExistingPosition
+        ? "increment-principal"
+        : "recover-principal",
       now,
     });
     const sameCurrentHolding =
-      !existingPosition ||
+      !hasActiveExistingPosition ||
       (existingPosition.currentReserve === input.targetReserve &&
         existingPosition.currentLiquidityMint === input.liquidityMint);
-    const nextCurrentAmountRaw = existingPosition
+    const nextCurrentAmountRaw = hasActiveExistingPosition
       ? sameCurrentHolding
         ? existingPosition.currentAmountRaw + input.principalAmountRaw
         : existingPosition.currentAmountRaw
@@ -587,16 +591,26 @@ export async function recordConfirmedYieldDeposit(
       amountRaw: nextCurrentAmountRaw,
       client,
       createdAt: now,
-      eventType: existingPosition ? "deposit_top_up" : "deposit_initialized",
+      eventType: hasActiveExistingPosition
+        ? "deposit_top_up"
+        : "deposit_initialized",
       holdingDeltaRaw: sameCurrentHolding ? input.principalAmountRaw : null,
       liquidityMint:
-        existingPosition?.currentLiquidityMint ?? input.liquidityMint,
-      market: existingPosition?.currentMarket ?? input.market,
+        hasActiveExistingPosition && existingPosition
+          ? existingPosition.currentLiquidityMint
+          : input.liquidityMint,
+      market:
+        hasActiveExistingPosition && existingPosition
+          ? existingPosition.currentMarket
+          : input.market,
       observedAt: now,
       observedSlot: input.confirmedSlot,
       positionId: position.id,
       principalDeltaRaw: input.principalAmountRaw,
-      reserve: existingPosition?.currentReserve ?? input.targetReserve,
+      reserve:
+        hasActiveExistingPosition && existingPosition
+          ? existingPosition.currentReserve
+          : input.targetReserve,
       sourceDepositId: insertedDeposit.id,
       sourceSignature: input.depositSignature,
     });
@@ -672,7 +686,7 @@ export async function findActiveYieldRoutePolicy(input: {
       eq(routePolicies.vaultIndex, input.vaultIndex),
       eq(routePolicies.active, true)
     ),
-    orderBy: [asc(routePolicies.id)],
+    orderBy: [desc(routePolicies.id)],
   });
 
   return policy ?? null;
@@ -759,6 +773,7 @@ export async function findYieldPositionHistoryEvents(
       id: userYieldPositionHoldingEvents.id,
       liquidityMint: userYieldPositionHoldingEvents.liquidityMint,
       market: userYieldPositionHoldingEvents.market,
+      principalDeltaRaw: userYieldPositionHoldingEvents.principalDeltaRaw,
       reserve: userYieldPositionHoldingEvents.reserve,
       signature: userYieldPositionHoldingEvents.sourceSignature,
       sourceDepositId: userYieldPositionHoldingEvents.sourceDepositId,
@@ -811,6 +826,7 @@ export async function findYieldPositionHistoryEvents(
         id: event.id,
         liquidityMint: event.liquidityMint,
         market: event.market,
+        principalDeltaRaw: event.principalDeltaRaw,
         reserve: event.reserve,
         signature:
           event.signature ??

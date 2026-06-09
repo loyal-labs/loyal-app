@@ -84,13 +84,14 @@ export function compileToSynchronousMessageAndAccountsV2({
     // Concatenate the serialized instruction to the buffer
     args_buffer = Buffer.concat([args_buffer, serialized_ix]);
 
-    // Add the members as signers
-    members.forEach((member) => {
-      remainingAccounts.unshift({
-        pubkey: member,
-        isSigner: true,
-        isWritable: false,
-      });
+  });
+
+  // Add the members as signers after instruction indexes have been serialized.
+  members.forEach((member) => {
+    remainingAccounts.unshift({
+      pubkey: member,
+      isSigner: true,
+      isWritable: false,
     });
   });
 
@@ -183,23 +184,23 @@ export function compileToSynchronousMessageAndAccountsV2WithHooks({
     // Concatenate the serialized instruction to the buffer
     args_buffer = Buffer.concat([args_buffer, serialized_ix]);
 
-    // Add the members as signers
-    members.forEach((member) => {
-      remainingAccounts.unshift({
-        pubkey: member,
-        isSigner: true,
-        isWritable: false,
-      });
-    });
-    // Add the pre hook accounts after the members
-    remainingAccounts.splice(members.length, 0, ...preHookAccounts);
-    // Add the post hook accounts after the pre hook accounts
-    remainingAccounts.splice(
-      members.length + preHookAccounts.length,
-      0,
-      ...postHookAccounts
-    );
   });
+
+  // Add signing members and hook accounts after instruction indexes have been
+  // serialized, because the on-chain program treats them as execution context.
+  members.forEach((member) => {
+    remainingAccounts.unshift({
+      pubkey: member,
+      isSigner: true,
+      isWritable: false,
+    });
+  });
+  remainingAccounts.splice(members.length, 0, ...preHookAccounts);
+  remainingAccounts.splice(
+    members.length + preHookAccounts.length,
+    0,
+    ...postHookAccounts
+  );
 
   return {
     instructions: args_buffer,

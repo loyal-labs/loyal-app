@@ -1,0 +1,313 @@
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+import { LoyalCluster } from "@loyal/actions";
+import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts";
+import type { SmartAccountPreparedEarnUsdcWithdraw } from "@loyal-labs/smart-account-vaults";
+import {
+  AddressLookupTableAccount,
+  PublicKey,
+  TransactionInstruction,
+} from "@solana/web3.js";
+
+import {
+  createYieldDepositRepositoryMock,
+  findActiveYieldRoutePolicy,
+} from "@/test/yield-route-mocks";
+
+mock.module("server-only", () => ({}));
+
+const programId = PublicKey.unique();
+const settings = PublicKey.unique();
+const walletAddress = PublicKey.unique();
+const smartAccountAddress = PublicKey.unique();
+const policyAccount = PublicKey.unique();
+const vaultPubkey = PublicKey.unique();
+const usdcAta = PublicKey.unique();
+const collateralAta = PublicKey.unique();
+const reserve = PublicKey.unique();
+const market = PublicKey.unique();
+const liquidityMint = PublicKey.unique();
+
+const resolveAuthenticatedPrincipalFromRequest = mock(async () => ({
+  authMethod: "wallet" as const,
+  provider: "solana" as const,
+  settingsPda: settings.toBase58(),
+  smartAccountAddress: smartAccountAddress.toBase58(),
+  subjectAddress: walletAddress.toBase58(),
+  walletAddress: walletAddress.toBase58(),
+}));
+
+function makePreparedWithdraw(): SmartAccountPreparedEarnUsdcWithdraw {
+  const prepared: PreparedLoyalSmartAccountsOperation<"earnUsdcWithdraw"> = {
+    instructions: [
+      new TransactionInstruction({
+        data: Buffer.from([4, 5, 6]),
+        keys: [
+          {
+            isSigner: true,
+            isWritable: true,
+            pubkey: walletAddress,
+          },
+        ],
+        programId,
+      }),
+    ],
+    lookupTableAccounts: [
+      new AddressLookupTableAccount({
+        key: PublicKey.unique(),
+        state: {
+          addresses: [walletAddress, vaultPubkey],
+          deactivationSlot: BigInt("18446744073709551615"),
+          lastExtendedSlot: 10,
+          lastExtendedSlotStartIndex: 0,
+        },
+      }),
+    ],
+    operation: "earnUsdcWithdraw",
+    payer: walletAddress,
+    programId,
+    requiresConfirmation: true,
+  };
+
+  return {
+    amountRaw: BigInt(500_000),
+    mode: "partial",
+    persistence: {
+      cluster: LoyalCluster.Devnet,
+      liquidityMint: liquidityMint.toBase58(),
+      market: market.toBase58(),
+      mode: "partial",
+      policyAccount: policyAccount.toBase58(),
+      policyId: "2",
+      policySeed: "2",
+      settings: settings.toBase58(),
+      targetReserve: reserve.toBase58(),
+      vaultIndex: 1,
+      vaultPubkey: vaultPubkey.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+      withdrawnAmountRaw: "500000",
+    },
+    policy: {
+      account: policyAccount,
+      id: BigInt(2),
+      sameMintInstructionConstraintIndexes: [0, 1],
+      seed: BigInt(2),
+      withdrawInstructionConstraintIndex: 0,
+    },
+    prepared,
+    targetReserve: {
+      liquidityMint,
+      market,
+      reserve,
+    },
+    vault: {
+      accountIndex: 1,
+      collateralAta,
+      pubkey: vaultPubkey,
+      usdcAta,
+    },
+  };
+}
+
+const prepareEarnUsdcWithdraw = mock(
+  async (): Promise<SmartAccountPreparedEarnUsdcWithdraw> =>
+    makePreparedWithdraw()
+);
+
+mock.module("@/features/identity/server/auth-session", () => ({
+  resolveAuthenticatedPrincipalFromRequest,
+}));
+
+mock.module("@/lib/core/config/server", () => ({
+  getServerEnv: () => ({
+    loyalSmartAccounts: { programId: programId.toBase58() },
+  }),
+}));
+
+mock.module(
+  "@/lib/yield-optimization/yield-deposit-repository.server",
+  createYieldDepositRepositoryMock
+);
+
+mock.module("@/lib/solana/rpc-endpoints", () => ({
+  getFrontendSolanaEndpoints: () => ({
+    rpcEndpoint: "https://rpc.example",
+    websocketEndpoint: "wss://rpc.example",
+  }),
+}));
+
+mock.module("@/lib/solana/rpc-rate-limit", () => ({
+  getFrontendSolanaRpcFetch: (fetch: typeof globalThis.fetch) => fetch,
+}));
+
+mock.module("@loyal-labs/smart-account-vaults", () => ({
+  createSmartAccountVaultsClient: () => ({
+    prepareEarnUsdcWithdraw,
+  }),
+}));
+
+let POST: typeof import("../route").POST;
+const previousSolanaEnv = process.env.NEXT_PUBLIC_SOLANA_ENV;
+
+function request(payload: unknown = { amountRaw: "500000", mode: "partial" }) {
+  return new Request(
+    "https://app.askloyal.com/api/smart-accounts/yield-optimization/withdrawals/prepare",
+    {
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }
+  );
+}
+
+describe("yield optimization withdrawal prepare route", () => {
+  beforeAll(async () => {
+    ({ POST } = await import("../route"));
+  });
+
+  afterAll(() => {
+    if (previousSolanaEnv === undefined) {
+      delete process.env.NEXT_PUBLIC_SOLANA_ENV;
+    } else {
+      process.env.NEXT_PUBLIC_SOLANA_ENV = previousSolanaEnv;
+    }
+  });
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SOLANA_ENV = "devnet";
+    resolveAuthenticatedPrincipalFromRequest.mockClear();
+    prepareEarnUsdcWithdraw.mockClear();
+    findActiveYieldRoutePolicy.mockClear();
+    resolveAuthenticatedPrincipalFromRequest.mockImplementation(async () => ({
+      authMethod: "wallet" as const,
+      provider: "solana" as const,
+      settingsPda: settings.toBase58(),
+      smartAccountAddress: smartAccountAddress.toBase58(),
+      subjectAddress: walletAddress.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    }));
+    findActiveYieldRoutePolicy.mockImplementation(async () => ({
+      active: true,
+      authority: walletAddress.toBase58(),
+      delegatedSigners: [walletAddress.toBase58()],
+      firstSeenAt: new Date("2026-06-01T00:00:00.000Z"),
+      id: BigInt(2),
+      kaminoLiquidityMints: [liquidityMint.toBase58()],
+      kaminoMarkets: [market.toBase58()],
+      lastSeenAt: new Date("2026-06-01T00:00:00.000Z"),
+      lastSeenSignature: "policy-sig-1",
+      lastSeenSlot: BigInt(123),
+      policyAccount: policyAccount.toBase58(),
+      policySeed: BigInt(2),
+      riskProfile: "safe",
+      routeModes: ["same-mint-kamino"],
+      settings: settings.toBase58(),
+      stableMints: [liquidityMint.toBase58()],
+      swapLanes: [],
+      threshold: 1,
+      universePreset: "earn-usdc",
+      vaultIndex: 1,
+      vaultPubkey: vaultPubkey.toBase58(),
+    }));
+    prepareEarnUsdcWithdraw.mockImplementation(async () =>
+      makePreparedWithdraw()
+    );
+  });
+
+  test("returns 401 without an authenticated wallet session", async () => {
+    resolveAuthenticatedPrincipalFromRequest.mockImplementationOnce(
+      async () => null as never
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(401);
+    expect(findActiveYieldRoutePolicy).not.toHaveBeenCalled();
+    expect(prepareEarnUsdcWithdraw).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for invalid amountRaw or mode", async () => {
+    const response = await POST(request({ amountRaw: "500000", mode: "max" }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "invalid_request",
+        message: "mode must be partial or full.",
+      },
+    });
+    expect(findActiveYieldRoutePolicy).not.toHaveBeenCalled();
+    expect(prepareEarnUsdcWithdraw).not.toHaveBeenCalled();
+  });
+
+  test("returns 409 when no active Earn policy exists", async () => {
+    findActiveYieldRoutePolicy.mockImplementationOnce(async () => null);
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "missing_earn_policy",
+        message: "Set up the Earn policy before withdrawing USDC.",
+      },
+    });
+    expect(prepareEarnUsdcWithdraw).not.toHaveBeenCalled();
+  });
+
+  test("prepares a reusable Earn withdrawal with the active policy", async () => {
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(findActiveYieldRoutePolicy).toHaveBeenCalledWith({
+      authority: walletAddress.toBase58(),
+      cluster: "devnet",
+      settings: settings.toBase58(),
+      vaultIndex: 1,
+    });
+    expect(prepareEarnUsdcWithdraw).toHaveBeenCalledWith({
+      amountRaw: BigInt(500_000),
+      cluster: "devnet",
+      feePayer: walletAddress,
+      mode: "partial",
+      settingsPda: settings,
+      walletAddress,
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      preparedWithdraw: {
+        amountRaw: "500000",
+        mode: "partial",
+        persistence: {
+          mode: "partial",
+          withdrawnAmountRaw: "500000",
+        },
+        prepared: {
+          instructions: [
+            {
+              dataBase64: "BAUG",
+              keys: [
+                {
+                  isSigner: true,
+                  isWritable: true,
+                  pubkey: walletAddress.toBase58(),
+                },
+              ],
+              programId: programId.toBase58(),
+            },
+          ],
+          operation: "earnUsdcWithdraw",
+          payer: walletAddress.toBase58(),
+          programId: programId.toBase58(),
+          requiresConfirmation: true,
+        },
+      },
+    });
+  });
+});

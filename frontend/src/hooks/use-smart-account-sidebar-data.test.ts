@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { LoyalCluster } from "@loyal/actions";
+import { PublicKey } from "@solana/web3.js";
 
 import type {
   SmartAccountOverviewBase,
@@ -13,6 +14,8 @@ import {
   type CurrentBestApyReserveByStablecoinCache,
   getSmartAccountTotalUsd,
   hasInitializedEarnYieldRoutingPolicy,
+  prepareEarnDepositOnServer,
+  prepareEarnWithdrawOnServer,
   readSmartAccountOverviewCache,
   shouldInitializeEarnYieldRoutingPolicyForDeposit,
   shouldSkipSmartAccountProposalLoad,
@@ -21,6 +24,10 @@ import {
   type SmartAccountVaultEntry,
   writeSmartAccountOverviewCacheGroup,
 } from "./use-smart-account-sidebar-data";
+
+const TEST_PUBLIC_KEYS = Array.from({ length: 10 }, () =>
+  PublicKey.unique().toBase58()
+);
 
 function createMemoryStorage() {
   const values = new Map<string, string>();
@@ -288,6 +295,235 @@ describe("Earn policy detection", () => {
         } as never,
       })
     ).toBe(true);
+  });
+});
+
+describe("prepareEarnDepositOnServer", () => {
+  test("posts amountRaw to the server prepare endpoint and hydrates the operation", async () => {
+    const fetchImpl = mock(async () => {
+      return Response.json({
+        preparedDeposit: {
+          persistence: {
+            cluster: LoyalCluster.Devnet,
+            depositMint: TEST_PUBLIC_KEYS[0],
+            liquidityMint: TEST_PUBLIC_KEYS[0],
+            market: TEST_PUBLIC_KEYS[1],
+            policyAccount: TEST_PUBLIC_KEYS[2],
+            policyId: "2",
+            policyInitialization: "reuse",
+            policySeed: "2",
+            principalAmountRaw: "1000000",
+            settings: TEST_PUBLIC_KEYS[3],
+            targetReserve: TEST_PUBLIC_KEYS[4],
+            targetSupplyApyBps: null,
+            vaultIndex: 1,
+            vaultPubkey: TEST_PUBLIC_KEYS[5],
+            walletAddress: TEST_PUBLIC_KEYS[6],
+          },
+          policy: {
+            account: TEST_PUBLIC_KEYS[2],
+            id: "2",
+            sameMintInstructionConstraintIndexes: [0, 1],
+            seed: "2",
+          },
+          prepared: {
+            instructions: [
+              {
+                dataBase64: "AQID",
+                keys: [
+                  {
+                    isSigner: true,
+                    isWritable: true,
+                    pubkey: TEST_PUBLIC_KEYS[6],
+                  },
+                ],
+                programId: TEST_PUBLIC_KEYS[7],
+              },
+            ],
+            lookupTableAccounts: [],
+            operation: "earnUsdcDeposit",
+            payer: TEST_PUBLIC_KEYS[6],
+            programId: TEST_PUBLIC_KEYS[7],
+            requiresConfirmation: true,
+          },
+          targetReserve: {
+            liquidityMint: TEST_PUBLIC_KEYS[0],
+            market: TEST_PUBLIC_KEYS[1],
+            reserve: TEST_PUBLIC_KEYS[4],
+            supplyApyBps: null,
+          },
+          vault: {
+            accountIndex: 1,
+            pubkey: TEST_PUBLIC_KEYS[5],
+            usdcAta: TEST_PUBLIC_KEYS[7],
+          },
+        },
+      });
+    });
+
+    const preparedDeposit = await prepareEarnDepositOnServer({
+      amountRaw: BigInt(1_000_000),
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/smart-accounts/yield-optimization/deposits/prepare",
+      {
+        body: JSON.stringify({ amountRaw: "1000000" }),
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }
+    );
+    expect(preparedDeposit.persistence.policyInitialization).toBe("reuse");
+    expect(preparedDeposit.persistence.principalAmountRaw).toBe("1000000");
+    expect(preparedDeposit.prepared.operation).toBe("earnUsdcDeposit");
+    expect([...preparedDeposit.prepared.instructions[0].data]).toEqual([
+      1, 2, 3,
+    ]);
+    expect(preparedDeposit.prepared.instructions[0].keys[0]).toMatchObject({
+      isSigner: true,
+      isWritable: true,
+    });
+    expect(
+      preparedDeposit.prepared.instructions[0].keys[0].pubkey.toBase58()
+    ).toBe(TEST_PUBLIC_KEYS[6]);
+  });
+
+  test("surfaces prepare endpoint errors before wallet send", async () => {
+    const fetchImpl = mock(async () => {
+      return Response.json(
+        {
+          error: {
+            code: "missing_earn_policy",
+            message: "Set up the Earn policy before adding more USDC.",
+          },
+        },
+        { status: 409 }
+      );
+    });
+
+    await expect(
+      prepareEarnDepositOnServer({
+        amountRaw: BigInt(1_000_000),
+        fetchImpl,
+      })
+    ).rejects.toThrow("Set up the Earn policy before adding more USDC.");
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("prepareEarnWithdrawOnServer", () => {
+  test("posts amountRaw and mode to the server prepare endpoint", async () => {
+    const fetchImpl = mock(async () => {
+      return Response.json({
+        preparedWithdraw: {
+          amountRaw: "500000",
+          mode: "partial",
+          persistence: {
+            cluster: LoyalCluster.Devnet,
+            liquidityMint: TEST_PUBLIC_KEYS[0],
+            market: TEST_PUBLIC_KEYS[1],
+            mode: "partial",
+            policyAccount: TEST_PUBLIC_KEYS[2],
+            policyId: "2",
+            policySeed: "2",
+            settings: TEST_PUBLIC_KEYS[3],
+            targetReserve: TEST_PUBLIC_KEYS[4],
+            vaultIndex: 1,
+            vaultPubkey: TEST_PUBLIC_KEYS[5],
+            walletAddress: TEST_PUBLIC_KEYS[6],
+            withdrawnAmountRaw: "500000",
+          },
+          policy: {
+            account: TEST_PUBLIC_KEYS[2],
+            id: "2",
+            sameMintInstructionConstraintIndexes: [0, 1],
+            seed: "2",
+            withdrawInstructionConstraintIndex: 0,
+          },
+          prepared: {
+            instructions: [
+              {
+                dataBase64: "BAUG",
+                keys: [
+                  {
+                    isSigner: true,
+                    isWritable: true,
+                    pubkey: TEST_PUBLIC_KEYS[6],
+                  },
+                ],
+                programId: TEST_PUBLIC_KEYS[7],
+              },
+            ],
+            lookupTableAccounts: [],
+            operation: "earnUsdcWithdraw",
+            payer: TEST_PUBLIC_KEYS[6],
+            programId: TEST_PUBLIC_KEYS[7],
+            requiresConfirmation: true,
+          },
+          targetReserve: {
+            liquidityMint: TEST_PUBLIC_KEYS[0],
+            market: TEST_PUBLIC_KEYS[1],
+            reserve: TEST_PUBLIC_KEYS[4],
+          },
+          vault: {
+            accountIndex: 1,
+            collateralAta: TEST_PUBLIC_KEYS[8],
+            pubkey: TEST_PUBLIC_KEYS[5],
+            usdcAta: TEST_PUBLIC_KEYS[9],
+          },
+        },
+      });
+    });
+
+    const preparedWithdraw = await prepareEarnWithdrawOnServer({
+      amountRaw: BigInt(500_000),
+      fetchImpl,
+      mode: "partial",
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/smart-accounts/yield-optimization/withdrawals/prepare",
+      {
+        body: JSON.stringify({ amountRaw: "500000", mode: "partial" }),
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }
+    );
+    expect(preparedWithdraw.amountRaw).toBe(BigInt(500_000));
+    expect(preparedWithdraw.mode).toBe("partial");
+    expect(preparedWithdraw.persistence.withdrawnAmountRaw).toBe("500000");
+    expect(preparedWithdraw.prepared.operation).toBe("earnUsdcWithdraw");
+    expect([...preparedWithdraw.prepared.instructions[0].data]).toEqual([
+      4, 5, 6,
+    ]);
+  });
+
+  test("surfaces withdrawal prepare endpoint errors before wallet send", async () => {
+    const fetchImpl = mock(async () => {
+      return Response.json(
+        {
+          error: {
+            code: "prepare_failed",
+            message: "Failed to prepare Earn withdrawal.",
+          },
+        },
+        { status: 500 }
+      );
+    });
+
+    await expect(
+      prepareEarnWithdrawOnServer({
+        amountRaw: BigInt(500_000),
+        fetchImpl,
+        mode: "partial",
+      })
+    ).rejects.toThrow("Failed to prepare Earn withdrawal.");
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -23,6 +23,7 @@ import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import {
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
+  type SmartAccountPreparedEarnUsdcDeposit,
 } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -97,7 +98,10 @@ import {
   invalidateEarnEarningsCache,
 } from "@/hooks/use-earn-earnings";
 import { useActiveEarnPosition } from "@/hooks/use-active-earn-position";
-import { useSmartAccountSidebarData } from "@/hooks/use-smart-account-sidebar-data";
+import {
+  prepareEarnDepositOnServer,
+  useSmartAccountSidebarData,
+} from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
 import {
   splitUsdBalance,
@@ -120,6 +124,7 @@ import {
   buildEarnDepositReviewItem,
   buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
+  setEarnDepositReviewPreparedDeposit,
   type EarnDepositReviewStage,
 } from "./earn-deposit-review";
 import { EarnTransactionsPane } from "./earn-transactions-pane";
@@ -1000,6 +1005,13 @@ export function AppWalletWorkspace({
     useState<SpendingLimitDraft | null>(null);
   const [pendingEarnDepositDraft, setPendingEarnDepositDraft] =
     useState<EarnDepositDraft | null>(null);
+  const [pendingEarnDepositPrepared, setPendingEarnDepositPrepared] =
+    useState<SmartAccountPreparedEarnUsdcDeposit | null>(null);
+  const [isEarnDepositPreparePending, setIsEarnDepositPreparePending] =
+    useState(false);
+  const [earnDepositPrepareError, setEarnDepositPrepareError] = useState<
+    string | null
+  >(null);
   const [earnDepositReviewStage, setEarnDepositReviewStage] =
     useState<EarnDepositReviewStage>("deposit");
   const [isEarnDepositPolicySetupFlow, setIsEarnDepositPolicySetupFlow] =
@@ -1248,33 +1260,8 @@ export function AppWalletWorkspace({
       mint: mainUsdcPosition?.asset.mint ?? trackedKaminoUsdcMint,
     });
 
-    for (const vault of smartAccountData.overview?.vaults ?? []) {
-      const entry = smartAccountData.vaultEntries.find(
-        (candidate) => candidate.accountIndex === vault.accountIndex
-      );
-      const usdcPosition = findEarnUsdcPosition(
-        vault.portfolio.positions,
-        trackedKaminoUsdcMint
-      );
-      const balance = splitUsdcSourceBalance(usdcPosition?.publicBalance ?? 0);
-
-      sources.push({
-        addressLabel: formatAddressForEarnSource(vault.address),
-        balance: usdcPosition?.publicBalance ?? 0,
-        balanceFraction: balance.fraction,
-        balanceWhole: balance.whole,
-        decimals: usdcPosition?.asset.decimals ?? 6,
-        icon: getVaultIcon(vault.accountIndex),
-        id: `vault:${vault.accountIndex}`,
-        label: entry?.label ?? "Stash",
-        mint: usdcPosition?.asset.mint ?? trackedKaminoUsdcMint,
-      });
-    }
-
     return sources;
   }, [
-    smartAccountData.overview?.vaults,
-    smartAccountData.vaultEntries,
     trackedKaminoUsdcMint,
     walletDesktopData.positions,
     walletDesktopData.walletAddress,
@@ -1297,6 +1284,7 @@ export function AppWalletWorkspace({
         ? buildEarnDepositReviewItem({
             draft: pendingEarnDepositDraft,
             isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+            preparedDeposit: pendingEarnDepositPrepared,
             stage: earnDepositReviewStage,
           })
         : null,
@@ -1305,6 +1293,7 @@ export function AppWalletWorkspace({
       isEarnDepositDetailActive,
       isEarnDepositPolicySetupFlow,
       pendingEarnDepositDraft,
+      pendingEarnDepositPrepared,
     ]
   );
   const earnWithdrawReviewItem = useMemo(
@@ -2078,8 +2067,10 @@ export function AppWalletWorkspace({
   const handleOpenEarn = useCallback(() => {
     markDetailPaneTransition("switch");
     setPendingEarnDepositDraft(null);
+    setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPrepareError(null);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
@@ -2089,8 +2080,10 @@ export function AppWalletWorkspace({
   const handleOpenEarnDeposit = useCallback(() => {
     markDetailPaneTransition("forward");
     setPendingEarnDepositDraft(null);
+    setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPrepareError(null);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
@@ -2100,8 +2093,10 @@ export function AppWalletWorkspace({
   const handleOpenEarnWithdraw = useCallback(() => {
     markDetailPaneTransition("forward");
     setPendingEarnDepositDraft(null);
+    setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPrepareError(null);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
@@ -2148,8 +2143,10 @@ export function AppWalletWorkspace({
   const handleDismissEarnDepositPreview = useCallback(() => {
     console.log("[earn-deposit] preview dismissed");
     setPendingEarnDepositDraft(null);
+    setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPrepareError(null);
   }, []);
 
   const handleDismissEarnWithdrawPreview = useCallback(() => {
@@ -2192,6 +2189,7 @@ export function AppWalletWorkspace({
         {
           draft: pendingEarnDepositDraft,
           isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+          preparedDeposit: pendingEarnDepositPrepared,
           stage: earnDepositReviewStage,
         },
         draft
@@ -2200,24 +2198,29 @@ export function AppWalletWorkspace({
       if (
         nextReview.draft === pendingEarnDepositDraft &&
         nextReview.isPolicySetupFlow === isEarnDepositPolicySetupFlow &&
+        nextReview.preparedDeposit === pendingEarnDepositPrepared &&
         nextReview.stage === earnDepositReviewStage
       ) {
         return;
       }
 
       setPendingEarnDepositDraft(nextReview.draft);
+      setPendingEarnDepositPrepared(nextReview.preparedDeposit);
       setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
       setEarnDepositReviewStage(nextReview.stage);
+      setProposalActionError(null);
+      setEarnDepositPrepareError(null);
     },
     [
       earnDepositReviewStage,
       isEarnDepositPolicySetupFlow,
       pendingEarnDepositDraft,
+      pendingEarnDepositPrepared,
     ]
   );
 
   const handleSubmitEarnDepositDraft = useCallback(
-    (draft: EarnDepositDraft) => {
+    async (draft: EarnDepositDraft) => {
       console.log("[earn-deposit] deposit button submitted preview draft", {
         amountLabel: draft.amountLabel,
         requiresPolicySetup: smartAccountData.requiresEarnPolicySetupForDeposit,
@@ -2228,13 +2231,39 @@ export function AppWalletWorkspace({
       });
       const requiresPolicySetup =
         smartAccountData.requiresEarnPolicySetupForDeposit;
-      const nextReview = createSubmittedEarnDepositReviewState({
-        draft,
-        requiresPolicySetup,
-      });
-      setPendingEarnDepositDraft(nextReview.draft);
-      setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
-      setEarnDepositReviewStage(nextReview.stage);
+      setProposalActionError(null);
+      setEarnDepositPrepareError(null);
+      setPendingEarnDepositPrepared(null);
+
+      try {
+        const preparedDeposit = requiresPolicySetup
+          ? null
+          : await (async () => {
+              setIsEarnDepositPreparePending(true);
+              const amountRaw = parseTokenAmountLabelToRaw(
+                draft.amountLabel,
+                draft.tokenDecimals
+              );
+              return prepareEarnDepositOnServer({ amountRaw });
+            })();
+        const nextReview = createSubmittedEarnDepositReviewState({
+          draft,
+          preparedDeposit,
+          requiresPolicySetup,
+        });
+        setPendingEarnDepositDraft(nextReview.draft);
+        setPendingEarnDepositPrepared(nextReview.preparedDeposit);
+        setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
+        setEarnDepositReviewStage(nextReview.stage);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to prepare Earn deposit.";
+        setEarnDepositPrepareError(message);
+      } finally {
+        setIsEarnDepositPreparePending(false);
+      }
     },
     [smartAccountData.requiresEarnPolicySetupForDeposit]
   );
@@ -2266,12 +2295,24 @@ export function AppWalletWorkspace({
         throw new Error(result.error ?? "Earn policy setup failed.");
       }
 
-      const nextReview = advanceEarnDepositReviewAfterPolicySetup({
-        draft: pendingEarnDepositDraft,
-        isPolicySetupFlow: isEarnDepositPolicySetupFlow,
-        stage: earnDepositReviewStage,
-      });
+      setIsEarnDepositPreparePending(true);
+      const amountRaw = parseTokenAmountLabelToRaw(
+        pendingEarnDepositDraft.amountLabel,
+        pendingEarnDepositDraft.tokenDecimals
+      );
+      const nextReview = advanceEarnDepositReviewAfterPolicySetup(
+        setEarnDepositReviewPreparedDeposit(
+          {
+            draft: pendingEarnDepositDraft,
+            isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+            preparedDeposit: null,
+            stage: earnDepositReviewStage,
+          },
+          await prepareEarnDepositOnServer({ amountRaw })
+        )
+      );
       setPendingEarnDepositDraft(nextReview.draft);
+      setPendingEarnDepositPrepared(nextReview.preparedDeposit);
       setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
       setEarnDepositReviewStage(nextReview.stage);
       setDetailSelection("earnDeposit");
@@ -2284,6 +2325,9 @@ export function AppWalletWorkspace({
         errorMessage: raw,
       });
       setProposalActionError(raw);
+      setEarnDepositPrepareError(raw);
+    } finally {
+      setIsEarnDepositPreparePending(false);
     }
   }, [
     earnDepositReviewStage,
@@ -2316,7 +2360,16 @@ export function AppWalletWorkspace({
         amountRaw: amountRaw.toString(),
         tokenDecimals: pendingEarnDepositDraft.tokenDecimals,
       });
-      const result = await smartAccountData.executeEarnDeposit({ amountRaw });
+      if (!pendingEarnDepositPrepared) {
+        throw new Error(
+          "Prepare the Earn deposit again before signing this transaction."
+        );
+      }
+
+      const result = await smartAccountData.executeEarnDeposit({
+        amountRaw,
+        preparedDeposit: pendingEarnDepositPrepared,
+      });
       console.log("[earn-deposit] executeEarnDeposit result", {
         error: result.error,
         status: result.status,
@@ -2329,8 +2382,10 @@ export function AppWalletWorkspace({
 
       markDetailPaneTransition("back");
       setPendingEarnDepositDraft(null);
+      setPendingEarnDepositPrepared(null);
       setEarnDepositReviewStage("deposit");
       setIsEarnDepositPolicySetupFlow(false);
+      setEarnDepositPrepareError(null);
       invalidateEarnEarningsCache();
       setActiveEarnPosition((current) => {
         const nowIso = new Date().toISOString();
@@ -2406,6 +2461,7 @@ export function AppWalletWorkspace({
   }, [
     markDetailPaneTransition,
     pendingEarnDepositDraft,
+    pendingEarnDepositPrepared,
     refreshActiveEarnPosition,
     setActiveEarnPosition,
     setDetailSelection,
@@ -3227,11 +3283,14 @@ export function AppWalletWorkspace({
     if (isEarnDepositDetailActive) {
       return (
         <EarnDepositView
-          isSubmitting={smartAccountData.isActionPending}
+          isSubmitting={
+            smartAccountData.isActionPending || isEarnDepositPreparePending
+          }
           onDraftChange={handleEarnDepositFormDraftChange}
           onClose={handleOpenEarn}
           onDraftSubmit={handleSubmitEarnDepositDraft}
           sources={earnDepositSources}
+          submitError={earnDepositPrepareError}
         />
       );
     }

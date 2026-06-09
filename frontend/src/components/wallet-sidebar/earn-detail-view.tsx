@@ -161,7 +161,7 @@ export function formatEarnActionAmount(value: number) {
   });
 }
 
-function formatEarnActionCtaAmount(value: number) {
+export function formatEarnActionCtaAmount(value: number) {
   if (!Number.isFinite(value)) {
     return "0";
   }
@@ -2313,21 +2313,19 @@ export function EarnWithdrawView({
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
   const numericWithdrawAmount = Number(withdrawAmount.replace(/,/g, ""));
-  const isMaximumWithdrawMode = withdrawAmount.length === 0;
-  const effectiveWithdrawAmount = isMaximumWithdrawMode
-    ? maxWithdrawAmount
-    : numericWithdrawAmount;
-  const effectiveWithdrawAmountLabel = isMaximumWithdrawMode
-    ? formatDepositAmount(maxWithdrawAmount)
-    : withdrawAmount;
+  const effectiveWithdrawAmount = hasWithdrawAmount ? numericWithdrawAmount : 0;
+  const effectiveWithdrawAmountLabel = hasWithdrawAmount ? withdrawAmount : "";
   const isFullWithdraw =
+    hasWithdrawAmount &&
     Number.isFinite(effectiveWithdrawAmount) &&
     deriveEarnWithdrawMode({
       amount: effectiveWithdrawAmount,
       maxWithdrawAmount,
     }) === "full";
   const withdrawAmountError =
-    !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
+    !hasWithdrawAmount ||
+    !Number.isFinite(effectiveWithdrawAmount) ||
+    effectiveWithdrawAmount <= 0
       ? "Enter an amount"
       : hasWithdrawAmount && numericWithdrawAmount > maxWithdrawAmount
       ? "Insufficient balance"
@@ -2336,11 +2334,7 @@ export function EarnWithdrawView({
   const withdrawButtonLabel = isSubmitting
     ? "Withdrawing..."
     : withdrawAmountError ??
-      (isMaximumWithdrawMode
-        ? `Withdraw all (${formatEarnActionAmount(
-            effectiveWithdrawAmount
-          )} USDC)`
-        : `Withdraw ${formatEarnActionAmount(effectiveWithdrawAmount)} USDC`);
+      `Withdraw ${formatEarnActionCtaAmount(effectiveWithdrawAmount)} USDC`;
   const withdrawUsdDisplay = hasWithdrawAmount
     ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
     : "$0.00";
@@ -2466,9 +2460,13 @@ export function EarnWithdrawView({
                 className="earn-withdraw-amount-input"
                 inputMode="decimal"
                 onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === "" || /^[\d,]*\.?\d*$/.test(value)) {
-                    setWithdrawAmount(value);
+                  const rawValue = event.target.value;
+                  const clampedValue = clampDepositAmountInput(
+                    rawValue,
+                    maxWithdrawAmount
+                  );
+                  if (clampedValue !== null) {
+                    setWithdrawAmount(clampedValue);
                   }
                 }}
                 placeholder="0"
@@ -4088,12 +4086,14 @@ export function EarnDepositView({
   onDraftChange,
   onDraftSubmit,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
+  submitError = null,
 }: {
   isSubmitting?: boolean;
   onClose?: () => void;
   onDraftChange?: (draft: EarnDepositDraft | null) => void;
   onDraftSubmit?: (draft: EarnDepositDraft) => void | Promise<void>;
   sources?: EarnDepositSourceOption[];
+  submitError?: string | null;
 }) {
   const earnForecastApy = useEarnForecastApy();
   const earnForecastApyHistory = useEarnForecastApyHistory();
@@ -4543,6 +4543,19 @@ export function EarnDepositView({
           width: "100%",
         }}
       >
+        {submitError ? (
+          <p
+            style={{
+              color: "#F9363C",
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "18px",
+              margin: "0 0 10px",
+            }}
+          >
+            {submitError}
+          </p>
+        ) : null}
         <button
           className="earn-deposit-submit"
           disabled={isDepositButtonDisabled}

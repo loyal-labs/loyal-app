@@ -45,19 +45,13 @@ function formatDisplayUsdcAmount(
 ): string {
   const sign = direction === "neutral" ? "" : direction === "in" ? "+" : "-";
   const absolute = rawAmount < BigInt(0) ? -rawAmount : rawAmount;
-  const whole = absolute / BigInt(1_000_000);
-  const remainder = absolute % BigInt(1_000_000);
-  const cents = remainder / BigInt(10_000);
+  const cents =
+    absolute === BigInt(0)
+      ? BigInt(0)
+      : (absolute + BigInt(9_999)) / BigInt(10_000);
+  const whole = cents / BigInt(100);
+  const fraction = (cents % BigInt(100)).toString().padStart(2, "0");
 
-  if (absolute > BigInt(0) && whole === BigInt(0) && cents === BigInt(0)) {
-    return `${sign}<0.01 USDC`;
-  }
-
-  if (remainder === BigInt(0)) {
-    return `${sign}${whole.toString()} USDC`;
-  }
-
-  const fraction = cents.toString().padStart(2, "0").replace(/0+$/, "");
   return `${sign}${whole.toString()}.${fraction} USDC`;
 }
 
@@ -103,12 +97,25 @@ function serializeKind(
   return "deposit";
 }
 
+function resolveTransactionAmountRaw(args: {
+  event: UserYieldPositionHistoryEventRecord;
+  kind: EarnTransactionKind;
+}): bigint {
+  const { event, kind } = args;
+  if (kind === "deposit" || kind === "withdraw") {
+    return event.principalDeltaRaw ?? event.amountRaw;
+  }
+
+  return event.amountRaw;
+}
+
 export function serializeEarnTransactionEvent(
   event: UserYieldPositionHistoryEventRecord
 ): SerializedEarnTransaction {
   const kind = serializeKind(event);
   const direction =
-    kind === "deposit" ? "out" : kind === "withdraw" ? "in" : "neutral";
+    kind === "deposit" ? "in" : kind === "withdraw" ? "out" : "neutral";
+  const transactionAmountRaw = resolveTransactionAmountRaw({ event, kind });
   const isMovement = kind === "rebalance" || kind === "reconciliation";
   const sourceLabel = isMovement
     ? shortReserveLabel(event.sourceReserve)
@@ -122,7 +129,7 @@ export function serializeEarnTransactionEvent(
       : MAIN_USDC_LABEL;
 
   return {
-    amount: formatDisplayUsdcAmount(event.amountRaw, direction),
+    amount: formatDisplayUsdcAmount(transactionAmountRaw, direction),
     confirmedSlot: event.confirmedSlot.toString(),
     dateGroup: formatDateGroup(event.confirmedAt),
     destination: {
@@ -131,7 +138,7 @@ export function serializeEarnTransactionEvent(
     },
     id: event.signature,
     kind,
-    rawAmount: formatExactUsdcAmount(event.amountRaw),
+    rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,
     source: {
       icon: kind === "deposit" ? MAIN_USDC_ICON : EARN_VAULT_ICON,

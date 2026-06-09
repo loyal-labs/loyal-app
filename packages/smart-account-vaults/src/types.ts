@@ -438,6 +438,9 @@ export type SmartAccountEarnUsdcDepositMetadata = {
 };
 
 export type SmartAccountPreparedEarnUsdcDeposit = {
+  kaminoSetupAccountCount: number;
+  kaminoSetupRentLamports: string;
+  kaminoSetupRequired: boolean;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   policy: {
     account: PublicKey;
@@ -447,6 +450,7 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
   };
   vault: {
     accountIndex: 1;
+    collateralAta: PublicKey | null;
     pubkey: PublicKey;
     usdcAta: PublicKey;
   };
@@ -483,6 +487,10 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   liquidityMint: string;
   withdrawnAmountRaw: string;
   mode: "partial" | "full";
+  kaminoWithdrawAmountRaw?: string;
+  vaultCollateralCleanupIncluded?: boolean;
+  vaultUsdcRemainderRaw?: string;
+  walletTransferAmountRaw?: string;
 };
 
 export type SmartAccountPreparedEarnUsdcWithdraw = {

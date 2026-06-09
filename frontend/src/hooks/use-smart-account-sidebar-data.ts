@@ -59,6 +59,14 @@ import {
   buildEarnPolicyConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import {
+  hydratePreparedEarnUsdcDeposit,
+  type EarnDepositPrepareResponse,
+} from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
+import {
+  hydratePreparedEarnUsdcWithdraw,
+  type EarnWithdrawPrepareResponse,
+} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
@@ -265,6 +273,7 @@ export type VaultSwapResult = VaultTransferResult;
 
 export type EarnDepositRequest = {
   amountRaw: bigint;
+  preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit;
 };
 
 export type EarnPolicySetupResult = {
@@ -287,6 +296,7 @@ export type EarnDepositResult = {
 export type EarnWithdrawRequest = {
   amountRaw: bigint;
   mode: "partial" | "full";
+  preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw;
 };
 
 export type EarnWithdrawResult = {
@@ -927,6 +937,66 @@ async function postConfirmedEarnDeposit(args: {
       payload?.error?.message ?? "Failed to record confirmed earn deposit."
     );
   }
+}
+
+export async function prepareEarnDepositOnServer(args: {
+  amountRaw: bigint;
+  fetchImpl?: typeof fetch;
+}): Promise<SmartAccountPreparedEarnUsdcDeposit> {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  const response = await fetchImpl(
+    "/api/smart-accounts/yield-optimization/deposits/prepare",
+    {
+      body: JSON.stringify({ amountRaw: args.amountRaw.toString() }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare earn deposit."
+    );
+  }
+
+  const payload = (await response.json()) as EarnDepositPrepareResponse;
+  return hydratePreparedEarnUsdcDeposit(payload.preparedDeposit);
+}
+
+export async function prepareEarnWithdrawOnServer(args: {
+  amountRaw: bigint;
+  mode: "partial" | "full";
+  fetchImpl?: typeof fetch;
+}): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  const response = await fetchImpl(
+    "/api/smart-accounts/yield-optimization/withdrawals/prepare",
+    {
+      body: JSON.stringify({
+        amountRaw: args.amountRaw.toString(),
+        mode: args.mode,
+      }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare earn withdrawal."
+    );
+  }
+
+  const payload = (await response.json()) as EarnWithdrawPrepareResponse;
+  return hydratePreparedEarnUsdcWithdraw(payload.preparedWithdraw);
 }
 
 async function postConfirmedEarnPolicySetup(args: {
@@ -3758,42 +3828,30 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
-      const settingsPda = new PublicKey(overview.settingsPda);
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
 
       setIsActionPending(true);
       try {
-        const nextEarnState = earnState ?? (await fetchEarnState());
-        if (nextEarnState && nextEarnState !== earnState) {
-          setEarnState(nextEarnState);
-        }
-        const yieldRoutingPolicy = nextEarnState?.policy
-          ? {
-              account: new PublicKey(nextEarnState.policy.account),
-              seed: BigInt(nextEarnState.policy.seed),
-            }
-          : undefined;
-
         console.log("[executeEarnDeposit] preparing Earn USDC deposit", {
           amountRaw: request.amountRaw.toString(),
           cluster: expectedEarnCluster,
-          hasEarnPolicy: Boolean(nextEarnState?.policy),
-          initializeYieldRoutingPolicy: false,
-          settingsPda: settingsPda.toBase58(),
+          prepareLocation: request.preparedDeposit ? "preview" : "server",
         });
-        const preparedDeposit = await client.prepareEarnUsdcDeposit({
-          settingsPda,
-          walletAddress: wallet.publicKey,
-          feePayer: wallet.publicKey,
-          amountRaw: request.amountRaw,
-          cluster: expectedEarnCluster,
-          initializeYieldRoutingPolicy: false,
-          yieldRoutingPolicy,
-        });
+        const preparedDeposit =
+          request.preparedDeposit ??
+          (await prepareEarnDepositOnServer({
+            amountRaw: request.amountRaw,
+          }));
+        if (
+          preparedDeposit.persistence.principalAmountRaw !==
+          request.amountRaw.toString()
+        ) {
+          return {
+            success: false,
+            error:
+              "Prepared Earn deposit amount changed. Review the deposit again before signing.",
+          };
+        }
         console.log(
           "[executeEarnDeposit] prepared deposit; sending to wallet",
           {
@@ -3841,6 +3899,11 @@ export function useSmartAccountSidebarData(
           signature,
         });
 
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
+        }
+
         void refreshAfterTx({
           accountIndex: preparedDeposit.vault.accountIndex,
           signerAddresses: [wallet.publicKey.toBase58()],
@@ -3865,7 +3928,6 @@ export function useSmartAccountSidebarData(
     },
     [
       connection,
-      earnState,
       overview,
       refreshAfterTx,
       solanaEnv,
@@ -3906,23 +3968,16 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
-      const settingsPda = new PublicKey(overview.settingsPda);
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
 
       setIsActionPending(true);
       try {
-        const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
-          settingsPda,
-          walletAddress: wallet.publicKey,
-          feePayer: wallet.publicKey,
-          amountRaw: request.amountRaw,
-          cluster: expectedEarnCluster,
-          mode: request.mode,
-        });
+        const preparedWithdraw =
+          request.preparedWithdraw ??
+          (await prepareEarnWithdrawOnServer({
+            amountRaw: request.amountRaw,
+            mode: request.mode,
+          }));
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "withdrawal",

@@ -7,6 +7,7 @@ import type {
   EarnDepositDraft,
   EarnWithdrawDraft,
 } from "@/components/wallet-sidebar/earn-detail-view";
+import type { SmartAccountPreparedEarnUsdcDeposit } from "@loyal-labs/smart-account-vaults";
 import {
   KAMINO_ETHENA_MARKET,
   KAMINO_FIGURE_MARKET,
@@ -27,6 +28,7 @@ export type EarnDepositReviewStage = "deposit" | "policy";
 export type EarnDepositReviewState = {
   draft: EarnDepositDraft | null;
   isPolicySetupFlow: boolean;
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit | null;
   stage: EarnDepositReviewStage;
 };
 
@@ -71,11 +73,13 @@ function formatSwapLaneLabel(lane: SwapLane): string {
 
 export function createSubmittedEarnDepositReviewState(args: {
   draft: EarnDepositDraft;
+  preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit | null;
   requiresPolicySetup: boolean;
 }): EarnDepositReviewState {
   return {
     draft: args.draft,
     isPolicySetupFlow: args.requiresPolicySetup,
+    preparedDeposit: args.preparedDeposit ?? null,
     stage: args.requiresPolicySetup ? "policy" : "deposit",
   };
 }
@@ -90,7 +94,18 @@ export function advanceEarnDepositReviewAfterPolicySetup(
   return {
     draft: state.draft,
     isPolicySetupFlow: true,
+    preparedDeposit: state.preparedDeposit,
     stage: "deposit",
+  };
+}
+
+export function setEarnDepositReviewPreparedDeposit(
+  state: EarnDepositReviewState,
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit
+): EarnDepositReviewState {
+  return {
+    ...state,
+    preparedDeposit,
   };
 }
 
@@ -102,16 +117,29 @@ export function applyEarnDepositFormDraftChange(
     return state;
   }
 
+  const isSameDraft = draft === state.draft;
+
   return {
     draft,
     isPolicySetupFlow: draft ? state.isPolicySetupFlow : false,
+    preparedDeposit: draft && isSameDraft ? state.preparedDeposit : null,
     stage: draft ? state.stage : "deposit",
   };
+}
+
+function formatLamportsAsSol(lamports: string): string {
+  const value = BigInt(lamports);
+  const whole = value / BigInt(1_000_000_000);
+  const fraction = (value % BigInt(1_000_000_000))
+    .toString()
+    .padStart(9, "0");
+  return `${whole.toString()}.${fraction} SOL`;
 }
 
 export function buildEarnDepositReviewItem(args: {
   draft: EarnDepositDraft;
   isPolicySetupFlow?: boolean;
+  preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit | null;
   stage?: EarnDepositReviewStage;
 }): ApprovalReviewDisplayItem {
   const stage = args.stage ?? "policy";
@@ -207,6 +235,21 @@ export function buildEarnDepositReviewItem(args: {
       },
     ],
     collapsibles: [
+      ...(args.preparedDeposit?.kaminoSetupRequired
+        ? [
+            {
+              title: "One-time Kamino setup",
+              rows: [
+                {
+                  label: "Setup",
+                  value: `Creates the ${EARN_VAULT_LABEL}'s Kamino accounts and reserves about ${formatLamportsAsSol(
+                    args.preparedDeposit.kaminoSetupRentLamports
+                  )} for rent.`,
+                },
+              ],
+            },
+          ]
+        : []),
       {
         title: "Transaction details",
         rows: [
@@ -228,7 +271,10 @@ export function buildEarnDepositReviewItem(args: {
     amount: args.draft.amountLabel,
     destinationLabel: EARN_VAULT_LABEL,
     pages,
-    primaryActionLabel: stage === "policy" ? "Sign" : "Continue",
+    primaryActionLabel:
+      stage === "policy"
+        ? "Sign"
+        : `Deposit ${args.draft.amountLabel} ${args.draft.symbol}`,
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,

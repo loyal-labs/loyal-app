@@ -58,15 +58,16 @@ export function getEarnTransactionRowLabel(
 export function buildEarnTransactionDetail(
   item: EarnTransactionItem
 ): TransactionDetail {
+  const isDeposit = item.kind === "deposit";
   const isWithdraw = item.kind === "withdraw";
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
   const activity: ActivityRow = {
     id: item.signature,
-    type: isWithdraw ? "received" : "sent",
+    type: isDeposit ? "received" : "sent",
     counterparty: isMovement
       ? `Moved ${item.source.label} -> ${item.destination.label}`
-      : isWithdraw
+      : isDeposit
       ? item.source.label
       : item.destination.label,
     amount: item.amount,
@@ -81,6 +82,17 @@ export function buildEarnTransactionDetail(
     networkFee: "~0.000005 SOL",
     networkFeeUsd: "~$0.0005",
   };
+}
+
+export function getEarnTransactionAmountColor(args: {
+  isBalanceHidden?: boolean;
+  kind: EarnTransactionItem["kind"];
+}) {
+  if (args.isBalanceHidden) {
+    return "#BBBBC0";
+  }
+
+  return args.kind === "deposit" ? "#34C759" : "#000";
 }
 
 function EarnTransactionsLoadingState() {
@@ -322,7 +334,6 @@ function EarnTransactionRow({
   item: EarnTransactionItem;
   onSelect: (item: EarnTransactionItem) => void;
 }) {
-  const isWithdraw = item.kind === "withdraw";
   const label = getEarnTransactionRowLabel(item.kind);
   return (
     <button
@@ -392,11 +403,10 @@ function EarnTransactionRow({
       >
         <span
           style={{
-            color: isBalanceHidden
-              ? "#BBBBC0"
-              : isWithdraw
-              ? "#34C759"
-              : "#000",
+            color: getEarnTransactionAmountColor({
+              isBalanceHidden,
+              kind: item.kind,
+            }),
             filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
             fontFamily: font,
             fontSize: "16px",
