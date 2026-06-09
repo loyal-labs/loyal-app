@@ -31,6 +31,7 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const FrontmatterSchema = z.object({
   title: z.string().min(1),
   date: z.string().min(1),
+  updated: z.string().min(1).optional(),
   hero: z.string().min(1),
   description: z.string().min(1).optional(),
   author: z
@@ -91,6 +92,7 @@ async function loadPost(slug: string): Promise<BlogPostFull | null> {
     slug,
     title: fm.title,
     date: fm.date,
+    updated: fm.updated,
     hero: resolveMedia(slug, fm.hero),
     description: fm.description,
     author: fm.author
@@ -141,6 +143,7 @@ function toMeta(post: BlogPostFull): BlogPost {
     slug: post.slug,
     title: post.title,
     date: post.date,
+    updated: post.updated,
     hero: post.hero,
     description: post.description,
     author: post.author,
