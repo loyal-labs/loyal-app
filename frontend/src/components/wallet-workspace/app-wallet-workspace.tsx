@@ -1279,14 +1279,20 @@ export function AppWalletWorkspace({
     );
     return mainDestination ? [mainDestination] : earnDepositSources.slice(0, 1);
   }, [earnDepositSources]);
+  const hasEarnPosition =
+    activeEarnPosition?.status === "active" &&
+    BigInt(activeEarnPosition.principalAmountRaw) > BigInt(0);
+  const isEarnDepositDetailActive =
+    detailSelection === "earnDeposit" ||
+    (detailSelection === "earn" && !hasEarnPosition);
   const earnDepositReviewItem = useMemo(
     () =>
-      pendingEarnDepositDraft && detailSelection === "earnDeposit"
+      pendingEarnDepositDraft && isEarnDepositDetailActive
         ? buildEarnDepositReviewItem({
             draft: pendingEarnDepositDraft,
           })
         : null,
-    [detailSelection, pendingEarnDepositDraft]
+    [isEarnDepositDetailActive, pendingEarnDepositDraft]
   );
   const earnWithdrawReviewItem = useMemo(
     () =>
@@ -1301,9 +1307,6 @@ export function AppWalletWorkspace({
   const isReviewApprovalFocused = Boolean(
     earnDepositReviewItem || earnWithdrawReviewItem
   );
-  const hasEarnPosition =
-    activeEarnPosition?.status === "active" &&
-    BigInt(activeEarnPosition.principalAmountRaw) > BigInt(0);
   const earnWithdrawMaxAmount = activeEarnPosition
     ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
     : 0;
@@ -3064,6 +3067,18 @@ export function AppWalletWorkspace({
       );
     }
 
+    if (isEarnDepositDetailActive) {
+      return (
+        <EarnDepositView
+          isSubmitting={smartAccountData.isActionPending}
+          onDraftChange={setPendingEarnDepositDraft}
+          onClose={handleOpenEarn}
+          onDraftSubmit={handleSubmitEarnDepositDraft}
+          sources={earnDepositSources}
+        />
+      );
+    }
+
     if (detailSelection === "earn") {
       return (
         <EarnDetailView
@@ -3104,17 +3119,6 @@ export function AppWalletWorkspace({
       );
     }
 
-    if (detailSelection === "earnDeposit") {
-      return (
-        <EarnDepositView
-          isSubmitting={smartAccountData.isActionPending}
-          onDraftChange={setPendingEarnDepositDraft}
-          onClose={handleOpenEarn}
-          onDraftSubmit={handleSubmitEarnDepositDraft}
-          sources={earnDepositSources}
-        />
-      );
-    }
 
     if (detailSelection === "earnWithdraw") {
       return (
