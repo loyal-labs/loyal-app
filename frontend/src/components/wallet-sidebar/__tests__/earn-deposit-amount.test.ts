@@ -5,6 +5,7 @@ import type { EarnEarningsResponse } from "@/lib/yield-optimization/earnings.sha
 import {
   buildEarnComparisonPoints,
   buildEarnChartPoints,
+  buildForecastAmountOptions,
   clampDepositAmountInput,
   deriveMainUsdcReserveForecastApyBps,
   deriveEstimatedEarnBalanceAmount,
@@ -15,6 +16,8 @@ import {
   formatHistoricalApyDelta,
   formatHistoricalAxisDate,
   formatMonthlyEarningsBarLabel,
+  getDefaultForecastSelection,
+  getForecastAmountForSelection,
   getEarningsRatePerSecond,
 } from "../earn-detail-view";
 
@@ -98,6 +101,64 @@ describe("earn forecast APY", () => {
     ).toBe(543);
   });
 
+});
+
+describe("Earn forecast amount options", () => {
+  test("shows the current input amount before fixed presets when the user has USDC", () => {
+    const options = buildForecastAmountOptions(20, 5);
+
+    expect(options.map((option) => option.label)).toEqual([
+      "$5",
+      "$100",
+      "$500",
+      "$1,000",
+      "$5,000",
+    ]);
+    expect(options[0]).toMatchObject({
+      selection: "you",
+      value: 5,
+    });
+  });
+
+  test("falls back to the user's max balance when the input is empty", () => {
+    const options = buildForecastAmountOptions(20, null);
+    const selection = getDefaultForecastSelection(20);
+
+    expect(options[0]).toMatchObject({
+      label: "$20",
+      selection: "you",
+      value: 20,
+    });
+    expect(selection).toBe("you");
+    expect(getForecastAmountForSelection(selection, 20, null)).toBe(20);
+    expect(getForecastAmountForSelection(selection, 20, 5)).toBe(5);
+  });
+
+  test("uses zero when the user explicitly enters zero", () => {
+    const options = buildForecastAmountOptions(20, 0);
+    const selection = getDefaultForecastSelection(20);
+
+    expect(options[0]).toMatchObject({
+      label: "$0",
+      selection: "you",
+      value: 0,
+    });
+    expect(getForecastAmountForSelection(selection, 20, 0)).toBe(0);
+  });
+
+  test("keeps the existing default preset with no USDC balance", () => {
+    const options = buildForecastAmountOptions(0, null);
+    const selection = getDefaultForecastSelection(0);
+
+    expect(options.map((option) => option.label)).toEqual([
+      "$100",
+      "$500",
+      "$1,000",
+      "$5,000",
+    ]);
+    expect(selection).toBe(1000);
+    expect(getForecastAmountForSelection(selection, 0, null)).toBe(1000);
+  });
 });
 
 describe("historical APY chart", () => {

@@ -59,9 +59,11 @@ function makeWithdrawDraft(
 }
 
 describe("buildEarnDepositReviewItem", () => {
-  test("projects a valid USDC earn draft into signing review sections", () => {
+  test("projects a first-time USDC earn draft into the policy setup review", () => {
     const review = buildEarnDepositReviewItem({
       draft: makeDraft(),
+      isPolicySetupFlow: true,
+      stage: "policy",
     });
 
     expect(review.title).toBe("Deposit");
@@ -71,7 +73,10 @@ describe("buildEarnDepositReviewItem", () => {
     expect(review.destinationLabel).toBe("Earn vault");
     expect(review.sourceLabel).toBe("Main");
     expect(review.secondaryActionLabel).toBe("Cancel");
-    expect(review.primaryActionLabel).toBe("Continue");
+    expect(review.primaryActionLabel).toBe("Sign");
+    expect(review.pages).toHaveLength(1);
+    expect(review.pages?.[0]?.title).toBe("Approval 1 of 2");
+    expect(review.pages?.[0]?.heading).toBe("Set up yield routing");
 
     expect(review.reviewSections).toHaveLength(4);
 
@@ -121,6 +126,8 @@ describe("buildEarnDepositReviewItem", () => {
   test("uses the Main Market USDC reserve without best-reserve data", () => {
     const review = buildEarnDepositReviewItem({
       draft: makeDraft(),
+      isPolicySetupFlow: true,
+      stage: "deposit",
     });
 
     const reserveTransfer = review.reviewSections?.find(
@@ -128,8 +135,36 @@ describe("buildEarnDepositReviewItem", () => {
     )?.rows?.[0]?.value;
 
     expect(review.destinationLabel).toBe("Earn vault");
+    expect(review.primaryActionLabel).toBe("Continue");
+    expect(review.pages).toHaveLength(1);
+    expect(review.pages?.[0]?.title).toBe("Approval 2 of 2");
     expect(reserveTransfer).toContain("Main Market USDC reserve");
     expect(reserveTransfer).toContain("D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59");
+  });
+
+  test("projects top-up deposits directly into the deposit review", () => {
+    const review = buildEarnDepositReviewItem({
+      draft: makeDraft(),
+      isPolicySetupFlow: false,
+      stage: "deposit",
+    });
+
+    expect(review.summaryLabel).toBe("Deposit into Earn vault");
+    expect(review.primaryActionLabel).toBe("Continue");
+    expect(review.pages).toHaveLength(1);
+    expect(review.pages?.[0]?.title).toBe("Deposit");
+    expect(review.pages?.[0]?.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "First",
+          value: expect.stringContaining("into Earn vault"),
+        }),
+        expect.objectContaining({
+          label: "Then",
+          value: expect.stringContaining("Kamino Main Market USDC"),
+        }),
+      ])
+    );
   });
 });
 

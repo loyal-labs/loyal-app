@@ -51,7 +51,11 @@ export {
   getStablecoinMintsForCluster,
   getStablecoinsForCluster,
 } from "./constants.ts";
-export { LOYAL_CLUSTER_CONFIGS } from "./cluster.ts";
+export {
+  LOYAL_CLUSTER_CONFIGS,
+  normalizeLoyalCluster,
+  resolveLoyalClusterForSolanaEnv,
+} from "./cluster.ts";
 export {
   createSubscriptionSweepPolicyPlan,
   createLoyalActionsSdk,

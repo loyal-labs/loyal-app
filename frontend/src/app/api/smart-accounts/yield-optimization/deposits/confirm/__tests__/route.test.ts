@@ -12,8 +12,10 @@ import {
   getKaminoUsdcEarnTargetForCluster,
 } from "@loyal/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
+import type { SmartAccountPreparedEarnUsdcDeposit } from "@loyal-labs/smart-account-vaults";
 import { PublicKey, Connection } from "@solana/web3.js";
 
+import { buildEarnDepositConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   createYieldDepositRepositoryMock,
   recordConfirmedYieldDeposit,
@@ -120,6 +122,30 @@ function request(payload = body()) {
       method: "POST",
     }
   );
+}
+
+function preparedDepositFromBody(
+  payload = body()
+): SmartAccountPreparedEarnUsdcDeposit {
+  return {
+    persistence: {
+      cluster: payload.cluster,
+      depositMint: payload.depositMint,
+      liquidityMint: payload.liquidityMint,
+      market: payload.market,
+      policyAccount: payload.policyAccount,
+      policyId: payload.policyId,
+      policyInitialization: payload.policyInitialization,
+      policySeed: payload.policySeed,
+      principalAmountRaw: payload.principalAmountRaw,
+      settings: payload.settings,
+      targetReserve: payload.targetReserve,
+      targetSupplyApyBps: payload.targetSupplyApyBps,
+      vaultIndex: payload.vaultIndex,
+      vaultPubkey: payload.vaultPubkey,
+      walletAddress: payload.walletAddress,
+    },
+  } as SmartAccountPreparedEarnUsdcDeposit;
 }
 
 describe("yield optimization deposit confirm route", () => {
@@ -262,6 +288,83 @@ describe("yield optimization deposit confirm route", () => {
         status: "active",
       },
     });
+  });
+
+  test("accepts a deposit body built by the shared confirm contract", async () => {
+    const response = await POST(
+      request(
+        buildEarnDepositConfirmRequestBody({
+          confirmedSlot: "123",
+          preparedDeposit: preparedDepositFromBody(),
+          signature: "deposit-sig-1",
+          smartAccountAddress: smartAccountAddress.toBase58(),
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(recordConfirmedYieldDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depositSignature: "deposit-sig-1",
+        policySignature: "deposit-sig-1",
+      })
+    );
+  });
+
+  test("accepts mainnet-beta deposit metadata when configured env is mainnet", async () => {
+    process.env.NEXT_PUBLIC_SOLANA_ENV = "mainnet";
+    const mainnetTarget = getKaminoUsdcEarnTargetForCluster(
+      LoyalCluster.MainnetBeta
+    );
+
+    const response = await POST(
+      request(
+        body({
+          cluster: "mainnet-beta",
+          depositMint: mainnetTarget.liquidityMint.toBase58(),
+          liquidityMint: mainnetTarget.liquidityMint.toBase58(),
+          market: mainnetTarget.market.toBase58(),
+          targetReserve: mainnetTarget.reserve.toBase58(),
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(recordConfirmedYieldDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cluster: "mainnet-beta",
+        depositMint: mainnetTarget.liquidityMint.toBase58(),
+        liquidityMint: mainnetTarget.liquidityMint.toBase58(),
+        market: mainnetTarget.market.toBase58(),
+        targetReserve: mainnetTarget.reserve.toBase58(),
+      })
+    );
+  });
+
+  test("normalizes legacy mainnet deposit metadata before canonical comparison", async () => {
+    process.env.NEXT_PUBLIC_SOLANA_ENV = "mainnet";
+    const mainnetTarget = getKaminoUsdcEarnTargetForCluster(
+      LoyalCluster.MainnetBeta
+    );
+
+    const response = await POST(
+      request(
+        body({
+          cluster: "mainnet",
+          depositMint: mainnetTarget.liquidityMint.toBase58(),
+          liquidityMint: mainnetTarget.liquidityMint.toBase58(),
+          market: mainnetTarget.market.toBase58(),
+          targetReserve: mainnetTarget.reserve.toBase58(),
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(recordConfirmedYieldDeposit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cluster: "mainnet-beta",
+      })
+    );
   });
 
   test("allows split first deposits to use a distinct policy signature", async () => {

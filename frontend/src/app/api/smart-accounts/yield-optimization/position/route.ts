@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   LoyalCluster,
   getKaminoUsdcEarnTargetForCluster,
+  resolveLoyalClusterForSolanaEnv,
 } from "@loyal/actions";
 import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 
@@ -19,11 +20,9 @@ import {
 const EARN_VAULT_INDEX = 1;
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
-function resolveConfiguredCluster(): LoyalCluster {
+function resolveConfiguredCluster() {
   const solanaEnv = resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
-  return solanaEnv === "devnet"
-    ? LoyalCluster.Devnet
-    : LoyalCluster.MainnetBeta;
+  return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 
 function toApyBps(supplyApy: number): string {

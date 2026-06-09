@@ -11,14 +11,14 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { parseEarnDepositConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
-  recordConfirmedYieldDeposit,
-  type ConfirmedYieldDepositInput,
-  type UserYieldPositionRecord,
+  recordConfirmedYieldRoutePolicy,
+  type ConfirmedYieldRoutePolicyInput,
+  type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
-const EARN_DEPOSIT_VAULT_INDEX = 1;
+const EARN_POLICY_VAULT_INDEX = 1;
 const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
@@ -46,7 +46,7 @@ function assertCanonicalField(
 ) {
   if (actual !== expected) {
     throw new Error(
-      `${label} does not match the canonical earn deposit metadata.`
+      `${label} does not match the canonical earn policy metadata.`
     );
   }
 }
@@ -59,9 +59,9 @@ function toSafePolicySeed(policySeed: bigint): number {
   return Number(policySeed);
 }
 
-function createCanonicalDepositInput(
-  requestInput: ConfirmedYieldDepositInput
-): ConfirmedYieldDepositInput {
+function createCanonicalPolicyInput(
+  requestInput: ConfirmedYieldRoutePolicyInput
+): ConfirmedYieldRoutePolicyInput {
   const cluster = normalizeLoyalCluster(requestInput.cluster);
   const normalizedRequestInput = { ...requestInput, cluster };
   const settings = new PublicKey(requestInput.settings);
@@ -71,22 +71,19 @@ function createCanonicalDepositInput(
   })[0];
   const expectedVault = pda.getSmartAccountPda({
     settingsPda: settings,
-    accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    accountIndex: EARN_POLICY_VAULT_INDEX,
   })[0];
   const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
-  const usdcMint = earnTarget.liquidityMint.toBase58();
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
-    depositMint: usdcMint,
-    liquidityMint: usdcMint,
+    liquidityMint: earnTarget.liquidityMint.toBase58(),
     market: earnTarget.market.toBase58(),
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
     targetReserve: earnTarget.reserve.toBase58(),
-    targetSupplyApyBps: null,
-    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+    vaultIndex: EARN_POLICY_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
 
@@ -94,11 +91,6 @@ function createCanonicalDepositInput(
     normalizedRequestInput.cluster,
     canonicalInput.cluster,
     "cluster"
-  );
-  assertCanonicalField(
-    requestInput.depositMint,
-    canonicalInput.depositMint,
-    "depositMint"
   );
   assertCanonicalField(
     requestInput.liquidityMint,
@@ -130,11 +122,6 @@ function createCanonicalDepositInput(
     requestInput.targetReserve,
     canonicalInput.targetReserve,
     "targetReserve"
-  );
-  assertCanonicalField(
-    requestInput.targetSupplyApyBps,
-    canonicalInput.targetSupplyApyBps,
-    "targetSupplyApyBps"
   );
   assertCanonicalField(
     requestInput.vaultIndex,
@@ -179,14 +166,14 @@ async function resolveConfirmedSignatureSlot(args: {
   const status = value[0];
 
   if (!status || status.err) {
-    throw new Error("Deposit transaction is not confirmed.");
+    throw new Error("Policy setup transaction is not confirmed.");
   }
 
   if (
     status.confirmationStatus !== "confirmed" &&
     status.confirmationStatus !== "finalized"
   ) {
-    throw new Error("Deposit transaction is not confirmed.");
+    throw new Error("Policy setup transaction is not confirmed.");
   }
 
   if (typeof status.slot !== "number") {
@@ -196,30 +183,13 @@ async function resolveConfirmedSignatureSlot(args: {
   return BigInt(status.slot);
 }
 
-function serializePosition(position: UserYieldPositionRecord) {
+function serializePolicy(policy: RoutePolicyRecord) {
   return {
-    currentHolding: {
-      amountRaw: position.currentAmountRaw.toString(),
-      liquidityMint: position.currentLiquidityMint,
-      market: position.currentMarket,
-      observedAt: position.currentObservedAt.toISOString(),
-      observedSlot: position.currentObservedSlot.toString(),
-      provenance: {
-        lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
-        lastRebalanceDecisionId:
-          position.lastRebalanceDecisionId?.toString() ?? null,
-      },
-      reserve: position.currentReserve,
-    },
-    id: position.id.toString(),
-    initialHolding: {
-      liquidityMint: position.initialLiquidityMint,
-      market: position.initialMarket,
-      reserve: position.initialReserve,
-      supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
-    },
-    principalAmountRaw: position.principalAmountRaw.toString(),
-    status: position.status,
+    account: policy.policyAccount,
+    id: policy.id.toString(),
+    seed: policy.policySeed.toString(),
+    vaultIndex: policy.vaultIndex,
+    vaultPubkey: policy.vaultPubkey,
   };
 }
 
@@ -230,9 +200,9 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
 
-  let input: ConfirmedYieldDepositInput;
+  let input: ConfirmedYieldRoutePolicyInput;
   try {
-    input = parseEarnDepositConfirmRequestBody(await request.json());
+    input = parseEarnPolicyConfirmRequestBody(await request.json());
   } catch (error) {
     return jsonError(
       400,
@@ -243,25 +213,24 @@ export async function POST(request: Request) {
 
   if (
     input.walletAddress !== principal.walletAddress ||
-    input.smartAccountAddress !== principal.smartAccountAddress ||
     input.settings !== principal.settingsPda
   ) {
     return jsonError(
       403,
       "principal_mismatch",
-      "Confirmed yield deposit does not match the authenticated wallet session."
+      "Confirmed yield policy does not match the authenticated wallet session."
     );
   }
 
   try {
-    input = createCanonicalDepositInput(input);
+    input = createCanonicalPolicyInput(input);
   } catch (error) {
     return jsonError(
       400,
       "metadata_mismatch",
       error instanceof Error
         ? error.message
-        : "Confirmed yield deposit metadata is invalid."
+        : "Confirmed yield policy metadata is invalid."
     );
   }
 
@@ -271,7 +240,7 @@ export async function POST(request: Request) {
     return jsonError(
       400,
       "cluster_mismatch",
-      "Confirmed yield deposit cluster does not match the configured Solana environment."
+      "Confirmed yield policy cluster does not match the configured Solana environment."
     );
   }
 
@@ -279,7 +248,7 @@ export async function POST(request: Request) {
   try {
     confirmedSlot = await resolveConfirmedSignatureSlot({
       cluster: solanaEnv,
-      signature: input.depositSignature,
+      signature: input.policySignature,
     });
   } catch (error) {
     return jsonError(
@@ -287,7 +256,7 @@ export async function POST(request: Request) {
       "unconfirmed_signature",
       error instanceof Error
         ? error.message
-        : "Deposit transaction is not confirmed."
+        : "Policy setup transaction is not confirmed."
     );
   }
 
@@ -295,13 +264,13 @@ export async function POST(request: Request) {
     return jsonError(
       400,
       "slot_mismatch",
-      "Confirmed yield deposit slot does not match the transaction status."
+      "Confirmed yield policy slot does not match the transaction status."
     );
   }
 
-  const position = await recordConfirmedYieldDeposit(input);
+  const policy = await recordConfirmedYieldRoutePolicy(input);
 
   return NextResponse.json({
-    position: serializePosition(position),
+    policy: serializePolicy(policy),
   });
 }

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import {
-  LoyalCluster,
   getKaminoUsdcEarnTargetForCluster,
+  normalizeLoyalCluster,
+  resolveLoyalClusterForSolanaEnv,
 } from "@loyal/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
@@ -10,6 +11,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { parseEarnWithdrawalConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   recordConfirmedYieldWithdrawal,
   type ConfirmedYieldWithdrawalInput,
@@ -21,25 +23,6 @@ const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
-type ConfirmWithdrawalRequestBody = {
-  cluster?: unknown;
-  walletAddress?: unknown;
-  smartAccountAddress?: unknown;
-  settings?: unknown;
-  vaultIndex?: unknown;
-  vaultPubkey?: unknown;
-  policyId?: unknown;
-  policyAccount?: unknown;
-  policySeed?: unknown;
-  withdrawalSignature?: unknown;
-  confirmedSlot?: unknown;
-  targetReserve?: unknown;
-  market?: unknown;
-  liquidityMint?: unknown;
-  withdrawnAmountRaw?: unknown;
-  mode?: unknown;
-};
-
 function jsonError(
   status: number,
   code: string,
@@ -48,102 +31,12 @@ function jsonError(
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function readRequiredString(
-  body: ConfirmWithdrawalRequestBody,
-  key: keyof ConfirmWithdrawalRequestBody
-): string {
-  const value = body[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`${key} must be a non-empty string.`);
-  }
-  return value.trim();
-}
-
-function readOptionalString(
-  body: ConfirmWithdrawalRequestBody,
-  key: keyof ConfirmWithdrawalRequestBody
-): string | null {
-  const value = body[key];
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    throw new Error(`${key} must be a string when provided.`);
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function readBigIntString(
-  body: ConfirmWithdrawalRequestBody,
-  key: keyof ConfirmWithdrawalRequestBody
-): bigint {
-  const value = readRequiredString(body, key);
-  if (!/^\d+$/.test(value)) {
-    throw new Error(`${key} must be an unsigned integer string.`);
-  }
-  return BigInt(value);
-}
-
-function readVaultIndex(body: ConfirmWithdrawalRequestBody): number {
-  const value = body.vaultIndex;
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 0 ||
-    value > 32767
-  ) {
-    throw new Error("vaultIndex must be an integer between 0 and 32767.");
-  }
-  return value;
-}
-
-function readMode(body: ConfirmWithdrawalRequestBody): "partial" | "full" {
-  const mode = readRequiredString(body, "mode");
-  if (mode !== "partial" && mode !== "full") {
-    throw new Error("mode must be partial or full.");
-  }
-  return mode;
-}
-
-function parseLoyalCluster(cluster: string): LoyalCluster {
-  if (cluster === LoyalCluster.Devnet) {
-    return LoyalCluster.Devnet;
-  }
-  if (cluster === LoyalCluster.MainnetBeta || cluster === "mainnet") {
-    return LoyalCluster.MainnetBeta;
-  }
-  throw new Error(`unsupported Loyal cluster: ${cluster}`);
-}
-
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
 }
 
-function parseRequestBody(body: unknown): ConfirmedYieldWithdrawalInput {
-  if (!body || typeof body !== "object") {
-    throw new Error("Request body must be an object.");
-  }
-
-  const record = body as ConfirmWithdrawalRequestBody;
-  return {
-    cluster: readRequiredString(record, "cluster"),
-    confirmedSlot: readBigIntString(record, "confirmedSlot"),
-    liquidityMint: readRequiredString(record, "liquidityMint"),
-    market: readOptionalString(record, "market"),
-    mode: readMode(record),
-    policyAccount: readRequiredString(record, "policyAccount"),
-    policyId: readBigIntString(record, "policyId"),
-    policySeed: readBigIntString(record, "policySeed"),
-    settings: readRequiredString(record, "settings"),
-    smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
-    targetReserve: readRequiredString(record, "targetReserve"),
-    vaultIndex: readVaultIndex(record),
-    vaultPubkey: readRequiredString(record, "vaultPubkey"),
-    walletAddress: readRequiredString(record, "walletAddress"),
-    withdrawalSignature: readRequiredString(record, "withdrawalSignature"),
-    withdrawnAmountRaw: readBigIntString(record, "withdrawnAmountRaw"),
-  };
+function getConfiguredLoyalCluster() {
+  return resolveLoyalClusterForSolanaEnv(getConfiguredSolanaEnv());
 }
 
 function assertCanonicalField(
@@ -169,7 +62,8 @@ function toSafePolicySeed(policySeed: bigint): number {
 function createCanonicalWithdrawalInput(
   requestInput: ConfirmedYieldWithdrawalInput
 ): ConfirmedYieldWithdrawalInput {
-  const cluster = parseLoyalCluster(requestInput.cluster);
+  const cluster = normalizeLoyalCluster(requestInput.cluster);
+  const normalizedRequestInput = { ...requestInput, cluster };
   const settings = new PublicKey(requestInput.settings);
   const expectedPolicyAccount = pda.getPolicyPda({
     settingsPda: settings,
@@ -182,7 +76,7 @@ function createCanonicalWithdrawalInput(
   const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
   const usdcMint = earnTarget.liquidityMint.toBase58();
   const canonicalInput = {
-    ...requestInput,
+    ...normalizedRequestInput,
     cluster,
     liquidityMint: usdcMint,
     market: earnTarget.market.toBase58(),
@@ -194,7 +88,11 @@ function createCanonicalWithdrawalInput(
     vaultPubkey: expectedVault.toBase58(),
   };
 
-  assertCanonicalField(requestInput.cluster, canonicalInput.cluster, "cluster");
+  assertCanonicalField(
+    normalizedRequestInput.cluster,
+    canonicalInput.cluster,
+    "cluster"
+  );
   assertCanonicalField(
     requestInput.liquidityMint,
     canonicalInput.liquidityMint,
@@ -322,7 +220,7 @@ export async function POST(request: Request) {
 
   let input: ConfirmedYieldWithdrawalInput;
   try {
-    input = parseRequestBody(await request.json());
+    input = parseEarnWithdrawalConfirmRequestBody(await request.json());
   } catch (error) {
     return jsonError(
       400,
@@ -356,7 +254,8 @@ export async function POST(request: Request) {
   }
 
   const solanaEnv = getConfiguredSolanaEnv();
-  if (input.cluster !== solanaEnv) {
+  const configuredCluster = getConfiguredLoyalCluster();
+  if (input.cluster !== configuredCluster) {
     return jsonError(
       400,
       "cluster_mismatch",

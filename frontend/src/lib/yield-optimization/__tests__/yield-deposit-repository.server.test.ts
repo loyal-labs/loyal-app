@@ -20,6 +20,7 @@ const {
   createRoutePolicyValuesFromPlan,
   findYieldPositionHistoryEvents,
   recordConfirmedYieldDeposit,
+  recordConfirmedYieldRoutePolicy,
   recordConfirmedYieldWithdrawal,
 } = await import("../yield-deposit-repository.server");
 
@@ -66,6 +67,26 @@ function input(overrides = {}) {
     vaultIndex: 1,
     vaultPubkey: "11111111111111111111111111111115",
     walletAddress: walletAddress.toBase58(),
+    ...overrides,
+  };
+}
+
+function policyInput(overrides = {}) {
+  const deposit = input();
+  return {
+    cluster: deposit.cluster,
+    confirmedSlot: deposit.confirmedSlot,
+    liquidityMint: deposit.liquidityMint,
+    market: deposit.market,
+    policyAccount: deposit.policyAccount,
+    policyId: deposit.policyId,
+    policySeed: deposit.policySeed,
+    policySignature: deposit.policySignature,
+    settings: deposit.settings,
+    targetReserve: deposit.targetReserve,
+    vaultIndex: deposit.vaultIndex,
+    vaultPubkey: deposit.vaultPubkey,
+    walletAddress: deposit.walletAddress,
     ...overrides,
   };
 }
@@ -328,7 +349,12 @@ function createFakeClient(args: {
 
     async execute() {
       if (this.call.table === routePolicies && this.returnsSelection) {
-        return [{ id: args.upsertedRoutePolicyId ?? BigInt(4200) }];
+        return [
+          {
+            ...(this.call.values ?? {}),
+            id: args.upsertedRoutePolicyId ?? BigInt(4200),
+          },
+        ];
       }
       if (this.call.table === userYieldPositionDeposits) {
         return args.duplicateDeposit ? [] : [{ id: BigInt(99) }];
@@ -471,6 +497,35 @@ function createFakeClient(args: {
   };
 }
 
+describe("recordConfirmedYieldRoutePolicy", () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test("records only route policy and managed vault metadata", async () => {
+    const fake = createFakeClient({ upsertedRoutePolicyId: BigInt(808) });
+
+    const result = await recordConfirmedYieldRoutePolicy(policyInput(), {
+      client: fake.client as never,
+      now: () => new Date("2026-06-01T00:00:00.000Z"),
+    });
+
+    expect(result.id).toBe(BigInt(808));
+    expect(fake.insertCalls.map((call) => call.table)).toEqual([
+      routePolicies,
+      managedVaults,
+    ]);
+    expect(fake.insertCalls).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ table: userYieldPositionDeposits }),
+        expect.objectContaining({ table: userYieldPositions }),
+        expect.objectContaining({ table: userYieldPositionHoldingEvents }),
+      ])
+    );
+    expect(fake.db.batch).not.toHaveBeenCalled();
+  });
+});
+
 describe("recordConfirmedYieldDeposit", () => {
   beforeEach(() => {
     mock.restore();
@@ -485,7 +540,7 @@ describe("recordConfirmedYieldDeposit", () => {
     });
 
     expect(result.principalAmountRaw).toBe(BigInt(1_000_000));
-    expect(fake.db.batch).toHaveBeenCalledTimes(1);
+    expect(fake.db.batch).not.toHaveBeenCalled();
     expect(fake.insertCalls.map((call) => call.table)).toEqual([
       routePolicies,
       managedVaults,
@@ -723,18 +778,35 @@ describe("recordConfirmedYieldDeposit", () => {
     );
   });
 
-  test("rejects top-up deposits without an active position", async () => {
-    const fake = createFakeClient({});
+  test("allows a first deposit after standalone policy setup", async () => {
+    const fake = createFakeClient({
+      updatedPosition: position({
+        firstDepositSignature: "deposit-sig-setup-first",
+      }),
+      upsertedPosition: position({
+        firstDepositSignature: "deposit-sig-setup-first",
+      }),
+    });
 
-    await expect(
-      recordConfirmedYieldDeposit(input({ policyInitialization: "reuse" }), {
+    const result = await recordConfirmedYieldDeposit(
+      input({
+        depositSignature: "deposit-sig-setup-first",
+        policyInitialization: "reuse",
+      }),
+      {
         client: fake.client as never,
         now: () => new Date("2026-06-01T00:00:00.000Z"),
-      })
-    ).rejects.toThrow(
-      "Top-up yield deposit requires an existing active position."
+      }
     );
-    expect(fake.insertCalls).toHaveLength(0);
+
+    expect(result.firstDepositSignature).toBe("deposit-sig-setup-first");
+    expect(fake.insertCalls.map((call) => call.table)).toEqual([
+      routePolicies,
+      managedVaults,
+      userYieldPositionDeposits,
+      userYieldPositions,
+      userYieldPositionHoldingEvents,
+    ]);
   });
 
   test("rejects first deposits when an active Earn position already exists", async () => {

@@ -12,13 +12,13 @@ import {
   getKaminoUsdcEarnTargetForCluster,
 } from "@loyal/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import type { SmartAccountPreparedEarnUsdcWithdraw } from "@loyal-labs/smart-account-vaults";
-import { Connection, PublicKey } from "@solana/web3.js";
+import type { SmartAccountPreparedEarnUsdcYieldRoutingPolicy } from "@loyal-labs/smart-account-vaults";
+import { PublicKey, Connection } from "@solana/web3.js";
 
-import { buildEarnWithdrawalConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { buildEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   createYieldDepositRepositoryMock,
-  recordConfirmedYieldWithdrawal,
+  recordConfirmedYieldRoutePolicy,
 } from "@/test/yield-route-mocks";
 
 mock.module("server-only", () => ({}));
@@ -87,32 +87,28 @@ let POST: typeof import("../route").POST;
 const previousSolanaEnv = process.env.NEXT_PUBLIC_SOLANA_ENV;
 
 function body(overrides = {}) {
-  const usdcMint = earnTarget.liquidityMint.toBase58();
   const policySeed = "2";
   return {
     cluster: "devnet",
     confirmedSlot: "123",
-    liquidityMint: usdcMint,
+    liquidityMint: earnTarget.liquidityMint.toBase58(),
     market: earnTarget.market.toBase58(),
-    mode: "partial",
     policyAccount: policyAccountForSeed(Number(policySeed)),
     policyId: policySeed,
     policySeed,
+    policySignature: "policy-sig-1",
     settings: settings.toBase58(),
-    smartAccountAddress: smartAccountAddress.toBase58(),
     targetReserve: earnTarget.reserve.toBase58(),
     vaultIndex: 1,
     vaultPubkey: vaultPubkey.toBase58(),
     walletAddress: walletAddress.toBase58(),
-    withdrawalSignature: "withdrawal-sig-1",
-    withdrawnAmountRaw: "250000",
     ...overrides,
   };
 }
 
 function request(payload = body()) {
   return new Request(
-    "https://app.askloyal.com/api/smart-accounts/yield-optimization/withdrawals/confirm",
+    "https://app.askloyal.com/api/smart-accounts/yield-optimization/policies/confirm",
     {
       body: JSON.stringify(payload),
       headers: { "content-type": "application/json" },
@@ -121,15 +117,14 @@ function request(payload = body()) {
   );
 }
 
-function preparedWithdrawFromBody(
+function preparedPolicyFromBody(
   payload = body()
-): SmartAccountPreparedEarnUsdcWithdraw {
+): SmartAccountPreparedEarnUsdcYieldRoutingPolicy {
   return {
     persistence: {
       cluster: payload.cluster,
       liquidityMint: payload.liquidityMint,
       market: payload.market,
-      mode: payload.mode,
       policyAccount: payload.policyAccount,
       policyId: payload.policyId,
       policySeed: payload.policySeed,
@@ -138,12 +133,11 @@ function preparedWithdrawFromBody(
       vaultIndex: payload.vaultIndex,
       vaultPubkey: payload.vaultPubkey,
       walletAddress: payload.walletAddress,
-      withdrawnAmountRaw: payload.withdrawnAmountRaw,
     },
-  } as SmartAccountPreparedEarnUsdcWithdraw;
+  } as SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
 }
 
-describe("yield optimization withdrawal confirm route", () => {
+describe("yield optimization policy confirm route", () => {
   beforeAll(async () => {
     ({ POST } = await import("../route"));
   });
@@ -159,7 +153,7 @@ describe("yield optimization withdrawal confirm route", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SOLANA_ENV = "devnet";
     resolveAuthenticatedPrincipalFromRequest.mockClear();
-    recordConfirmedYieldWithdrawal.mockClear();
+    recordConfirmedYieldRoutePolicy.mockClear();
     getSignatureStatuses.mockClear();
     getSignatureStatuses.mockImplementation(async () => ({
       value: [
@@ -178,36 +172,28 @@ describe("yield optimization withdrawal confirm route", () => {
       subjectAddress: walletAddress.toBase58(),
       walletAddress: walletAddress.toBase58(),
     }));
-    recordConfirmedYieldWithdrawal.mockImplementation(async () => ({
-      cluster: "devnet",
-      createdAt: new Date("2026-06-01T00:00:00.000Z"),
-      firstDepositSignature: "deposit-sig-1",
-      currentAmountRaw: BigInt(750_000),
-      currentLiquidityMint: earnTarget.liquidityMint.toBase58(),
-      currentMarket: earnTarget.market.toBase58(),
-      currentObservedAt: new Date("2026-06-01T00:00:00.000Z"),
-      currentObservedSlot: BigInt(123),
-      currentReserve: earnTarget.reserve.toBase58(),
-      id: BigInt(1),
-      initialLiquidityMint: earnTarget.liquidityMint.toBase58(),
-      initialMarket: earnTarget.market.toBase58(),
-      initialReserve: earnTarget.reserve.toBase58(),
-      initialSupplyApyBps: BigInt(523),
-      lastConfirmedSlot: BigInt(123),
-      lastDepositSignature: "deposit-sig-1",
-      lastHoldingEventId: BigInt(100),
-      lastRebalanceDecisionId: null,
+    recordConfirmedYieldRoutePolicy.mockImplementation(async () => ({
+      active: true,
+      authority: walletAddress.toBase58(),
+      delegatedSigners: [walletAddress.toBase58()],
+      firstSeenAt: new Date("2026-06-01T00:00:00.000Z"),
+      id: BigInt(55),
+      kaminoLiquidityMints: [earnTarget.liquidityMint.toBase58()],
+      kaminoMarkets: [earnTarget.market.toBase58()],
+      lastSeenAt: new Date("2026-06-01T00:00:00.000Z"),
+      lastSeenSignature: "policy-sig-1",
+      lastSeenSlot: BigInt(123),
       policyAccount: policyAccountForSeed(2),
-      policyId: BigInt(2),
       policySeed: BigInt(2),
-      principalAmountRaw: BigInt(750_000),
+      riskProfile: "safe",
+      routeModes: ["yield"],
       settings: settings.toBase58(),
-      smartAccountAddress: smartAccountAddress.toBase58(),
-      status: "active" as const,
-      updatedAt: new Date("2026-06-01T00:00:00.000Z"),
+      stableMints: [earnTarget.liquidityMint.toBase58()],
+      swapLanes: [],
+      threshold: 1,
+      universePreset: "safe",
       vaultIndex: 1,
       vaultPubkey: vaultPubkey.toBase58(),
-      walletAddress: walletAddress.toBase58(),
     }));
   });
 
@@ -219,91 +205,62 @@ describe("yield optimization withdrawal confirm route", () => {
     const response = await POST(request());
 
     expect(response.status).toBe(401);
-    expect(recordConfirmedYieldWithdrawal).not.toHaveBeenCalled();
+    expect(recordConfirmedYieldRoutePolicy).not.toHaveBeenCalled();
   });
 
-  test("returns 403 when request account refs do not match the principal", async () => {
-    const response = await POST(
-      request(body({ settings: "11111111111111111111111111111115" }))
-    );
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({
-      error: {
-        code: "principal_mismatch",
-        message:
-          "Confirmed yield withdrawal does not match the authenticated wallet session.",
-      },
-    });
-    expect(recordConfirmedYieldWithdrawal).not.toHaveBeenCalled();
-  });
-
-  test("valid confirmed withdrawal calls the repository with normalized input", async () => {
+  test("valid confirmed policy setup calls the repository with normalized input", async () => {
     const response = await POST(request());
 
     expect(response.status).toBe(200);
-    expect(recordConfirmedYieldWithdrawal).toHaveBeenCalledWith({
+    expect(recordConfirmedYieldRoutePolicy).toHaveBeenCalledWith({
       cluster: "devnet",
       confirmedSlot: BigInt(123),
       liquidityMint: earnTarget.liquidityMint.toBase58(),
       market: earnTarget.market.toBase58(),
-      mode: "partial",
       policyAccount: policyAccountForSeed(2),
       policyId: BigInt(2),
       policySeed: BigInt(2),
+      policySignature: "policy-sig-1",
       settings: settings.toBase58(),
-      smartAccountAddress: smartAccountAddress.toBase58(),
       targetReserve: earnTarget.reserve.toBase58(),
       vaultIndex: 1,
       vaultPubkey: vaultPubkey.toBase58(),
       walletAddress: walletAddress.toBase58(),
-      withdrawalSignature: "withdrawal-sig-1",
-      withdrawnAmountRaw: BigInt(250_000),
     });
-    expect(getSignatureStatuses).toHaveBeenCalledWith(["withdrawal-sig-1"], {
+    expect(getSignatureStatuses).toHaveBeenCalledWith(["policy-sig-1"], {
       searchTransactionHistory: true,
     });
     await expect(response.json()).resolves.toMatchObject({
-      position: {
-        currentHolding: {
-          amountRaw: "750000",
-          provenance: {
-            lastHoldingEventId: "100",
-            lastRebalanceDecisionId: null,
-          },
-        },
-        id: "1",
-        initialHolding: {
-          supplyApyBps: "523",
-        },
-        principalAmountRaw: "750000",
-        status: "active",
+      policy: {
+        account: policyAccountForSeed(2),
+        id: "55",
+        seed: "2",
+        vaultIndex: 1,
+        vaultPubkey: vaultPubkey.toBase58(),
       },
     });
   });
 
-  test("accepts a withdrawal body built by the shared confirm contract", async () => {
+  test("accepts a policy body built by the shared confirm contract", async () => {
     const response = await POST(
       request(
-        buildEarnWithdrawalConfirmRequestBody({
+        buildEarnPolicyConfirmRequestBody({
           confirmedSlot: "123",
-          preparedWithdraw: preparedWithdrawFromBody(),
-          signature: "withdrawal-sig-1",
-          smartAccountAddress: smartAccountAddress.toBase58(),
+          preparedPolicy: preparedPolicyFromBody(),
+          signature: "policy-sig-1",
         })
       )
     );
 
     expect(response.status).toBe(200);
-    expect(recordConfirmedYieldWithdrawal).toHaveBeenCalledWith(
+    expect(recordConfirmedYieldRoutePolicy).toHaveBeenCalledWith(
       expect.objectContaining({
-        withdrawalSignature: "withdrawal-sig-1",
-        withdrawnAmountRaw: BigInt(250_000),
+        policySignature: "policy-sig-1",
       })
     );
   });
 
-  test("accepts mainnet-beta withdrawal metadata when configured env is mainnet", async () => {
+  test("accepts mainnet-beta policy metadata when configured env is mainnet", async () => {
     process.env.NEXT_PUBLIC_SOLANA_ENV = "mainnet";
     const mainnetTarget = getKaminoUsdcEarnTargetForCluster(
       LoyalCluster.MainnetBeta
@@ -321,7 +278,7 @@ describe("yield optimization withdrawal confirm route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(recordConfirmedYieldWithdrawal).toHaveBeenCalledWith(
+    expect(recordConfirmedYieldRoutePolicy).toHaveBeenCalledWith(
       expect.objectContaining({
         cluster: "mainnet-beta",
         liquidityMint: mainnetTarget.liquidityMint.toBase58(),
@@ -331,7 +288,7 @@ describe("yield optimization withdrawal confirm route", () => {
     );
   });
 
-  test("normalizes legacy mainnet withdrawal metadata before canonical comparison", async () => {
+  test("normalizes legacy mainnet policy metadata before canonical comparison", async () => {
     process.env.NEXT_PUBLIC_SOLANA_ENV = "mainnet";
     const mainnetTarget = getKaminoUsdcEarnTargetForCluster(
       LoyalCluster.MainnetBeta
@@ -349,11 +306,20 @@ describe("yield optimization withdrawal confirm route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(recordConfirmedYieldWithdrawal).toHaveBeenCalledWith(
+    expect(recordConfirmedYieldRoutePolicy).toHaveBeenCalledWith(
       expect.objectContaining({
         cluster: "mainnet-beta",
       })
     );
+  });
+
+  test("returns 403 when request account refs do not match the principal", async () => {
+    const response = await POST(
+      request(body({ settings: "11111111111111111111111111111115" }))
+    );
+
+    expect(response.status).toBe(403);
+    expect(recordConfirmedYieldRoutePolicy).not.toHaveBeenCalled();
   });
 
   test("returns 400 when client policy metadata is tampered", async () => {
@@ -366,10 +332,10 @@ describe("yield optimization withdrawal confirm route", () => {
       error: {
         code: "metadata_mismatch",
         message:
-          "policyAccount does not match the canonical earn withdrawal metadata.",
+          "policyAccount does not match the canonical earn policy metadata.",
       },
     });
-    expect(recordConfirmedYieldWithdrawal).not.toHaveBeenCalled();
+    expect(recordConfirmedYieldRoutePolicy).not.toHaveBeenCalled();
   });
 
   test("returns 400 when the submitted signature is not confirmed", async () => {
@@ -391,6 +357,6 @@ describe("yield optimization withdrawal confirm route", () => {
         code: "unconfirmed_signature",
       },
     });
-    expect(recordConfirmedYieldWithdrawal).not.toHaveBeenCalled();
+    expect(recordConfirmedYieldRoutePolicy).not.toHaveBeenCalled();
   });
 });

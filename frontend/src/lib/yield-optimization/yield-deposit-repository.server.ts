@@ -1,9 +1,9 @@
 import "server-only";
 
 import {
-  LoyalCluster,
   RiskBasket,
   createVaultYieldRoutingPolicyPlan,
+  normalizeLoyalCluster,
   type VaultYieldRoutingPolicyPlan,
 } from "@loyal/actions";
 import { PublicKey } from "@solana/web3.js";
@@ -41,6 +41,22 @@ export type ConfirmedYieldDepositInput = {
   targetSupplyApyBps: bigint | null;
   depositMint: string;
   principalAmountRaw: bigint;
+};
+
+export type ConfirmedYieldRoutePolicyInput = {
+  cluster: string;
+  walletAddress: string;
+  settings: string;
+  vaultIndex: number;
+  vaultPubkey: string;
+  policyId: bigint;
+  policyAccount: string;
+  policySeed: bigint;
+  policySignature: string;
+  confirmedSlot: bigint;
+  targetReserve: string;
+  market: string | null;
+  liquidityMint: string;
 };
 
 export type UserYieldPositionRecord = typeof userYieldPositions.$inferSelect;
@@ -174,21 +190,11 @@ function createDependencies(): YieldDepositRepositoryDependencies {
   };
 }
 
-function parseLoyalCluster(cluster: string): LoyalCluster {
-  if (cluster === LoyalCluster.Devnet) {
-    return LoyalCluster.Devnet;
-  }
-  if (cluster === LoyalCluster.MainnetBeta || cluster === "mainnet") {
-    return LoyalCluster.MainnetBeta;
-  }
-  throw new Error(`unsupported Loyal cluster: ${cluster}`);
-}
-
-function createYieldRoutingPolicyPlanFromDepositInput(
-  input: ConfirmedYieldDepositInput
+function createYieldRoutingPolicyPlanFromRouteInput(
+  input: ConfirmedYieldRoutePolicyInput
 ): VaultYieldRoutingPolicyPlan {
   return createVaultYieldRoutingPolicyPlan({
-    cluster: parseLoyalCluster(input.cluster),
+    cluster: normalizeLoyalCluster(input.cluster),
     risk: RiskBasket.Safe,
     smartAccount: {
       settings: new PublicKey(input.settings),
@@ -201,7 +207,7 @@ function createYieldRoutingPolicyPlanFromDepositInput(
 
 export function createRoutePolicyValuesFromPlan(
   plan: VaultYieldRoutingPolicyPlan,
-  input: ConfirmedYieldDepositInput,
+  input: ConfirmedYieldRoutePolicyInput,
   now: Date
 ) {
   return {
@@ -226,6 +232,77 @@ export function createRoutePolicyValuesFromPlan(
     vaultIndex: plan.metadata.vaultIndex,
     vaultPubkey: plan.metadata.vault.toBase58(),
   };
+}
+
+async function upsertConfirmedYieldRoutePolicy(args: {
+  client: YieldOptimizationClient;
+  input: ConfirmedYieldRoutePolicyInput;
+  now: Date;
+}): Promise<RoutePolicyRecord> {
+  const { client, input, now } = args;
+  const routePolicyPlan = createYieldRoutingPolicyPlanFromRouteInput(input);
+  const routePolicyValues = createRoutePolicyValuesFromPlan(
+    routePolicyPlan,
+    input,
+    now
+  );
+  const [routePolicy] = await client.db
+    .insert(routePolicies)
+    .values(routePolicyValues)
+    .onConflictDoUpdate({
+      target: [routePolicies.policyAccount],
+      set: {
+        active: true,
+        authority: sql`excluded.authority`,
+        delegatedSigners: sql`excluded.delegated_signers`,
+        kaminoLiquidityMints: sql`excluded.kamino_liquidity_mints`,
+        kaminoMarkets: sql`excluded.kamino_markets`,
+        lastSeenAt: now,
+        lastSeenSignature: input.policySignature,
+        lastSeenSlot: input.confirmedSlot,
+        policySeed: input.policySeed,
+        riskProfile: sql`excluded.risk_profile`,
+        routeModes: sql`excluded.route_modes`,
+        stableMints: sql`excluded.stable_mints`,
+        swapLanes: sql`excluded.swap_lanes`,
+        threshold: sql`excluded.threshold`,
+        universePreset: sql`excluded.universe_preset`,
+        vaultIndex: routePolicyValues.vaultIndex,
+        vaultPubkey: routePolicyValues.vaultPubkey,
+      },
+    })
+    .returning();
+
+  if (!routePolicy) {
+    throw new Error("Failed to record confirmed yield route policy.");
+  }
+
+  const managedVaultValues = {
+    active: true,
+    activePolicyId: routePolicy.id,
+    firstSeenAt: now,
+    lastSeenAt: now,
+    settings: input.settings,
+    vaultIndex: routePolicyPlan.metadata.vaultIndex,
+    vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
+  };
+  await client.db
+    .insert(managedVaults)
+    .values(managedVaultValues)
+    .onConflictDoUpdate({
+      target: [
+        managedVaults.settings,
+        managedVaults.vaultIndex,
+        managedVaults.vaultPubkey,
+      ],
+      set: {
+        active: true,
+        activePolicyId: routePolicy.id,
+        lastSeenAt: now,
+      },
+    });
+
+  return routePolicy;
 }
 
 async function upsertAggregatePosition(args: {
@@ -434,14 +511,10 @@ export async function recordConfirmedYieldDeposit(
       ),
     });
 
-  if (input.policyInitialization === "reuse" && !existingPosition) {
-    throw new Error(
-      "Top-up yield deposit requires an existing active position."
-    );
-  }
   if (
     input.policyInitialization === "reuse" &&
-    existingPosition?.status !== "active"
+    existingPosition &&
+    existingPosition.status !== "active"
   ) {
     throw new Error("Top-up yield deposit requires an active yield position.");
   }
@@ -458,52 +531,11 @@ export async function recordConfirmedYieldDeposit(
     );
   }
 
-  const routePolicyPlan = createYieldRoutingPolicyPlanFromDepositInput(input);
-  const routePolicyValues = createRoutePolicyValuesFromPlan(
-    routePolicyPlan,
+  await upsertConfirmedYieldRoutePolicy({
+    client,
     input,
-    now
-  );
-  const [routePolicy] = await client.db
-    .insert(routePolicies)
-    .values(routePolicyValues)
-    .onConflictDoUpdate({
-      target: [routePolicies.policyAccount],
-      set: {
-        active: true,
-        authority: sql`excluded.authority`,
-        delegatedSigners: sql`excluded.delegated_signers`,
-        kaminoLiquidityMints: sql`excluded.kamino_liquidity_mints`,
-        kaminoMarkets: sql`excluded.kamino_markets`,
-        lastSeenAt: now,
-        lastSeenSignature: input.policySignature,
-        lastSeenSlot: input.confirmedSlot,
-        policySeed: input.policySeed,
-        riskProfile: sql`excluded.risk_profile`,
-        routeModes: sql`excluded.route_modes`,
-        stableMints: sql`excluded.stable_mints`,
-        swapLanes: sql`excluded.swap_lanes`,
-        threshold: sql`excluded.threshold`,
-        universePreset: sql`excluded.universe_preset`,
-        vaultIndex: routePolicyValues.vaultIndex,
-        vaultPubkey: routePolicyValues.vaultPubkey,
-      },
-    })
-    .returning({ id: routePolicies.id });
-
-  if (!routePolicy) {
-    throw new Error("Failed to record confirmed yield route policy.");
-  }
-
-  const managedVaultValues = {
-    active: true,
-    activePolicyId: routePolicy.id,
-    firstSeenAt: now,
-    lastSeenAt: now,
-    settings: input.settings,
-    vaultIndex: routePolicyPlan.metadata.vaultIndex,
-    vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
-  };
+    now,
+  });
   const depositValues = {
     confirmedAt: now,
     confirmedSlot: input.confirmedSlot,
@@ -526,30 +558,13 @@ export async function recordConfirmedYieldDeposit(
     walletAddress: input.walletAddress,
   };
 
-  const [, insertedDeposits] = await client.db.batch([
-    client.db
-      .insert(managedVaults)
-      .values(managedVaultValues)
-      .onConflictDoUpdate({
-        target: [
-          managedVaults.settings,
-          managedVaults.vaultIndex,
-          managedVaults.vaultPubkey,
-        ],
-        set: {
-          active: true,
-          activePolicyId: routePolicy.id,
-          lastSeenAt: now,
-        },
-      }),
-    client.db
-      .insert(userYieldPositionDeposits)
-      .values(depositValues)
-      .onConflictDoNothing({
-        target: [userYieldPositionDeposits.depositSignature],
-      })
-      .returning({ id: userYieldPositionDeposits.id }),
-  ]);
+  const insertedDeposits = await client.db
+    .insert(userYieldPositionDeposits)
+    .values(depositValues)
+    .onConflictDoNothing({
+      target: [userYieldPositionDeposits.depositSignature],
+    })
+    .returning({ id: userYieldPositionDeposits.id });
 
   if (insertedDeposits.length > 0) {
     const [insertedDeposit] = insertedDeposits;
@@ -607,6 +622,20 @@ export async function recordConfirmedYieldDeposit(
   }
 
   return existingPosition;
+}
+
+export async function recordConfirmedYieldRoutePolicy(
+  input: ConfirmedYieldRoutePolicyInput,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<RoutePolicyRecord> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+
+  return upsertConfirmedYieldRoutePolicy({
+    client,
+    input,
+    now,
+  });
 }
 
 export async function findActiveYieldPosition(

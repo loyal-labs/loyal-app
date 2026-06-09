@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import { LoyalCluster } from "@loyal/actions";
 
 import type {
   SmartAccountOverviewBase,
@@ -15,6 +16,7 @@ import {
   readSmartAccountOverviewCache,
   shouldInitializeEarnYieldRoutingPolicyForDeposit,
   shouldSkipSmartAccountProposalLoad,
+  sendPreparedEarnWithClusterPreflight,
   type SmartAccountSignerEntry,
   type SmartAccountVaultEntry,
   writeSmartAccountOverviewCacheGroup,
@@ -286,6 +288,26 @@ describe("Earn policy detection", () => {
         } as never,
       })
     ).toBe(true);
+  });
+});
+
+describe("Earn prepared cluster preflight", () => {
+  test("blocks signing when prepared metadata would be rejected by the server", async () => {
+    const send = mock(async () => "signature");
+
+    const result = await sendPreparedEarnWithClusterPreflight({
+      expectedCluster: LoyalCluster.MainnetBeta,
+      operation: "deposit",
+      preparedCluster: LoyalCluster.Devnet,
+      send,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        "Internal Earn configuration error: prepared deposit cluster devnet does not match configured cluster mainnet-beta.",
+    });
+    expect(send).not.toHaveBeenCalled();
   });
 });
 

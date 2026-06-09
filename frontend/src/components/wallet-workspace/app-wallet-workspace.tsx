@@ -3,19 +3,16 @@
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  ChartNoAxesColumn,
   Copy,
   Eye,
   EyeOff,
   File as FileIcon,
   KeyRound,
-  Layers2,
   LayoutTemplate,
   LogOut,
   Plus,
   RefreshCw,
   Repeat2,
-  Settings,
   Shield as ShieldIcon,
   SlidersHorizontal,
   Sparkles,
@@ -36,6 +33,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
 
@@ -178,6 +176,7 @@ const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
 const REVIEW_PANE_MIN_WIDTH = 320;
 const REVIEW_PANE_MAX_WIDTH = 520;
 const REVIEW_PANE_DEFAULT_WIDTH = 400;
+type EarnDepositReviewStage = "deposit" | "policy";
 
 function clampWidth(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -998,6 +997,10 @@ export function AppWalletWorkspace({
     useState<SpendingLimitDraft | null>(null);
   const [pendingEarnDepositDraft, setPendingEarnDepositDraft] =
     useState<EarnDepositDraft | null>(null);
+  const [earnDepositReviewStage, setEarnDepositReviewStage] =
+    useState<EarnDepositReviewStage>("deposit");
+  const [isEarnDepositPolicySetupFlow, setIsEarnDepositPolicySetupFlow] =
+    useState(false);
   const [pendingEarnWithdrawDraft, setPendingEarnWithdrawDraft] =
     useState<EarnWithdrawDraft | null>(null);
   // Autodeposit is not wired yet — this client-side demo state drives the
@@ -1290,9 +1293,16 @@ export function AppWalletWorkspace({
       pendingEarnDepositDraft && isEarnDepositDetailActive
         ? buildEarnDepositReviewItem({
             draft: pendingEarnDepositDraft,
+            isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+            stage: earnDepositReviewStage,
           })
         : null,
-    [isEarnDepositDetailActive, pendingEarnDepositDraft]
+    [
+      earnDepositReviewStage,
+      isEarnDepositDetailActive,
+      isEarnDepositPolicySetupFlow,
+      pendingEarnDepositDraft,
+    ]
   );
   const earnWithdrawReviewItem = useMemo(
     () =>
@@ -2065,6 +2075,8 @@ export function AppWalletWorkspace({
   const handleOpenEarn = useCallback(() => {
     markDetailPaneTransition("switch");
     setPendingEarnDepositDraft(null);
+    setEarnDepositReviewStage("deposit");
+    setIsEarnDepositPolicySetupFlow(false);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
@@ -2074,6 +2086,8 @@ export function AppWalletWorkspace({
   const handleOpenEarnDeposit = useCallback(() => {
     markDetailPaneTransition("forward");
     setPendingEarnDepositDraft(null);
+    setEarnDepositReviewStage("deposit");
+    setIsEarnDepositPolicySetupFlow(false);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
@@ -2083,6 +2097,8 @@ export function AppWalletWorkspace({
   const handleOpenEarnWithdraw = useCallback(() => {
     markDetailPaneTransition("forward");
     setPendingEarnDepositDraft(null);
+    setEarnDepositReviewStage("deposit");
+    setIsEarnDepositPolicySetupFlow(false);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
@@ -2129,6 +2145,8 @@ export function AppWalletWorkspace({
   const handleDismissEarnDepositPreview = useCallback(() => {
     console.log("[earn-deposit] preview dismissed");
     setPendingEarnDepositDraft(null);
+    setEarnDepositReviewStage("deposit");
+    setIsEarnDepositPolicySetupFlow(false);
   }, []);
 
   const handleDismissEarnWithdrawPreview = useCallback(() => {
@@ -2136,18 +2154,52 @@ export function AppWalletWorkspace({
     setPendingEarnWithdrawDraft(null);
   }, []);
 
+  const handleDismissFocusedEarnPreview = useCallback(() => {
+    if (pendingEarnDepositDraft && isEarnDepositDetailActive) {
+      handleDismissEarnDepositPreview();
+      return;
+    }
+
+    if (pendingEarnWithdrawDraft && detailSelection === "earnWithdraw") {
+      handleDismissEarnWithdrawPreview();
+    }
+  }, [
+    detailSelection,
+    handleDismissEarnDepositPreview,
+    handleDismissEarnWithdrawPreview,
+    isEarnDepositDetailActive,
+    pendingEarnDepositDraft,
+    pendingEarnWithdrawDraft,
+  ]);
+
+  const handleEarnPreviewBackdropPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.target !== event.currentTarget) {
+        return;
+      }
+
+      handleDismissFocusedEarnPreview();
+    },
+    [handleDismissFocusedEarnPreview]
+  );
+
   const handleSubmitEarnDepositDraft = useCallback(
     (draft: EarnDepositDraft) => {
       console.log("[earn-deposit] deposit button submitted preview draft", {
         amountLabel: draft.amountLabel,
+        requiresPolicySetup: smartAccountData.requiresEarnPolicySetupForDeposit,
         sourceId: draft.source.id,
         sourceLabel: draft.source.label,
         tokenDecimals: draft.tokenDecimals,
         tokenMint: draft.tokenMint,
       });
+      const requiresPolicySetup =
+        smartAccountData.requiresEarnPolicySetupForDeposit;
+      setIsEarnDepositPolicySetupFlow(requiresPolicySetup);
+      setEarnDepositReviewStage(requiresPolicySetup ? "policy" : "deposit");
       setPendingEarnDepositDraft(draft);
     },
-    []
+    [smartAccountData.requiresEarnPolicySetupForDeposit]
   );
 
   const handleSubmitEarnWithdrawDraft = useCallback(
@@ -2163,6 +2215,31 @@ export function AppWalletWorkspace({
     },
     []
   );
+
+  const handleCompleteEarnPolicySetup = useCallback(async () => {
+    if (!pendingEarnDepositDraft) {
+      setProposalActionError("Enter a deposit amount before continuing.");
+      return;
+    }
+
+    setProposalActionError(null);
+    try {
+      const result = await smartAccountData.executeEarnPolicySetup();
+      if (!result.success) {
+        throw new Error(result.error ?? "Earn policy setup failed.");
+      }
+
+      setEarnDepositReviewStage("deposit");
+    } catch (error) {
+      const raw =
+        error instanceof Error ? error.message : "Earn policy setup failed.";
+      console.log("[earn-deposit] policy setup failed", {
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: raw,
+      });
+      setProposalActionError(raw);
+    }
+  }, [pendingEarnDepositDraft, smartAccountData]);
 
   const handleCompleteEarnDeposit = useCallback(async () => {
     console.log("[earn-deposit] approve clicked", {
@@ -2200,6 +2277,8 @@ export function AppWalletWorkspace({
 
       markDetailPaneTransition("back");
       setPendingEarnDepositDraft(null);
+      setEarnDepositReviewStage("deposit");
+      setIsEarnDepositPolicySetupFlow(false);
       invalidateEarnEarningsCache();
       setActiveEarnPosition((current) => {
         const nowIso = new Date().toISOString();
@@ -2279,6 +2358,19 @@ export function AppWalletWorkspace({
     setActiveEarnPosition,
     setDetailSelection,
     smartAccountData,
+  ]);
+
+  const handleContinueEarnDepositReview = useCallback(() => {
+    if (earnDepositReviewStage === "policy") {
+      void handleCompleteEarnPolicySetup();
+      return;
+    }
+
+    void handleCompleteEarnDeposit();
+  }, [
+    earnDepositReviewStage,
+    handleCompleteEarnDeposit,
+    handleCompleteEarnPolicySetup,
   ]);
 
   const handleCompleteEarnWithdraw = useCallback(
@@ -2933,6 +3025,12 @@ export function AppWalletWorkspace({
       if (event.key !== "Escape") return;
       if (isCommandMenuOpen) return;
 
+      if (isReviewApprovalFocused) {
+        event.preventDefault();
+        handleDismissFocusedEarnPreview();
+        return;
+      }
+
       if (detailSelection === "action" && viewStack.length > 0) {
         event.preventDefault();
         handleActionBack();
@@ -2944,7 +3042,14 @@ export function AppWalletWorkspace({
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [detailSelection, handleActionBack, isCommandMenuOpen, viewStack.length]);
+  }, [
+    detailSelection,
+    handleActionBack,
+    handleDismissFocusedEarnPreview,
+    isCommandMenuOpen,
+    isReviewApprovalFocused,
+    viewStack.length,
+  ]);
 
   const renderDetailPane = () => {
     if (activeSection === "settings") {
@@ -3118,7 +3223,6 @@ export function AppWalletWorkspace({
         />
       );
     }
-
 
     if (detailSelection === "earnWithdraw") {
       return (
@@ -3842,6 +3946,15 @@ export function AppWalletWorkspace({
         open={isCommandMenuOpen}
       />
 
+      {isReviewApprovalFocused ? (
+        <button
+          aria-label="Close Earn preview"
+          className="wallet-workspace-review-backdrop"
+          onPointerDown={handleEarnPreviewBackdropPointerDown}
+          type="button"
+        />
+      ) : null}
+
       {showWorkspaceShell &&
       (!isSmartAccountRateLimited ||
         activeSection === "policies" ||
@@ -3982,11 +4095,11 @@ export function AppWalletWorkspace({
                 actionError={proposalActionError}
                 approval={earnDepositReviewItem}
                 isSubmitting={smartAccountData.isActionPending}
-                onApprove={handleCompleteEarnDeposit}
+                onApprove={handleContinueEarnDepositReview}
                 onBack={handleOpenEarn}
                 onClose={handleOpenEarn}
                 onDecline={handleDismissEarnDepositPreview}
-                onExecute={handleCompleteEarnDeposit}
+                onExecute={handleContinueEarnDepositReview}
                 showBack={false}
                 showClose={false}
               />
@@ -4494,20 +4607,21 @@ export function AppWalletWorkspace({
 
         /* Focus the active approval: darken everything with a scrim and lift
            the review pane above it so only the approval stays bright. */
-        .wallet-workspace::after {
-          content: "";
+        .wallet-workspace-review-backdrop {
           position: fixed;
           inset: 0;
           z-index: 40;
           background: rgba(0, 0, 0, 0.5);
-          opacity: 0;
-          pointer-events: none;
+          border: 0;
+          cursor: default;
+          margin: 0;
+          padding: 0;
+          opacity: 1;
           transition: opacity 0.2s ease;
         }
 
-        .wallet-workspace[data-review-focused="true"]::after {
-          opacity: 1;
-          pointer-events: auto;
+        .wallet-workspace-review-backdrop:focus {
+          outline: none;
         }
 
         .wallet-workspace[data-review-focused="true"]

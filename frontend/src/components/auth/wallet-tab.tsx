@@ -84,6 +84,23 @@ export function WalletTab({
 
   const isMobile = useIsMobile();
 
+  useEffect(() => {
+    if (
+      connected &&
+      publicKey &&
+      isVerified &&
+      state.status === "idle"
+    ) {
+      startConnectedWalletVerification();
+    }
+  }, [
+    connected,
+    isVerified,
+    publicKey,
+    startConnectedWalletVerification,
+    state.status,
+  ]);
+
   // Delay showing errors so transient failures during connection don't flash
   const isErrorState =
     state.status === "rejected" ||

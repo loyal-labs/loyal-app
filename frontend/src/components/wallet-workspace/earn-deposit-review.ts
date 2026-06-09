@@ -63,7 +63,11 @@ function formatSwapLaneLabel(lane: SwapLane): string {
 
 export function buildEarnDepositReviewItem(args: {
   draft: EarnDepositDraft;
+  isPolicySetupFlow?: boolean;
+  stage?: "deposit" | "policy";
 }): ApprovalReviewDisplayItem {
+  const stage = args.stage ?? "policy";
+  const isPolicySetupFlow = args.isPolicySetupFlow ?? stage === "policy";
   const stablecoinMintLabels = formatStablecoinMintLabels();
   const safeMarketLabels = formatSafeMarketLabels();
   const reviewSections: ApprovalReviewDisplaySection[] = [
@@ -113,69 +117,79 @@ export function buildEarnDepositReviewItem(args: {
     },
   ];
 
-  const pages: ApprovalReviewPage[] = [
-    {
-      title: "Approval 1 of 2",
-      heading: "Set up yield routing",
-      mascotNote: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} across Kamino's Safe markets.`,
-      rows: [
-        {
-          label: "What you're approving",
-          value: `Deposit, withdraw, and swap permissions for ${args.draft.symbol} yield.`,
-        },
-      ],
-      collapsibles: [
-        {
-          title: "Policy details",
-          rows: [
-            { label: "Kamino yield policy", value: "Deposit, withdraw" },
-            { label: "Markets", value: safeMarketLabels },
-            { label: "Swap policy", value: "Swap via Jupiter" },
-            { label: "Stablecoins", value: stablecoinMintLabels },
-          ],
-        },
-      ],
-    },
-    {
-      title: "Approval 2 of 2",
-      amount: args.draft.amountLabel,
-      symbol: args.draft.symbol,
-      heading: `Deposit into ${EARN_VAULT_LABEL}`,
-      mascotNote: "Now, last step to put the money in!",
-      rows: [
-        { label: "From", value: args.draft.source.label },
-        { label: "Earning in", value: "Kamino Main Market USDC reserve" },
-      ],
-      collapsibles: [
-        {
-          title: "Transaction details",
-          rows: [
-            {
-              label: "Reserve address",
-              value: USDC_MAIN_MARKET_RESERVE_ADDRESS,
-            },
-            {
-              label: "Movement",
-              value: `${EARN_VAULT_LABEL} sends $${args.draft.amountLabel} ${args.draft.symbol} to the Main Market USDC reserve.`,
-            },
-          ],
-        },
-      ],
-    },
-  ];
+  const policyPage: ApprovalReviewPage = {
+    title: "Approval 1 of 2",
+    heading: "Set up yield routing",
+    mascotNote: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} across Kamino's Safe markets.`,
+    rows: [
+      {
+        label: "What you're approving",
+        value: `Deposit, withdraw, and swap permissions for ${args.draft.symbol} yield.`,
+      },
+    ],
+    collapsibles: [
+      {
+        title: "Policy details",
+        rows: [
+          { label: "Kamino yield policy", value: "Deposit, withdraw" },
+          { label: "Markets", value: safeMarketLabels },
+          { label: "Swap policy", value: "Swap via Jupiter" },
+          { label: "Stablecoins", value: stablecoinMintLabels },
+        ],
+      },
+    ],
+  };
+  const depositPage: ApprovalReviewPage = {
+    title: isPolicySetupFlow ? "Approval 2 of 2" : "Deposit",
+    amount: args.draft.amountLabel,
+    symbol: args.draft.symbol,
+    heading: `Deposit into ${EARN_VAULT_LABEL}`,
+    mascotNote:
+      isPolicySetupFlow
+        ? "Now, last step to put the money in!"
+        : `Top up your ${EARN_VAULT_LABEL} with ${args.draft.symbol}.`,
+    rows: [
+      {
+        label: "First",
+        value: `${args.draft.source.label} sends $${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}.`,
+      },
+      {
+        label: "Then",
+        value: `${EARN_VAULT_LABEL} deposits the ${args.draft.symbol} into Kamino Main Market USDC.`,
+      },
+    ],
+    collapsibles: [
+      {
+        title: "Transaction details",
+        rows: [
+          { label: "From", value: args.draft.source.label },
+          { label: "To", value: EARN_VAULT_LABEL },
+          { label: "Earning in", value: "Kamino Main Market USDC reserve" },
+          {
+            label: "Reserve address",
+            value: USDC_MAIN_MARKET_RESERVE_ADDRESS,
+          },
+        ],
+      },
+    ],
+  };
+  const pages = stage === "policy" ? [policyPage] : [depositPage];
 
   return {
     actionMode: "vote",
     amount: args.draft.amountLabel,
     destinationLabel: EARN_VAULT_LABEL,
     pages,
-    primaryActionLabel: "Continue",
+    primaryActionLabel: stage === "policy" ? "Sign" : "Continue",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
     status: "draft",
     statusLabel: "Ready to review",
-    summaryLabel: "Launch yield optimization policy",
+    summaryLabel:
+      stage === "policy"
+        ? "Launch yield optimization policy"
+        : `Deposit into ${EARN_VAULT_LABEL}`,
     symbol: args.draft.symbol,
     title: "Deposit",
   };

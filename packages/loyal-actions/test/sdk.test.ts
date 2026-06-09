@@ -39,6 +39,8 @@ import {
   deriveRecurringDelegation,
   deriveSubscriptionAuthority,
   deriveSubscriptionEventAuthority,
+  normalizeLoyalCluster,
+  resolveLoyalClusterForSolanaEnv,
   subscriptionCreateRecurringDelegationData,
   subscriptionInitAuthorityData,
   subscriptionRevokeDelegationData,
@@ -62,6 +64,34 @@ const smartAccount = {
   authority,
   delegatedSigner,
 };
+
+describe("Loyal cluster helpers", () => {
+  test("normalizes canonical and legacy cluster names", () => {
+    expect(normalizeLoyalCluster("devnet")).toBe(LoyalCluster.Devnet);
+    expect(normalizeLoyalCluster("mainnet-beta")).toBe(
+      LoyalCluster.MainnetBeta
+    );
+    expect(normalizeLoyalCluster("mainnet")).toBe(LoyalCluster.MainnetBeta);
+  });
+
+  test("maps Solana RPC envs into Earn persistence clusters", () => {
+    expect(resolveLoyalClusterForSolanaEnv("devnet")).toBe(
+      LoyalCluster.Devnet
+    );
+    expect(resolveLoyalClusterForSolanaEnv("mainnet")).toBe(
+      LoyalCluster.MainnetBeta
+    );
+  });
+
+  test("rejects unsupported Earn persistence envs", () => {
+    expect(() => resolveLoyalClusterForSolanaEnv("localnet")).toThrow(
+      "Earn persistence does not support Solana env: localnet"
+    );
+    expect(() => resolveLoyalClusterForSolanaEnv("testnet")).toThrow(
+      "Earn persistence does not support Solana env: testnet"
+    );
+  });
+});
 
 function deriveVault(settingsPda: PublicKey, vaultIndex: number): PublicKey {
   return PublicKey.findProgramAddressSync(

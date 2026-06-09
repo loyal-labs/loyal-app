@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  LoyalCluster,
   getKaminoUsdcEarnTargetForCluster,
+  resolveLoyalClusterForSolanaEnv,
 } from "@loyal/actions";
 import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 
@@ -29,11 +29,9 @@ class MissingTimescaleDatabaseUrlError extends Error {
   }
 }
 
-function resolveConfiguredCluster(): LoyalCluster {
+function resolveConfiguredCluster() {
   const solanaEnv = resolveSolanaEnv(process.env[SOLANA_ENV_ENV_NAME]);
-  return solanaEnv === "devnet"
-    ? LoyalCluster.Devnet
-    : LoyalCluster.MainnetBeta;
+  return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 
 function getRangeFromRequest(request: Request): EarningsRangeId | null {

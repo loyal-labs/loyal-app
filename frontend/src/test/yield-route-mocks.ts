@@ -5,6 +5,7 @@ export const findActiveYieldRoutePolicy = mock(async () => null);
 export const findYieldPositionEvents = mock(async () => []);
 export const findYieldPositionHistoryEvents = mock(async () => []);
 export const recordConfirmedYieldDeposit = mock(async () => null);
+export const recordConfirmedYieldRoutePolicy = mock(async () => null);
 export const recordConfirmedYieldWithdrawal = mock(async () => null);
 
 export const getCurrentReserveUpdatesByReserve = mock(async () => []);
@@ -27,6 +28,7 @@ export function createYieldDepositRepositoryMock() {
     findYieldPositionEvents,
     findYieldPositionHistoryEvents,
     recordConfirmedYieldDeposit,
+    recordConfirmedYieldRoutePolicy,
     recordConfirmedYieldWithdrawal,
   };
 }

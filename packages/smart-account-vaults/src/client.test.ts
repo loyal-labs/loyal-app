@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { STABLECOIN_MINTS, Stablecoin } from "@loyal/actions";
-import { Policy } from "@loyal-labs/loyal-smart-accounts-core";
+import { Policy, Settings } from "@loyal-labs/loyal-smart-accounts-core";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   decodeTransferCheckedInstruction,
@@ -209,6 +209,32 @@ function createSerializedEarnPolicyAccount() {
   };
 }
 
+function createSerializedSettingsAccount() {
+  const [data] = Settings.fromArgs({
+    accountUtilization: 0,
+    archivalAuthority: null,
+    archivableAfter: new BN(0),
+    bump: 255,
+    policySeed: null,
+    reserved2: 0,
+    seed: new BN(0),
+    settingsAuthority: walletAddress,
+    signers: [],
+    staleTransactionIndex: new BN(0),
+    threshold: 1,
+    timeLock: 0,
+    transactionIndex: new BN(0),
+  }).serialize();
+
+  return {
+    data,
+    executable: false,
+    lamports: 1,
+    owner: programId,
+    rentEpoch: 0,
+  };
+}
+
 describe("prepareEarnUsdcDeposit", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -340,6 +366,51 @@ describe("prepareEarnUsdcDeposit", () => {
       policyInitialization: "reuse",
       policySeed: "7",
     });
+  });
+
+  test("builds standalone earn routing policy setup metadata", async () => {
+    const getAccountInfo = mock(async (_address: PublicKey) =>
+      createSerializedSettingsAccount()
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcYieldRoutingPolicy({
+      settingsPda,
+      signer: walletAddress,
+      feePayer,
+    });
+
+    expect(result.prepared.instructions).toHaveLength(1);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      programId.toBase58()
+    );
+    expect(result.policy.seed).toBe(BigInt(1));
+    expect(result.vault).toMatchObject({
+      accountIndex: 1,
+    });
+    expect(result.vault.pubkey.toBase58()).toBe(deriveVault().toBase58());
+    expect(result.targetReserve.reserve.toBase58()).toBe(
+      kaminoReserve.toBase58()
+    );
+    expect(result.persistence).toMatchObject({
+      cluster: "mainnet-beta",
+      liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
+      policyAccount: result.policy.account.toBase58(),
+      policyId: "1",
+      policySeed: "1",
+      settings: settingsPda.toBase58(),
+      targetReserve: kaminoReserve.toBase58(),
+      vaultIndex: 1,
+      vaultPubkey: deriveVault().toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    });
+    expect(getAccountInfo).toHaveBeenCalledTimes(1);
+    expect(getAccountInfo.mock.calls[0]?.[0]?.toBase58()).toBe(
+      settingsPda.toBase58()
+    );
   });
 
   test("rejects zero amount deposits", async () => {

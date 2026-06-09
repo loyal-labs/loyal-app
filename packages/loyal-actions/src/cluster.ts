@@ -1,4 +1,6 @@
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { PublicKey } from "@solana/web3.js";
+
 import { LoyalCluster } from "./types.ts";
 
 export type LoyalClusterConfig = {
@@ -30,4 +32,28 @@ export function clusterConfigFor(cluster: LoyalCluster): LoyalClusterConfig {
     throw new Error(`unsupported Loyal cluster: ${String(cluster)}`);
   }
   return config;
+}
+
+export function normalizeLoyalCluster(value: string): LoyalCluster {
+  const normalizedValue = value.trim();
+  if (normalizedValue === LoyalCluster.Devnet) {
+    return LoyalCluster.Devnet;
+  }
+  if (
+    normalizedValue === LoyalCluster.MainnetBeta ||
+    normalizedValue === "mainnet"
+  ) {
+    return LoyalCluster.MainnetBeta;
+  }
+  throw new Error(`unsupported Loyal cluster: ${value}`);
+}
+
+export function resolveLoyalClusterForSolanaEnv(env: SolanaEnv): LoyalCluster {
+  if (env === "devnet") {
+    return LoyalCluster.Devnet;
+  }
+  if (env === "mainnet") {
+    return LoyalCluster.MainnetBeta;
+  }
+  throw new Error(`Earn persistence does not support Solana env: ${env}`);
 }

@@ -81,6 +81,7 @@ import type {
   SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   SmartAccountPreparedEarnUsdcWithdraw,
   SmartAccountPreparedSettingsChange,
   SmartAccountProposalPayloadType,
@@ -3843,9 +3844,10 @@ export function createSmartAccountVaultsClient(
 
   async function prepareEarnUsdcYieldRoutingPolicy(
     args: SmartAccountEarnUsdcYieldRoutingPolicyInput
-  ): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+  ): Promise<SmartAccountPreparedEarnUsdcYieldRoutingPolicy> {
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
     const earnTarget = resolveKaminoEarnTarget(cluster);
+    const usdcMint = earnTarget.liquidityMint;
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
       settingsPda: args.settingsPda,
@@ -3862,33 +3864,65 @@ export function createSmartAccountVaultsClient(
       policySeed: nextPolicySeed.number,
     })[0];
 
-    return smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
-      {
-        feePayer: args.feePayer,
-        settingsPda: args.settingsPda,
-        signers: [args.signer],
-        actions: [
-          {
-            __kind: "PolicyCreate",
-            seed: toBn(nextPolicySeed.bigint),
-            policyCreationPayload:
-              createEarnProgramInteractionPolicyCreationPayload({
-                target: earnTarget,
-                vaultPda,
-              }),
-            signers: [createPolicySigner(args.signer)],
-            threshold: 1,
-            timeLock: 0,
-            startTimestamp: null,
-            expirationArgs: null,
-          },
-        ],
-        memo: args.memo,
-        remainingAccounts: [
-          { pubkey: policyAccount, isWritable: true, isSigner: false },
-        ],
-      } as never
-    );
+    const prepared =
+      await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          signers: [args.signer],
+          actions: [
+            {
+              __kind: "PolicyCreate",
+              seed: toBn(nextPolicySeed.bigint),
+              policyCreationPayload:
+                createEarnProgramInteractionPolicyCreationPayload({
+                  target: earnTarget,
+                  vaultPda,
+                }),
+              signers: [createPolicySigner(args.signer)],
+              threshold: 1,
+              timeLock: 0,
+              startTimestamp: null,
+              expirationArgs: null,
+            },
+          ],
+          memo: args.memo,
+          remainingAccounts: [
+            { pubkey: policyAccount, isWritable: true, isSigner: false },
+          ],
+        } as never
+      );
+
+    return {
+      prepared,
+      policy: {
+        account: policyAccount,
+        id: nextPolicySeed.bigint,
+        seed: nextPolicySeed.bigint,
+      },
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+      },
+      targetReserve: {
+        reserve: earnTarget.reserve,
+        market: earnTarget.market,
+        liquidityMint: usdcMint,
+      },
+      persistence: {
+        cluster,
+        walletAddress: args.signer.toBase58(),
+        settings: args.settingsPda.toBase58(),
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: vaultPda.toBase58(),
+        policyId: nextPolicySeed.bigint.toString(),
+        policyAccount: policyAccount.toBase58(),
+        policySeed: nextPolicySeed.bigint.toString(),
+        targetReserve: earnTarget.reserve.toBase58(),
+        market: earnTarget.market.toBase58(),
+        liquidityMint: usdcMint.toBase58(),
+      },
+    };
   }
 
   async function prepareEarnUsdcWithdraw(

@@ -1,5 +1,6 @@
 "use client";
 
+import { LoyalCluster, resolveLoyalClusterForSolanaEnv } from "@loyal/actions";
 import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
@@ -7,6 +8,7 @@ import {
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
   type SmartAccountPreparedEarnUsdcDeposit,
+  type SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   type SmartAccountPreparedEarnUsdcWithdraw,
   type SmartAccountPolicyOverview,
   type SmartAccountProposalSnapshot,
@@ -15,8 +17,7 @@ import {
   type SmartAccountSpendingLimitSnapshot,
   type SmartAccountVaultSnapshot,
 } from "@loyal-labs/smart-account-vaults";
-import { compilePreparedOperation } from "@loyal-labs/loyal-smart-accounts-core";
-import { LoyalCluster } from "@loyal/actions";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import {
   type ActivityPage,
   NATIVE_SOL_MINT,
@@ -53,6 +54,11 @@ import {
 } from "@/lib/client-cache/client-cache";
 import { getPublicEnv } from "@/lib/core/config/public";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import {
+  buildEarnDepositConfirmRequestBody,
+  buildEarnPolicyConfirmRequestBody,
+  buildEarnWithdrawalConfirmRequestBody,
+} from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
@@ -261,6 +267,15 @@ export type EarnDepositRequest = {
   amountRaw: bigint;
 };
 
+export type EarnPolicySetupResult = {
+  success: boolean;
+  signature?: string;
+  confirmedSlot?: string;
+  status?: "executed";
+  policy?: NonNullable<EarnStateResponse["policy"]>;
+  error?: string;
+};
+
 export type EarnDepositResult = {
   success: boolean;
   signature?: string;
@@ -283,6 +298,51 @@ export type EarnWithdrawResult = {
   amountRaw?: string;
   error?: string;
 };
+
+type PreparedEarnOperation = "deposit" | "policy setup" | "withdrawal";
+
+type EarnClusterPreflightResult =
+  | { success: true; signature: string }
+  | { success: false; error: string };
+
+export function validatePreparedEarnPersistenceCluster({
+  expectedCluster,
+  operation,
+  preparedCluster,
+}: {
+  expectedCluster: LoyalCluster;
+  operation: PreparedEarnOperation;
+  preparedCluster: string;
+}): string | null {
+  if (preparedCluster === expectedCluster) {
+    return null;
+  }
+
+  return `Internal Earn configuration error: prepared ${operation} cluster ${preparedCluster} does not match configured cluster ${expectedCluster}.`;
+}
+
+export async function sendPreparedEarnWithClusterPreflight({
+  expectedCluster,
+  operation,
+  preparedCluster,
+  send,
+}: {
+  expectedCluster: LoyalCluster;
+  operation: PreparedEarnOperation;
+  preparedCluster: string;
+  send: () => Promise<string>;
+}): Promise<EarnClusterPreflightResult> {
+  const error = validatePreparedEarnPersistenceCluster({
+    expectedCluster,
+    operation,
+    preparedCluster,
+  });
+  if (error) {
+    return { success: false, error };
+  }
+
+  return { success: true, signature: await send() };
+}
 
 export type VaultTransferCapability =
   | { kind: "blocked"; reason: string }
@@ -413,10 +473,12 @@ export type SmartAccountSidebarData = {
   executeEarnDeposit: (
     request: EarnDepositRequest
   ) => Promise<EarnDepositResult>;
+  executeEarnPolicySetup: () => Promise<EarnPolicySetupResult>;
   executeEarnWithdraw: (
     request: EarnWithdrawRequest
   ) => Promise<EarnWithdrawResult>;
   isActionPending: boolean;
+  requiresEarnPolicySetupForDeposit: boolean;
   pendingProposalId: string | null;
   pendingSpendingLimitActionKey: string | null;
   /**
@@ -846,13 +908,7 @@ async function postConfirmedEarnDeposit(args: {
   smartAccountAddress: string;
   policySignature?: string;
 }) {
-  const body = {
-    ...args.preparedDeposit.persistence,
-    smartAccountAddress: args.smartAccountAddress,
-    policySignature: args.policySignature ?? args.signature,
-    depositSignature: args.signature,
-    confirmedSlot: args.confirmedSlot,
-  };
+  const body = buildEarnDepositConfirmRequestBody(args);
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/deposits/confirm",
     {
@@ -873,18 +929,39 @@ async function postConfirmedEarnDeposit(args: {
   }
 }
 
+async function postConfirmedEarnPolicySetup(args: {
+  preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
+  signature: string;
+  confirmedSlot: string;
+}) {
+  const body = buildEarnPolicyConfirmRequestBody(args);
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/policies/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to record confirmed earn policy."
+    );
+  }
+}
+
 async function postConfirmedEarnWithdraw(args: {
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
 }) {
-  const body = {
-    ...args.preparedWithdraw.persistence,
-    smartAccountAddress: args.smartAccountAddress,
-    withdrawalSignature: args.signature,
-    confirmedSlot: args.confirmedSlot,
-  };
+  const body = buildEarnWithdrawalConfirmRequestBody(args);
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/withdrawals/confirm",
     {
@@ -948,52 +1025,8 @@ function isActiveEarnStatePosition(
   }
 }
 
-function canSerializePreparedForWallet(
-  prepared: Parameters<typeof compilePreparedOperation>[0]["prepared"]
-): boolean {
-  try {
-    compilePreparedOperation({
-      prepared,
-      blockhash: "11111111111111111111111111111111",
-    }).serialize();
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes("encoding overruns Uint8Array")
-    ) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-function createDepositPreparedWithoutPolicyInitialization(
-  prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"]
-): SmartAccountPreparedEarnUsdcDeposit["prepared"] {
-  // Composed first-deposit layout (policy init included) is:
-  //   [createVaultUsdcAta, (createVaultCollateralAta?), transferUsdc, policyInit, execute]
-  // i.e. 4 instructions without the collateral ATA, 5 with it. The policy-init
-  // instruction is always second-to-last (the execute is last). When the policy
-  // is sent as its own transaction, strip that single instruction and keep the rest.
-  const count = prepared.instructions.length;
-  if (count !== 4 && count !== 5) {
-    return prepared;
-  }
-
-  const policyInitIndex = count - 2;
-  return {
-    ...prepared,
-    instructions: prepared.instructions.filter(
-      (_, index) => index !== policyInitIndex
-    ),
-  };
-}
-
 function resolveEarnLoyalCluster(solanaEnv: string): LoyalCluster {
-  return solanaEnv === "devnet"
-    ? LoyalCluster.Devnet
-    : LoyalCluster.MainnetBeta;
+  return resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(solanaEnv));
 }
 
 export function getSmartAccountTotalUsd({
@@ -1844,6 +1877,12 @@ export function useSmartAccountSidebarData(
   const signerActivityLoadPromisesRef = useRef<Map<string, Promise<void>>>(
     new Map()
   );
+  const requiresEarnPolicySetupForDeposit =
+    shouldInitializeEarnYieldRoutingPolicyForDeposit({
+      hasActiveEarnPosition: isActiveEarnStatePosition(earnState),
+      hasEarnPolicy: Boolean(earnState?.policy),
+      overview,
+    });
 
   const refresh = useCallback(
     async (refreshOptions?: {
@@ -3536,6 +3575,137 @@ export function useSmartAccountSidebarData(
     [connection, overview, refreshAfterTx, wallet]
   );
 
+  const executeEarnPolicySetup =
+    useCallback(async (): Promise<EarnPolicySetupResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const currentEarnState = earnState ?? (await fetchEarnState());
+      if (currentEarnState && currentEarnState !== earnState) {
+        setEarnState(currentEarnState);
+      }
+      if (
+        !shouldInitializeEarnYieldRoutingPolicyForDeposit({
+          hasActiveEarnPosition: isActiveEarnStatePosition(currentEarnState),
+          hasEarnPolicy: Boolean(currentEarnState?.policy),
+          overview,
+        })
+      ) {
+        return {
+          success: true,
+          status: "executed",
+          policy: currentEarnState?.policy ?? undefined,
+        };
+      }
+
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
+
+      setIsActionPending(true);
+      try {
+        const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
+          settingsPda,
+          signer: wallet.publicKey,
+          feePayer: wallet.publicKey,
+          cluster: expectedEarnCluster,
+        });
+        const sendResult = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation: "policy setup",
+          preparedCluster: preparedPolicy.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared: preparedPolicy.prepared,
+              confirm: true,
+            }),
+        });
+        if (!sendResult.success) {
+          return sendResult;
+        }
+        const signature = sendResult.signature;
+        const confirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature,
+        });
+
+        await postConfirmedEarnPolicySetup({
+          preparedPolicy,
+          signature,
+          confirmedSlot,
+        });
+
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
+        }
+
+        void refreshAfterTx({
+          accountIndex: preparedPolicy.vault.accountIndex,
+          signerAddresses: [wallet.publicKey.toBase58()],
+        }).catch((err) => {
+          console.warn("[smart-account] post-earn-policy refresh failed", err);
+        });
+
+        return {
+          success: true,
+          signature,
+          confirmedSlot,
+          status: "executed",
+          policy: nextEarnState?.policy ?? {
+            account: preparedPolicy.policy.account.toBase58(),
+            id: preparedPolicy.policy.id.toString(),
+            seed: preparedPolicy.policy.seed.toString(),
+            vaultIndex: preparedPolicy.vault.accountIndex,
+            vaultPubkey: preparedPolicy.vault.pubkey.toBase58(),
+          },
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Earn policy setup failed.";
+        console.error("[executeEarnPolicySetup] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    }, [
+      connection,
+      earnState,
+      overview,
+      refreshAfterTx,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]);
+
   const executeEarnDeposit = useCallback(
     async (request: EarnDepositRequest): Promise<EarnDepositResult> => {
       console.log("[executeEarnDeposit] called", {
@@ -3593,6 +3763,7 @@ export function useSmartAccountSidebarData(
         programId: new PublicKey(overview.programId),
       });
       const settingsPda = new PublicKey(overview.settingsPda);
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
 
       setIsActionPending(true);
       try {
@@ -3600,29 +3771,18 @@ export function useSmartAccountSidebarData(
         if (nextEarnState && nextEarnState !== earnState) {
           setEarnState(nextEarnState);
         }
-        const hasEarnPolicy = Boolean(nextEarnState?.policy);
-        const hasActiveEarnPosition =
-          hasEarnPolicy || isActiveEarnStatePosition(nextEarnState);
-        const shouldInitializeYieldRoutingPolicy =
-          shouldInitializeEarnYieldRoutingPolicyForDeposit({
-            hasActiveEarnPosition,
-            hasEarnPolicy,
-            overview,
-          });
-        const yieldRoutingPolicy =
-          !shouldInitializeYieldRoutingPolicy && nextEarnState?.policy
-            ? {
-                account: new PublicKey(nextEarnState.policy.account),
-                seed: BigInt(nextEarnState.policy.seed),
-              }
-            : undefined;
+        const yieldRoutingPolicy = nextEarnState?.policy
+          ? {
+              account: new PublicKey(nextEarnState.policy.account),
+              seed: BigInt(nextEarnState.policy.seed),
+            }
+          : undefined;
 
         console.log("[executeEarnDeposit] preparing Earn USDC deposit", {
           amountRaw: request.amountRaw.toString(),
-          cluster: resolveEarnLoyalCluster(solanaEnv),
-          hasActiveEarnPosition,
-          hasEarnPolicy,
-          initializeYieldRoutingPolicy: shouldInitializeYieldRoutingPolicy,
+          cluster: expectedEarnCluster,
+          hasEarnPolicy: Boolean(nextEarnState?.policy),
+          initializeYieldRoutingPolicy: false,
           settingsPda: settingsPda.toBase58(),
         });
         const preparedDeposit = await client.prepareEarnUsdcDeposit({
@@ -3630,51 +3790,34 @@ export function useSmartAccountSidebarData(
           walletAddress: wallet.publicKey,
           feePayer: wallet.publicKey,
           amountRaw: request.amountRaw,
-          cluster: resolveEarnLoyalCluster(solanaEnv),
-          initializeYieldRoutingPolicy: shouldInitializeYieldRoutingPolicy,
+          cluster: expectedEarnCluster,
+          initializeYieldRoutingPolicy: false,
           yieldRoutingPolicy,
         });
-        let policySignature: string | undefined;
-        let preparedToSend = preparedDeposit.prepared;
-        if (
-          shouldInitializeYieldRoutingPolicy &&
-          !canSerializePreparedForWallet(preparedDeposit.prepared)
-        ) {
-          console.log(
-            "[executeEarnDeposit] composed first deposit is too large; splitting policy init",
-            {
-              instructionCount: preparedDeposit.prepared.instructions.length,
-            }
-          );
-          const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
-            settingsPda,
-            signer: wallet.publicKey,
-            feePayer: wallet.publicKey,
-            cluster: resolveEarnLoyalCluster(solanaEnv),
-          });
-          policySignature = await sendPreparedWithWallet({
-            connection,
-            wallet: walletBridge,
-            prepared: preparedPolicy,
-            confirm: true,
-          });
-          preparedToSend =
-            createDepositPreparedWithoutPolicyInitialization(
-              preparedDeposit.prepared
-            );
+        console.log(
+          "[executeEarnDeposit] prepared deposit; sending to wallet",
+          {
+            instructionCount: preparedDeposit.prepared.instructions.length,
+            vaultAccountIndex: preparedDeposit.vault.accountIndex,
+            vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
+          }
+        );
+        const sendResult = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation: "deposit",
+          preparedCluster: preparedDeposit.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared: preparedDeposit.prepared,
+              confirm: true,
+            }),
+        });
+        if (!sendResult.success) {
+          return sendResult;
         }
-        console.log("[executeEarnDeposit] prepared deposit; sending to wallet", {
-          instructionCount: preparedToSend.instructions.length,
-          policySignature,
-          vaultAccountIndex: preparedDeposit.vault.accountIndex,
-          vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
-        });
-        const signature = await sendPreparedWithWallet({
-          connection,
-          wallet: walletBridge,
-          prepared: preparedToSend,
-          confirm: true,
-        });
+        const signature = sendResult.signature;
         console.log("[executeEarnDeposit] wallet send completed", {
           signature,
         });
@@ -3692,7 +3835,6 @@ export function useSmartAccountSidebarData(
           signature,
           confirmedSlot,
           smartAccountAddress: overview.canonicalVaultAddress,
-          policySignature,
         });
         console.log("[executeEarnDeposit] backend confirmation posted", {
           confirmedSlot,
@@ -3769,6 +3911,7 @@ export function useSmartAccountSidebarData(
         programId: new PublicKey(overview.programId),
       });
       const settingsPda = new PublicKey(overview.settingsPda);
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
 
       setIsActionPending(true);
       try {
@@ -3777,15 +3920,25 @@ export function useSmartAccountSidebarData(
           walletAddress: wallet.publicKey,
           feePayer: wallet.publicKey,
           amountRaw: request.amountRaw,
-          cluster: resolveEarnLoyalCluster(solanaEnv),
+          cluster: expectedEarnCluster,
           mode: request.mode,
         });
-        const signature = await sendPreparedWithWallet({
-          connection,
-          wallet: walletBridge,
-          prepared: preparedWithdraw.prepared,
-          confirm: true,
+        const sendResult = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation: "withdrawal",
+          preparedCluster: preparedWithdraw.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared: preparedWithdraw.prepared,
+              confirm: true,
+            }),
         });
+        if (!sendResult.success) {
+          return sendResult;
+        }
+        const signature = sendResult.signature;
         const confirmedSlot = await resolveConfirmedSignatureSlot({
           connection,
           signature,
@@ -3890,8 +4043,10 @@ export function useSmartAccountSidebarData(
     executeVaultTransfer,
     executeVaultSwap,
     executeEarnDeposit,
+    executeEarnPolicySetup,
     executeEarnWithdraw,
     isActionPending,
+    requiresEarnPolicySetupForDeposit,
     pendingProposalId,
     pendingSpendingLimitActionKey,
     signerPortfolioByAddress,

@@ -112,6 +112,10 @@ export function useWalletProofAuth({
       return;
     }
 
+    if (!signMessage) {
+      return;
+    }
+
     const walletAddress = publicKey.toBase58();
     verifyAttemptedForAddressRef.current = walletAddress;
 
@@ -141,7 +145,7 @@ export function useWalletProofAuth({
       return;
     }
 
-    if (connected && publicKey) {
+    if (connected && publicKey && signMessage) {
       if (verifyAttemptedForAddressRef.current === publicKey.toBase58()) {
         return;
       }
@@ -170,6 +174,7 @@ export function useWalletProofAuth({
     connecting,
     handleFailure,
     publicKey,
+    signMessage,
     state.status,
     verifyConnectedWallet,
     wallet,

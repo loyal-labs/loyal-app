@@ -365,6 +365,7 @@
       "name": "@loyal/actions",
       "version": "0.1.0",
       "dependencies": {
+        "@loyal-labs/solana-rpc": "workspace:*",
         "@solana/web3.js": "^1.98.4",
       },
       "devDependencies": {

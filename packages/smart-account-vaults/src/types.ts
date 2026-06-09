@@ -386,6 +386,39 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
   memo?: string;
 };
 
+export type SmartAccountEarnUsdcYieldRoutingPolicyMetadata = {
+  cluster: LoyalCluster;
+  walletAddress: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyId: string;
+  policyAccount: string;
+  policySeed: string;
+  targetReserve: string;
+  market: string;
+  liquidityMint: string;
+};
+
+export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  policy: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+  };
+  targetReserve: {
+    reserve: PublicKey;
+    market: PublicKey;
+    liquidityMint: PublicKey;
+  };
+  persistence: SmartAccountEarnUsdcYieldRoutingPolicyMetadata;
+};
+
 export type SmartAccountEarnUsdcDepositMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
