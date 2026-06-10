@@ -18,9 +18,96 @@ export type EarnAutodepositSetupPrepareRequestBody = {
   policySeed?: string;
 };
 
+export type EarnAutodepositSetupStage =
+  | "initialize_subscription_authority"
+  | "create_policy"
+  | "create_recurring_delegation";
+
+export type ConfirmedEarnAutodepositSetupInput = {
+  amountPerPeriodRaw: bigint;
+  cluster: string;
+  confirmedSlot: bigint;
+  delegatedSigner: string;
+  expiryTimestamp: bigint;
+  liquidityMint: string;
+  nonce: bigint;
+  periodLengthSeconds: bigint;
+  policyAccount: string;
+  policyId: bigint;
+  policySeed: bigint;
+  recurringDelegation: string;
+  settings: string;
+  setupSignature: string;
+  setupStage: EarnAutodepositSetupStage;
+  startTimestamp: bigint;
+  subscriptionAuthority: string;
+  subscriptionAuthorityInitialization: "exists" | "required";
+  subscriptionDelegatee: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  vaultUsdcAta: string;
+  walletAddress: string;
+  walletBalanceFloorRaw: bigint;
+  walletUsdcAta: string;
+};
+
+export type ConfirmedEarnAutodepositCloseInput = {
+  cluster: string;
+  closeSignature: string;
+  confirmedSlot: bigint;
+  delegatedSigner: string;
+  policyAccount: string;
+  recurringDelegation: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  walletAddress: string;
+};
+
 export type EarnAutodepositClosePrepareRequestBody = {
   policy: string;
   recurringDelegation: string;
+};
+
+export type EarnAutodepositSetupConfirmRequestBody = {
+  amountPerPeriodRaw: string;
+  cluster: string;
+  confirmedSlot: string;
+  delegatedSigner: string;
+  expiryTimestamp: string;
+  liquidityMint: string;
+  nonce: string;
+  periodLengthSeconds: string;
+  policyAccount: string;
+  policyId: string;
+  policySeed: string;
+  recurringDelegation: string;
+  settings: string;
+  setupSignature: string;
+  setupStage: EarnAutodepositSetupStage;
+  startTimestamp: string;
+  subscriptionAuthority: string;
+  subscriptionAuthorityInitialization: "exists" | "required";
+  subscriptionDelegatee: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  vaultUsdcAta: string;
+  walletAddress: string;
+  walletBalanceFloorRaw: string;
+  walletUsdcAta: string;
+};
+
+export type EarnAutodepositCloseConfirmRequestBody = {
+  cluster: string;
+  closeSignature: string;
+  confirmedSlot: string;
+  delegatedSigner: string;
+  policyAccount: string;
+  recurringDelegation: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  walletAddress: string;
 };
 
 export type WireSmartAccountPreparedEarnUsdcAutodepositSetup = {
@@ -72,6 +159,21 @@ export type EarnAutodepositClosePrepareResponse = {
   preparedClose: WireSmartAccountPreparedEarnUsdcAutodepositClose;
 };
 
+export type EarnAutodepositSetupConfirmResponse = {
+  target: {
+    active: boolean;
+    balanceSweepPolicyId: string | null;
+    id: string;
+    lifecycleStatus: string;
+    policyAccount: string;
+    recurringDelegation: string | null;
+    walletBalanceFloorRaw: string | null;
+  };
+};
+
+export type EarnAutodepositCloseConfirmResponse =
+  EarnAutodepositSetupConfirmResponse;
+
 type EarnAutodepositPrepareRecord = Record<string, unknown>;
 
 function assertRequestObject(body: unknown): EarnAutodepositPrepareRecord {
@@ -117,9 +219,59 @@ function readRequiredString(
   return value.trim();
 }
 
-export function parseEarnAutodepositSetupPrepareRequestBody(
-  body: unknown
-): {
+function readBigIntString(
+  body: EarnAutodepositPrepareRecord,
+  key: string
+): bigint {
+  const value = readUnsignedIntegerString(body, key);
+  return BigInt(value);
+}
+
+function readVaultIndex(body: EarnAutodepositPrepareRecord): 1 {
+  const value = body.vaultIndex;
+  if (value !== 1) {
+    throw new Error("vaultIndex must be 1 for Earn autodeposit.");
+  }
+  return value;
+}
+
+function readSetupStage(
+  body: EarnAutodepositPrepareRecord
+): EarnAutodepositSetupStage {
+  const value = readRequiredString(body, "setupStage");
+  if (
+    value !== "initialize_subscription_authority" &&
+    value !== "create_policy" &&
+    value !== "create_recurring_delegation"
+  ) {
+    throw new Error("setupStage is not a supported autodeposit stage.");
+  }
+  return value;
+}
+
+function readSubscriptionAuthorityInitialization(
+  body: EarnAutodepositPrepareRecord
+): "exists" | "required" {
+  const value = readRequiredString(body, "subscriptionAuthorityInitialization");
+  if (value !== "exists" && value !== "required") {
+    throw new Error(
+      "subscriptionAuthorityInitialization must be exists or required."
+    );
+  }
+  return value;
+}
+
+function requirePreparedMetadataValue(
+  value: string | null,
+  key: string
+): string {
+  if (!value) {
+    throw new Error(`prepared autodeposit metadata is missing ${key}.`);
+  }
+  return value;
+}
+
+export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
   nonce?: bigint;
   policySeed?: bigint;
@@ -140,13 +292,130 @@ export function parseEarnAutodepositSetupPrepareRequestBody(
   };
 }
 
-export function parseEarnAutodepositClosePrepareRequestBody(
-  body: unknown
-): { policy: string; recurringDelegation: string } {
+export function parseEarnAutodepositClosePrepareRequestBody(body: unknown): {
+  policy: string;
+  recurringDelegation: string;
+} {
   const record = assertRequestObject(body);
   return {
     policy: readRequiredString(record, "policy"),
     recurringDelegation: readRequiredString(record, "recurringDelegation"),
+  };
+}
+
+export function buildEarnAutodepositSetupConfirmRequestBody({
+  confirmedSlot,
+  preparedSetup,
+  signature,
+  walletBalanceFloorRaw,
+}: {
+  confirmedSlot: string;
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+  signature: string;
+  walletBalanceFloorRaw: bigint;
+}): EarnAutodepositSetupConfirmRequestBody {
+  const persistence = preparedSetup.persistence;
+  return {
+    amountPerPeriodRaw: persistence.amountPerPeriodRaw,
+    cluster: persistence.cluster,
+    confirmedSlot,
+    delegatedSigner: persistence.delegatedSigner,
+    expiryTimestamp: persistence.expiryTimestamp,
+    liquidityMint: persistence.liquidityMint,
+    nonce: persistence.nonce,
+    periodLengthSeconds: persistence.periodLengthSeconds,
+    policyAccount: requirePreparedMetadataValue(
+      persistence.policyAccount,
+      "policyAccount"
+    ),
+    policyId: requirePreparedMetadataValue(persistence.policyId, "policyId"),
+    policySeed: requirePreparedMetadataValue(
+      persistence.policySeed,
+      "policySeed"
+    ),
+    recurringDelegation: persistence.recurringDelegation,
+    settings: persistence.settings,
+    setupSignature: signature,
+    setupStage: preparedSetup.stage,
+    startTimestamp: persistence.startTimestamp,
+    subscriptionAuthority: persistence.subscriptionAuthority,
+    subscriptionAuthorityInitialization:
+      persistence.subscriptionAuthorityInitialization,
+    subscriptionDelegatee: persistence.subscriptionDelegatee,
+    vaultIndex: persistence.vaultIndex,
+    vaultPubkey: persistence.vaultPubkey,
+    vaultUsdcAta: persistence.vaultUsdcAta,
+    walletAddress: persistence.walletAddress,
+    walletBalanceFloorRaw: walletBalanceFloorRaw.toString(),
+    walletUsdcAta: persistence.walletUsdcAta,
+  };
+}
+
+export function buildEarnAutodepositCloseConfirmRequestBody({
+  confirmedSlot,
+  preparedClose,
+  signature,
+}: {
+  confirmedSlot: string;
+  preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
+  signature: string;
+}): EarnAutodepositCloseConfirmRequestBody {
+  return {
+    ...preparedClose.persistence,
+    closeSignature: signature,
+    confirmedSlot,
+  };
+}
+
+export function parseEarnAutodepositSetupConfirmRequestBody(
+  body: unknown
+): ConfirmedEarnAutodepositSetupInput {
+  const record = assertRequestObject(body);
+  return {
+    amountPerPeriodRaw: readBigIntString(record, "amountPerPeriodRaw"),
+    cluster: readRequiredString(record, "cluster"),
+    confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    expiryTimestamp: readBigIntString(record, "expiryTimestamp"),
+    liquidityMint: readRequiredString(record, "liquidityMint"),
+    nonce: readBigIntString(record, "nonce"),
+    periodLengthSeconds: readBigIntString(record, "periodLengthSeconds"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policyId: readBigIntString(record, "policyId"),
+    policySeed: readBigIntString(record, "policySeed"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    settings: readRequiredString(record, "settings"),
+    setupSignature: readRequiredString(record, "setupSignature"),
+    setupStage: readSetupStage(record),
+    startTimestamp: readBigIntString(record, "startTimestamp"),
+    subscriptionAuthority: readRequiredString(record, "subscriptionAuthority"),
+    subscriptionAuthorityInitialization:
+      readSubscriptionAuthorityInitialization(record),
+    subscriptionDelegatee: readRequiredString(record, "subscriptionDelegatee"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    vaultUsdcAta: readRequiredString(record, "vaultUsdcAta"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+    walletBalanceFloorRaw: readBigIntString(record, "walletBalanceFloorRaw"),
+    walletUsdcAta: readRequiredString(record, "walletUsdcAta"),
+  };
+}
+
+export function parseEarnAutodepositCloseConfirmRequestBody(
+  body: unknown
+): ConfirmedEarnAutodepositCloseInput {
+  const record = assertRequestObject(body);
+  return {
+    cluster: readRequiredString(record, "cluster"),
+    closeSignature: readRequiredString(record, "closeSignature"),
+    confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    settings: readRequiredString(record, "settings"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    walletAddress: readRequiredString(record, "walletAddress"),
   };
 }
 

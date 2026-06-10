@@ -62,9 +62,13 @@ import {
   buildEarnWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
+  buildEarnAutodepositCloseConfirmRequestBody,
+  buildEarnAutodepositSetupConfirmRequestBody,
   hydratePreparedEarnUsdcAutodepositClose,
   hydratePreparedEarnUsdcAutodepositSetup,
+  type EarnAutodepositCloseConfirmResponse,
   type EarnAutodepositClosePrepareResponse,
+  type EarnAutodepositSetupConfirmResponse,
   type EarnAutodepositSetupPrepareResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
@@ -324,6 +328,7 @@ export type EarnWithdrawResult = {
 export type EarnAutodepositSetupRequest = {
   amountRaw: bigint;
   nonce: bigint;
+  walletBalanceFloorRaw: bigint;
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
 };
 
@@ -333,7 +338,7 @@ export type EarnAutodepositSetupResult = {
   authorityInitializationSignature?: string;
   recurringDelegationSignature?: string;
   confirmedSlot?: string;
-  status?: "executed";
+  status?: "confirmation_record_failed" | "executed";
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup;
   nextPreparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
   error?: string;
@@ -349,7 +354,7 @@ export type EarnAutodepositCloseResult = {
   success: boolean;
   signature?: string;
   confirmedSlot?: string;
-  status?: "executed";
+  status?: "confirmation_record_failed" | "executed";
   error?: string;
 };
 
@@ -992,6 +997,65 @@ async function postConfirmedEarnDeposit(args: {
       payload?.error?.message ?? "Failed to record confirmed earn deposit."
     );
   }
+}
+
+async function postConfirmedEarnAutodepositSetup(args: {
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+  signature: string;
+  confirmedSlot: string;
+  walletBalanceFloorRaw: bigint;
+}): Promise<EarnAutodepositSetupConfirmResponse> {
+  const body = buildEarnAutodepositSetupConfirmRequestBody(args);
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ??
+        "Failed to record confirmed earn autodeposit setup."
+    );
+  }
+
+  return (await response.json()) as EarnAutodepositSetupConfirmResponse;
+}
+
+async function postConfirmedEarnAutodepositClose(args: {
+  preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
+  signature: string;
+  confirmedSlot: string;
+}): Promise<EarnAutodepositCloseConfirmResponse> {
+  const body = buildEarnAutodepositCloseConfirmRequestBody(args);
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/close/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ??
+        "Failed to record confirmed earn autodeposit close."
+    );
+  }
+
+  return (await response.json()) as EarnAutodepositCloseConfirmResponse;
 }
 
 export async function prepareEarnDepositOnServer(args: {
@@ -4218,6 +4282,12 @@ export function useSmartAccountSidebarData(
       if (request.amountRaw <= BigInt(0)) {
         return { success: false, error: "Amount must be greater than 0." };
       }
+      if (request.walletBalanceFloorRaw < BigInt(0)) {
+        return {
+          success: false,
+          error: "Autodeposit wallet balance floor cannot be negative.",
+        };
+      }
 
       const walletBridge = createWalletAdapterBridge(wallet);
       if (!walletBridge) {
@@ -4268,6 +4338,30 @@ export function useSmartAccountSidebarData(
           connection,
           signature: setupSend.signature,
         });
+        try {
+          await postConfirmedEarnAutodepositSetup({
+            preparedSetup,
+            signature: setupSend.signature,
+            confirmedSlot,
+            walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+          });
+        } catch (error) {
+          return {
+            success: false,
+            signature: setupSend.signature,
+            ...(preparedSetup.stage === "initialize_subscription_authority" ||
+            preparedSetup.stage === "create_policy"
+              ? { authorityInitializationSignature: setupSend.signature }
+              : { recurringDelegationSignature: setupSend.signature }),
+            confirmedSlot,
+            status: "confirmation_record_failed",
+            preparedSetup,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to record confirmed autodeposit setup.",
+          };
+        }
         const nextPreparedSetup =
           preparedSetup.stage === "create_recurring_delegation"
             ? null
@@ -4377,6 +4471,24 @@ export function useSmartAccountSidebarData(
           connection,
           signature: closeSend.signature,
         });
+        try {
+          await postConfirmedEarnAutodepositClose({
+            preparedClose,
+            signature: closeSend.signature,
+            confirmedSlot,
+          });
+        } catch (error) {
+          return {
+            success: false,
+            signature: closeSend.signature,
+            confirmedSlot,
+            status: "confirmation_record_failed",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to record confirmed autodeposit close.",
+          };
+        }
 
         void refreshAfterTx({
           accountIndex: preparedClose.vault.accountIndex,

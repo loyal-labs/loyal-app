@@ -1038,10 +1038,8 @@ export function AppWalletWorkspace({
     pendingEarnAutodepositSetupPrepared,
     setPendingEarnAutodepositSetupPrepared,
   ] = useState<SmartAccountPreparedEarnUsdcAutodepositSetup | null>(null);
-  const [
-    earnAutodepositSetupReviewStage,
-    setEarnAutodepositSetupReviewStage,
-  ] = useState<EarnAutodepositSetupReviewStage>("policy");
+  const [earnAutodepositSetupReviewStage, setEarnAutodepositSetupReviewStage] =
+    useState<EarnAutodepositSetupReviewStage>("policy");
   const [
     pendingEarnAutodepositClosePrepared,
     setPendingEarnAutodepositClosePrepared,
@@ -2271,11 +2269,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earnAutodeposit");
     setSelectedDetail("Autodeposit");
-  }, [
-    autodepositConfig,
-    markDetailPaneTransition,
-    setDetailSelection,
-  ]);
+  }, [autodepositConfig, markDetailPaneTransition, setDetailSelection]);
 
   const handleDisableAutodeposit = useCallback(() => {
     handleOpenAutodepositCloseReview();
@@ -2728,10 +2722,15 @@ export function AppWalletWorkspace({
         pendingEarnAutodepositDraft.amountLabel,
         pendingEarnAutodepositDraft.tokenDecimals
       );
+      const walletBalanceFloorRaw = parseTokenAmountLabelToRaw(
+        pendingEarnAutodepositDraft.keepAmountLabel,
+        pendingEarnAutodepositDraft.tokenDecimals
+      );
       const result = await smartAccountData.executeEarnAutodepositSetup({
         amountRaw,
         nonce: pendingEarnAutodepositDraft.nonce,
         preparedSetup: pendingEarnAutodepositSetupPrepared,
+        walletBalanceFloorRaw,
       });
 
       if (!result.success || !result.preparedSetup) {

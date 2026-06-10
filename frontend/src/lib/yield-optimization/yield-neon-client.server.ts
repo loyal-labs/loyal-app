@@ -1,12 +1,14 @@
 import "server-only";
 
 import { neon } from "@neondatabase/serverless";
+import { sql } from "drizzle-orm";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import {
   bigint,
   bigserial,
   boolean,
   date,
+  index,
   integer,
   jsonb,
   pgSchema,
@@ -366,9 +368,7 @@ export const earnApyHourlySnapshots = loyalYieldSchema.table(
     generatedAt: timestamp("generated_at", { withTimezone: true }).notNull(),
     loyalApyBps: integer("loyal_apy_bps").notNull(),
     mainUsdcReserveApyBps: integer("main_usdc_reserve_apy_bps").notNull(),
-    metadata: jsonb("metadata")
-      .$type<Record<string, unknown>>()
-      .notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull(),
   },
   (table) => [
     uniqueIndex("earn_apy_hourly_snapshots_key_uidx").on(
@@ -376,6 +376,160 @@ export const earnApyHourlySnapshots = loyalYieldSchema.table(
       table.riskProfile,
       table.feeBps,
       table.sampleHour
+    ),
+  ]
+);
+
+export const balanceSweepPolicies = loyalYieldSchema.table(
+  "balance_sweep_policies",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    settings: text("settings").notNull(),
+    authority: text("authority").notNull(),
+    policySeed: bigint("policy_seed", { mode: "bigint" }).notNull(),
+    policyAccount: text("policy_account").notNull(),
+    policyType: text("policy_type").default("subscription_sweep").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    vaultPubkey: text("vault_pubkey").notNull(),
+    delegatedSigners: text("delegated_signers").array().notNull(),
+    threshold: integer("threshold").notNull(),
+    liquidityMint: text("liquidity_mint"),
+    subscriptionAuthority: text("subscription_authority"),
+    subscriptionDelegatee: text("subscription_delegatee"),
+    walletUsdcAta: text("wallet_usdc_ata"),
+    vaultUsdcAta: text("vault_usdc_ata"),
+    maxAmountPerPeriod: bigint("max_amount_per_period", {
+      mode: "bigint",
+    }),
+    active: boolean("active").default(true).notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    lastSeenSlot: bigint("last_seen_slot", { mode: "bigint" }).notNull(),
+    lastSeenSignature: text("last_seen_signature").notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closeSignature: text("close_signature"),
+    closeSlot: bigint("close_slot", { mode: "bigint" }),
+  },
+  (table) => [
+    uniqueIndex("balance_sweep_policies_policy_account_uidx").on(
+      table.policyAccount
+    ),
+    index("balance_sweep_policies_active_authority_idx").on(
+      table.active,
+      table.authority
+    ),
+  ]
+);
+
+export const balanceSweepTargets = loyalYieldSchema.table(
+  "balance_sweep_targets",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    balanceSweepPolicyId: bigint("balance_sweep_policy_id", {
+      mode: "bigint",
+    }),
+    settings: text("settings").notNull(),
+    authority: text("authority").notNull(),
+    policySeed: bigint("policy_seed", { mode: "bigint" }).notNull(),
+    policyAccount: text("policy_account").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    vaultPubkey: text("vault_pubkey").notNull(),
+    wallet: text("wallet").notNull(),
+    walletUsdcAta: text("wallet_usdc_ata").notNull(),
+    vaultUsdcAta: text("vault_usdc_ata").notNull(),
+    delegatedSigners: text("delegated_signers").array().notNull(),
+    threshold: integer("threshold").notNull(),
+    maxAmountPerPeriod: bigint("max_amount_per_period", {
+      mode: "bigint",
+    }).notNull(),
+    active: boolean("active").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    lastSeenSlot: bigint("last_seen_slot", { mode: "bigint" }).notNull(),
+    lastSeenSignature: text("last_seen_signature").notNull(),
+    subscriptionAuthority: text("subscription_authority"),
+    recurringDelegation: text("recurring_delegation"),
+    periodLengthSeconds: bigint("period_length_seconds", { mode: "bigint" }),
+    walletBalanceFloorRaw: bigint("wallet_balance_floor_raw", {
+      mode: "bigint",
+    }),
+    lifecycleStatus: text("lifecycle_status").default("active").notNull(),
+    closeSignature: text("close_signature"),
+    closeSlot: bigint("close_slot", { mode: "bigint" }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("balance_sweep_targets_policy_account_uidx").on(
+      table.policyAccount
+    ),
+    uniqueIndex("balance_sweep_targets_recurring_delegation_uidx")
+      .on(table.recurringDelegation)
+      .where(sql`${table.recurringDelegation} IS NOT NULL`),
+    index("balance_sweep_targets_active_wallet_ata_idx").on(
+      table.walletUsdcAta
+    ),
+    index("balance_sweep_targets_wallet_idx").on(table.wallet),
+  ]
+);
+
+export const balanceSweepWalletBalancesCurrent = loyalYieldSchema.table(
+  "balance_sweep_wallet_balances_current",
+  {
+    targetId: bigint("target_id", { mode: "bigint" }).primaryKey(),
+    wallet: text("wallet").notNull(),
+    walletUsdcAta: text("wallet_usdc_ata").notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    owner: text("owner").notNull(),
+    mint: text("mint").notNull(),
+    observedSlot: bigint("observed_slot", { mode: "bigint" }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    source: text("source").notNull(),
+    sourceCommitment: text("source_commitment").notNull(),
+    accountDataHash: text("account_data_hash").notNull(),
+    rawEvidence: jsonb("raw_evidence").$type<Record<string, unknown>>(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("balance_sweep_wallet_balances_wallet_idx").on(
+      table.wallet,
+      table.walletUsdcAta
+    ),
+  ]
+);
+
+export const balanceSweepExecutions = loyalYieldSchema.table(
+  "balance_sweep_executions",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    targetId: bigint("target_id", { mode: "bigint" }).notNull(),
+    signature: text("signature").notNull(),
+    slot: bigint("slot", { mode: "bigint" }).notNull(),
+    sourceWalletAta: text("source_wallet_ata").notNull(),
+    destinationVaultAta: text("destination_vault_ata").notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    sourcePreBalanceRaw: bigint("source_pre_balance_raw", { mode: "bigint" }),
+    sourcePostBalanceRaw: bigint("source_post_balance_raw", {
+      mode: "bigint",
+    }),
+    destinationPreBalanceRaw: bigint("destination_pre_balance_raw", {
+      mode: "bigint",
+    }),
+    destinationPostBalanceRaw: bigint("destination_post_balance_raw", {
+      mode: "bigint",
+    }),
+    sourceCommitment: text("source_commitment").notNull(),
+    rawEvidence: jsonb("raw_evidence").$type<Record<string, unknown>>(),
+    decodedEvidence: jsonb("decoded_evidence").$type<Record<string, unknown>>(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    decodedAt: timestamp("decoded_at", { withTimezone: true }),
+    insertedAt: timestamp("inserted_at", { withTimezone: true }).notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+  },
+  (table) => [
+    uniqueIndex("balance_sweep_executions_dedupe_key_key").on(table.dedupeKey),
+    index("balance_sweep_executions_target_slot_idx").on(
+      table.targetId,
+      table.slot
     ),
   ]
 );
@@ -411,6 +565,10 @@ export const rebalanceDecisions = loyalYieldSchema.table(
 );
 
 export const yieldOptimizationSchema = {
+  balanceSweepExecutions,
+  balanceSweepPolicies,
+  balanceSweepTargets,
+  balanceSweepWalletBalancesCurrent,
   earnApyHourlySnapshots,
   earnForecastSnapshots,
   managedVaults,
@@ -434,6 +592,10 @@ export type YieldOptimizationClientConfig = {
 };
 
 export type YieldOptimizationClientTables = {
+  balanceSweepExecutions: typeof balanceSweepExecutions;
+  balanceSweepPolicies: typeof balanceSweepPolicies;
+  balanceSweepTargets: typeof balanceSweepTargets;
+  balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
@@ -451,6 +613,10 @@ export type YieldOptimizationClientTables = {
 export class YieldOptimizationClient {
   readonly db: YieldOptimizationDatabase;
   readonly tables: YieldOptimizationClientTables = {
+    balanceSweepExecutions,
+    balanceSweepPolicies,
+    balanceSweepTargets,
+    balanceSweepWalletBalancesCurrent,
     earnApyHourlySnapshots,
     earnForecastSnapshots,
     managedVaults,
