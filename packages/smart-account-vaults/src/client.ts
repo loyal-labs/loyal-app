@@ -141,6 +141,8 @@ import {
   type SmartAccountSpendingLimitPeriod,
 } from "./spending-limits";
 
+const SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET = BigInt(64);
+
 type VaultMessage = {
   numSigners: number;
   numWritableSigners: number;
@@ -299,7 +301,9 @@ function readUint128LE(data: Buffer, offset: number): bigint {
   return low + (high << BigInt(64));
 }
 
-function parseKaminoReserveSnapshot(data: Buffer | Uint8Array): KaminoReserveSnapshot {
+function parseKaminoReserveSnapshot(
+  data: Buffer | Uint8Array
+): KaminoReserveSnapshot {
   const normalizedData = Buffer.isBuffer(data) ? data : Buffer.from(data);
   if (!bufferStartsWith(normalizedData, KAMINO_RESERVE_DISCRIMINATOR)) {
     throw new Error("Kamino reserve account has an invalid discriminator.");
@@ -414,7 +418,11 @@ function createLocalKaminoDepositInstruction(args: {
       { pubkey: args.vaultCollateralAta, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+      {
+        pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,
+        isSigner: false,
+        isWritable: false,
+      },
     ],
     data: encodeU64InstructionData(
       args.target.depositDiscriminator,
@@ -451,7 +459,11 @@ function createLocalKaminoWithdrawInstruction(args: {
       { pubkey: args.vaultUsdcAta, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
+      {
+        pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,
+        isSigner: false,
+        isWritable: false,
+      },
     ],
     data: encodeU64InstructionData(
       args.target.withdrawDiscriminator,
@@ -460,9 +472,7 @@ function createLocalKaminoWithdrawInstruction(args: {
   });
 }
 
-function dataSliceEquals(
-  value: readonly number[]
-): generated.DataConstraint {
+function dataSliceEquals(value: readonly number[]): generated.DataConstraint {
   return dataSliceEqualsAt(BigInt(0), value);
 }
 
@@ -477,10 +487,7 @@ function dataSliceEqualsAt(
   };
 }
 
-function dataU8Equals(
-  offset: bigint,
-  value: number
-): generated.DataConstraint {
+function dataU8Equals(offset: bigint, value: number): generated.DataConstraint {
   return {
     dataOffset: toBn(offset),
     dataValue: { __kind: "U8", fields: [value] },
@@ -496,6 +503,17 @@ function dataU64LessThanOrEqualTo(
     dataOffset: toBn(offset),
     dataValue: { __kind: "U64Le", fields: [toBn(value)] },
     operator: generated.DataOperator.LessThanOrEqualTo,
+  };
+}
+
+function dataU64GreaterThanOrEqualTo(
+  offset: bigint,
+  value: bigint
+): generated.DataConstraint {
+  return {
+    dataOffset: toBn(offset),
+    dataValue: { __kind: "U64Le", fields: [toBn(value)] },
+    operator: generated.DataOperator.GreaterThanOrEqualTo,
   };
 }
 
@@ -550,6 +568,7 @@ function createSubscriptionSweepProgramInteractionPolicyCreationPayload(args: {
   walletUsdcAta: PublicKey;
   vaultUsdcAta: PublicKey;
   maxAmountPerPeriodRaw: bigint;
+  minimumDelegatorBalanceRaw?: bigint;
 }): generated.PolicyCreationPayload {
   const subscriptionAuthority = deriveSubscriptionAuthority(
     args.delegator,
@@ -595,8 +614,19 @@ function createSubscriptionSweepProgramInteractionPolicyCreationPayload(args: {
     programId: SUBSCRIPTIONS_PROGRAM_ID,
     accountConstraints: [
       recurringDelegationConstraint,
-      pubkeyAccountConstraint(1, [subscriptionAuthority], SUBSCRIPTIONS_PROGRAM_ID),
+      pubkeyAccountConstraint(
+        1,
+        [subscriptionAuthority],
+        SUBSCRIPTIONS_PROGRAM_ID
+      ),
       pubkeyAccountConstraint(2, [args.walletUsdcAta], TOKEN_PROGRAM_ID),
+      ...(args.minimumDelegatorBalanceRaw !== undefined
+        ? [
+            delegatorTokenBalanceAccountConstraint(
+              args.minimumDelegatorBalanceRaw
+            ),
+          ]
+        : []),
       pubkeyAccountConstraint(3, [args.vaultUsdcAta], TOKEN_PROGRAM_ID),
       pubkeyAccountConstraint(4, [args.mint], TOKEN_PROGRAM_ID),
       pubkeyAccountConstraint(5, [TOKEN_PROGRAM_ID]),
@@ -631,6 +661,26 @@ function createSubscriptionSweepProgramInteractionPolicyCreationPayload(args: {
   };
 }
 
+function delegatorTokenBalanceAccountConstraint(
+  minimumBalanceRaw: bigint
+): generated.AccountConstraint {
+  return {
+    accountIndex: 2,
+    accountConstraint: {
+      __kind: "AccountData",
+      fields: [
+        [
+          dataU64GreaterThanOrEqualTo(
+            SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
+            minimumBalanceRaw
+          ),
+        ],
+      ],
+    },
+    owner: TOKEN_PROGRAM_ID,
+  };
+}
+
 function createEarnProgramInteractionPolicyCreationPayload(args: {
   target: KaminoEarnTarget;
   vaultPda: PublicKey;
@@ -644,9 +694,7 @@ function createEarnProgramInteractionPolicyCreationPayload(args: {
       tokenAuthorityAccountConstraint(9, args.vaultPda),
       pubkeyAccountConstraint(11, [TOKEN_PROGRAM_ID]),
     ],
-    dataConstraints: [
-      dataSliceEquals(args.target.withdrawDiscriminator),
-    ],
+    dataConstraints: [dataSliceEquals(args.target.withdrawDiscriminator)],
   };
   const depositConstraint: generated.InstructionConstraint = {
     programId: args.target.lendProgramId,
@@ -657,9 +705,7 @@ function createEarnProgramInteractionPolicyCreationPayload(args: {
       tokenAuthorityAccountConstraint(9, args.vaultPda),
       pubkeyAccountConstraint(11, [TOKEN_PROGRAM_ID]),
     ],
-    dataConstraints: [
-      dataSliceEquals(args.target.depositDiscriminator),
-    ],
+    dataConstraints: [dataSliceEquals(args.target.depositDiscriminator)],
   };
 
   return {
@@ -878,7 +924,9 @@ function toKaminoTransactionInstruction(
   label: string
 ): TransactionInstruction {
   if (typeof instruction.programAddress !== "string") {
-    throw new Error(`Kamino ${label} instruction is missing a program address.`);
+    throw new Error(
+      `Kamino ${label} instruction is missing a program address.`
+    );
   }
 
   return {
@@ -907,12 +955,13 @@ function readKaminoInstructionBundle(
   label = "deposit"
 ): KaminoInstructionBundle {
   const expectedProgram = lendProgramId.toBase58();
-  const instructionIndex = payload.instructions?.findIndex(
-    (entry) =>
-      entry.programAddress === expectedProgram &&
-      instructionDataStartsWith(entry.data, discriminator) &&
-      Array.isArray(entry.accounts)
-  ) ?? -1;
+  const instructionIndex =
+    payload.instructions?.findIndex(
+      (entry) =>
+        entry.programAddress === expectedProgram &&
+        instructionDataStartsWith(entry.data, discriminator) &&
+        Array.isArray(entry.accounts)
+    ) ?? -1;
   const instruction =
     instructionIndex >= 0 ? payload.instructions?.[instructionIndex] : null;
 
@@ -4544,7 +4593,9 @@ export function createSmartAccountVaultsClient(
         throw new Error(
           `Earn setup requires ${(
             setupRentTopUpLamports / 1_000_000_000
-          ).toFixed(9)} SOL for Kamino account rent. Add SOL to this wallet and try again.`
+          ).toFixed(
+            9
+          )} SOL for Kamino account rent. Add SOL to this wallet and try again.`
         );
       }
     }
@@ -5077,8 +5128,7 @@ export function createSmartAccountVaultsClient(
         ...(args.mode === "full"
           ? {
               kaminoWithdrawAmountRaw: kaminoWithdrawAmountRaw.toString(),
-              vaultCollateralCleanupIncluded:
-                shouldCloseVaultCollateralAta,
+              vaultCollateralCleanupIncluded: shouldCloseVaultCollateralAta,
               vaultUsdcRemainderRaw:
                 fullWithdrawVaultUsdcRemainderRaw.toString(),
               walletTransferAmountRaw: walletTransferAmountRaw.toString(),
@@ -5101,6 +5151,13 @@ export function createSmartAccountVaultsClient(
       args.amountRaw,
       "amountRaw"
     );
+    const minimumDelegatorBalanceRaw =
+      args.minimumDelegatorBalanceRaw === undefined
+        ? undefined
+        : normalizeAutodepositU64(
+            args.minimumDelegatorBalanceRaw,
+            "minimumDelegatorBalanceRaw"
+          );
     const periodLengthSeconds = normalizeAutodepositU64(
       args.periodLengthSeconds ?? BigInt(30 * 24 * 60 * 60),
       "periodLengthSeconds"
@@ -5148,6 +5205,8 @@ export function createSmartAccountVaultsClient(
       vaultPubkey: vaultPda.toBase58(),
       subscriptionDelegatee: vaultPda.toBase58(),
       amountPerPeriodRaw: amountPerPeriodRaw.toString(),
+      minimumDelegatorBalanceRaw:
+        minimumDelegatorBalanceRaw?.toString() ?? null,
       periodLengthSeconds: periodLengthSeconds.toString(),
       nonce: nonce.toString(),
       startTimestamp: startTimestamp.toString(),
@@ -5172,7 +5231,9 @@ export function createSmartAccountVaultsClient(
         : resolveNextPolicySeed(settings).bigint;
     const policySeedNumber = Number(policySeed);
     if (!Number.isSafeInteger(policySeedNumber)) {
-      throw new Error("Autodeposit policy seed exceeds JavaScript safe integer range.");
+      throw new Error(
+        "Autodeposit policy seed exceeds JavaScript safe integer range."
+      );
     }
     const policyAccount = pda.getPolicyPda({
       programId: smartAccountsClient.programId,
@@ -5197,6 +5258,7 @@ export function createSmartAccountVaultsClient(
                 createSubscriptionSweepProgramInteractionPolicyCreationPayload({
                   delegator: args.walletAddress,
                   maxAmountPerPeriodRaw: amountPerPeriodRaw,
+                  minimumDelegatorBalanceRaw,
                   mint: usdcMint,
                   vaultPda,
                   vaultUsdcAta,
@@ -5218,7 +5280,8 @@ export function createSmartAccountVaultsClient(
 
     if (!authorityAccount) {
       const prepared = freezePreparedOperation({
-        operation: "earnUsdcAutodepositInitializeSubscriptionAuthorityAndPolicy",
+        operation:
+          "earnUsdcAutodepositInitializeSubscriptionAuthorityAndPolicy",
         payer: args.feePayer,
         programId: smartAccountsClient.programId,
         requiresConfirmation: true,
@@ -5270,7 +5333,9 @@ export function createSmartAccountVaultsClient(
     }
 
     if (!authorityAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
-      throw new Error("Subscription authority is owned by an unexpected program.");
+      throw new Error(
+        "Subscription authority is owned by an unexpected program."
+      );
     }
 
     if (!policyAccountInfo) {
@@ -5389,7 +5454,9 @@ export function createSmartAccountVaultsClient(
     }
 
     if (!delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
-      throw new Error("Recurring delegation is owned by an unexpected program.");
+      throw new Error(
+        "Recurring delegation is owned by an unexpected program."
+      );
     }
 
     const prepared = freezePreparedOperation({
@@ -5397,9 +5464,7 @@ export function createSmartAccountVaultsClient(
       payer: args.feePayer,
       programId: smartAccountsClient.programId,
       requiresConfirmation: true,
-      instructions: [
-        ...policyCreation.instructions,
-      ],
+      instructions: [...policyCreation.instructions],
       lookupTableAccounts: dedupeLookupTableAccounts(
         policyCreation.lookupTableAccounts ?? []
       ),
@@ -5509,7 +5574,9 @@ export function createSmartAccountVaultsClient(
       args.policy
     );
     if (policy.policyState.__kind !== "ProgramInteraction") {
-      throw new Error("Autodeposit pull requires a program-interaction policy.");
+      throw new Error(
+        "Autodeposit pull requires a program-interaction policy."
+      );
     }
     const accountIndex = policy.policyState.fields[0].accountIndex;
     if (accountIndex !== EARN_DEPOSIT_VAULT_INDEX) {
@@ -5550,7 +5617,9 @@ export function createSmartAccountVaultsClient(
     const compiledPayload = instructionsToSynchronousTransactionDetailsV2({
       vaultPda,
       members: [args.policySigner],
-      transaction_instructions: [makeSignerWritable(transferInstruction, vaultPda)],
+      transaction_instructions: [
+        makeSignerWritable(transferInstruction, vaultPda),
+      ],
     });
     const policyPayload: generated.PolicyPayload = {
       __kind: "ProgramInteraction",

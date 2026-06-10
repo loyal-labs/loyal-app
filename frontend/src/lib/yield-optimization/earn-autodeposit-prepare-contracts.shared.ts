@@ -16,6 +16,7 @@ export type EarnAutodepositSetupPrepareRequestBody = {
   amountRaw: string;
   nonce?: string;
   policySeed?: string;
+  walletBalanceFloorRaw?: string;
 };
 
 export type EarnAutodepositSetupStage =
@@ -303,11 +304,16 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
   nonce?: bigint;
   policySeed?: bigint;
+  walletBalanceFloorRaw?: bigint;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
   const nonce = readOptionalUnsignedIntegerString(record, "nonce");
   const policySeed = readOptionalUnsignedIntegerString(record, "policySeed");
+  const walletBalanceFloorRaw = readOptionalUnsignedIntegerString(
+    record,
+    "walletBalanceFloorRaw"
+  );
 
   if (amountRaw <= BigInt(0)) {
     throw new Error("amountRaw must be greater than 0.");
@@ -317,6 +323,9 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
     amountRaw,
     ...(nonce ? { nonce: BigInt(nonce) } : {}),
     ...(policySeed ? { policySeed: BigInt(policySeed) } : {}),
+    ...(walletBalanceFloorRaw
+      ? { walletBalanceFloorRaw: BigInt(walletBalanceFloorRaw) }
+      : {}),
   };
 }
 

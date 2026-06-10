@@ -535,6 +535,7 @@ export type SmartAccountEarnUsdcAutodepositSetupInput = {
   signer: PublicKey;
   policySigner: PublicKey;
   amountRaw: bigint;
+  minimumDelegatorBalanceRaw?: bigint;
   cluster?: LoyalCluster;
   nonce?: bigint;
   policySeed?: bigint;
@@ -556,6 +557,7 @@ export type SmartAccountEarnUsdcAutodepositSetupMetadata = {
   policySeed: string | null;
   subscriptionDelegatee: string;
   amountPerPeriodRaw: string;
+  minimumDelegatorBalanceRaw: string | null;
   periodLengthSeconds: string;
   nonce: string;
   startTimestamp: string;

@@ -1078,8 +1078,7 @@ async function postConfirmedEarnAutodepositSetup(args: {
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
-      payload?.error?.message ??
-        "Failed to record confirmed Autodeposit setup."
+      payload?.error?.message ?? "Failed to record confirmed Autodeposit setup."
     );
   }
 
@@ -1107,8 +1106,7 @@ async function postConfirmedEarnAutodepositClose(args: {
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
-      payload?.error?.message ??
-        "Failed to record confirmed Autodeposit close."
+      payload?.error?.message ?? "Failed to record confirmed Autodeposit close."
     );
   }
 
@@ -1246,6 +1244,7 @@ async function prepareEarnAutodepositSetupOnServer(args: {
   amountRaw: bigint;
   nonce?: bigint;
   policySeed?: bigint;
+  walletBalanceFloorRaw?: bigint;
 }): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/autodeposit/setup/prepare",
@@ -1255,6 +1254,9 @@ async function prepareEarnAutodepositSetupOnServer(args: {
         ...(args.nonce !== undefined ? { nonce: args.nonce.toString() } : {}),
         ...(args.policySeed !== undefined
           ? { policySeed: args.policySeed.toString() }
+          : {}),
+        ...(args.walletBalanceFloorRaw !== undefined
+          ? { walletBalanceFloorRaw: args.walletBalanceFloorRaw.toString() }
           : {}),
       }),
       credentials: "include",
@@ -1390,8 +1392,7 @@ export function hasInitializedEarnYieldRoutingPolicy(
   return (
     overview?.policies.some(
       (policy) =>
-        policy.state === "ProgramInteraction" &&
-        policy.accountIndex === 1
+        policy.state === "ProgramInteraction" && policy.accountIndex === 1
     ) ?? false
   );
 }
@@ -4441,6 +4442,7 @@ export function useSmartAccountSidebarData(
             amountRaw: request.amountRaw,
             nonce: request.nonce,
             policySeed: request.policySeed,
+            walletBalanceFloorRaw: request.walletBalanceFloorRaw,
           }));
 
         if (

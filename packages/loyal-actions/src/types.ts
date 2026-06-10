@@ -62,7 +62,7 @@ export type LoyalActionRoute3 = {
 };
 
 export type InitYieldRoutePolicyInput<
-  Lanes extends readonly SwapLane[] = readonly SwapLane[],
+  Lanes extends readonly SwapLane[] = readonly SwapLane[]
 > = {
   policySeed: PolicySeed;
   risk: RiskBasket;
@@ -78,7 +78,7 @@ export type InitYieldRoutePolicyInput<
 };
 
 export type CreateYieldRoutePolicyPlanInput<
-  Lanes extends readonly SwapLane[] = readonly SwapLane[],
+  Lanes extends readonly SwapLane[] = readonly SwapLane[]
 > = InitYieldRoutePolicyInput<Lanes> & {
   cluster: LoyalCluster;
 };
@@ -90,23 +90,28 @@ export type InitYieldRoutingPolicyInput = {
   maxFeeBps?: MaxFeeBps;
 };
 
-export type CreateVaultYieldRoutingPolicyPlanInput = InitYieldRoutingPolicyInput & {
-  cluster: LoyalCluster;
-  smartAccount: LoyalSmartAccountConfig;
-};
+export type CreateVaultYieldRoutingPolicyPlanInput =
+  InitYieldRoutingPolicyInput & {
+    cluster: LoyalCluster;
+    smartAccount: LoyalSmartAccountConfig;
+  };
 
-type JupiterRouteFor<Lanes extends readonly SwapLane[]> =
-  Extract<Lanes[number], SwapLane.Jupiter> extends never
-    ? { jupiter?: undefined }
-    : { jupiter: LoyalActionRoute3 };
+type JupiterRouteFor<Lanes extends readonly SwapLane[]> = Extract<
+  Lanes[number],
+  SwapLane.Jupiter
+> extends never
+  ? { jupiter?: undefined }
+  : { jupiter: LoyalActionRoute3 };
 
-type LoyalRouteFor<Lanes extends readonly SwapLane[]> =
-  Extract<Lanes[number], SwapLane.Loyal> extends never
-    ? { loyal?: undefined }
-    : { loyal: LoyalActionRoute3 };
+type LoyalRouteFor<Lanes extends readonly SwapLane[]> = Extract<
+  Lanes[number],
+  SwapLane.Loyal
+> extends never
+  ? { loyal?: undefined }
+  : { loyal: LoyalActionRoute3 };
 
 export type InitYieldRoutePolicyResult<
-  Lanes extends readonly SwapLane[] = readonly SwapLane[],
+  Lanes extends readonly SwapLane[] = readonly SwapLane[]
 > = {
   instructions: IInstruction[];
   actionAccount: Address;
@@ -146,7 +151,7 @@ export type InitYieldRoutePolicyResult<
 };
 
 export type YieldRoutePolicyPlan<
-  Lanes extends readonly SwapLane[] = readonly SwapLane[],
+  Lanes extends readonly SwapLane[] = readonly SwapLane[]
 > = InitYieldRoutePolicyResult<Lanes>;
 
 export type VaultYieldRoutingPolicyPlan = YieldRoutePolicyPlan<
@@ -177,6 +182,7 @@ export type InitSubscriptionSweepPolicyInput = {
   vaultIndex: number;
   delegator: Address;
   maxAmountPerPeriodRaw: U64Amount;
+  minimumDelegatorBalanceRaw?: U64Amount;
   delegatorUsdcAta?: Address;
   vaultUsdcAta?: Address;
 };
@@ -193,6 +199,7 @@ export type CreateSubscriptionSweepPolicyPlanInput = {
   };
   delegator: Address;
   maxAmountPerPeriodRaw: U64Amount;
+  minimumDelegatorBalanceRaw?: U64Amount;
   delegatorUsdcAta?: Address;
   vaultUsdcAta?: Address;
 };
@@ -222,24 +229,30 @@ export type SubscriptionSweepPolicyPlan = {
 
 export type LoyalActionsSdk = {
   createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane[]>(
-    input: Omit<CreateYieldRoutePolicyPlanInput<Lanes>, "cluster">,
+    input: Omit<CreateYieldRoutePolicyPlanInput<Lanes>, "cluster">
   ): YieldRoutePolicyPlan<Lanes>;
   createVaultYieldRoutingPolicyPlan(
-    input: Omit<CreateVaultYieldRoutingPolicyPlanInput, "cluster" | "smartAccount">,
+    input: Omit<
+      CreateVaultYieldRoutingPolicyPlanInput,
+      "cluster" | "smartAccount"
+    >
   ): VaultYieldRoutingPolicyPlan;
   createSubscriptionSweepPolicyPlan(
-    input: Omit<CreateSubscriptionSweepPolicyPlanInput, "cluster">,
+    input: Omit<CreateSubscriptionSweepPolicyPlanInput, "cluster">
   ): SubscriptionSweepPolicyPlan;
   createVaultSubscriptionSweepPolicyPlan(
-    input: Omit<CreateVaultSubscriptionSweepPolicyPlanInput, "cluster" | "smartAccount">,
+    input: Omit<
+      CreateVaultSubscriptionSweepPolicyPlanInput,
+      "cluster" | "smartAccount"
+    >
   ): SubscriptionSweepPolicyPlan;
   initYieldRoutePolicy<const Lanes extends readonly SwapLane[]>(
-    input: InitYieldRoutePolicyInput<Lanes>,
+    input: InitYieldRoutePolicyInput<Lanes>
   ): InitYieldRoutePolicyResult<Lanes>;
   initYieldRoutingPolicy(
-    input: InitYieldRoutingPolicyInput,
+    input: InitYieldRoutingPolicyInput
   ): InitYieldRoutingPolicyResult;
   initSubscriptionSweepPolicy(
-    input: InitSubscriptionSweepPolicyInput,
+    input: InitSubscriptionSweepPolicyInput
   ): SubscriptionSweepPolicyPlan;
 };

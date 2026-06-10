@@ -75,9 +75,7 @@ describe("Loyal cluster helpers", () => {
   });
 
   test("maps Solana RPC envs into Earn persistence clusters", () => {
-    expect(resolveLoyalClusterForSolanaEnv("devnet")).toBe(
-      LoyalCluster.Devnet
-    );
+    expect(resolveLoyalClusterForSolanaEnv("devnet")).toBe(LoyalCluster.Devnet);
     expect(resolveLoyalClusterForSolanaEnv("mainnet")).toBe(
       LoyalCluster.MainnetBeta
     );
@@ -165,9 +163,7 @@ function decodePolicyCreate(data: Uint8Array): {
   };
 } {
   const cursor = new Cursor(data);
-  expect(cursor.readBytes(8)).toEqual([
-    138, 209, 64, 163, 79, 67, 233, 76,
-  ]);
+  expect(cursor.readBytes(8)).toEqual([138, 209, 64, 163, 79, 67, 233, 76]);
   expect(cursor.readU8()).toBe(1);
   expect(cursor.readU32()).toBe(1);
   expect(cursor.readU8()).toBe(7);
@@ -190,9 +186,7 @@ function decodeProgramInteractionPayload(cursor: Cursor) {
   return { accountIndex, pubkeyTable, instructionConstraints };
 }
 
-function decodeAccountConstraint(
-  cursor: Cursor,
-): DecodedAccountConstraint {
+function decodeAccountConstraint(cursor: Cursor): DecodedAccountConstraint {
   const accountIndex = cursor.readU8();
   const kindTag = cursor.readU8();
   const kind =
@@ -218,18 +212,26 @@ function decodeDataConstraint(cursor: Cursor): DecodedDataConstraint {
     tag === 0
       ? { type: "u8" as const, value: cursor.readU8() }
       : tag === 1
-        ? { type: "u16Le" as const, value: cursor.readU16() }
-        : tag === 2
-          ? { type: "u32Le" as const, value: cursor.readU32() }
-          : tag === 3
-            ? { type: "u64Le" as const, value: cursor.readU64() }
-            : tag === 4
-              ? { type: "u128Le" as const, value: cursor.readU128() }
-              : { type: "u8Slice" as const, value: cursor.readVecBytes() };
+      ? { type: "u16Le" as const, value: cursor.readU16() }
+      : tag === 2
+      ? { type: "u32Le" as const, value: cursor.readU32() }
+      : tag === 3
+      ? { type: "u64Le" as const, value: cursor.readU64() }
+      : tag === 4
+      ? { type: "u128Le" as const, value: cursor.readU128() }
+      : { type: "u8Slice" as const, value: cursor.readVecBytes() };
   return {
     dataOffset,
     dataValue,
-    operator: ["equals", "notEquals", "greaterThan", "greaterThanOrEqualTo", "lessThan", "lessThanOrEqualTo"][cursor.readU8()] ?? "unknown",
+    operator:
+      [
+        "equals",
+        "notEquals",
+        "greaterThan",
+        "greaterThanOrEqualTo",
+        "lessThan",
+        "lessThanOrEqualTo",
+      ][cursor.readU8()] ?? "unknown",
   };
 }
 
@@ -714,6 +716,7 @@ describe("yield route policy plan compilers", () => {
 describe("subscription sweep policy plan compilers", () => {
   const delegator = new PublicKey("11111111111111111111111111111116");
   const maxAmountPerPeriodRaw = BigInt(250_000);
+  const minimumDelegatorBalanceRaw = BigInt(8_000_000);
 
   test("creates a flexible subscription sweep policy with the caller seed", () => {
     const vaultIndex = 1;
@@ -761,9 +764,9 @@ describe("subscription sweep policy plan compilers", () => {
     expect(resolve(subscriptionConstraint.programIdIndex)).toBe(
       SUBSCRIPTIONS_PROGRAM_ID.toBase58()
     );
-    expect(accountConstraints.map((constraint) => constraint.accountIndex)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7, 8,
-    ]);
+    expect(
+      accountConstraints.map((constraint) => constraint.accountIndex)
+    ).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
     const recurringDelegation = accountConstraints[0]!;
     expect(recurringDelegation.kind.type).toBe("accountData");
@@ -775,7 +778,9 @@ describe("subscription sweep policy plan compilers", () => {
     }
     expect(recurringDelegation.kind.dataConstraints).toEqual([
       {
-        dataOffset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET),
+        dataOffset: BigInt(
+          SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET
+        ),
         dataValue: {
           type: "u8",
           value: SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
@@ -789,7 +794,10 @@ describe("subscription sweep policy plan compilers", () => {
       },
       {
         dataOffset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET),
-        dataValue: { type: "u8Slice", value: [...plan.metadata.vault.toBytes()] },
+        dataValue: {
+          type: "u8Slice",
+          value: [...plan.metadata.vault.toBytes()],
+        },
         operator: "equals",
       },
       {
@@ -802,11 +810,16 @@ describe("subscription sweep policy plan compilers", () => {
       },
       {
         dataOffset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET),
-        dataValue: { type: "u8Slice", value: [...plan.metadata.mint.toBytes()] },
+        dataValue: {
+          type: "u8Slice",
+          value: [...plan.metadata.mint.toBytes()],
+        },
         operator: "equals",
       },
       {
-        dataOffset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET),
+        dataOffset: BigInt(
+          SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET
+        ),
         dataValue: { type: "u64Le", value: maxAmountPerPeriodRaw },
         operator: "lessThanOrEqualTo",
       },
@@ -849,7 +862,10 @@ describe("subscription sweep policy plan compilers", () => {
       },
       {
         dataOffset: BigInt(SUBSCRIPTION_TRANSFER_MINT_OFFSET),
-        dataValue: { type: "u8Slice", value: [...plan.metadata.mint.toBytes()] },
+        dataValue: {
+          type: "u8Slice",
+          value: [...plan.metadata.mint.toBytes()],
+        },
         operator: "equals",
       },
     ]);
@@ -865,7 +881,10 @@ describe("subscription sweep policy plan compilers", () => {
       ),
       eventAuthority: deriveSubscriptionEventAuthority(),
       delegatorUsdcAta: deriveAta(delegator, STABLECOIN_MINTS.USDC),
-      vaultUsdcAta: deriveAta(deriveVault(settings, vaultIndex), STABLECOIN_MINTS.USDC),
+      vaultUsdcAta: deriveAta(
+        deriveVault(settings, vaultIndex),
+        STABLECOIN_MINTS.USDC
+      ),
       lockKey: `${settings.toBase58()}:${vaultIndex}`,
     });
   });
@@ -906,6 +925,55 @@ describe("subscription sweep policy plan compilers", () => {
     expect(sdkPlan).toEqual(vaultPlan);
   });
 
+  test("adds a delegator USDC balance floor when requested", () => {
+    const vaultIndex = 1;
+    const plan = createVaultSubscriptionSweepPolicyPlan({
+      cluster: LoyalCluster.MainnetBeta,
+      smartAccount,
+      policySeed: 2,
+      vaultIndex,
+      delegator,
+      maxAmountPerPeriodRaw,
+      minimumDelegatorBalanceRaw,
+    });
+    const decoded = decodePolicyCreate(plan.instructions[0]!.data);
+    const subscriptionConstraint = decoded.payload.instructionConstraints[0]!;
+    const delegatorTokenAccountConstraint =
+      subscriptionConstraint.accountConstraints.find(
+        (constraint) =>
+          constraint.accountIndex === 2 &&
+          constraint.kind.type === "accountData"
+      );
+    const resolve = (index: number | undefined) =>
+      index === undefined
+        ? undefined
+        : decoded.payload.pubkeyTable[index]?.toBase58();
+
+    expect(
+      subscriptionConstraint.accountConstraints.map(
+        (constraint) => constraint.accountIndex
+      )
+    ).toEqual([0, 1, 2, 2, 3, 4, 5, 6, 7, 8]);
+    expect(delegatorTokenAccountConstraint).toBeDefined();
+    if (!delegatorTokenAccountConstraint) {
+      throw new Error("expected delegator token account balance constraint");
+    }
+    if (delegatorTokenAccountConstraint.kind.type !== "accountData") {
+      throw new Error("expected account data constraint");
+    }
+    expect(delegatorTokenAccountConstraint.accountIndex).toBe(2);
+    expect(resolve(delegatorTokenAccountConstraint.ownerIndex)).toBe(
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    );
+    expect(delegatorTokenAccountConstraint.kind.dataConstraints).toEqual([
+      {
+        dataOffset: BigInt(64),
+        dataValue: { type: "u64Le", value: minimumDelegatorBalanceRaw },
+        operator: "greaterThanOrEqualTo",
+      },
+    ]);
+  });
+
   test("builds subscription PDA and data helper bytes", () => {
     const mint = STABLECOIN_MINTS.USDC;
     const subscriptionAuthority = deriveSubscriptionAuthority(delegator, mint);
@@ -913,7 +981,7 @@ describe("subscription sweep policy plan compilers", () => {
       subscriptionAuthority,
       delegator,
       vault,
-      BigInt(9),
+      BigInt(9)
     );
 
     expect(subscriptionAuthority).toEqual(
@@ -1053,7 +1121,7 @@ describe("subscription sweep policy plan compilers", () => {
         deriveSubscriptionAuthority(delegator, STABLECOIN_MINTS.USDC),
         delegator,
         vault,
-        -1,
+        -1
       )
     ).toThrow("nonce must be a u64");
   });

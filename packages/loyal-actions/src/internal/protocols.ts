@@ -31,9 +31,14 @@ import {
   deriveSubscriptionEventAuthority,
   normalizeU64,
 } from "../subscriptions.ts";
-import type { DataConstraint, InstructionConstraint } from "./squads.ts";
+import type {
+  AccountConstraint,
+  DataConstraint,
+  InstructionConstraint,
+} from "./squads.ts";
 
 const SPL_TOKEN_ACCOUNT_AUTHORITY_OFFSET = BigInt(32);
+const SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET = BigInt(64);
 
 export function kaminoWithdrawConstraint(
   config: LoyalClusterConfig,
@@ -41,8 +46,7 @@ export function kaminoWithdrawConstraint(
   markets: readonly PublicKey[],
   liquidityMints: readonly PublicKey[],
   lendProgramId = KAMINO_LEND_PROGRAM_ID,
-  discriminator: readonly number[] =
-    KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR
+  discriminator: readonly number[] = KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR
 ): InstructionConstraint {
   return {
     programId: lendProgramId,
@@ -53,9 +57,7 @@ export function kaminoWithdrawConstraint(
       splTokenAuthorityConstraint(8, vault, config.tokenProgramId),
       pubkeyConstraint(10, [config.tokenProgramId]),
     ],
-    dataConstraints: discriminatorConstraint(
-      discriminator
-    ),
+    dataConstraints: discriminatorConstraint(discriminator),
   };
 }
 
@@ -65,8 +67,7 @@ export function kaminoDepositConstraint(
   markets: readonly PublicKey[],
   liquidityMints: readonly PublicKey[],
   lendProgramId = KAMINO_LEND_PROGRAM_ID,
-  discriminator: readonly number[] =
-    KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR
+  discriminator: readonly number[] = KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR
 ): InstructionConstraint {
   return {
     programId: lendProgramId,
@@ -77,9 +78,7 @@ export function kaminoDepositConstraint(
       splTokenAuthorityConstraint(8, vault, config.tokenProgramId),
       pubkeyConstraint(10, [config.tokenProgramId]),
     ],
-    dataConstraints: discriminatorConstraint(
-      discriminator
-    ),
+    dataConstraints: discriminatorConstraint(discriminator),
   };
 }
 
@@ -179,6 +178,7 @@ export function subscriptionSweepConstraint(
   delegatorUsdcAta: PublicKey,
   vaultUsdcAta: PublicKey,
   maxAmountPerPeriodRaw: U64Amount,
+  minimumDelegatorBalanceRaw?: U64Amount
 ): InstructionConstraint {
   const subscriptionAuthority = deriveSubscriptionAuthority(delegator, mint);
   const eventAuthority = deriveSubscriptionEventAuthority();
@@ -191,10 +191,14 @@ export function subscriptionSweepConstraint(
         vault,
         subscriptionAuthority,
         mint,
-        maxAmountPerPeriodRaw,
+        maxAmountPerPeriodRaw
       ),
       pubkeyConstraint(1, [subscriptionAuthority], SUBSCRIPTIONS_PROGRAM_ID),
       pubkeyConstraint(2, [delegatorUsdcAta], config.tokenProgramId),
+      ...delegatorTokenBalanceConstraints(
+        config.tokenProgramId,
+        minimumDelegatorBalanceRaw
+      ),
       pubkeyConstraint(3, [vaultUsdcAta], config.tokenProgramId),
       pubkeyConstraint(4, [mint], config.tokenProgramId),
       pubkeyConstraint(5, [config.tokenProgramId]),
@@ -257,12 +261,37 @@ function splTokenAuthorityConstraint(
   };
 }
 
+function delegatorTokenBalanceConstraints(
+  tokenProgramId: PublicKey,
+  minimumBalanceRaw?: U64Amount
+): AccountConstraint[] {
+  if (minimumBalanceRaw === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      accountIndex: 2,
+      kind: {
+        type: "accountData" as const,
+        dataConstraints: [
+          dataU64LeGreaterThanOrEqualTo(
+            SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
+            normalizeU64(minimumBalanceRaw, "minimumDelegatorBalanceRaw")
+          ),
+        ],
+      },
+      owner: tokenProgramId,
+    },
+  ];
+}
+
 function recurringDelegationAccountConstraint(
   delegator: PublicKey,
   vault: PublicKey,
   subscriptionAuthority: PublicKey,
   mint: PublicKey,
-  maxAmountPerPeriodRaw: U64Amount,
+  maxAmountPerPeriodRaw: U64Amount
 ) {
   return {
     accountIndex: 0,
@@ -271,27 +300,26 @@ function recurringDelegationAccountConstraint(
       dataConstraints: [
         dataU8Equals(
           BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET),
-          SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+          SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR
         ),
         dataSliceEquals(
           BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET),
-          [...delegator.toBytes()],
+          [...delegator.toBytes()]
         ),
         dataSliceEquals(
           BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET),
-          [...vault.toBytes()],
+          [...vault.toBytes()]
         ),
         dataSliceEquals(
           BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET),
-          [...subscriptionAuthority.toBytes()],
+          [...subscriptionAuthority.toBytes()]
         ),
-        dataSliceEquals(
-          BigInt(SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET),
-          [...mint.toBytes()],
-        ),
+        dataSliceEquals(BigInt(SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET), [
+          ...mint.toBytes(),
+        ]),
         dataU64LeLessThanOrEqualTo(
           BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET),
-          normalizeU64(maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw"),
+          normalizeU64(maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw")
         ),
       ],
     },
@@ -335,9 +363,20 @@ function dataU16LeLessThanOrEqualTo(
   };
 }
 
+function dataU64LeGreaterThanOrEqualTo(
+  offset: bigint,
+  value: bigint
+): DataConstraint {
+  return {
+    dataOffset: offset,
+    dataValue: { type: "u64Le", value },
+    operator: "greaterThanOrEqualTo",
+  };
+}
+
 function dataU64LeLessThanOrEqualTo(
   offset: bigint,
-  value: bigint,
+  value: bigint
 ): DataConstraint {
   return {
     dataOffset: offset,

@@ -16,13 +16,22 @@ import {
   subscriptionSweepConstraint,
   uniquePubkeys,
 } from "./internal/protocols.ts";
-import { createProgramInteractionPolicyInstruction, deriveActionAccount } from "./internal/squads.ts";
+import {
+  createProgramInteractionPolicyInstruction,
+  deriveActionAccount,
+} from "./internal/squads.ts";
 import {
   deriveSubscriptionAuthority,
   deriveSubscriptionEventAuthority,
   normalizeU64,
 } from "./subscriptions.ts";
-import { LoyalCluster, MaxFeeBps, RiskBasket, Stablecoin, SwapLane } from "./types.ts";
+import {
+  LoyalCluster,
+  MaxFeeBps,
+  RiskBasket,
+  Stablecoin,
+  SwapLane,
+} from "./types.ts";
 import type {
   CreateSubscriptionSweepPolicyPlanInput,
   CreateVaultYieldRoutingPolicyPlanInput,
@@ -52,17 +61,15 @@ const VALID_MAX_FEE_BPS = new Set<number>([
 
 const SQUADS_SEED_PREFIX = new TextEncoder().encode("smart_account");
 
-const DEFAULT_YIELD_ROUTING_SWAP_LANES = [
-  SwapLane.Jupiter,
-] as const;
+const DEFAULT_YIELD_ROUTING_SWAP_LANES = [SwapLane.Jupiter] as const;
 
 const YIELD_ROUTE_UNIVERSE_PRESET = "canonical_stable_kamino";
 const YIELD_ROUTE_MODES = ["same_mint_kamino", "jupiter"] as const;
 const YIELD_ROUTE_POLICY_THRESHOLD = 1;
 
-export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane[]>(
-  input: CreateYieldRoutePolicyPlanInput<Lanes>,
-): YieldRoutePolicyPlan<Lanes> {
+export function createYieldRoutePolicyPlan<
+  const Lanes extends readonly SwapLane[]
+>(input: CreateYieldRoutePolicyPlanInput<Lanes>): YieldRoutePolicyPlan<Lanes> {
   if (!Object.values(LoyalCluster).includes(input.cluster)) {
     throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
   }
@@ -83,7 +90,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
   const actionAccount = deriveActionAccount(
     clusterConfig,
     input.squads.settings,
-    policySeed,
+    policySeed
   );
   const constraints = [
     kaminoWithdrawConstraint(
@@ -92,12 +99,22 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
       kaminoMarkets,
       kaminoLiquidityMints,
       kaminoEarnTarget.lendProgramId,
-      kaminoEarnTarget.withdrawDiscriminator,
+      kaminoEarnTarget.withdrawDiscriminator
     ),
     ...input.swapLanes.map((lane) =>
       lane === SwapLane.Jupiter
-        ? jupiterConstraint(clusterConfig, input.squads.vault, stableMints, maxFeeBps)
-        : loyalHubConstraint(clusterConfig, input.squads.vault, stableMints, maxFeeBps),
+        ? jupiterConstraint(
+            clusterConfig,
+            input.squads.vault,
+            stableMints,
+            maxFeeBps
+          )
+        : loyalHubConstraint(
+            clusterConfig,
+            input.squads.vault,
+            stableMints,
+            maxFeeBps
+          )
     ),
     kaminoDepositConstraint(
       clusterConfig,
@@ -105,7 +122,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
       kaminoMarkets,
       kaminoLiquidityMints,
       kaminoEarnTarget.lendProgramId,
-      kaminoEarnTarget.depositDiscriminator,
+      kaminoEarnTarget.depositDiscriminator
     ),
   ];
 
@@ -113,7 +130,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
     clusterConfig,
     input.squads,
     constraints,
-    policySeed,
+    policySeed
   );
   const depositIndex = 1 + input.swapLanes.length;
   const routes: Record<string, unknown> = {
@@ -122,7 +139,8 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
       instructionConstraintIndexes: [0, depositIndex] as const,
     },
   };
-  const persistenceSwapLanes: YieldRoutePolicyPlan<Lanes>["persistence"]["swapLanes"] = [];
+  const persistenceSwapLanes: YieldRoutePolicyPlan<Lanes>["persistence"]["swapLanes"] =
+    [];
 
   for (const [offset, lane] of input.swapLanes.entries()) {
     const route: LoyalActionRoute3 = {
@@ -158,7 +176,9 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
       policySeed,
       vaultIndex: input.squads.accountIndex,
       vault: input.squads.vault,
-      lockKey: `${input.squads.settings.toBase58()}:${input.squads.accountIndex}`,
+      lockKey: `${input.squads.settings.toBase58()}:${
+        input.squads.accountIndex
+      }`,
     },
     persistence: {
       riskProfile: input.risk,
@@ -174,7 +194,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
 }
 
 export function createVaultYieldRoutingPolicyPlan(
-  input: CreateVaultYieldRoutingPolicyPlanInput,
+  input: CreateVaultYieldRoutingPolicyPlanInput
 ): VaultYieldRoutingPolicyPlan {
   if (!Object.values(LoyalCluster).includes(input.cluster)) {
     throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
@@ -185,7 +205,7 @@ export function createVaultYieldRoutingPolicyPlan(
   const vault = deriveSquadsVault(
     clusterConfig.squadsSmartAccountProgramId,
     smartAccount.settings,
-    input.vaultIndex,
+    input.vaultIndex
   );
 
   return createYieldRoutePolicyPlan({
@@ -203,7 +223,7 @@ export function createVaultYieldRoutingPolicyPlan(
 }
 
 export function createSubscriptionSweepPolicyPlan(
-  input: CreateSubscriptionSweepPolicyPlanInput,
+  input: CreateSubscriptionSweepPolicyPlanInput
 ): SubscriptionSweepPolicyPlan {
   if (!Object.values(LoyalCluster).includes(input.cluster)) {
     throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
@@ -214,23 +234,19 @@ export function createSubscriptionSweepPolicyPlan(
   const mint = getStablecoinMintForCluster(input.cluster, Stablecoin.USDC);
   const delegatorUsdcAta =
     input.delegatorUsdcAta ??
-    deriveAssociatedTokenAccount(
-      clusterConfig,
-      input.delegator,
-      mint,
-    );
+    deriveAssociatedTokenAccount(clusterConfig, input.delegator, mint);
   const vaultUsdcAta =
     input.vaultUsdcAta ??
     deriveAssociatedTokenAccount(clusterConfig, input.squads.vault, mint);
   const subscriptionAuthority = deriveSubscriptionAuthority(
     input.delegator,
-    mint,
+    mint
   );
   const eventAuthority = deriveSubscriptionEventAuthority();
   const actionAccount = deriveActionAccount(
     clusterConfig,
     input.squads.settings,
-    policySeed,
+    policySeed
   );
   const instruction = createProgramInteractionPolicyInstruction(
     clusterConfig,
@@ -244,9 +260,10 @@ export function createSubscriptionSweepPolicyPlan(
         delegatorUsdcAta,
         vaultUsdcAta,
         input.maxAmountPerPeriodRaw,
+        input.minimumDelegatorBalanceRaw
       ),
     ],
-    policySeed,
+    policySeed
   );
 
   return {
@@ -262,13 +279,15 @@ export function createSubscriptionSweepPolicyPlan(
       eventAuthority,
       delegatorUsdcAta,
       vaultUsdcAta,
-      lockKey: `${input.squads.settings.toBase58()}:${input.squads.accountIndex}`,
+      lockKey: `${input.squads.settings.toBase58()}:${
+        input.squads.accountIndex
+      }`,
     },
   };
 }
 
 export function createVaultSubscriptionSweepPolicyPlan(
-  input: CreateVaultSubscriptionSweepPolicyPlanInput,
+  input: CreateVaultSubscriptionSweepPolicyPlanInput
 ): SubscriptionSweepPolicyPlan {
   if (!Object.values(LoyalCluster).includes(input.cluster)) {
     throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
@@ -279,7 +298,7 @@ export function createVaultSubscriptionSweepPolicyPlan(
   const vault = deriveSquadsVault(
     clusterConfig.squadsSmartAccountProgramId,
     smartAccount.settings,
-    input.vaultIndex,
+    input.vaultIndex
   );
 
   return createSubscriptionSweepPolicyPlan({
@@ -292,19 +311,22 @@ export function createVaultSubscriptionSweepPolicyPlan(
     },
     delegator: input.delegator,
     maxAmountPerPeriodRaw: input.maxAmountPerPeriodRaw,
+    minimumDelegatorBalanceRaw: input.minimumDelegatorBalanceRaw,
     delegatorUsdcAta: input.delegatorUsdcAta,
     vaultUsdcAta: input.vaultUsdcAta,
   });
 }
 
-export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): LoyalActionsSdk {
+export function createLoyalActionsSdk(
+  config: CreateLoyalActionsSdkConfig
+): LoyalActionsSdk {
   if (!Object.values(LoyalCluster).includes(config.cluster)) {
     throw new Error(`unsupported Loyal cluster: ${String(config.cluster)}`);
   }
 
-  function createYieldRoutePolicyPlanForSdk<const Lanes extends readonly SwapLane[]>(
-    input: InitYieldRoutePolicyInput<Lanes>,
-  ): YieldRoutePolicyPlan<Lanes> {
+  function createYieldRoutePolicyPlanForSdk<
+    const Lanes extends readonly SwapLane[]
+  >(input: InitYieldRoutePolicyInput<Lanes>): YieldRoutePolicyPlan<Lanes> {
     return createYieldRoutePolicyPlan({
       ...input,
       cluster: config.cluster,
@@ -312,7 +334,7 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
   }
 
   function createVaultYieldRoutingPolicyPlanForSdk(
-    input: InitYieldRoutingPolicyInput,
+    input: InitYieldRoutingPolicyInput
   ): VaultYieldRoutingPolicyPlan {
     return createVaultYieldRoutingPolicyPlan({
       ...input,
@@ -322,7 +344,7 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
   }
 
   function createSubscriptionSweepPolicyPlanForSdk(
-    input: Omit<CreateSubscriptionSweepPolicyPlanInput, "cluster">,
+    input: Omit<CreateSubscriptionSweepPolicyPlanInput, "cluster">
   ): SubscriptionSweepPolicyPlan {
     return createSubscriptionSweepPolicyPlan({
       ...input,
@@ -331,7 +353,7 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
   }
 
   function createVaultSubscriptionSweepPolicyPlanForSdk(
-    input: InitSubscriptionSweepPolicyInput,
+    input: InitSubscriptionSweepPolicyInput
   ): SubscriptionSweepPolicyPlan {
     return createVaultSubscriptionSweepPolicyPlan({
       ...input,
@@ -341,7 +363,7 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
   }
 
   function initYieldRoutePolicy<const Lanes extends readonly SwapLane[]>(
-    input: InitYieldRoutePolicyInput<Lanes>,
+    input: InitYieldRoutePolicyInput<Lanes>
   ): InitYieldRoutePolicyResult<Lanes> {
     return createYieldRoutePolicyPlanForSdk(input);
   }
@@ -354,12 +376,12 @@ export function createLoyalActionsSdk(config: CreateLoyalActionsSdkConfig): Loya
       createVaultSubscriptionSweepPolicyPlanForSdk,
     initYieldRoutePolicy,
     initYieldRoutingPolicy(
-      input: InitYieldRoutingPolicyInput,
+      input: InitYieldRoutingPolicyInput
     ): InitYieldRoutingPolicyResult {
       return createVaultYieldRoutingPolicyPlanForSdk(input);
     },
     initSubscriptionSweepPolicy(
-      input: InitSubscriptionSweepPolicyInput,
+      input: InitSubscriptionSweepPolicyInput
     ): SubscriptionSweepPolicyPlan {
       return createVaultSubscriptionSweepPolicyPlanForSdk(input);
     },
@@ -388,7 +410,11 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
     throw new Error(`unsupported maxFeeBps: ${String(maxFeeBps)}`);
   }
   requirePolicySeed(input.policySeed);
-  if (!Number.isInteger(input.squads.accountIndex) || input.squads.accountIndex < 0 || input.squads.accountIndex > 255) {
+  if (
+    !Number.isInteger(input.squads.accountIndex) ||
+    input.squads.accountIndex < 0 ||
+    input.squads.accountIndex > 255
+  ) {
     throw new Error("squads.accountIndex must be a u8");
   }
   for (const [name, value] of Object.entries(input.squads)) {
@@ -414,12 +440,18 @@ function validateYieldRoutingInput(input: InitYieldRoutingPolicyInput): void {
 }
 
 function validateSubscriptionSweepInput(
-  input: CreateSubscriptionSweepPolicyPlanInput,
+  input: CreateSubscriptionSweepPolicyPlanInput
 ): void {
   requirePolicySeed(input.policySeed);
   validateVaultIndex(input.squads.accountIndex, "squads.accountIndex");
   requirePublicKey(input.delegator, "delegator");
   normalizeU64(input.maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw");
+  if (input.minimumDelegatorBalanceRaw !== undefined) {
+    normalizeU64(
+      input.minimumDelegatorBalanceRaw,
+      "minimumDelegatorBalanceRaw"
+    );
+  }
   for (const [name, value] of Object.entries(input.squads)) {
     if (name === "accountIndex") {
       continue;
@@ -435,12 +467,18 @@ function validateSubscriptionSweepInput(
 }
 
 function validateVaultSubscriptionSweepInput(
-  input: InitSubscriptionSweepPolicyInput,
+  input: InitSubscriptionSweepPolicyInput
 ): void {
   requirePolicySeed(input.policySeed);
   validateVaultIndex(input.vaultIndex, "vaultIndex");
   requirePublicKey(input.delegator, "delegator");
   normalizeU64(input.maxAmountPerPeriodRaw, "maxAmountPerPeriodRaw");
+  if (input.minimumDelegatorBalanceRaw !== undefined) {
+    normalizeU64(
+      input.minimumDelegatorBalanceRaw,
+      "minimumDelegatorBalanceRaw"
+    );
+  }
   if (input.delegatorUsdcAta !== undefined) {
     requirePublicKey(input.delegatorUsdcAta, "delegatorUsdcAta");
   }
@@ -456,11 +494,11 @@ function validateVaultIndex(vaultIndex: number, name: string): void {
 }
 
 function requireSmartAccountConfig(
-  smartAccount: LoyalSmartAccountConfig | undefined,
+  smartAccount: LoyalSmartAccountConfig | undefined
 ): LoyalSmartAccountConfig {
   if (!smartAccount) {
     throw new Error(
-      "smartAccount config is required to init a vault-indexed yield routing policy",
+      "smartAccount config is required to init a vault-indexed yield routing policy"
     );
   }
   for (const [name, value] of Object.entries(smartAccount)) {
@@ -481,7 +519,10 @@ function requirePolicySeed(policySeed: unknown): bigint {
   return normalizeU64(policySeed, "policySeed");
 }
 
-function requirePublicKey(value: unknown, name: string): asserts value is PublicKey {
+function requirePublicKey(
+  value: unknown,
+  name: string
+): asserts value is PublicKey {
   if (!(value instanceof PublicKey)) {
     throw new Error(`${name} must be a PublicKey`);
   }
@@ -490,7 +531,7 @@ function requirePublicKey(value: unknown, name: string): asserts value is Public
 function deriveSquadsVault(
   programId: PublicKey,
   settings: PublicKey,
-  vaultIndex: number,
+  vaultIndex: number
 ): PublicKey {
   validateVaultIndex(vaultIndex, "vaultIndex");
   return PublicKey.findProgramAddressSync(
@@ -500,17 +541,17 @@ function deriveSquadsVault(
       SQUADS_SEED_PREFIX,
       Uint8Array.from([vaultIndex]),
     ],
-    programId,
+    programId
   )[0];
 }
 
 function deriveAssociatedTokenAccount(
   config: ReturnType<typeof clusterConfigFor>,
   owner: PublicKey,
-  mint: PublicKey,
+  mint: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
     [owner.toBytes(), config.tokenProgramId.toBytes(), mint.toBytes()],
-    config.associatedTokenProgramId,
+    config.associatedTokenProgramId
   )[0];
 }

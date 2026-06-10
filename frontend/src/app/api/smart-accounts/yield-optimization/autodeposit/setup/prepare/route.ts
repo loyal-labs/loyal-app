@@ -79,6 +79,10 @@ export async function POST(request: Request) {
       amountRaw: parsed.amountRaw,
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
+      minimumDelegatorBalanceRaw:
+        parsed.walletBalanceFloorRaw === undefined
+          ? undefined
+          : parsed.walletBalanceFloorRaw + parsed.amountRaw,
       nonce: parsed.nonce,
       policySigner,
       policySeed: parsed.policySeed,
