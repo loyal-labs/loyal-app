@@ -18,6 +18,7 @@ import {
   useState,
   type PointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 import {
@@ -202,7 +203,27 @@ function formatForecastAmountLabel(value: number) {
   })}`;
 }
 
-export function clampDepositAmountInput(rawValue: string, balance: number) {
+function floorToBucks(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  // toFixed(4) absorbs float noise (8.83 * 100 === 882.9999…) before flooring.
+  return Math.floor(Number((value * 100).toFixed(4))) / 100;
+}
+
+function formatBucksAmount(value: number) {
+  return floorToBucks(value).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  });
+}
+
+export function clampBucksAmountInput(
+  rawValue: string,
+  previousValue: string,
+  balance: number
+) {
   if (rawValue === "") {
     return "";
   }
@@ -211,12 +232,23 @@ export function clampDepositAmountInput(rawValue: string, balance: number) {
     return null;
   }
 
-  const numericValue = Number.parseFloat(rawValue.replace(/,/g, "")) || 0;
-  if (numericValue > balance) {
-    return formatDepositAmount(balance);
+  // Backspace collapses a stranded trailing dot so deleting "8.83" walks
+  // 8.80 -> 8.00 -> 0.00 in one press per symbol instead of pausing on "8.".
+  const isDeletion = rawValue.length < previousValue.length;
+  const nextValue =
+    isDeletion && rawValue.endsWith(".") ? rawValue.slice(0, -1) : rawValue;
+
+  const decimals = nextValue.split(".")[1] ?? "";
+  if (decimals.length > 2) {
+    return null;
   }
 
-  return rawValue;
+  const numericValue = Number.parseFloat(nextValue.replace(/,/g, "")) || 0;
+  if (numericValue > balance) {
+    return formatBucksAmount(balance);
+  }
+
+  return nextValue;
 }
 
 function formatForecastMoney(value: number, mutedFraction = false) {
@@ -498,7 +530,9 @@ export function deriveEarnWithdrawMode({
   amount: number;
   maxWithdrawAmount: number;
 }): "partial" | "full" {
-  return amount >= maxWithdrawAmount ? "full" : "partial";
+  // The input only accepts cents, so typing the visible (floored) max means
+  // "withdraw everything" — compare at cent precision to avoid dust positions.
+  return amount >= floorToBucks(maxWithdrawAmount) ? "full" : "partial";
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -2316,6 +2350,115 @@ function WithdrawRouteRow({
   );
 }
 
+function bucksMaskCompletion(value: string) {
+  const dotIndex = value.indexOf(".");
+  if (dotIndex === -1) {
+    return ".00";
+  }
+
+  const decimals = value.length - dotIndex - 1;
+  if (decimals === 0) {
+    return "00";
+  }
+  if (decimals === 1) {
+    return "0";
+  }
+  return "";
+}
+
+function BucksAmountInput({
+  inputRef,
+  onValueChange,
+  value,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  onValueChange: (rawValue: string) => void;
+  value: string;
+}) {
+  const maskCompletion = bucksMaskCompletion(value);
+  const amountTextStyle = {
+    fontFamily: font,
+    fontSize: "40px",
+    fontWeight: 600,
+    lineHeight: "48px",
+  } as const;
+
+  return (
+    <div
+      style={{
+        alignItems: "baseline",
+        display: "flex",
+        minWidth: 0,
+      }}
+    >
+      <style jsx>{`
+        .bucks-amount-input::selection {
+          background: rgba(249, 54, 60, 0.18);
+        }
+        .bucks-amount-input::placeholder {
+          color: rgba(60, 60, 67, 0.4);
+          opacity: 1;
+        }
+      `}</style>
+      <span aria-hidden="true" style={{ ...amountTextStyle, color: "#000" }}>
+        $
+      </span>
+      <span
+        style={{
+          display: "inline-grid",
+          minWidth: "1ch",
+        }}
+      >
+        {/* Hidden replica auto-sizes the grid cell to the exact text width so
+            the gray mask completion sits flush against the typed digits. */}
+        <span
+          aria-hidden="true"
+          style={{
+            ...amountTextStyle,
+            gridArea: "1 / 1",
+            visibility: "hidden",
+            whiteSpace: "pre",
+          }}
+        >
+          {value || "0"}
+        </span>
+        <input
+          className="bucks-amount-input"
+          inputMode="decimal"
+          onChange={(event) => onValueChange(event.target.value)}
+          placeholder="0"
+          ref={inputRef}
+          // size=1 keeps the input's intrinsic width from inflating the grid
+          // track; the hidden replica alone sizes the cell, so the gray mask
+          // stays flush against the typed digits.
+          size={1}
+          style={{
+            ...amountTextStyle,
+            background: "transparent",
+            border: "none",
+            color: "#000",
+            gridArea: "1 / 1",
+            minWidth: 0,
+            outline: "none",
+            padding: 0,
+            width: "100%",
+          }}
+          type="text"
+          value={value}
+        />
+      </span>
+      {maskCompletion ? (
+        <span
+          aria-hidden="true"
+          style={{ ...amountTextStyle, color: "rgba(60, 60, 67, 0.4)" }}
+        >
+          {maskCompletion}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function EarnWithdrawView({
   isSubmitting = false,
   maxWithdrawAmount = 1280,
@@ -2371,9 +2514,6 @@ export function EarnWithdrawView({
     ? "Withdrawing..."
     : withdrawAmountError ??
       `Withdraw ${formatEarnActionCtaAmount(effectiveWithdrawAmount)} USDC`;
-  const withdrawUsdDisplay = hasWithdrawAmount
-    ? `$${withdrawAmount}${withdrawAmount.includes(".") ? "" : ".00"}`
-    : "$0.00";
   const buildCurrentDraft = (): EarnWithdrawDraft => ({
     amount: effectiveWithdrawAmount,
     amountLabel: effectiveWithdrawAmountLabel,
@@ -2420,13 +2560,6 @@ export function EarnWithdrawView({
       <style jsx>{`
         .earn-withdraw-submit:not(:disabled):hover {
           background: #222 !important;
-        }
-        .earn-withdraw-amount-input::selection {
-          background: rgba(249, 54, 60, 0.18);
-        }
-        .earn-withdraw-amount-input::placeholder {
-          color: rgba(60, 60, 67, 0.4);
-          opacity: 1;
         }
       `}</style>
       <div
@@ -2484,70 +2617,21 @@ export function EarnWithdrawView({
               width: "100%",
             }}
           >
-            <div
-              style={{
-                alignItems: "baseline",
-                display: "flex",
-                gap: "8px",
-                minWidth: 0,
+            <BucksAmountInput
+              inputRef={withdrawAmountInputRef}
+              onValueChange={(rawValue) => {
+                const clampedValue = clampBucksAmountInput(
+                  rawValue,
+                  withdrawAmount,
+                  maxWithdrawAmount
+                );
+                if (clampedValue !== null) {
+                  setWithdrawAmount(clampedValue);
+                }
               }}
-            >
-              <input
-                className="earn-withdraw-amount-input"
-                inputMode="decimal"
-                onChange={(event) => {
-                  const rawValue = event.target.value;
-                  const clampedValue = clampDepositAmountInput(
-                    rawValue,
-                    maxWithdrawAmount
-                  );
-                  if (clampedValue !== null) {
-                    setWithdrawAmount(clampedValue);
-                  }
-                }}
-                placeholder="0"
-                ref={withdrawAmountInputRef}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#000",
-                  flexShrink: 1,
-                  fontFamily: font,
-                  fontSize: "40px",
-                  fontWeight: 600,
-                  lineHeight: "48px",
-                  minWidth: 0,
-                  outline: "none",
-                  padding: 0,
-                  width: `${Math.max(withdrawAmount.length, 1)}ch`,
-                }}
-                type="text"
-                value={withdrawAmount}
-              />
-              <span
-                style={{
-                  color: "rgba(60, 60, 67, 0.4)",
-                  fontFamily: font,
-                  fontSize: "28px",
-                  fontWeight: 600,
-                  lineHeight: "32px",
-                }}
-              >
-                USDC
-              </span>
-            </div>
+              value={withdrawAmount}
+            />
           </div>
-          <span
-            style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "16px",
-              lineHeight: "22px",
-              paddingTop: "4px",
-            }}
-          >
-            {withdrawUsdDisplay}
-          </span>
         </section>
 
         <section
@@ -4151,7 +4235,7 @@ export function EarnDepositView({
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const selectedSourceBalance = selectedSource.balance;
   const [depositAmount, setDepositAmount] = useState(() =>
-    formatDepositAmount(selectedSourceBalance)
+    formatBucksAmount(selectedSourceBalance)
   );
   const depositAmountTouchedRef = useRef(false);
   const [forecastSelection, setForecastSelection] =
@@ -4222,7 +4306,7 @@ export function EarnDepositView({
 
   useEffect(() => {
     if (!depositAmountTouchedRef.current) {
-      setDepositAmount(formatDepositAmount(selectedSourceBalance));
+      setDepositAmount(formatBucksAmount(selectedSourceBalance));
     }
   }, [selectedSourceBalance]);
 
@@ -4270,13 +4354,6 @@ export function EarnDepositView({
       <style jsx>{`
         .earn-deposit-submit:not(:disabled):hover {
           background: #222 !important;
-        }
-        .earn-deposit-amount-input::selection {
-          background: rgba(249, 54, 60, 0.18);
-        }
-        .earn-deposit-amount-input::placeholder {
-          color: rgba(60, 60, 67, 0.4);
-          opacity: 1;
         }
         .earn-forecast-chip {
           transition: background 0.15s ease, color 0.15s ease;
@@ -4466,63 +4543,22 @@ export function EarnDepositView({
                 width: "100%",
               }}
             >
-              <div
-                style={{
-                  alignItems: "baseline",
-                  display: "flex",
-                  flex: 1,
-                  gap: "0",
-                  minWidth: 0,
+              <BucksAmountInput
+                inputRef={amountInputRef}
+                onValueChange={(rawValue) => {
+                  const clampedValue = clampBucksAmountInput(
+                    rawValue,
+                    depositAmount,
+                    selectedSource.balance
+                  );
+                  if (clampedValue !== null) {
+                    depositAmountTouchedRef.current = true;
+                    setDepositAmount(clampedValue);
+                    updateForecastFromInput();
+                  }
                 }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    color: "#000",
-                    flexShrink: 0,
-                    fontFamily: font,
-                    fontSize: "40px",
-                    fontWeight: 600,
-                    lineHeight: "48px",
-                  }}
-                >
-                  $
-                </span>
-                <input
-                  className="earn-deposit-amount-input"
-                  inputMode="decimal"
-                  ref={amountInputRef}
-                  onChange={(event) => {
-                    const rawValue = event.target.value;
-                    const clampedValue = clampDepositAmountInput(
-                      rawValue,
-                      selectedSource.balance
-                    );
-                    if (clampedValue !== null) {
-                      depositAmountTouchedRef.current = true;
-                      setDepositAmount(clampedValue);
-                      updateForecastFromInput();
-                    }
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "#000",
-                    flexShrink: 1,
-                    fontFamily: font,
-                    fontSize: "40px",
-                    fontWeight: 600,
-                    lineHeight: "48px",
-                    minWidth: 0,
-                    outline: "none",
-                    padding: 0,
-                    width: `${Math.max(depositAmount.length, 1)}ch`,
-                  }}
-                  placeholder="0"
-                  type="text"
-                  value={depositAmount}
-                />
-              </div>
+                value={depositAmount}
+              />
             </div>
           </div>
         </section>
