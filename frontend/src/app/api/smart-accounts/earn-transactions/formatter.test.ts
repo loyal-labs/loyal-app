@@ -36,7 +36,7 @@ describe("earn transaction formatter", () => {
     expect(item.eventType).toBe("autodeposit_created");
     expect(item.kind).toBe("autodeposit_action");
     expect(item.amount).toBe("$0.00");
-    expect(item.source.label).toBe("Autodeposit");
+    expect(item.source.label).toBe("Main USDC");
     expect(item.destination.label).toBe("Earn vault");
   });
 

@@ -152,11 +152,11 @@ function serializeAutodepositActionEvent(
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),
     source: {
-      icon: isBalanceSweep ? MAIN_USDC_ICON : isCreate ? null : EARN_VAULT_ICON,
+      icon: isBalanceSweep || isCreate ? MAIN_USDC_ICON : EARN_VAULT_ICON,
       label: isBalanceSweep
         ? MAIN_USDC_LABEL
         : isCreate
-        ? AUTODEPOSIT_LABEL
+        ? MAIN_USDC_LABEL
         : EARN_VAULT_LABEL,
     },
     timestamp: formatTimestamp(event.confirmedAt),
