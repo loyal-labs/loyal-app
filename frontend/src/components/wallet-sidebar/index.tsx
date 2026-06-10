@@ -148,6 +148,24 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     setViewStack([]);
   }, []);
 
+  useEffect(() => {
+    if (!props.isOpen || viewStack.length === 0) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      popView();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [popView, props.isOpen, viewStack.length]);
+
   // Derived: what's at each layer
   const level1View: SubView = viewStack[0] ?? null;
   const level2View: SubView = viewStack[1] ?? null;

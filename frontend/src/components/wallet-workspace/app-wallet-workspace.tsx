@@ -915,7 +915,7 @@ export function AppWalletWorkspace({
   const activeEarnPositionApyBps = activeEarnPosition?.currentSupplyApyBps;
   const activeEarnPositionApyLabel =
     activeEarnPositionApyBps !== null && activeEarnPositionApyBps !== undefined
-      ? `${formatEarnApyPercent(Number(activeEarnPositionApyBps))} 30d APY`
+      ? `${formatEarnApyPercent(Number(activeEarnPositionApyBps))} APY`
       : undefined;
   const signInOpenedForConnectRef = useRef(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
@@ -2221,6 +2221,11 @@ export function AppWalletWorkspace({
     setSelectedDetail("Earn");
   }, [markDetailPaneTransition, setDetailSelection]);
 
+  const handleCloseConnectRequest = useCallback(() => {
+    markDetailPaneTransition("close");
+    setDetailSelection("vault");
+  }, [markDetailPaneTransition, setDetailSelection]);
+
   const handleSaveAutodeposit = useCallback(
     (amount: string, keepAmount: string) => {
       const source = earnDepositSources.find((entry) => entry.id === "main");
@@ -3077,6 +3082,16 @@ export function AppWalletWorkspace({
     [markDetailPaneTransition, setDetailSelection, smartAccountData]
   );
 
+  const handleBackFromAddSigner = useCallback(() => {
+    markDetailPaneTransition("back");
+    setDetailSelection("vault");
+    setSelectedDetail(selectedVault?.entry.label ?? "Stash");
+  }, [
+    markDetailPaneTransition,
+    selectedVault?.entry.label,
+    setDetailSelection,
+  ]);
+
   const handleCommandAddSigner = useCallback(() => {
     if (!selectedVault) return;
 
@@ -3549,6 +3564,50 @@ export function AppWalletWorkspace({
     walletDesktopData.walletAddress,
   ]);
 
+  const handleTransientDetailBack = useCallback(() => {
+    if (detailSelection === "action" && viewStack.length > 0) {
+      handleActionBack();
+      return true;
+    }
+
+    if (isEarnDepositDetailActive) {
+      handleOpenEarn();
+      return true;
+    }
+
+    if (detailSelection === "earnWithdraw") {
+      handleBackFromEarnWithdraw();
+      return true;
+    }
+
+    if (detailSelection === "earnAutodeposit") {
+      handleBackFromAutodeposit();
+      return true;
+    }
+
+    if (detailSelection === "connect") {
+      handleCloseConnectRequest();
+      return true;
+    }
+
+    if (detailSelection === "addSigner") {
+      handleBackFromAddSigner();
+      return true;
+    }
+
+    return false;
+  }, [
+    detailSelection,
+    handleActionBack,
+    handleBackFromAddSigner,
+    handleBackFromAutodeposit,
+    handleBackFromEarnWithdraw,
+    handleCloseConnectRequest,
+    handleOpenEarn,
+    isEarnDepositDetailActive,
+    viewStack.length,
+  ]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Cmd+K command-menu shortcut temporarily disabled.
@@ -3567,9 +3626,8 @@ export function AppWalletWorkspace({
         return;
       }
 
-      if (detailSelection === "action" && viewStack.length > 0) {
+      if (handleTransientDetailBack()) {
         event.preventDefault();
-        handleActionBack();
       }
     };
 
@@ -3579,12 +3637,10 @@ export function AppWalletWorkspace({
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [
-    detailSelection,
-    handleActionBack,
     handleDismissFocusedEarnPreview,
+    handleTransientDetailBack,
     isCommandMenuOpen,
     isReviewApprovalFocused,
-    viewStack.length,
   ]);
 
   const renderDetailPane = () => {
@@ -3692,18 +3748,9 @@ export function AppWalletWorkspace({
               signerAddress: connectAgentAddress,
             });
           }}
-          onClose={() => {
-            markDetailPaneTransition("close");
-            setDetailSelection("vault");
-          }}
-          onDecline={() => {
-            markDetailPaneTransition("close");
-            setDetailSelection("vault");
-          }}
-          onDone={() => {
-            markDetailPaneTransition("close");
-            setDetailSelection("vault");
-          }}
+          onClose={handleCloseConnectRequest}
+          onDecline={handleCloseConnectRequest}
+          onDone={handleCloseConnectRequest}
         />
       );
     }

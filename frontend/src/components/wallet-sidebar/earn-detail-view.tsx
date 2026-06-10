@@ -743,7 +743,7 @@ function EarnGrowingBalance({
           font-size: 40px;
           font-variant-numeric: tabular-nums;
           font-weight: 600;
-          line-height: 48px;
+          line-height: 46px;
         }
         :global(.earn-growing-balance-flow::part(decimal)),
         :global(.earn-growing-balance-flow::part(fraction)) {
@@ -1804,11 +1804,16 @@ export function EarnDetailView({
     0,
     displayBalanceAmount - principalAmount
   );
-  const displayApyLabel = `${formatEarnApyPercent(
+  const fallbackCurrentPositionApyLabel = `${formatEarnApyPercent(
     estimatedEarnedAmountApyBps
-  )} 30d APY`;
+  )} APY`;
   const currentPositionDisplayApyLabel =
-    currentPositionApyLabel ?? displayApyLabel;
+    currentPositionApyLabel ?? fallbackCurrentPositionApyLabel;
+  const earnedSummaryLabel = currentPositionApyLabel
+    ? `${formatSignedEarningsAmount(
+        estimatedEarnedUsd
+      )} (${currentPositionApyLabel})`
+    : formatSignedEarningsAmount(estimatedEarnedUsd);
 
   return (
     <div
@@ -1904,12 +1909,13 @@ export function EarnDetailView({
           alignItems: "center",
           borderRadius: "20px",
           display: "flex",
+          gap: "12px",
           overflow: "hidden",
-          padding: "0 20px 8px",
+          padding: "2px 20px 4px",
           width: "100%",
         }}
       >
-        <div style={{ display: "flex", padding: "0 12px 8px 0" }}>
+        <div style={{ display: "flex", flexShrink: 0 }}>
           <EarnYieldIcon />
         </div>
         <div
@@ -1918,28 +1924,23 @@ export function EarnDetailView({
             flex: 1,
             flexDirection: "column",
             gap: "2px",
+            justifyContent: "center",
             minWidth: 0,
-            padding: "0 0 8px",
           }}
         >
-          <span
-            style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "14px",
-              fontWeight: 400,
-              lineHeight: "20px",
-            }}
-          >
-            {hasCurrentPosition ? (
-              <>
-                Balance ·{" "}
-                <span style={{ color: "#34C759" }}>{displayApyLabel}</span>
-              </>
-            ) : (
-              "Balance"
-            )}
-          </span>
+          {hasCurrentPosition ? null : (
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 400,
+                lineHeight: "20px",
+              }}
+            >
+              Balance
+            </span>
+          )}
           <span
             style={{
               color: isBalanceHidden ? "#BBBBC0" : "#000",
@@ -1947,7 +1948,7 @@ export function EarnDetailView({
               fontFamily: font,
               fontSize: "40px",
               fontWeight: 600,
-              lineHeight: "48px",
+              lineHeight: "46px",
               transition: "filter 0.15s ease, color 0.15s ease",
               userSelect: isBalanceHidden ? "none" : "auto",
               whiteSpace: "nowrap",
@@ -1975,6 +1976,23 @@ export function EarnDetailView({
               </>
             )}
           </span>
+          {hasCurrentPosition ? (
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "#34C759",
+                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                transition: "filter 0.15s ease, color 0.15s ease",
+                userSelect: isBalanceHidden ? "none" : "auto",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {earnedSummaryLabel}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -4930,24 +4948,6 @@ export function AutodepositSetupView({
     const frame = window.requestAnimationFrame(focusAmount);
     return () => window.cancelAnimationFrame(frame);
   }, []);
-
-  useEffect(() => {
-    if (!onBack) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      event.preventDefault();
-      onBack();
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onBack]);
 
   return (
     <div
