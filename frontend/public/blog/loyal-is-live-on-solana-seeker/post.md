@@ -21,7 +21,7 @@ We’re committed to building open-source products that push the frontier of fin
 
 The Seeker community is full of people who have committed to making Solana a daily part of their lives. These are the most excited users who want to see the ecosystem thrive. As we deliver brand-new ways of engaging with internet capital markets, we can’t imagine having a better beachhead than the Seeker community.
 
-![](img-1.png)
+![Loyal quote card crediting Rodion, Loyal Founder: "Loyal on Seeker is the final form of agent-powered finance."](img-1.png)
 
 We’re here to help users build and maintain healthy, long-term financial habits by making it easy to stay on top of your portfolio and earn money on private dollars.
 
@@ -36,4 +36,4 @@ If you’re anxious about missing out on today’s launch, don’t stress! We’
 
 Stay tuned for more updates coming soon, and thank you for being a part of our journey!
 
-![](img-2.png)
+![Red graphic with white "DOWNLOAD NOW" text](img-2.png)

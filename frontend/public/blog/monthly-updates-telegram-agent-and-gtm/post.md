@@ -46,9 +46,9 @@ In other industries, people default to email/LinkedIn/WhatsApp. In crypto, found
 
 - Spam is absolutely out of hand. I can be focused on work, get notification and open Telegram only to see that:
 
-![](img-1.jpg)
+![Telegram spam DM from "Mr.Hamza" pitching Crypto Gems 1000X promo channels with t.me links](img-1.jpg)
 
-![](img-2.jpg)
+![Telegram cold pitch from "Julia from P2B" offering CEX listing and marketing support across Europe](img-2.jpg)
 
 And this is what every founder goes through.
 

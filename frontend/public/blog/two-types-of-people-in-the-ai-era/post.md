@@ -76,14 +76,14 @@ Most businesses in crypto end up with one of the obvious defaults like:
 
 On Solana today, there is **no obvious default** for: “where do I route AI workloads that must not leak?” That slot is completely open.
 
-![](img-1.png)
+![Tweet from Clutch @clutchxbt saying ZEC leads demand for private capital and Loyal will lead demand for private AI](img-1.png)
 
 We’re not pretending there won’t be competition:
 
 *   Big tech will roll out “enterprise privacy” features but their business model is still ads, surveillance, and compliance with nation-state data grabs.
 *   Other teams will pitch “TEE + AI” ideas, but most are still at whitepaper stage, or will have no PMF.
 
-![](img-2.png)
+![Tweet from Marvin Tong @marvin_tong saying there's no PMF for decentralized AI, listing what people need beside agents](img-2.png)
 
 Our bet is humble and very direct:
 

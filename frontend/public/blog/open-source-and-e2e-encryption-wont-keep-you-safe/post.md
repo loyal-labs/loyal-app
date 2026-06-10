@@ -14,7 +14,7 @@ Self-hosted solutions are a relic of the old paradigm. As a rule, even a microwa
 
 As we look at the modern privacy-focused solutions on the market, we must point out a glaring hole in their security model. Open-source SaaS solutions and E2E encryption (as implemented, for example, in Lumo) do not guarantee full privacy to the users. Even if we give hardware operators a benefit of doubt and assume that they’re actually running the code we see in repositories, they do not address the vulnerability of data as it moves between CPU and GPU kernels. GPU is as much an attack surface as anything else and hardware operators have full control over it.
 
-![](img-1.jpg)
+![Diagram titled Encrypted Data Transfer in confidential GPUs, mapping host CPU, tenant VM and GPU in an 8-step secure flow](img-1.jpg)
 
 The new era of artificial intelligence calls for the new approaches to security.
 
@@ -38,7 +38,7 @@ Anyone and inspect open source code. E2E protects user data in transit and at re
 
 We cannot in good faith keep protecting the old paradigm. E2E and open source are necessary but they’re not enough to keep you safe in these times.
 
-![](img-2.jpg)
+![Tweet from @jason warning of blackmail over leaked ChatGPT sessions, quoting Sam Altman @sama on ChatGPT restrictions](img-2.jpg)
 
 ## How Loyal works
 

@@ -18,7 +18,7 @@ You and I both use LLMs daily, and by now we take it for granted — meaning we 
 
 You are training the models that will automate you by providing data which is extracted without your consent or any accountability — while you give up your right to privacy, and, as the cherry on top, pay a subscription fee for the ‘privilege’.
 
-I’m a co-founder of Loyal Private Intelligence, and I’ll examine the data-extraction pipeline of data extraction from scrapers to brokers to large companies that love to yap about how they bring humanity forward — forgetting to mention the catch. Then, we’ll work together to regain control.
+I’m a co-founder of Loyal Private Intelligence, and I’ll examine the data-extraction pipeline from scrapers to brokers to large companies that love to yap about how they bring humanity forward — forgetting to mention the catch. Then, we’ll work together to regain control.
 
 ## 1\. There is no consent.
 

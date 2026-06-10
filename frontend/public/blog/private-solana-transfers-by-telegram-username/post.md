@@ -2,7 +2,7 @@
 title: "Private Solana Transfers by Telegram Username — Solana Program Overview"
 date: "2026-03-24"
 hero: hero.png
-description: "One of crypto’s most powerful features — seed phrases and private keys that guarantee true ownership of your assets — is also its biggest obstacle for normal…"
+description: "Seed phrases guarantee true ownership but block normal users. Loyal lets you send any SPL token to a Telegram @username instead of a 44-character address."
 author:
   name: "Rodion, founder"
 ---
@@ -18,7 +18,7 @@ In this article we’ll take a deep dive into how our smart contract works.
 
 ## The core idea: keep real tokens in one place, move balances everywhere else
 
-![](img-1.png)
+![Diagram: public execution moves real tokens via Shield/Unshield and Vault; private execution updates Deposit balances only](img-1.png)
 
 At the center of the program are three account types.
 
@@ -47,7 +47,7 @@ If every transfer had to move real SPL tokens on the base layer, then every hand
 
 So the architecture becomes:
 
-![](img-2.png)
+![Three account cards: Vault stores real SPL tokens, Deposit is a balance per wallet and mint, UsernameDeposit per @username](img-2.png)
 
 The Vault is the safe. Deposits are the ledger.
 
@@ -148,7 +148,7 @@ After the claim, the user can commit the delegated state back to base layer, und
 
 ## The full end-to-end picture
 
-![](img-3.png)
+![Flow from Shield and Delegate through private Transfer, Verify, Claim and Undelegate, ending at Unshield to recipient wallet](img-3.png)
 
 Here is the simplified lifecycle:
 
@@ -177,7 +177,7 @@ That is a small UX detail for developers, but it makes the whole product much ea
 
 ## Why this design is better than “just send tokens on-chain”
 
-![](img-4.png)
+![Comparison: obvious approach moves tokens wallet to wallet on-chain; ours separates Vault custody from balance accounting](img-4.png)
 
 The obvious approach would be to transfer tokens directly every time someone sends funds.
 

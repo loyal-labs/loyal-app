@@ -12,7 +12,7 @@ Transparency is great until it is not.
 
 ## This week we shipped private transfers on mainnet.
 
-![](img-1.png)
+![Screenshot of the Loyal app Send screen sending 1,200 USDC to @alex with Private Send toggled on](img-1.png)
 
 Most people do not know what a seed phrase is. They have never touched a private key. They have a Binance account and they have been using it for years and they are not changing. We know these people. We have tried to pay them the other way.
 
@@ -24,7 +24,7 @@ The fees are 02%. Ten times cheaper than the major wallets that added private tr
 
 ## The desktop is unrecognizable.
 
-![](img-2.jpg)
+![Desktop Update graphic: askloyal.com desktop app with chat input, $1,267.47 balance, and a Shield swap panel](img-2.jpg)
 
 Vlad has been building this for a while and this week it landed. Go to [askloyal.com](https://askloyal.com/)
  and you will feel the difference immediately. Full wallet integration. Everything the Telegram mini app does, the site does now. Private sends. Shield swaps. Portfolio view. Balance chart.
@@ -33,7 +33,7 @@ We added some eye-candy too: the dog follows your cursor when it is happy. It ge
 
 ## Chat memory
 
-![](img-3.jpg)
+![Chat History graphic: Loyal desktop app sidebar listing past conversations with a New Chat button](img-3.jpg)
 
 Chat history is live now. Every wallet keeps its own conversation history. Connect a different wallet and you are in a different thread. The sidebar shows your wallet state while you chat so when the AI moves money, you see it, you approve it, you never leave the window.
 

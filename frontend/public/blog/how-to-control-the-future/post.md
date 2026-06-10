@@ -74,7 +74,7 @@ This forces you to think. You can't just blindly support everything. If you supp
 
 ## Step-by-Step Instructions to make your voice count
 
-![](img-1.jpg)
+![MetaDAO trading screen for the "Buyback Loyal Up To NAV" proposal: Pass at $0.2301, Fail at $0.2216, 50% likelihood](img-1.jpg)
 
 The Loyal buyback proposal
 
@@ -104,7 +104,7 @@ If you think the Buyback makes Loyal stronger, buy the PASS token.
 
 If you think it makes Loyal weaker, buy the FAIL token.
 
-![](img-2.jpg)
+![Cover graphic reading "BUYBACK PROPOSAL FAQ" over a blindfolded statue of Justice pointing at a dystopian skyline](img-2.jpg)
 
 ## FAQ: User questions from the last 24h
 

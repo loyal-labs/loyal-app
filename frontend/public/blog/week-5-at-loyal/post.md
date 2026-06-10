@@ -20,7 +20,7 @@ The next iteration will let you deep dive into individual topics — seeing the 
 
 We want to think of it as a fundamentally new and easier way to stay on top of your communities.
 
-![](img-1.jpg)
+![Screenshot of the Loyal app community summary for January 30, with topic cards on swaps and monetization across 346 messages](img-1.jpg)
 
 Improved haptic feedback makes summaries feel genuinely physical to interact with
 
@@ -42,7 +42,7 @@ The full pipeline — capture, process, encrypt, store incoming messages — is 
 
 ## Light Design Concept
 
-![](img-2.jpg)
+![Screenshot of the Loyal app light-theme wallet showing $533.67, 2.8475 SOL, Send/Receive/Scan, and a SOL activity feed](img-2.jpg)
 
 The Loyal mascot blinks and twitches its ear. We're adding more expressions over time — the idea is that Loyal feels alive!
 

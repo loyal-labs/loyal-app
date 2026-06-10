@@ -18,7 +18,7 @@ But what if your chat history and memory can be stored independently from the se
 
 ## Loyal’s architecture overview
 
-Loyal routes each user request into a chain-anchored session: your wallet ties you to a session via a Solana PDA (Program Derived Address). Each request executes inside an attested confidential VM, so the inference can’t be tampered with, and logs can’t be extracted bythe compute provider. When it comes to storing that data, instead of writing everything to a central database, Loyal writes the prompt and response into a decentralized storage controlled by the user's Solana wallet.
+Loyal routes each user request into a chain-anchored session: your wallet ties you to a session via a Solana PDA (Program Derived Address). Each request executes inside an attested confidential VM, so the inference can’t be tampered with, and logs can’t be extracted by the compute provider. When it comes to storing that data, instead of writing everything to a central database, Loyal writes the prompt and response into a decentralized storage controlled by the user's Solana wallet.
 
 **For the end user this architecture allows:**
 
@@ -34,7 +34,7 @@ Loyal routes each user request into a chain-anchored session: your wallet ties y
 
 Nillion’s mission is to decentralise trust for sensitive data in the same way blockchains decentralised transactions.  Its “Blind Modules” make it possible to store and compute on data while keeping it encrypted (or split into secret-shares) so that no single node or service has full access.
 
-nilDB is the private storage module within this stack: a structured data persistence service where you can define collections with schemas, mark sensitive fields, encrypt them end-to-end or secret-share them across nodes, and retain analytic or query capabilities without exposing it in plaintext. Loyal’s implementation derives ecryption keys from the user's solana wallet and the backend never holds them.
+nilDB is the private storage module within this stack: a structured data persistence service where you can define collections with schemas, mark sensitive fields, encrypt them end-to-end or secret-share them across nodes, and retain analytic or query capabilities without exposing it in plaintext. Loyal’s implementation derives encryption keys from the user's solana wallet and the backend never holds them.
 
 ## How Loyal uses nilDB: request → response → user-controlled memory
 
@@ -44,7 +44,7 @@ A user sends a request (e.g., “What’s my next quarter’s hiring plan?”). 
 
 The request is forwarded through Loyal’s TEE-anchored inference path. The model returns an answer. Loyal writes the answer into nilDB too. Sensitive parts again go into the encrypted user-owned fields. The full transcript is saved but under encryption and user control.
 
-At no point is the full plaintext transcript held in a central unencrypted log. The data remains privately yours,, even though it’s stored and can be searched or used for context. Because Loyal writes both prompt and response into nilDB, your agent can build memory over time — but you remain the gate-keeper.
+At no point is the full plaintext transcript held in a central unencrypted log. The data remains privately yours, even though it’s stored and can be searched or used for context. Because Loyal writes both prompt and response into nilDB, your agent can build memory over time — but you remain the gate-keeper.
 
 ## Developer and implementation angle
 

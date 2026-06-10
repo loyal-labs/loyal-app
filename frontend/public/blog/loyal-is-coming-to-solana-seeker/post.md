@@ -22,7 +22,7 @@ Unlike Apple’s App Store and Android’s Google Play Store, Seeker’s dApp St
 
 Securing our position among the Seeker userbase would give us a reliable platform to set up our further growth through iOS and Android.
 
-![](img-1.png)
+![Loyal x Seeker promo: gasless private transfers, APY on Private Dollar, send over Telegram, with screenshot of USDC 5.65% APY](img-1.png)
 
 ## What Loyal Brings To Seeker
 We are the only app that rewards you for keeping your money private. We are not charging swap fees or transaction fees intentionally. Our only incentive is delivering a great product and helping users multiply their money.

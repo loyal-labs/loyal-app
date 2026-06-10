@@ -29,7 +29,7 @@ Users can send Solana directly to any other account in telegram by knowing its h
 No long wallet addresses required.
 👉**Disclaimer:*****current app version supports only Solana transfers. Any other tokens sent will be lost.***
 
-![](img-1.jpg)
+![Loyal cover graphic with two phone mockups: "Send to @alicia" 15 SOL and a "Claim 15.00 SOL" received card](img-1.jpg)
 
 Use tg username to send SOL via Loyal app
 
@@ -42,7 +42,7 @@ In order to start using this method you need:
 
 2) Choose Send option
 
-![](img-2.png)
+![Loyal app wallet screen with the Send button highlighted by an orange box, beside Receive and Mobile only](img-2.png)
 
 3) Enter telegram @ handle
 4) Choose SOL amount to send
@@ -52,7 +52,7 @@ In order to start using this method you need:
 
 Once you receive any SOL transaction  you can get a notification if your friend shares it with you.
 
-![](img-3.png)
+![Telegram message from @askloyal_tgbot: "You received +0.0100 SOL" from OviMusk to nelogx0, with an Open button](img-3.png)
 
 Push notification of received transaction
 
@@ -65,7 +65,7 @@ Push notification of received transaction
 
 2) Find received transaction on the main page
 
-![](img-4.jpg)
+![Loyal app activity list with two received rows showing green "Claim 0.25 SOL" and "Claim 0.001 SOL" buttons](img-4.jpg)
 
 FInd the received SOL transaction on the main page and claim
 
@@ -77,7 +77,7 @@ FInd the received SOL transaction on the main page and claim
 Loyal App focuses not only on becoming as a 1 click Solana transfers tool.
 It allows to organize the flow of inbox and group chats with the private AI solution.
 
-![](img-5.png)
+![Loyal app Chat Highlights screen with Groups 5, Direct 4, Spam 3 tabs over a list of group chats](img-5.png)
 
 Group chat summaries filtered by private AI  Loyal oracle
 

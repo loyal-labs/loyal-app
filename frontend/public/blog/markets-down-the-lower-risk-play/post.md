@@ -2,7 +2,7 @@
 title: "Markets Down. The Lower-Risk Play that Survives Red Days."
 date: "2026-06-06"
 hero: hero.jpg
-description: "Bitcoin briefly dropped below $60k today, the US markets bled over $2.5t (trillion, with a 'T'), and while this is not unexpected to some seasoned traders -…"
+description: "Bitcoin dropped below $60k and markets bled $2.5T. The lower-risk play that survives red days is boring: safe, bank-style yield on your stablecoins."
 author:
   name: "Rodion, founder"
 ---
@@ -86,7 +86,7 @@ The association between crypto yield and disaster comes from a specific category
 
 - Protocols with public audit histories, on-chain transparency, and significant TVL
 
-![](img-1.jpg)
+![Loyal flow diagram: depositor lends stablecoins to yield provider Kamino, borrower pays interest, 6-8% APY earned](img-1.jpg)
 
 Single-asset vault example on Kamino
 

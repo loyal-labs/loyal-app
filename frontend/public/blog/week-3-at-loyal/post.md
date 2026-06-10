@@ -44,7 +44,7 @@ Right now it summarizes every 24 hours. Soon you'll be able to customize the fre
 
 Summaries will also become draggable Canvas elements, so you can pin the communities you care about most.
 
-![](img-1.jpg)
+![Screenshot of the Loyal app showing The Loyal Community group chat summary of 37 messages with feature cards](img-1.jpg)
 
 Check it out yourself!
 

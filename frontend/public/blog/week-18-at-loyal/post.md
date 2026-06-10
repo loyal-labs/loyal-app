@@ -28,7 +28,7 @@ Seeker ships with a full browser inside the app and a directory of 101 trusted S
 
 ## Smart Accounts and Agent Wallets
 
-![](img-1.jpg)
+![Smart account automation mockup: $16,267.48 total with Stash, Spotty and Buddy agents and a prompt to earn 4.8% APY](img-1.jpg)
 
 We started testing the first smart account automations this week. The first one is simple: if you have more than 100 USD un stablecoins sitting idle, the wallet will auto-shield them so they earn yield instead of doing nothing. That is the kind of behavior the wallet should have by default.
 

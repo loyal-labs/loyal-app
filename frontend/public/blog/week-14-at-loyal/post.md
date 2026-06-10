@@ -12,7 +12,7 @@ Here is what we shipped this week and what is hitting mainnet next week.
 
 ## APY on Shielded Assets
 
-![](img-1.png)
+![Screenshot of the Loyal app Stash at $9,267.67 with USDC earning 5.41% APY and SOL at 4.19% APY, titled Shielded Assets APY](img-1.png)
 
 Last week we shipped Shielded Assets to mainnet. Private transfers, live on Solana. This week we looked at the shielded balances sitting there and realized something obvious: idle money on-chain is wasted money. It is rare anywhere in DeFi to hold an asset that earns nothing. We did not want to be the exception.
 
@@ -24,7 +24,7 @@ We also optimized the shielding and unshielding routes. Both now take a single t
 
 ## The Browser Extension
 
-![](img-2.png)
+![Screenshot of the Loyal browser extension Send screen sending 12 SOL to @alicia with the Private Send toggle on](img-2.png)
 
 Vlad demo’d the extension live on stream and it is the real thing. Side panel view in Chrome. You authorize with your wallet, your balance syncs, and you are in.
 
@@ -34,7 +34,7 @@ The extension ships to the Chrome Web Store next week. A couple of polish items 
 
 ## Smart Accounts and the Dogs
 
-![](img-3.png)
+![Screenshot of Loyal Smart Accounts on desktop with dog avatars Rocky, Spotty, Buddy, Sparky, agent access and spending limits](img-3.png)
 
 Smart Accounts are in closed testing on desktop. They ship publicly next week. Here is the idea.
 

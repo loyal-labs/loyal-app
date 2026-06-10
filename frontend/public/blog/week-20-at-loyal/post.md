@@ -2,7 +2,7 @@
 title: "Week 20 at Loyal"
 date: "2026-05-11"
 hero: hero.jpg
-description: "Lower fees on shielded balances are live, smart account policies are in the build, and the mobile app crossed enough reviews to give us real signal heading i…"
+description: "Lower fees on shielded balances are live, Smart Account policies are in the build, and the mobile app crossed enough reviews to give us real signal."
 author:
   name: "Rodion, founder"
 ---
@@ -22,7 +22,7 @@ Eating your own cooking is the only honest way to find what is broken. Expect th
 
 ## Smart account policies
 
-![](img-1.jpg)
+![Smart account policies graphic: rule deposits USDC above $100 to Kamino USDC Vault monthly on day 15](img-1.jpg)
 
 The smart account policy layer is in build. The idea is the one we have been pointing at since smart accounts started: an on-chain guardrail you set once, that the wallet enforces forever. Spending limits, whitelisted contracts the agent is allowed to touch, and the rest of the controls you would want before you hand a key to anything that runs on its own.
 

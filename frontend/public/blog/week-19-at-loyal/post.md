@@ -10,7 +10,7 @@ The Seeker launch is behind us, the new landing site is live, and the three-pane
 
 ### The Seeker Launch
 
-![](img-1.png)
+![Seeker Launch graphic: phone showing the Loyal app store listing, "Autopilot for your money", 4.5 stars, Install button](img-1.png)
 
 We launched on Solana Seeker. That alone is worth pausing on. Loyal in the official store, in the hands of Seeker holders, with the same shielded balances, swaps, sends, and approval flow we built across the other surfaces. The campaign around the launch was not the biggest Seeker has seen this year, but for the resources and connections we had going in, it landed.
 
@@ -18,7 +18,7 @@ The bigger payoff is what came next. The launch was strong enough to earn us a s
 
 ### The New Landing
 
-![](img-2.png)
+![New Landing graphic: red askloyal.com homepage, "Put your money on autopilot", $16,267.48 balance and approvals](img-2.png)
 
 The new askloyal.com is live. It is bright, loud, and built to stay with you whether you are on it for two seconds or fifteen minutes.
 
@@ -26,7 +26,7 @@ The copy is not where we want it yet. We had a second pass written but did not g
 
 ### The Desktop Rebuild
 
-![](img-3.png)
+![Desktop App graphic: three-panel Loyal layout with wallet list, $16,267.37 balance, agent detail, and approvals](img-3.png)
 
 The desktop app is moving from a sidebar layout to three panels. The old version pinned tokens to one side and put the input in the middle. It worked, but it does not scale to what the app actually needs to do — orchestrate a wallet, a multisig vault, and the wallets of any agents you have connected, all in the same view.
 

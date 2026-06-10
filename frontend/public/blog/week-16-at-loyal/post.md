@@ -10,7 +10,7 @@ It was a good week. The kind where the work is there in front of you and it is r
 
 ## The B1 filing is live
 
-![](img-1.png)
+![Loyal B1 ICO Token Transparency Filing card, powered by Blockworks, with the Loyal fox logo](img-1.png)
 
 We are now live with our B1 token transparency filing through Blockworks. It took a few rounds, a few questions, and a few iterations, but it is done.
 
@@ -22,7 +22,7 @@ We are starting the B2 filing next. That one is more about smart contracts, advi
 
 ## Yield on shielded USDC
 
-![](img-2.png)
+![Screenshot of the Loyal app Stash at $9,267.67 showing USDC earning 5.41% APY and SOL at 4.19% APY](img-2.png)
 
 We are finishing the shift to mainnet for shielded yield. The current setup is simple in the way good systems should be simple.
 
@@ -34,7 +34,7 @@ This is one of the product ideas we care about most. Hide the user from the chai
 
 ## The browser extension is basically done
 
-![](img-3.png)
+![Screenshot of the Loyal browser extension panel showing $4,967.94, a Shield button, and USDC, SOL, USDT tokens](img-3.png)
 
 The browser extension is finished, polished, and lined up for release next week. It is already in the Chrome Web Store. Right now it is in the final internal testing phase before we open it up.
 

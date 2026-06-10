@@ -32,7 +32,7 @@ We are proud to be bringing this entire stack to Solana's Seeker mobile phone, c
 
 Before we can let agents run wild, we need the infrastructure in place, so our first step brings full feature parity from our web app directly to the Seeker dApp Store. This means you get a private, self-custodial account right out of the box.
 
-- You get privacy a standard; shield and un-shield your Solana tokens at-will, send and recieve without exposing your wallet addresses
+- You get privacy a standard; shield and un-shield your Solana tokens at-will, send and receive without exposing your wallet addresses
 
 - You get automatic APY on your shielded assets via [@kamino](https://x.com/kamino)'s single-asset lending vaults. You never have to choose between keeping your balance private and putting your capital to work.
 
@@ -40,7 +40,7 @@ Before we can let agents run wild, we need the infrastructure in place, so our f
 
 Because we process the logic inside Confidential VMs, even we cannot see your data, the privacy we're talking about is baked into the hardware architecture as a baseline feature, not some afterthought.
 
-![](img-1.jpg)
+![Three Loyal app phone mockups: "Send 1,600 USDC to @alex", a $7,226.88 balance card, and agent access spending limit](img-1.jpg)
 
 Give us a try!
 
