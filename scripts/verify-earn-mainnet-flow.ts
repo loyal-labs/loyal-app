@@ -854,6 +854,18 @@ async function main() {
     if (activePosition.currentAmountRaw <= 0n) {
       throw new Error("Active Earn position has no current holding to withdraw.");
     }
+    const activeRoutePolicy = await yieldClient.db.query.routePolicies.findFirst({
+      orderBy: [desc(schema.routePolicies.id)],
+      where: and(
+        eq(schema.routePolicies.active, true),
+        eq(schema.routePolicies.authority, wallet.publicKey.toBase58()),
+        eq(schema.routePolicies.settings, SETTINGS_PDA.toBase58()),
+        eq(schema.routePolicies.vaultIndex, 1)
+      ),
+    });
+    if (!activeRoutePolicy) {
+      throw new Error("full-withdraw-cleanup requires an active Earn policy.");
+    }
 
     const prepared = await client.prepareEarnUsdcWithdraw({
       amountRaw: activePosition.currentAmountRaw,
@@ -863,6 +875,10 @@ async function main() {
       policySigner,
       settingsPda: SETTINGS_PDA,
       walletAddress: wallet.publicKey,
+      yieldRoutingPolicy: {
+        account: new PublicKey(activeRoutePolicy.policyAccount),
+        seed: activeRoutePolicy.policySeed,
+      },
     });
     const policyAccount = prepared.policy.account;
     const vaultCollateralAta = prepared.vault.collateralAta;
@@ -1399,6 +1415,10 @@ async function main() {
       policySigner,
       settingsPda: SETTINGS_PDA,
       walletAddress: wallet.publicKey,
+      yieldRoutingPolicy: {
+        account: new PublicKey(activeRoutePolicy.policyAccount),
+        seed: activeRoutePolicy.policySeed,
+      },
     });
     const partialSent = await sendOrResumePrepared({
       connection,

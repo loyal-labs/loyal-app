@@ -395,40 +395,6 @@ async function ensureEarnYieldRoutingPolicy(args: {
     return;
   }
 
-  const policyAccount = pda.getPolicyPda({
-    programId: PROGRAM_ID,
-    settingsPda: settings,
-    policySeed: 1,
-  })[0];
-  const existingPolicy = await args.connection.getAccountInfo(policyAccount);
-  if (existingPolicy) {
-    if (process.env.RESET_EARN_POLICY === "1") {
-      const resetPrepared =
-        await client.prepareCloseYieldRoutingPoliciesSync({
-          feePayer: args.wallet.publicKey,
-          policies: [policyAccount],
-          settingsPda: settings,
-          signers: [args.wallet.publicKey],
-        });
-      await executePrepared({
-        label: "reset earn policy",
-        connection: args.connection,
-        wallet: args.wallet,
-        prepared: resetPrepared,
-      });
-    } else {
-      console.log(`earn policy already exists: ${policyAccount.toBase58()}`);
-      return;
-    }
-  }
-  if (existingPolicy && process.env.RESET_EARN_POLICY === "1") {
-    console.log(`earn policy reset: ${policyAccount.toBase58()}`);
-  }
-  const recreatedPolicy = await args.connection.getAccountInfo(policyAccount);
-  if (recreatedPolicy) {
-    console.log(`earn policy already exists: ${policyAccount.toBase58()}`);
-    return;
-  }
   const prepared = await client.prepareEarnUsdcYieldRoutingPolicy({
     cluster: LoyalCluster.Devnet,
     feePayer: args.wallet.publicKey,

@@ -306,6 +306,7 @@ describe("initYieldRoutePolicy", () => {
   test("builds one all-in-one policy instruction and route indexes for Jupiter", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
     const policy = sdk.initYieldRoutePolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       swapLanes: [SwapLane.Jupiter] as const,
       squads,
@@ -369,11 +370,13 @@ describe("initYieldRoutePolicy", () => {
   test("computes route indexes for Loyal and combined lane order", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
     const loyalOnly = sdk.initYieldRoutePolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       swapLanes: [SwapLane.Loyal] as const,
       squads,
     });
     const both = sdk.initYieldRoutePolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       swapLanes: [SwapLane.Jupiter, SwapLane.Loyal] as const,
       maxFeeBps: MaxFeeBps.Bps150,
@@ -396,6 +399,7 @@ describe("initYieldRoutePolicy", () => {
   test("derives stable exposure internally from the approved seven symbols", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
     const policy = sdk.initYieldRoutePolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       swapLanes: [SwapLane.Jupiter] as const,
       squads,
@@ -456,6 +460,7 @@ describe("initYieldRoutePolicy", () => {
 
     expect(() =>
       sdk.initYieldRoutePolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: RiskBasket.Safe,
         swapLanes: [],
         squads,
@@ -463,6 +468,7 @@ describe("initYieldRoutePolicy", () => {
     ).toThrow("at least one swap lane is required");
     expect(() =>
       sdk.initYieldRoutePolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: RiskBasket.Safe,
         swapLanes: [SwapLane.Jupiter, SwapLane.Jupiter],
         squads,
@@ -470,6 +476,7 @@ describe("initYieldRoutePolicy", () => {
     ).toThrow("duplicate swap lane");
     expect(() =>
       sdk.initYieldRoutePolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: RiskBasket.Safe,
         swapLanes: [SwapLane.Jupiter],
         maxFeeBps: 99 as MaxFeeBps,
@@ -491,6 +498,7 @@ describe("initYieldRoutingPolicy", () => {
       smartAccount,
     });
     const explicit = sdk.initYieldRoutePolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       swapLanes: [SwapLane.Jupiter] as const,
       maxFeeBps: MaxFeeBps.Bps125,
@@ -502,6 +510,7 @@ describe("initYieldRoutingPolicy", () => {
     });
 
     const derived = sdk.initYieldRoutingPolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       vaultIndex,
       maxFeeBps: MaxFeeBps.Bps125,
@@ -530,6 +539,7 @@ describe("initYieldRoutingPolicy", () => {
     });
 
     const policy = sdk.initYieldRoutingPolicy({
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Safe,
       vaultIndex: 0,
     });
@@ -548,24 +558,28 @@ describe("initYieldRoutingPolicy", () => {
 
     expect(() =>
       sdkWithoutSmartAccount.initYieldRoutingPolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: RiskBasket.Safe,
         vaultIndex: 0,
       })
     ).toThrow("smartAccount config is required");
     expect(() =>
       sdk.initYieldRoutingPolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: RiskBasket.Safe,
         vaultIndex: 256,
       })
     ).toThrow("vaultIndex must be a u8");
     expect(() =>
       sdk.initYieldRoutingPolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: RiskBasket.Safe,
         vaultIndex: -1,
       })
     ).toThrow("vaultIndex must be a u8");
     expect(() =>
       sdk.initYieldRoutingPolicy({
+        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
         risk: "weird" as RiskBasket,
         vaultIndex: 0,
       })
@@ -578,6 +592,7 @@ describe("yield route policy plan compilers", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
     const input = {
       cluster: LoyalCluster.MainnetBeta,
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       risk: RiskBasket.Medium,
       swapLanes: [SwapLane.Jupiter, SwapLane.Loyal] as const,
       maxFeeBps: MaxFeeBps.Bps75,
@@ -587,6 +602,7 @@ describe("yield route policy plan compilers", () => {
     const plan = createYieldRoutePolicyPlan(input);
     const wrappedPlan = sdk.initYieldRoutePolicy({
       risk: input.risk,
+      policySeed: input.policySeed,
       swapLanes: input.swapLanes,
       maxFeeBps: input.maxFeeBps,
       squads: input.squads,
@@ -606,6 +622,7 @@ describe("yield route policy plan compilers", () => {
       cluster: LoyalCluster.MainnetBeta,
       smartAccount,
       risk: RiskBasket.Safe,
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       vaultIndex,
     });
 
@@ -621,6 +638,7 @@ describe("yield route policy plan compilers", () => {
     });
     const input = {
       risk: RiskBasket.Safe,
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       vaultIndex: 7,
       maxFeeBps: MaxFeeBps.Bps125,
     };
@@ -640,6 +658,7 @@ describe("yield route policy plan compilers", () => {
       cluster: LoyalCluster.MainnetBeta,
       smartAccount,
       risk: RiskBasket.Safe,
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       vaultIndex: 0,
     });
 
@@ -658,6 +677,7 @@ describe("yield route policy plan compilers", () => {
       cluster: LoyalCluster.MainnetBeta,
       smartAccount,
       risk: RiskBasket.Safe,
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
       vaultIndex: 1,
     });
 

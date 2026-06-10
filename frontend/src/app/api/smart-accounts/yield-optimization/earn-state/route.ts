@@ -143,11 +143,6 @@ export async function GET(request: Request) {
     programId,
     settingsPda,
   });
-  const [defaultEarnPolicyPda] = pda.getPolicyPda({
-    policySeed: EARN_VAULT_INDEX,
-    programId,
-    settingsPda,
-  });
   const [positionResult, policyResult, autodepositResult] = await Promise.all([
     loadEarnStatePart("position", () =>
       findActiveYieldPosition({
@@ -186,10 +181,6 @@ export async function GET(request: Request) {
   return NextResponse.json({
     autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
-    defaultPolicy: {
-      account: defaultEarnPolicyPda.toBase58(),
-      seed: EARN_VAULT_INDEX.toString(),
-    },
     loadErrors,
     policy: policy ? serializePolicy(policy) : null,
     position: position ? serializePosition(position) : null,

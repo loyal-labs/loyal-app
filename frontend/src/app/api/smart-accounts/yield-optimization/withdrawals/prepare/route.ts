@@ -101,6 +101,10 @@ export async function POST(request: Request) {
       connection: getConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
+    const yieldRoutingPolicy = {
+      account: new PublicKey(policy.policyAccount),
+      seed: policy.policySeed,
+    };
     const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
       amountRaw,
       cluster,
@@ -109,6 +113,7 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
+      yieldRoutingPolicy,
     });
 
     return NextResponse.json({

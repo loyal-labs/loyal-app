@@ -475,6 +475,10 @@ export type SmartAccountEarnUsdcWithdrawInput = {
   amountRaw: bigint;
   cluster?: LoyalCluster;
   mode: "partial" | "full";
+  yieldRoutingPolicy?: {
+    account: PublicKey;
+    seed: bigint;
+  };
   memo?: string;
 };
 

@@ -329,8 +329,10 @@ agent-managed vault `0`; that is a separate flow.
 or Squads policy instruction shape in React. First Earn deposits initialize the
 yield-routing `ProgramInteraction` policy. Top-up deposits must call
 `prepareEarnUsdcDeposit` with `initializeYieldRoutingPolicy: false` once
-overview policies show the existing Earn policy (`seed === "1"`,
-`state === "ProgramInteraction"`, `accountIndex === 1`).
+overview policies show an existing Earn policy (`state === "ProgramInteraction"`,
+`accountIndex === 1`). The Earn vault index is always `1`, but the policy seed
+is the actual Squads policy seed returned by policy creation or persistence; do
+not assume policy seed `1`.
 
 After wallet confirmation, the frontend posts to
 `/api/smart-accounts/yield-optimization/deposits/confirm` or

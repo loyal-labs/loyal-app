@@ -131,10 +131,6 @@ type EarnStateResponse = {
     walletUsdcAta: string;
   } | null;
   canonicalVaultPubkey: string;
-  defaultPolicy: {
-    account: string;
-    seed: string;
-  };
   loadErrors: {
     autodeposit?: true;
     policy?: true;
@@ -1394,7 +1390,6 @@ export function hasInitializedEarnYieldRoutingPolicy(
   return (
     overview?.policies.some(
       (policy) =>
-        policy.seed === "1" &&
         policy.state === "ProgramInteraction" &&
         policy.accountIndex === 1
     ) ?? false

@@ -20,6 +20,7 @@ const routingSdk = createLoyalActionsSdk({
 });
 
 const policy = sdk.initYieldRoutePolicy({
+  policySeed: 2,
   risk: RiskBasket.Safe,
   swapLanes: [SwapLane.Jupiter] as const,
   squads: {
@@ -39,6 +40,7 @@ const loyalIndexes = policy.routes.loyal.instructionConstraintIndexes;
 void loyalIndexes;
 
 sdk.initYieldRoutePolicy({
+  policySeed: 2,
   risk: RiskBasket.Safe,
   swapLanes: [SwapLane.Jupiter] as const,
   squads: {
@@ -53,6 +55,7 @@ sdk.initYieldRoutePolicy({
 });
 
 sdk.initYieldRoutePolicy({
+  policySeed: 2,
   risk: RiskBasket.Safe,
   swapLanes: [SwapLane.Jupiter] as const,
   squads: {
@@ -67,6 +70,7 @@ sdk.initYieldRoutePolicy({
 });
 
 const routingPolicy = routingSdk.initYieldRoutingPolicy({
+  policySeed: 2,
   risk: RiskBasket.Safe,
   vaultIndex: 0,
 });
@@ -77,6 +81,7 @@ void routingJupiterIndexes;
 void routingVault;
 
 routingSdk.initYieldRoutingPolicy({
+  policySeed: 2,
   risk: RiskBasket.Safe,
   vaultIndex: 0,
   // @ts-expect-error Vault-indexed policy creation always enables the default lanes.
@@ -84,6 +89,7 @@ routingSdk.initYieldRoutingPolicy({
 });
 
 routingSdk.initYieldRoutingPolicy({
+  policySeed: 2,
   risk: RiskBasket.Safe,
   vaultIndex: 0,
   // @ts-expect-error Squads context is configured once on SDK creation.
@@ -98,6 +104,7 @@ routingSdk.initYieldRoutingPolicy({
 
 const vaultPlan = createVaultYieldRoutingPolicyPlan({
   cluster: LoyalCluster.MainnetBeta,
+  policySeed: 2,
   risk: RiskBasket.Safe,
   smartAccount: {
     settings: key,
@@ -110,6 +117,7 @@ void vaultPlan.persistence.swapLanes;
 
 createVaultYieldRoutingPolicyPlan({
   cluster: LoyalCluster.MainnetBeta,
+  policySeed: 2,
   risk: RiskBasket.Safe,
   smartAccount: {
     settings: key,
@@ -192,6 +200,7 @@ createVaultSubscriptionSweepPolicyPlan({
 
 createVaultYieldRoutingPolicyPlan({
   cluster: LoyalCluster.MainnetBeta,
+  policySeed: 2,
   risk: RiskBasket.Safe,
   smartAccount: {
     settings: key,

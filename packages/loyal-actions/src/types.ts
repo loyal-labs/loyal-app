@@ -64,7 +64,7 @@ export type LoyalActionRoute3 = {
 export type InitYieldRoutePolicyInput<
   Lanes extends readonly SwapLane[] = readonly SwapLane[],
 > = {
-  policySeed?: PolicySeed;
+  policySeed: PolicySeed;
   risk: RiskBasket;
   swapLanes: Lanes;
   maxFeeBps?: MaxFeeBps;
@@ -84,7 +84,7 @@ export type CreateYieldRoutePolicyPlanInput<
 };
 
 export type InitYieldRoutingPolicyInput = {
-  policySeed?: PolicySeed;
+  policySeed: PolicySeed;
   risk: RiskBasket;
   vaultIndex: number;
   maxFeeBps?: MaxFeeBps;

@@ -222,7 +222,7 @@ function deriveVaultUsdcAta() {
   );
 }
 
-function createSerializedEarnPolicyAccount() {
+function createSerializedEarnPolicyAccount(seed = new BN(1)) {
   const [data] = Policy.fromArgs({
     bump: 255,
     expiration: null,
@@ -239,7 +239,7 @@ function createSerializedEarnPolicyAccount() {
       ],
     },
     rentCollector: walletAddress,
-    seed: new BN(1),
+    seed,
     settings: settingsPda,
     signers: [],
     staleTransactionIndex: new BN(0),
@@ -258,13 +258,13 @@ function createSerializedEarnPolicyAccount() {
   };
 }
 
-function createSerializedSettingsAccount() {
+function createSerializedSettingsAccount(policySeed: BN | null = null) {
   const [data] = Settings.fromArgs({
     accountUtilization: 0,
     archivalAuthority: null,
     archivableAfter: new BN(0),
     bump: 255,
-    policySeed: null,
+    policySeed,
     reserved2: 0,
     seed: new BN(0),
     settingsAuthority: walletAddress,
@@ -406,8 +406,11 @@ describe("prepareEarnUsdcDeposit", () => {
 
   test("builds the one-transaction earn deposit flow in order", async () => {
     const fetchMock = mockKaminoDepositInstruction();
+    const getAccountInfo = mock(async (_address: PublicKey) =>
+      createSerializedSettingsAccount(new BN(6))
+    );
     const client = createSmartAccountVaultsClient({
-      connection: {} as never,
+      connection: { getAccountInfo } as never,
       programId,
     });
     const result = await client.prepareEarnUsdcDeposit({
@@ -451,7 +454,7 @@ describe("prepareEarnUsdcDeposit", () => {
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[4]);
     expectPolicyCreateSigner(result.prepared.instructions[3], backendSigner);
     expectIncludesKaminoSetupAccount(result.prepared.instructions[4]);
-    expect(result.policy.seed).toBe(BigInt(1));
+    expect(result.policy.seed).toBe(BigInt(7));
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.vault.accountIndex).toBe(1);
     expect(result.vault.collateralAta?.toBase58()).toBe(
@@ -464,9 +467,9 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(result.persistence).toMatchObject({
       cluster: "mainnet-beta",
       delegatedSigner: backendSigner.toBase58(),
-      policyId: "1",
+      policyId: "7",
       policyInitialization: "create",
-      policySeed: "1",
+      policySeed: "7",
       principalAmountRaw: "1000000",
       vaultIndex: 1,
     });
@@ -486,6 +489,10 @@ describe("prepareEarnUsdcDeposit", () => {
       policySigner: backendSigner,
       amountRaw: BigInt(500_000),
       initializeYieldRoutingPolicy: false,
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
     });
 
     expect(result.prepared.instructions).toHaveLength(4);
@@ -518,8 +525,6 @@ describe("prepareEarnUsdcDeposit", () => {
       connection: { getProgramAccounts } as never,
       programId,
     });
-    const policyAccount = new PublicKey("11111111111111111111111111111117");
-
     const result = await client.prepareEarnUsdcDeposit({
       settingsPda,
       walletAddress,
@@ -606,7 +611,7 @@ describe("prepareEarnUsdcDeposit", () => {
 
   test("builds standalone earn routing policy setup metadata", async () => {
     const getAccountInfo = mock(async (_address: PublicKey) =>
-      createSerializedSettingsAccount()
+      createSerializedSettingsAccount(new BN(6))
     );
     const client = createSmartAccountVaultsClient({
       connection: { getAccountInfo } as never,
@@ -625,7 +630,7 @@ describe("prepareEarnUsdcDeposit", () => {
       programId.toBase58()
     );
     expectPolicyCreateSigner(result.prepared.instructions[0], backendSigner);
-    expect(result.policy.seed).toBe(BigInt(1));
+    expect(result.policy.seed).toBe(BigInt(7));
     expect(result.vault).toMatchObject({
       accountIndex: 1,
     });
@@ -638,8 +643,8 @@ describe("prepareEarnUsdcDeposit", () => {
       delegatedSigner: backendSigner.toBase58(),
       liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
       policyAccount: result.policy.account.toBase58(),
-      policyId: "1",
-      policySeed: "1",
+      policyId: "7",
+      policySeed: "7",
       settings: settingsPda.toBase58(),
       targetReserve: kaminoReserve.toBase58(),
       vaultIndex: 1,
@@ -689,6 +694,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
       mode: "partial",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -709,8 +718,8 @@ describe("prepareEarnUsdcWithdraw", () => {
     expect(result.persistence).toMatchObject({
       mode: "partial",
       delegatedSigner: backendSigner.toBase58(),
-      policyId: "1",
-      policySeed: "1",
+      policyId: "7",
+      policySeed: "7",
       withdrawnAmountRaw: "1000000",
       vaultIndex: 1,
     });
@@ -800,6 +809,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
       mode: "full",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
     });
 
     expect(result.prepared.instructions).toHaveLength(5);
@@ -945,6 +958,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
       mode: "full",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
     });
 
     expect(result.prepared.instructions).toHaveLength(5);
@@ -987,6 +1004,10 @@ describe("prepareEarnUsdcWithdraw", () => {
         policySigner: backendSigner,
         amountRaw: BigInt(1_000_000),
         mode: "partial",
+        yieldRoutingPolicy: {
+          account: policyAccount,
+          seed: BigInt(7),
+        },
       })
     ).rejects.toThrow("unexpected vault USDC account");
   });

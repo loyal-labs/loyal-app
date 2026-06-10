@@ -3,7 +3,6 @@ import {
   SystemProgram,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { YIELD_ROUTE_STANDALONE_ACTION_SEED } from "../constants.ts";
 import type { LoyalClusterConfig } from "../cluster.ts";
 import type { PolicySeed } from "../types.ts";
 import { normalizeU64 } from "../subscriptions.ts";
@@ -60,7 +59,7 @@ export type SquadsContext = {
 export function deriveActionAccount(
   config: LoyalClusterConfig,
   settings: PublicKey,
-  policySeed: PolicySeed = YIELD_ROUTE_STANDALONE_ACTION_SEED,
+  policySeed: PolicySeed,
 ): PublicKey {
   const normalizedSeed = normalizeU64(policySeed, "policySeed");
   const seedBytes = new Uint8Array(8);
@@ -75,7 +74,7 @@ export function createProgramInteractionPolicyInstruction(
   config: LoyalClusterConfig,
   context: SquadsContext,
   constraints: readonly InstructionConstraint[],
-  policySeed: PolicySeed = YIELD_ROUTE_STANDALONE_ACTION_SEED,
+  policySeed: PolicySeed,
 ): TransactionInstruction {
   const normalizedSeed = normalizeU64(policySeed, "policySeed");
   const actionAccount = deriveActionAccount(config, context.settings, normalizedSeed);

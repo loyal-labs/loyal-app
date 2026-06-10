@@ -200,6 +200,7 @@ function createYieldRoutingPolicyPlanFromRouteInput(
 ): VaultYieldRoutingPolicyPlan {
   return createVaultYieldRoutingPolicyPlan({
     cluster: normalizeLoyalCluster(input.cluster),
+    policySeed: input.policySeed,
     risk: RiskBasket.Safe,
     smartAccount: {
       settings: new PublicKey(input.settings),

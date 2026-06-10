@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import {
   DEFAULT_MAX_FEE_BPS,
-  YIELD_ROUTE_STANDALONE_ACTION_SEED,
   getKaminoUsdcEarnTargetForCluster,
   getRiskBasketMarketsForCluster,
   getStablecoinMintForCluster,
@@ -80,10 +79,7 @@ export function createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane
   ];
   const kaminoEarnTarget = getKaminoUsdcEarnTargetForCluster(input.cluster);
   const kaminoLiquidityMints = [...stableMints];
-  const policySeed = normalizeU64(
-    input.policySeed ?? YIELD_ROUTE_STANDALONE_ACTION_SEED,
-    "policySeed",
-  );
+  const policySeed = requirePolicySeed(input.policySeed);
   const actionAccount = deriveActionAccount(
     clusterConfig,
     input.squads.settings,
@@ -391,9 +387,7 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
   if (!VALID_MAX_FEE_BPS.has(maxFeeBps)) {
     throw new Error(`unsupported maxFeeBps: ${String(maxFeeBps)}`);
   }
-  if (input.policySeed !== undefined) {
-    normalizeU64(input.policySeed, "policySeed");
-  }
+  requirePolicySeed(input.policySeed);
   if (!Number.isInteger(input.squads.accountIndex) || input.squads.accountIndex < 0 || input.squads.accountIndex > 255) {
     throw new Error("squads.accountIndex must be a u8");
   }
@@ -415,9 +409,7 @@ function validateYieldRoutingInput(input: InitYieldRoutingPolicyInput): void {
   if (!VALID_MAX_FEE_BPS.has(maxFeeBps)) {
     throw new Error(`unsupported maxFeeBps: ${String(maxFeeBps)}`);
   }
-  if (input.policySeed !== undefined) {
-    normalizeU64(input.policySeed, "policySeed");
-  }
+  requirePolicySeed(input.policySeed);
   validateVaultIndex(input.vaultIndex, "vaultIndex");
 }
 

@@ -179,7 +179,6 @@ type AsyncPolicyTransactionPayloadLike = {
 };
 
 const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
-const EARN_DEPOSIT_POLICY_SEED = BigInt(1);
 const EARN_SAME_MINT_INSTRUCTION_CONSTRAINT_INDEXES = [0, 1] as const;
 const EARN_DEPOSIT_USDC_DECIMALS = 6;
 const KAMINO_DEVNET_USDC_RESERVE_LIQUIDITY_SUPPLY = new PublicKey(
@@ -3858,17 +3857,16 @@ export function createSmartAccountVaultsClient(
     vaultPda: PublicKey;
     memo?: string;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
-    const nextPolicySeed =
-      typeof config.connection.getAccountInfo === "function"
-        ? resolveNextPolicySeed(
-            await smartAccountsClient.smartAccounts.queries.fetchSettings(
-              args.settingsPda
-            )
-          )
-        : {
-            bigint: EARN_DEPOSIT_POLICY_SEED,
-            number: Number(EARN_DEPOSIT_POLICY_SEED),
-          };
+    if (typeof config.connection.getAccountInfo !== "function") {
+      throw new Error(
+        "Cannot create an Earn policy without fetching the next Squads policy seed."
+      );
+    }
+    const nextPolicySeed = resolveNextPolicySeed(
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      )
+    );
     const policyAccount = pda.getPolicyPda({
       programId: smartAccountsClient.programId,
       settingsPda: args.settingsPda,
@@ -3915,14 +3913,9 @@ export function createSmartAccountVaultsClient(
     settingsPda: PublicKey;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
     if (typeof config.connection.getProgramAccounts !== "function") {
-      return {
-        account: pda.getPolicyPda({
-          programId: smartAccountsClient.programId,
-          settingsPda: args.settingsPda,
-          policySeed: Number(EARN_DEPOSIT_POLICY_SEED),
-        })[0],
-        seed: EARN_DEPOSIT_POLICY_SEED,
-      };
+      throw new Error(
+        "Cannot discover an Earn policy without scanning smart-account policies."
+      );
     }
 
     const policies = await listRawPolicies({ settingsPda: args.settingsPda });
@@ -4795,9 +4788,14 @@ export function createSmartAccountVaultsClient(
           TOKEN_PROGRAM_ID
         )
       : null;
-    const earnPolicy = await resolveEarnYieldRoutingPolicyForExecution({
-      settingsPda: args.settingsPda,
-    });
+    const earnPolicy = args.yieldRoutingPolicy
+      ? {
+          account: args.yieldRoutingPolicy.account,
+          seed: args.yieldRoutingPolicy.seed,
+        }
+      : await resolveEarnYieldRoutingPolicyForExecution({
+          settingsPda: args.settingsPda,
+        });
     const policyAccount = earnPolicy.account;
     let kaminoWithdrawAmountRaw = args.amountRaw;
     let kaminoWithdrawBundle =
