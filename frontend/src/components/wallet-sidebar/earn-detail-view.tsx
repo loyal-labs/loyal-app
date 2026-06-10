@@ -1778,7 +1778,8 @@ export function EarnDetailView({
   autodepositFloorLabel,
   autodepositState = "idle",
   currentPositionApyLabel,
-  currentPositionLabel = TOP_EARN_VAULT.label,
+  currentPositionMarketName = "Main Market",
+  currentPositionTokenSymbol = "USDC",
   earningsCacheKey,
   earningsCacheScope,
   hasCurrentPosition = false,
@@ -1794,7 +1795,8 @@ export function EarnDetailView({
   autodepositFloorLabel?: string;
   autodepositState?: "closing" | "created" | "creating" | "idle" | "paused";
   currentPositionApyLabel?: string;
-  currentPositionLabel?: string;
+  currentPositionMarketName?: string;
+  currentPositionTokenSymbol?: string;
   earningsCacheKey?: string;
   earningsCacheScope?: {
     expectedPrincipalAmountRaw?: string | null;
@@ -1838,11 +1840,6 @@ export function EarnDetailView({
     0,
     displayBalanceAmount - principalAmount
   );
-  const fallbackCurrentPositionApyLabel = `${formatEarnApyPercent(
-    estimatedEarnedAmountApyBps
-  )} APY`;
-  const currentPositionDisplayApyLabel =
-    currentPositionApyLabel ?? fallbackCurrentPositionApyLabel;
   const earnedSummaryLabel = currentPositionApyLabel
     ? `${formatSignedEarningsAmount(
         estimatedEarnedUsd
@@ -2101,6 +2098,21 @@ export function EarnDetailView({
             >
               <span
                 style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  letterSpacing: "-0.176px",
+                  lineHeight: "20px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {currentPositionMarketName}
+              </span>
+              <span
+                style={{
                   color: secondary,
                   fontFamily: font,
                   fontSize: "13px",
@@ -2110,13 +2122,8 @@ export function EarnDetailView({
                   whiteSpace: "nowrap",
                 }}
               >
-                {currentPositionLabel}
+                {currentPositionTokenSymbol}
               </span>
-              {currentPositionDisplayApyLabel ? (
-                <div>
-                  <ApyBadge value={currentPositionDisplayApyLabel} />
-                </div>
-              ) : null}
             </div>
             <span
               style={{
