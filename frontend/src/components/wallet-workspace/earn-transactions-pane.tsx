@@ -9,50 +9,13 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import {
+  fetchEarnTransactions,
+  type EarnTransactionItem,
+} from "@/lib/yield-optimization/earn-transactions.client";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
-
-export type EarnTransactionItem = {
-  id: string;
-  kind:
-    | "autodeposit_action"
-    | "balance_sweep"
-    | "deposit"
-    | "withdraw"
-    | "rebalance"
-    | "reconciliation";
-  eventType:
-    | "autodeposit_closed"
-    | "autodeposit_created"
-    | "balance_sweep"
-    | "deposit_initialized"
-    | "deposit_top_up"
-    | "withdrawal_partial"
-    | "withdrawal_full"
-    | "rebalance_confirmed"
-    | "snapshot_reconciled";
-  dateGroup: string;
-  timestamp: string;
-  amount: string;
-  rawAmount: string;
-  signature: string;
-  sortTimestamp?: string;
-  confirmedSlot: string;
-  source: { label: string; icon: string | null };
-  destination: { label: string; icon: string | null };
-};
-
-type EarnTransactionsRouteResponse = {
-  transactions: EarnTransactionItem[];
-};
-
-type EarnTransactionsRouteErrorResponse = {
-  error?: {
-    code?: string;
-    message?: string;
-  };
-};
 
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
@@ -558,15 +521,21 @@ function groupEarnTransactions(items: EarnTransactionItem[]) {
 export function EarnTransactionsPane({
   isBalanceHidden = false,
   onSelectTransaction,
+  settingsPda,
+  solanaEnv,
   topInset = 0,
+  walletAddress,
 }: {
   isBalanceHidden?: boolean;
   onSelectTransaction: (detail: TransactionDetail) => void;
+  settingsPda: string | null | undefined;
+  solanaEnv: string;
   topInset?: number;
+  walletAddress: string | null | undefined;
 }) {
   const { isAuthenticated, isHydrated } = useAuthSession();
   const [transactions, setTransactions] = useState<EarnTransactionItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -575,7 +544,14 @@ export function EarnTransactionsPane({
     // with "No active auth session" and would leave the pane stuck until a full
     // reload. Keying on isAuthenticated lets it self-heal once the session is
     // ready; the loading skeleton shows in the meantime.
-    if (!isHydrated || !isAuthenticated) {
+    if (!isHydrated) {
+      return;
+    }
+
+    if (!isAuthenticated || !settingsPda || !walletAddress) {
+      setIsLoading(false);
+      setTransactions([]);
+      setErrorMessage(null);
       return;
     }
 
@@ -585,25 +561,11 @@ export function EarnTransactionsPane({
       setIsLoading(true);
       setErrorMessage(null);
 
-      const response = await fetch("/api/smart-accounts/earn-transactions", {
-        credentials: "include",
+      const payload = await fetchEarnTransactions({
+        settingsPda,
+        solanaEnv,
+        walletAddress,
       });
-
-      if (!response.ok) {
-        const errorPayload = (await response
-          .json()
-          .catch(() => null)) as EarnTransactionsRouteErrorResponse | null;
-        console.warn("[earn-transactions] API error", {
-          error: errorPayload?.error ?? null,
-          status: response.status,
-          statusText: response.statusText,
-        });
-        const message =
-          errorPayload?.error?.message ?? "Failed to load earn transactions.";
-        throw new Error(message);
-      }
-
-      const payload = (await response.json()) as EarnTransactionsRouteResponse;
 
       if (isMounted) {
         setTransactions(payload.transactions);
@@ -632,7 +594,7 @@ export function EarnTransactionsPane({
     return () => {
       isMounted = false;
     };
-  }, [isAuthenticated, isHydrated]);
+  }, [isAuthenticated, isHydrated, settingsPda, solanaEnv, walletAddress]);
 
   const groups = groupEarnTransactions(transactions);
 

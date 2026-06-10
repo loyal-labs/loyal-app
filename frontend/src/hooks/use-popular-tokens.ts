@@ -50,11 +50,13 @@ async function searchJupiterToken(
 }
 
 let popularCache: SwapToken[] | null = null;
+let popularInflight: Promise<SwapToken[]> | null = null;
 
-async function fetchPopularTokens(): Promise<SwapToken[]> {
+export async function fetchPopularTokens(): Promise<SwapToken[]> {
   if (popularCache) return popularCache;
+  if (popularInflight) return popularInflight;
 
-  const results = await Promise.all(
+  popularInflight = Promise.all(
     POPULAR_SYMBOLS.map(async (symbol) => {
       try {
         const tokens = await searchJupiterToken(symbol);
@@ -69,18 +71,36 @@ async function fetchPopularTokens(): Promise<SwapToken[]> {
         return null;
       }
     }),
-  );
+  )
+    .then((results) => {
+      popularCache = results.filter((t): t is SwapToken => t !== null);
+      return popularCache;
+    })
+    .finally(() => {
+      popularInflight = null;
+    });
 
-  popularCache = results.filter((t): t is SwapToken => t !== null);
-  return popularCache;
+  return popularInflight;
 }
 
-export function usePopularTokens() {
+export function resetPopularTokensCacheForTests() {
+  popularCache = null;
+  popularInflight = null;
+}
+
+export function usePopularTokens(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled ?? true;
   const [tokens, setTokens] = useState<SwapToken[]>(popularCache ?? []);
-  const [isLoading, setIsLoading] = useState(!popularCache);
+  const [isLoading, setIsLoading] = useState(enabled && !popularCache);
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
+
     let cancelled = false;
+    setIsLoading(!popularCache);
     void fetchPopularTokens()
       .then((result) => {
         if (!cancelled) setTokens(result);
@@ -91,7 +111,7 @@ export function usePopularTokens() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled]);
 
   const search = useCallback(
     async (query: string): Promise<SwapToken[]> => {

@@ -26,6 +26,7 @@ import {
 } from "@/lib/kamino/enrich-portfolio";
 import { getCachedKaminoLendingApyBps } from "@/lib/kamino/kamino-read-client";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
+import { fetchTokenMarkets } from "@/lib/market/token-markets.client";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
@@ -1004,18 +1005,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     }
 
     let cancelled = false;
-    const url = new URL("/api/tokens/markets", window.location.origin);
-    url.searchParams.set("mints", valuedMintsSignature);
-
-    void fetch(url.toString())
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Markets request failed: ${response.status}`);
-        }
-        return response.json() as Promise<{
-          markets: { mint: string; priceChange24hPercent: number | null }[];
-        }>;
-      })
+    void fetchTokenMarkets(valuedMintsSignature)
       .then(({ markets }) => {
         if (cancelled) return;
         const next = new Map<string, number>();

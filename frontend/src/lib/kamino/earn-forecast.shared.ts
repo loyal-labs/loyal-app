@@ -36,6 +36,11 @@ export type EarnForecastApyHistoryResponse = {
   window: { startedAt: string; endedAt: string };
 };
 
+export type EarnForecastSummaryResponse = {
+  forecast: EarnForecastResponse;
+  history: EarnForecastApyHistoryResponse;
+};
+
 export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
   apyBps: 1197,
   rangeHighBps: 1325,

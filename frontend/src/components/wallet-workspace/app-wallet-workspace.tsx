@@ -100,6 +100,7 @@ import {
   fetchEarnEarningsRangeSet,
   invalidateEarnEarningsCache,
 } from "@/hooks/use-earn-earnings";
+import { invalidateEarnTransactionsCache } from "@/lib/yield-optimization/earn-transactions.client";
 import { useActiveEarnPosition } from "@/hooks/use-active-earn-position";
 import {
   prepareEarnDepositOnServer,
@@ -329,6 +330,11 @@ const actionLabels: Record<WorkspaceAction, string> = {
 
 function viewType(view: SubView) {
   return typeof view === "object" && view !== null ? view.type : view;
+}
+
+function shouldLoadPopularTokensForView(view: SubView) {
+  const type = viewType(view);
+  return type === "swapPanel" || type === "tokenSelect";
 }
 
 function initialActionTransition(
@@ -917,8 +923,24 @@ export function AppWalletWorkspace({
     activeEarnPositionApyBps !== null && activeEarnPositionApyBps !== undefined
       ? `${formatEarnApyPercent(Number(activeEarnPositionApyBps))} APY`
       : undefined;
+  const invalidateEarnClientCaches = useCallback(() => {
+    invalidateEarnEarningsCache();
+    invalidateEarnTransactionsCache({
+      settingsPda: smartAccountData.overview?.settingsPda,
+      solanaEnv: publicEnv.solanaEnv,
+      walletAddress: walletDesktopData.walletAddress ?? undefined,
+    });
+  }, [
+    publicEnv.solanaEnv,
+    smartAccountData.overview?.settingsPda,
+    walletDesktopData.walletAddress,
+  ]);
   const signInOpenedForConnectRef = useRef(false);
-  const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
+  const [shouldLoadPopularTokens, setShouldLoadPopularTokens] =
+    useState(false);
+  const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
+    enabled: shouldLoadPopularTokens,
+  });
   const routeSection: WorkspaceSection =
     pathname === "/app/policies"
       ? "policies"
@@ -1470,7 +1492,7 @@ export function AppWalletWorkspace({
     }
 
     if (!isSignedIn) {
-      invalidateEarnEarningsCache();
+      invalidateEarnClientCaches();
     }
   }, [isAuthHydrated, isSignedIn]);
 
@@ -1847,6 +1869,10 @@ export function AppWalletWorkspace({
 
   const pushView = useCallback(
     (view: Exclude<SubView, null>) => {
+      if (shouldLoadPopularTokensForView(view)) {
+        setShouldLoadPopularTokens(true);
+      }
+
       markDetailPaneTransition("forward");
       setViewStack((current) => [...current, view]);
     },
@@ -1865,6 +1891,10 @@ export function AppWalletWorkspace({
       initialRecipient = "",
       returnSelection = detailSelection
     ) => {
+      if (shouldLoadPopularTokensForView(view)) {
+        setShouldLoadPopularTokens(true);
+      }
+
       setActionReturnSelection(
         returnSelection === "action" ? actionReturnSelection : returnSelection
       );
@@ -2361,7 +2391,7 @@ export function AppWalletWorkspace({
       ...autodepositConfig,
       state: nextActive ? "created" : "paused",
     });
-  }, [autodepositConfig, smartAccountData]);
+  }, [autodepositConfig, invalidateEarnClientCaches, smartAccountData]);
 
   const handleDeleteAutodeposit = useCallback(() => {
     handleOpenAutodepositCloseReview();
@@ -2624,7 +2654,7 @@ export function AppWalletWorkspace({
       setEarnDepositReviewStage("deposit");
       setIsEarnDepositPolicySetupFlow(false);
       setEarnDepositPrepareError(null);
-      invalidateEarnEarningsCache();
+      invalidateEarnClientCaches();
       setActiveEarnPosition((current) => {
         const nowIso = new Date().toISOString();
         const tokenMint = pendingEarnDepositDraft.tokenMint ?? "";
@@ -2703,6 +2733,7 @@ export function AppWalletWorkspace({
     refreshActiveEarnPosition,
     setActiveEarnPosition,
     setDetailSelection,
+    invalidateEarnClientCaches,
     smartAccountData,
   ]);
 
@@ -2743,7 +2774,7 @@ export function AppWalletWorkspace({
         }
 
         markDetailPaneTransition("back");
-        invalidateEarnEarningsCache();
+        invalidateEarnClientCaches();
         setPendingEarnWithdrawDraft(null);
         setActiveEarnPosition((current) => {
           if (!current) {
@@ -2781,6 +2812,7 @@ export function AppWalletWorkspace({
       refreshActiveEarnPosition,
       setActiveEarnPosition,
       setDetailSelection,
+      invalidateEarnClientCaches,
       smartAccountData,
     ]
   );
@@ -2850,6 +2882,7 @@ export function AppWalletWorkspace({
         setPendingEarnAutodepositSetupPrepared(null);
         setEarnAutodepositSetupReviewStage("policy");
         setIsEarnAutodepositCloseReview(false);
+        invalidateEarnClientCaches();
         markDetailPaneTransition("back");
         setSelectedSignerId(null);
         setDetailSelection("earn");
@@ -2905,6 +2938,7 @@ export function AppWalletWorkspace({
       setPendingEarnAutodepositSetupPrepared(null);
       setEarnAutodepositSetupReviewStage("policy");
       setIsEarnAutodepositCloseReview(false);
+      invalidateEarnClientCaches();
       markDetailPaneTransition("back");
       setSelectedSignerId(null);
       setDetailSelection("earn");
@@ -2922,6 +2956,7 @@ export function AppWalletWorkspace({
   }, [
     autodepositConfig,
     markDetailPaneTransition,
+    invalidateEarnClientCaches,
     pendingEarnAutodepositDraft,
     pendingEarnAutodepositSetupPrepared,
     setDetailSelection,
@@ -2960,6 +2995,7 @@ export function AppWalletWorkspace({
       setPendingEarnAutodepositDraft(null);
       setPendingEarnAutodepositClosePrepared(null);
       setIsEarnAutodepositCloseReview(false);
+      invalidateEarnClientCaches();
       markDetailPaneTransition("back");
       setSelectedSignerId(null);
       setDetailSelection("earn");
@@ -2974,6 +3010,7 @@ export function AppWalletWorkspace({
     }
   }, [
     autodepositConfig,
+    invalidateEarnClientCaches,
     markDetailPaneTransition,
     pendingEarnAutodepositClosePrepared,
     setDetailSelection,
@@ -4751,6 +4788,9 @@ export function AppWalletWorkspace({
                     "earn"
                   );
                 }}
+                settingsPda={smartAccountData.overview?.settingsPda}
+                solanaEnv={publicEnv.solanaEnv}
+                walletAddress={walletDesktopData.walletAddress}
               />
             ) : shouldShowApprovalsSkeleton ? (
               <WorkspaceApprovalsSkeleton />

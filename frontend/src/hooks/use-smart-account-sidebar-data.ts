@@ -55,6 +55,7 @@ import {
   readClientCache,
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
+import { fetchTokenMarkets } from "@/lib/market/token-markets.client";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
   buildEarnDepositConfirmRequestBody,
@@ -204,6 +205,14 @@ type SmartAccountOverviewCacheGroupData = {
   proposals: SmartAccountProposalSnapshot[];
   bestApyReserves: CurrentBestApyReserveByStablecoinCache;
 };
+
+function isSmartAccountOverviewCacheGroupFresh(
+  group: SmartAccountOverviewCacheGroup<unknown> | undefined,
+  ttlMs: number,
+  now = Date.now()
+) {
+  return Boolean(group && now - group.savedAt < ttlMs);
+}
 
 export type SmartAccountApprovalItem = {
   id: string;
@@ -837,6 +846,8 @@ function mergePolicyOverview(
 const SMART_ACCOUNT_OVERVIEW_CACHE_VERSION = 1;
 const SMART_ACCOUNT_OVERVIEW_CACHE_PREFIX = "loyal.smartAccountOverview.v1";
 const DEFAULT_BEST_APY_RESERVES_RISK_PROFILE = "safe";
+const SMART_ACCOUNT_OVERVIEW_GROUP_TTL_MS = 30 * 1000;
+const SMART_ACCOUNT_BEST_APY_RESERVES_TTL_MS = 5 * 60 * 1000;
 
 function getSmartAccountOverviewCacheKey(args: {
   settingsPda: string;
@@ -2312,6 +2323,13 @@ export function useSmartAccountSidebarData(
       const settingsPda = user.settingsPda;
       let baseOverview: SmartAccountOverview | null = null;
       const shouldReadCache = refreshOptions?.readCache ?? true;
+      const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
+        (value) => value.length > 0
+      );
+      const hasInvalidations = Boolean(
+        invalidateAddresses && invalidateAddresses.length > 0
+      );
+      const canUseFreshCache = shouldReadCache && !hasInvalidations;
       const cachedPayload = shouldReadCache
         ? readSmartAccountOverviewCache({
             settingsPda,
@@ -2328,6 +2346,12 @@ export function useSmartAccountSidebarData(
           solanaEnv,
         })?.groups.bestApyReserves?.data ??
         null;
+      const cachedBaseIsFresh =
+        canUseFreshCache &&
+        isSmartAccountOverviewCacheGroupFresh(
+          cachedPayload?.groups.base,
+          SMART_ACCOUNT_OVERVIEW_GROUP_TTL_MS
+        );
 
       if (cachedOverview) {
         baseOverview = cachedOverview;
@@ -2355,26 +2379,35 @@ export function useSmartAccountSidebarData(
       const earnStatePromise = fetchEarnState().catch(() => null);
 
       try {
-        const baseUrl = new URL(
-          "/api/smart-accounts/overview/base",
-          window.location.origin
-        );
-        const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
-          baseUrl
-        );
-        writeSmartAccountOverviewCacheGroup({
-          settingsPda,
-          solanaEnv,
-          group: "base",
-          data: base,
-        });
-        baseOverview = mergeCachedGroupsOntoOverview(
-          createOverviewFromBase(base),
-          cachedPayload
-        );
-        setOverview(baseOverview);
-        setVaultActivityByAccountIndex({});
-        vaultActivityLoadPromisesRef.current.clear();
+        if (cachedBaseIsFresh && cachedPayload?.groups.base) {
+          baseOverview =
+            cachedOverview ??
+            mergeCachedGroupsOntoOverview(
+              createOverviewFromBase(cachedPayload.groups.base.data),
+              cachedPayload
+            );
+        } else {
+          const baseUrl = new URL(
+            "/api/smart-accounts/overview/base",
+            window.location.origin
+          );
+          const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
+            baseUrl
+          );
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "base",
+            data: base,
+          });
+          baseOverview = mergeCachedGroupsOntoOverview(
+            createOverviewFromBase(base),
+            cachedPayload
+          );
+          setOverview(baseOverview);
+          setVaultActivityByAccountIndex({});
+          vaultActivityLoadPromisesRef.current.clear();
+        }
       } catch (nextError) {
         const message =
           nextError instanceof Error
@@ -2417,11 +2450,17 @@ export function useSmartAccountSidebarData(
         }
       };
 
-      const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
-        (value) => value.length > 0
-      );
-
       const loadVaults = async () => {
+        if (
+          canUseFreshCache &&
+          isSmartAccountOverviewCacheGroupFresh(
+            cachedPayload?.groups.vaults,
+            SMART_ACCOUNT_OVERVIEW_GROUP_TTL_MS
+          )
+        ) {
+          return;
+        }
+
         setIsVaultsLoading(true);
 
         try {
@@ -2470,6 +2509,16 @@ export function useSmartAccountSidebarData(
       };
 
       const loadPolicies = async () => {
+        if (
+          canUseFreshCache &&
+          isSmartAccountOverviewCacheGroupFresh(
+            cachedPayload?.groups.policies,
+            SMART_ACCOUNT_OVERVIEW_GROUP_TTL_MS
+          )
+        ) {
+          return;
+        }
+
         setIsPoliciesLoading(true);
 
         try {
@@ -2506,6 +2555,16 @@ export function useSmartAccountSidebarData(
       };
 
       const loadProposals = async () => {
+        if (
+          canUseFreshCache &&
+          isSmartAccountOverviewCacheGroupFresh(
+            cachedPayload?.groups.proposals,
+            SMART_ACCOUNT_OVERVIEW_GROUP_TTL_MS
+          )
+        ) {
+          return;
+        }
+
         if (shouldSkipSmartAccountProposalLoad(baseOverview)) {
           const proposals: SmartAccountProposalSnapshot[] = [];
           writeSmartAccountOverviewCacheGroup({
@@ -2569,7 +2628,12 @@ export function useSmartAccountSidebarData(
       const loadBestApyReserves = async () => {
         if (
           cachedBestApyReserves?.riskProfile ===
-          DEFAULT_BEST_APY_RESERVES_RISK_PROFILE
+            DEFAULT_BEST_APY_RESERVES_RISK_PROFILE &&
+          canUseFreshCache &&
+          isSmartAccountOverviewCacheGroupFresh(
+            cachedPayload?.groups.bestApyReserves,
+            SMART_ACCOUNT_BEST_APY_RESERVES_TTL_MS
+          )
         ) {
           setBestApyReservesByStablecoin(cachedBestApyReserves);
           return;
@@ -2992,18 +3056,7 @@ export function useSmartAccountSidebarData(
     }
 
     let cancelled = false;
-    const url = new URL("/api/tokens/markets", window.location.origin);
-    url.searchParams.set("mints", vaultMintsSignature);
-
-    void fetch(url.toString())
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Markets request failed: ${response.status}`);
-        }
-        return response.json() as Promise<{
-          markets: { mint: string; priceChange24hPercent: number | null }[];
-        }>;
-      })
+    void fetchTokenMarkets(vaultMintsSignature)
       .then(({ markets }) => {
         if (cancelled) return;
         const next = new Map<string, number>();
@@ -4737,8 +4790,7 @@ export function useSmartAccountSidebarData(
     isBaseLoading ||
     isVaultsLoading ||
     isPoliciesLoading ||
-    isProposalsLoading ||
-    isBestApyReservesLoading;
+    isProposalsLoading;
 
   return {
     overview,

@@ -138,7 +138,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   // Navigation stack: stack[0] = Layer 1, stack[1] = Layer 2
   const [viewStack, setViewStack] = useState<Exclude<SubView, null>[]>([]);
+  const [shouldLoadPopularTokens, setShouldLoadPopularTokens] =
+    useState(false);
   const pushView = useCallback((view: Exclude<SubView, null>) => {
+    const type = typeof view === "object" && view !== null ? view.type : view;
+    if (type === "swapPanel" || type === "tokenSelect") {
+      setShouldLoadPopularTokens(true);
+    }
+
     setViewStack((s) => [...s, view]);
   }, []);
   const popView = useCallback(() => {
@@ -210,7 +217,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [props.smartAccountData.approvals, selectedApprovalId]
   );
 
-  const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
+  const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
+    enabled: shouldLoadPopularTokens,
+  });
 
   // Derive real token list from wallet positions, falling back to mock data
   const derivedTokens = useMemo<SwapToken[]>(() => {
