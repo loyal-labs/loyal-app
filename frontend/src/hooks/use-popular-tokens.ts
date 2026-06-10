@@ -3,7 +3,23 @@
 import type { SwapToken } from "@loyal-labs/wallet-core/types";
 import { useCallback, useEffect, useState } from "react";
 
+import {
+  readClientCacheEntry,
+  writeClientCache,
+} from "@/lib/client-cache/client-cache";
+
 const JUPITER_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
+
+const POPULAR_TOKENS_CACHE_KEY = "loyal.popularTokens.v1";
+const POPULAR_TOKENS_CACHE_VERSION = 1;
+// Jupiter's verified-token registry is mainnet data regardless of the
+// selected Solana cluster, so the persisted cache is env-independent.
+const POPULAR_TOKENS_CACHE_SCOPE = "global";
+// Token identity (mint/symbol/icon/decimals) is effectively immutable; the
+// price field is only indicative in pickers (quotes come from the Jupiter
+// quote API), so serving a stale list is safe.
+const POPULAR_TOKENS_FRESH_MS = 60 * 60 * 1000;
+const POPULAR_TOKENS_PERSIST_TTL_MS = 24 * 60 * 60 * 1000;
 
 const POPULAR_SYMBOLS = [
   "USDC",
@@ -49,11 +65,35 @@ async function searchJupiterToken(
   return res.json();
 }
 
+function isSwapTokenArray(data: unknown): data is SwapToken[] {
+  return (
+    Array.isArray(data) &&
+    data.every(
+      (t) =>
+        typeof t === "object" &&
+        t !== null &&
+        typeof (t as SwapToken).mint === "string" &&
+        typeof (t as SwapToken).symbol === "string" &&
+        typeof (t as SwapToken).icon === "string" &&
+        typeof (t as SwapToken).price === "number" &&
+        typeof (t as SwapToken).balance === "number",
+    )
+  );
+}
+
+function readPersistedPopularTokens() {
+  return readClientCacheEntry<SwapToken[]>({
+    key: POPULAR_TOKENS_CACHE_KEY,
+    version: POPULAR_TOKENS_CACHE_VERSION,
+    solanaEnv: POPULAR_TOKENS_CACHE_SCOPE,
+    validate: isSwapTokenArray,
+  });
+}
+
 let popularCache: SwapToken[] | null = null;
 let popularInflight: Promise<SwapToken[]> | null = null;
 
-export async function fetchPopularTokens(): Promise<SwapToken[]> {
-  if (popularCache) return popularCache;
+function loadPopularTokensFromNetwork(): Promise<SwapToken[]> {
   if (popularInflight) return popularInflight;
 
   popularInflight = Promise.all(
@@ -74,6 +114,17 @@ export async function fetchPopularTokens(): Promise<SwapToken[]> {
   )
     .then((results) => {
       popularCache = results.filter((t): t is SwapToken => t !== null);
+      // Only persist complete lists so a partial outage never pins a
+      // degraded picker for the full TTL.
+      if (popularCache.length === POPULAR_SYMBOLS.length) {
+        writeClientCache({
+          key: POPULAR_TOKENS_CACHE_KEY,
+          version: POPULAR_TOKENS_CACHE_VERSION,
+          solanaEnv: POPULAR_TOKENS_CACHE_SCOPE,
+          data: popularCache,
+          ttlMs: POPULAR_TOKENS_PERSIST_TTL_MS,
+        });
+      }
       return popularCache;
     })
     .finally(() => {
@@ -81,6 +132,24 @@ export async function fetchPopularTokens(): Promise<SwapToken[]> {
     });
 
   return popularInflight;
+}
+
+export async function fetchPopularTokens(): Promise<SwapToken[]> {
+  if (popularCache) return popularCache;
+  if (popularInflight) return popularInflight;
+
+  const persisted = readPersistedPopularTokens();
+  if (persisted) {
+    popularCache = persisted.data;
+    if (Date.now() - persisted.savedAt >= POPULAR_TOKENS_FRESH_MS) {
+      // Stale but usable: serve instantly and revalidate in the background
+      // for the next consumer.
+      void loadPopularTokensFromNetwork().catch(() => {});
+    }
+    return popularCache;
+  }
+
+  return loadPopularTokensFromNetwork();
 }
 
 export function resetPopularTokensCacheForTests() {

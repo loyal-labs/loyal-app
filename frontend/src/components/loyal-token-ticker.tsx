@@ -9,6 +9,10 @@ import {
   TickerSymbol,
 } from "@/components/kibo-ui/ticker";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import {
+  readClientCacheEntry,
+  writeClientCache,
+} from "@/lib/client-cache/client-cache";
 import { openTrackedLink } from "@/lib/core/analytics";
 
 const LOYAL_TOKEN_ADDRESS = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
@@ -17,11 +21,49 @@ const RETRY_DELAY = 2000;
 const FETCH_TIMEOUT = 10_000;
 const REFRESH_INTERVAL = 60_000;
 
+const TICKER_CACHE_KEY = "loyal.loyalTicker.v1";
+const TICKER_CACHE_VERSION = 1;
+// LOYAL is a mainnet token; the ticker shows the same data on every cluster.
+const TICKER_CACHE_SCOPE = "global";
+const TICKER_PERSIST_TTL_MS = 24 * 60 * 60 * 1000;
+
 type TokenData = {
   symbol: string;
   icon: string;
   usdPrice: number;
 };
+
+function isTokenData(data: unknown): data is TokenData {
+  if (typeof data !== "object" || data === null) return false;
+  const candidate = data as TokenData;
+  return (
+    typeof candidate.symbol === "string" &&
+    candidate.symbol.length > 0 &&
+    typeof candidate.icon === "string" &&
+    candidate.icon.length > 0 &&
+    typeof candidate.usdPrice === "number" &&
+    Number.isFinite(candidate.usdPrice)
+  );
+}
+
+function readCachedTokenData() {
+  return readClientCacheEntry<TokenData>({
+    key: TICKER_CACHE_KEY,
+    version: TICKER_CACHE_VERSION,
+    solanaEnv: TICKER_CACHE_SCOPE,
+    validate: isTokenData,
+  });
+}
+
+function writeCachedTokenData(data: TokenData) {
+  writeClientCache({
+    key: TICKER_CACHE_KEY,
+    version: TICKER_CACHE_VERSION,
+    solanaEnv: TICKER_CACHE_SCOPE,
+    data,
+    ttlMs: TICKER_PERSIST_TTL_MS,
+  });
+}
 
 type FetchResult = {
   success: boolean;
@@ -122,6 +164,7 @@ export function LoyalTokenTicker() {
       const data = await fetchWithRetry(abortControllerRef, () => mounted);
 
       if (data) {
+        writeCachedTokenData(data);
         setTokenData(data);
         setLoading(false);
       } else if (mounted) {
@@ -129,7 +172,17 @@ export function LoyalTokenTicker() {
       }
     };
 
-    fetchTokenData();
+    // Paint the last known ticker instantly; skip the immediate fetch when
+    // the cache is younger than the refresh interval (the interval below
+    // keeps it current either way).
+    const cached = readCachedTokenData();
+    if (cached) {
+      setTokenData(cached.data);
+      setLoading(false);
+    }
+    if (!cached || Date.now() - cached.savedAt >= REFRESH_INTERVAL) {
+      fetchTokenData();
+    }
 
     const interval = setInterval(fetchTokenData, REFRESH_INTERVAL);
 

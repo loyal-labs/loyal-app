@@ -847,7 +847,9 @@ const SMART_ACCOUNT_OVERVIEW_CACHE_VERSION = 1;
 const SMART_ACCOUNT_OVERVIEW_CACHE_PREFIX = "loyal.smartAccountOverview.v1";
 const DEFAULT_BEST_APY_RESERVES_RISK_PROFILE = "safe";
 const SMART_ACCOUNT_OVERVIEW_GROUP_TTL_MS = 30 * 1000;
-const SMART_ACCOUNT_BEST_APY_RESERVES_TTL_MS = 5 * 60 * 1000;
+// Best-APY reserve rankings move over hours; 30 minutes of staleness is
+// invisible while it skips a Kamino-backed request on most reopens.
+const SMART_ACCOUNT_BEST_APY_RESERVES_TTL_MS = 30 * 60 * 1000;
 
 function getSmartAccountOverviewCacheKey(args: {
   settingsPda: string;

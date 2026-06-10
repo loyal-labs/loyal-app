@@ -30,7 +30,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export function readClientCache<T>(args: {
+export type ClientCacheEntry<T> = {
+  data: T;
+  savedAt: number;
+};
+
+export function readClientCacheEntry<T>(args: {
   key: string;
   version: number;
   solanaEnv: string;
@@ -39,7 +44,7 @@ export function readClientCache<T>(args: {
   now?: number;
   storage?: Pick<Storage, "getItem"> | null;
   validate?: (data: unknown) => data is T;
-}): T | null {
+}): ClientCacheEntry<T> | null {
   const storage =
     args.storage === undefined ? getClientCacheStorage() : args.storage;
   if (!storage) {
@@ -96,7 +101,27 @@ export function readClientCache<T>(args: {
     return null;
   }
 
-  return parsed.data as T;
+  if (typeof parsed.savedAt !== "number") {
+    return null;
+  }
+
+  return {
+    data: parsed.data as T,
+    savedAt: parsed.savedAt,
+  };
+}
+
+export function readClientCache<T>(args: {
+  key: string;
+  version: number;
+  solanaEnv: string;
+  walletAddress?: string | null;
+  settingsPda?: string | null;
+  now?: number;
+  storage?: Pick<Storage, "getItem"> | null;
+  validate?: (data: unknown) => data is T;
+}): T | null {
+  return readClientCacheEntry(args)?.data ?? null;
 }
 
 export function writeClientCache<T>(args: {

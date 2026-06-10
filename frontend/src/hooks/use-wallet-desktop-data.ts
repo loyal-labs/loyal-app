@@ -26,6 +26,10 @@ import {
 } from "@/lib/kamino/enrich-portfolio";
 import { getCachedKaminoLendingApyBps } from "@/lib/kamino/kamino-read-client";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
+import {
+  fetchTokenMarketPriceUsd,
+  readCachedTokenMarketPriceUsd,
+} from "@/lib/market/token-market.client";
 import { fetchTokenMarkets } from "@/lib/market/token-markets.client";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
@@ -957,26 +961,20 @@ export function useWalletDesktopData(): WalletDesktopData {
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/tokens/${LOYL_MINT}/market`)
-      .then((res) => res.json())
-      .then(
-        (market: {
-          market?: {
-            priceUsd?: number | null;
-          };
-        }) => {
-          if (cancelled) return;
-          const price = market.market?.priceUsd;
-          if (
-            typeof price === "number" &&
-            Number.isFinite(price) &&
-            price > 0
-          ) {
-            setLoylPriceUsd(price);
-          }
-        }
-      )
-      .catch(() => {});
+
+    // Paint the last known price instantly, then revalidate via the shared
+    // client (deduped with other LOYL price consumers; no-op when fresh).
+    const cached = readCachedTokenMarketPriceUsd(LOYL_MINT);
+    if (cached !== null) {
+      setLoylPriceUsd(cached);
+    }
+
+    void fetchTokenMarketPriceUsd(LOYL_MINT).then((price) => {
+      if (!cancelled && price !== null) {
+        setLoylPriceUsd(price);
+      }
+    });
+
     return () => {
       cancelled = true;
     };
