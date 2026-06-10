@@ -23,6 +23,8 @@ import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import {
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
+  type SmartAccountPreparedEarnUsdcAutodepositClose,
+  type SmartAccountPreparedEarnUsdcAutodepositSetup,
   type SmartAccountPreparedEarnUsdcDeposit,
 } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -61,6 +63,7 @@ import {
   EarnDetailView,
   EarnWithdrawView,
   type EarnDepositDraft,
+  type EarnAutodepositDraft,
   type EarnDepositSourceOption,
   type EarnWithdrawDraft,
 } from "@/components/wallet-sidebar/earn-detail-view";
@@ -122,6 +125,8 @@ import {
   advanceEarnDepositReviewAfterPolicySetup,
   applyEarnDepositFormDraftChange,
   buildEarnDepositReviewItem,
+  buildEarnAutodepositCloseReviewItem,
+  buildEarnAutodepositSetupReviewItem,
   buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
   setEarnDepositReviewPreparedDeposit,
@@ -160,6 +165,14 @@ type DetailSelection =
   | "vault"
   | "wallet";
 type ResizeTarget = "account" | "review";
+type EarnAutodepositConfig = {
+  amount: string;
+  keepAmount: string;
+  policyAccount: string;
+  recurringDelegation: string;
+  nonce: string;
+  state: "created" | "closing" | "creating";
+};
 type PersistedWorkspaceSelection =
   | {
       type: "agent";
@@ -1018,12 +1031,22 @@ export function AppWalletWorkspace({
     useState(false);
   const [pendingEarnWithdrawDraft, setPendingEarnWithdrawDraft] =
     useState<EarnWithdrawDraft | null>(null);
-  // Autodeposit is not wired yet — this client-side demo state drives the
-  // setup/edit flow and the configured/not-configured card states. `amount` is
-  // a whole-dollar digit string (resets on refresh, by design).
-  const [autodepositConfig, setAutodepositConfig] = useState<{
-    amount: string;
-  } | null>(null);
+  const [pendingEarnAutodepositDraft, setPendingEarnAutodepositDraft] =
+    useState<EarnAutodepositDraft | null>(null);
+  const [
+    pendingEarnAutodepositSetupPrepared,
+    setPendingEarnAutodepositSetupPrepared,
+  ] = useState<SmartAccountPreparedEarnUsdcAutodepositSetup | null>(null);
+  const [
+    pendingEarnAutodepositClosePrepared,
+    setPendingEarnAutodepositClosePrepared,
+  ] = useState<SmartAccountPreparedEarnUsdcAutodepositClose | null>(null);
+  const [isEarnAutodepositCloseReview, setIsEarnAutodepositCloseReview] =
+    useState(false);
+  // Local until Yield Neon persistence is added; includes enough on-chain
+  // metadata to close the exact policy/delegation created by this session.
+  const [autodepositConfig, setAutodepositConfig] =
+    useState<EarnAutodepositConfig | null>(null);
   const autodepositAmountLabel = autodepositConfig
     ? `$${Number(autodepositConfig.amount || 0).toLocaleString("en-US")}.00`
     : undefined;
@@ -1272,6 +1295,14 @@ export function AppWalletWorkspace({
     );
     return mainDestination ? [mainDestination] : earnDepositSources.slice(0, 1);
   }, [earnDepositSources]);
+  const earnVaultAddressLabel = useMemo(() => {
+    const earnVault = smartAccountData.overview?.vaults.find(
+      (vault) => vault.accountIndex === 1
+    );
+    return earnVault?.address
+      ? formatAddressForEarnSource(earnVault.address)
+      : null;
+  }, [smartAccountData.overview?.vaults]);
   const hasEarnPosition =
     activeEarnPosition?.status === "active" &&
     BigInt(activeEarnPosition.principalAmountRaw) > BigInt(0);
@@ -1305,9 +1336,48 @@ export function AppWalletWorkspace({
         : null,
     [detailSelection, pendingEarnWithdrawDraft]
   );
+  const earnAutodepositSetupReviewItem = useMemo(
+    () =>
+      pendingEarnAutodepositDraft &&
+      detailSelection === "earnAutodeposit" &&
+      !isEarnAutodepositCloseReview
+        ? buildEarnAutodepositSetupReviewItem({
+            draft: pendingEarnAutodepositDraft,
+            preparedSetup: pendingEarnAutodepositSetupPrepared,
+          })
+        : null,
+    [
+      detailSelection,
+      isEarnAutodepositCloseReview,
+      pendingEarnAutodepositDraft,
+      pendingEarnAutodepositSetupPrepared,
+    ]
+  );
+  const earnAutodepositCloseReviewItem = useMemo(
+    () =>
+      autodepositConfig &&
+      detailSelection === "earnAutodeposit" &&
+      isEarnAutodepositCloseReview
+        ? buildEarnAutodepositCloseReviewItem({
+            amountLabel:
+              autodepositAmountLabel ?? `$${autodepositConfig.amount}.00`,
+            preparedClose: pendingEarnAutodepositClosePrepared,
+          })
+        : null,
+    [
+      autodepositConfig,
+      autodepositAmountLabel,
+      detailSelection,
+      isEarnAutodepositCloseReview,
+      pendingEarnAutodepositClosePrepared,
+    ]
+  );
   // An Earn deposit/withdraw approval is being reviewed in the right pane.
   const isReviewApprovalFocused = Boolean(
-    earnDepositReviewItem || earnWithdrawReviewItem
+    earnDepositReviewItem ||
+      earnWithdrawReviewItem ||
+      earnAutodepositSetupReviewItem ||
+      earnAutodepositCloseReviewItem
   );
   const earnWithdrawMaxAmount = activeEarnPosition
     ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
@@ -2120,33 +2190,85 @@ export function AppWalletWorkspace({
 
   const handleBackFromAutodeposit = useCallback(() => {
     markDetailPaneTransition("back");
+    setPendingEarnAutodepositDraft(null);
+    setPendingEarnAutodepositSetupPrepared(null);
+    setPendingEarnAutodepositClosePrepared(null);
+    setIsEarnAutodepositCloseReview(false);
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleSaveAutodeposit = useCallback(
-    (amount: string) => {
-      setAutodepositConfig({ amount });
-      markDetailPaneTransition("back");
-      setSelectedSignerId(null);
-      setDetailSelection("earn");
-      setSelectedDetail("Earn");
+    (amount: string, keepAmount: string) => {
+      const source = earnDepositSources.find((entry) => entry.id === "main");
+      if (!source) {
+        setProposalActionError("Main Account USDC source is not loaded yet.");
+        return;
+      }
+
+      const normalizedAmount = Number(amount || 0);
+      const normalizedKeepAmount = Number(keepAmount || 0);
+      if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+        setProposalActionError("Enter an autodeposit amount.");
+        return;
+      }
+
+      setProposalActionError(null);
+      setPendingEarnAutodepositSetupPrepared(null);
+      setPendingEarnAutodepositClosePrepared(null);
+      setIsEarnAutodepositCloseReview(false);
+      setPendingEarnAutodepositDraft({
+        amount: normalizedAmount,
+        amountLabel: amount,
+        keepAmount: normalizedKeepAmount,
+        keepAmountLabel: keepAmount,
+        nonce: BigInt(Date.now()),
+        source,
+        symbol: "USDC",
+        tokenDecimals: source.decimals,
+      });
     },
-    [markDetailPaneTransition, setDetailSelection]
+    [earnDepositSources]
   );
 
-  const handleDisableAutodeposit = useCallback(() => {
-    setAutodepositConfig(null);
+  const handleDismissEarnAutodepositPreview = useCallback(() => {
+    setPendingEarnAutodepositDraft(null);
+    setPendingEarnAutodepositSetupPrepared(null);
+    setPendingEarnAutodepositClosePrepared(null);
+    setAutodepositConfig((current) =>
+      current?.state === "closing" ? { ...current, state: "created" } : current
+    );
+    setIsEarnAutodepositCloseReview(false);
+    setProposalActionError(null);
   }, []);
 
-  const handleDeleteAutodeposit = useCallback(() => {
-    setAutodepositConfig(null);
-    markDetailPaneTransition("back");
+  const handleOpenAutodepositCloseReview = useCallback(() => {
+    if (!autodepositConfig) {
+      return;
+    }
+    setAutodepositConfig({ ...autodepositConfig, state: "closing" });
+    setPendingEarnAutodepositDraft(null);
+    setPendingEarnAutodepositSetupPrepared(null);
+    setPendingEarnAutodepositClosePrepared(null);
+    setIsEarnAutodepositCloseReview(true);
+    markDetailPaneTransition("forward");
     setSelectedSignerId(null);
-    setDetailSelection("earn");
-    setSelectedDetail("Earn");
-  }, [markDetailPaneTransition, setDetailSelection]);
+    setDetailSelection("earnAutodeposit");
+    setSelectedDetail("Autodeposit");
+  }, [
+    autodepositConfig,
+    markDetailPaneTransition,
+    setDetailSelection,
+  ]);
+
+  const handleDisableAutodeposit = useCallback(() => {
+    handleOpenAutodepositCloseReview();
+  }, [handleOpenAutodepositCloseReview]);
+
+  const handleDeleteAutodeposit = useCallback(() => {
+    handleOpenAutodepositCloseReview();
+  }, [handleOpenAutodepositCloseReview]);
 
   const handleDismissEarnDepositPreview = useCallback(() => {
     console.log("[earn-deposit] preview dismissed");
@@ -2170,12 +2292,23 @@ export function AppWalletWorkspace({
 
     if (pendingEarnWithdrawDraft && detailSelection === "earnWithdraw") {
       handleDismissEarnWithdrawPreview();
+      return;
+    }
+
+    if (
+      (pendingEarnAutodepositDraft || isEarnAutodepositCloseReview) &&
+      detailSelection === "earnAutodeposit"
+    ) {
+      handleDismissEarnAutodepositPreview();
     }
   }, [
     detailSelection,
+    handleDismissEarnAutodepositPreview,
     handleDismissEarnDepositPreview,
     handleDismissEarnWithdrawPreview,
     isEarnDepositDetailActive,
+    isEarnAutodepositCloseReview,
+    pendingEarnAutodepositDraft,
     pendingEarnDepositDraft,
     pendingEarnWithdrawDraft,
   ]);
@@ -2554,6 +2687,128 @@ export function AppWalletWorkspace({
       smartAccountData,
     ]
   );
+
+  const handleCompleteEarnAutodepositSetup = useCallback(async () => {
+    if (!pendingEarnAutodepositDraft) {
+      setProposalActionError("Enter an autodeposit amount before continuing.");
+      return;
+    }
+
+    setProposalActionError(null);
+    setAutodepositConfig((current) =>
+      current
+        ? { ...current, state: "creating" }
+        : {
+            amount: pendingEarnAutodepositDraft.amountLabel,
+            keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
+            nonce: pendingEarnAutodepositDraft.nonce.toString(),
+            policyAccount: "",
+            recurringDelegation: "",
+            state: "creating",
+          }
+    );
+
+    try {
+      const amountRaw = parseTokenAmountLabelToRaw(
+        pendingEarnAutodepositDraft.amountLabel,
+        pendingEarnAutodepositDraft.tokenDecimals
+      );
+      const result = await smartAccountData.executeEarnAutodepositSetup({
+        amountRaw,
+        nonce: pendingEarnAutodepositDraft.nonce,
+        preparedSetup: pendingEarnAutodepositSetupPrepared,
+      });
+
+      if (!result.success || !result.preparedSetup) {
+        throw new Error(result.error ?? "Autodeposit setup failed.");
+      }
+
+      const policyAccount = result.preparedSetup.persistence.policyAccount;
+      if (!policyAccount) {
+        throw new Error("Autodeposit policy account was not returned.");
+      }
+
+      setAutodepositConfig({
+        amount: pendingEarnAutodepositDraft.amountLabel,
+        keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
+        nonce: result.preparedSetup.persistence.nonce,
+        policyAccount,
+        recurringDelegation:
+          result.preparedSetup.persistence.recurringDelegation,
+        state: "created",
+      });
+      setPendingEarnAutodepositDraft(null);
+      setPendingEarnAutodepositSetupPrepared(null);
+      setIsEarnAutodepositCloseReview(false);
+      markDetailPaneTransition("back");
+      setSelectedSignerId(null);
+      setDetailSelection("earn");
+      setSelectedDetail("Earn");
+    } catch (error) {
+      setAutodepositConfig((current) =>
+        current?.state === "creating" ? null : current
+      );
+      setProposalActionError(
+        error instanceof Error ? error.message : "Autodeposit setup failed."
+      );
+    }
+  }, [
+    markDetailPaneTransition,
+    pendingEarnAutodepositDraft,
+    pendingEarnAutodepositSetupPrepared,
+    setDetailSelection,
+    smartAccountData,
+  ]);
+
+  const handleCompleteEarnAutodepositClose = useCallback(async () => {
+    if (!autodepositConfig) {
+      setProposalActionError("No autodeposit is configured.");
+      return;
+    }
+
+    if (
+      autodepositConfig.policyAccount.length === 0 ||
+      autodepositConfig.recurringDelegation.length === 0
+    ) {
+      setProposalActionError("Autodeposit account metadata is missing.");
+      return;
+    }
+
+    setProposalActionError(null);
+    setAutodepositConfig({ ...autodepositConfig, state: "closing" });
+
+    try {
+      const result = await smartAccountData.executeEarnAutodepositClose({
+        policy: autodepositConfig.policyAccount,
+        recurringDelegation: autodepositConfig.recurringDelegation,
+        preparedClose: pendingEarnAutodepositClosePrepared,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error ?? "Autodeposit close failed.");
+      }
+
+      setAutodepositConfig(null);
+      setPendingEarnAutodepositDraft(null);
+      setPendingEarnAutodepositClosePrepared(null);
+      setIsEarnAutodepositCloseReview(false);
+      markDetailPaneTransition("back");
+      setSelectedSignerId(null);
+      setDetailSelection("earn");
+      setSelectedDetail("Earn");
+    } catch (error) {
+      setAutodepositConfig({ ...autodepositConfig, state: "created" });
+      setProposalActionError(
+        error instanceof Error ? error.message : "Autodeposit close failed."
+      );
+    }
+  }, [
+    autodepositConfig,
+    markDetailPaneTransition,
+    pendingEarnAutodepositClosePrepared,
+    setDetailSelection,
+    smartAccountData,
+  ]);
 
   const handleOpenVault = useCallback(
     (accountIndex: number) => {
@@ -3307,6 +3562,7 @@ export function AppWalletWorkspace({
       return (
         <EarnDetailView
           autodepositAmountLabel={autodepositAmountLabel}
+          autodepositState={autodepositConfig?.state ?? "idle"}
           currentPositionApyLabel={activeEarnPositionApyLabel}
           currentPositionLabel={activeEarnPosition?.display?.label}
           earningsCacheKey={earnEarningsCacheKey}
@@ -3332,7 +3588,9 @@ export function AppWalletWorkspace({
       return (
         <AutodepositSetupView
           earnBalance={earnWithdrawMaxAmount}
+          earnVaultAddressLabel={earnVaultAddressLabel}
           initialAmount={autodepositConfig?.amount ?? "100"}
+          initialKeepAmount={autodepositConfig?.keepAmount ?? "500"}
           isEditing={Boolean(autodepositConfig)}
           mainSource={
             earnDepositSources.find((source) => source.id === "main") ?? null
@@ -4233,6 +4491,32 @@ export function AppWalletWorkspace({
                 onClose={handleBackFromEarnWithdraw}
                 onDecline={handleDismissEarnWithdrawPreview}
                 onExecute={() => void handleCompleteEarnWithdraw()}
+                showBack={false}
+                showClose={false}
+              />
+            ) : earnAutodepositSetupReviewItem ? (
+              <ApprovalReviewContent
+                actionError={proposalActionError}
+                approval={earnAutodepositSetupReviewItem}
+                isSubmitting={smartAccountData.isActionPending}
+                onApprove={() => void handleCompleteEarnAutodepositSetup()}
+                onBack={handleBackFromAutodeposit}
+                onClose={handleBackFromAutodeposit}
+                onDecline={handleDismissEarnAutodepositPreview}
+                onExecute={() => void handleCompleteEarnAutodepositSetup()}
+                showBack={false}
+                showClose={false}
+              />
+            ) : earnAutodepositCloseReviewItem ? (
+              <ApprovalReviewContent
+                actionError={proposalActionError}
+                approval={earnAutodepositCloseReviewItem}
+                isSubmitting={smartAccountData.isActionPending}
+                onApprove={() => void handleCompleteEarnAutodepositClose()}
+                onBack={handleBackFromAutodeposit}
+                onClose={handleBackFromAutodeposit}
+                onDecline={handleDismissEarnAutodepositPreview}
+                onExecute={() => void handleCompleteEarnAutodepositClose()}
                 showBack={false}
                 showClose={false}
               />

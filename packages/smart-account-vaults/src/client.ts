@@ -9,7 +9,27 @@ import {
 } from "@loyal-labs/loyal-smart-accounts";
 import {
   LoyalCluster,
+  Stablecoin,
+  SUBSCRIPTIONS_PROGRAM_ID,
+  SUBSCRIPTIONS_TRANSFER_RECURRING,
+  SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET,
+  SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET,
+  SUBSCRIPTION_TRANSFER_MINT_OFFSET,
+  deriveRecurringDelegation,
+  deriveSubscriptionAuthority,
+  deriveSubscriptionEventAuthority,
   getKaminoUsdcEarnTargetForCluster,
+  getStablecoinMintForCluster,
+  subscriptionCreateRecurringDelegationData,
+  subscriptionInitAuthorityData,
+  subscriptionRevokeDelegationData,
+  subscriptionTransferRecurringData,
 } from "@loyal/actions";
 import { executePolicyTransaction as buildExecutePolicyTransactionInstruction } from "@loyal-labs/loyal-smart-accounts-core/internal";
 import {
@@ -76,6 +96,9 @@ import type {
   SmartAccountClosePoliciesSyncInput,
   SmartAccountClosePolicyProposalInput,
   SmartAccountClosePolicySyncInput,
+  SmartAccountEarnUsdcAutodepositCloseInput,
+  SmartAccountEarnUsdcAutodepositPullInput,
+  SmartAccountEarnUsdcAutodepositSetupInput,
   SmartAccountCustomInstructionProposalInput,
   SmartAccountEarnUsdcDepositInput,
   SmartAccountEarnUsdcYieldRoutingPolicyInput,
@@ -83,6 +106,9 @@ import type {
   SmartAccountPolicyOverview,
   SmartAccountPolicySnapshot,
   SmartAccountPolicyCustomInstructionProposalInput,
+  SmartAccountPreparedEarnUsdcAutodepositClose,
+  SmartAccountPreparedEarnUsdcAutodepositPull,
+  SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   SmartAccountPreparedEarnUsdcWithdraw,
@@ -438,10 +464,39 @@ function createLocalKaminoWithdrawInstruction(args: {
 function dataSliceEquals(
   value: readonly number[]
 ): generated.DataConstraint {
+  return dataSliceEqualsAt(BigInt(0), value);
+}
+
+function dataSliceEqualsAt(
+  offset: bigint,
+  value: readonly number[] | Uint8Array
+): generated.DataConstraint {
   return {
-    dataOffset: toBn(BigInt(0)),
+    dataOffset: toBn(offset),
     dataValue: { __kind: "U8Slice", fields: [Uint8Array.from(value)] },
     operator: generated.DataOperator.Equals,
+  };
+}
+
+function dataU8Equals(
+  offset: bigint,
+  value: number
+): generated.DataConstraint {
+  return {
+    dataOffset: toBn(offset),
+    dataValue: { __kind: "U8", fields: [value] },
+    operator: generated.DataOperator.Equals,
+  };
+}
+
+function dataU64LessThanOrEqualTo(
+  offset: bigint,
+  value: bigint
+): generated.DataConstraint {
+  return {
+    dataOffset: toBn(offset),
+    dataValue: { __kind: "U64Le", fields: [toBn(value)] },
+    operator: generated.DataOperator.LessThanOrEqualTo,
   };
 }
 
@@ -486,6 +541,94 @@ function tokenAuthorityAccountConstraint(
       ],
     },
     owner: TOKEN_PROGRAM_ID,
+  };
+}
+
+function createSubscriptionSweepProgramInteractionPolicyCreationPayload(args: {
+  delegator: PublicKey;
+  vaultPda: PublicKey;
+  mint: PublicKey;
+  walletUsdcAta: PublicKey;
+  vaultUsdcAta: PublicKey;
+  maxAmountPerPeriodRaw: bigint;
+}): generated.PolicyCreationPayload {
+  const subscriptionAuthority = deriveSubscriptionAuthority(
+    args.delegator,
+    args.mint
+  );
+  const eventAuthority = deriveSubscriptionEventAuthority();
+  const recurringDelegationConstraint: generated.AccountConstraint = {
+    accountIndex: 0,
+    accountConstraint: {
+      __kind: "AccountData",
+      fields: [
+        [
+          dataU8Equals(
+            BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET),
+            SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR
+          ),
+          accountDataBytesEqual({
+            offset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET),
+            value: args.delegator.toBytes(),
+          }),
+          accountDataBytesEqual({
+            offset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET),
+            value: args.vaultPda.toBytes(),
+          }),
+          accountDataBytesEqual({
+            offset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET),
+            value: subscriptionAuthority.toBytes(),
+          }),
+          accountDataBytesEqual({
+            offset: BigInt(SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET),
+            value: args.mint.toBytes(),
+          }),
+          dataU64LessThanOrEqualTo(
+            BigInt(SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET),
+            args.maxAmountPerPeriodRaw
+          ),
+        ],
+      ],
+    },
+    owner: SUBSCRIPTIONS_PROGRAM_ID,
+  };
+  const transferConstraint: generated.InstructionConstraint = {
+    programId: SUBSCRIPTIONS_PROGRAM_ID,
+    accountConstraints: [
+      recurringDelegationConstraint,
+      pubkeyAccountConstraint(1, [subscriptionAuthority], SUBSCRIPTIONS_PROGRAM_ID),
+      pubkeyAccountConstraint(2, [args.walletUsdcAta], TOKEN_PROGRAM_ID),
+      pubkeyAccountConstraint(3, [args.vaultUsdcAta], TOKEN_PROGRAM_ID),
+      pubkeyAccountConstraint(4, [args.mint], TOKEN_PROGRAM_ID),
+      pubkeyAccountConstraint(5, [TOKEN_PROGRAM_ID]),
+      pubkeyAccountConstraint(6, [args.vaultPda]),
+      pubkeyAccountConstraint(7, [eventAuthority]),
+      pubkeyAccountConstraint(8, [SUBSCRIPTIONS_PROGRAM_ID]),
+    ],
+    dataConstraints: [
+      dataU8Equals(BigInt(0), SUBSCRIPTIONS_TRANSFER_RECURRING),
+      dataSliceEqualsAt(
+        BigInt(SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET),
+        args.delegator.toBytes()
+      ),
+      dataSliceEqualsAt(
+        BigInt(SUBSCRIPTION_TRANSFER_MINT_OFFSET),
+        args.mint.toBytes()
+      ),
+    ],
+  };
+
+  return {
+    __kind: "ProgramInteraction",
+    fields: [
+      {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        instructionsConstraints: [transferConstraint],
+        preHook: null,
+        postHook: null,
+        spendingLimits: [],
+      },
+    ],
   };
 }
 
@@ -1819,6 +1962,147 @@ function toWritableAccountMetas(keys: readonly PublicKey[]): AccountMeta[] {
     isSigner: false,
     isWritable: true,
   }));
+}
+
+function createSubscriptionInitAuthorityInstruction(args: {
+  owner: PublicKey;
+  subscriptionAuthority: PublicKey;
+  tokenMint: PublicKey;
+  userAta: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: SUBSCRIPTIONS_PROGRAM_ID,
+    keys: [
+      { pubkey: args.owner, isSigner: true, isWritable: true },
+      {
+        pubkey: args.subscriptionAuthority,
+        isSigner: false,
+        isWritable: true,
+      },
+      { pubkey: args.tokenMint, isSigner: false, isWritable: false },
+      { pubkey: args.userAta, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(subscriptionInitAuthorityData()),
+  });
+}
+
+function createSubscriptionCreateRecurringDelegationInstruction(args: {
+  delegator: PublicKey;
+  subscriptionAuthority: PublicKey;
+  delegation: PublicKey;
+  delegatee: PublicKey;
+  nonce: bigint;
+  amountPerPeriodRaw: bigint;
+  periodLengthSeconds: bigint;
+  startTimestamp: bigint;
+  expiryTimestamp: bigint;
+  expectedSubscriptionAuthorityInitId: bigint;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: SUBSCRIPTIONS_PROGRAM_ID,
+    keys: [
+      { pubkey: args.delegator, isSigner: true, isWritable: true },
+      {
+        pubkey: args.subscriptionAuthority,
+        isSigner: false,
+        isWritable: false,
+      },
+      { pubkey: args.delegation, isSigner: false, isWritable: true },
+      { pubkey: args.delegatee, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(
+      subscriptionCreateRecurringDelegationData({
+        amountPerPeriodRaw: args.amountPerPeriodRaw,
+        expectedSubscriptionAuthorityInitId:
+          args.expectedSubscriptionAuthorityInitId,
+        expiryTimestamp: args.expiryTimestamp,
+        nonce: args.nonce,
+        periodLengthSeconds: args.periodLengthSeconds,
+        startTimestamp: args.startTimestamp,
+      })
+    ),
+  });
+}
+
+function createSubscriptionRevokeDelegationInstruction(args: {
+  authority: PublicKey;
+  delegation: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: SUBSCRIPTIONS_PROGRAM_ID,
+    keys: [
+      { pubkey: args.authority, isSigner: true, isWritable: true },
+      { pubkey: args.delegation, isSigner: false, isWritable: true },
+    ],
+    data: Buffer.from(subscriptionRevokeDelegationData()),
+  });
+}
+
+function createSubscriptionTransferRecurringInstruction(args: {
+  delegation: PublicKey;
+  subscriptionAuthority: PublicKey;
+  delegatorAta: PublicKey;
+  receiverAta: PublicKey;
+  mint: PublicKey;
+  delegatee: PublicKey;
+  amountRaw: bigint;
+  delegator: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: SUBSCRIPTIONS_PROGRAM_ID,
+    keys: [
+      { pubkey: args.delegation, isSigner: false, isWritable: true },
+      {
+        pubkey: args.subscriptionAuthority,
+        isSigner: false,
+        isWritable: false,
+      },
+      { pubkey: args.delegatorAta, isSigner: false, isWritable: true },
+      { pubkey: args.receiverAta, isSigner: false, isWritable: true },
+      { pubkey: args.mint, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: args.delegatee, isSigner: true, isWritable: false },
+      {
+        pubkey: deriveSubscriptionEventAuthority(),
+        isSigner: false,
+        isWritable: false,
+      },
+      { pubkey: SUBSCRIPTIONS_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(
+      subscriptionTransferRecurringData({
+        amountRaw: args.amountRaw,
+        delegator: args.delegator,
+        mint: args.mint,
+      })
+    ),
+  });
+}
+
+function readSubscriptionAuthorityInitId(
+  account: AccountInfo<Buffer | Uint8Array>
+): bigint {
+  const offset = 98;
+  const bytes = account.data.subarray(offset, offset + 8);
+  if (bytes.length !== 8) {
+    throw new Error("Subscription authority init id is missing.");
+  }
+  return new DataView(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength
+  ).getBigInt64(0, true);
+}
+
+function normalizeAutodepositU64(value: bigint, name: string): bigint {
+  const max = (BigInt(1) << BigInt(64)) - BigInt(1);
+  if (value < BigInt(0) || value > max) {
+    throw new Error(`${name} must be a u64.`);
+  }
+  return value;
 }
 
 function toGeneratedPolicyPeriod(
@@ -4801,6 +5085,528 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  async function prepareEarnUsdcAutodepositSetup(
+    args: SmartAccountEarnUsdcAutodepositSetupInput
+  ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
+    if (args.amountRaw <= BigInt(0)) {
+      throw new Error("Autodeposit amount must be greater than 0.");
+    }
+
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const amountPerPeriodRaw = normalizeAutodepositU64(
+      args.amountRaw,
+      "amountRaw"
+    );
+    const periodLengthSeconds = normalizeAutodepositU64(
+      args.periodLengthSeconds ?? BigInt(30 * 24 * 60 * 60),
+      "periodLengthSeconds"
+    );
+    const nonce = normalizeAutodepositU64(
+      args.nonce ?? BigInt(Math.floor(Date.now() / 1000)),
+      "nonce"
+    );
+    const startTimestamp =
+      args.startTimestamp ?? BigInt(Math.floor(Date.now() / 1000));
+    const expiryTimestamp = args.expiryTimestamp ?? BigInt(0);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      args.walletAddress,
+      usdcMint
+    );
+    const recurringDelegation = deriveRecurringDelegation(
+      subscriptionAuthority,
+      args.walletAddress,
+      vaultPda,
+      nonce
+    );
+    const basePersistence = {
+      cluster,
+      walletAddress: args.walletAddress.toBase58(),
+      settings: args.settingsPda.toBase58(),
+      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+      vaultPubkey: vaultPda.toBase58(),
+      automationSigner: args.automationSigner.toBase58(),
+      amountPerPeriodRaw: amountPerPeriodRaw.toString(),
+      periodLengthSeconds: periodLengthSeconds.toString(),
+      nonce: nonce.toString(),
+      startTimestamp: startTimestamp.toString(),
+      expiryTimestamp: expiryTimestamp.toString(),
+      liquidityMint: usdcMint.toBase58(),
+      subscriptionAuthority: subscriptionAuthority.toBase58(),
+      recurringDelegation: recurringDelegation.toBase58(),
+      walletUsdcAta: walletUsdcAta.toBase58(),
+      vaultUsdcAta: vaultUsdcAta.toBase58(),
+    } as const;
+    const authorityAccount = await config.connection.getAccountInfo(
+      subscriptionAuthority,
+      "confirmed"
+    );
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const policySeed =
+      args.policySeed !== undefined
+        ? normalizeAutodepositU64(args.policySeed, "policySeed")
+        : resolveNextPolicySeed(settings).bigint;
+    const policySeedNumber = Number(policySeed);
+    if (!Number.isSafeInteger(policySeedNumber)) {
+      throw new Error("Autodeposit policy seed exceeds JavaScript safe integer range.");
+    }
+    const policyAccount = pda.getPolicyPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      policySeed: policySeedNumber,
+    })[0];
+    const policyAccountInfo = await config.connection.getAccountInfo(
+      policyAccount,
+      "confirmed"
+    );
+    const policyCreation =
+      await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          signers: [args.signer],
+          actions: [
+            {
+              __kind: "PolicyCreate",
+              seed: toBn(policySeed),
+              policyCreationPayload:
+                createSubscriptionSweepProgramInteractionPolicyCreationPayload({
+                  delegator: args.walletAddress,
+                  maxAmountPerPeriodRaw: amountPerPeriodRaw,
+                  mint: usdcMint,
+                  vaultPda,
+                  vaultUsdcAta,
+                  walletUsdcAta,
+                }),
+              signers: [createPolicySigner(args.automationSigner)],
+              threshold: 1,
+              timeLock: 0,
+              startTimestamp: null,
+              expirationArgs: null,
+            },
+          ],
+          memo: args.memo,
+          remainingAccounts: [
+            { pubkey: policyAccount, isWritable: true, isSigner: false },
+          ],
+        } as never
+      );
+
+    if (!authorityAccount) {
+      const prepared = freezePreparedOperation({
+        operation: "earnUsdcAutodepositInitializeSubscriptionAuthorityAndPolicy",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions: [
+          createSubscriptionInitAuthorityInstruction({
+            owner: args.walletAddress,
+            subscriptionAuthority,
+            tokenMint: usdcMint,
+            userAta: walletUsdcAta,
+          }),
+          ...policyCreation.instructions,
+        ],
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          policyCreation.lookupTableAccounts ?? []
+        ),
+      });
+
+      return {
+        prepared,
+        stage: "initialize_subscription_authority",
+        authorityInitializationRequired: true,
+        policy: {
+          account: policyAccount,
+          id: policySeed,
+          seed: policySeed,
+        },
+        vault: {
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          pubkey: vaultPda,
+          usdcAta: vaultUsdcAta,
+        },
+        subscription: {
+          authority: subscriptionAuthority,
+          recurringDelegation,
+          amountPerPeriodRaw,
+          periodLengthSeconds,
+          nonce,
+          startTimestamp,
+          expiryTimestamp,
+        },
+        persistence: {
+          ...basePersistence,
+          policyId: policySeed.toString(),
+          policyAccount: policyAccount.toBase58(),
+          policySeed: policySeed.toString(),
+          subscriptionAuthorityInitialization: "required",
+        },
+      };
+    }
+
+    if (!authorityAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
+      throw new Error("Subscription authority is owned by an unexpected program.");
+    }
+
+    if (!policyAccountInfo) {
+      const prepared = freezePreparedOperation({
+        operation: "earnUsdcAutodepositCreatePolicy",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions: [...policyCreation.instructions],
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          policyCreation.lookupTableAccounts ?? []
+        ),
+      });
+
+      return {
+        prepared,
+        stage: "create_subscription",
+        authorityInitializationRequired: false,
+        policy: {
+          account: policyAccount,
+          id: policySeed,
+          seed: policySeed,
+        },
+        vault: {
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          pubkey: vaultPda,
+          usdcAta: vaultUsdcAta,
+        },
+        subscription: {
+          authority: subscriptionAuthority,
+          recurringDelegation,
+          amountPerPeriodRaw,
+          periodLengthSeconds,
+          nonce,
+          startTimestamp,
+          expiryTimestamp,
+        },
+        persistence: {
+          ...basePersistence,
+          policyId: policySeed.toString(),
+          policyAccount: policyAccount.toBase58(),
+          policySeed: policySeed.toString(),
+          subscriptionAuthorityInitialization: "exists",
+        },
+      };
+    }
+
+    const expectedSubscriptionAuthorityInitId =
+      readSubscriptionAuthorityInitId(authorityAccount);
+    const createDelegationInstruction =
+      createSubscriptionCreateRecurringDelegationInstruction({
+        amountPerPeriodRaw,
+        delegation: recurringDelegation,
+        delegatee: vaultPda,
+        delegator: args.walletAddress,
+        expectedSubscriptionAuthorityInitId,
+        expiryTimestamp,
+        nonce,
+        periodLengthSeconds,
+        startTimestamp,
+        subscriptionAuthority,
+      });
+    const delegationAccount = await config.connection.getAccountInfo(
+      recurringDelegation
+    );
+    if (!delegationAccount) {
+      const prepared = freezePreparedOperation({
+        operation: "earnUsdcAutodepositCreateRecurringDelegation",
+        payer: args.feePayer,
+        programId: SUBSCRIPTIONS_PROGRAM_ID,
+        requiresConfirmation: true,
+        instructions: [
+          createAssociatedTokenAccountIdempotentInstruction(
+            args.feePayer,
+            vaultUsdcAta,
+            vaultPda,
+            usdcMint,
+            TOKEN_PROGRAM_ID
+          ),
+          createDelegationInstruction,
+        ],
+        lookupTableAccounts: [],
+      });
+
+      return {
+        prepared,
+        stage: "create_recurring_delegation",
+        authorityInitializationRequired: false,
+        policy: {
+          account: policyAccount,
+          id: policySeed,
+          seed: policySeed,
+        },
+        vault: {
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          pubkey: vaultPda,
+          usdcAta: vaultUsdcAta,
+        },
+        subscription: {
+          authority: subscriptionAuthority,
+          recurringDelegation,
+          amountPerPeriodRaw,
+          periodLengthSeconds,
+          nonce,
+          startTimestamp,
+          expiryTimestamp,
+        },
+        persistence: {
+          ...basePersistence,
+          policyId: policySeed.toString(),
+          policyAccount: policyAccount.toBase58(),
+          policySeed: policySeed.toString(),
+          subscriptionAuthorityInitialization: "exists",
+        },
+      };
+    }
+
+    if (!delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
+      throw new Error("Recurring delegation is owned by an unexpected program.");
+    }
+
+    const prepared = freezePreparedOperation({
+      operation: "earnUsdcAutodepositSetup",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      requiresConfirmation: true,
+      instructions: [
+        ...policyCreation.instructions,
+      ],
+      lookupTableAccounts: dedupeLookupTableAccounts(
+        policyCreation.lookupTableAccounts ?? []
+      ),
+    });
+
+    return {
+      prepared,
+      stage: "create_subscription",
+      authorityInitializationRequired: false,
+      policy: {
+        account: policyAccount,
+        id: policySeed,
+        seed: policySeed,
+      },
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+        usdcAta: vaultUsdcAta,
+      },
+      subscription: {
+        authority: subscriptionAuthority,
+        recurringDelegation,
+        amountPerPeriodRaw,
+        periodLengthSeconds,
+        nonce,
+        startTimestamp,
+        expiryTimestamp,
+      },
+      persistence: {
+        ...basePersistence,
+        policyId: policySeed.toString(),
+        policyAccount: policyAccount.toBase58(),
+        policySeed: policySeed.toString(),
+        subscriptionAuthorityInitialization: "exists",
+      },
+    };
+  }
+
+  async function prepareEarnUsdcAutodepositClose(
+    args: SmartAccountEarnUsdcAutodepositCloseInput
+  ): Promise<SmartAccountPreparedEarnUsdcAutodepositClose> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const closePolicy = await prepareClosePoliciesSync({
+      settingsPda: args.settingsPda,
+      feePayer: args.feePayer,
+      signers: [args.signer],
+      policies: [args.policy],
+      memo: args.memo,
+    });
+    const prepared = freezePreparedOperation({
+      operation: "earnUsdcAutodepositClose",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      requiresConfirmation: true,
+      instructions: [
+        createSubscriptionRevokeDelegationInstruction({
+          authority: args.walletAddress,
+          delegation: args.recurringDelegation,
+        }),
+        ...closePolicy.instructions,
+      ],
+      lookupTableAccounts: dedupeLookupTableAccounts(
+        closePolicy.lookupTableAccounts ?? []
+      ),
+    });
+
+    return {
+      prepared,
+      policy: {
+        account: args.policy,
+      },
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+      },
+      subscription: {
+        recurringDelegation: args.recurringDelegation,
+      },
+      persistence: {
+        cluster,
+        walletAddress: args.walletAddress.toBase58(),
+        settings: args.settingsPda.toBase58(),
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: vaultPda.toBase58(),
+        policyAccount: args.policy.toBase58(),
+        recurringDelegation: args.recurringDelegation.toBase58(),
+      },
+    };
+  }
+
+  async function prepareEarnUsdcAutodepositPull(
+    args: SmartAccountEarnUsdcAutodepositPullInput
+  ): Promise<SmartAccountPreparedEarnUsdcAutodepositPull> {
+    if (args.amountRaw <= BigInt(0)) {
+      throw new Error("Autodeposit pull amount must be greater than 0.");
+    }
+
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.policy
+    );
+    if (policy.policyState.__kind !== "ProgramInteraction") {
+      throw new Error("Autodeposit pull requires a program-interaction policy.");
+    }
+    const accountIndex = policy.policyState.fields[0].accountIndex;
+    if (accountIndex !== EARN_DEPOSIT_VAULT_INDEX) {
+      throw new Error("Autodeposit pull policy must target the Earn vault.");
+    }
+
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: policy.settings,
+      accountIndex,
+    })[0];
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      args.walletAddress,
+      usdcMint
+    );
+    const transferInstruction = createSubscriptionTransferRecurringInstruction({
+      amountRaw: args.amountRaw,
+      delegatee: vaultPda,
+      delegation: args.recurringDelegation,
+      delegator: args.walletAddress,
+      delegatorAta: walletUsdcAta,
+      mint: usdcMint,
+      receiverAta: vaultUsdcAta,
+      subscriptionAuthority,
+    });
+    const compiledPayload = instructionsToSynchronousTransactionDetailsV2({
+      vaultPda,
+      members: [args.automationSigner],
+      transaction_instructions: [transferInstruction],
+    });
+    const policyPayload: generated.PolicyPayload = {
+      __kind: "ProgramInteraction",
+      fields: [
+        {
+          instructionConstraintIndices: new Uint8Array([0]),
+          transactionPayload: {
+            __kind: "SyncTransaction",
+            fields: [
+              {
+                accountIndex,
+                instructions: compiledPayload.instructions,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const prepared =
+      await smartAccountsClient.features.execution.prepare.executePolicyPayloadSync(
+        {
+          feePayer: args.feePayer,
+          policy: args.policy,
+          accountIndex,
+          numSigners: 1,
+          policyPayload,
+          instruction_accounts: compiledPayload.accounts,
+          memo: args.memo,
+        } as never
+      );
+
+    return {
+      prepared,
+      policy: {
+        account: args.policy,
+      },
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+        usdcAta: vaultUsdcAta,
+      },
+      subscription: {
+        authority: subscriptionAuthority,
+        recurringDelegation: args.recurringDelegation,
+      },
+      persistence: {
+        cluster,
+        walletAddress: args.walletAddress.toBase58(),
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: vaultPda.toBase58(),
+        policyAccount: args.policy.toBase58(),
+        recurringDelegation: args.recurringDelegation.toBase58(),
+        amountRaw: args.amountRaw.toString(),
+        liquidityMint: usdcMint.toBase58(),
+        subscriptionAuthority: subscriptionAuthority.toBase58(),
+        walletUsdcAta: walletUsdcAta.toBase58(),
+        vaultUsdcAta: vaultUsdcAta.toBase58(),
+      },
+    };
+  }
+
   async function prepareClosePolicies(
     args: SmartAccountClosePoliciesProposalInput
   ): Promise<SmartAccountPreparedSettingsChange> {
@@ -5405,6 +6211,9 @@ export function createSmartAccountVaultsClient(
     prepareEarnUsdcYieldRoutingPolicy,
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
+    prepareEarnUsdcAutodepositSetup,
+    prepareEarnUsdcAutodepositClose,
+    prepareEarnUsdcAutodepositPull,
     prepareClosePolicies,
     prepareClosePolicy: (args: SmartAccountClosePolicyProposalInput) =>
       prepareClosePolicies({

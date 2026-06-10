@@ -4,10 +4,15 @@ import type {
   ApprovalReviewPage,
 } from "@/components/wallet-sidebar/approval-review-content";
 import type {
+  EarnAutodepositDraft,
   EarnDepositDraft,
   EarnWithdrawDraft,
 } from "@/components/wallet-sidebar/earn-detail-view";
-import type { SmartAccountPreparedEarnUsdcDeposit } from "@loyal-labs/smart-account-vaults";
+import type {
+  SmartAccountPreparedEarnUsdcAutodepositClose,
+  SmartAccountPreparedEarnUsdcAutodepositSetup,
+  SmartAccountPreparedEarnUsdcDeposit,
+} from "@loyal-labs/smart-account-vaults";
 import {
   KAMINO_ETHENA_MARKET,
   KAMINO_FIGURE_MARKET,
@@ -323,5 +328,156 @@ export function buildEarnWithdrawReviewItem(args: {
     summaryLabel: "Withdraw from Earn vault",
     symbol: args.draft.symbol,
     title: actionLabel,
+  };
+}
+
+export function buildEarnAutodepositSetupReviewItem(args: {
+  draft: EarnAutodepositDraft;
+  preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+}): ApprovalReviewDisplayItem {
+  const recurringDelegation =
+    args.preparedSetup?.persistence.recurringDelegation ?? null;
+  const policyAccount = args.preparedSetup?.persistence.policyAccount ?? null;
+  const reviewSections: ApprovalReviewDisplaySection[] = [
+    {
+      title: "Subscription",
+      rows: [
+        {
+          label: "Amount",
+          value: `$${args.draft.amountLabel} ${args.draft.symbol} every month`,
+        },
+        {
+          label: "From",
+          value: `${args.draft.source.label} keeps at least $${args.draft.keepAmountLabel}`,
+        },
+        { label: "To", value: EARN_VAULT_LABEL },
+      ],
+    },
+    {
+      title: "On-chain setup",
+      rows: [
+        {
+          label: "Primitive",
+          value: "Create a Solana recurring delegation subscription",
+        },
+        {
+          label: "Delegatee",
+          value: EARN_VAULT_LABEL,
+        },
+        {
+          label: "Policy",
+          value: "Allow Loyal automation to pull only this subscription into Earn",
+        },
+        ...(recurringDelegation
+          ? [{ label: "Delegation", value: shortenAddress(recurringDelegation) }]
+          : []),
+        ...(policyAccount
+          ? [{ label: "Policy account", value: shortenAddress(policyAccount) }]
+          : []),
+      ],
+    },
+  ];
+
+  return {
+    actionMode: "vote",
+    amount: args.draft.amountLabel,
+    destinationLabel: EARN_VAULT_LABEL,
+    pages: [
+      {
+        title: "Autodeposit",
+        amount: args.draft.amountLabel,
+        symbol: args.draft.symbol,
+        heading: "Create monthly autodeposit",
+        mascotNote:
+          "This creates the subscription and policy that let Loyal move the monthly amount into Earn.",
+        rows: [
+          {
+            label: "Cadence",
+            value: `$${args.draft.amountLabel} ${args.draft.symbol} every month`,
+          },
+          {
+            label: "Minimum balance",
+            value: `Keep $${args.draft.keepAmountLabel} in Main Account`,
+          },
+        ],
+        collapsibles: [
+          {
+            title: "On-chain details",
+            rows: reviewSections.flatMap((section) => section.rows),
+          },
+        ],
+      },
+    ],
+    primaryActionLabel: "Create autodeposit",
+    reviewSections,
+    secondaryActionLabel: "Cancel",
+    sourceLabel: args.draft.source.label,
+    status: "draft",
+    statusLabel: "Ready to review",
+    summaryLabel: "Create monthly Earn autodeposit",
+    symbol: args.draft.symbol,
+    title: "Autodeposit",
+  };
+}
+
+export function buildEarnAutodepositCloseReviewItem(args: {
+  amountLabel: string;
+  preparedClose?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
+}): ApprovalReviewDisplayItem {
+  const delegation = args.preparedClose?.persistence.recurringDelegation;
+  const policy = args.preparedClose?.persistence.policyAccount;
+  const reviewSections: ApprovalReviewDisplaySection[] = [
+    {
+      title: "Close autodeposit",
+      rows: [
+        {
+          label: "Subscription",
+          value: "Revoke the recurring delegation and refund subscription rent",
+        },
+        {
+          label: "Policy",
+          value: "Remove the automation policy and refund policy rent",
+        },
+        ...(delegation
+          ? [{ label: "Delegation", value: shortenAddress(delegation) }]
+          : []),
+        ...(policy ? [{ label: "Policy account", value: shortenAddress(policy) }] : []),
+      ],
+    },
+  ];
+
+  return {
+    actionMode: "vote",
+    amount: args.amountLabel,
+    destinationLabel: "Main Account",
+    pages: [
+      {
+        title: "Autodeposit",
+        heading: "Turn off autodeposit",
+        mascotNote:
+          "This closes the subscription path and removes Loyal's automation policy.",
+        rows: [
+          {
+            label: "Refunds",
+            value: "Subscription and policy rent return through the owning programs.",
+          },
+        ],
+        collapsibles: [
+          {
+            title: "Close details",
+            rows: reviewSections.flatMap((section) => section.rows),
+          },
+        ],
+      },
+    ],
+    primaryActionLabel: "Turn off autodeposit",
+    reviewSections,
+    secondaryActionLabel: "Cancel",
+    sourceLabel: EARN_VAULT_LABEL,
+    status: "draft",
+    statusLabel: "Ready to review",
+    summaryLabel: "Close Earn autodeposit",
+    symbol: "USDC",
+    title: "Autodeposit",
   };
 }

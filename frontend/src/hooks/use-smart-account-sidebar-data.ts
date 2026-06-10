@@ -7,6 +7,8 @@ import {
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
+  type SmartAccountPreparedEarnUsdcAutodepositClose,
+  type SmartAccountPreparedEarnUsdcAutodepositSetup,
   type SmartAccountPreparedEarnUsdcDeposit,
   type SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   type SmartAccountPreparedEarnUsdcWithdraw,
@@ -309,7 +311,43 @@ export type EarnWithdrawResult = {
   error?: string;
 };
 
-type PreparedEarnOperation = "deposit" | "policy setup" | "withdrawal";
+export type EarnAutodepositSetupRequest = {
+  amountRaw: bigint;
+  nonce: bigint;
+  preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+};
+
+export type EarnAutodepositSetupResult = {
+  success: boolean;
+  signature?: string;
+  authorityInitializationSignature?: string;
+  recurringDelegationSignature?: string;
+  confirmedSlot?: string;
+  status?: "executed";
+  preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup;
+  error?: string;
+};
+
+export type EarnAutodepositCloseRequest = {
+  policy: string;
+  recurringDelegation: string;
+  preparedClose?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
+};
+
+export type EarnAutodepositCloseResult = {
+  success: boolean;
+  signature?: string;
+  confirmedSlot?: string;
+  status?: "executed";
+  error?: string;
+};
+
+type PreparedEarnOperation =
+  | "autodeposit close"
+  | "autodeposit setup"
+  | "deposit"
+  | "policy setup"
+  | "withdrawal";
 
 type EarnClusterPreflightResult =
   | { success: true; signature: string }
@@ -487,6 +525,12 @@ export type SmartAccountSidebarData = {
   executeEarnWithdraw: (
     request: EarnWithdrawRequest
   ) => Promise<EarnWithdrawResult>;
+  executeEarnAutodepositSetup: (
+    request: EarnAutodepositSetupRequest
+  ) => Promise<EarnAutodepositSetupResult>;
+  executeEarnAutodepositClose: (
+    request: EarnAutodepositCloseRequest
+  ) => Promise<EarnAutodepositCloseResult>;
   isActionPending: boolean;
   requiresEarnPolicySetupForDeposit: boolean;
   pendingProposalId: string | null;
@@ -1893,7 +1937,8 @@ export function useSmartAccountSidebarData(
   } = {}
 ): SmartAccountSidebarData {
   const { authenticatedUserTotalUsd, onAfterTx } = options;
-  const solanaEnv = usePublicEnv().solanaEnv;
+  const publicEnv = usePublicEnv();
+  const solanaEnv = publicEnv.solanaEnv;
   const onAfterTxRef = useRef(onAfterTx);
   useEffect(() => {
     onAfterTxRef.current = onAfterTx;
@@ -4058,6 +4103,282 @@ export function useSmartAccountSidebarData(
     ]
   );
 
+  const executeEarnAutodepositSetup = useCallback(
+    async (
+      request: EarnAutodepositSetupRequest
+    ): Promise<EarnAutodepositSetupResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      if (request.amountRaw <= BigInt(0)) {
+        return { success: false, error: "Amount must be greater than 0." };
+      }
+
+      if (!publicEnv.autodepositSignerPublicKey) {
+        return {
+          success: false,
+          error: "Autodeposit automation signer is not configured.",
+        };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const settingsPda = new PublicKey(overview.settingsPda);
+      const automationSigner = new PublicKey(
+        publicEnv.autodepositSignerPublicKey
+      );
+
+      setIsActionPending(true);
+      try {
+        let preparedSetup =
+          request.preparedSetup ??
+          (await client.prepareEarnUsdcAutodepositSetup({
+            settingsPda,
+            walletAddress: wallet.publicKey,
+            feePayer: wallet.publicKey,
+            signer: wallet.publicKey,
+            automationSigner,
+            amountRaw: request.amountRaw,
+            nonce: request.nonce,
+            cluster: expectedEarnCluster,
+        }));
+        let authorityInitializationSignature: string | undefined;
+        let policySeed = preparedSetup.policy.seed;
+
+        if (
+          preparedSetup.persistence.amountPerPeriodRaw !==
+          request.amountRaw.toString()
+        ) {
+          return {
+            success: false,
+            error:
+              "Prepared autodeposit amount changed. Review autodeposit again before signing.",
+          };
+        }
+
+        while (preparedSetup.stage !== "create_recurring_delegation") {
+          const preliminaryStage = preparedSetup.stage;
+          const preliminarySend = await sendPreparedEarnWithClusterPreflight({
+            expectedCluster: expectedEarnCluster,
+            operation: "autodeposit setup",
+            preparedCluster: preparedSetup.persistence.cluster,
+            send: () =>
+              sendPreparedWithWallet({
+                connection,
+                wallet: walletBridge,
+                prepared: preparedSetup.prepared,
+                confirm: true,
+              }),
+          });
+          if (!preliminarySend.success) {
+            return preliminarySend;
+          }
+          if (preliminaryStage === "initialize_subscription_authority") {
+            authorityInitializationSignature = preliminarySend.signature;
+          }
+          policySeed = preparedSetup.policy.seed ?? policySeed;
+          preparedSetup = await client.prepareEarnUsdcAutodepositSetup({
+            settingsPda,
+            walletAddress: wallet.publicKey,
+            feePayer: wallet.publicKey,
+            signer: wallet.publicKey,
+            automationSigner,
+            amountRaw: request.amountRaw,
+            nonce: request.nonce,
+            policySeed: policySeed ?? undefined,
+            cluster: expectedEarnCluster,
+          });
+        }
+
+        const setupSend = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation: "autodeposit setup",
+          preparedCluster: preparedSetup.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared: preparedSetup.prepared,
+              confirm: true,
+            }),
+        });
+        if (!setupSend.success) {
+          return setupSend;
+        }
+        const confirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature: setupSend.signature,
+        });
+
+        void refreshAfterTx({
+          accountIndex: preparedSetup.vault.accountIndex,
+          signerAddresses: [wallet.publicKey.toBase58()],
+        }).catch((err) => {
+          console.warn(
+            "[smart-account] post-autodeposit-setup refresh failed",
+            err
+          );
+        });
+
+        return {
+          success: true,
+          signature: setupSend.signature,
+          authorityInitializationSignature,
+          recurringDelegationSignature: setupSend.signature,
+          confirmedSlot,
+          status: "executed",
+          preparedSetup,
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Autodeposit setup failed.";
+        console.error("[executeEarnAutodepositSetup] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [
+      connection,
+      overview,
+      publicEnv.autodepositSignerPublicKey,
+      refreshAfterTx,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]
+  );
+
+  const executeEarnAutodepositClose = useCallback(
+    async (
+      request: EarnAutodepositCloseRequest
+    ): Promise<EarnAutodepositCloseResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+
+      setIsActionPending(true);
+      try {
+        const preparedClose =
+          request.preparedClose ??
+          (await client.prepareEarnUsdcAutodepositClose({
+            settingsPda: new PublicKey(overview.settingsPda),
+            walletAddress: wallet.publicKey,
+            feePayer: wallet.publicKey,
+            signer: wallet.publicKey,
+            policy: new PublicKey(request.policy),
+            recurringDelegation: new PublicKey(request.recurringDelegation),
+            cluster: expectedEarnCluster,
+          }));
+        const closeSend = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation: "autodeposit close",
+          preparedCluster: preparedClose.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared: preparedClose.prepared,
+              confirm: true,
+            }),
+        });
+        if (!closeSend.success) {
+          return closeSend;
+        }
+        const confirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature: closeSend.signature,
+        });
+
+        void refreshAfterTx({
+          accountIndex: preparedClose.vault.accountIndex,
+          signerAddresses: [wallet.publicKey.toBase58()],
+        }).catch((err) => {
+          console.warn(
+            "[smart-account] post-autodeposit-close refresh failed",
+            err
+          );
+        });
+
+        return {
+          success: true,
+          signature: closeSend.signature,
+          confirmedSlot,
+          status: "executed",
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Autodeposit close failed.";
+        console.error("[executeEarnAutodepositClose] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [
+      connection,
+      overview,
+      refreshAfterTx,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]
+  );
+
   const isLoading =
     isBaseLoading ||
     isVaultsLoading ||
@@ -4100,6 +4421,8 @@ export function useSmartAccountSidebarData(
     executeEarnDeposit,
     executeEarnPolicySetup,
     executeEarnWithdraw,
+    executeEarnAutodepositSetup,
+    executeEarnAutodepositClose,
     isActionPending,
     requiresEarnPolicySetupForDeposit,
     pendingProposalId,

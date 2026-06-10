@@ -518,6 +518,152 @@ export type SmartAccountPreparedEarnUsdcWithdraw = {
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };
 
+export type SmartAccountEarnUsdcAutodepositSetupInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  automationSigner: PublicKey;
+  amountRaw: bigint;
+  cluster?: LoyalCluster;
+  nonce?: bigint;
+  policySeed?: bigint;
+  periodLengthSeconds?: bigint;
+  startTimestamp?: bigint;
+  expiryTimestamp?: bigint;
+  memo?: string;
+};
+
+export type SmartAccountEarnUsdcAutodepositSetupMetadata = {
+  cluster: LoyalCluster;
+  walletAddress: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyId: string | null;
+  policyAccount: string | null;
+  policySeed: string | null;
+  automationSigner: string;
+  amountPerPeriodRaw: string;
+  periodLengthSeconds: string;
+  nonce: string;
+  startTimestamp: string;
+  expiryTimestamp: string;
+  liquidityMint: string;
+  subscriptionAuthority: string;
+  recurringDelegation: string;
+  walletUsdcAta: string;
+  vaultUsdcAta: string;
+  subscriptionAuthorityInitialization: "required" | "exists";
+};
+
+export type SmartAccountPreparedEarnUsdcAutodepositSetup = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  stage:
+    | "initialize_subscription_authority"
+    | "create_recurring_delegation"
+    | "create_subscription";
+  authorityInitializationRequired: boolean;
+  policy: {
+    account: PublicKey | null;
+    id: bigint | null;
+    seed: bigint | null;
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+  };
+  subscription: {
+    authority: PublicKey;
+    recurringDelegation: PublicKey;
+    amountPerPeriodRaw: bigint;
+    periodLengthSeconds: bigint;
+    nonce: bigint;
+    startTimestamp: bigint;
+    expiryTimestamp: bigint;
+  };
+  persistence: SmartAccountEarnUsdcAutodepositSetupMetadata;
+};
+
+export type SmartAccountEarnUsdcAutodepositCloseInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  policy: PublicKey;
+  recurringDelegation: PublicKey;
+  cluster?: LoyalCluster;
+  memo?: string;
+};
+
+export type SmartAccountEarnUsdcAutodepositCloseMetadata = {
+  cluster: LoyalCluster;
+  walletAddress: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyAccount: string;
+  recurringDelegation: string;
+};
+
+export type SmartAccountPreparedEarnUsdcAutodepositClose = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  policy: {
+    account: PublicKey;
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+  };
+  subscription: {
+    recurringDelegation: PublicKey;
+  };
+  persistence: SmartAccountEarnUsdcAutodepositCloseMetadata;
+};
+
+export type SmartAccountEarnUsdcAutodepositPullInput = {
+  policy: PublicKey;
+  walletAddress: PublicKey;
+  feePayer: PublicKey;
+  automationSigner: PublicKey;
+  recurringDelegation: PublicKey;
+  amountRaw: bigint;
+  cluster?: LoyalCluster;
+  memo?: string;
+};
+
+export type SmartAccountEarnUsdcAutodepositPullMetadata = {
+  cluster: LoyalCluster;
+  walletAddress: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyAccount: string;
+  recurringDelegation: string;
+  amountRaw: string;
+  liquidityMint: string;
+  subscriptionAuthority: string;
+  walletUsdcAta: string;
+  vaultUsdcAta: string;
+};
+
+export type SmartAccountPreparedEarnUsdcAutodepositPull = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  policy: {
+    account: PublicKey;
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+  };
+  subscription: {
+    authority: PublicKey;
+    recurringDelegation: PublicKey;
+  };
+  persistence: SmartAccountEarnUsdcAutodepositPullMetadata;
+};
+
 export type SmartAccountPreparedSettingsChange = {
   transactionIndex: bigint;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
