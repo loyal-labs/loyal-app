@@ -1,15 +1,23 @@
+import type { EarnAutodepositHistoryEventRecord } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import type { UserYieldPositionHistoryEventRecord } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
+const AUTODEPOSIT_LABEL = "Autodeposit";
 const MAIN_USDC_LABEL = "Main USDC";
 const EARN_VAULT_LABEL = "Earn vault";
 const MAIN_USDC_ICON = "/agents/Agent-01.svg";
 const EARN_VAULT_ICON = null;
 
 export type EarnTransactionKind =
+  | "autodeposit_action"
+  | "balance_sweep"
   | "deposit"
   | "reconciliation"
   | "rebalance"
   | "withdraw";
+
+export type EarnTransactionEvent =
+  | EarnAutodepositHistoryEventRecord
+  | UserYieldPositionHistoryEventRecord;
 
 export type SerializedEarnTransaction = {
   amount: string;
@@ -19,10 +27,16 @@ export type SerializedEarnTransaction = {
     icon: string | null;
     label: string;
   };
+  eventType:
+    | UserYieldPositionHistoryEventRecord["eventType"]
+    | "autodeposit_closed"
+    | "autodeposit_created"
+    | "balance_sweep";
   id: string;
   kind: EarnTransactionKind;
   rawAmount: string;
   signature: string;
+  sortTimestamp: string;
   source: {
     icon: string | null;
     label: string;
@@ -36,7 +50,7 @@ function formatExactUsdcAmount(rawAmount: bigint): string {
   const whole = absolute / BigInt(1_000_000);
   const fraction = (absolute % BigInt(1_000_000)).toString().padStart(6, "0");
 
-  return `${sign}${whole.toString()}.${fraction} USDC`;
+  return `${sign}$${whole.toString()}.${fraction}`;
 }
 
 function formatDisplayUsdcAmount(
@@ -52,7 +66,7 @@ function formatDisplayUsdcAmount(
   const whole = cents / BigInt(100);
   const fraction = (cents % BigInt(100)).toString().padStart(2, "0");
 
-  return `${sign}${whole.toString()}.${fraction} USDC`;
+  return `${sign}$${whole.toString()}.${fraction}`;
 }
 
 function formatDateGroup(date: Date): string {
@@ -84,7 +98,7 @@ function shortReserveLabel(reserve: string | null | undefined): string {
 
 function serializeKind(
   event: UserYieldPositionHistoryEventRecord
-): EarnTransactionKind {
+): Exclude<EarnTransactionKind, "autodeposit_action" | "balance_sweep"> {
   if (event.type === "withdrawal") {
     return "withdraw";
   }
@@ -99,7 +113,7 @@ function serializeKind(
 
 function resolveTransactionAmountRaw(args: {
   event: UserYieldPositionHistoryEventRecord;
-  kind: EarnTransactionKind;
+  kind: Exclude<EarnTransactionKind, "autodeposit_action" | "balance_sweep">;
 }): bigint {
   const { event, kind } = args;
   if (kind === "deposit" || kind === "withdraw") {
@@ -109,9 +123,53 @@ function resolveTransactionAmountRaw(args: {
   return event.amountRaw;
 }
 
-export function serializeEarnTransactionEvent(
-  event: UserYieldPositionHistoryEventRecord
+function serializeAutodepositActionEvent(
+  event: EarnAutodepositHistoryEventRecord
 ): SerializedEarnTransaction {
+  const isBalanceSweep = event.actionType === "balance_sweep";
+  const transactionAmountRaw = isBalanceSweep ? event.amountRaw : BigInt(0);
+  const isCreate = event.actionType === "create";
+
+  return {
+    amount: formatDisplayUsdcAmount(
+      transactionAmountRaw,
+      isBalanceSweep ? "in" : "neutral"
+    ),
+    confirmedSlot: event.confirmedSlot.toString(),
+    dateGroup: formatDateGroup(event.confirmedAt),
+    destination: {
+      icon: isCreate || isBalanceSweep ? EARN_VAULT_ICON : null,
+      label: isCreate || isBalanceSweep ? EARN_VAULT_LABEL : AUTODEPOSIT_LABEL,
+    },
+    eventType: isBalanceSweep
+      ? "balance_sweep"
+      : isCreate
+      ? "autodeposit_created"
+      : "autodeposit_closed",
+    id: event.id,
+    kind: isBalanceSweep ? "balance_sweep" : "autodeposit_action",
+    rawAmount: formatExactUsdcAmount(transactionAmountRaw),
+    signature: event.signature,
+    sortTimestamp: event.confirmedAt.toISOString(),
+    source: {
+      icon: isBalanceSweep ? MAIN_USDC_ICON : isCreate ? null : EARN_VAULT_ICON,
+      label: isBalanceSweep
+        ? MAIN_USDC_LABEL
+        : isCreate
+        ? AUTODEPOSIT_LABEL
+        : EARN_VAULT_LABEL,
+    },
+    timestamp: formatTimestamp(event.confirmedAt),
+  };
+}
+
+export function serializeEarnTransactionEvent(
+  event: EarnTransactionEvent
+): SerializedEarnTransaction {
+  if (event.type === "autodeposit_action") {
+    return serializeAutodepositActionEvent(event);
+  }
+
   const kind = serializeKind(event);
   const direction =
     kind === "deposit" ? "in" : kind === "withdraw" ? "out" : "neutral";
@@ -136,10 +194,12 @@ export function serializeEarnTransactionEvent(
       icon: isMovement || kind === "deposit" ? EARN_VAULT_ICON : MAIN_USDC_ICON,
       label: destinationLabel,
     },
+    eventType: event.eventType,
     id: event.signature,
     kind,
     rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,
+    sortTimestamp: event.confirmedAt.toISOString(),
     source: {
       icon: kind === "deposit" ? MAIN_USDC_ICON : EARN_VAULT_ICON,
       label: sourceLabel,

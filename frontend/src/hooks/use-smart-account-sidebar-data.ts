@@ -64,12 +64,15 @@ import {
 import {
   buildEarnAutodepositCloseConfirmRequestBody,
   buildEarnAutodepositSetupConfirmRequestBody,
+  type EarnAutodepositFloorUpdateConfirmRequestBody,
+  type EarnAutodepositToggleConfirmRequestBody,
   hydratePreparedEarnUsdcAutodepositClose,
   hydratePreparedEarnUsdcAutodepositSetup,
   type EarnAutodepositCloseConfirmResponse,
   type EarnAutodepositClosePrepareResponse,
   type EarnAutodepositSetupConfirmResponse,
   type EarnAutodepositSetupPrepareResponse,
+  type EarnAutodepositToggleConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
   hydratePreparedEarnUsdcDeposit,
@@ -108,10 +111,34 @@ type SmartAccountRouteErrorResponse = {
 };
 
 type EarnStateResponse = {
+  autodeposit: {
+    active: boolean;
+    amountPerPeriodRaw: string;
+    balanceSweepPolicyId: string;
+    delegatedSigner: string | null;
+    lastSeenSignature: string;
+    lastSeenSlot: string;
+    periodLengthSeconds: string | null;
+    policyAccount: string;
+    policySeed: string;
+    recurringDelegation: string | null;
+    startTimestamp: string | null;
+    status: "active" | "paused" | "pending";
+    subscriptionAuthority: string | null;
+    subscriptionDelegatee: string | null;
+    vaultUsdcAta: string;
+    walletBalanceFloorRaw: string | null;
+    walletUsdcAta: string;
+  } | null;
   canonicalVaultPubkey: string;
   defaultPolicy: {
     account: string;
     seed: string;
+  };
+  loadErrors: {
+    autodeposit?: true;
+    policy?: true;
+    position?: true;
   };
   policy: {
     account: string;
@@ -328,6 +355,7 @@ export type EarnWithdrawResult = {
 export type EarnAutodepositSetupRequest = {
   amountRaw: bigint;
   nonce: bigint;
+  policySeed?: bigint;
   walletBalanceFloorRaw: bigint;
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
 };
@@ -355,6 +383,30 @@ export type EarnAutodepositCloseResult = {
   signature?: string;
   confirmedSlot?: string;
   status?: "confirmation_record_failed" | "executed";
+  error?: string;
+};
+
+export type EarnAutodepositFloorUpdateRequest = {
+  policyAccount: string;
+  recurringDelegation: string;
+  walletBalanceFloorRaw: bigint;
+};
+
+export type EarnAutodepositFloorUpdateResult = {
+  success: boolean;
+  target?: EarnAutodepositSetupConfirmResponse["target"];
+  error?: string;
+};
+
+export type EarnAutodepositToggleRequest = {
+  active: boolean;
+  policyAccount: string;
+  recurringDelegation: string;
+};
+
+export type EarnAutodepositToggleResult = {
+  success: boolean;
+  target?: EarnAutodepositSetupConfirmResponse["target"];
   error?: string;
 };
 
@@ -425,7 +477,10 @@ export type VaultTransferCapability =
 
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
+  earnAutodeposit: EarnStateResponse["autodeposit"];
+  earnStateLoadErrors: EarnStateResponse["loadErrors"];
   isLoading: boolean;
+  isEarnStateLoading: boolean;
   isBaseLoading: boolean;
   isVaultsLoading: boolean;
   isPoliciesLoading: boolean;
@@ -547,6 +602,12 @@ export type SmartAccountSidebarData = {
   executeEarnAutodepositClose: (
     request: EarnAutodepositCloseRequest
   ) => Promise<EarnAutodepositCloseResult>;
+  executeEarnAutodepositFloorUpdate: (
+    request: EarnAutodepositFloorUpdateRequest
+  ) => Promise<EarnAutodepositFloorUpdateResult>;
+  executeEarnAutodepositToggle: (
+    request: EarnAutodepositToggleRequest
+  ) => Promise<EarnAutodepositToggleResult>;
   isActionPending: boolean;
   requiresEarnPolicySetupForDeposit: boolean;
   pendingProposalId: string | null;
@@ -1022,7 +1083,7 @@ async function postConfirmedEarnAutodepositSetup(args: {
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
       payload?.error?.message ??
-        "Failed to record confirmed earn autodeposit setup."
+        "Failed to record confirmed Autodeposit setup."
     );
   }
 
@@ -1051,11 +1112,78 @@ async function postConfirmedEarnAutodepositClose(args: {
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
       payload?.error?.message ??
-        "Failed to record confirmed earn autodeposit close."
+        "Failed to record confirmed Autodeposit close."
     );
   }
 
   return (await response.json()) as EarnAutodepositCloseConfirmResponse;
+}
+
+async function postEarnAutodepositFloorUpdate(args: {
+  policyAccount: string;
+  recurringDelegation: string;
+  walletBalanceFloorRaw: bigint;
+}): Promise<EarnAutodepositCloseConfirmResponse> {
+  const body: EarnAutodepositFloorUpdateConfirmRequestBody = {
+    policyAccount: args.policyAccount,
+    recurringDelegation: args.recurringDelegation,
+    vaultIndex: 1,
+    walletBalanceFloorRaw: args.walletBalanceFloorRaw.toString(),
+  };
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/floor/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ??
+        "Failed to update Autodeposit wallet balance floor."
+    );
+  }
+
+  return (await response.json()) as EarnAutodepositCloseConfirmResponse;
+}
+
+async function postEarnAutodepositToggle(args: {
+  active: boolean;
+  policyAccount: string;
+  recurringDelegation: string;
+}): Promise<EarnAutodepositToggleConfirmResponse> {
+  const body: EarnAutodepositToggleConfirmRequestBody = {
+    active: args.active,
+    policyAccount: args.policyAccount,
+    recurringDelegation: args.recurringDelegation,
+    vaultIndex: 1,
+  };
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/toggle/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to update Autodeposit active state."
+    );
+  }
+
+  return (await response.json()) as EarnAutodepositToggleConfirmResponse;
 }
 
 export async function prepareEarnDepositOnServer(args: {
@@ -1144,7 +1272,7 @@ async function prepareEarnAutodepositSetupOnServer(args: {
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
-      payload?.error?.message ?? "Failed to prepare earn autodeposit setup."
+      payload?.error?.message ?? "Failed to prepare Autodeposit setup."
     );
   }
 
@@ -1175,7 +1303,7 @@ async function prepareEarnAutodepositCloseOnServer(args: {
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
-      payload?.error?.message ?? "Failed to prepare earn autodeposit close."
+      payload?.error?.message ?? "Failed to prepare Autodeposit close."
     );
   }
 
@@ -2121,6 +2249,7 @@ export function useSmartAccountSidebarData(
   const [bestApyReservesByStablecoin, setBestApyReservesByStablecoin] =
     useState<CurrentBestApyReserveByStablecoinCache | null>(null);
   const [earnState, setEarnState] = useState<EarnStateResponse | null>(null);
+  const [isEarnStateLoading, setIsEarnStateLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scopedErrors, setScopedErrors] = useState<{
     base: string | null;
@@ -2180,6 +2309,7 @@ export function useSmartAccountSidebarData(
         });
         setBestApyReservesByStablecoin(null);
         setEarnState(null);
+        setIsEarnStateLoading(false);
         return;
       }
 
@@ -2216,6 +2346,7 @@ export function useSmartAccountSidebarData(
       setIsPoliciesLoading(false);
       setIsProposalsLoading(false);
       setIsBestApyReservesLoading(false);
+      setIsEarnStateLoading(true);
       setError(null);
       setScopedErrors({
         base: null,
@@ -2261,25 +2392,33 @@ export function useSmartAccountSidebarData(
         if (!cachedOverview) {
           setOverview(null);
         }
+        setIsEarnStateLoading(false);
         return;
       } finally {
         setIsBaseLoading(false);
       }
 
       if (!baseOverview) {
+        setIsEarnStateLoading(false);
         return;
       }
 
       const loadEarnState = async () => {
-        const nextEarnState = await earnStatePromise;
-        setEarnState(nextEarnState);
-        if (!nextEarnState) {
-          return;
-        }
+        try {
+          const nextEarnState = await earnStatePromise;
+          setEarnState(nextEarnState);
+          if (!nextEarnState) {
+            return;
+          }
 
-        setOverview((current) =>
-          current ? mergeEarnVaultIntoOverview(current, nextEarnState) : current
-        );
+          setOverview((current) =>
+            current
+              ? mergeEarnVaultIntoOverview(current, nextEarnState)
+              : current
+          );
+        } finally {
+          setIsEarnStateLoading(false);
+        }
       };
 
       const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
@@ -4306,6 +4445,7 @@ export function useSmartAccountSidebarData(
           (await prepareEarnAutodepositSetupOnServer({
             amountRaw: request.amountRaw,
             nonce: request.nonce,
+            policySeed: request.policySeed,
           }));
 
         if (
@@ -4315,7 +4455,7 @@ export function useSmartAccountSidebarData(
           return {
             success: false,
             error:
-              "Prepared autodeposit amount changed. Review autodeposit again before signing.",
+              "Prepared Autodeposit amount changed. Review Autodeposit again before signing.",
           };
         }
 
@@ -4359,7 +4499,7 @@ export function useSmartAccountSidebarData(
             error:
               error instanceof Error
                 ? error.message
-                : "Failed to record confirmed autodeposit setup.",
+                : "Failed to record confirmed Autodeposit setup.",
           };
         }
         const nextPreparedSetup =
@@ -4370,6 +4510,11 @@ export function useSmartAccountSidebarData(
                 nonce: request.nonce,
                 policySeed: preparedSetup.policy.seed ?? undefined,
               });
+
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
+        }
 
         void refreshAfterTx({
           accountIndex: preparedSetup.vault.accountIndex,
@@ -4410,6 +4555,67 @@ export function useSmartAccountSidebarData(
       user?.walletAddress,
       wallet,
     ]
+  );
+
+  const executeEarnAutodepositFloorUpdate = useCallback(
+    async (
+      request: EarnAutodepositFloorUpdateRequest
+    ): Promise<EarnAutodepositFloorUpdateResult> => {
+      if (request.walletBalanceFloorRaw < BigInt(0)) {
+        return {
+          success: false,
+          error: "Autodeposit wallet balance floor cannot be negative.",
+        };
+      }
+
+      setIsActionPending(true);
+      try {
+        const response = await postEarnAutodepositFloorUpdate(request);
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
+        }
+
+        return { success: true, target: response.target };
+      } catch (err) {
+        const error =
+          err instanceof Error
+            ? err.message
+            : "Autodeposit wallet balance floor update failed.";
+        console.error("[executeEarnAutodepositFloorUpdate] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    []
+  );
+
+  const executeEarnAutodepositToggle = useCallback(
+    async (
+      request: EarnAutodepositToggleRequest
+    ): Promise<EarnAutodepositToggleResult> => {
+      setIsActionPending(true);
+      try {
+        const response = await postEarnAutodepositToggle(request);
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
+        }
+
+        return { success: true, target: response.target };
+      } catch (err) {
+        const error =
+          err instanceof Error
+            ? err.message
+            : "Autodeposit active state update failed.";
+        console.error("[executeEarnAutodepositToggle] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    []
   );
 
   const executeEarnAutodepositClose = useCallback(
@@ -4486,8 +4692,13 @@ export function useSmartAccountSidebarData(
             error:
               error instanceof Error
                 ? error.message
-                : "Failed to record confirmed autodeposit close.",
+                : "Failed to record confirmed Autodeposit close.",
           };
+        }
+
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
         }
 
         void refreshAfterTx({
@@ -4534,7 +4745,10 @@ export function useSmartAccountSidebarData(
 
   return {
     overview,
+    earnAutodeposit: earnState?.autodeposit ?? null,
+    earnStateLoadErrors: earnState?.loadErrors ?? {},
     isLoading,
+    isEarnStateLoading,
     isBaseLoading,
     isVaultsLoading,
     isPoliciesLoading,
@@ -4568,6 +4782,8 @@ export function useSmartAccountSidebarData(
     executeEarnPolicySetup,
     executeEarnWithdraw,
     executeEarnAutodepositSetup,
+    executeEarnAutodepositFloorUpdate,
+    executeEarnAutodepositToggle,
     executeEarnAutodepositClose,
     isActionPending,
     requiresEarnPolicySetupForDeposit,

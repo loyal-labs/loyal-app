@@ -7,9 +7,15 @@ import {
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
+  findEarnAutodepositHistoryEvents,
+} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
   findYieldPositionHistoryEvents,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
-import { serializeEarnTransactionEvent } from "./formatter";
+import {
+  serializeEarnTransactionEvent,
+  type SerializedEarnTransaction,
+} from "./formatter";
 
 const EARN_VAULT_INDEX = 1;
 
@@ -18,6 +24,26 @@ function resolveConfiguredCluster(): LoyalCluster {
   return solanaEnv === "devnet"
     ? LoyalCluster.Devnet
     : LoyalCluster.MainnetBeta;
+}
+
+function sortEarnTransactions(
+  transactions: SerializedEarnTransaction[]
+): SerializedEarnTransaction[] {
+  return [...transactions].sort((left, right) => {
+    const timestampDelta =
+      Date.parse(right.sortTimestamp) - Date.parse(left.sortTimestamp);
+    if (timestampDelta !== 0) {
+      return timestampDelta;
+    }
+
+    const leftSlot = BigInt(left.confirmedSlot);
+    const rightSlot = BigInt(right.confirmedSlot);
+    if (leftSlot !== rightSlot) {
+      return leftSlot > rightSlot ? -1 : 1;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export async function GET(request: Request) {
@@ -39,16 +65,27 @@ export async function GET(request: Request) {
   const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
 
   try {
-    const events = await findYieldPositionHistoryEvents({
-      cluster,
-      initialReserve: earnTarget.reserve.toBase58(),
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    });
+    const [positionEvents, autodepositEvents] = await Promise.all([
+      findYieldPositionHistoryEvents({
+        cluster,
+        initialReserve: earnTarget.reserve.toBase58(),
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      }),
+      findEarnAutodepositHistoryEvents({
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      }),
+    ]);
 
     return NextResponse.json({
-      transactions: events.map(serializeEarnTransactionEvent),
+      transactions: sortEarnTransactions(
+        [...positionEvents, ...autodepositEvents].map(
+          serializeEarnTransactionEvent
+        )
+      ),
     });
   } catch (error) {
     console.warn("[earn-transactions] failed to load Earn history", error);

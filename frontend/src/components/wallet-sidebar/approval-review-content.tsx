@@ -30,6 +30,7 @@ export type ApprovalReviewPage = {
   amount?: string;
   collapsibles?: ApprovalReviewCollapsible[];
   heading: string;
+  hideAmountHeading?: boolean;
   mascotNote?: string;
   rows?: ApprovalReviewDisplayRow[];
   subheading?: string;
@@ -1208,7 +1209,7 @@ function PagedApprovalReview({
               {page.heading}
             </span>
           )}
-          {page.amount ? (
+          {page.amount && !page.hideAmountHeading ? (
             <span
               style={{
                 fontFamily: font,

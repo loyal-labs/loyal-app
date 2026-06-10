@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import type {
   ConfirmedEarnAutodepositCloseInput,
@@ -63,6 +63,25 @@ export type BalanceSweepWalletBalanceCurrentRecord =
 export type BalanceSweepExecutionRecord =
   typeof balanceSweepExecutions.$inferSelect;
 
+export type CurrentEarnAutodepositState = {
+  policy: BalanceSweepPolicyRecord;
+  status: "active" | "paused" | "pending";
+  target: BalanceSweepTargetRecord;
+};
+
+export type EarnAutodepositHistoryEventRecord = {
+  actionType: "balance_sweep" | "close" | "create";
+  amountRaw: bigint;
+  confirmedAt: Date;
+  confirmedSlot: bigint;
+  id: string;
+  policyAccount: string;
+  recurringDelegation: string | null;
+  signature: string;
+  type: "autodeposit_action";
+  walletBalanceFloorRaw: bigint | null;
+};
+
 type EarnAutodepositRepositoryDependencies = {
   client: YieldOptimizationClient;
   now: () => Date;
@@ -87,6 +106,15 @@ function assertSetupHasPolicy(input: ConfirmedEarnAutodepositSetupInput) {
   }
 }
 
+function resolveEarnAutodepositStatus(
+  target: Pick<BalanceSweepTargetRecord, "active" | "lifecycleStatus">
+): CurrentEarnAutodepositState["status"] {
+  if (target.lifecycleStatus === "active") {
+    return target.active ? "active" : "paused";
+  }
+  return "pending";
+}
+
 async function findTargetByPolicy(args: {
   client: YieldOptimizationClient;
   policyAccount: string;
@@ -98,6 +126,163 @@ async function findTargetByPolicy(args: {
     .limit(1);
 
   return target ?? null;
+}
+
+export async function findCurrentEarnAutodepositState(
+  input: {
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<CurrentEarnAutodepositState | null> {
+  const [row] = await dependencies.client.db
+    .select({
+      policy: balanceSweepPolicies,
+      target: balanceSweepTargets,
+    })
+    .from(balanceSweepPolicies)
+    .innerJoin(
+      balanceSweepTargets,
+      eq(balanceSweepTargets.balanceSweepPolicyId, balanceSweepPolicies.id)
+    )
+    .where(
+      and(
+        eq(balanceSweepPolicies.active, true),
+        eq(balanceSweepPolicies.authority, input.walletAddress),
+        eq(balanceSweepPolicies.settings, input.settings),
+        eq(balanceSweepPolicies.policyType, "subscription_sweep"),
+        eq(balanceSweepPolicies.vaultIndex, input.vaultIndex),
+        eq(balanceSweepTargets.wallet, input.walletAddress),
+        eq(balanceSweepTargets.settings, input.settings),
+        eq(balanceSweepTargets.vaultIndex, input.vaultIndex),
+        ne(balanceSweepTargets.lifecycleStatus, "closed")
+      )
+    )
+    .orderBy(
+      sql`CASE WHEN ${balanceSweepTargets.active} = true AND ${balanceSweepTargets.lifecycleStatus} = 'active' THEN 0 ELSE 1 END`,
+      desc(balanceSweepTargets.lastSeenSlot)
+    )
+    .limit(1);
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    policy: row.policy,
+    status: resolveEarnAutodepositStatus(row.target),
+    target: row.target,
+  };
+}
+
+export async function findEarnAutodepositHistoryEvents(
+  input: {
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<EarnAutodepositHistoryEventRecord[]> {
+  const [targets, executions] = await Promise.all([
+    dependencies.client.db
+      .select()
+      .from(balanceSweepTargets)
+      .where(
+        and(
+          eq(balanceSweepTargets.settings, input.settings),
+          eq(balanceSweepTargets.vaultIndex, input.vaultIndex),
+          eq(balanceSweepTargets.wallet, input.walletAddress)
+        )
+      ),
+    dependencies.client.db
+      .select({
+        execution: balanceSweepExecutions,
+        target: balanceSweepTargets,
+      })
+      .from(balanceSweepExecutions)
+      .innerJoin(
+        balanceSweepTargets,
+        eq(balanceSweepExecutions.targetId, balanceSweepTargets.id)
+      )
+      .where(
+        and(
+          eq(balanceSweepTargets.settings, input.settings),
+          eq(balanceSweepTargets.vaultIndex, input.vaultIndex),
+          eq(balanceSweepTargets.wallet, input.walletAddress)
+        )
+      ),
+  ]);
+
+  const targetEvents = targets.flatMap((target) => {
+    const history: EarnAutodepositHistoryEventRecord[] = [];
+
+    if (target.closeSignature === null) {
+      history.push({
+        actionType: "create",
+        amountRaw: BigInt(0),
+        confirmedAt: target.lastSeenAt,
+        confirmedSlot: target.lastSeenSlot,
+        id: `autodeposit:create:${target.id.toString()}`,
+        policyAccount: target.policyAccount,
+        recurringDelegation: target.recurringDelegation,
+        signature: target.lastSeenSignature,
+        type: "autodeposit_action",
+        walletBalanceFloorRaw: target.walletBalanceFloorRaw,
+      });
+    }
+
+    if (
+      target.closeSignature !== null &&
+      target.closeSlot !== null &&
+      target.closedAt !== null
+    ) {
+      history.push({
+        actionType: "close",
+        amountRaw: BigInt(0),
+        confirmedAt: target.closedAt,
+        confirmedSlot: target.closeSlot,
+        id: `autodeposit:close:${target.id.toString()}`,
+        policyAccount: target.policyAccount,
+        recurringDelegation: target.recurringDelegation,
+        signature: target.closeSignature,
+        type: "autodeposit_action",
+        walletBalanceFloorRaw: target.walletBalanceFloorRaw,
+      });
+    }
+
+    return history;
+  });
+  const sweepEvents = executions.map(({ execution, target }) => ({
+    actionType: "balance_sweep" as const,
+    amountRaw: execution.amountRaw,
+    confirmedAt: execution.decodedAt ?? execution.receivedAt,
+    confirmedSlot: execution.slot,
+    id: `autodeposit:sweep:${execution.id.toString()}`,
+    policyAccount: target.policyAccount,
+    recurringDelegation: target.recurringDelegation,
+    signature: execution.signature,
+    type: "autodeposit_action" as const,
+    walletBalanceFloorRaw: target.walletBalanceFloorRaw,
+  }));
+  const events = [...targetEvents, ...sweepEvents];
+
+  return events.sort((a, b) => {
+    const confirmedAtDelta = b.confirmedAt.getTime() - a.confirmedAt.getTime();
+    if (confirmedAtDelta !== 0) {
+      return confirmedAtDelta;
+    }
+    if (a.confirmedSlot !== b.confirmedSlot) {
+      return a.confirmedSlot > b.confirmedSlot ? -1 : 1;
+    }
+    return a.id.localeCompare(b.id);
+  });
 }
 
 function targetValuesFromSetup(
@@ -126,6 +311,7 @@ function targetValuesFromSetup(
     policySeed: input.policySeed,
     recurringDelegation: input.recurringDelegation,
     settings: input.settings,
+    startTimestamp: input.startTimestamp,
     subscriptionAuthority: input.subscriptionAuthority,
     threshold: 1,
     vaultIndex: input.vaultIndex,
@@ -279,6 +465,7 @@ export async function recordPendingAutodepositSetup(
         maxAmountPerPeriod: input.amountPerPeriodRaw,
         periodLengthSeconds: input.periodLengthSeconds,
         recurringDelegation: input.recurringDelegation,
+        startTimestamp: input.startTimestamp,
         subscriptionAuthority: input.subscriptionAuthority,
         vaultPubkey: input.vaultPubkey,
         vaultUsdcAta: input.vaultUsdcAta,
@@ -343,6 +530,7 @@ export async function recordConfirmedAutodepositDelegation(
         maxAmountPerPeriod: input.amountPerPeriodRaw,
         periodLengthSeconds: input.periodLengthSeconds,
         recurringDelegation: input.recurringDelegation,
+        startTimestamp: input.startTimestamp,
         subscriptionAuthority: input.subscriptionAuthority,
         vaultPubkey: input.vaultPubkey,
         vaultUsdcAta: input.vaultUsdcAta,
@@ -429,6 +617,123 @@ export async function recordClosedAutodepositTarget(
 
   if (!target) {
     throw new Error("Failed to close autodeposit target.");
+  }
+
+  return target;
+}
+
+export async function updateAutodepositWalletBalanceFloor(
+  input: {
+    policyAccount: string;
+    recurringDelegation: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+    walletBalanceFloorRaw: bigint;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  if (input.walletBalanceFloorRaw < BigInt(0)) {
+    throw new Error("Autodeposit wallet balance floor cannot be negative.");
+  }
+
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus === "closed") {
+    throw new Error("Closed autodeposit targets cannot be updated.");
+  }
+  if (
+    existing.recurringDelegation &&
+    existing.recurringDelegation !== input.recurringDelegation
+  ) {
+    throw new Error("Autodeposit recurring delegation does not match target.");
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+    })
+    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to update autodeposit wallet balance floor.");
+  }
+
+  return target;
+}
+
+export async function updateAutodepositTargetActive(
+  input: {
+    active: boolean;
+    policyAccount: string;
+    recurringDelegation: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus === "closed") {
+    throw new Error("Closed autodeposit targets cannot be toggled.");
+  }
+  if (existing.lifecycleStatus !== "active") {
+    throw new Error("Pending autodeposit targets cannot be toggled.");
+  }
+  if (
+    !existing.recurringDelegation ||
+    existing.recurringDelegation !== input.recurringDelegation
+  ) {
+    throw new Error("Autodeposit recurring delegation does not match target.");
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: input.active,
+    })
+    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to update autodeposit target active state.");
   }
 
   return target;

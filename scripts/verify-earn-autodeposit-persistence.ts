@@ -65,10 +65,16 @@ async function main() {
     repository,
     setupRoute,
     closeRoute,
+    floorRoute,
+    toggleRoute,
+    earnStateRoute,
     hook,
+    loadStateMapper,
     workspace,
+    portfolioContent,
     migration0005,
     migration0006,
+    migration0007,
     smartAccountClient,
   ] = await Promise.all([
     read("frontend/src/lib/yield-optimization/yield-neon-client.server.ts"),
@@ -84,13 +90,29 @@ async function main() {
     read(
       "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/close/confirm/route.ts"
     ),
+    read(
+      "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/floor/confirm/route.ts"
+    ),
+    read(
+      "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/toggle/confirm/route.ts"
+    ),
+    read(
+      "frontend/src/app/api/smart-accounts/yield-optimization/earn-state/route.ts"
+    ),
     read("frontend/src/hooks/use-smart-account-sidebar-data.ts"),
+    read(
+      "frontend/src/lib/yield-optimization/earn-autodeposit-loaded-state.shared.ts"
+    ),
     read("frontend/src/components/wallet-workspace/app-wallet-workspace.tsx"),
+    read("frontend/src/components/wallet-sidebar/portfolio-content.tsx"),
     read(
       "frontend/src/lib/yield-optimization/migrations/0005_add_autodeposit_balance_sweep_config.sql"
     ),
     read(
       "frontend/src/lib/yield-optimization/migrations/0006_add_balance_sweep_policies.sql"
+    ),
+    read(
+      "frontend/src/lib/yield-optimization/migrations/0007_add_balance_sweep_target_start_timestamp.sql"
     ),
     read("packages/smart-account-vaults/src/client.ts"),
   ]);
@@ -143,7 +165,7 @@ async function main() {
   record(
     checks,
     "migration columns and indexes",
-    includesAll(migration0005 + migration0006, [
+    includesAll(migration0005 + migration0006 + migration0007, [
       "CREATE TABLE IF NOT EXISTS loyal_yield.balance_sweep_policies",
       "balance_sweep_policy_id",
       "balance_sweep_policies_policy_account_uidx",
@@ -151,6 +173,7 @@ async function main() {
       "ADD COLUMN IF NOT EXISTS subscription_authority",
       "ADD COLUMN IF NOT EXISTS recurring_delegation",
       "ADD COLUMN IF NOT EXISTS period_length_seconds",
+      "ADD COLUMN IF NOT EXISTS start_timestamp",
       "ADD COLUMN IF NOT EXISTS wallet_balance_floor_raw",
       "ADD COLUMN IF NOT EXISTS lifecycle_status",
       "balance_sweep_targets_recurring_delegation_uidx",
@@ -221,6 +244,132 @@ async function main() {
     "Sweep execution writes are append-only and separate from user Earn withdrawals."
   );
 
+  record(
+    checks,
+    "load/display state",
+    includesAll(
+      repository + earnStateRoute + hook + workspace + loadStateMapper,
+      [
+        "findCurrentEarnAutodepositState",
+        "loadEarnStatePart",
+        'loadEarnStatePart("position"',
+        'loadEarnStatePart("policy"',
+        'loadEarnStatePart("autodeposit"',
+        "Promise<{ data: T | null; error: boolean }>",
+        "positionResult.data",
+        "policyResult.data",
+        "autodepositResult.data",
+        "loadErrors",
+        "failed to load ${name}",
+        "balanceSweepPolicies",
+        "balanceSweepTargets",
+        "balanceSweepPolicyId",
+        "innerJoin",
+        "serializeAutodepositState",
+        "startTimestamp",
+        "autodeposit: autodeposit",
+        "earnStateLoadErrors: earnState?.loadErrors ?? {}",
+        "isEarnStateLoading",
+        "earnAutodeposit: earnState?.autodeposit ?? null",
+        "earnAutodepositConfigFromLoadedState",
+        "nextPeriodLabel",
+        "formatNextPeriodLabel",
+        "smartAccountData.earnAutodeposit",
+        'status: "active" | "paused" | "pending"',
+        'state: "created" | "creating" | "paused"',
+        'state === "paused"',
+      ]
+    ),
+    "earn-state serializes active/pending/paused autodeposit state and the UI derives config from the API response."
+  );
+
+  record(
+    checks,
+    "earn-state fail-soft metadata",
+    includesAll(earnStateRoute + hook, [
+      "loadErrors",
+      "position?: true",
+      "policy?: true",
+      "autodeposit?: true",
+      "positionResult.error ? { position: true } : {}",
+      "policyResult.error ? { policy: true } : {}",
+      "autodepositResult.error ? { autodeposit: true } : {}",
+      "earnStateLoadErrors: earnState?.loadErrors ?? {}",
+      "setIsEarnStateLoading(true)",
+      "setIsEarnStateLoading(false)",
+    ]),
+    "Earn-state reports per-part load failures while keeping partial data available to the UI."
+  );
+
+  record(
+    checks,
+    "stable Autodeposit sidebar card",
+    includesAll(portfolioContent + workspace, [
+      "AutodepositStatusCard",
+      "Start earning the moment your money arrives",
+      "Couldn’t load Autodeposit settings",
+      "isLoading={isEarnStateLoading}",
+      "isError={hasEarnStateLoadError}",
+      "onRetry={onSmartAccountRetry}",
+      "hasEarnStateLoadError={Boolean(",
+      "smartAccountData.earnStateLoadErrors.autodeposit",
+      "isEarnStateLoading={smartAccountData.isEarnStateLoading}",
+    ]) &&
+      !portfolioContent.includes(
+        "onOpenAutodeposit && !isAutodepositConfigured"
+      ),
+    "The left sidebar renders a stable Autodeposit status card instead of hiding it when configured."
+  );
+
+  record(
+    checks,
+    "edit routing",
+    includesAll(contracts + repository + floorRoute + hook + workspace, [
+      "parseEarnAutodepositFloorUpdateConfirmRequestBody",
+      "updateAutodepositWalletBalanceFloor",
+      "executeEarnAutodepositFloorUpdate",
+      "requiresSignature: !autodepositConfig || amountChanged",
+      "pendingEarnAutodepositDraft.requiresSignature === false",
+      "policySeed: pendingEarnAutodepositDraft.existingPolicySeed",
+    ]),
+    "Autodeposit edits route max changes through signed delegation setup and floor-only changes through an authenticated DB update."
+  );
+
+  record(
+    checks,
+    "pause/resume routing",
+    includesAll(contracts + repository + toggleRoute + hook + workspace, [
+      "parseEarnAutodepositToggleConfirmRequestBody",
+      "updateAutodepositTargetActive",
+      "executeEarnAutodepositToggle",
+      "autodeposit/toggle/confirm",
+      "active: input.active",
+      'existing.lifecycleStatus === "closed"',
+      'existing.lifecycleStatus !== "active"',
+      'state: nextActive ? "created" : "paused"',
+      "handleOpenAutodepositCloseReview",
+      "handleDeleteAutodeposit",
+    ]) &&
+      !toggleRoute.includes("resolveConfirmedSignatureSlot") &&
+      !toggleRoute.includes("Connection") &&
+      !toggleRoute.includes("closeSignature"),
+    "The Earn card switch uses a DB-only target.active toggle, while delete remains on the signed close review path."
+  );
+
+  record(
+    checks,
+    "monitorable target predicate",
+    includesAll(repository + client + migration0005, [
+      "balanceSweepPolicies.active",
+      "balanceSweepTargets.active",
+      "balanceSweepTargets.lifecycleStatus",
+      "lifecycle_status, active",
+      "CASE WHEN",
+      "target.active ? \"active\" : \"paused\"",
+    ]),
+    "Code and indexes preserve policy-active plus target-active plus active-lifecycle as the monitorability boundary."
+  );
+
   if (live) {
     const liveColumns = await runPsql(`
       SELECT column_name
@@ -231,6 +380,7 @@ async function main() {
           'subscription_authority',
           'recurring_delegation',
           'period_length_seconds',
+          'start_timestamp',
           'wallet_balance_floor_raw',
           'lifecycle_status',
           'close_signature',
@@ -304,6 +454,81 @@ async function main() {
         OR policy.id IS NULL
         OR policy.policy_account <> target.policy_account;
     `);
+    const liveLoadQueryMisses = await runPsql(`
+      SELECT COUNT(*)
+      FROM loyal_yield.balance_sweep_targets AS target
+      JOIN loyal_yield.balance_sweep_policies AS policy
+        ON policy.id = target.balance_sweep_policy_id
+      WHERE policy.active = true
+        AND policy.policy_type = 'subscription_sweep'
+        AND policy.vault_index = 1
+        AND target.vault_index = 1
+        AND target.active = true
+        AND target.lifecycle_status = 'active'
+        AND target.recurring_delegation IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM loyal_yield.balance_sweep_policies AS load_policy
+          JOIN loyal_yield.balance_sweep_targets AS load_target
+            ON load_target.balance_sweep_policy_id = load_policy.id
+          WHERE load_policy.active = true
+            AND load_policy.authority = policy.authority
+            AND load_policy.settings = policy.settings
+            AND load_policy.policy_type = 'subscription_sweep'
+            AND load_policy.vault_index = 1
+            AND load_target.wallet = target.wallet
+            AND load_target.settings = target.settings
+            AND load_target.vault_index = 1
+            AND load_target.lifecycle_status <> 'closed'
+            AND load_target.id = target.id
+        );
+    `);
+    const liveClosedReturned = await runPsql(`
+      SELECT COUNT(*)
+      FROM loyal_yield.balance_sweep_policies AS policy
+      JOIN loyal_yield.balance_sweep_targets AS target
+        ON target.balance_sweep_policy_id = policy.id
+      WHERE policy.active = true
+        AND policy.policy_type = 'subscription_sweep'
+        AND policy.vault_index = 1
+        AND target.vault_index = 1
+        AND target.lifecycle_status <> 'closed'
+        AND target.lifecycle_status = 'closed';
+    `);
+    const livePausedMonitorable = await runPsql(`
+      SELECT COUNT(*)
+      FROM loyal_yield.balance_sweep_policies AS policy
+      JOIN loyal_yield.balance_sweep_targets AS target
+        ON target.balance_sweep_policy_id = policy.id
+      WHERE policy.active = true
+        AND policy.policy_type = 'subscription_sweep'
+        AND policy.vault_index = 1
+        AND target.vault_index = 1
+        AND target.lifecycle_status = 'active'
+        AND target.active = false
+        AND target.recurring_delegation IS NOT NULL
+        AND policy.active = true
+        AND target.active = true
+        AND target.lifecycle_status = 'active';
+    `);
+    const liveResumedMonitorableMisses = await runPsql(`
+      SELECT COUNT(*)
+      FROM loyal_yield.balance_sweep_policies AS policy
+      JOIN loyal_yield.balance_sweep_targets AS target
+        ON target.balance_sweep_policy_id = policy.id
+      WHERE policy.active = true
+        AND policy.policy_type = 'subscription_sweep'
+        AND policy.vault_index = 1
+        AND target.vault_index = 1
+        AND target.lifecycle_status = 'active'
+        AND target.active = true
+        AND target.recurring_delegation IS NOT NULL
+        AND NOT (
+          policy.active = true
+          AND target.active = true
+          AND target.lifecycle_status = 'active'
+        );
+    `);
 
     record(
       checks,
@@ -312,6 +537,7 @@ async function main() {
         "subscription_authority",
         "recurring_delegation",
         "period_length_seconds",
+        "start_timestamp",
         "wallet_balance_floor_raw",
         "lifecycle_status",
         "close_signature",
@@ -373,6 +599,30 @@ async function main() {
       "live Neon policy backfill",
       livePolicyLinks === "0",
       "Every live balance-sweep target links to a matching balance-sweep policy."
+    );
+    record(
+      checks,
+      "live Neon active load visibility",
+      liveLoadQueryMisses === "0",
+      "Active subscription-sweep targets with recurring delegation are visible to the earn-state load query."
+    );
+    record(
+      checks,
+      "live Neon closed load exclusion",
+      liveClosedReturned === "0",
+      "Closed balance-sweep targets are excluded from configured autodeposit load state."
+    );
+    record(
+      checks,
+      "live Neon paused monitor exclusion",
+      livePausedMonitorable === "0",
+      "Paused active-lifecycle targets are excluded from the policy.active + target.active + active-lifecycle monitorable predicate."
+    );
+    record(
+      checks,
+      "live Neon resumed monitor inclusion",
+      liveResumedMonitorableMisses === "0",
+      "Resumed active-lifecycle targets are included by the monitorable predicate."
     );
   }
 

@@ -138,9 +138,7 @@ export function applyEarnDepositFormDraftChange(
 function formatLamportsAsSol(lamports: string): string {
   const value = BigInt(lamports);
   const whole = value / BigInt(1_000_000_000);
-  const fraction = (value % BigInt(1_000_000_000))
-    .toString()
-    .padStart(9, "0");
+  const fraction = (value % BigInt(1_000_000_000)).toString().padStart(9, "0");
   return `${whole.toString()}.${fraction} SOL`;
 }
 
@@ -183,9 +181,7 @@ export function buildEarnDepositReviewItem(args: {
         { label: "Actions", value: "Swap" },
         {
           label: "Supported lanes",
-          value: [SwapLane.Jupiter]
-            .map(formatSwapLaneLabel)
-            .join(", "),
+          value: [SwapLane.Jupiter].map(formatSwapLaneLabel).join(", "),
         },
         { label: "Mints", value: stablecoinMintLabels },
       ],
@@ -225,17 +221,16 @@ export function buildEarnDepositReviewItem(args: {
   };
   const depositPage: ApprovalReviewPage = {
     title: isPolicySetupFlow ? "Approval 2 of 2" : "Deposit",
-    amount: args.draft.amountLabel,
-    symbol: args.draft.symbol,
+    amount: `$${args.draft.amountLabel}`,
     heading: `Deposit into ${EARN_VAULT_LABEL}`,
-    mascotNote:
-      isPolicySetupFlow
-        ? "Now, last step to put the money in!"
-        : `Top up your ${EARN_VAULT_LABEL} with ${args.draft.symbol}.`,
+    hideAmountHeading: true,
+    mascotNote: isPolicySetupFlow
+      ? "Now, last step to put the money in!"
+      : `Top up your ${EARN_VAULT_LABEL} with ${args.draft.symbol}.`,
     rows: [
       {
         label: "First",
-        value: `${args.draft.source.label} sends $${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}.`,
+        value: `You send ${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}.`,
       },
       {
         label: "Then",
@@ -300,8 +295,7 @@ export function buildEarnDepositReviewItem(args: {
 export function buildEarnWithdrawReviewItem(args: {
   draft: EarnWithdrawDraft;
 }): ApprovalReviewDisplayItem {
-  const actionLabel =
-    args.draft.mode === "full" ? "Withdraw all" : "Withdraw";
+  const actionLabel = args.draft.mode === "full" ? "Withdraw all" : "Withdraw";
   const reviewSections: ApprovalReviewDisplaySection[] = [
     {
       title: "Transaction #1",
@@ -340,76 +334,127 @@ export function buildEarnAutodepositSetupReviewItem(args: {
   stage?: EarnAutodepositSetupReviewStage;
 }): ApprovalReviewDisplayItem {
   const stage = args.stage ?? "policy";
+  const isEdit = Boolean(
+    args.draft.amountChanged !== undefined ||
+      args.draft.keepAmountChanged !== undefined
+  );
+  const requiresSignature = args.draft.requiresSignature ?? true;
+  const changeRows: ApprovalReviewDisplaySection["rows"] = [
+    ...(args.draft.amountChanged ?? !isEdit
+      ? [
+          {
+            label: "Max deposit",
+            value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+          },
+        ]
+      : []),
+    ...(args.draft.keepAmountChanged ?? !isEdit
+      ? [
+          {
+            label: "Minimum balance",
+            value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account (${MAIN_ACCOUNT_FULL_ADDRESS})`,
+          },
+        ]
+      : []),
+  ];
   const recurringDelegation =
     args.preparedSetup?.persistence.recurringDelegation ?? null;
   const policyAccount = args.preparedSetup?.persistence.policyAccount ?? null;
-  const onChainRows: ApprovalReviewDisplaySection["rows"] =
-    stage === "policy"
-      ? [
+  const onChainRows: ApprovalReviewDisplaySection["rows"] = !requiresSignature
+    ? [
           {
-            label: "Primitive",
-            value: "Create subscription authority and policy",
+            label: "Update",
+            value: "Save database-only Autodeposit setting",
           },
-          {
-            label: "Policy",
-            value:
-              "Allow Loyal automation to pull only this subscription into Earn",
-          },
-          ...(policyAccount
-            ? [
-                {
-                  label: "Policy account",
-                  value: shortenAddress(policyAccount),
-                },
-              ]
-            : []),
-        ]
-      : [
-          {
-            label: "Primitive",
-            value: "Create recurring delegation",
-          },
-          {
-            label: "Delegatee",
-            value: EARN_VAULT_LABEL,
-          },
-          ...(recurringDelegation
-            ? [
-                {
-                  label: "Delegation",
-                  value: shortenAddress(recurringDelegation),
-                },
-              ]
-            : []),
-          ...(policyAccount
-            ? [
-                {
-                  label: "Policy account",
-                  value: shortenAddress(policyAccount),
-                },
-              ]
-            : []),
-        ];
+      ]
+    : isEdit && stage === "policy"
+    ? [
+        {
+          label: "Primitive",
+          value: "Update recurring delegation",
+        },
+        {
+          label: "Policy",
+          value: "Reuse existing Autodeposit policy",
+        },
+        ...(args.draft.existingPolicySeed
+          ? [
+              {
+                label: "Policy seed",
+                value: args.draft.existingPolicySeed,
+              },
+            ]
+          : []),
+      ]
+    : stage === "policy"
+    ? [
+        {
+          label: "Primitive",
+          value: "Create subscription authority and policy",
+        },
+        {
+          label: "Policy",
+          value:
+            "Allow Loyal automation to pull only this subscription into Earn",
+        },
+        ...(policyAccount
+          ? [
+              {
+                label: "Policy account",
+                value: shortenAddress(policyAccount),
+              },
+            ]
+          : []),
+      ]
+    : [
+        {
+          label: "Primitive",
+          value: "Create recurring delegation",
+        },
+        {
+          label: "Delegatee",
+          value: EARN_VAULT_LABEL,
+        },
+        ...(recurringDelegation
+          ? [
+              {
+                label: "Delegation",
+                value: shortenAddress(recurringDelegation),
+              },
+            ]
+          : []),
+        ...(policyAccount
+          ? [
+              {
+                label: "Policy account",
+                value: shortenAddress(policyAccount),
+              },
+            ]
+          : []),
+      ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
     {
-      title: "Subscription",
-      rows: [
-        {
-          label: "Amount",
-          value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
-        },
-        {
-          label: "From",
-          value: `${args.draft.source.label} keeps at least ${args.draft.keepAmountLabel} ${args.draft.symbol}`,
-        },
-        { label: "To", value: EARN_VAULT_LABEL },
-      ],
+      title: isEdit ? "Autodeposit changes" : "Subscription",
+      rows:
+        changeRows.length > 0
+          ? changeRows
+          : [{ label: "Changes", value: "No Autodeposit changes detected" }],
     },
     {
-      title: "On-chain setup",
+      title: requiresSignature ? "On-chain setup" : "Database update",
       rows: onChainRows,
     },
   ];
+  const heading = !requiresSignature
+    ? "Save Autodeposit setting"
+    : isEdit
+    ? "Update recurring delegation"
+    : "Create subscription authority and policy";
+  const firstPageTitle = !requiresSignature
+    ? "Autodeposit"
+    : isEdit
+    ? "Approval"
+    : "Approval 1 of 2";
 
   return {
     actionMode: "vote",
@@ -418,23 +463,19 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     pages: [
       stage === "policy"
         ? {
-            title: "Approval 1 of 2",
-            heading: "Create subscription authority and policy",
-            mascotNote:
-              "First, create the subscription authority and policy that lets Loyal use only this autodeposit path.",
-            rows: [
-              {
-                label: "Frequency",
-                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
-              },
-              {
-                label: "Minimum balance",
-                value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account (${MAIN_ACCOUNT_FULL_ADDRESS})`,
-              },
-            ],
+            title: firstPageTitle,
+            heading,
+            mascotNote: !requiresSignature
+              ? "This setting updates your saved Autodeposit rule only."
+              : isEdit
+              ? "This updates the signed delegation limit while keeping the same Earn policy."
+              : "First, create the subscription authority and policy that lets Loyal use only this Autodeposit path.",
+            rows: changeRows,
             collapsibles: [
               {
-                title: "On-chain details",
+                title: requiresSignature
+                  ? "On-chain details"
+                  : "Update details",
                 rows: reviewSections.flatMap((section) => section.rows),
               },
             ],
@@ -464,14 +505,19 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             ],
           },
     ],
-    primaryActionLabel:
-      stage === "policy" ? "Sign" : "Create recurring delegation",
+    primaryActionLabel: !requiresSignature
+      ? "Save changes"
+      : stage === "policy"
+      ? "Sign"
+      : "Create recurring delegation",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
     status: "draft",
     statusLabel: "Ready to review",
-    summaryLabel: "Create monthly Earn autodeposit",
+    summaryLabel: isEdit
+      ? "Update monthly Autodeposit"
+      : "Create monthly Autodeposit",
     symbol: args.draft.symbol,
     title: "Autodeposit",
   };
@@ -485,7 +531,7 @@ export function buildEarnAutodepositCloseReviewItem(args: {
   const policy = args.preparedClose?.persistence.policyAccount;
   const reviewSections: ApprovalReviewDisplaySection[] = [
     {
-      title: "Close autodeposit",
+      title: "Close Autodeposit",
       rows: [
         {
           label: "Subscription",
@@ -498,7 +544,9 @@ export function buildEarnAutodepositCloseReviewItem(args: {
         ...(delegation
           ? [{ label: "Delegation", value: shortenAddress(delegation) }]
           : []),
-        ...(policy ? [{ label: "Policy account", value: shortenAddress(policy) }] : []),
+        ...(policy
+          ? [{ label: "Policy account", value: shortenAddress(policy) }]
+          : []),
       ],
     },
   ];
@@ -510,13 +558,14 @@ export function buildEarnAutodepositCloseReviewItem(args: {
     pages: [
       {
         title: "Autodeposit",
-        heading: "Turn off autodeposit",
+        heading: "Turn off Autodeposit",
         mascotNote:
           "This closes the subscription path and removes Loyal's automation policy.",
         rows: [
           {
             label: "Refunds",
-            value: "Subscription and policy rent return through the owning programs.",
+            value:
+              "Subscription and policy rent return through the owning programs.",
           },
         ],
         collapsibles: [
@@ -527,13 +576,13 @@ export function buildEarnAutodepositCloseReviewItem(args: {
         ],
       },
     ],
-    primaryActionLabel: "Turn off autodeposit",
+    primaryActionLabel: "Turn off Autodeposit",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: EARN_VAULT_LABEL,
     status: "draft",
     statusLabel: "Ready to review",
-    summaryLabel: "Close Earn autodeposit",
+    summaryLabel: "Close Autodeposit",
     symbol: "USDC",
     title: "Autodeposit",
   };

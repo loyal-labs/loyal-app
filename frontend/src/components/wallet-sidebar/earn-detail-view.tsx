@@ -41,8 +41,7 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const POSITIVE_AMOUNT_COLOR = "#34C759";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
-const MAIN_ACCOUNT_FULL_ADDRESS =
-  "BAqgbERmvUViqDSx961xpRBHGt68SpACiWL4t9696qZZ";
+const MAIN_ACCOUNT_SHORT_ADDRESS = "BAqg...6qZZ";
 
 const TOP_EARN_VAULT = {
   label: "Kamino · Lending Yield",
@@ -128,9 +127,14 @@ export type EarnWithdrawDraft = {
 export type EarnAutodepositDraft = {
   amount: number;
   amountLabel: string;
+  amountChanged?: boolean;
+  existingPolicySeed?: string;
+  existingRecurringDelegation?: string;
   keepAmount: number;
+  keepAmountChanged?: boolean;
   keepAmountLabel: string;
   nonce: bigint;
+  requiresSignature?: boolean;
   source: EarnDepositSourceOption;
   symbol: "USDC";
   tokenDecimals: number;
@@ -189,13 +193,13 @@ export function formatEarnActionCtaAmount(value: number) {
 
 function formatForecastAmountLabel(value: number) {
   if (!Number.isFinite(value)) {
-    return "0 USDC";
+    return "$0";
   }
 
-  return `${value.toLocaleString("en-US", {
+  return `$${value.toLocaleString("en-US", {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
-  })} USDC`;
+  })}`;
 }
 
 export function clampDepositAmountInput(rawValue: string, balance: number) {
@@ -246,10 +250,10 @@ const FORECAST_DATES = [
 ];
 
 const FORECAST_AMOUNT_PRESETS = [
-  { label: "100 USDC", value: 100 },
-  { label: "500 USDC", value: 500 },
-  { label: "1,000 USDC", value: 1000 },
-  { label: "5,000 USDC", value: 5000 },
+  { label: "$100", value: 100 },
+  { label: "$500", value: 500 },
+  { label: "$1,000", value: 1000 },
+  { label: "$5,000", value: 5000 },
 ] as const;
 const DEFAULT_FORECAST_AMOUNT = FORECAST_AMOUNT_PRESETS[2].value;
 const USER_FORECAST_SELECTION = "you";
@@ -295,7 +299,8 @@ export function getForecastAmountForSelection(
 ) {
   if (selection === USER_FORECAST_SELECTION) {
     return (
-      getCurrentForecastAmount(balance, currentAmount) ?? DEFAULT_FORECAST_AMOUNT
+      getCurrentForecastAmount(balance, currentAmount) ??
+      DEFAULT_FORECAST_AMOUNT
     );
   }
 
@@ -1276,129 +1281,131 @@ function EarningsBlock({
             }}
           >
             <div style={{ position: "relative", width: "100%" }}>
-            <div
-              key="earnings-bars-monthly"
-              onMouseLeave={() => setHoveredBar(null)}
-              style={{
-                alignItems: "flex-end",
-                display: "flex",
-                gap: "8px",
-                height: `${EARNINGS_CHART_HEIGHT}px`,
-                overflow: "hidden",
-                width: "100%",
-              }}
-            >
-              {cumulativeBars.map((bar, i) => {
-                const heightPct =
-                  maxValue > 0 ? (bar.cumulativeUsd / maxValue) * 100 : 0;
-                const isZeroValue = bar.cumulativeUsd <= 0;
-                const isCurrentPositive =
-                  bar.isCurrent && bar.cumulativeUsd > 0;
-                const visualHeightPct = isCurrentPositive
-                  ? Math.max(heightPct, 18)
-                  : heightPct;
-                const isActive = hoveredBar === i;
-                const minHeightPx = 4;
-                return (
-                  <button
-                    aria-label={`${bar.label} earnings ${formatEarningsAmount(
-                      bar.cumulativeUsd
-                    )}`}
-                    className={`earnings-bar${
-                      isActive ? " earnings-bar-active" : ""
-                    }${isZeroValue ? " earnings-bar-zero" : ""}`}
-                    key={`${bar.startAt}:${bar.endAt}`}
-                    onMouseEnter={() => setHoveredBar(i)}
-                    style={{
-                      ["--bar-index" as never]: i,
-                    }}
-                    type="button"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="earnings-bar-fill"
-                      style={{
-                        height: `max(${minHeightPx}px, ${visualHeightPct.toFixed(
-                          2
-                        )}%)`,
-                      }}
-                    />
-                  </button>
-                );
-              })}
-              {cumulativeBars.length === 0 ? (
-                <div
-                  style={{
-                    alignItems: "center",
-                    color: secondary,
-                    display: "flex",
-                    flex: 1,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    height: "100%",
-                    justifyContent: "center",
-                    lineHeight: "16px",
-                  }}
-                >
-                  No earnings yet
-                </div>
-              ) : null}
-            </div>
-
-            {hoveredBarEntry ? (
               <div
-                className="earnings-bar-tooltip"
+                key="earnings-bars-monthly"
+                onMouseLeave={() => setHoveredBar(null)}
                 style={{
-                  background: "#fff",
-                  border: "1px solid rgba(0, 0, 0, 0.08)",
-                  borderRadius: "14px",
-                  boxShadow: "0 8px 22px rgba(0, 0, 0, 0.12)",
+                  alignItems: "flex-end",
                   display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                  left: `clamp(100px, ${
-                    hoverFraction * 100
-                  }%, calc(100% - 100px))`,
-                  padding: "8px 12px",
-                  pointerEvents: "none",
-                  position: "absolute",
-                  top: "8px",
-                  transform: "translateX(-50%)",
-                  whiteSpace: "nowrap",
+                  gap: "8px",
+                  height: `${EARNINGS_CHART_HEIGHT}px`,
+                  overflow: "hidden",
+                  width: "100%",
                 }}
               >
-                <span
-                  style={{
-                    color: isBalanceHidden ? "#BBBBC0" : "#000",
-                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                    fontFamily: font,
-                    fontSize: "20px",
-                    fontWeight: 600,
-                    lineHeight: "24px",
-                  }}
-                >
-                  {`$${hoveredBarEntry.cumulativeUsd.toLocaleString("en-US", {
-                    maximumFractionDigits: hoveredFractionDigits,
-                    minimumFractionDigits: hoveredFractionDigits,
-                  })}`}
-                </span>
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                  }}
-                >
-                  <span style={{ color: POSITIVE_AMOUNT_COLOR }}>
-                    {formatSignedEarningsAmount(hoveredBarEntry.cumulativeUsd)}
-                  </span>
-                  <span style={{ color: secondary }}>
-                    {" · "}
-                    {hoveredBarEntry.label}
-                  </span>
-                </span>
+                {cumulativeBars.map((bar, i) => {
+                  const heightPct =
+                    maxValue > 0 ? (bar.cumulativeUsd / maxValue) * 100 : 0;
+                  const isZeroValue = bar.cumulativeUsd <= 0;
+                  const isCurrentPositive =
+                    bar.isCurrent && bar.cumulativeUsd > 0;
+                  const visualHeightPct = isCurrentPositive
+                    ? Math.max(heightPct, 18)
+                    : heightPct;
+                  const isActive = hoveredBar === i;
+                  const minHeightPx = 4;
+                  return (
+                    <button
+                      aria-label={`${bar.label} earnings ${formatEarningsAmount(
+                        bar.cumulativeUsd
+                      )}`}
+                      className={`earnings-bar${
+                        isActive ? " earnings-bar-active" : ""
+                      }${isZeroValue ? " earnings-bar-zero" : ""}`}
+                      key={`${bar.startAt}:${bar.endAt}`}
+                      onMouseEnter={() => setHoveredBar(i)}
+                      style={{
+                        ["--bar-index" as never]: i,
+                      }}
+                      type="button"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="earnings-bar-fill"
+                        style={{
+                          height: `max(${minHeightPx}px, ${visualHeightPct.toFixed(
+                            2
+                          )}%)`,
+                        }}
+                      />
+                    </button>
+                  );
+                })}
+                {cumulativeBars.length === 0 ? (
+                  <div
+                    style={{
+                      alignItems: "center",
+                      color: secondary,
+                      display: "flex",
+                      flex: 1,
+                      fontFamily: font,
+                      fontSize: "13px",
+                      height: "100%",
+                      justifyContent: "center",
+                      lineHeight: "16px",
+                    }}
+                  >
+                    No earnings yet
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+
+              {hoveredBarEntry ? (
+                <div
+                  className="earnings-bar-tooltip"
+                  style={{
+                    background: "#fff",
+                    border: "1px solid rgba(0, 0, 0, 0.08)",
+                    borderRadius: "14px",
+                    boxShadow: "0 8px 22px rgba(0, 0, 0, 0.12)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px",
+                    left: `clamp(100px, ${
+                      hoverFraction * 100
+                    }%, calc(100% - 100px))`,
+                    padding: "8px 12px",
+                    pointerEvents: "none",
+                    position: "absolute",
+                    top: "8px",
+                    transform: "translateX(-50%)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: isBalanceHidden ? "#BBBBC0" : "#000",
+                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                      fontFamily: font,
+                      fontSize: "20px",
+                      fontWeight: 600,
+                      lineHeight: "24px",
+                    }}
+                  >
+                    {`$${hoveredBarEntry.cumulativeUsd.toLocaleString("en-US", {
+                      maximumFractionDigits: hoveredFractionDigits,
+                      minimumFractionDigits: hoveredFractionDigits,
+                    })}`}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "13px",
+                      lineHeight: "16px",
+                    }}
+                  >
+                    <span style={{ color: POSITIVE_AMOUNT_COLOR }}>
+                      {formatSignedEarningsAmount(
+                        hoveredBarEntry.cumulativeUsd
+                      )}
+                    </span>
+                    <span style={{ color: secondary }}>
+                      {" · "}
+                      {hoveredBarEntry.label}
+                    </span>
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1443,7 +1450,7 @@ function AutodepositToggle({
   return (
     <button
       aria-checked={isOn}
-      aria-label="Disable autodeposit"
+      aria-label={isOn ? "Pause Autodeposit" : "Resume Autodeposit"}
       disabled={disabled}
       onClick={onToggle}
       role="switch"
@@ -1478,14 +1485,16 @@ function AutodepositToggle({
 
 function AutodepositCard({
   amountLabel,
+  floorLabel,
   isConfigured = false,
   state = "idle",
   onDisable,
   onSetUp,
 }: {
   amountLabel?: string;
+  floorLabel?: string;
   isConfigured?: boolean;
-  state?: "closing" | "created" | "creating" | "idle";
+  state?: "closing" | "created" | "creating" | "idle" | "paused";
   onDisable?: () => void;
   onSetUp?: () => void;
 }) {
@@ -1495,7 +1504,9 @@ function AutodepositCard({
       ? "Creating subscription and policy"
       : state === "closing"
       ? "Closing and refunding rent"
-      : `Anything above ${amountLabel}`;
+      : state === "paused"
+      ? "Paused"
+      : `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`;
 
   if (isConfigured) {
     return (
@@ -1577,7 +1588,7 @@ function AutodepositCard({
               </span>
             </div>
             <button
-              aria-label="Edit autodeposit"
+              aria-label="Edit Autodeposit"
               className="earn-autodeposit-settings"
               onClick={onSetUp}
               style={{
@@ -1600,7 +1611,7 @@ function AutodepositCard({
             </button>
             <AutodepositToggle
               disabled={isBusy}
-              isOn={!isBusy}
+              isOn={!isBusy && state !== "paused"}
               onToggle={onDisable}
             />
           </div>
@@ -1688,8 +1699,7 @@ function AutodepositCard({
                 maxWidth: "300px",
               }}
             >
-              Automatically deposits stablecoins above your set minimum balance
-              to Earn
+              Start earning the moment your money arrives
             </span>
           </div>
           <div
@@ -1731,6 +1741,7 @@ function AutodepositCard({
 
 export function EarnDetailView({
   autodepositAmountLabel,
+  autodepositFloorLabel,
   autodepositState = "idle",
   currentPositionApyLabel,
   currentPositionLabel = TOP_EARN_VAULT.label,
@@ -1746,7 +1757,8 @@ export function EarnDetailView({
   principalAmount = 0,
 }: {
   autodepositAmountLabel?: string;
-  autodepositState?: "closing" | "created" | "creating" | "idle";
+  autodepositFloorLabel?: string;
+  autodepositState?: "closing" | "created" | "creating" | "idle" | "paused";
   currentPositionApyLabel?: string;
   currentPositionLabel?: string;
   earningsCacheKey?: string;
@@ -1795,6 +1807,8 @@ export function EarnDetailView({
   const displayApyLabel = `${formatEarnApyPercent(
     estimatedEarnedAmountApyBps
   )} 30d APY`;
+  const currentPositionDisplayApyLabel =
+    currentPositionApyLabel ?? displayApyLabel;
 
   return (
     <div
@@ -1979,6 +1993,7 @@ export function EarnDetailView({
 
       <AutodepositCard
         amountLabel={autodepositAmountLabel}
+        floorLabel={autodepositFloorLabel}
         isConfigured={isAutodepositConfigured}
         state={autodepositState}
         onDisable={onDisableAutodeposit}
@@ -2045,9 +2060,9 @@ export function EarnDetailView({
               >
                 {currentPositionLabel}
               </span>
-              {currentPositionApyLabel ? (
+              {currentPositionDisplayApyLabel ? (
                 <div>
-                  <ApyBadge value={currentPositionApyLabel} />
+                  <ApyBadge value={currentPositionDisplayApyLabel} />
                 </div>
               ) : null}
             </div>
@@ -3048,7 +3063,9 @@ function toHistoricalApySamples(
   history: ReturnType<typeof useEarnForecastApyHistory>
 ): HistoricalApySample[] {
   const loyalSeries = history.series?.find((series) => series.key === "loyal");
-  const samples = loyalSeries?.samples.length ? loyalSeries.samples : history.samples;
+  const samples = loyalSeries?.samples.length
+    ? loyalSeries.samples
+    : history.samples;
 
   return samples.map((sample) => ({
     apyPercent: sample.apyBps / 100,
@@ -4146,9 +4163,6 @@ export function EarnDepositView({
   const effectiveDepositAmountLabel = isMaximumDepositMode
     ? formatDepositAmount(selectedSourceBalance)
     : depositAmount;
-  const depositUsdDisplay = hasDepositAmount
-    ? `$${depositAmount}${depositAmount.includes(".") ? "" : ".00"}`
-    : "$0.00";
   const amountError =
     effectiveDepositAmount < MIN_DEPOSIT_USDC
       ? `Minimum deposit is ${MIN_DEPOSIT_USDC} USDC`
@@ -4439,10 +4453,23 @@ export function EarnDepositView({
                   alignItems: "baseline",
                   display: "flex",
                   flex: 1,
-                  gap: "8px",
+                  gap: "0",
                   minWidth: 0,
                 }}
               >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    color: "#000",
+                    flexShrink: 0,
+                    fontFamily: font,
+                    fontSize: "40px",
+                    fontWeight: 600,
+                    lineHeight: "48px",
+                  }}
+                >
+                  $
+                </span>
                 <input
                   className="earn-deposit-amount-input"
                   inputMode="decimal"
@@ -4477,31 +4504,8 @@ export function EarnDepositView({
                   type="text"
                   value={depositAmount}
                 />
-                <span
-                  style={{
-                    color: "rgba(60, 60, 67, 0.4)",
-                    fontFamily: font,
-                    fontSize: "28px",
-                    fontWeight: 600,
-                    lineHeight: "32px",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  USDC
-                </span>
               </div>
             </div>
-            <span
-              style={{
-                color: secondary,
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-              }}
-            >
-              {depositUsdDisplay}
-            </span>
           </div>
         </section>
 
@@ -4661,7 +4665,11 @@ function AutodepositAmountChips({
   );
 }
 
-function AutodepositFrequencyField() {
+function AutodepositFrequencyField({
+  nextPeriodLabel,
+}: {
+  nextPeriodLabel?: string | null;
+}) {
   return (
     <div style={{ position: "relative", width: "100%" }}>
       <div
@@ -4726,7 +4734,9 @@ function AutodepositFrequencyField() {
               lineHeight: "16px",
             }}
           >
-            Starting today
+            {nextPeriodLabel
+              ? `Next period ${nextPeriodLabel}`
+              : "Starting today"}
           </span>
         </span>
       </div>
@@ -4864,6 +4874,7 @@ export function AutodepositSetupView({
   earnVaultAddressLabel,
   initialAmount = "100",
   initialKeepAmount = "500",
+  nextPeriodLabel,
   isEditing = false,
   mainSource,
   onBack,
@@ -4874,6 +4885,7 @@ export function AutodepositSetupView({
   earnVaultAddressLabel?: string | null;
   initialAmount?: string;
   initialKeepAmount?: string;
+  nextPeriodLabel?: string | null;
   isEditing?: boolean;
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
@@ -4887,6 +4899,27 @@ export function AutodepositSetupView({
   const [earnWhole, earnFraction = "00"] = earnBalanceLabel.split(".");
   const keepAmountLabel = Number(keepAmount || 0).toLocaleString("en-US");
   const hasAmount = Number(amount) > 0;
+  const normalizeAutodepositAmount = (value: string) =>
+    Number(value.replace(/,/g, "")) || 0;
+  const amountChanged =
+    normalizeAutodepositAmount(amount) !==
+    normalizeAutodepositAmount(initialAmount);
+  const keepAmountChanged =
+    normalizeAutodepositAmount(keepAmount) !==
+    normalizeAutodepositAmount(initialKeepAmount);
+  const hasChanges = !isEditing || amountChanged || keepAmountChanged;
+  const canSubmit = hasAmount && hasChanges;
+  const submitLabel = !hasAmount
+    ? "Enter amount"
+    : isEditing
+    ? !hasChanges
+      ? "No changes yet"
+      : amountChanged && keepAmountChanged
+      ? "Update Autodeposit"
+      : amountChanged
+      ? "Update monthly allowance"
+      : "Update minimum balance"
+    : "Create Autodeposit";
 
   const focusAmount = () => {
     amountInputRef.current?.focus();
@@ -4897,6 +4930,24 @@ export function AutodepositSetupView({
     const frame = window.requestAnimationFrame(focusAmount);
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    if (!onBack) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      onBack();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onBack]);
 
   return (
     <div
@@ -4993,7 +5044,7 @@ export function AutodepositSetupView({
             }}
             type="button"
           >
-            Delete Autodeposit
+            Delete
           </button>
         ) : null}
       </div>
@@ -5017,12 +5068,26 @@ export function AutodepositSetupView({
             width: "100%",
           }}
         >
+          <p
+            style={{
+              color: secondary,
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              margin: 0,
+              padding: "0 0 4px",
+            }}
+          >
+            Allowance
+          </p>
           <div
             onClick={focusAmount}
             style={{
               alignItems: "baseline",
               cursor: "text",
               display: "flex",
+              gap: "8px",
               padding: "8px 0",
             }}
           >
@@ -5045,7 +5110,7 @@ export function AutodepositSetupView({
                 fontFamily: font,
                 fontSize: "40px",
                 fontWeight: 600,
-                letterSpacing: "-0.44px",
+                letterSpacing: "0",
                 lineHeight: "48px",
                 minWidth: 0,
                 outline: "none",
@@ -5059,10 +5124,11 @@ export function AutodepositSetupView({
               style={{
                 color: "rgba(60, 60, 67, 0.4)",
                 fontFamily: font,
-                fontSize: "40px",
+                fontSize: "28px",
                 fontWeight: 600,
-                letterSpacing: "-0.44px",
-                lineHeight: "48px",
+                letterSpacing: "0",
+                lineHeight: "32px",
+                whiteSpace: "nowrap",
               }}
             >
               USDC
@@ -5090,10 +5156,10 @@ export function AutodepositSetupView({
                 padding: "12px 0 4px",
               }}
             >
-              How often to deposit
+              Frequency
             </p>
           </div>
-          <AutodepositFrequencyField />
+          <AutodepositFrequencyField nextPeriodLabel={nextPeriodLabel} />
         </section>
 
         <section
@@ -5202,7 +5268,7 @@ export function AutodepositSetupView({
                 padding: "12px 0 4px",
               }}
             >
-              Keep at least in Main Account ({MAIN_ACCOUNT_FULL_ADDRESS})
+              Minimum balance
             </p>
           </div>
           <div style={{ padding: "4px 0 0" }}>
@@ -5236,10 +5302,7 @@ export function AutodepositSetupView({
                   }}
                 >
                   {keepAmountLabel}
-                  <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
-                    {" "}
-                    USDC
-                  </span>
+                  <span style={{ color: "rgba(60, 60, 67, 0.4)" }}> USDC</span>
                 </span>
               </span>
             </div>
@@ -5249,20 +5312,6 @@ export function AutodepositSetupView({
               onSelect={setKeepAmount}
               selectedValue={keepAmount}
             />
-          </div>
-          <div style={{ padding: "8px 12px 4px" }}>
-            <p
-              style={{
-                color: secondary,
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "16px",
-                margin: 0,
-              }}
-            >
-              Autodeposits will never reduce your Main Account below this amount
-            </p>
           </div>
         </section>
       </div>
@@ -5277,19 +5326,19 @@ export function AutodepositSetupView({
       >
         <button
           className="autodeposit-submit"
-          disabled={!hasAmount}
+          disabled={!canSubmit}
           onClick={() => onSubmit?.(amount, keepAmount)}
           style={{
             alignItems: "center",
-            background: hasAmount ? "#000" : "rgba(249, 54, 60, 0.14)",
+            background: canSubmit ? "#000" : "rgba(0, 0, 0, 0.06)",
             border: "none",
             borderRadius: "9999px",
-            color: hasAmount ? "#fff" : LOYAL_EARN_BRAND_COLOR,
-            cursor: hasAmount ? "pointer" : "default",
+            color: canSubmit ? "#fff" : secondary,
+            cursor: canSubmit ? "pointer" : "default",
             display: "flex",
             fontFamily: font,
             fontSize: "16px",
-            fontWeight: hasAmount && !isEditing ? 400 : 500,
+            fontWeight: canSubmit && !isEditing ? 400 : 500,
             justifyContent: "center",
             lineHeight: "20px",
             padding: "12px 16px",
@@ -5298,11 +5347,7 @@ export function AutodepositSetupView({
           }}
           type="button"
         >
-          {hasAmount
-            ? isEditing
-              ? "Save changes"
-              : "Create Autodeposit"
-            : "Enter amount"}
+          {submitLabel}
         </button>
       </div>
     </div>

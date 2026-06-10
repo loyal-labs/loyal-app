@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -351,31 +352,63 @@ function EarnPortfolioRow({
   );
 }
 
-function AutodepositPromoCard({ onSetUp }: { onSetUp?: () => void }) {
+function AutodepositStatusCard({
+  amountLabel,
+  floorLabel,
+  isConfigured = false,
+  isError = false,
+  isLoading = false,
+  onRetry,
+  onSetUp,
+}: {
+  amountLabel?: string;
+  floorLabel?: string;
+  isConfigured?: boolean;
+  isError?: boolean;
+  isLoading?: boolean;
+  onRetry?: () => void;
+  onSetUp?: () => void;
+}) {
+  const body = isError
+    ? "Couldn’t load Autodeposit settings"
+    : isConfigured
+      ? `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`
+      : "Start earning the moment your money arrives";
+  const actionLabel = isError ? "Retry" : isConfigured ? "Edit" : "Set up";
+  const action = isError ? onRetry : onSetUp;
+
   return (
     <>
       <style jsx>{`
-        .autodeposit-promo-btn {
+        .auto-earn-status-btn {
           transition: background 0.15s ease, transform 0.15s ease;
         }
-        .autodeposit-promo-btn:hover {
-          background: #e72f34 !important;
+        .auto-earn-status-btn:hover {
+          background: #1a1a1a !important;
           transform: translateY(-1px);
         }
-        .autodeposit-promo-btn:active {
+        .auto-earn-status-btn:active {
           transform: translateY(0);
+        }
+        .auto-earn-settings-btn {
+          transition: background 0.15s ease;
+        }
+        .auto-earn-settings-btn:hover {
+          background: rgba(0, 0, 0, 0.06) !important;
         }
       `}</style>
       <div
+        aria-busy={isLoading}
         style={{
-          alignItems: "flex-start",
-          background:
-            "linear-gradient(90deg, rgba(249, 54, 60, 0.04) 0%, rgba(249, 54, 60, 0.08) 100%)",
+          alignItems: "center",
+          background: isError
+            ? "rgba(249, 54, 60, 0.06)"
+            : "linear-gradient(90deg, rgba(249, 54, 60, 0.04) 0%, rgba(249, 54, 60, 0.08) 100%)",
           borderRadius: "16px",
           display: "flex",
           marginBottom: "22px",
           overflow: "hidden",
-          padding: "0 32px 0 12px",
+          padding: "0 12px",
           width: "100%",
         }}
       >
@@ -398,18 +431,19 @@ function AutodepositPromoCard({ onSetUp }: { onSetUp?: () => void }) {
           style={{
             display: "flex",
             flex: 1,
+            gap: "2px",
             flexDirection: "column",
             minWidth: 0,
+            padding: "12px 0",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "2px",
-              padding: "12px 0 10px",
-            }}
-          >
+          {isLoading ? (
+            <>
+              <span style={skeletonBar("76px", "16px")} />
+              <span style={skeletonBar("190px", "14px")} />
+            </>
+          ) : (
+            <>
             <span
               style={{
                 color: "#000",
@@ -420,7 +454,7 @@ function AutodepositPromoCard({ onSetUp }: { onSetUp?: () => void }) {
                 lineHeight: "20px",
               }}
             >
-              Earn more without even noticing
+              Autodeposit
             </span>
             <span
               style={{
@@ -431,33 +465,61 @@ function AutodepositPromoCard({ onSetUp }: { onSetUp?: () => void }) {
                 lineHeight: "16px",
               }}
             >
-              Set up autodeposit and automatically put idle stablecoins to work
-              in Earn. You won’t even have to think about it.
+              {body}
             </span>
-          </div>
-          <div style={{ display: "flex", paddingBottom: "12px" }}>
-            <button
-              className="autodeposit-promo-btn"
-              onClick={onSetUp}
-              style={{
-                background: "#F9363C",
-                border: "none",
-                borderRadius: "9999px",
-                color: "#fff",
-                cursor: "pointer",
-                fontFamily: font,
-                fontSize: "14px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                padding: "6px 16px",
-                whiteSpace: "nowrap",
-              }}
-              type="button"
-            >
-              Set up Autodeposit
-            </button>
-          </div>
+            </>
+          )}
         </div>
+        {isLoading ? (
+          <span style={skeletonBar("64px", "32px")} />
+        ) : isConfigured && !isError ? (
+          <button
+            aria-label="Edit Autodeposit"
+            className="auto-earn-settings-btn"
+            onClick={action}
+            style={{
+              alignItems: "center",
+              background: "transparent",
+              border: "none",
+              borderRadius: "9999px",
+              color: "#3C3C43",
+              cursor: "pointer",
+              display: "inline-flex",
+              flexShrink: 0,
+              height: "32px",
+              justifyContent: "center",
+              marginLeft: "12px",
+              padding: "4px",
+              width: "32px",
+            }}
+            type="button"
+          >
+            <SlidersHorizontal size={20} strokeWidth={2} />
+          </button>
+        ) : (
+          <button
+            className="auto-earn-status-btn"
+            onClick={action}
+            style={{
+              background: "#000",
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: "pointer",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              marginLeft: "12px",
+              padding: "6px 16px",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            {actionLabel}
+          </button>
+        )}
       </div>
     </>
   );
@@ -856,9 +918,13 @@ export function PortfolioContent({
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
+  autodepositAmountLabel,
+  autodepositFloorLabel,
   earnBalance = 0,
+  hasEarnStateLoadError = false,
   hasEarnPosition = false,
   isAutodepositConfigured = false,
+  isEarnStateLoading = false,
   selectedSignerId = null,
   selectedVaultIndex = null,
   isEarnSelected = false,
@@ -897,10 +963,14 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
+  autodepositAmountLabel?: string;
+  autodepositFloorLabel?: string;
   earnBalance?: number;
+  hasEarnStateLoadError?: boolean;
   hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
+  isEarnStateLoading?: boolean;
   isEarnSelected?: boolean;
   isWalletSelected?: boolean;
   showActionButtons?: boolean;
@@ -1527,8 +1597,16 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
-          {onOpenAutodeposit && !isAutodepositConfigured ? (
-            <AutodepositPromoCard onSetUp={onOpenAutodeposit} />
+          {onOpenAutodeposit ? (
+            <AutodepositStatusCard
+              amountLabel={autodepositAmountLabel}
+              floorLabel={autodepositFloorLabel}
+              isConfigured={isAutodepositConfigured}
+              isError={hasEarnStateLoadError}
+              isLoading={isEarnStateLoading}
+              onRetry={onSmartAccountRetry}
+              onSetUp={onOpenAutodeposit}
+            />
           ) : null}
           {onOpenEarn ? (
             <EarnPortfolioRow

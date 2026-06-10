@@ -10,6 +10,10 @@ import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/se
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
+  findCurrentEarnAutodepositState,
+  type CurrentEarnAutodepositState,
+} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
   findActiveYieldPosition,
   findActiveYieldRoutePolicy,
   type RoutePolicyRecord,
@@ -60,6 +64,55 @@ function serializePolicy(policy: RoutePolicyRecord) {
   };
 }
 
+export function serializeAutodepositState(
+  autodeposit: CurrentEarnAutodepositState
+) {
+  const delegatedSigner =
+    autodeposit.target.delegatedSigners[0] ??
+    autodeposit.policy.delegatedSigners[0] ??
+    null;
+
+  return {
+    active: autodeposit.target.active,
+    amountPerPeriodRaw: autodeposit.target.maxAmountPerPeriod.toString(),
+    balanceSweepPolicyId:
+      autodeposit.target.balanceSweepPolicyId?.toString() ??
+      autodeposit.policy.id.toString(),
+    delegatedSigner,
+    lastSeenSignature: autodeposit.target.lastSeenSignature,
+    lastSeenSlot: autodeposit.target.lastSeenSlot.toString(),
+    periodLengthSeconds:
+      autodeposit.target.periodLengthSeconds?.toString() ?? null,
+    policyAccount: autodeposit.policy.policyAccount,
+    policySeed: autodeposit.policy.policySeed.toString(),
+    recurringDelegation: autodeposit.target.recurringDelegation,
+    startTimestamp:
+      autodeposit.target.startTimestamp?.toString() ??
+      Math.floor(autodeposit.target.firstSeenAt.getTime() / 1000).toString(),
+    status: autodeposit.status,
+    subscriptionAuthority:
+      autodeposit.target.subscriptionAuthority ??
+      autodeposit.policy.subscriptionAuthority,
+    subscriptionDelegatee: autodeposit.policy.subscriptionDelegatee,
+    vaultUsdcAta: autodeposit.target.vaultUsdcAta,
+    walletBalanceFloorRaw:
+      autodeposit.target.walletBalanceFloorRaw?.toString() ?? null,
+    walletUsdcAta: autodeposit.target.walletUsdcAta,
+  };
+}
+
+async function loadEarnStatePart<T>(
+  name: "autodeposit" | "policy" | "position",
+  loader: () => Promise<T | null>
+): Promise<{ data: T | null; error: boolean }> {
+  try {
+    return { data: await loader(), error: false };
+  } catch (error) {
+    console.warn(`[earn-state] failed to load ${name}; returning null`, error);
+    return { data: null, error: true };
+  }
+}
+
 export async function GET(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
@@ -95,28 +148,49 @@ export async function GET(request: Request) {
     programId,
     settingsPda,
   });
-  const [position, policy] = await Promise.all([
-    findActiveYieldPosition({
-      cluster,
-      initialReserve: earnTarget.reserve.toBase58(),
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    }),
-    findActiveYieldRoutePolicy({
-      authority: principal.walletAddress,
-      cluster,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-    }),
+  const [positionResult, policyResult, autodepositResult] = await Promise.all([
+    loadEarnStatePart("position", () =>
+      findActiveYieldPosition({
+        cluster,
+        initialReserve: earnTarget.reserve.toBase58(),
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      })
+    ),
+    loadEarnStatePart("policy", () =>
+      findActiveYieldRoutePolicy({
+        authority: principal.walletAddress,
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+      })
+    ),
+    loadEarnStatePart("autodeposit", () =>
+      findCurrentEarnAutodepositState({
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      })
+    ),
   ]);
+  const position = positionResult.data;
+  const policy = policyResult.data;
+  const autodeposit = autodepositResult.data;
+  const loadErrors = {
+    ...(positionResult.error ? { position: true } : {}),
+    ...(policyResult.error ? { policy: true } : {}),
+    ...(autodepositResult.error ? { autodeposit: true } : {}),
+  };
 
   return NextResponse.json({
+    autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     defaultPolicy: {
       account: defaultEarnPolicyPda.toBase58(),
       seed: EARN_VAULT_INDEX.toString(),
     },
+    loadErrors,
     policy: policy ? serializePolicy(policy) : null,
     position: position ? serializePosition(position) : null,
     settingsPda: principal.settingsPda,

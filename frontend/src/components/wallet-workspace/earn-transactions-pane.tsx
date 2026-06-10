@@ -15,12 +15,29 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 
 export type EarnTransactionItem = {
   id: string;
-  kind: "deposit" | "withdraw" | "rebalance" | "reconciliation";
+  kind:
+    | "autodeposit_action"
+    | "balance_sweep"
+    | "deposit"
+    | "withdraw"
+    | "rebalance"
+    | "reconciliation";
+  eventType:
+    | "autodeposit_closed"
+    | "autodeposit_created"
+    | "balance_sweep"
+    | "deposit_initialized"
+    | "deposit_top_up"
+    | "withdrawal_partial"
+    | "withdrawal_full"
+    | "rebalance_confirmed"
+    | "snapshot_reconciled";
   dateGroup: string;
   timestamp: string;
   amount: string;
   rawAmount: string;
   signature: string;
+  sortTimestamp?: string;
   confirmedSlot: string;
   source: { label: string; icon: string | null };
   destination: { label: string; icon: string | null };
@@ -41,9 +58,22 @@ const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
 
 export function getEarnTransactionRowLabel(
-  kind: EarnTransactionItem["kind"]
+  item: Pick<EarnTransactionItem, "eventType" | "kind">
 ) {
-  switch (kind) {
+  switch (item.eventType) {
+    case "autodeposit_created":
+      return "Create action";
+    case "autodeposit_closed":
+      return "Close action";
+    case "balance_sweep":
+      return "Balance sweep";
+    case "deposit_initialized":
+      return "Create & Deposit";
+    case "withdrawal_full":
+      return "Withdraw & Close";
+  }
+
+  switch (item.kind) {
     case "deposit":
       return "Deposit";
     case "withdraw":
@@ -52,20 +82,26 @@ export function getEarnTransactionRowLabel(
       return "Moved";
     case "reconciliation":
       return "Updated";
+    case "balance_sweep":
+      return "Balance sweep";
+    case "autodeposit_action":
+      return "Action";
   }
 }
 
 export function buildEarnTransactionDetail(
   item: EarnTransactionItem
 ): TransactionDetail {
-  const isDeposit = item.kind === "deposit";
-  const isWithdraw = item.kind === "withdraw";
+  const isDeposit = item.kind === "deposit" || item.kind === "balance_sweep";
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
+  const isAutodepositAction = item.kind === "autodeposit_action";
   const activity: ActivityRow = {
     id: item.signature,
     type: isDeposit ? "received" : "sent",
-    counterparty: isMovement
+    counterparty: isAutodepositAction
+      ? item.destination.label
+      : isMovement
       ? `Moved ${item.source.label} -> ${item.destination.label}`
       : isDeposit
       ? item.source.label
@@ -79,8 +115,8 @@ export function buildEarnTransactionDetail(
     activity,
     usdValue: item.rawAmount,
     status: "Completed",
-    networkFee: "~0.000005 SOL",
-    networkFeeUsd: "~$0.0005",
+    networkFee: isAutodepositAction ? "Paid by wallet" : "~0.000005 SOL",
+    networkFeeUsd: isAutodepositAction ? "confirmed on-chain" : "~$0.0005",
   };
 }
 
@@ -92,7 +128,9 @@ export function getEarnTransactionAmountColor(args: {
     return "#BBBBC0";
   }
 
-  return args.kind === "deposit" ? "#34C759" : "#000";
+  return args.kind === "deposit" || args.kind === "balance_sweep"
+    ? "#34C759"
+    : "#000";
 }
 
 function EarnTransactionsLoadingState() {
@@ -334,7 +372,7 @@ function EarnTransactionRow({
   item: EarnTransactionItem;
   onSelect: (item: EarnTransactionItem) => void;
 }) {
-  const label = getEarnTransactionRowLabel(item.kind);
+  const label = getEarnTransactionRowLabel(item);
   return (
     <button
       className="earn-tx-row"

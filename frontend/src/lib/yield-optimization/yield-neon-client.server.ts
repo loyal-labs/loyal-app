@@ -450,6 +450,7 @@ export const balanceSweepTargets = loyalYieldSchema.table(
     subscriptionAuthority: text("subscription_authority"),
     recurringDelegation: text("recurring_delegation"),
     periodLengthSeconds: bigint("period_length_seconds", { mode: "bigint" }),
+    startTimestamp: bigint("start_timestamp", { mode: "bigint" }),
     walletBalanceFloorRaw: bigint("wallet_balance_floor_raw", {
       mode: "bigint",
     }),

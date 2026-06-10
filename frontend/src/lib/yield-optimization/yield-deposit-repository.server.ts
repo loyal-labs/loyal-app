@@ -74,6 +74,7 @@ export type UserYieldPositionHistoryEventRecord = {
   amountRaw: bigint;
   confirmedAt: Date;
   confirmedSlot: bigint;
+  eventType: UserYieldPositionHoldingEventRecord["eventType"];
   id: bigint;
   reserve: string;
   market: string | null;
@@ -826,6 +827,7 @@ export async function findYieldPositionHistoryEvents(
           type === "rebalance" || type === "reconciliation"
             ? event.reserve
             : null,
+        eventType: event.eventType,
         id: event.id,
         liquidityMint: event.liquidityMint,
         market: event.market,

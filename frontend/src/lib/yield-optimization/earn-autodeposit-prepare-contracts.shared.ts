@@ -69,6 +69,20 @@ export type EarnAutodepositClosePrepareRequestBody = {
   recurringDelegation: string;
 };
 
+export type EarnAutodepositFloorUpdateConfirmRequestBody = {
+  policyAccount: string;
+  recurringDelegation: string;
+  vaultIndex: 1;
+  walletBalanceFloorRaw: string;
+};
+
+export type EarnAutodepositToggleConfirmRequestBody = {
+  active: boolean;
+  policyAccount: string;
+  recurringDelegation: string;
+  vaultIndex: 1;
+};
+
 export type EarnAutodepositSetupConfirmRequestBody = {
   amountPerPeriodRaw: string;
   cluster: string;
@@ -174,6 +188,9 @@ export type EarnAutodepositSetupConfirmResponse = {
 export type EarnAutodepositCloseConfirmResponse =
   EarnAutodepositSetupConfirmResponse;
 
+export type EarnAutodepositToggleConfirmResponse =
+  EarnAutodepositSetupConfirmResponse;
+
 type EarnAutodepositPrepareRecord = Record<string, unknown>;
 
 function assertRequestObject(body: unknown): EarnAutodepositPrepareRecord {
@@ -225,6 +242,17 @@ function readBigIntString(
 ): bigint {
   const value = readUnsignedIntegerString(body, key);
   return BigInt(value);
+}
+
+function readRequiredBoolean(
+  body: EarnAutodepositPrepareRecord,
+  key: string
+): boolean {
+  const value = body[key];
+  if (typeof value !== "boolean") {
+    throw new Error(`${key} must be a boolean.`);
+  }
+  return value;
 }
 
 function readVaultIndex(body: EarnAutodepositPrepareRecord): 1 {
@@ -300,6 +328,38 @@ export function parseEarnAutodepositClosePrepareRequestBody(body: unknown): {
   return {
     policy: readRequiredString(record, "policy"),
     recurringDelegation: readRequiredString(record, "recurringDelegation"),
+  };
+}
+
+export function parseEarnAutodepositFloorUpdateConfirmRequestBody(
+  body: unknown
+): {
+  policyAccount: string;
+  recurringDelegation: string;
+  vaultIndex: 1;
+  walletBalanceFloorRaw: bigint;
+} {
+  const record = assertRequestObject(body);
+  return {
+    policyAccount: readRequiredString(record, "policyAccount"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    vaultIndex: readVaultIndex(record),
+    walletBalanceFloorRaw: readBigIntString(record, "walletBalanceFloorRaw"),
+  };
+}
+
+export function parseEarnAutodepositToggleConfirmRequestBody(body: unknown): {
+  active: boolean;
+  policyAccount: string;
+  recurringDelegation: string;
+  vaultIndex: 1;
+} {
+  const record = assertRequestObject(body);
+  return {
+    active: readRequiredBoolean(record, "active"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    vaultIndex: readVaultIndex(record),
   };
 }
 
