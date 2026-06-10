@@ -74,6 +74,7 @@ export type EarnAutodepositHistoryEventRecord = {
   amountRaw: bigint;
   confirmedAt: Date;
   confirmedSlot: bigint;
+  depositSignature: string | null;
   id: string;
   policyAccount: string;
   recurringDelegation: string | null;
@@ -229,6 +230,7 @@ export async function findEarnAutodepositHistoryEvents(
         amountRaw: BigInt(0),
         confirmedAt: target.lastSeenAt,
         confirmedSlot: target.lastSeenSlot,
+        depositSignature: null,
         id: `autodeposit:create:${target.id.toString()}`,
         policyAccount: target.policyAccount,
         recurringDelegation: target.recurringDelegation,
@@ -248,6 +250,7 @@ export async function findEarnAutodepositHistoryEvents(
         amountRaw: BigInt(0),
         confirmedAt: target.closedAt,
         confirmedSlot: target.closeSlot,
+        depositSignature: null,
         id: `autodeposit:close:${target.id.toString()}`,
         policyAccount: target.policyAccount,
         recurringDelegation: target.recurringDelegation,
@@ -264,6 +267,10 @@ export async function findEarnAutodepositHistoryEvents(
     amountRaw: execution.amountRaw,
     confirmedAt: execution.decodedAt ?? execution.receivedAt,
     confirmedSlot: execution.slot,
+    depositSignature:
+      typeof execution.decodedEvidence?.kaminoDepositSignature === "string"
+        ? execution.decodedEvidence.kaminoDepositSignature
+        : null,
     id: `autodeposit:sweep:${execution.id.toString()}`,
     policyAccount: target.policyAccount,
     recurringDelegation: target.recurringDelegation,

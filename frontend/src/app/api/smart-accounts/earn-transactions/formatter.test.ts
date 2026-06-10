@@ -18,6 +18,7 @@ function createAutodepositEvent(
     amountRaw: BigInt(0),
     confirmedAt: new Date("2026-06-09T12:00:00.000Z"),
     confirmedSlot: BigInt(123),
+    depositSignature: null,
     id: "autodeposit:create:1",
     policyAccount: "policy",
     recurringDelegation: "recurring",

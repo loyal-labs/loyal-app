@@ -79,10 +79,18 @@ export async function GET(request: Request) {
         walletAddress: principal.walletAddress,
       }),
     ]);
+    const autodepositDepositSignatures = new Set(
+      autodepositEvents
+        .map((event) => event.depositSignature)
+        .filter((signature): signature is string => Boolean(signature))
+    );
+    const visiblePositionEvents = positionEvents.filter(
+      (event) => !autodepositDepositSignatures.has(event.signature)
+    );
 
     return NextResponse.json({
       transactions: sortEarnTransactions(
-        [...positionEvents, ...autodepositEvents].map(
+        [...visiblePositionEvents, ...autodepositEvents].map(
           serializeEarnTransactionEvent
         )
       ),
