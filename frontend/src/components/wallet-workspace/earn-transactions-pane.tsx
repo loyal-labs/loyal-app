@@ -62,9 +62,9 @@ export function getEarnTransactionRowLabel(
 ) {
   switch (item.eventType) {
     case "autodeposit_created":
-      return "Create action";
+      return "Create allowance";
     case "autodeposit_closed":
-      return "Close action";
+      return "Remove allowance";
     case "balance_sweep":
       return "Balance sweep";
     case "deposit_initialized":
@@ -85,7 +85,7 @@ export function getEarnTransactionRowLabel(
     case "balance_sweep":
       return "Balance sweep";
     case "autodeposit_action":
-      return "Action";
+      return "Allowance";
   }
 }
 

@@ -1501,9 +1501,9 @@ function AutodepositCard({
   const isBusy = state === "creating" || state === "closing";
   const statusLabel =
     state === "creating"
-      ? "Creating subscription and policy"
+      ? "Creating allowance and policy"
       : state === "closing"
-      ? "Closing and refunding rent"
+      ? "Removing allowance and refunding rent"
       : state === "paused"
       ? "Paused"
       : `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`;

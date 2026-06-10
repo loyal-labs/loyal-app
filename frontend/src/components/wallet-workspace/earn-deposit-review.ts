@@ -362,16 +362,16 @@ export function buildEarnAutodepositSetupReviewItem(args: {
   const policyAccount = args.preparedSetup?.persistence.policyAccount ?? null;
   const onChainRows: ApprovalReviewDisplaySection["rows"] = !requiresSignature
     ? [
-          {
-            label: "Update",
-            value: "Save database-only Autodeposit setting",
-          },
+        {
+          label: "Update",
+          value: "Save database-only Autodeposit setting",
+        },
       ]
     : isEdit && stage === "policy"
     ? [
         {
           label: "Primitive",
-          value: "Update recurring delegation",
+          value: "Update recurring allowance",
         },
         {
           label: "Policy",
@@ -390,12 +390,11 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     ? [
         {
           label: "Primitive",
-          value: "Create subscription authority and policy",
+          value: "Create allowance authority and policy",
         },
         {
           label: "Policy",
-          value:
-            "Allow Loyal automation to pull only this subscription into Earn",
+          value: "Allow Loyal automation to pull only this allowance into Earn",
         },
         ...(policyAccount
           ? [
@@ -409,7 +408,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     : [
         {
           label: "Primitive",
-          value: "Create recurring delegation",
+          value: "Create recurring allowance",
         },
         {
           label: "Delegatee",
@@ -434,7 +433,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
       ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
     {
-      title: isEdit ? "Autodeposit changes" : "Subscription",
+      title: isEdit ? "Autodeposit changes" : "Allowance",
       rows:
         changeRows.length > 0
           ? changeRows
@@ -448,8 +447,8 @@ export function buildEarnAutodepositSetupReviewItem(args: {
   const heading = !requiresSignature
     ? "Save Autodeposit setting"
     : isEdit
-    ? "Update recurring delegation"
-    : "Create subscription authority and policy";
+    ? "Update recurring allowance"
+    : "Create allowance authority and policy";
   const firstPageTitle = !requiresSignature
     ? "Autodeposit"
     : isEdit
@@ -468,8 +467,8 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             mascotNote: !requiresSignature
               ? "This setting updates your saved Autodeposit rule only."
               : isEdit
-              ? "This updates the signed delegation limit while keeping the same Earn policy."
-              : "First, create the subscription authority and policy that lets Loyal use only this Autodeposit path.",
+              ? "This updates the signed allowance while keeping the same Earn policy."
+              : "First, create the allowance authority and policy that lets Loyal use only this Autodeposit path.",
             rows: changeRows,
             collapsibles: [
               {
@@ -484,9 +483,9 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             title: "Approval 2 of 2",
             amount: args.draft.amountLabel,
             symbol: args.draft.symbol,
-            heading: "Create recurring delegation",
+            heading: "Create recurring allowance",
             mascotNote:
-              "Now create the recurring delegation from Main Account to the Earn vault.",
+              "Now create the recurring allowance from Main Account to the Earn vault.",
             rows: [
               {
                 label: "Frequency",
@@ -509,7 +508,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
       ? "Save changes"
       : stage === "policy"
       ? "Sign"
-      : "Create recurring delegation",
+      : "Create recurring allowance",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
@@ -534,8 +533,8 @@ export function buildEarnAutodepositCloseReviewItem(args: {
       title: "Close Autodeposit",
       rows: [
         {
-          label: "Subscription",
-          value: "Revoke the recurring delegation and refund subscription rent",
+          label: "Allowance",
+          value: "Revoke the recurring allowance and refund allowance rent",
         },
         {
           label: "Policy",
@@ -560,12 +559,12 @@ export function buildEarnAutodepositCloseReviewItem(args: {
         title: "Autodeposit",
         heading: "Turn off Autodeposit",
         mascotNote:
-          "This closes the subscription path and removes Loyal's automation policy.",
+          "This closes the allowance path and removes Loyal's automation policy.",
         rows: [
           {
             label: "Refunds",
             value:
-              "Subscription and policy rent return through the owning programs.",
+              "Allowance and policy rent return through the owning programs.",
           },
         ],
         collapsibles: [
