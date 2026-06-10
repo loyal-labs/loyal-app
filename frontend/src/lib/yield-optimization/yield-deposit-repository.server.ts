@@ -24,6 +24,7 @@ import {
 export type ConfirmedYieldDepositInput = {
   cluster: string;
   walletAddress: string;
+  delegatedSigner: string;
   smartAccountAddress: string;
   settings: string;
   vaultIndex: number;
@@ -46,6 +47,7 @@ export type ConfirmedYieldDepositInput = {
 export type ConfirmedYieldRoutePolicyInput = {
   cluster: string;
   walletAddress: string;
+  delegatedSigner: string;
   settings: string;
   vaultIndex: number;
   vaultPubkey: string;
@@ -98,6 +100,7 @@ export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
 export type ConfirmedYieldWithdrawalInput = {
   cluster: string;
   walletAddress: string;
+  delegatedSigner: string;
   smartAccountAddress: string;
   settings: string;
   vaultIndex: number;
@@ -200,7 +203,7 @@ function createYieldRoutingPolicyPlanFromRouteInput(
     smartAccount: {
       settings: new PublicKey(input.settings),
       authority: new PublicKey(input.walletAddress),
-      delegatedSigner: new PublicKey(input.walletAddress),
+      delegatedSigner: new PublicKey(input.delegatedSigner),
     },
     vaultIndex: input.vaultIndex,
   });
@@ -214,7 +217,7 @@ export function createRoutePolicyValuesFromPlan(
   return {
     active: true,
     authority: input.walletAddress,
-    delegatedSigners: [input.walletAddress],
+    delegatedSigners: [input.delegatedSigner],
     firstSeenAt: now,
     kaminoLiquidityMints: plan.persistence.kaminoLiquidityMints,
     kaminoMarkets: plan.persistence.kaminoMarkets,

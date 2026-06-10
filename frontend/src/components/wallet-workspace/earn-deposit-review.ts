@@ -27,8 +27,11 @@ import { RiskBasket, Stablecoin, SwapLane } from "@loyal/actions/types";
 const EARN_VAULT_LABEL = "Earn vault";
 const USDC_MAIN_MARKET_RESERVE_ADDRESS =
   "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
+const MAIN_ACCOUNT_FULL_ADDRESS =
+  "BAqgbERmvUViqDSx961xpRBHGt68SpACiWL4t9696qZZ";
 
 export type EarnDepositReviewStage = "deposit" | "policy";
+export type EarnAutodepositSetupReviewStage = "delegation" | "policy";
 
 export type EarnDepositReviewState = {
   draft: EarnDepositDraft | null;
@@ -334,47 +337,77 @@ export function buildEarnWithdrawReviewItem(args: {
 export function buildEarnAutodepositSetupReviewItem(args: {
   draft: EarnAutodepositDraft;
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+  stage?: EarnAutodepositSetupReviewStage;
 }): ApprovalReviewDisplayItem {
+  const stage = args.stage ?? "policy";
   const recurringDelegation =
     args.preparedSetup?.persistence.recurringDelegation ?? null;
   const policyAccount = args.preparedSetup?.persistence.policyAccount ?? null;
+  const onChainRows: ApprovalReviewDisplaySection["rows"] =
+    stage === "policy"
+      ? [
+          {
+            label: "Primitive",
+            value: "Create subscription authority and policy",
+          },
+          {
+            label: "Policy",
+            value:
+              "Allow Loyal automation to pull only this subscription into Earn",
+          },
+          ...(policyAccount
+            ? [
+                {
+                  label: "Policy account",
+                  value: shortenAddress(policyAccount),
+                },
+              ]
+            : []),
+        ]
+      : [
+          {
+            label: "Primitive",
+            value: "Create recurring delegation",
+          },
+          {
+            label: "Delegatee",
+            value: EARN_VAULT_LABEL,
+          },
+          ...(recurringDelegation
+            ? [
+                {
+                  label: "Delegation",
+                  value: shortenAddress(recurringDelegation),
+                },
+              ]
+            : []),
+          ...(policyAccount
+            ? [
+                {
+                  label: "Policy account",
+                  value: shortenAddress(policyAccount),
+                },
+              ]
+            : []),
+        ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
     {
       title: "Subscription",
       rows: [
         {
           label: "Amount",
-          value: `$${args.draft.amountLabel} ${args.draft.symbol} every month`,
+          value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
         },
         {
           label: "From",
-          value: `${args.draft.source.label} keeps at least $${args.draft.keepAmountLabel}`,
+          value: `${args.draft.source.label} keeps at least ${args.draft.keepAmountLabel} ${args.draft.symbol}`,
         },
         { label: "To", value: EARN_VAULT_LABEL },
       ],
     },
     {
       title: "On-chain setup",
-      rows: [
-        {
-          label: "Primitive",
-          value: "Create a Solana recurring delegation subscription",
-        },
-        {
-          label: "Delegatee",
-          value: EARN_VAULT_LABEL,
-        },
-        {
-          label: "Policy",
-          value: "Allow Loyal automation to pull only this subscription into Earn",
-        },
-        ...(recurringDelegation
-          ? [{ label: "Delegation", value: shortenAddress(recurringDelegation) }]
-          : []),
-        ...(policyAccount
-          ? [{ label: "Policy account", value: shortenAddress(policyAccount) }]
-          : []),
-      ],
+      rows: onChainRows,
     },
   ];
 
@@ -383,32 +416,56 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     amount: args.draft.amountLabel,
     destinationLabel: EARN_VAULT_LABEL,
     pages: [
-      {
-        title: "Autodeposit",
-        amount: args.draft.amountLabel,
-        symbol: args.draft.symbol,
-        heading: "Create monthly autodeposit",
-        mascotNote:
-          "This creates the subscription and policy that let Loyal move the monthly amount into Earn.",
-        rows: [
-          {
-            label: "Cadence",
-            value: `$${args.draft.amountLabel} ${args.draft.symbol} every month`,
+      stage === "policy"
+        ? {
+            title: "Approval 1 of 2",
+            heading: "Create subscription authority and policy",
+            mascotNote:
+              "First, create the subscription authority and policy that lets Loyal use only this autodeposit path.",
+            rows: [
+              {
+                label: "Frequency",
+                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+              },
+              {
+                label: "Minimum balance",
+                value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account (${MAIN_ACCOUNT_FULL_ADDRESS})`,
+              },
+            ],
+            collapsibles: [
+              {
+                title: "On-chain details",
+                rows: reviewSections.flatMap((section) => section.rows),
+              },
+            ],
+          }
+        : {
+            title: "Approval 2 of 2",
+            amount: args.draft.amountLabel,
+            symbol: args.draft.symbol,
+            heading: "Create recurring delegation",
+            mascotNote:
+              "Now create the recurring delegation from Main Account to the Earn vault.",
+            rows: [
+              {
+                label: "Frequency",
+                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+              },
+              {
+                label: "Minimum balance",
+                value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account (${MAIN_ACCOUNT_FULL_ADDRESS})`,
+              },
+            ],
+            collapsibles: [
+              {
+                title: "Delegation details",
+                rows: reviewSections.flatMap((section) => section.rows),
+              },
+            ],
           },
-          {
-            label: "Minimum balance",
-            value: `Keep $${args.draft.keepAmountLabel} in Main Account`,
-          },
-        ],
-        collapsibles: [
-          {
-            title: "On-chain details",
-            rows: reviewSections.flatMap((section) => section.rows),
-          },
-        ],
-      },
     ],
-    primaryActionLabel: "Create autodeposit",
+    primaryActionLabel:
+      stage === "policy" ? "Sign" : "Create recurring delegation",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,

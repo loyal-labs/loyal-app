@@ -159,6 +159,26 @@ function loadTestingKeypair(): Keypair {
   return Keypair.fromSecretKey(bs58.decode(trimmed));
 }
 
+function loadDeploymentPolicySigner(): PublicKey {
+  const raw = process.env.DEPLOYMENT_PK;
+  if (!raw) {
+    throw new Error("DEPLOYMENT_PK is not set.");
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(trimmed))).publicKey;
+  }
+  if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
+    return Keypair.fromSecretKey(
+      Uint8Array.from(
+        trimmed.match(/../g)!.map((byte) => Number.parseInt(byte, 16))
+      )
+    ).publicKey;
+  }
+  return Keypair.fromSecretKey(bs58.decode(trimmed)).publicKey;
+}
+
 function assertMainnet(): void {
   if (SOLANA_ENV !== "mainnet") {
     throw new Error(
@@ -440,6 +460,7 @@ function depositInput(args: {
     confirmedSlot: args.slot,
     depositMint: persistence.depositMint,
     depositSignature: args.signature,
+    delegatedSigner: persistence.delegatedSigner,
     liquidityMint: persistence.liquidityMint,
     market: persistence.market,
     policyAccount: persistence.policyAccount,
@@ -483,6 +504,7 @@ function policyInputFromPersistence(args: {
   return {
     cluster: persistence.cluster,
     confirmedSlot: args.slot,
+    delegatedSigner: persistence.delegatedSigner,
     liquidityMint: persistence.liquidityMint,
     market: persistence.market,
     policyAccount: persistence.policyAccount,
@@ -506,6 +528,7 @@ function withdrawalInput(args: {
   return {
     cluster: persistence.cluster,
     confirmedSlot: args.slot,
+    delegatedSigner: persistence.delegatedSigner,
     liquidityMint: persistence.liquidityMint,
     market: persistence.market,
     mode: persistence.mode,
@@ -762,6 +785,7 @@ async function main() {
   assertVerifyPhase(VERIFY_PHASE);
 
   const walletKeypair = loadTestingKeypair();
+  const policySigner = loadDeploymentPolicySigner();
   const wallet = createWalletAdapter(walletKeypair);
   const connection = new Connection(RPC_URL, {
     commitment: "confirmed",
@@ -836,6 +860,7 @@ async function main() {
       cluster: LoyalCluster.MainnetBeta,
       feePayer: wallet.publicKey,
       mode: "full",
+      policySigner,
       settingsPda: SETTINGS_PDA,
       walletAddress: wallet.publicKey,
     });
@@ -1070,6 +1095,7 @@ async function main() {
         {
           cluster: LoyalCluster.MainnetBeta,
           walletAddress: wallet.publicKey.toBase58(),
+          delegatedSigner: policySigner.toBase58(),
           settings: SETTINGS_PDA.toBase58(),
           vaultIndex: 1,
           vaultPubkey: vaultPubkey.toBase58(),
@@ -1119,7 +1145,8 @@ async function main() {
         cluster: LoyalCluster.MainnetBeta,
         feePayer: wallet.publicKey,
         settingsPda: SETTINGS_PDA,
-        signer: wallet.publicKey,
+        signer: policySigner,
+        walletAddress: wallet.publicKey,
       });
       if (DRY_RUN) {
         const unsignedPolicySimulationLogs = await simulatePreparedUnsigned({
@@ -1176,6 +1203,7 @@ async function main() {
       cluster: LoyalCluster.MainnetBeta,
       feePayer: wallet.publicKey,
       initializeYieldRoutingPolicy: false,
+      policySigner,
       settingsPda: SETTINGS_PDA,
       walletAddress: wallet.publicKey,
       yieldRoutingPolicy: {
@@ -1312,6 +1340,7 @@ async function main() {
       cluster: LoyalCluster.MainnetBeta,
       feePayer: wallet.publicKey,
       initializeYieldRoutingPolicy: false,
+      policySigner,
       settingsPda: SETTINGS_PDA,
       walletAddress: wallet.publicKey,
       yieldRoutingPolicy: {
@@ -1367,6 +1396,7 @@ async function main() {
       cluster: LoyalCluster.MainnetBeta,
       feePayer: wallet.publicKey,
       mode: "partial",
+      policySigner,
       settingsPda: SETTINGS_PDA,
       walletAddress: wallet.publicKey,
     });

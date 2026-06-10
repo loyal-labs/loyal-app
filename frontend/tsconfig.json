@@ -31,6 +31,9 @@
       "@loyal-labs/shared/analytics-server": [
         "../packages/shared/src/analytics-server.ts"
       ],
+      "@loyal-labs/smart-account-vaults": [
+        "../packages/smart-account-vaults/src/index.ts"
+      ],
       "@loyal-labs/solana-instruction-decoder": [
         "../packages/solana-instruction-decoder/src/index.ts"
       ],

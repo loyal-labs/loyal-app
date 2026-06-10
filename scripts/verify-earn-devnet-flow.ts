@@ -125,6 +125,28 @@ function loadTestingKeypair(): Keypair {
   return Keypair.fromSecretKey(bs58.decode(trimmed));
 }
 
+function loadDeploymentPolicySigner(): PublicKey {
+  const raw = process.env.DEPLOYMENT_PK;
+  if (!raw) {
+    throw new Error("DEPLOYMENT_PK is not set.");
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(trimmed))).publicKey;
+  }
+
+  if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
+    return Keypair.fromSecretKey(
+      Uint8Array.from(
+        trimmed.match(/../g)!.map((byte) => Number.parseInt(byte, 16))
+      )
+    ).publicKey;
+  }
+
+  return Keypair.fromSecretKey(bs58.decode(trimmed)).publicKey;
+}
+
 function assertDevnet() {
   if (SOLANA_ENV !== "devnet") {
     throw new Error(
@@ -350,6 +372,7 @@ async function ensureDevnetVaultCollateralAta(args: {
 
 async function ensureEarnYieldRoutingPolicy(args: {
   connection: Connection;
+  policySigner: PublicKey;
   wallet: Keypair;
   overview: NonNullable<OverviewResponse["data"]>;
 }) {
@@ -410,7 +433,8 @@ async function ensureEarnYieldRoutingPolicy(args: {
     cluster: LoyalCluster.Devnet,
     feePayer: args.wallet.publicKey,
     settingsPda: settings,
-    signer: args.wallet.publicKey,
+    signer: args.policySigner,
+    walletAddress: args.wallet.publicKey,
   });
   const { signature } = await executePrepared({
     label: "earn policy initialization",
@@ -511,6 +535,7 @@ async function main() {
   assertDevnet();
 
   const wallet = loadTestingKeypair();
+  const policySigner = loadDeploymentPolicySigner();
   const connection = new Connection(RPC_URL, { commitment: "confirmed" });
   const client = createSmartAccountVaultsClient({
     connection,
@@ -547,6 +572,7 @@ async function main() {
 	  });
 	  await ensureEarnYieldRoutingPolicy({
 	    connection,
+	    policySigner,
 	    wallet,
 	    overview,
 	  });
@@ -558,6 +584,7 @@ async function main() {
 	    settingsPda,
 	    walletAddress: wallet.publicKey,
 	    feePayer: wallet.publicKey,
+	    policySigner,
 	    amountRaw: FIRST_DEPOSIT_RAW,
 	    cluster: LoyalCluster.Devnet,
 	    initializeYieldRoutingPolicy: false,
@@ -600,6 +627,7 @@ async function main() {
 	    settingsPda,
 	    walletAddress: wallet.publicKey,
 	    feePayer: wallet.publicKey,
+	    policySigner,
 	    amountRaw: TOP_UP_DEPOSIT_RAW,
 	    cluster: LoyalCluster.Devnet,
 	    initializeYieldRoutingPolicy: false,
@@ -637,6 +665,7 @@ async function main() {
 	    settingsPda,
 	    walletAddress: wallet.publicKey,
 	    feePayer: wallet.publicKey,
+	    policySigner,
 	    amountRaw: PARTIAL_WITHDRAW_RAW,
 	    cluster: LoyalCluster.Devnet,
 	    mode: "partial",
@@ -676,6 +705,7 @@ async function main() {
 	    settingsPda,
 	    walletAddress: wallet.publicKey,
 	    feePayer: wallet.publicKey,
+	    policySigner,
 	    amountRaw: remainingRaw,
 	    cluster: LoyalCluster.Devnet,
 	    mode: "full",

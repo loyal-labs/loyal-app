@@ -13,6 +13,7 @@ import {
   parseEarnWithdrawPrepareRequestBody,
   serializePreparedEarnUsdcWithdraw,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
+import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { findActiveYieldRoutePolicy } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
 
   try {
     const serverEnv = getServerEnv();
+    const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
       connection: getConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
@@ -104,6 +106,7 @@ export async function POST(request: Request) {
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
       mode,
+      policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
     });

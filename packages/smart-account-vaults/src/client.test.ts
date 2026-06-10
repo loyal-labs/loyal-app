@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { STABLECOIN_MINTS, Stablecoin } from "@loyal/actions";
-import { Policy, Settings } from "@loyal-labs/loyal-smart-accounts-core";
+import {
+  generated,
+  Policy,
+  Settings,
+} from "@loyal-labs/loyal-smart-accounts-core";
 import {
   AccountLayout,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -17,6 +21,8 @@ const programId = new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 const settingsPda = new PublicKey("11111111111111111111111111111112");
 const walletAddress = new PublicKey("11111111111111111111111111111113");
 const feePayer = walletAddress;
+const backendSigner = new PublicKey("11111111111111111111111111111119");
+const policyAccount = new PublicKey("11111111111111111111111111111117");
 const kaminoProgram = new PublicKey(
   "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 );
@@ -367,6 +373,31 @@ function expectInstructionAccountMeta(
   ).toBe(true);
 }
 
+function expectPolicyCreateSigner(
+  instruction:
+    | {
+        data: Buffer | Uint8Array;
+      }
+    | undefined,
+  expectedSigner: PublicKey
+) {
+  expect(instruction).toBeDefined();
+  const [decoded] =
+    generated.executeSettingsTransactionSyncStruct.deserialize(
+      Buffer.from(instruction!.data)
+    );
+  const policyCreate = decoded.args.actions.find(
+    (action) => action.__kind === "PolicyCreate"
+  );
+  expect(policyCreate?.__kind).toBe("PolicyCreate");
+  if (!policyCreate || policyCreate.__kind !== "PolicyCreate") {
+    throw new Error("Expected a PolicyCreate action.");
+  }
+  expect(policyCreate.signers.map((signer) => signer.key.toBase58())).toEqual([
+    expectedSigner.toBase58(),
+  ]);
+}
+
 describe("prepareEarnUsdcDeposit", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -383,6 +414,7 @@ describe("prepareEarnUsdcDeposit", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
     });
 
@@ -417,6 +449,7 @@ describe("prepareEarnUsdcDeposit", () => {
       programId.toBase58()
     );
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[4]);
+    expectPolicyCreateSigner(result.prepared.instructions[3], backendSigner);
     expectIncludesKaminoSetupAccount(result.prepared.instructions[4]);
     expect(result.policy.seed).toBe(BigInt(1));
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
@@ -430,6 +463,7 @@ describe("prepareEarnUsdcDeposit", () => {
     );
     expect(result.persistence).toMatchObject({
       cluster: "mainnet-beta",
+      delegatedSigner: backendSigner.toBase58(),
       policyId: "1",
       policyInitialization: "create",
       policySeed: "1",
@@ -449,6 +483,7 @@ describe("prepareEarnUsdcDeposit", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(500_000),
       initializeYieldRoutingPolicy: false,
     });
@@ -489,6 +524,7 @@ describe("prepareEarnUsdcDeposit", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(500_000),
       initializeYieldRoutingPolicy: false,
       yieldRoutingPolicy: {
@@ -523,6 +559,7 @@ describe("prepareEarnUsdcDeposit", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(500_000),
       initializeYieldRoutingPolicy: false,
       yieldRoutingPolicy: {
@@ -556,6 +593,7 @@ describe("prepareEarnUsdcDeposit", () => {
         settingsPda,
         walletAddress,
         feePayer,
+        policySigner: backendSigner,
         amountRaw: BigInt(500_000),
         initializeYieldRoutingPolicy: false,
         yieldRoutingPolicy: {
@@ -577,7 +615,8 @@ describe("prepareEarnUsdcDeposit", () => {
 
     const result = await client.prepareEarnUsdcYieldRoutingPolicy({
       settingsPda,
-      signer: walletAddress,
+      walletAddress,
+      signer: backendSigner,
       feePayer,
     });
 
@@ -585,6 +624,7 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       programId.toBase58()
     );
+    expectPolicyCreateSigner(result.prepared.instructions[0], backendSigner);
     expect(result.policy.seed).toBe(BigInt(1));
     expect(result.vault).toMatchObject({
       accountIndex: 1,
@@ -595,6 +635,7 @@ describe("prepareEarnUsdcDeposit", () => {
     );
     expect(result.persistence).toMatchObject({
       cluster: "mainnet-beta",
+      delegatedSigner: backendSigner.toBase58(),
       liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
       policyAccount: result.policy.account.toBase58(),
       policyId: "1",
@@ -622,6 +663,7 @@ describe("prepareEarnUsdcDeposit", () => {
         settingsPda,
         walletAddress,
         feePayer,
+        policySigner: backendSigner,
         amountRaw: BigInt(0),
       })
     ).rejects.toThrow("Earn deposit amount must be greater than 0.");
@@ -644,6 +686,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
       mode: "partial",
     });
@@ -665,6 +708,7 @@ describe("prepareEarnUsdcWithdraw", () => {
     expect(result.amountRaw).toBe(BigInt(1_000_000));
     expect(result.persistence).toMatchObject({
       mode: "partial",
+      delegatedSigner: backendSigner.toBase58(),
       policyId: "1",
       policySeed: "1",
       withdrawnAmountRaw: "1000000",
@@ -753,6 +797,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
       mode: "full",
     });
@@ -897,6 +942,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       settingsPda,
       walletAddress,
       feePayer,
+      policySigner: backendSigner,
       amountRaw: BigInt(1_000_000),
       mode: "full",
     });
@@ -938,9 +984,121 @@ describe("prepareEarnUsdcWithdraw", () => {
         settingsPda,
         walletAddress,
         feePayer,
+        policySigner: backendSigner,
         amountRaw: BigInt(1_000_000),
         mode: "partial",
       })
     ).rejects.toThrow("unexpected vault USDC account");
+  });
+});
+
+describe("prepareEarnUsdcAutodeposit", () => {
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test("builds setup policy creation with the backend signer", async () => {
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositSetup({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(result.stage).toBe("initialize_subscription_authority");
+    expect(result.prepared.instructions).toHaveLength(2);
+    expectPolicyCreateSigner(result.prepared.instructions[1], backendSigner);
+    expect(result.persistence).toMatchObject({
+      delegatedSigner: backendSigner.toBase58(),
+      subscriptionDelegatee: deriveVault().toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    });
+  });
+
+  test("builds close policy removal with backend signer metadata", async () => {
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(policyAccount)) {
+        return createSerializedEarnPolicyAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositClose({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      policy: policyAccount,
+      recurringDelegation: new PublicKey(
+        "11111111111111111111111111111116"
+      ),
+    });
+
+    expect(result.prepared.instructions).toHaveLength(2);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
+    expect(result.persistence).toMatchObject({
+      delegatedSigner: backendSigner.toBase58(),
+      policyAccount: policyAccount.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    });
+  });
+
+  test("builds pull execution with the backend policy signer", async () => {
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(policyAccount)) {
+        return createSerializedEarnPolicyAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositPull({
+      policy: policyAccount,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      recurringDelegation: new PublicKey(
+        "11111111111111111111111111111116"
+      ),
+      amountRaw: BigInt(100_000),
+    });
+
+    expect(result.prepared.instructions).toHaveLength(1);
+    expectInstructionAccountMeta(
+      result.prepared.instructions[0],
+      backendSigner,
+      { isSigner: true }
+    );
+    expectInstructionAccountMeta(result.prepared.instructions[0], deriveVault(), {
+      isSigner: false,
+    });
+    expect(result.persistence).toMatchObject({
+      amountRaw: "100000",
+      delegatedSigner: backendSigner.toBase58(),
+      policyAccount: policyAccount.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    });
   });
 });

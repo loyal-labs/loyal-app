@@ -19,8 +19,6 @@ const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
-const AUTODEPOSIT_SIGNER_PUBLIC_KEY_ENV_NAME =
-  "NEXT_PUBLIC_AUTODEPOSIT_SIGNER_PUBLIC_KEY";
 const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
@@ -41,7 +39,6 @@ export type PublicEnv = {
   solanaEnv: SolanaEnv;
   solanaRpcEndpoint: string;
   swap: SwapConfig;
-  autodepositSignerPublicKey: string | undefined;
   skillsEnabled: boolean;
   demoRecipeEnabled: boolean;
   mixpanelToken: string | undefined;
@@ -107,10 +104,6 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
     solanaEnv,
     solanaRpcEndpoint: getFrontendSolanaEndpoints(solanaEnv).rpcEndpoint,
     swap: resolveSwapConfig(env),
-    autodepositSignerPublicKey: getOptionalEnv(
-      env,
-      AUTODEPOSIT_SIGNER_PUBLIC_KEY_ENV_NAME
-    ),
     skillsEnabled: isStrictTrue(
       getOptionalEnv(env, SKILLS_ENABLED_ENV_NAME) ?? "true"
     ),

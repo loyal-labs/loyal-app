@@ -130,6 +130,7 @@ import {
   buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
   setEarnDepositReviewPreparedDeposit,
+  type EarnAutodepositSetupReviewStage,
   type EarnDepositReviewStage,
 } from "./earn-deposit-review";
 import { EarnTransactionsPane } from "./earn-transactions-pane";
@@ -1038,6 +1039,10 @@ export function AppWalletWorkspace({
     setPendingEarnAutodepositSetupPrepared,
   ] = useState<SmartAccountPreparedEarnUsdcAutodepositSetup | null>(null);
   const [
+    earnAutodepositSetupReviewStage,
+    setEarnAutodepositSetupReviewStage,
+  ] = useState<EarnAutodepositSetupReviewStage>("policy");
+  const [
     pendingEarnAutodepositClosePrepared,
     setPendingEarnAutodepositClosePrepared,
   ] = useState<SmartAccountPreparedEarnUsdcAutodepositClose | null>(null);
@@ -1344,10 +1349,12 @@ export function AppWalletWorkspace({
         ? buildEarnAutodepositSetupReviewItem({
             draft: pendingEarnAutodepositDraft,
             preparedSetup: pendingEarnAutodepositSetupPrepared,
+            stage: earnAutodepositSetupReviewStage,
           })
         : null,
     [
       detailSelection,
+      earnAutodepositSetupReviewStage,
       isEarnAutodepositCloseReview,
       pendingEarnAutodepositDraft,
       pendingEarnAutodepositSetupPrepared,
@@ -2183,6 +2190,7 @@ export function AppWalletWorkspace({
 
   const handleOpenAutodeposit = useCallback(() => {
     markDetailPaneTransition("forward");
+    setEarnAutodepositSetupReviewStage("policy");
     setSelectedSignerId(null);
     setDetailSelection("earnAutodeposit");
     setSelectedDetail("Autodeposit");
@@ -2193,6 +2201,7 @@ export function AppWalletWorkspace({
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
     setPendingEarnAutodepositClosePrepared(null);
+    setEarnAutodepositSetupReviewStage("policy");
     setIsEarnAutodepositCloseReview(false);
     setSelectedSignerId(null);
     setDetailSelection("earn");
@@ -2217,6 +2226,7 @@ export function AppWalletWorkspace({
       setProposalActionError(null);
       setPendingEarnAutodepositSetupPrepared(null);
       setPendingEarnAutodepositClosePrepared(null);
+      setEarnAutodepositSetupReviewStage("policy");
       setIsEarnAutodepositCloseReview(false);
       setPendingEarnAutodepositDraft({
         amount: normalizedAmount,
@@ -2236,8 +2246,13 @@ export function AppWalletWorkspace({
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
     setPendingEarnAutodepositClosePrepared(null);
+    setEarnAutodepositSetupReviewStage("policy");
     setAutodepositConfig((current) =>
-      current?.state === "closing" ? { ...current, state: "created" } : current
+      current?.state === "closing"
+        ? { ...current, state: "created" }
+        : current?.state === "creating"
+        ? null
+        : current
     );
     setIsEarnAutodepositCloseReview(false);
     setProposalActionError(null);
@@ -2723,6 +2738,19 @@ export function AppWalletWorkspace({
         throw new Error(result.error ?? "Autodeposit setup failed.");
       }
 
+      if (result.preparedSetup.stage !== "create_recurring_delegation") {
+        if (!result.nextPreparedSetup) {
+          throw new Error("Failed to prepare recurring delegation approval.");
+        }
+
+        setPendingEarnAutodepositSetupPrepared(result.nextPreparedSetup);
+        setEarnAutodepositSetupReviewStage("delegation");
+        setAutodepositConfig((current) =>
+          current?.state === "creating" ? current : null
+        );
+        return;
+      }
+
       const policyAccount = result.preparedSetup.persistence.policyAccount;
       if (!policyAccount) {
         throw new Error("Autodeposit policy account was not returned.");
@@ -2739,6 +2767,7 @@ export function AppWalletWorkspace({
       });
       setPendingEarnAutodepositDraft(null);
       setPendingEarnAutodepositSetupPrepared(null);
+      setEarnAutodepositSetupReviewStage("policy");
       setIsEarnAutodepositCloseReview(false);
       markDetailPaneTransition("back");
       setSelectedSignerId(null);

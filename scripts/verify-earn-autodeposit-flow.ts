@@ -71,11 +71,6 @@ const PULL_AMOUNT_RAW = parseRawAmount(
 const NONCE = parseRawAmount(
   process.env.AUTODEPOSIT_NONCE ?? BigInt(Date.now()).toString()
 );
-const AUTOMATION_SIGNER_PUBLIC_KEY =
-  process.env.AUTODEPOSIT_AUTOMATION_SIGNER_PUBLIC_KEY ??
-  process.env.NEXT_PUBLIC_AUTODEPOSIT_SIGNER_PUBLIC_KEY ??
-  null;
-
 function parseRawAmount(value: string): bigint {
   if (!/^\d+$/.test(value) || BigInt(value) <= 0n) {
     throw new Error(`Invalid positive raw amount: ${value}`);
@@ -284,11 +279,10 @@ async function simulatePreparedEvidence(args: {
 async function main() {
   const connection = new Connection(RPC_URL, "confirmed");
   const user = loadKeypair("SOLANA_TESTING_PK");
+  const deploymentPolicySigner = loadKeypair("DEPLOYMENT_PK");
   const automation = DRY_RUN
-    ? AUTOMATION_SIGNER_PUBLIC_KEY
-      ? { publicKey: new PublicKey(AUTOMATION_SIGNER_PUBLIC_KEY) }
-      : Keypair.generate()
-    : loadKeypair("AUTODEPOSIT_AUTOMATION_PK");
+    ? { publicKey: deploymentPolicySigner.publicKey }
+    : deploymentPolicySigner;
   const automationPublicKey = automation.publicKey;
   const client = createSmartAccountVaultsClient({
     connection,
@@ -310,7 +304,7 @@ async function main() {
     walletAddress: user.publicKey,
     feePayer: user.publicKey,
     signer: user.publicKey,
-    automationSigner: automationPublicKey,
+    policySigner: automationPublicKey,
     amountRaw: AMOUNT_RAW,
     nonce: NONCE,
     cluster,
@@ -329,7 +323,7 @@ async function main() {
     const evidenceKey =
       stage === "initialize_subscription_authority"
         ? "initializeAuthority"
-        : "createSubscription";
+        : "createPolicy";
     evidence[evidenceKey] = DRY_RUN
       ? {
           instructionCount: setup.prepared.instructions.length,
@@ -363,7 +357,7 @@ async function main() {
       walletAddress: user.publicKey,
       feePayer: user.publicKey,
       signer: user.publicKey,
-      automationSigner: automationPublicKey,
+      policySigner: automationPublicKey,
       amountRaw: AMOUNT_RAW,
       nonce: NONCE,
       policySeed: policySeed ?? undefined,
@@ -468,7 +462,7 @@ async function main() {
       policy: setup.policy.account!,
       walletAddress: user.publicKey,
       feePayer: user.publicKey,
-      automationSigner: automationPublicKey,
+      policySigner: automationPublicKey,
       recurringDelegation: setup.subscription.recurringDelegation,
       amountRaw: PULL_AMOUNT_RAW,
       cluster,
@@ -495,6 +489,7 @@ async function main() {
     walletAddress: user.publicKey,
     feePayer: user.publicKey,
     signer: user.publicKey,
+    policySigner: automationPublicKey,
     policy: setup.policy.account!,
     recurringDelegation: setup.subscription.recurringDelegation,
     cluster,

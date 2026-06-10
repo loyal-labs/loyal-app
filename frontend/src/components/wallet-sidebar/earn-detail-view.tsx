@@ -41,6 +41,8 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const POSITIVE_AMOUNT_COLOR = "#34C759";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
+const MAIN_ACCOUNT_FULL_ADDRESS =
+  "BAqgbERmvUViqDSx961xpRBHGt68SpACiWL4t9696qZZ";
 
 const TOP_EARN_VAULT = {
   label: "Kamino · Lending Yield",
@@ -187,13 +189,13 @@ export function formatEarnActionCtaAmount(value: number) {
 
 function formatForecastAmountLabel(value: number) {
   if (!Number.isFinite(value)) {
-    return "$0";
+    return "0 USDC";
   }
 
-  return `$${value.toLocaleString("en-US", {
+  return `${value.toLocaleString("en-US", {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
-  })}`;
+  })} USDC`;
 }
 
 export function clampDepositAmountInput(rawValue: string, balance: number) {
@@ -244,10 +246,10 @@ const FORECAST_DATES = [
 ];
 
 const FORECAST_AMOUNT_PRESETS = [
-  { label: "$100", value: 100 },
-  { label: "$500", value: 500 },
-  { label: "$1,000", value: 1000 },
-  { label: "$5,000", value: 5000 },
+  { label: "100 USDC", value: 100 },
+  { label: "500 USDC", value: 500 },
+  { label: "1,000 USDC", value: 1000 },
+  { label: "5,000 USDC", value: 5000 },
 ] as const;
 const DEFAULT_FORECAST_AMOUNT = FORECAST_AMOUNT_PRESETS[2].value;
 const USER_FORECAST_SELECTION = "you";
@@ -4843,8 +4845,10 @@ function AutodepositSummaryRow({
             whiteSpace: "nowrap",
           }}
         >
-          ${whole}
-          <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.{fraction}</span>
+          {whole}
+          <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+            .{fraction} USDC
+          </span>
         </span>
       </div>
     </div>
@@ -5022,18 +5026,6 @@ export function AutodepositSetupView({
               padding: "8px 0",
             }}
           >
-            <span
-              style={{
-                color: "#000",
-                fontFamily: font,
-                fontSize: "40px",
-                fontWeight: 600,
-                letterSpacing: "-0.44px",
-                lineHeight: "48px",
-              }}
-            >
-              $
-            </span>
             <input
               className="autodeposit-amount-input"
               inputMode="numeric"
@@ -5073,7 +5065,7 @@ export function AutodepositSetupView({
                 lineHeight: "48px",
               }}
             >
-              .00
+              USDC
             </span>
           </div>
         </section>
@@ -5210,8 +5202,7 @@ export function AutodepositSetupView({
                 padding: "12px 0 4px",
               }}
             >
-              Keep at least in Main Account
-              {mainSource?.addressLabel ? ` (${mainSource.addressLabel})` : ""}
+              Keep at least in Main Account ({MAIN_ACCOUNT_FULL_ADDRESS})
             </p>
           </div>
           <div style={{ padding: "4px 0 0" }}>
@@ -5244,18 +5235,11 @@ export function AutodepositSetupView({
                     lineHeight: "24px",
                   }}
                 >
-                  ${keepAmountLabel}
-                </span>
-                <span
-                  style={{
-                    color: "rgba(60, 60, 67, 0.4)",
-                    fontFamily: font,
-                    fontSize: "20px",
-                    fontWeight: 600,
-                    lineHeight: "24px",
-                  }}
-                >
-                  .00
+                  {keepAmountLabel}
+                  <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                    {" "}
+                    USDC
+                  </span>
                 </span>
               </span>
             </div>

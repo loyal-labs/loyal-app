@@ -62,6 +62,12 @@ import {
   buildEarnWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
+  hydratePreparedEarnUsdcAutodepositClose,
+  hydratePreparedEarnUsdcAutodepositSetup,
+  type EarnAutodepositClosePrepareResponse,
+  type EarnAutodepositSetupPrepareResponse,
+} from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
+import {
   hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareResponse,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
@@ -69,6 +75,10 @@ import {
   hydratePreparedEarnUsdcWithdraw,
   type EarnWithdrawPrepareResponse,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
+import {
+  hydratePreparedEarnUsdcYieldRoutingPolicy,
+  type EarnPolicyPrepareResponse,
+} from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
@@ -325,6 +335,7 @@ export type EarnAutodepositSetupResult = {
   confirmedSlot?: string;
   status?: "executed";
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup;
+  nextPreparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
   error?: string;
 };
 
@@ -1041,6 +1052,95 @@ export async function prepareEarnWithdrawOnServer(args: {
 
   const payload = (await response.json()) as EarnWithdrawPrepareResponse;
   return hydratePreparedEarnUsdcWithdraw(payload.preparedWithdraw);
+}
+
+async function prepareEarnAutodepositSetupOnServer(args: {
+  amountRaw: bigint;
+  nonce?: bigint;
+  policySeed?: bigint;
+}): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/setup/prepare",
+    {
+      body: JSON.stringify({
+        amountRaw: args.amountRaw.toString(),
+        ...(args.nonce !== undefined ? { nonce: args.nonce.toString() } : {}),
+        ...(args.policySeed !== undefined
+          ? { policySeed: args.policySeed.toString() }
+          : {}),
+      }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare earn autodeposit setup."
+    );
+  }
+
+  const payload =
+    (await response.json()) as EarnAutodepositSetupPrepareResponse;
+  return hydratePreparedEarnUsdcAutodepositSetup(payload.preparedSetup);
+}
+
+async function prepareEarnAutodepositCloseOnServer(args: {
+  policy: string;
+  recurringDelegation: string;
+}): Promise<SmartAccountPreparedEarnUsdcAutodepositClose> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/close/prepare",
+    {
+      body: JSON.stringify({
+        policy: args.policy,
+        recurringDelegation: args.recurringDelegation,
+      }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare earn autodeposit close."
+    );
+  }
+
+  const payload =
+    (await response.json()) as EarnAutodepositClosePrepareResponse;
+  return hydratePreparedEarnUsdcAutodepositClose(payload.preparedClose);
+}
+
+async function prepareEarnPolicyOnServer(): Promise<SmartAccountPreparedEarnUsdcYieldRoutingPolicy> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/policies/prepare",
+    {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare earn policy."
+    );
+  }
+
+  const payload = (await response.json()) as EarnPolicyPrepareResponse;
+  return hydratePreparedEarnUsdcYieldRoutingPolicy(payload.preparedPolicy);
 }
 
 async function postConfirmedEarnPolicySetup(args: {
@@ -3736,21 +3836,11 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
-      const settingsPda = new PublicKey(overview.settingsPda);
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
 
       setIsActionPending(true);
       try {
-        const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
-          settingsPda,
-          signer: wallet.publicKey,
-          feePayer: wallet.publicKey,
-          cluster: expectedEarnCluster,
-        });
+        const preparedPolicy = await prepareEarnPolicyOnServer();
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "policy setup",
@@ -4129,13 +4219,6 @@ export function useSmartAccountSidebarData(
         return { success: false, error: "Amount must be greater than 0." };
       }
 
-      if (!publicEnv.autodepositSignerPublicKey) {
-        return {
-          success: false,
-          error: "Autodeposit automation signer is not configured.",
-        };
-      }
-
       const walletBridge = createWalletAdapterBridge(wallet);
       if (!walletBridge) {
         return {
@@ -4145,31 +4228,15 @@ export function useSmartAccountSidebarData(
       }
 
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
-      const settingsPda = new PublicKey(overview.settingsPda);
-      const automationSigner = new PublicKey(
-        publicEnv.autodepositSignerPublicKey
-      );
 
       setIsActionPending(true);
       try {
-        let preparedSetup =
+        const preparedSetup =
           request.preparedSetup ??
-          (await client.prepareEarnUsdcAutodepositSetup({
-            settingsPda,
-            walletAddress: wallet.publicKey,
-            feePayer: wallet.publicKey,
-            signer: wallet.publicKey,
-            automationSigner,
+          (await prepareEarnAutodepositSetupOnServer({
             amountRaw: request.amountRaw,
             nonce: request.nonce,
-            cluster: expectedEarnCluster,
-        }));
-        let authorityInitializationSignature: string | undefined;
-        let policySeed = preparedSetup.policy.seed;
+          }));
 
         if (
           preparedSetup.persistence.amountPerPeriodRaw !==
@@ -4180,40 +4247,6 @@ export function useSmartAccountSidebarData(
             error:
               "Prepared autodeposit amount changed. Review autodeposit again before signing.",
           };
-        }
-
-        while (preparedSetup.stage !== "create_recurring_delegation") {
-          const preliminaryStage = preparedSetup.stage;
-          const preliminarySend = await sendPreparedEarnWithClusterPreflight({
-            expectedCluster: expectedEarnCluster,
-            operation: "autodeposit setup",
-            preparedCluster: preparedSetup.persistence.cluster,
-            send: () =>
-              sendPreparedWithWallet({
-                connection,
-                wallet: walletBridge,
-                prepared: preparedSetup.prepared,
-                confirm: true,
-              }),
-          });
-          if (!preliminarySend.success) {
-            return preliminarySend;
-          }
-          if (preliminaryStage === "initialize_subscription_authority") {
-            authorityInitializationSignature = preliminarySend.signature;
-          }
-          policySeed = preparedSetup.policy.seed ?? policySeed;
-          preparedSetup = await client.prepareEarnUsdcAutodepositSetup({
-            settingsPda,
-            walletAddress: wallet.publicKey,
-            feePayer: wallet.publicKey,
-            signer: wallet.publicKey,
-            automationSigner,
-            amountRaw: request.amountRaw,
-            nonce: request.nonce,
-            policySeed: policySeed ?? undefined,
-            cluster: expectedEarnCluster,
-          });
         }
 
         const setupSend = await sendPreparedEarnWithClusterPreflight({
@@ -4235,6 +4268,14 @@ export function useSmartAccountSidebarData(
           connection,
           signature: setupSend.signature,
         });
+        const nextPreparedSetup =
+          preparedSetup.stage === "create_recurring_delegation"
+            ? null
+            : await prepareEarnAutodepositSetupOnServer({
+                amountRaw: request.amountRaw,
+                nonce: request.nonce,
+                policySeed: preparedSetup.policy.seed ?? undefined,
+              });
 
         void refreshAfterTx({
           accountIndex: preparedSetup.vault.accountIndex,
@@ -4249,11 +4290,14 @@ export function useSmartAccountSidebarData(
         return {
           success: true,
           signature: setupSend.signature,
-          authorityInitializationSignature,
-          recurringDelegationSignature: setupSend.signature,
+          ...(preparedSetup.stage === "initialize_subscription_authority" ||
+          preparedSetup.stage === "create_policy"
+            ? { authorityInitializationSignature: setupSend.signature }
+            : { recurringDelegationSignature: setupSend.signature }),
           confirmedSlot,
           status: "executed",
           preparedSetup,
+          nextPreparedSetup,
         };
       } catch (err) {
         const error =
@@ -4267,7 +4311,6 @@ export function useSmartAccountSidebarData(
     [
       connection,
       overview,
-      publicEnv.autodepositSignerPublicKey,
       refreshAfterTx,
       solanaEnv,
       user?.walletAddress,
@@ -4306,23 +4349,14 @@ export function useSmartAccountSidebarData(
       }
 
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
 
       setIsActionPending(true);
       try {
         const preparedClose =
           request.preparedClose ??
-          (await client.prepareEarnUsdcAutodepositClose({
-            settingsPda: new PublicKey(overview.settingsPda),
-            walletAddress: wallet.publicKey,
-            feePayer: wallet.publicKey,
-            signer: wallet.publicKey,
-            policy: new PublicKey(request.policy),
-            recurringDelegation: new PublicKey(request.recurringDelegation),
-            cluster: expectedEarnCluster,
+          (await prepareEarnAutodepositCloseOnServer({
+            policy: request.policy,
+            recurringDelegation: request.recurringDelegation,
           }));
         const closeSend = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,

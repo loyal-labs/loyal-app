@@ -9,14 +9,8 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import {
-  parseEarnDepositPrepareRequestBody,
-  serializePreparedEarnUsdcDeposit,
-} from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { findActiveYieldRoutePolicy } from "@/lib/yield-optimization/yield-deposit-repository.server";
-
-const EARN_DEPOSIT_VAULT_INDEX = 1;
+import { serializePreparedEarnUsdcYieldRoutingPolicy } from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -57,25 +51,8 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
 
-  let amountRaw: bigint;
-  try {
-    ({ amountRaw } = parseEarnDepositPrepareRequestBody(await request.json()));
-  } catch (error) {
-    return jsonError(
-      400,
-      "invalid_request",
-      error instanceof Error ? error.message : "Invalid request body."
-    );
-  }
-
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-  const policy = await findActiveYieldRoutePolicy({
-    authority: principal.walletAddress,
-    cluster,
-    settings: principal.settingsPda,
-    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-  });
 
   try {
     const serverEnv = getServerEnv();
@@ -84,35 +61,24 @@ export async function POST(request: Request) {
       connection: getConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
-    const yieldRoutingPolicy = policy
-      ? {
-          account: new PublicKey(policy.policyAccount),
-          seed: policy.policySeed,
-        }
-      : undefined;
-    const preparedDeposit = await client.prepareEarnUsdcDeposit({
-      amountRaw,
+    const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
-      initializeYieldRoutingPolicy: !policy,
-      policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
+      signer: policySigner,
       walletAddress: new PublicKey(principal.walletAddress),
-      ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });
 
     return NextResponse.json({
-      preparedDeposit: serializePreparedEarnUsdcDeposit(preparedDeposit),
+      preparedPolicy:
+        serializePreparedEarnUsdcYieldRoutingPolicy(preparedPolicy),
     });
   } catch (error) {
-    console.error("[earn-deposit-prepare] prepare failed", {
-      amountRaw: amountRaw.toString(),
+    console.error("[earn-policy-prepare] prepare failed", {
       cluster,
       errorMessage:
         error instanceof Error ? error.message : "Unknown prepare error.",
       errorName: error instanceof Error ? error.name : typeof error,
-      policyAccount: policy?.policyAccount ?? null,
-      policySeed: policy?.policySeed.toString() ?? null,
       settings: principal.settingsPda,
       solanaEnv,
       stack: error instanceof Error ? error.stack : undefined,
@@ -121,7 +87,7 @@ export async function POST(request: Request) {
     return jsonError(
       500,
       "prepare_failed",
-      error instanceof Error ? error.message : "Failed to prepare Earn deposit."
+      error instanceof Error ? error.message : "Failed to prepare Earn policy."
     );
   }
 }

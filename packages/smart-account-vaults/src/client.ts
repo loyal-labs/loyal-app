@@ -196,8 +196,8 @@ const KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS = 39_532_800;
 const KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
   43, 242, 204, 202, 26, 247, 59, 127,
 ]);
-const KAMINO_FRACTION_BITS = 60n;
-const KAMINO_FRACTION_SCALE = 1n << KAMINO_FRACTION_BITS;
+const KAMINO_FRACTION_BITS = BigInt(60);
+const KAMINO_FRACTION_SCALE = BigInt(1) << KAMINO_FRACTION_BITS;
 const KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET = 8;
 const KAMINO_RESERVE_LAYOUT_OFFSETS = {
   liquidityAvailableAmount: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 216,
@@ -297,7 +297,7 @@ function readUint64LE(data: Buffer, offset: number): bigint {
 function readUint128LE(data: Buffer, offset: number): bigint {
   const low = data.readBigUInt64LE(offset);
   const high = data.readBigUInt64LE(offset + 8);
-  return low + (high << 64n);
+  return low + (high << BigInt(64));
 }
 
 function parseKaminoReserveSnapshot(data: Buffer | Uint8Array): KaminoReserveSnapshot {
@@ -349,7 +349,7 @@ function parseKaminoReserveSnapshot(data: Buffer | Uint8Array): KaminoReserveSna
     totalLiquiditySupplyScaled:
       grossLiquiditySupplyScaled > totalFeeAmountScaled
         ? grossLiquiditySupplyScaled - totalFeeAmountScaled
-        : 0n,
+        : BigInt(0),
   };
 }
 
@@ -357,12 +357,12 @@ function calculateKaminoRedeemableLiquidityAmountRaw(args: {
   collateralAmountRaw: bigint;
   snapshot: KaminoReserveSnapshot;
 }): bigint {
-  if (args.collateralAmountRaw <= 0n) {
-    return 0n;
+  if (args.collateralAmountRaw <= BigInt(0)) {
+    return BigInt(0);
   }
   if (
-    args.snapshot.collateralSupplyRaw === 0n ||
-    args.snapshot.totalLiquiditySupplyScaled === 0n
+    args.snapshot.collateralSupplyRaw === BigInt(0) ||
+    args.snapshot.totalLiquiditySupplyScaled === BigInt(0)
   ) {
     return args.collateralAmountRaw;
   }
@@ -3852,6 +3852,7 @@ export function createSmartAccountVaultsClient(
   async function resolveEarnYieldRoutingPolicyForCreation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
     vaultPda: PublicKey;
@@ -3889,7 +3890,7 @@ export function createSmartAccountVaultsClient(
                   target: earnTarget,
                   vaultPda: args.vaultPda,
                 }),
-              signers: [createPolicySigner(args.signer)],
+              signers: [createPolicySigner(args.policySigner)],
               threshold: 1,
               timeLock: 0,
               startTimestamp: null,
@@ -4469,6 +4470,7 @@ export function createSmartAccountVaultsClient(
       ? await resolveEarnYieldRoutingPolicyForCreation({
           cluster,
           feePayer: args.feePayer,
+          policySigner: args.policySigner,
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
           vaultPda,
@@ -4652,6 +4654,7 @@ export function createSmartAccountVaultsClient(
       persistence: {
         cluster,
         walletAddress: args.walletAddress.toBase58(),
+        delegatedSigner: args.policySigner.toBase58(),
         settings: args.settingsPda.toBase58(),
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         vaultPubkey: vaultPda.toBase58(),
@@ -4696,7 +4699,7 @@ export function createSmartAccountVaultsClient(
         {
           feePayer: args.feePayer,
           settingsPda: args.settingsPda,
-          signers: [args.signer],
+          signers: [args.walletAddress],
           actions: [
             {
               __kind: "PolicyCreate",
@@ -4738,7 +4741,8 @@ export function createSmartAccountVaultsClient(
       },
       persistence: {
         cluster,
-        walletAddress: args.signer.toBase58(),
+        walletAddress: args.walletAddress.toBase58(),
+        delegatedSigner: args.signer.toBase58(),
         settings: args.settingsPda.toBase58(),
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         vaultPubkey: vaultPda.toBase58(),
@@ -5060,6 +5064,7 @@ export function createSmartAccountVaultsClient(
       persistence: {
         cluster,
         walletAddress: args.walletAddress.toBase58(),
+        delegatedSigner: args.policySigner.toBase58(),
         settings: args.settingsPda.toBase58(),
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         vaultPubkey: vaultPda.toBase58(),
@@ -5139,10 +5144,11 @@ export function createSmartAccountVaultsClient(
     const basePersistence = {
       cluster,
       walletAddress: args.walletAddress.toBase58(),
+      delegatedSigner: args.policySigner.toBase58(),
       settings: args.settingsPda.toBase58(),
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: vaultPda.toBase58(),
-      automationSigner: args.automationSigner.toBase58(),
+      subscriptionDelegatee: vaultPda.toBase58(),
       amountPerPeriodRaw: amountPerPeriodRaw.toString(),
       periodLengthSeconds: periodLengthSeconds.toString(),
       nonce: nonce.toString(),
@@ -5198,7 +5204,7 @@ export function createSmartAccountVaultsClient(
                   vaultUsdcAta,
                   walletUsdcAta,
                 }),
-              signers: [createPolicySigner(args.automationSigner)],
+              signers: [createPolicySigner(args.policySigner)],
               threshold: 1,
               timeLock: 0,
               startTimestamp: null,
@@ -5283,7 +5289,7 @@ export function createSmartAccountVaultsClient(
 
       return {
         prepared,
-        stage: "create_subscription",
+        stage: "create_policy",
         authorityInitializationRequired: false,
         policy: {
           account: policyAccount,
@@ -5403,7 +5409,7 @@ export function createSmartAccountVaultsClient(
 
     return {
       prepared,
-      stage: "create_subscription",
+      stage: "create_policy",
       authorityInitializationRequired: false,
       policy: {
         account: policyAccount,
@@ -5482,6 +5488,7 @@ export function createSmartAccountVaultsClient(
       persistence: {
         cluster,
         walletAddress: args.walletAddress.toBase58(),
+        delegatedSigner: args.policySigner.toBase58(),
         settings: args.settingsPda.toBase58(),
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         vaultPubkey: vaultPda.toBase58(),
@@ -5544,8 +5551,8 @@ export function createSmartAccountVaultsClient(
     });
     const compiledPayload = instructionsToSynchronousTransactionDetailsV2({
       vaultPda,
-      members: [args.automationSigner],
-      transaction_instructions: [transferInstruction],
+      members: [args.policySigner],
+      transaction_instructions: [makeSignerWritable(transferInstruction, vaultPda)],
     });
     const policyPayload: generated.PolicyPayload = {
       __kind: "ProgramInteraction",
@@ -5594,6 +5601,7 @@ export function createSmartAccountVaultsClient(
       persistence: {
         cluster,
         walletAddress: args.walletAddress.toBase58(),
+        delegatedSigner: args.policySigner.toBase58(),
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         vaultPubkey: vaultPda.toBase58(),
         policyAccount: args.policy.toBase58(),

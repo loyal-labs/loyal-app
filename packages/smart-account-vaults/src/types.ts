@@ -367,6 +367,7 @@ export type SmartAccountUseSpendingLimitInput = {
 export type SmartAccountEarnUsdcDepositInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
+  policySigner: PublicKey;
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
@@ -380,6 +381,7 @@ export type SmartAccountEarnUsdcDepositInput = {
 
 export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
   settingsPda: PublicKey;
+  walletAddress: PublicKey;
   signer: PublicKey;
   feePayer: PublicKey;
   cluster?: LoyalCluster;
@@ -389,6 +391,7 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
 export type SmartAccountEarnUsdcYieldRoutingPolicyMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
+  delegatedSigner: string;
   settings: string;
   vaultIndex: 1;
   vaultPubkey: string;
@@ -422,6 +425,7 @@ export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
 export type SmartAccountEarnUsdcDepositMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
+  delegatedSigner: string;
   settings: string;
   vaultIndex: 1;
   vaultPubkey: string;
@@ -466,6 +470,7 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
 export type SmartAccountEarnUsdcWithdrawInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
+  policySigner: PublicKey;
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
@@ -476,6 +481,7 @@ export type SmartAccountEarnUsdcWithdrawInput = {
 export type SmartAccountEarnUsdcWithdrawMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
+  delegatedSigner: string;
   settings: string;
   vaultIndex: 1;
   vaultPubkey: string;
@@ -523,7 +529,7 @@ export type SmartAccountEarnUsdcAutodepositSetupInput = {
   walletAddress: PublicKey;
   feePayer: PublicKey;
   signer: PublicKey;
-  automationSigner: PublicKey;
+  policySigner: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
   nonce?: bigint;
@@ -537,13 +543,14 @@ export type SmartAccountEarnUsdcAutodepositSetupInput = {
 export type SmartAccountEarnUsdcAutodepositSetupMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
+  delegatedSigner: string;
   settings: string;
   vaultIndex: 1;
   vaultPubkey: string;
   policyId: string | null;
   policyAccount: string | null;
   policySeed: string | null;
-  automationSigner: string;
+  subscriptionDelegatee: string;
   amountPerPeriodRaw: string;
   periodLengthSeconds: string;
   nonce: string;
@@ -562,7 +569,7 @@ export type SmartAccountPreparedEarnUsdcAutodepositSetup = {
   stage:
     | "initialize_subscription_authority"
     | "create_recurring_delegation"
-    | "create_subscription";
+    | "create_policy";
   authorityInitializationRequired: boolean;
   policy: {
     account: PublicKey | null;
@@ -591,6 +598,7 @@ export type SmartAccountEarnUsdcAutodepositCloseInput = {
   walletAddress: PublicKey;
   feePayer: PublicKey;
   signer: PublicKey;
+  policySigner: PublicKey;
   policy: PublicKey;
   recurringDelegation: PublicKey;
   cluster?: LoyalCluster;
@@ -600,6 +608,7 @@ export type SmartAccountEarnUsdcAutodepositCloseInput = {
 export type SmartAccountEarnUsdcAutodepositCloseMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
+  delegatedSigner: string;
   settings: string;
   vaultIndex: 1;
   vaultPubkey: string;
@@ -626,7 +635,7 @@ export type SmartAccountEarnUsdcAutodepositPullInput = {
   policy: PublicKey;
   walletAddress: PublicKey;
   feePayer: PublicKey;
-  automationSigner: PublicKey;
+  policySigner: PublicKey;
   recurringDelegation: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
@@ -636,6 +645,7 @@ export type SmartAccountEarnUsdcAutodepositPullInput = {
 export type SmartAccountEarnUsdcAutodepositPullMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
+  delegatedSigner: string;
   vaultIndex: 1;
   vaultPubkey: string;
   policyAccount: string;

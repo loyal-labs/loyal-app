@@ -13,6 +13,7 @@ import type {
 export type EarnPolicyConfirmRequestBody = {
   cluster: string;
   confirmedSlot: string;
+  delegatedSigner: string;
   liquidityMint: string;
   market: string | null;
   policyAccount: string;
@@ -29,6 +30,7 @@ export type EarnPolicyConfirmRequestBody = {
 export type EarnDepositConfirmRequestBody = {
   cluster: string;
   confirmedSlot: string;
+  delegatedSigner: string;
   depositMint: string;
   depositSignature: string;
   liquidityMint: string;
@@ -51,6 +53,7 @@ export type EarnDepositConfirmRequestBody = {
 export type EarnWithdrawalConfirmRequestBody = {
   cluster: string;
   confirmedSlot: string;
+  delegatedSigner: string;
   liquidityMint: string;
   market: string | null;
   mode: "partial" | "full";
@@ -220,6 +223,7 @@ export function parseEarnPolicyConfirmRequestBody(
   return {
     cluster: readRequiredString(record, "cluster"),
     confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
     liquidityMint: readRequiredString(record, "liquidityMint"),
     market: readOptionalString(record, "market"),
     policyAccount: readRequiredString(record, "policyAccount"),
@@ -241,6 +245,7 @@ export function parseEarnDepositConfirmRequestBody(
   return {
     cluster: readRequiredString(record, "cluster"),
     confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
     depositMint: readRequiredString(record, "depositMint"),
     depositSignature: readRequiredString(record, "depositSignature"),
     liquidityMint: readRequiredString(record, "liquidityMint"),
@@ -268,6 +273,7 @@ export function parseEarnWithdrawalConfirmRequestBody(
   return {
     cluster: readRequiredString(record, "cluster"),
     confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
     liquidityMint: readRequiredString(record, "liquidityMint"),
     market: readOptionalString(record, "market"),
     mode: readMode(record),
