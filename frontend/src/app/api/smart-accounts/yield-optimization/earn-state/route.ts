@@ -11,6 +11,7 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   findCurrentEarnAutodepositState,
+  sumEarnAutodepositCurrentPeriodDeposits,
   type CurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
@@ -64,8 +65,12 @@ function serializePolicy(policy: RoutePolicyRecord) {
   };
 }
 
+type CurrentEarnAutodepositStateWithProgress = CurrentEarnAutodepositState & {
+  depositedThisPeriodRaw: bigint;
+};
+
 export function serializeAutodepositState(
-  autodeposit: CurrentEarnAutodepositState
+  autodeposit: CurrentEarnAutodepositStateWithProgress
 ) {
   const delegatedSigner =
     autodeposit.target.delegatedSigners[0] ??
@@ -79,6 +84,7 @@ export function serializeAutodepositState(
       autodeposit.target.balanceSweepPolicyId?.toString() ??
       autodeposit.policy.id.toString(),
     delegatedSigner,
+    depositedThisPeriodRaw: autodeposit.depositedThisPeriodRaw.toString(),
     lastSeenSignature: autodeposit.target.lastSeenSignature,
     lastSeenSlot: autodeposit.target.lastSeenSlot.toString(),
     periodLengthSeconds:
@@ -161,12 +167,23 @@ export async function GET(request: Request) {
         vaultIndex: EARN_VAULT_INDEX,
       })
     ),
-    loadEarnStatePart("autodeposit", () =>
-      findCurrentEarnAutodepositState({
-        settings: principal.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        walletAddress: principal.walletAddress,
-      })
+    loadEarnStatePart(
+      "autodeposit",
+      async (): Promise<CurrentEarnAutodepositStateWithProgress | null> => {
+        const state = await findCurrentEarnAutodepositState({
+          settings: principal.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          walletAddress: principal.walletAddress,
+        });
+        if (!state) {
+          return null;
+        }
+
+        const depositedThisPeriodRaw =
+          await sumEarnAutodepositCurrentPeriodDeposits(state.target);
+
+        return { ...state, depositedThisPeriodRaw };
+      }
     ),
   ]);
   const position = positionResult.data;

@@ -117,6 +117,7 @@ type EarnStateResponse = {
     amountPerPeriodRaw: string;
     balanceSweepPolicyId: string;
     delegatedSigner: string | null;
+    depositedThisPeriodRaw?: string | null;
     lastSeenSignature: string;
     lastSeenSlot: string;
     periodLengthSeconds: string | null;

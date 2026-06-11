@@ -283,6 +283,7 @@ describe("Earn autodeposit load state", () => {
 
     expect(
       serializeAutodepositState({
+        depositedThisPeriodRaw: BigInt(65_520_000),
         policy,
         status: "active",
         target,
@@ -291,6 +292,7 @@ describe("Earn autodeposit load state", () => {
       active: true,
       amountPerPeriodRaw: "100000000",
       balanceSweepPolicyId: "7",
+      depositedThisPeriodRaw: "65520000",
       policyAccount: "policy",
       recurringDelegation: "recurring",
       status: "active",
@@ -313,6 +315,7 @@ describe("Earn autodeposit load state", () => {
 
     expect(
       serializeAutodepositState({
+        depositedThisPeriodRaw: BigInt(0),
         policy,
         status: "pending",
         target,
@@ -338,6 +341,7 @@ describe("Earn autodeposit load state", () => {
 
     expect(
       serializeAutodepositState({
+        depositedThisPeriodRaw: BigInt(0),
         policy,
         status: "paused",
         target,
@@ -358,6 +362,7 @@ describe("Earn autodeposit load state", () => {
     expect(
       earnAutodepositConfigFromLoadedState({
         amountPerPeriodRaw: "100000000",
+        depositedThisPeriodRaw: "65520000",
         policyAccount: "policy",
         policySeed: "1",
         periodLengthSeconds: "2592000",
@@ -368,6 +373,7 @@ describe("Earn autodeposit load state", () => {
       })
     ).toEqual({
       amount: "100",
+      depositedAmount: "65.52",
       keepAmount: "500",
       nextPeriodLabel: "Jan 01",
       nonce: "1",
@@ -400,6 +406,96 @@ describe("Earn autodeposit load state", () => {
       recurringDelegation: "recurring",
       state: "paused",
     });
+  });
+
+  test("current period start derives from elapsed periods", async () => {
+    const { resolveEarnAutodepositCurrentPeriodStart } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const startSeconds = 1_780_185_600;
+    const periodSeconds = 2_592_000;
+    const target = {
+      periodLengthSeconds: BigInt(periodSeconds),
+      startTimestamp: BigInt(startSeconds),
+    };
+
+    const midSecondPeriod = new Date(
+      (startSeconds + periodSeconds + 1_000) * 1_000
+    );
+    expect(
+      resolveEarnAutodepositCurrentPeriodStart(target, midSecondPeriod)
+    ).toEqual(new Date((startSeconds + periodSeconds) * 1_000));
+
+    const beforeStart = new Date((startSeconds - 1_000) * 1_000);
+    expect(
+      resolveEarnAutodepositCurrentPeriodStart(target, beforeStart)
+    ).toEqual(new Date(startSeconds * 1_000));
+
+    expect(
+      resolveEarnAutodepositCurrentPeriodStart(
+        { periodLengthSeconds: null, startTimestamp: BigInt(startSeconds) },
+        midSecondPeriod
+      )
+    ).toEqual(new Date(startSeconds * 1_000));
+
+    expect(
+      resolveEarnAutodepositCurrentPeriodStart(
+        { periodLengthSeconds: BigInt(periodSeconds), startTimestamp: null },
+        midSecondPeriod
+      )
+    ).toBeNull();
+  });
+
+  test("current period deposits sum coerces totals to bigint", async () => {
+    const { sumEarnAutodepositCurrentPeriodDeposits } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+
+    function createSumClient(rows: unknown[]) {
+      const calls: string[] = [];
+      const query = {
+        from() {
+          calls.push("from");
+          return query;
+        },
+        where() {
+          calls.push("where");
+          return rows;
+        },
+      };
+      return {
+        calls,
+        client: {
+          db: {
+            select() {
+              calls.push("select");
+              return query;
+            },
+          },
+        },
+      };
+    }
+
+    const target = {
+      id: BigInt(11),
+      periodLengthSeconds: BigInt(2_592_000),
+      startTimestamp: BigInt(1_780_185_600),
+    };
+    const now = () => new Date("2026-06-11T00:00:00.000Z");
+
+    const { calls, client } = createSumClient([{ totalRaw: "65520000" }]);
+    await expect(
+      sumEarnAutodepositCurrentPeriodDeposits(target, { client, now } as never)
+    ).resolves.toBe(BigInt(65_520_000));
+    expect(calls).toEqual(["select", "from", "where"]);
+
+    const empty = createSumClient([{ totalRaw: null }]);
+    await expect(
+      sumEarnAutodepositCurrentPeriodDeposits(target, {
+        client: empty.client,
+        now,
+      } as never)
+    ).resolves.toBe(BigInt(0));
   });
 
   test("pause updates only the target active flag", async () => {

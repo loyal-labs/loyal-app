@@ -1090,6 +1090,22 @@ export function AppWalletWorkspace({
   const autodepositFloorLabel = autodepositConfig
     ? `$${Number(autodepositConfig.keepAmount || 0).toLocaleString("en-US")}.00`
     : undefined;
+  const autodepositDepositedLabel = autodepositConfig
+    ? `$${Number(autodepositConfig.depositedAmount || 0).toLocaleString(
+        "en-US",
+        { maximumFractionDigits: 2, minimumFractionDigits: 2 }
+      )}`
+    : undefined;
+  const autodepositGoalAmount = Number(autodepositConfig?.amount || 0);
+  const autodepositProgress = autodepositConfig
+    ? autodepositGoalAmount > 0
+      ? Math.min(
+          Number(autodepositConfig.depositedAmount || 0) /
+            autodepositGoalAmount,
+          1
+        )
+      : 0
+    : undefined;
   const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
     useState(false);
   const [spendingLimitDraftError, setSpendingLimitDraftError] = useState<
@@ -2831,6 +2847,7 @@ export function AppWalletWorkspace({
         ? { ...current, state: "creating" }
         : {
             amount: pendingEarnAutodepositDraft.amountLabel,
+            depositedAmount: "0",
             keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
             nextPeriodLabel: null,
             nonce: pendingEarnAutodepositDraft.nonce.toString(),
@@ -2924,6 +2941,7 @@ export function AppWalletWorkspace({
 
       setAutodepositConfig({
         amount: pendingEarnAutodepositDraft.amountLabel,
+        depositedAmount: autodepositConfig?.depositedAmount ?? "0",
         keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
         nextPeriodLabel: null,
         nonce:
@@ -3842,7 +3860,6 @@ export function AppWalletWorkspace({
           earnVaultAddressLabel={earnVaultAddressLabel}
           initialAmount={autodepositConfig?.amount ?? "100"}
           initialKeepAmount={autodepositConfig?.keepAmount ?? "500"}
-          nextPeriodLabel={autodepositConfig?.nextPeriodLabel}
           isEditing={Boolean(autodepositConfig)}
           mainSource={
             earnDepositSources.find((source) => source.id === "main") ?? null
@@ -4626,7 +4643,9 @@ export function AppWalletWorkspace({
                 }
                 onOpenAutodeposit={handleOpenAutodeposit}
                 autodepositAmountLabel={autodepositAmountLabel}
-                autodepositFloorLabel={autodepositFloorLabel}
+                autodepositDepositedLabel={autodepositDepositedLabel}
+                autodepositNextPeriodLabel={autodepositConfig?.nextPeriodLabel}
+                autodepositProgress={autodepositProgress}
                 isAutodepositConfigured={Boolean(autodepositConfig)}
                 hasEarnStateLoadError={Boolean(
                   smartAccountData.earnStateLoadErrors.autodeposit

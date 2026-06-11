@@ -10,7 +10,6 @@ import {
   Plus,
   RefreshCw,
   Send,
-  SlidersHorizontal,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -354,27 +353,153 @@ function EarnPortfolioRow({
 
 function AutodepositStatusCard({
   amountLabel,
-  floorLabel,
+  depositedLabel,
   isConfigured = false,
   isError = false,
   isLoading = false,
+  nextPeriodLabel = null,
   onRetry,
   onSetUp,
+  progress,
 }: {
   amountLabel?: string;
-  floorLabel?: string;
+  depositedLabel?: string;
   isConfigured?: boolean;
   isError?: boolean;
   isLoading?: boolean;
+  nextPeriodLabel?: string | null;
   onRetry?: () => void;
   onSetUp?: () => void;
+  progress?: number;
 }) {
+  if (isConfigured && !isError && !isLoading) {
+    const [depositedWhole, depositedFraction] = (
+      depositedLabel ?? "$0.00"
+    ).split(".");
+    const progressPercent = Math.max(0, Math.min(1, progress ?? 0)) * 100;
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSetUp?.();
+      }
+    };
+
+    return (
+      <>
+        <style jsx>{`
+          .autodeposit-goal-card:hover {
+            background: ${rowHoverBackground} !important;
+          }
+          .autodeposit-goal-card:focus-visible {
+            outline: 2px solid rgba(249, 54, 60, 0.45);
+            outline-offset: 2px;
+          }
+        `}</style>
+        <div
+          aria-label="Edit Autodeposit"
+          className="autodeposit-goal-card"
+          onClick={onSetUp}
+          onKeyDown={handleKeyDown}
+          role="button"
+          style={{
+            borderRadius: "16px",
+            cursor: "pointer",
+            display: "flex",
+            marginBottom: "16px",
+            overflow: "hidden",
+            padding: "0 12px",
+            transition: "background 0.15s ease",
+            width: "100%",
+          }}
+          tabIndex={0}
+        >
+          <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              src="/wallet-workspace/earn-coin-icon.svg"
+              style={{ flexShrink: 0, height: "48px", width: "48px" }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+                padding: "9px 0",
+              }}
+            >
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {nextPeriodLabel
+                  ? `Autodeposit goal by ${nextPeriodLabel}`
+                  : "Autodeposit goal"}
+              </span>
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "20px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.22px",
+                  lineHeight: "24px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {depositedWhole}
+                <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                  .{depositedFraction ?? "00"} out of {amountLabel ?? "$0.00"}
+                </span>
+              </span>
+            </div>
+            <div style={{ padding: "3px 0 9px" }}>
+              <div
+                style={{
+                  background: "rgba(0, 0, 0, 0.04)",
+                  borderRadius: "34px",
+                  height: "8px",
+                  overflow: "hidden",
+                  width: "100%",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#F9363C",
+                    borderRadius: "34px",
+                    height: "8px",
+                    transition: "width 0.3s ease",
+                    width: `${progressPercent}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   const body = isError
     ? "Couldn’t load Autodeposit settings"
-    : isConfigured
-      ? `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`
-      : "Start earning the moment your money arrives";
-  const actionLabel = isError ? "Retry" : isConfigured ? "Edit" : "Set up";
+    : "Start earning the moment your money arrives";
+  const actionLabel = isError ? "Retry" : "Set up";
   const action = isError ? onRetry : onSetUp;
 
   return (
@@ -389,12 +514,6 @@ function AutodepositStatusCard({
         }
         .auto-earn-status-btn:active {
           transform: translateY(0);
-        }
-        .auto-earn-settings-btn {
-          transition: background 0.15s ease;
-        }
-        .auto-earn-settings-btn:hover {
-          background: rgba(0, 0, 0, 0.06) !important;
         }
       `}</style>
       <div
@@ -472,30 +591,6 @@ function AutodepositStatusCard({
         </div>
         {isLoading ? (
           <span style={skeletonBar("64px", "32px")} />
-        ) : isConfigured && !isError ? (
-          <button
-            aria-label="Edit Autodeposit"
-            className="auto-earn-settings-btn"
-            onClick={action}
-            style={{
-              alignItems: "center",
-              background: "transparent",
-              border: "none",
-              borderRadius: "9999px",
-              color: "#3C3C43",
-              cursor: "pointer",
-              display: "inline-flex",
-              flexShrink: 0,
-              height: "32px",
-              justifyContent: "center",
-              marginLeft: "12px",
-              padding: "4px",
-              width: "32px",
-            }}
-            type="button"
-          >
-            <SlidersHorizontal size={20} strokeWidth={2} />
-          </button>
         ) : (
           <button
             className="auto-earn-status-btn"
@@ -919,7 +1014,9 @@ export function PortfolioContent({
   portfolioChange24h = null,
   earningsSummary = null,
   autodepositAmountLabel,
-  autodepositFloorLabel,
+  autodepositDepositedLabel,
+  autodepositNextPeriodLabel = null,
+  autodepositProgress,
   earnBalance = 0,
   hasEarnStateLoadError = false,
   hasEarnPosition = false,
@@ -964,7 +1061,9 @@ export function PortfolioContent({
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
   autodepositAmountLabel?: string;
-  autodepositFloorLabel?: string;
+  autodepositDepositedLabel?: string;
+  autodepositNextPeriodLabel?: string | null;
+  autodepositProgress?: number;
   earnBalance?: number;
   hasEarnStateLoadError?: boolean;
   hasEarnPosition?: boolean;
@@ -1600,12 +1699,14 @@ export function PortfolioContent({
           {onOpenAutodeposit ? (
             <AutodepositStatusCard
               amountLabel={autodepositAmountLabel}
-              floorLabel={autodepositFloorLabel}
+              depositedLabel={autodepositDepositedLabel}
               isConfigured={isAutodepositConfigured}
               isError={hasEarnStateLoadError}
               isLoading={isEarnStateLoading}
+              nextPeriodLabel={autodepositNextPeriodLabel}
               onRetry={onSmartAccountRetry}
               onSetUp={onOpenAutodeposit}
+              progress={autodepositProgress}
             />
           ) : null}
           {onOpenEarn ? (

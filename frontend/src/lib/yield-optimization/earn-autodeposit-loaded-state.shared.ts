@@ -1,5 +1,6 @@
 export type LoadedEarnAutodepositState = {
   amountPerPeriodRaw: string;
+  depositedThisPeriodRaw?: string | null;
   policyAccount: string;
   policySeed: string;
   periodLengthSeconds: string | null;
@@ -11,6 +12,7 @@ export type LoadedEarnAutodepositState = {
 
 export type LoadedEarnAutodepositConfig = {
   amount: string;
+  depositedAmount: string;
   keepAmount: string;
   nextPeriodLabel: string | null;
   policyAccount: string;
@@ -80,6 +82,7 @@ export function earnAutodepositConfigFromLoadedState(
 
   return {
     amount: rawTokenAmountToLabel(autodeposit.amountPerPeriodRaw),
+    depositedAmount: rawTokenAmountToLabel(autodeposit.depositedThisPeriodRaw),
     keepAmount: rawTokenAmountToLabel(autodeposit.walletBalanceFloorRaw),
     nextPeriodLabel: formatNextPeriodLabel(
       autodeposit.startTimestamp,

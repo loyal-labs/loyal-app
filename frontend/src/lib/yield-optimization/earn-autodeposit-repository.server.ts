@@ -180,6 +180,67 @@ export async function findCurrentEarnAutodepositState(
   };
 }
 
+export function resolveEarnAutodepositCurrentPeriodStart(
+  target: Pick<
+    BalanceSweepTargetRecord,
+    "periodLengthSeconds" | "startTimestamp"
+  >,
+  now: Date
+): Date | null {
+  if (target.startTimestamp === null) {
+    return null;
+  }
+
+  const startMs = Number(target.startTimestamp * BigInt(1000));
+  if (!Number.isFinite(startMs)) {
+    return null;
+  }
+
+  if (
+    target.periodLengthSeconds === null ||
+    target.periodLengthSeconds <= BigInt(0)
+  ) {
+    return new Date(startMs);
+  }
+
+  const periodMs = Number(target.periodLengthSeconds * BigInt(1000));
+  const nowMs = now.getTime();
+  if (!Number.isFinite(periodMs) || nowMs < startMs) {
+    return new Date(startMs);
+  }
+
+  const periodsElapsed = Math.floor((nowMs - startMs) / periodMs);
+  return new Date(startMs + periodsElapsed * periodMs);
+}
+
+export async function sumEarnAutodepositCurrentPeriodDeposits(
+  target: Pick<
+    BalanceSweepTargetRecord,
+    "id" | "periodLengthSeconds" | "startTimestamp"
+  >,
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<bigint> {
+  const periodStart = resolveEarnAutodepositCurrentPeriodStart(
+    target,
+    dependencies.now()
+  );
+  const conditions = [eq(balanceSweepExecutions.targetId, target.id)];
+  if (periodStart) {
+    conditions.push(
+      sql`coalesce(${balanceSweepExecutions.decodedAt}, ${balanceSweepExecutions.receivedAt}) >= ${periodStart}`
+    );
+  }
+
+  const [row] = await dependencies.client.db
+    .select({
+      totalRaw: sql<string | null>`sum(${balanceSweepExecutions.amountRaw})`,
+    })
+    .from(balanceSweepExecutions)
+    .where(and(...conditions));
+
+  return row?.totalRaw ? BigInt(row.totalRaw) : BigInt(0);
+}
+
 export async function findEarnAutodepositHistoryEvents(
   input: {
     settings: string;
