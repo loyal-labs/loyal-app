@@ -428,6 +428,18 @@ const EARN_COMPARISON_SERIES: {
   },
 ];
 
+// Design palette/labels shared by the reworked APY + Forecast charts (Figma
+// file YTJOPpIYC7FEctch7b43Jz). EARN_COMPARISON_SERIES above keeps the legacy
+// colors still used by the deposit sheet chart.
+const EARN_SERIES_DISPLAY: Record<
+  EarnComparisonSeriesKey,
+  { color: string; label: string }
+> = {
+  loyal: { color: LOYAL_EARN_BRAND_COLOR, label: "Loyal Earn" },
+  mainUsdcReserve: { color: "#A7B3F6", label: "Main Market" },
+  tBill: { color: "#B1B1B4", label: "T-Bill" },
+};
+
 const EARN_COMPARISON_MIN_APY_BPS = 50;
 
 type EarnComparisonPoint = {
@@ -806,8 +818,17 @@ function EarnGrowingBalance({
   );
 }
 
-const EARNINGS_CHART_HEIGHT = EARN_CHART_HEIGHT; // match the Forecast chart height
+// Past-day bars top out slightly below the dashed "today" bar (295/300 in the
+// Figma spec) so the in-progress day always reads as the full-height cap.
+const EARNINGS_BAR_MAX_FRACTION = 295 / 300;
+const EARNINGS_BAR_MIN_HEIGHT_PX = 4;
 const EARNINGS_MONTHLY_RANGE_ID = "1Y" satisfies EarningsRangeId;
+const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
+const EARNINGS_BAR_COLOR = "rgba(0, 0, 0, 0.08)";
+const EARNINGS_BAR_HOVER_COLOR = "rgba(249, 54, 60, 0.6)";
+const EARNINGS_TODAY_BAR_BORDER_COLOR = "rgba(0, 0, 0, 0.24)";
+const EARNINGS_TODAY_BAR_HOVER_FILL =
+  "linear-gradient(180deg, rgba(249, 54, 60, 0.6) 0%, rgba(249, 54, 60, 0) 100%)";
 
 const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
 
@@ -973,24 +994,28 @@ function getEarningsFractionDigits(value: number) {
   return 2;
 }
 
-export function formatMonthlyEarningsBarLabel(value: string | Date): string {
-  const date = typeof value === "string" ? new Date(value) : value;
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    year: "numeric",
-  }).format(date);
+function splitEarningsHeaderValue(value: number): {
+  fraction: string;
+  whole: string;
+} {
+  const safeValue = Number.isFinite(value) && value > 0 ? value : 0;
+  const [whole, fraction] = safeValue
+    .toLocaleString("en-US", {
+      maximumFractionDigits: EARN_BALANCE_DECIMALS,
+      minimumFractionDigits: EARN_BALANCE_DECIMALS,
+    })
+    .split(".");
+  return { fraction, whole };
 }
 
-function formatEarningsAmount(value: number) {
-  if (!Number.isFinite(value)) {
-    return "+$0.00";
+function formatMaxDailyEarningsLabel(value: number) {
+  if (!Number.isFinite(value) || value < 0.01) {
+    return "<$0.01";
   }
-  const fractionDigits = getEarningsFractionDigits(value);
-  const formatted = value.toLocaleString("en-US", {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  });
-  return `+$${formatted}`;
+  return `$${value.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
 }
 
 function formatSignedEarningsAmount(value: number) {
@@ -1051,56 +1076,78 @@ function EarningsBlock({
   const placeholderBars = useMemo(
     () =>
       principalAmount > 0
-        ? buildPlaceholderEarningsBars(EARNINGS_MONTHLY_RANGE_ID)
+        ? buildPlaceholderEarningsBars(EARNINGS_DAILY_RANGE_ID)
         : EMPTY_EARNINGS_BARS,
     [principalAmount]
   );
   const realBars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
-  const bars = realBars.length > 0 ? realBars : placeholderBars;
-  // Display earnings cumulatively (running total): earnings only accrue, so each
-  // period is never lower than the previous — "today" >= "yesterday".
-  const cumulativeBars = useMemo(() => {
-    let running = 0;
-    return bars.map((bar) => {
-      running += Math.max(0, bar.earnedUsd);
-      // The current (last) period usually has no settled earnings yet, which
-      // would render an empty bar. Fall back to the live estimate so it always
-      // shows a real, non-zero bar.
-      const cumulativeUsd = bar.isCurrent
-        ? Math.max(running, estimatedEarnedUsd)
-        : running;
-      return {
-        ...bar,
-        cumulativeUsd,
-        label: formatMonthlyEarningsBarLabel(bar.startAt),
-      };
-    });
-  }, [bars, estimatedEarnedUsd]);
-  const maxValue = useMemo(() => {
-    const peak = Math.max(...cumulativeBars.map((bar) => bar.cumulativeUsd), 0);
-    return Math.max(0.01, peak);
-  }, [cumulativeBars]);
+  const hasRealBars = realBars.length > 0;
+  const bars = hasRealBars ? realBars : placeholderBars;
+  // Each bar carries the total earned as of the end of that day, anchored to
+  // the live estimate so hovering "today" matches the resting header value.
+  const dailyBars = useMemo(() => {
+    const cumulative = new Array<number>(bars.length).fill(0);
+    let earnedAfter = 0;
+    for (let i = bars.length - 1; i >= 0; i -= 1) {
+      cumulative[i] = Math.max(0, estimatedEarnedUsd - earnedAfter);
+      earnedAfter += Math.max(0, bars[i].earnedUsd);
+    }
+    return bars.map((bar, index) => ({
+      ...bar,
+      cumulativeUsd: hasRealBars || bar.isCurrent ? cumulative[index] : 0,
+    }));
+  }, [bars, estimatedEarnedUsd, hasRealBars]);
+  const maxDailyEarnedUsd = useMemo(
+    () =>
+      dailyBars.reduce(
+        (max, bar) => (bar.isCurrent ? max : Math.max(max, bar.earnedUsd)),
+        0
+      ),
+    [dailyBars]
+  );
   const hoveredBarEntry =
-    hoveredBar !== null ? cumulativeBars[hoveredBar] : null;
-  const earningsAxisLabels =
-    cumulativeBars.length > 0
-      ? [
-          cumulativeBars[0].label,
-          cumulativeBars[Math.floor((cumulativeBars.length - 1) / 2)].label,
-          cumulativeBars[cumulativeBars.length - 1].label,
-        ]
-      : [];
-  const hoveredFractionDigits = hoveredBarEntry
-    ? getEarningsFractionDigits(hoveredBarEntry.cumulativeUsd)
-    : 2;
-  // Anchor the hover card to the bar's center and shift it by the same fraction
-  // of its own width, so it tracks the bar across the full range and never
-  // overflows the chart edges (left-aligned near the start, right-aligned near
-  // the end) instead of clamping halfway.
-  const hoverFraction =
-    hoveredBar !== null && cumulativeBars.length > 0
-      ? (hoveredBar + 0.5) / cumulativeBars.length
-      : 0;
+    hoveredBar !== null ? (dailyBars[hoveredBar] ?? null) : null;
+  const hoveredApyBps = hoveredBarEntry
+    ? hoveredBarEntry.isCurrent
+      ? (earningsData?.currentApyBps ?? hoveredBarEntry.apyBps)
+      : hoveredBarEntry.apyBps
+    : null;
+  const hoveredDateLabel = hoveredBarEntry
+    ? hoveredBarEntry.isCurrent
+      ? `Today, ${hoveredBarEntry.label}`
+      : hoveredBarEntry.label
+    : "";
+  const headerValue = splitEarningsHeaderValue(
+    hoveredBarEntry ? hoveredBarEntry.cumulativeUsd : estimatedEarnedUsd
+  );
+  let headerSubtitle: ReactNode;
+  if (!hoveredBarEntry) {
+    headerSubtitle = (
+      <>
+        {"Total earned "}
+        <span
+          style={{
+            color: POSITIVE_AMOUNT_COLOR,
+            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+          }}
+        >
+          {`${formatSignedEarningsAmount(
+            earningsData?.rangeEarnedUsd ?? estimatedEarnedUsd
+          )} Past 30 Days`}
+        </span>
+      </>
+    );
+  } else if (hoveredApyBps !== null) {
+    headerSubtitle = `with ${formatEarnApyPercent(hoveredApyBps)} APY`;
+  } else if (hoveredBarEntry.isCurrent) {
+    headerSubtitle = `${hoveredBarEntry.label}, Now`;
+  } else {
+    headerSubtitle = hoveredDateLabel;
+  }
+  // The hovered date renders next to the scale label only while the subtitle
+  // slot is occupied by the APY line.
+  const hoveredDateRowLabel =
+    hoveredBarEntry && hoveredApyBps !== null ? hoveredDateLabel : "";
 
   return (
     <section
@@ -1112,50 +1159,26 @@ function EarningsBlock({
       }}
     >
       <style jsx>{`
-        :global(.earnings-current-flow) {
-          --number-flow-mask-height: 0.12em;
-          --number-flow-mask-width: 0.24em;
-          color: ${isBalanceHidden ? "#BBBBC0" : "#000"};
-          font-family: ${font};
-          font-size: 28px;
-          font-variant-numeric: tabular-nums;
-          font-weight: 600;
-          line-height: 32px;
-        }
-        :global(.earnings-current-flow::part(decimal)),
-        :global(.earnings-current-flow::part(fraction)) {
-          color: ${isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)"};
-        }
         .earnings-bar {
           align-items: flex-end;
           background: transparent;
           border: none;
-          border-radius: 6px;
           cursor: pointer;
           display: flex;
           flex: 1 0 0;
           height: 100%;
           min-width: 0;
           padding: 0;
-          transition: background 0.18s ease;
-        }
-        .earnings-bar:hover,
-        .earnings-bar-active {
-          background: rgba(0, 0, 0, 0.04);
         }
         .earnings-bar-fill {
-          background: #34c759;
-          border: none;
           border-radius: 4px;
+          box-sizing: border-box;
           display: block;
           transform-origin: center bottom;
           animation: earnings-bar-rise 0.55s cubic-bezier(0.2, 0, 0, 1) both;
           animation-delay: calc(var(--bar-index, 0) * 14ms);
-          transition: background 0.18s ease;
+          transition: background 0.18s ease, border-color 0.18s ease;
           width: 100%;
-        }
-        .earnings-bar-zero .earnings-bar-fill {
-          background: rgba(52, 199, 89, 0.32);
         }
         @keyframes earnings-bar-rise {
           from {
@@ -1167,25 +1190,13 @@ function EarningsBlock({
             opacity: 1;
           }
         }
-        .earnings-bar-tooltip {
-          animation: earnings-tooltip-fade 0.16s ease both;
-        }
-        @keyframes earnings-tooltip-fade {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
         .earnings-tab-panel {
           transition: opacity 0.34s cubic-bezier(0.2, 0, 0, 1),
             transform 0.34s cubic-bezier(0.2, 0, 0, 1),
             filter 0.34s cubic-bezier(0.2, 0, 0, 1);
         }
         @media (prefers-reduced-motion: reduce) {
-          .earnings-bar-fill,
-          .earnings-bar-tooltip {
+          .earnings-bar-fill {
             animation: none;
           }
           .earnings-tab-panel {
@@ -1263,7 +1274,15 @@ function EarningsBlock({
                 : "translateY(6px) scale(0.985)",
           }}
         >
-          <div style={{ padding: "12px", width: "100%" }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              padding: "4px 14px 0",
+              width: "100%",
+            }}
+          >
             <HistoricalApyChart key="30D" rangeId="30D" />
           </div>
         </div>
@@ -1282,8 +1301,16 @@ function EarningsBlock({
                 : "translateY(6px) scale(0.985)",
           }}
         >
-          <div style={{ padding: "12px", width: "100%" }}>
-            <DepositChart
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              padding: "4px 14px 0",
+              width: "100%",
+            }}
+          >
+            <ForecastChart
               apy={apy}
               isBalanceHidden={isBalanceHidden}
               key={forecastAmount}
@@ -1310,161 +1337,177 @@ function EarningsBlock({
             style={{
               display: "flex",
               flexDirection: "column",
-              padding: "14px 14px 0",
+              height: "100%",
+              padding: "4px 14px 0",
               width: "100%",
             }}
           >
-            <div style={{ position: "relative", width: "100%" }}>
-              <div
-                key="earnings-bars-monthly"
-                onMouseLeave={() => setHoveredBar(null)}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+                paddingBottom: "8px",
+                width: "100%",
+              }}
+            >
+              <p
                 style={{
-                  alignItems: "flex-end",
-                  display: "flex",
-                  gap: "8px",
-                  height: `${EARNINGS_CHART_HEIGHT}px`,
-                  overflow: "hidden",
-                  width: "100%",
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  fontFamily: font,
+                  fontSize: "28px",
+                  fontWeight: 600,
+                  lineHeight: "32px",
+                  margin: 0,
+                  whiteSpace: "nowrap",
                 }}
               >
-                {cumulativeBars.map((bar, i) => {
-                  const heightPct =
-                    maxValue > 0 ? (bar.cumulativeUsd / maxValue) * 100 : 0;
-                  const isZeroValue = bar.cumulativeUsd <= 0;
-                  const isCurrentPositive =
-                    bar.isCurrent && bar.cumulativeUsd > 0;
-                  const visualHeightPct = isCurrentPositive
-                    ? Math.max(heightPct, 18)
-                    : heightPct;
-                  const isActive = hoveredBar === i;
-                  const minHeightPx = 4;
-                  return (
-                    <button
-                      aria-label={`${bar.label} earnings ${formatEarningsAmount(
-                        bar.cumulativeUsd
-                      )}`}
-                      className={`earnings-bar${
-                        isActive ? " earnings-bar-active" : ""
-                      }${isZeroValue ? " earnings-bar-zero" : ""}`}
-                      key={`${bar.startAt}:${bar.endAt}`}
-                      onMouseEnter={() => setHoveredBar(i)}
-                      style={{
-                        ["--bar-index" as never]: i,
-                      }}
-                      type="button"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="earnings-bar-fill"
-                        style={{
-                          height: `max(${minHeightPx}px, ${visualHeightPct.toFixed(
-                            2
-                          )}%)`,
-                        }}
-                      />
-                    </button>
-                  );
-                })}
-                {cumulativeBars.length === 0 ? (
-                  <div
-                    style={{
-                      alignItems: "center",
-                      color: secondary,
-                      display: "flex",
-                      flex: 1,
-                      fontFamily: font,
-                      fontSize: "13px",
-                      height: "100%",
-                      justifyContent: "center",
-                      lineHeight: "16px",
-                    }}
-                  >
-                    No earnings yet
-                  </div>
-                ) : null}
-              </div>
-
-              {hoveredBarEntry ? (
-                <div
-                  className="earnings-bar-tooltip"
+                {`$${headerValue.whole}`}
+                <span
                   style={{
-                    background: "#fff",
-                    border: "1px solid rgba(0, 0, 0, 0.08)",
-                    borderRadius: "14px",
-                    boxShadow: "0 8px 22px rgba(0, 0, 0, 0.12)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2px",
-                    left: `clamp(100px, ${
-                      hoverFraction * 100
-                    }%, calc(100% - 100px))`,
-                    padding: "8px 12px",
-                    pointerEvents: "none",
-                    position: "absolute",
-                    top: "8px",
-                    transform: "translateX(-50%)",
-                    whiteSpace: "nowrap",
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
                   }}
                 >
-                  <span
-                    style={{
-                      color: isBalanceHidden ? "#BBBBC0" : "#000",
-                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                      fontFamily: font,
-                      fontSize: "20px",
-                      fontWeight: 600,
-                      lineHeight: "24px",
-                    }}
-                  >
-                    {`$${hoveredBarEntry.cumulativeUsd.toLocaleString("en-US", {
-                      maximumFractionDigits: hoveredFractionDigits,
-                      minimumFractionDigits: hoveredFractionDigits,
-                    })}`}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: font,
-                      fontSize: "13px",
-                      lineHeight: "16px",
-                    }}
-                  >
-                    <span style={{ color: POSITIVE_AMOUNT_COLOR }}>
-                      {formatSignedEarningsAmount(
-                        hoveredBarEntry.cumulativeUsd
-                      )}
-                    </span>
-                    <span style={{ color: secondary }}>
-                      {" · "}
-                      {hoveredBarEntry.label}
-                    </span>
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "8px 12px 0",
-              width: "100%",
-            }}
-          >
-            {earningsAxisLabels.map((label, index) => (
+                  {`.${headerValue.fraction}`}
+                </span>
+              </p>
               <span
-                key={`${label}-${index}`}
                 style={{
                   color: secondary,
                   fontFamily: font,
                   fontSize: "13px",
+                  height: "16px",
                   lineHeight: "16px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
                 }}
               >
-                {label}
+                {headerSubtitle}
               </span>
-            ))}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                fontFamily: font,
+                fontSize: "13px",
+                justifyContent: "space-between",
+                lineHeight: "16px",
+                paddingBottom: "8px",
+                width: "100%",
+              }}
+            >
+              <span style={{ color: secondary }}>{hoveredDateRowLabel}</span>
+              <span
+                style={{
+                  color: secondary,
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                }}
+              >
+                {formatMaxDailyEarningsLabel(maxDailyEarnedUsd)}
+              </span>
+            </div>
+            <div
+              key="earnings-bars-daily"
+              onMouseLeave={() => setHoveredBar(null)}
+              style={{
+                alignItems: "flex-end",
+                display: "flex",
+                flex: "1 1 auto",
+                gap: "8px",
+                minHeight: 0,
+                overflow: "hidden",
+                width: "100%",
+              }}
+            >
+              {dailyBars.map((bar, i) => {
+                const isActive = hoveredBar === i;
+                const fillPercent =
+                  maxDailyEarnedUsd > 0
+                    ? (Math.max(0, bar.earnedUsd) / maxDailyEarnedUsd) *
+                      EARNINGS_BAR_MAX_FRACTION *
+                      100
+                    : 0;
+                return (
+                  <button
+                    aria-label={`${bar.label} earned ${formatSignedEarningsAmount(
+                      Math.max(0, bar.earnedUsd)
+                    )}`}
+                    className="earnings-bar"
+                    key={`${bar.startAt}:${bar.endAt}`}
+                    onMouseEnter={() => setHoveredBar(i)}
+                    style={{
+                      ["--bar-index" as never]: i,
+                    }}
+                    type="button"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="earnings-bar-fill"
+                      style={
+                        bar.isCurrent
+                          ? {
+                              background: isActive
+                                ? EARNINGS_TODAY_BAR_HOVER_FILL
+                                : "transparent",
+                              border: `1px dashed ${
+                                isActive
+                                  ? EARNINGS_BAR_HOVER_COLOR
+                                  : EARNINGS_TODAY_BAR_BORDER_COLOR
+                              }`,
+                              height: "100%",
+                            }
+                          : {
+                              background: isActive
+                                ? EARNINGS_BAR_HOVER_COLOR
+                                : EARNINGS_BAR_COLOR,
+                              height: `${fillPercent.toFixed(2)}%`,
+                              minHeight: `${EARNINGS_BAR_MIN_HEIGHT_PX}px`,
+                            }
+                      }
+                    />
+                  </button>
+                );
+              })}
+              {dailyBars.length === 0 ? (
+                <div
+                  style={{
+                    alignItems: "center",
+                    color: secondary,
+                    display: "flex",
+                    flex: 1,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    height: "100%",
+                    justifyContent: "center",
+                    lineHeight: "16px",
+                  }}
+                >
+                  No earnings yet
+                </div>
+              ) : null}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                fontFamily: font,
+                fontSize: "13px",
+                justifyContent: "space-between",
+                lineHeight: "16px",
+                paddingTop: "8px",
+                width: "100%",
+              }}
+            >
+              <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+                {dailyBars[0]?.label ?? ""}
+              </span>
+              <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+                {dailyBars[dailyBars.length - 1]?.label ?? ""}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1824,6 +1867,8 @@ export function EarnDetailView({
   });
   const earningsData =
     earningsRangeSet?.ranges[EARNINGS_MONTHLY_RANGE_ID] ?? null;
+  const earningsDailyData =
+    earningsRangeSet?.ranges[EARNINGS_DAILY_RANGE_ID] ?? null;
   const estimatedEarnedAmountApyBps = deriveEstimatedEarnedAmountApyBps({
     earningsData,
     earningsError,
@@ -2032,7 +2077,7 @@ export function EarnDetailView({
       {hasCurrentPosition ? (
         <EarningsBlock
           apy={earnForecastApy}
-          earningsData={earningsData}
+          earningsData={earningsDailyData}
           estimatedEarnedUsd={estimatedEarnedUsd}
           isBalanceHidden={isBalanceHidden}
           key={`${principalAmount}:${earnForecastApy.apyBps}`}
@@ -3064,17 +3109,7 @@ function DepositSourceRow({
 
 type HistoricalApySample = {
   apyPercent: number;
-  date: string;
   observedAtMs: number;
-};
-type HistoricalApyBenchmarkLine = {
-  apyPercentAtHover: number;
-  color: string;
-  d: string;
-  key: Exclude<EarnComparisonSeriesKey, "loyal">;
-  label: string;
-  samples?: HistoricalApySample[];
-  topPercent: number;
 };
 
 const HISTORICAL_APY_BASELINE = 5;
@@ -3119,21 +3154,6 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-export function formatHistoricalAxisDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "2-digit",
-    month: "short",
-  }).format(date);
-}
-
-export function formatHistoricalApyDelta(
-  deltaPercent: number,
-  benchmarkLabel = "Main Market USDC"
-): string {
-  const sign = deltaPercent >= 0 ? "+" : "-";
-  return `${sign}${Math.abs(deltaPercent).toFixed(2)}% vs ${benchmarkLabel}`;
-}
-
 function buildHistoricalApySamples(
   rangeId: EarningsRangeId,
   now: Date
@@ -3162,7 +3182,6 @@ function buildHistoricalApySamples(
 
     return {
       apyPercent: Math.max(HISTORICAL_APY_MIN, apyPercent),
-      date: formatHistoricalAxisDate(new Date(endMs - spanMs * (1 - progress))),
       observedAtMs: endMs - spanMs * (1 - progress),
     };
   });
@@ -3178,7 +3197,6 @@ function toHistoricalApySamples(
 
   return samples.map((sample) => ({
     apyPercent: sample.apyBps / 100,
-    date: formatHistoricalAxisDate(new Date(sample.observedAt)),
     observedAtMs: Date.parse(sample.observedAt),
   }));
 }
@@ -3194,7 +3212,6 @@ function toHistoricalBenchmarkSamples(
 
   return series.samples.map((sample) => ({
     apyPercent: sample.apyBps / 100,
-    date: formatHistoricalAxisDate(new Date(sample.observedAt)),
     observedAtMs: Date.parse(sample.observedAt),
   }));
 }
@@ -3216,161 +3233,280 @@ function nearestHistoricalApyPercent(
   ).apyPercent;
 }
 
+// Figma draws the chart vectors as Catmull-Rom splines (cubic Béziers whose
+// control points sit at one-third of each segment), so straight polylines
+// look jagged next to the design; this mirrors that smoothing while still
+// passing through every data point.
+function smoothChartLinePath(
+  points: readonly { x: number; y: number }[]
+): string {
+  const first = points[0];
+  if (!first) {
+    return "";
+  }
+  const path = [`M${first.x.toFixed(2)},${first.y.toFixed(2)}`];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const previous = points[index - 1] ?? points[index];
+    const current = points[index];
+    const next = points[index + 1];
+    const afterNext = points[index + 2] ?? next;
+    const control1X = current.x + (next.x - previous.x) / 6;
+    const control1Y = current.y + (next.y - previous.y) / 6;
+    const control2X = next.x - (afterNext.x - current.x) / 6;
+    const control2Y = next.y - (afterNext.y - current.y) / 6;
+    path.push(
+      `C${control1X.toFixed(2)},${control1Y.toFixed(2)} ${control2X.toFixed(
+        2
+      )},${control2Y.toFixed(2)} ${next.x.toFixed(2)},${next.y.toFixed(2)}`
+    );
+  }
+  return path.join(" ");
+}
+
+// Real 30D history arrives at a much higher frequency than the design's
+// ~5px-per-point vectors, so the raw polyline reads as high-frequency steps no
+// matter how segments are joined. Averaging into at most this many buckets
+// removes that noise and gives the spline room to render visibly smooth.
+const HISTORICAL_APY_MAX_LINE_POINTS = 110;
+
+function downsampleHistoricalApySamples(
+  samples: HistoricalApySample[]
+): HistoricalApySample[] {
+  if (samples.length <= HISTORICAL_APY_MAX_LINE_POINTS) {
+    return samples;
+  }
+  const buckets: HistoricalApySample[] = [];
+  for (let index = 0; index < HISTORICAL_APY_MAX_LINE_POINTS; index += 1) {
+    const start = Math.floor(
+      (index * samples.length) / HISTORICAL_APY_MAX_LINE_POINTS
+    );
+    const end = Math.max(
+      Math.floor(
+        ((index + 1) * samples.length) / HISTORICAL_APY_MAX_LINE_POINTS
+      ),
+      start + 1
+    );
+    const bucket = samples.slice(start, end);
+    // First/last buckets keep the exact range timestamps so the axis labels
+    // and chart edges stay anchored to the true data window.
+    const observedAtMs =
+      index === 0
+        ? bucket[0].observedAtMs
+        : index === HISTORICAL_APY_MAX_LINE_POINTS - 1
+          ? bucket[bucket.length - 1].observedAtMs
+          : bucket[Math.floor(bucket.length / 2)].observedAtMs;
+    buckets.push({
+      apyPercent:
+        bucket.reduce((sum, sample) => sum + sample.apyPercent, 0) /
+        bucket.length,
+      observedAtMs,
+    });
+  }
+  return buckets;
+}
+
+// APY tab chart per Figma (4098:21423 default / 4098:21648 hover): the three
+// lines render solid with dots at their endpoints; hovering veils the chart
+// right of the cursor with 60% white, draws a dashed cursor line, moves the
+// dots to the hovered time, and swaps the header stats to the hovered values.
+const HISTORICAL_AXIS_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "short",
+});
+const HISTORICAL_HOVER_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  month: "short",
+});
+const HISTORICAL_MAIN_USDC_FALLBACK_APY_PERCENT =
+  (EARN_COMPARISON_SERIES.find((series) => series.key === "mainUsdcReserve")
+    ?.fixedApyBps ?? 559) / 100;
+
+function formatHistoricalApyValue(apyPercent: number, mutedFraction: boolean) {
+  const [whole, fraction = "00"] = apyPercent.toFixed(2).split(".");
+  return (
+    <>
+      {whole}
+      <span
+        style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}
+      >
+        .{fraction}%
+      </span>
+    </>
+  );
+}
+
 function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
   const apyHistory = useEarnForecastApyHistory();
   const samples = useMemo(() => {
     const fetchedSamples = toHistoricalApySamples(apyHistory);
     if (rangeId === "30D" && fetchedSamples.length > 0) {
-      return fetchedSamples;
+      return downsampleHistoricalApySamples(fetchedSamples);
     }
 
-    return buildHistoricalApySamples(rangeId, new Date());
+    return downsampleHistoricalApySamples(
+      buildHistoricalApySamples(rangeId, new Date())
+    );
   }, [apyHistory, rangeId]);
   const mainUsdcSamples = useMemo(() => {
     if (rangeId !== "30D") {
       return [];
     }
 
-    return toHistoricalBenchmarkSamples(apyHistory, "mainUsdcReserve");
+    return downsampleHistoricalApySamples(
+      toHistoricalBenchmarkSamples(apyHistory, "mainUsdcReserve")
+    );
   }, [apyHistory, rangeId]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const maxApy = samples.reduce(
-    (max, sample) => Math.max(max, sample.apyPercent),
-    0
-  );
-  const maxMainUsdcApy = mainUsdcSamples.reduce(
-    (max, sample) => Math.max(max, sample.apyPercent),
-    0
-  );
-  const maxStaticBenchmarkApy = HISTORICAL_APY_STATIC_BENCHMARKS.reduce(
-    (max, series) => Math.max(max, series.fixedApyBps / 100),
-    0
-  );
-  const maxBenchmarkApy = Math.max(maxMainUsdcApy, maxStaticBenchmarkApy);
-  const axisStep = niceCeilStep(Math.max(maxApy, maxBenchmarkApy, 1) / 7);
-  const levelCount = Math.max(
-    2,
-    Math.ceil(Math.max(maxApy, maxBenchmarkApy) / axisStep) + 1
-  );
-  const axisMax = axisStep * (levelCount - 1);
-  const plotRange = EARN_CHART_BASELINE - EARN_CHART_TOP;
-  const plot = (value: number) =>
-    EARN_CHART_BASELINE - (value / axisMax) * plotRange;
-  const xForIndex = (index: number) =>
-    (index / Math.max(samples.length - 1, 1)) * EARN_CHART_WIDTH;
-  const gridLines = Array.from({ length: levelCount }, (_, level) => {
-    const value = axisStep * level;
-    const y = plot(value);
-    return {
-      label: `${value.toFixed(2)}%`,
-      level,
-      topPercent: (y / EARN_CHART_HEIGHT) * 100,
-    };
-  });
-  const linePath = samples
-    .map(
-      (sample, index) =>
-        `${index === 0 ? "M" : "L"}${xForIndex(index)},${plot(
-          sample.apyPercent
-        )}`
-    )
-    .join(" ");
-  const xForObservedAtMs = (observedAtMs: number) => {
-    const startedAtMs = samples[0]?.observedAtMs ?? 0;
-    const endedAtMs = samples.at(-1)?.observedAtMs ?? startedAtMs;
-    if (endedAtMs <= startedAtMs) {
-      return 0;
+  const chartBoxRef = useRef<HTMLDivElement | null>(null);
+  const [chartSize, setChartSize] = useState({ height: 0, width: 0 });
+
+  useEffect(() => {
+    const node = chartBoxRef.current;
+    if (!node) {
+      return;
     }
-    const progress = Math.min(
-      Math.max((observedAtMs - startedAtMs) / (endedAtMs - startedAtMs), 0),
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) {
+        return;
+      }
+      setChartSize({
+        height: entry.contentRect.height,
+        width: entry.contentRect.width,
+      });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const isHovering = hoverIndex !== null;
+  const focusSample =
+    samples[Math.min(hoverIndex ?? samples.length - 1, samples.length - 1)];
+  const mainUsdcApyPercentAt = (observedAtMs: number) =>
+    nearestHistoricalApyPercent(
+      mainUsdcSamples,
+      observedAtMs,
+      HISTORICAL_MAIN_USDC_FALLBACK_APY_PERCENT
+    );
+  const benchmarks: {
+    apyPercentAt: (observedAtMs: number) => number;
+    key: EarnComparisonSeriesKey;
+    samples: HistoricalApySample[] | null;
+  }[] = [
+    {
+      apyPercentAt: mainUsdcApyPercentAt,
+      key: "mainUsdcReserve",
+      samples: mainUsdcSamples.length > 0 ? mainUsdcSamples : null,
+    },
+    ...HISTORICAL_APY_STATIC_BENCHMARKS.map((series) => ({
+      apyPercentAt: () => series.fixedApyBps / 100,
+      key: series.key,
+      samples: null,
+    })),
+  ];
+
+  // Scale max rounds the highest line up to a round percent (labelled at the
+  // chart's top right); the bottom pads ~20% of the spread below the lowest
+  // line so the flattest benchmark keeps breathing room, as in the Figma spec.
+  const scaleValues = [
+    ...samples.map((sample) => sample.apyPercent),
+    ...(mainUsdcSamples.length > 0
+      ? mainUsdcSamples.map((sample) => sample.apyPercent)
+      : [HISTORICAL_MAIN_USDC_FALLBACK_APY_PERCENT]),
+    ...HISTORICAL_APY_STATIC_BENCHMARKS.map(
+      (series) => series.fixedApyBps / 100
+    ),
+  ];
+  const maxValue = Math.max(...scaleValues);
+  const minValue = Math.min(...scaleValues);
+  const valueRange = Math.max(maxValue - minValue, 0.01);
+  const scaleQuantum = Math.max(
+    10 ** Math.floor(Math.log10(valueRange)) / 2,
+    0.01
+  );
+  const scaleMax = Math.ceil(maxValue / scaleQuantum) * scaleQuantum;
+  const scaleMin = Math.max(
+    Math.floor((minValue - valueRange * 0.2) / scaleQuantum) * scaleQuantum,
+    0
+  );
+
+  const headerSeries = [
+    {
+      apyPercent: focusSample.apyPercent,
+      color: EARN_SERIES_DISPLAY.loyal.color,
+      key: "loyal" as EarnComparisonSeriesKey,
+      label: EARN_SERIES_DISPLAY.loyal.label,
+    },
+    ...benchmarks.map((benchmark) => ({
+      apyPercent: benchmark.apyPercentAt(focusSample.observedAtMs),
+      color: EARN_SERIES_DISPLAY[benchmark.key].color,
+      key: benchmark.key,
+      label: EARN_SERIES_DISPLAY[benchmark.key].label,
+    })),
+  ];
+
+  const chartWidth = chartSize.width;
+  const chartHeight = chartSize.height;
+  const hasChartArea = chartWidth > 2 && chartHeight > 2;
+  const startedAtMs = samples[0]?.observedAtMs ?? 0;
+  const endedAtMs = samples[samples.length - 1]?.observedAtMs ?? startedAtMs;
+  // 1px inset on every side keeps the 2px round-cap strokes from clipping.
+  const xForObservedAtMs = (observedAtMs: number) => {
+    const progress =
+      endedAtMs > startedAtMs
+        ? Math.min(
+            Math.max(
+              (observedAtMs - startedAtMs) / (endedAtMs - startedAtMs),
+              0
+            ),
+            1
+          )
+        : 1;
+    return 1 + progress * (chartWidth - 2);
+  };
+  const yForValue = (value: number) => {
+    const t = Math.min(
+      Math.max((value - scaleMin) / Math.max(scaleMax - scaleMin, 0.01), 0),
       1
     );
-    return progress * EARN_CHART_WIDTH;
+    return 1 + (1 - t) * (chartHeight - 2);
   };
-  const mainUsdcBenchmark =
-    mainUsdcSamples.length > 0
-      ? (() => {
-          const fallbackApyPercent = mainUsdcSamples.at(-1)?.apyPercent ?? 0;
-          const path = mainUsdcSamples
-            .map(
-              (sample, index) =>
-                `${index === 0 ? "M" : "L"}${xForObservedAtMs(
-                  sample.observedAtMs
-                )},${plot(sample.apyPercent)}`
-            )
-            .join(" ");
-          const hoverObservedAtMs =
-            hoverIndex === null
-              ? samples.at(-1)?.observedAtMs
-              : samples[Math.min(hoverIndex, samples.length - 1)]?.observedAtMs;
-          const apyPercentAtHover =
-            hoverObservedAtMs === undefined
-              ? fallbackApyPercent
-              : nearestHistoricalApyPercent(
-                  mainUsdcSamples,
-                  hoverObservedAtMs,
-                  fallbackApyPercent
-                );
-          const y = plot(apyPercentAtHover);
-
-          return {
-            apyPercentAtHover,
-            color: "#2688EB",
-            d: path,
-            key: "mainUsdcReserve" as const,
-            label: "Main Market USDC",
-            samples: mainUsdcSamples,
-            topPercent: (y / EARN_CHART_HEIGHT) * 100,
-          };
-        })()
-      : null;
-  const benchmarkLines: HistoricalApyBenchmarkLine[] = [
-    ...(mainUsdcBenchmark ? [mainUsdcBenchmark] : []),
-    ...HISTORICAL_APY_STATIC_BENCHMARKS.map((series) => {
-      const apyPercent = series.fixedApyBps / 100;
-      const y = plot(apyPercent);
-      return {
-        apyPercentAtHover: apyPercent,
-        color: series.color,
-        d: `M0,${y}L${EARN_CHART_WIDTH},${y}`,
-        key: series.key as Exclude<EarnComparisonSeriesKey, "loyal">,
-        label: series.label,
-        topPercent: (y / EARN_CHART_HEIGHT) * 100,
-      };
-    }),
+  const sampleLinePath = (lineSamples: readonly HistoricalApySample[]) =>
+    smoothChartLinePath(
+      lineSamples.map((sample) => ({
+        x: xForObservedAtMs(sample.observedAtMs),
+        y: yForValue(sample.apyPercent),
+      }))
+    );
+  const flatLinePath = (value: number) => {
+    const y = yForValue(value).toFixed(2);
+    return `M1,${y} L${(chartWidth - 1).toFixed(2)},${y}`;
+  };
+  // Loyal renders last (on top), matching the Figma layer order.
+  const plotLines = [
+    ...benchmarks
+      .map((benchmark) => ({
+        color: EARN_SERIES_DISPLAY[benchmark.key].color,
+        d: benchmark.samples
+          ? sampleLinePath(benchmark.samples)
+          : flatLinePath(benchmark.apyPercentAt(endedAtMs)),
+        key: benchmark.key,
+      }))
+      .reverse(),
+    {
+      color: EARN_SERIES_DISPLAY.loyal.color,
+      d: sampleLinePath(samples),
+      key: "loyal" as EarnComparisonSeriesKey,
+    },
   ];
-  const mainUsdcBenchmarkLine =
-    benchmarkLines.find((series) => series.key === "mainUsdcReserve") ??
-    benchmarkLines[0];
-  const midpointIndex = Math.floor((samples.length - 1) / 2);
-  const axisDates = [
-    samples[0].date,
-    samples[midpointIndex].date,
-    samples[samples.length - 1].date,
-  ];
-  const hoveredSample =
-    hoverIndex === null
-      ? null
-      : samples[Math.min(hoverIndex, samples.length - 1)];
-  const hoveredApyDelta =
-    hoveredSample === null
-      ? 0
-      : hoveredSample.apyPercent -
-        (mainUsdcBenchmarkLine?.apyPercentAtHover ?? 0);
-  const hoverLeft =
-    hoveredSample === null
-      ? 0
-      : (xForIndex(Math.min(hoverIndex ?? 0, samples.length - 1)) /
-          EARN_CHART_WIDTH) *
-        100;
-  const tooltipLeft = Math.min(Math.max(hoverLeft, 16), 84);
-  const hoverTop =
-    hoveredSample === null
-      ? 0
-      : (plot(hoveredSample.apyPercent) / EARN_CHART_HEIGHT) * 100;
+  const focusX = xForObservedAtMs(focusSample.observedAtMs);
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
     const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
     setHoverIndex(Math.round((x / rect.width) * (samples.length - 1)));
   };
@@ -3379,9 +3515,9 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
     <div
       style={{
         display: "flex",
+        flex: "1 1 auto",
         flexDirection: "column",
-        padding: "2px 0",
-        position: "relative",
+        minHeight: 0,
         width: "100%",
       }}
     >
@@ -3391,8 +3527,11 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
             both;
           transform-origin: 0 0;
         }
-        .historical-chart-hover-elements {
-          animation: historical-chart-hover-fade 0.18s ease both;
+        .historical-chart-mode {
+          transition: opacity 0.18s ease;
+        }
+        .historical-chart-dot {
+          animation: historical-chart-fade-in 0.25s 0.5s ease both;
         }
         @keyframes historical-chart-reveal {
           0% {
@@ -3402,326 +3541,644 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
             transform: scaleX(1);
           }
         }
+        @keyframes historical-chart-fade-in {
+          0% {
+            opacity: 0;
+          }
+          100% {
+            opacity: 1;
+          }
+        }
         @media (prefers-reduced-motion: reduce) {
-          .historical-chart-hover-elements,
           .historical-chart-reveal-rect {
             animation: none;
           }
-        }
-        @keyframes historical-chart-hover-fade {
-          from {
-            opacity: 0;
+          .historical-chart-mode {
+            transition: none;
           }
-          to {
-            opacity: 1;
+          .historical-chart-dot {
+            animation: none;
           }
         }
       `}</style>
 
-      <div style={{ display: "flex", gap: "8px", width: "100%" }}>
-        <div
-          onPointerLeave={() => setHoverIndex(null)}
-          onPointerMove={handlePointerMove}
-          style={{
-            flex: 1,
-            height: `${EARN_CHART_HEIGHT}px`,
-            minWidth: 0,
-            position: "relative",
-          }}
-        >
-          <svg
-            aria-label="Historical APY chart"
-            preserveAspectRatio="none"
-            role="img"
-            style={{ display: "block", height: "100%", width: "100%" }}
-            viewBox={`0 0 ${EARN_CHART_WIDTH} ${EARN_CHART_HEIGHT}`}
-          >
-            <defs>
-              <clipPath
-                clipPathUnits="userSpaceOnUse"
-                id="historical-chart-reveal-clip"
-              >
-                <rect
-                  className="historical-chart-reveal-rect"
-                  height={EARN_CHART_HEIGHT}
-                  width={EARN_CHART_WIDTH}
-                  x={0}
-                  y={0}
-                />
-              </clipPath>
-            </defs>
-            <g clipPath="url(#historical-chart-reveal-clip)">
-              <path
-                d={linePath}
-                fill="none"
-                stroke={LOYAL_EARN_BRAND_COLOR}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-              />
-              {benchmarkLines.map((series) => (
-                <path
-                  d={series.d}
-                  fill="none"
-                  key={series.key}
-                  stroke={series.color}
-                  strokeDasharray="6 6"
-                  strokeLinecap="round"
-                  strokeOpacity={0.4}
-                  strokeWidth={1.5}
-                />
-              ))}
-            </g>
-          </svg>
-
-          {hoveredSample ? (
-            <>
-              <div
-                aria-hidden="true"
-                className="historical-chart-hover-elements"
+      <div
+        style={{
+          alignItems: "flex-end",
+          display: "flex",
+          gap: "20px",
+          paddingBottom: "8px",
+          width: "100%",
+        }}
+      >
+        {headerSeries.map((series) => {
+          const isPrimary = series.key === "loyal";
+          return (
+            <div
+              key={series.key}
+              style={{
+                display: "flex",
+                flex: "1 0 0",
+                flexDirection: "column",
+                gap: "2px",
+                minWidth: 0,
+              }}
+            >
+              <p
                 style={{
-                  borderLeft: "1px dashed rgba(60, 60, 67, 0.18)",
-                  height: `${(plotRange / EARN_CHART_HEIGHT) * 100}%`,
-                  left: `${hoverLeft}%`,
-                  pointerEvents: "none",
-                  position: "absolute",
-                  top: `${(EARN_CHART_TOP / EARN_CHART_HEIGHT) * 100}%`,
+                  color: isPrimary ? "#000" : "#3C3C43",
+                  fontFamily: font,
+                  fontSize: isPrimary ? "28px" : "20px",
+                  fontWeight: 600,
+                  lineHeight: isPrimary ? "32px" : "24px",
+                  margin: 0,
+                  whiteSpace: "nowrap",
                 }}
-              />
+              >
+                {formatHistoricalApyValue(series.apyPercent, !isPrimary)}
+              </p>
+              <span
+                style={{
+                  alignItems: "center",
+                  display: "flex",
+                  gap: "4px",
+                  height: "16px",
+                  width: "100%",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    background: series.color,
+                    borderRadius: "4px",
+                    flexShrink: 0,
+                    height: "12px",
+                    width: "12px",
+                  }}
+                />
+                <span
+                  style={{
+                    color: isPrimary ? "#000" : secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {series.label}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          fontFamily: font,
+          fontSize: "13px",
+          justifyContent: "space-between",
+          lineHeight: "16px",
+          paddingBottom: "8px",
+          width: "100%",
+        }}
+      >
+        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+          {isHovering
+            ? HISTORICAL_HOVER_DATE_FORMAT.format(focusSample.observedAtMs)
+            : ""}
+        </span>
+        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+          {`${scaleMax.toFixed(2)}%`}
+        </span>
+      </div>
+
+      <div
+        onPointerLeave={() => setHoverIndex(null)}
+        onPointerMove={handlePointerMove}
+        ref={chartBoxRef}
+        style={{
+          flex: "1 1 auto",
+          minHeight: "300px",
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {hasChartArea ? (
+          <>
+            <svg
+              aria-label="Historical APY chart"
+              height="100%"
+              preserveAspectRatio="none"
+              role="img"
+              style={{ display: "block", overflow: "visible" }}
+              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+              width="100%"
+            >
+              <defs>
+                <clipPath
+                  clipPathUnits="userSpaceOnUse"
+                  id="historical-chart-reveal-clip"
+                >
+                  <rect
+                    className="historical-chart-reveal-rect"
+                    height={chartHeight}
+                    width={chartWidth}
+                    x={0}
+                    y={0}
+                  />
+                </clipPath>
+              </defs>
+              <g clipPath="url(#historical-chart-reveal-clip)">
+                {plotLines.map((line) => (
+                  <path
+                    d={line.d}
+                    fill="none"
+                    key={line.key}
+                    stroke={line.color}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                  />
+                ))}
+                <g
+                  className="historical-chart-mode"
+                  style={{ opacity: isHovering ? 1 : 0 }}
+                >
+                  <rect
+                    fill="#fff"
+                    fillOpacity={0.6}
+                    height={chartHeight}
+                    width={Math.max(chartWidth - focusX, 0)}
+                    x={focusX}
+                    y={0}
+                  />
+                  <line
+                    stroke="#000"
+                    strokeDasharray="6 6"
+                    strokeLinecap="round"
+                    strokeOpacity={0.14}
+                    x1={focusX}
+                    x2={focusX}
+                    y1={0.5}
+                    y2={chartHeight - 0.5}
+                  />
+                </g>
+              </g>
+            </svg>
+            {headerSeries.map((series) => (
               <span
                 aria-hidden="true"
-                className="historical-chart-hover-elements"
+                className="historical-chart-dot"
+                key={`dot-${series.key}`}
                 style={{
-                  background: LOYAL_EARN_BRAND_COLOR,
+                  background: series.color,
                   borderRadius: "9999px",
                   boxShadow: "0 0 0 2px #fff",
                   height: "8px",
-                  left: `${hoverLeft}%`,
+                  left: `${((focusX / chartWidth) * 100).toFixed(2)}%`,
                   pointerEvents: "none",
                   position: "absolute",
-                  top: `${hoverTop}%`,
+                  top: `${(
+                    (yForValue(series.apyPercent) / chartHeight) *
+                    100
+                  ).toFixed(2)}%`,
                   transform: "translate(-50%, -50%)",
                   width: "8px",
                 }}
               />
-              {benchmarkLines.map((series) => (
-                <span
-                  aria-hidden="true"
-                  className="historical-chart-hover-elements"
-                  key={series.key}
-                  style={{
-                    background: series.color,
-                    borderRadius: "9999px",
-                    boxShadow: "0 0 0 2px #fff",
-                    height: "8px",
-                    left: `${hoverLeft}%`,
-                    pointerEvents: "none",
-                    position: "absolute",
-                    top: `${series.topPercent}%`,
-                    transform: "translate(-50%, -50%)",
-                    width: "8px",
-                  }}
-                />
-              ))}
-              <div
-                className="historical-chart-hover-elements"
-                style={{
-                  background: "#F5F5F5",
-                  borderRadius: "16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                  left: `${tooltipLeft}%`,
-                  padding: "8px 12px",
-                  pointerEvents: "none",
-                  position: "absolute",
-                  top: "8px",
-                  transform: "translateX(-50%)",
-                  width: "194px",
-                }}
-              >
-                <span
-                  style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 400,
-                    lineHeight: "16px",
-                  }}
-                >
-                  {hoveredSample.date}
-                </span>
-                <span
-                  style={{
-                    color: "#000",
-                    fontFamily: font,
-                    fontSize: "20px",
-                    fontWeight: 600,
-                    lineHeight: "24px",
-                  }}
-                >
-                  {hoveredSample.apyPercent.toFixed(2)}%
-                </span>
-                <span
-                  style={{
-                    color:
-                      hoveredApyDelta >= 0
-                        ? POSITIVE_AMOUNT_COLOR
-                        : LOYAL_EARN_BRAND_COLOR,
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 400,
-                    lineHeight: "16px",
-                  }}
-                >
-                  {formatHistoricalApyDelta(
-                    hoveredApyDelta,
-                    mainUsdcBenchmarkLine?.label
-                  )}
-                </span>
-                {benchmarkLines.map((series) => (
-                  <div
-                    key={series.key}
-                    style={{
-                      alignItems: "center",
-                      display: "flex",
-                      gap: "6px",
-                      paddingTop: "6px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        background: series.color,
-                        borderRadius: "3px",
-                        flexShrink: 0,
-                        height: "10px",
-                        width: "10px",
-                      }}
-                    />
-                    <span
-                      style={{
-                        color: secondary,
-                        fontFamily: font,
-                        fontSize: "13px",
-                        fontWeight: 400,
-                        lineHeight: "16px",
-                      }}
-                    >
-                      {`${series.label} (${formatEarnApyPercent(
-                        Math.round(series.apyPercentAtHover * 100)
-                      )})`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : null}
-        </div>
-        <div
-          aria-hidden="true"
-          style={{
-            height: `${EARN_CHART_HEIGHT}px`,
-            position: "relative",
-            width: "56px",
-          }}
-        >
-          {gridLines.map((grid) => (
-            <span
-              key={grid.level}
-              style={{
-                color: "rgba(60, 60, 67, 0.4)",
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "16px",
-                position: "absolute",
-                right: 0,
-                top: `${grid.topPercent}%`,
-                transform: "translateY(-50%)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {grid.label}
-            </span>
-          ))}
-        </div>
+            ))}
+          </>
+        ) : null}
       </div>
 
       <div
         style={{
           display: "flex",
+          fontFamily: font,
+          fontSize: "13px",
           justifyContent: "space-between",
-          paddingRight: "56px",
+          lineHeight: "16px",
           paddingTop: "8px",
           width: "100%",
         }}
       >
-        {axisDates.map((date, index) => (
-          <span
-            key={`${date}-${index}`}
-            style={{
-              color: "rgba(60, 60, 67, 0.4)",
-              fontFamily: font,
-              fontSize: "13px",
-              fontWeight: 400,
-              lineHeight: "16px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {date}
-          </span>
-        ))}
+        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+          {HISTORICAL_AXIS_DATE_FORMAT.format(startedAtMs)}
+        </span>
+        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+          {HISTORICAL_AXIS_DATE_FORMAT.format(endedAtMs)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Forecast tab chart per Figma (4098:21881 default / 4098:22109 hover):
+// resting state draws the Loyal line solid and benchmarks dashed with dots at
+// the line endpoints; hovering turns every line solid, veils the future side
+// with 60% white, and moves the dashed cursor line + dots to the hovered date.
+function ForecastChart({
+  apy = FALLBACK_EARN_APY,
+  isBalanceHidden = false,
+  mainUsdcReserveApyBps = 559,
+  principal = 1000,
+}: {
+  apy?: EarnForecastApy;
+  isBalanceHidden?: boolean;
+  mainUsdcReserveApyBps?: number;
+  principal?: number;
+}) {
+  const points = useMemo(
+    () =>
+      buildEarnComparisonPoints(principal, apy, {
+        mainUsdcReserve: mainUsdcReserveApyBps,
+      }),
+    [apy, mainUsdcReserveApyBps, principal]
+  );
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const chartBoxRef = useRef<HTMLDivElement | null>(null);
+  const [chartSize, setChartSize] = useState({ height: 0, width: 0 });
+
+  useEffect(() => {
+    const node = chartBoxRef.current;
+    if (!node) {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) {
+        return;
+      }
+      setChartSize({
+        height: entry.contentRect.height,
+        width: entry.contentRect.width,
+      });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const loyalApyBps = getEarnComparisonApyBps(apy.apyBps, null);
+  const loyalTarget = principal * getEarnForecastTargetMultiplier(loyalApyBps);
+  // Scale max is the Loyal endpoint rounded up to a round amount so the red
+  // line nearly touches the top of the chart, as in the Figma spec.
+  const scaleRange = Math.max(loyalTarget - principal, 0.01);
+  const scaleQuantum = Math.max(
+    10 ** (Math.floor(Math.log10(scaleRange)) - 1),
+    0.01
+  );
+  const scaleMax = Math.max(
+    Math.ceil(loyalTarget / scaleQuantum) * scaleQuantum,
+    principal + scaleRange
+  );
+
+  const isHovering = hoverIndex !== null;
+  const focusIndex = hoverIndex ?? points.length - 1;
+  const focusPoint = points[focusIndex];
+
+  const headerSeries = EARN_COMPARISON_SERIES.map((series) => ({
+    apyBps: getEarnComparisonApyBps(
+      apy.apyBps,
+      series.key === "mainUsdcReserve"
+        ? mainUsdcReserveApyBps
+        : series.fixedApyBps
+    ),
+    color: EARN_SERIES_DISPLAY[series.key].color,
+    key: series.key,
+    label: EARN_SERIES_DISPLAY[series.key].label,
+  }));
+  // Loyal renders last (on top) in the plot, matching the Figma layer order.
+  const lineSeries = [...EARN_COMPARISON_SERIES].reverse();
+
+  const chartWidth = chartSize.width;
+  const chartHeight = chartSize.height;
+  const hasChartArea = chartWidth > 2 && chartHeight > 2;
+  // 1px inset on every side keeps the 2px round-cap strokes from clipping.
+  const xForIndex = (index: number) =>
+    1 + (index / Math.max(points.length - 1, 1)) * (chartWidth - 2);
+  const yForValue = (value: number) => {
+    const t = Math.min(
+      Math.max((value - principal) / (scaleMax - principal), 0),
+      1
+    );
+    return 1 + (1 - t) * (chartHeight - 2);
+  };
+  const linePath = (key: EarnComparisonSeriesKey) =>
+    smoothChartLinePath(
+      points.map((point, index) => ({
+        x: xForIndex(index),
+        y: yForValue(point.values[key]),
+      }))
+    );
+  const focusX = xForIndex(focusIndex);
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+    const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    setHoverIndex(Math.round((x / rect.width) * (points.length - 1)));
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flex: "1 1 auto",
+        flexDirection: "column",
+        minHeight: 0,
+        width: "100%",
+      }}
+    >
+      <style jsx>{`
+        .forecast-chart-reveal-rect {
+          animation: forecast-chart-reveal 0.7s cubic-bezier(0.2, 0, 0, 1) both;
+          transform-origin: 0 0;
+        }
+        .forecast-chart-mode {
+          transition: opacity 0.18s ease;
+        }
+        .forecast-chart-dot {
+          animation: forecast-chart-fade-in 0.25s 0.5s ease both;
+        }
+        @keyframes forecast-chart-reveal {
+          0% {
+            transform: scaleX(0);
+          }
+          100% {
+            transform: scaleX(1);
+          }
+        }
+        @keyframes forecast-chart-fade-in {
+          0% {
+            opacity: 0;
+          }
+          100% {
+            opacity: 1;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .forecast-chart-reveal-rect {
+            animation: none;
+          }
+          .forecast-chart-mode {
+            transition: none;
+          }
+          .forecast-chart-dot {
+            animation: none;
+          }
+        }
+      `}</style>
+
+      <div
+        style={{
+          alignItems: "flex-end",
+          display: "flex",
+          gap: "20px",
+          paddingBottom: "8px",
+          width: "100%",
+        }}
+      >
+        {headerSeries.map((series) => {
+          const isPrimary = series.key === "loyal";
+          return (
+            <div
+              key={series.key}
+              style={{
+                display: "flex",
+                flex: "1 0 0",
+                flexDirection: "column",
+                gap: "2px",
+                minWidth: 0,
+              }}
+            >
+              <p
+                style={{
+                  color: isBalanceHidden
+                    ? "#BBBBC0"
+                    : isPrimary
+                      ? "#000"
+                      : "#3C3C43",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  fontFamily: font,
+                  fontSize: isPrimary ? "28px" : "16px",
+                  fontWeight: 600,
+                  lineHeight: isPrimary ? "32px" : "20px",
+                  margin: 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {formatForecastMoney(
+                  focusPoint.values[series.key],
+                  !isBalanceHidden
+                )}
+              </p>
+              <span
+                style={{
+                  alignItems: "center",
+                  display: "flex",
+                  gap: "4px",
+                  height: "16px",
+                  width: "100%",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    background: series.color,
+                    borderRadius: "4px",
+                    flexShrink: 0,
+                    height: "12px",
+                    width: "12px",
+                  }}
+                />
+                <span
+                  style={{
+                    color: isPrimary ? "#000" : secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {`${series.label} (${formatEarnApyPercent(series.apyBps)} APY)`}
+                </span>
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       <div
         style={{
-          columnGap: "16px",
           display: "flex",
-          flexWrap: "wrap",
-          paddingRight: "56px",
-          paddingTop: "16px",
-          rowGap: "8px",
+          fontFamily: font,
+          fontSize: "13px",
+          justifyContent: "space-between",
+          lineHeight: "16px",
+          paddingBottom: "8px",
           width: "100%",
         }}
       >
-        {[
-          {
-            color: LOYAL_EARN_BRAND_COLOR,
-            key: "loyal",
-            label: "Loyal Earn",
-          },
-          ...benchmarkLines.map((series) => ({
-            color: series.color,
-            key: series.key,
-            label: series.label,
-          })),
-        ].map((series) => (
-          <div
-            key={series.key}
-            style={{ alignItems: "center", display: "flex", gap: "6px" }}
-          >
-            <span
-              style={{
-                background: series.color,
-                borderRadius: "3px",
-                height: "10px",
-                width: "10px",
-              }}
-            />
-            <span
-              style={{
-                color: series.key === "loyal" ? "#000" : secondary,
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: series.key === "loyal" ? 500 : 400,
-                lineHeight: "16px",
-                whiteSpace: "nowrap",
-              }}
+        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+          {isHovering ? focusPoint.date : ""}
+        </span>
+        <span
+          style={{
+            color: secondary,
+            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {`$${formatMoney(scaleMax)}`}
+        </span>
+      </div>
+
+      <div
+        onPointerLeave={() => setHoverIndex(null)}
+        onPointerMove={handlePointerMove}
+        ref={chartBoxRef}
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {hasChartArea ? (
+          <>
+            <svg
+              aria-label="Projected earnings comparison chart"
+              height="100%"
+              preserveAspectRatio="none"
+              role="img"
+              style={{ display: "block", overflow: "visible" }}
+              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+              width="100%"
             >
-              {series.label}
-            </span>
-          </div>
-        ))}
+              <defs>
+                <clipPath
+                  clipPathUnits="userSpaceOnUse"
+                  id="forecast-tab-reveal-clip"
+                >
+                  <rect
+                    className="forecast-chart-reveal-rect"
+                    height={chartHeight}
+                    width={chartWidth}
+                    x={0}
+                    y={0}
+                  />
+                </clipPath>
+              </defs>
+              <g clipPath="url(#forecast-tab-reveal-clip)">
+                <g
+                  className="forecast-chart-mode"
+                  style={{ opacity: isHovering ? 0 : 1 }}
+                >
+                  {lineSeries.map((series) => (
+                    <path
+                      d={linePath(series.key)}
+                      fill="none"
+                      key={`resting-${series.key}`}
+                      stroke={EARN_SERIES_DISPLAY[series.key].color}
+                      strokeDasharray={
+                        series.key === "loyal" ? undefined : "4 4"
+                      }
+                      strokeLinecap="round"
+                      strokeWidth={2}
+                    />
+                  ))}
+                </g>
+                <g
+                  className="forecast-chart-mode"
+                  style={{ opacity: isHovering ? 1 : 0 }}
+                >
+                  {lineSeries.map((series) => (
+                    <path
+                      d={linePath(series.key)}
+                      fill="none"
+                      key={`focused-${series.key}`}
+                      stroke={EARN_SERIES_DISPLAY[series.key].color}
+                      strokeLinecap="round"
+                      strokeWidth={2}
+                    />
+                  ))}
+                  <rect
+                    fill="#fff"
+                    fillOpacity={0.6}
+                    height={chartHeight}
+                    width={Math.max(chartWidth - focusX, 0)}
+                    x={focusX}
+                    y={0}
+                  />
+                  <line
+                    stroke="#000"
+                    strokeDasharray="6 6"
+                    strokeLinecap="round"
+                    strokeOpacity={0.14}
+                    x1={focusX}
+                    x2={focusX}
+                    y1={0.5}
+                    y2={chartHeight - 0.5}
+                  />
+                </g>
+              </g>
+            </svg>
+            {lineSeries.map((series) => (
+              <span
+                aria-hidden="true"
+                className="forecast-chart-dot"
+                key={`dot-${series.key}`}
+                style={{
+                  background: EARN_SERIES_DISPLAY[series.key].color,
+                  borderRadius: "9999px",
+                  boxShadow: "0 0 0 2px #fff",
+                  height: "8px",
+                  left: `${((focusX / chartWidth) * 100).toFixed(2)}%`,
+                  pointerEvents: "none",
+                  position: "absolute",
+                  top: `${(
+                    (yForValue(focusPoint.values[series.key]) / chartHeight) *
+                    100
+                  ).toFixed(2)}%`,
+                  transform: "translate(-50%, -50%)",
+                  width: "8px",
+                }}
+              />
+            ))}
+          </>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          fontFamily: font,
+          fontSize: "13px",
+          justifyContent: "space-between",
+          lineHeight: "16px",
+          paddingTop: "8px",
+          width: "100%",
+        }}
+      >
+        <span
+          style={{
+            color: secondary,
+            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {`Today · $${formatMoney(principal)}`}
+        </span>
+        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+          {points[points.length - 1]?.date ?? ""}
+        </span>
       </div>
     </div>
   );
