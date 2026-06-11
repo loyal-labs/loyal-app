@@ -135,6 +135,35 @@ function createMutationClient({
   };
 }
 
+function createSetupInput(overrides: Record<string, unknown> = {}) {
+  return {
+    amountPerPeriodRaw: BigInt(100_000_000),
+    cluster: "mainnet-beta",
+    confirmedSlot: BigInt(200),
+    delegatedSigner: "delegate",
+    liquidityMint: "mint",
+    periodLengthSeconds: BigInt(2_592_000),
+    policyAccount: "policy",
+    policyId: BigInt(1),
+    policySeed: BigInt(1),
+    recurringDelegation: "recurring",
+    setupSignature: "setup-signature",
+    setupStage: "create_recurring_delegation",
+    settings: "settings",
+    startTimestamp: BigInt(1_780_185_600),
+    subscriptionAuthority: "subscription-authority",
+    subscriptionAuthorityInitialization: "exists",
+    subscriptionDelegatee: "subscription-delegatee",
+    vaultIndex: 1,
+    vaultPubkey: "vault",
+    vaultUsdcAta: "vault-ata",
+    walletAddress: "wallet",
+    walletBalanceFloorRaw: BigInt(500_000_000),
+    walletUsdcAta: "wallet-ata",
+    ...overrides,
+  };
+}
+
 describe("Earn autodeposit load state", () => {
   test("active policy and active target load as active", async () => {
     const { findCurrentEarnAutodepositState } = await import(
@@ -510,6 +539,52 @@ describe("Earn autodeposit load state", () => {
         { client } as never
       )
     ).rejects.toThrow("Autodeposit target does not match the wallet.");
+    expect(calls).not.toContain("update");
+  });
+
+  test("newer setup cannot reactivate a closed target for the same policy", async () => {
+    const { recordConfirmedAutodepositDelegation } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: false,
+      closeSlot: BigInt(150),
+      lifecycleStatus: "closed",
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const { calls, client } = createMutationClient({ existing });
+
+    await expect(
+      recordConfirmedAutodepositDelegation(
+        createSetupInput({ confirmedSlot: BigInt(200) }) as never,
+        { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+      )
+    ).rejects.toThrow("Closed autodeposit targets cannot be reactivated.");
+    expect(calls).not.toContain("insert");
+    expect(calls).not.toContain("update");
+  });
+
+  test("older setup confirmation returns an already closed target", async () => {
+    const { recordConfirmedAutodepositDelegation } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: false,
+      closeSlot: BigInt(250),
+      lifecycleStatus: "closed",
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const { calls, client } = createMutationClient({ existing });
+
+    const target = await recordConfirmedAutodepositDelegation(
+      createSetupInput({ confirmedSlot: BigInt(200) }) as never,
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toBe(existing);
+    expect(calls).not.toContain("insert");
     expect(calls).not.toContain("update");
   });
 });

@@ -419,6 +419,21 @@ function isAlreadyNewerOrTerminal(
   return existing.lastSeenSlot >= confirmedSlot;
 }
 
+function assertClosedTargetCanReceiveSetup(
+  existing: BalanceSweepTargetRecord | null,
+  confirmedSlot: bigint
+): BalanceSweepTargetRecord | null {
+  if (existing?.lifecycleStatus !== "closed") {
+    return null;
+  }
+  if (existing.closeSlot !== null && existing.closeSlot >= confirmedSlot) {
+    return existing;
+  }
+  throw new Error(
+    "Closed autodeposit targets cannot be reactivated. Create a new autodeposit policy with a new policy seed."
+  );
+}
+
 export async function recordPendingAutodepositSetup(
   input: ConfirmedEarnAutodepositSetupInput,
   dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
@@ -434,6 +449,13 @@ export async function recordPendingAutodepositSetup(
     client,
     policyAccount: input.policyAccount,
   });
+  const closedTarget = assertClosedTargetCanReceiveSetup(
+    existing,
+    input.confirmedSlot
+  );
+  if (closedTarget) {
+    return closedTarget;
+  }
   const policy = await upsertBalanceSweepPolicyFromSetup({
     client,
     input,
@@ -504,18 +526,18 @@ export async function recordConfirmedAutodepositDelegation(
     client,
     policyAccount: input.policyAccount,
   });
+  const closedTarget = assertClosedTargetCanReceiveSetup(
+    existing,
+    input.confirmedSlot
+  );
+  if (closedTarget) {
+    return closedTarget;
+  }
   const policy = await upsertBalanceSweepPolicyFromSetup({
     client,
     input,
     now,
   });
-  if (
-    existing &&
-    existing.lifecycleStatus === "closed" &&
-    isAlreadyNewerOrTerminal(existing, input.confirmedSlot)
-  ) {
-    return existing;
-  }
 
   const values = targetValuesFromSetup(input, policy.id, now, true, "active");
   const [target] = await client.db
