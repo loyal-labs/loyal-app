@@ -277,7 +277,7 @@ export function buildEarnDepositReviewItem(args: {
     primaryActionLabel:
       stage === "policy"
         ? "Sign"
-        : `Deposit ${args.draft.amountLabel} ${args.draft.symbol}`,
+        : `Deposit $${args.draft.amountLabel}`,
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,

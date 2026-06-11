@@ -167,26 +167,15 @@ function formatDepositAmount(value: number) {
   });
 }
 
-export function formatEarnActionAmount(value: number) {
-  if (!Number.isFinite(value)) {
-    return "0.00";
-  }
-
-  const roundedUpValue = Math.ceil(value * 100) / 100;
-  return roundedUpValue.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  });
-}
-
+// Renders the full entered amount. The 6-digit ceiling only absorbs float
+// noise — typed input is already capped at USDC's 6 on-chain decimals.
 export function formatEarnActionCtaAmount(value: number) {
   if (!Number.isFinite(value)) {
     return "0";
   }
 
-  const roundedUpValue = Math.ceil(value * 100) / 100;
-  return roundedUpValue.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 6,
     minimumFractionDigits: 0,
   });
 }
@@ -218,13 +207,20 @@ function formatBucksAmount(value: number) {
   });
 }
 
-export function clampBucksAmountInput(
+// Sanitizes free-form amount typing. Amounts above the available balance are
+// allowed on purpose — the submit button switches to its "Insufficient
+// balance" state instead of the input clamping the value.
+export function sanitizeBucksAmountInput(
   rawValue: string,
-  previousValue: string,
-  balance: number
+  previousValue: string
 ) {
   if (rawValue === "") {
     return "";
+  }
+
+  // A lone dot in an empty field starts a decimal entry as "0.".
+  if (rawValue === ".") {
+    return "0.";
   }
 
   if (!/^[\d,]*\.?\d*$/.test(rawValue)) {
@@ -232,22 +228,34 @@ export function clampBucksAmountInput(
   }
 
   // Backspace collapses a stranded trailing dot so deleting "8.83" walks
-  // 8.80 -> 8.00 -> 0.00 in one press per symbol instead of pausing on "8.".
+  // 8.8 -> 8 -> "" in one press per symbol instead of pausing on "8.".
   const isDeletion = rawValue.length < previousValue.length;
-  const nextValue =
-    isDeletion && rawValue.endsWith(".") ? rawValue.slice(0, -1) : rawValue;
+  const nextValue = (
+    isDeletion && rawValue.endsWith(".") ? rawValue.slice(0, -1) : rawValue
+  ).replace(/^0+(?=\d)/, "");
 
+  // USDC carries 6 on-chain decimals; anything finer can't be transferred.
   const decimals = nextValue.split(".")[1] ?? "";
-  if (decimals.length > 2) {
+  if (decimals.length > 6) {
     return null;
   }
 
-  const numericValue = Number.parseFloat(nextValue.replace(/,/g, "")) || 0;
-  if (numericValue > balance) {
-    return formatBucksAmount(balance);
+  if (nextValue.split(".")[0].replace(/,/g, "").length > 9) {
+    return null;
   }
 
   return nextValue;
+}
+
+// Splits a typed amount so the fractional part can render muted, matching the
+// gray fraction of the total balance in the portfolio pane.
+function splitBucksAmountParts(value: string) {
+  const dotIndex = value.indexOf(".");
+  if (dotIndex === -1) {
+    return { fraction: "", whole: value };
+  }
+
+  return { fraction: value.slice(dotIndex), whole: value.slice(0, dotIndex) };
 }
 
 function formatForecastMoney(value: number, mutedFraction = false) {
@@ -2401,22 +2409,6 @@ function WithdrawRouteRow({
   );
 }
 
-function bucksMaskCompletion(value: string) {
-  const dotIndex = value.indexOf(".");
-  if (dotIndex === -1) {
-    return ".00";
-  }
-
-  const decimals = value.length - dotIndex - 1;
-  if (decimals === 0) {
-    return "00";
-  }
-  if (decimals === 1) {
-    return "0";
-  }
-  return "";
-}
-
 function BucksAmountInput({
   inputRef,
   onValueChange,
@@ -2426,7 +2418,7 @@ function BucksAmountInput({
   onValueChange: (rawValue: string) => void;
   value: string;
 }) {
-  const maskCompletion = bucksMaskCompletion(value);
+  const { fraction, whole } = splitBucksAmountParts(value);
   const amountTextStyle = {
     fontFamily: font,
     fontSize: "40px",
@@ -2461,7 +2453,7 @@ function BucksAmountInput({
         }}
       >
         {/* Hidden replica auto-sizes the grid cell to the exact text width so
-            the gray mask completion sits flush against the typed digits. */}
+            the two-tone layer below stays aligned with the real input. */}
         <span
           aria-hidden="true"
           style={{
@@ -2473,6 +2465,24 @@ function BucksAmountInput({
         >
           {value || "0"}
         </span>
+        {/* Visible two-tone layer: typed decimals render gray like the total
+            balance fraction. The input above keeps its text transparent so
+            this layer shows through while caret and selection stay native. */}
+        {value ? (
+          <span
+            aria-hidden="true"
+            style={{
+              ...amountTextStyle,
+              gridArea: "1 / 1",
+              whiteSpace: "pre",
+            }}
+          >
+            <span style={{ color: "#000" }}>{whole}</span>
+            {fraction ? (
+              <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>{fraction}</span>
+            ) : null}
+          </span>
+        ) : null}
         <input
           className="bucks-amount-input"
           inputMode="decimal"
@@ -2480,14 +2490,15 @@ function BucksAmountInput({
           placeholder="0"
           ref={inputRef}
           // size=1 keeps the input's intrinsic width from inflating the grid
-          // track; the hidden replica alone sizes the cell, so the gray mask
-          // stays flush against the typed digits.
+          // track; the hidden replica alone sizes the cell, so the two-tone
+          // layer stays flush under the typed digits.
           size={1}
           style={{
             ...amountTextStyle,
             background: "transparent",
             border: "none",
-            color: "#000",
+            caretColor: "#000",
+            color: "transparent",
             gridArea: "1 / 1",
             minWidth: 0,
             outline: "none",
@@ -2498,14 +2509,6 @@ function BucksAmountInput({
           value={value}
         />
       </span>
-      {maskCompletion ? (
-        <span
-          aria-hidden="true"
-          style={{ ...amountTextStyle, color: "rgba(60, 60, 67, 0.4)" }}
-        >
-          {maskCompletion}
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -2564,7 +2567,7 @@ export function EarnWithdrawView({
   const withdrawButtonLabel = isSubmitting
     ? "Withdrawing..."
     : withdrawAmountError ??
-      `Withdraw ${formatEarnActionCtaAmount(effectiveWithdrawAmount)} USDC`;
+      `Withdraw $${formatEarnActionCtaAmount(effectiveWithdrawAmount)}`;
   const buildCurrentDraft = (): EarnWithdrawDraft => ({
     amount: effectiveWithdrawAmount,
     amountLabel: effectiveWithdrawAmountLabel,
@@ -2671,13 +2674,12 @@ export function EarnWithdrawView({
             <BucksAmountInput
               inputRef={withdrawAmountInputRef}
               onValueChange={(rawValue) => {
-                const clampedValue = clampBucksAmountInput(
+                const sanitizedValue = sanitizeBucksAmountInput(
                   rawValue,
-                  withdrawAmount,
-                  maxWithdrawAmount
+                  withdrawAmount
                 );
-                if (clampedValue !== null) {
-                  setWithdrawAmount(clampedValue);
+                if (sanitizedValue !== null) {
+                  setWithdrawAmount(sanitizedValue);
                 }
               }}
               value={withdrawAmount}
@@ -4738,7 +4740,7 @@ export function EarnDepositView({
   const depositButtonLabel = isSubmitting
     ? "Depositing..."
     : amountError ??
-      `Deposit ${formatEarnActionCtaAmount(effectiveDepositAmount)} USDC`;
+      `Deposit $${formatEarnActionCtaAmount(effectiveDepositAmount)}`;
   const updateForecastFromInput = () => {
     forecastSelectionTouchedRef.current = true;
     setForecastSelection(
@@ -5009,14 +5011,13 @@ export function EarnDepositView({
               <BucksAmountInput
                 inputRef={amountInputRef}
                 onValueChange={(rawValue) => {
-                  const clampedValue = clampBucksAmountInput(
+                  const sanitizedValue = sanitizeBucksAmountInput(
                     rawValue,
-                    depositAmount,
-                    selectedSource.balance
+                    depositAmount
                   );
-                  if (clampedValue !== null) {
+                  if (sanitizedValue !== null) {
                     depositAmountTouchedRef.current = true;
-                    setDepositAmount(clampedValue);
+                    setDepositAmount(sanitizedValue);
                     updateForecastFromInput();
                   }
                 }}
@@ -5205,58 +5206,19 @@ function AutodepositAmountInputRow({
         alignItems: "baseline",
         cursor: "text",
         display: "flex",
-        gap: "8px",
         padding: "8px 0",
       }}
     >
-      <style jsx>{`
-        .autodeposit-amount-input::placeholder {
-          color: rgba(60, 60, 67, 0.4);
-          opacity: 1;
-        }
-      `}</style>
-      <input
-        className="autodeposit-amount-input"
-        inputMode="numeric"
-        onChange={(event) => {
-          const next = event.target.value
-            .replace(/[^0-9]/g, "")
-            .replace(/^0+(?=\d)/, "")
-            .slice(0, 9);
-          onValueChange(next);
+      <BucksAmountInput
+        inputRef={inputRef}
+        onValueChange={(rawValue) => {
+          const sanitizedValue = sanitizeBucksAmountInput(rawValue, value);
+          if (sanitizedValue !== null) {
+            onValueChange(sanitizedValue);
+          }
         }}
-        placeholder="0"
-        ref={inputRef}
-        style={{
-          background: "transparent",
-          border: "none",
-          color: "#000",
-          fontFamily: font,
-          fontSize: "40px",
-          fontWeight: 600,
-          letterSpacing: "0",
-          lineHeight: "48px",
-          minWidth: 0,
-          outline: "none",
-          padding: 0,
-          width: `${Math.max(value.length, 1)}ch`,
-        }}
-        type="text"
         value={value}
       />
-      <span
-        style={{
-          color: "rgba(60, 60, 67, 0.4)",
-          fontFamily: font,
-          fontSize: "28px",
-          fontWeight: 600,
-          letterSpacing: "0",
-          lineHeight: "32px",
-          whiteSpace: "nowrap",
-        }}
-      >
-        USDC
-      </span>
     </div>
   );
 }
@@ -5413,9 +5375,9 @@ export function AutodepositSetupView({
   const [keepAmount, setKeepAmount] = useState(initialKeepAmount);
   const earnBalanceLabel = formatMoney(earnBalance);
   const [earnWhole, earnFraction = "00"] = earnBalanceLabel.split(".");
-  const hasAmount = Number(amount) > 0;
   const normalizeAutodepositAmount = (value: string) =>
     Number(value.replace(/,/g, "")) || 0;
+  const hasAmount = normalizeAutodepositAmount(amount) > 0;
   const amountChanged =
     normalizeAutodepositAmount(amount) !==
     normalizeAutodepositAmount(initialAmount);
@@ -5717,7 +5679,11 @@ export function AutodepositSetupView({
         <button
           className="autodeposit-submit"
           disabled={!canSubmit}
-          onClick={() => onSubmit?.(amount, keepAmount)}
+          // A stranded trailing dot ("8.") is valid mid-typing but not a
+          // valid amount label downstream, so it is dropped on submit.
+          onClick={() =>
+            onSubmit?.(amount.replace(/\.$/, ""), keepAmount.replace(/\.$/, ""))
+          }
           style={{
             alignItems: "center",
             background: canSubmit ? "#000" : "rgba(0, 0, 0, 0.06)",
