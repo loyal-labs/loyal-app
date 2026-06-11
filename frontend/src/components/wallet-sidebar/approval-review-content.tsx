@@ -3,6 +3,7 @@
 import { DogWithMood } from "@/components/chat-input";
 import type { SmartAccountApprovalItem } from "@/hooks/use-smart-account-sidebar-data";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { motion, type Variants } from "motion/react";
 import { useState } from "react";
 
 import { SubViewHeader } from "./shared";
@@ -953,10 +954,22 @@ function CollapsibleRows({
   );
 }
 
+// Only the "exit" state is defined: entrance is handled by the CSS keyframes
+// below, while "exit" is propagated down from the review pane overlay in the
+// wallet workspace, whose slide-out waits for this fade ("afterChildren") so
+// the dog disappears before the pane moves.
+const mascotNoteVariants: Variants = {
+  exit: { opacity: 0, transition: { duration: 0.16, ease: "easeOut" } },
+};
+
 function ApprovalMascotNote({ text }: { text: string }) {
   return (
-    <div className="approval-mascot-note">
-      <style jsx>{`
+    // The motion wrapper only carries the propagated exit fade. It must stay
+    // unstyled: styled-jsx scopes classes to plain DOM elements only, so the
+    // styled note root has to remain a regular div.
+    <motion.div variants={mascotNoteVariants}>
+      <div className="approval-mascot-note">
+        <style jsx>{`
         .approval-mascot-note {
           display: flex;
           width: 100%;
@@ -964,6 +977,26 @@ function ApprovalMascotNote({ text }: { text: string }) {
           justify-content: flex-end;
           gap: 12px;
           padding: 4px 20px 12px;
+        }
+        /* On wide layouts the review pane sits in the grid with the scrim to
+           its left, so the mascot floats outside the pane's left edge,
+           aligned with the pane title. Below 1024px the pane becomes a fixed
+           overlay with no room to the left and the mascot keeps its in-pane
+           spot above the buttons. */
+        @media (min-width: 1025px) {
+          .approval-mascot-note {
+            position: absolute;
+            top: 92px;
+            right: 100%;
+            width: max-content;
+            margin-right: 12px;
+            padding: 0;
+            align-items: flex-start;
+          }
+          .approval-mascot-bubble::before {
+            top: 18px;
+            bottom: auto;
+          }
         }
         .approval-mascot-bubble {
           position: relative;
@@ -1061,13 +1094,14 @@ function ApprovalMascotNote({ text }: { text: string }) {
           }
         }
       `}</style>
-      <div className="approval-mascot-bubble" key={text}>
-        <span className="approval-mascot-bubble-content">{text}</span>
+        <div className="approval-mascot-bubble" key={text}>
+          <span className="approval-mascot-bubble-content">{text}</span>
+        </div>
+        <div className="approval-mascot-dog">
+          <DogWithMood />
+        </div>
       </div>
-      <div className="approval-mascot-dog">
-        <DogWithMood />
-      </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1127,7 +1161,15 @@ function PagedApprovalReview({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        // Anchors the mascot note when it floats outside the pane edge.
+        position: "relative",
+      }}
+    >
       <style jsx>{`
         .review-decline-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;

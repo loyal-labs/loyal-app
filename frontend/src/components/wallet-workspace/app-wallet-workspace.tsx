@@ -28,7 +28,7 @@ import {
   type SmartAccountPreparedEarnUsdcDeposit,
 } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, type Variants } from "motion/react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   useCallback,
@@ -199,6 +199,25 @@ const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
 const REVIEW_PANE_MIN_WIDTH = 320;
 const REVIEW_PANE_MAX_WIDTH = 520;
 const REVIEW_PANE_DEFAULT_WIDTH = 400;
+
+// Named variants so the exit propagates to descendants (the floating mascot
+// fades itself out on "exit"); "afterChildren" holds the slide-out until that
+// fade completes.
+const EARN_REVIEW_OVERLAY_VARIANTS: Variants = {
+  enter: {
+    x: 0,
+    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] },
+  },
+  exit: {
+    x: "100%",
+    transition: {
+      duration: 0.32,
+      ease: [0.22, 1, 0.36, 1],
+      when: "afterChildren",
+    },
+  },
+  hidden: { x: "100%" },
+};
 
 function clampWidth(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -1437,6 +1456,18 @@ export function AppWalletWorkspace({
       earnAutodepositSetupReviewItem ||
       earnAutodepositCloseReviewItem
   );
+  // While a dismissed review slides out, AnimatePresence keeps its overlay
+  // mounted. This flag keeps the pane lifted above the fading scrim until the
+  // exit animation completes; the render-phase update avoids a one-frame
+  // z-order flash between dismissal and the effect pass.
+  const [isEarnReviewExiting, setIsEarnReviewExiting] = useState(false);
+  const [wasEarnReviewOpen, setWasEarnReviewOpen] = useState(false);
+  if (wasEarnReviewOpen !== isReviewApprovalFocused) {
+    setWasEarnReviewOpen(isReviewApprovalFocused);
+    if (!isReviewApprovalFocused) {
+      setIsEarnReviewExiting(true);
+    }
+  }
   const earnWithdrawMaxAmount = activeEarnPosition
     ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
     : 0;
@@ -2280,8 +2311,10 @@ export function AppWalletWorkspace({
         return;
       }
 
-      const normalizedAmount = Number(amount || 0);
-      const normalizedKeepAmount = Number(keepAmount || 0);
+      const normalizedAmount = Number((amount || "0").replace(/,/g, ""));
+      const normalizedKeepAmount = Number(
+        (keepAmount || "0").replace(/,/g, "")
+      );
       if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
         setProposalActionError("Enter an Autodeposit amount.");
         return;
@@ -4560,12 +4593,52 @@ export function AppWalletWorkspace({
     return null;
   }
 
+  // Whichever Earn review is active, flattened to one props bag so the review
+  // pane can render a single sliding overlay for all four flows.
+  const earnReviewPane = earnDepositReviewItem
+    ? {
+        approval: earnDepositReviewItem,
+        onApprove: handleContinueEarnDepositReview,
+        onBack: handleOpenEarn,
+        onClose: handleOpenEarn,
+        onDecline: handleDismissEarnDepositPreview,
+        onExecute: handleContinueEarnDepositReview,
+      }
+    : earnWithdrawReviewItem
+      ? {
+          approval: earnWithdrawReviewItem,
+          onApprove: () => void handleCompleteEarnWithdraw(),
+          onBack: handleBackFromEarnWithdraw,
+          onClose: handleBackFromEarnWithdraw,
+          onDecline: handleDismissEarnWithdrawPreview,
+          onExecute: () => void handleCompleteEarnWithdraw(),
+        }
+      : earnAutodepositSetupReviewItem
+        ? {
+            approval: earnAutodepositSetupReviewItem,
+            onApprove: () => void handleCompleteEarnAutodepositSetup(),
+            onBack: handleBackFromAutodeposit,
+            onClose: handleBackFromAutodeposit,
+            onDecline: handleDismissEarnAutodepositPreview,
+            onExecute: () => void handleCompleteEarnAutodepositSetup(),
+          }
+        : earnAutodepositCloseReviewItem
+          ? {
+              approval: earnAutodepositCloseReviewItem,
+              onApprove: () => void handleCompleteEarnAutodepositClose(),
+              onBack: handleBackFromAutodeposit,
+              onClose: handleBackFromAutodeposit,
+              onDecline: handleDismissEarnAutodepositPreview,
+              onExecute: () => void handleCompleteEarnAutodepositClose(),
+            }
+          : null;
+
   return (
     <main
       className="wallet-workspace"
       data-policy-view={activeSection === "policies" ? policyView : undefined}
       data-rate-limited={isSmartAccountRateLimited}
-      data-review-focused={isReviewApprovalFocused}
+      data-review-focused={isReviewApprovalFocused || isEarnReviewExiting}
       data-signed-in={showWorkspaceShell}
       data-workspace-section={activeSection}
       style={
@@ -4593,14 +4666,25 @@ export function AppWalletWorkspace({
         open={isCommandMenuOpen}
       />
 
-      {isReviewApprovalFocused ? (
-        <button
-          aria-label="Close Earn preview"
-          className="wallet-workspace-review-backdrop"
-          onPointerDown={handleEarnPreviewBackdropPointerDown}
-          type="button"
-        />
-      ) : null}
+      <AnimatePresence initial={false}>
+        {isReviewApprovalFocused ? (
+          <motion.button
+            animate={{ opacity: 1 }}
+            aria-label="Close Earn preview"
+            className="wallet-workspace-review-backdrop"
+            exit={{
+              opacity: 0,
+              // Tracks the review overlay's full exit: mascot fade, then slide.
+              transition: { duration: 0.45, ease: "easeOut" },
+            }}
+            initial={{ opacity: 0 }}
+            key="review-backdrop"
+            onPointerDown={handleEarnPreviewBackdropPointerDown}
+            transition={{ duration: 0.24, ease: "easeOut" }}
+            type="button"
+          />
+        ) : null}
+      </AnimatePresence>
 
       {showWorkspaceShell &&
       (!isSmartAccountRateLimited ||
@@ -4745,58 +4829,6 @@ export function AppWalletWorkspace({
                   </motion.div>
                 ) : null}
               </AnimatePresence>
-            ) : earnDepositReviewItem ? (
-              <ApprovalReviewContent
-                actionError={proposalActionError}
-                approval={earnDepositReviewItem}
-                isSubmitting={smartAccountData.isActionPending}
-                onApprove={handleContinueEarnDepositReview}
-                onBack={handleOpenEarn}
-                onClose={handleOpenEarn}
-                onDecline={handleDismissEarnDepositPreview}
-                onExecute={handleContinueEarnDepositReview}
-                showBack={false}
-                showClose={false}
-              />
-            ) : earnWithdrawReviewItem ? (
-              <ApprovalReviewContent
-                actionError={proposalActionError}
-                approval={earnWithdrawReviewItem}
-                isSubmitting={smartAccountData.isActionPending}
-                onApprove={() => void handleCompleteEarnWithdraw()}
-                onBack={handleBackFromEarnWithdraw}
-                onClose={handleBackFromEarnWithdraw}
-                onDecline={handleDismissEarnWithdrawPreview}
-                onExecute={() => void handleCompleteEarnWithdraw()}
-                showBack={false}
-                showClose={false}
-              />
-            ) : earnAutodepositSetupReviewItem ? (
-              <ApprovalReviewContent
-                actionError={proposalActionError}
-                approval={earnAutodepositSetupReviewItem}
-                isSubmitting={smartAccountData.isActionPending}
-                onApprove={() => void handleCompleteEarnAutodepositSetup()}
-                onBack={handleBackFromAutodeposit}
-                onClose={handleBackFromAutodeposit}
-                onDecline={handleDismissEarnAutodepositPreview}
-                onExecute={() => void handleCompleteEarnAutodepositSetup()}
-                showBack={false}
-                showClose={false}
-              />
-            ) : earnAutodepositCloseReviewItem ? (
-              <ApprovalReviewContent
-                actionError={proposalActionError}
-                approval={earnAutodepositCloseReviewItem}
-                isSubmitting={smartAccountData.isActionPending}
-                onApprove={() => void handleCompleteEarnAutodepositClose()}
-                onBack={handleBackFromAutodeposit}
-                onClose={handleBackFromAutodeposit}
-                onDecline={handleDismissEarnAutodepositPreview}
-                onExecute={() => void handleCompleteEarnAutodepositClose()}
-                showBack={false}
-                showClose={false}
-              />
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
                 isBalanceHidden={isBalanceHidden}
@@ -4877,6 +4909,34 @@ export function AppWalletWorkspace({
                 }
               />
             )}
+            <AnimatePresence
+              initial={false}
+              onExitComplete={() => setIsEarnReviewExiting(false)}
+            >
+              {earnReviewPane ? (
+                <motion.div
+                  animate="enter"
+                  className="wallet-workspace-earn-review-overlay"
+                  exit="exit"
+                  initial="hidden"
+                  key="earn-review"
+                  variants={EARN_REVIEW_OVERLAY_VARIANTS}
+                >
+                  <ApprovalReviewContent
+                    actionError={proposalActionError}
+                    approval={earnReviewPane.approval}
+                    isSubmitting={smartAccountData.isActionPending}
+                    onApprove={earnReviewPane.onApprove}
+                    onBack={earnReviewPane.onBack}
+                    onClose={earnReviewPane.onClose}
+                    onDecline={earnReviewPane.onDecline}
+                    onExecute={earnReviewPane.onExecute}
+                    showBack={false}
+                    showClose={false}
+                  />
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </section>
         </>
       ) : null}
@@ -5300,8 +5360,6 @@ export function AppWalletWorkspace({
           cursor: default;
           margin: 0;
           padding: 0;
-          opacity: 1;
-          transition: opacity 0.2s ease;
         }
 
         .wallet-workspace-review-backdrop:focus {
@@ -5312,6 +5370,8 @@ export function AppWalletWorkspace({
           .wallet-workspace-review-pane {
           position: relative;
           z-index: 50;
+          /* Lets the approval mascot float outside the pane's left edge. */
+          overflow: visible;
         }
 
         .wallet-workspace-detail-transition {
@@ -5363,6 +5423,21 @@ export function AppWalletWorkspace({
           will-change: transform;
         }
 
+        /* Earn approval review: slides in from the right over the pane's
+           regular content and back out on dismissal. Mirrors the pane's own
+           padding so the review keeps its usual inset. */
+        .wallet-workspace-earn-review-overlay {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          box-sizing: border-box;
+          padding: 8px 8px 8px 0;
+          background: #fff;
+          will-change: transform;
+        }
+
         .wallet-workspace-detail-transition[data-transition="forward"] {
           animation: wallet-workspace-pane-forward 0.24s
             cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -5385,6 +5460,8 @@ export function AppWalletWorkspace({
         .wallet-workspace-review-pane {
           grid-column: 7;
           padding: 8px 8px 8px 0;
+          /* Anchors the sliding Earn review overlay. */
+          position: relative;
         }
 
         .wallet-workspace[data-workspace-section="policies"]
@@ -6119,7 +6196,9 @@ export function AppWalletWorkspace({
           }
 
           /* Keep an active approval visible when the grid drops the review
-             column — float it as an overlay over the dimmed panes. */
+             column — float it as an overlay over the dimmed panes. The pane
+             itself is just a transparent positioning shell so the sliding
+             review overlay reads as the surface entering from the right. */
           .wallet-workspace[data-review-focused="true"]
             .wallet-workspace-review-pane {
             display: block;
@@ -6129,6 +6208,16 @@ export function AppWalletWorkspace({
             bottom: 0;
             width: min(100vw, 420px);
             z-index: 50;
+            background: transparent;
+          }
+
+          .wallet-workspace[data-review-focused="true"]
+            .wallet-workspace-review-pane
+            > :not(.wallet-workspace-earn-review-overlay) {
+            visibility: hidden;
+          }
+
+          .wallet-workspace-earn-review-overlay {
             box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
           }
 
