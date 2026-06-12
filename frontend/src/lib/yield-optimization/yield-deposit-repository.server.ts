@@ -679,6 +679,25 @@ export async function findActiveYieldPosition(
   return position ?? null;
 }
 
+export async function findYieldPosition(
+  input: ActiveYieldPositionLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionRecord | null> {
+  const position =
+    await dependencies.client.db.query.userYieldPositions.findFirst({
+      where: and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.initialReserve, input.initialReserve),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress)
+      ),
+    });
+
+  return position ?? null;
+}
+
 export async function findActiveYieldRoutePolicy(input: {
   authority: string;
   cluster: string;
@@ -766,7 +785,8 @@ export async function findYieldPositionHistoryEvents(
     client: getYieldOptimizationClient(),
   }
 ): Promise<UserYieldPositionHistoryEventRecord[]> {
-  const position = await findActiveYieldPosition(input, dependencies);
+  // Closed positions (full withdrawals) must keep their history visible.
+  const position = await findYieldPosition(input, dependencies);
   if (!position) {
     return [];
   }
