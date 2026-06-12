@@ -20,6 +20,7 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
+const LOYAL_EARN_BRAND_COLOR = "#F9363C";
 
 // Poll cadence for the pseudo-realtime feed. Most ticks resolve from the
 // client cache for free; the tick after an Earn action fetches fresh data
@@ -214,7 +215,43 @@ function EarnTransactionsErrorState({ message }: { message: string }) {
   );
 }
 
-function CompoundIcon() {
+const COMPOUND_ICON_IMAGE_STYLE = {
+  height: "100%",
+  inset: 0,
+  objectFit: "cover",
+  position: "absolute",
+  width: "100%",
+} as const;
+
+function CompoundUsdcImage() {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt=""
+        src="/wallet-workspace/earn-vault-usdc.png"
+        style={COMPOUND_ICON_IMAGE_STYLE}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt=""
+        src="/wallet-workspace/earn-vault-usdc-overlay.png"
+        style={COMPOUND_ICON_IMAGE_STYLE}
+      />
+    </>
+  );
+}
+
+function CompoundKaminoImage() {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt="" src={KAMINO_ICON} style={COMPOUND_ICON_IMAGE_STYLE} />
+  );
+}
+
+// Reads source (back, top-left) -> destination (front, bottom-right):
+// deposits flow USDC -> Kamino, withdrawals flow Kamino -> USDC.
+function CompoundIcon({ isWithdraw = false }: { isWithdraw?: boolean }) {
   return (
     <span
       aria-hidden="true"
@@ -238,30 +275,7 @@ function CompoundIcon() {
           width: "32px",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          src="/wallet-workspace/earn-vault-usdc.png"
-          style={{
-            height: "100%",
-            inset: 0,
-            objectFit: "cover",
-            position: "absolute",
-            width: "100%",
-          }}
-        />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          src="/wallet-workspace/earn-vault-usdc-overlay.png"
-          style={{
-            height: "100%",
-            inset: 0,
-            objectFit: "cover",
-            position: "absolute",
-            width: "100%",
-          }}
-        />
+        {isWithdraw ? <CompoundKaminoImage /> : <CompoundUsdcImage />}
       </span>
       <span
         style={{
@@ -274,24 +288,21 @@ function CompoundIcon() {
           width: "32px",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          src={KAMINO_ICON}
-          style={{
-            height: "100%",
-            inset: 0,
-            objectFit: "cover",
-            position: "absolute",
-            width: "100%",
-          }}
-        />
+        {isWithdraw ? <CompoundUsdcImage /> : <CompoundKaminoImage />}
       </span>
     </span>
   );
 }
 
-function FlowAccount({ label, icon }: { label: string; icon: string | null }) {
+function FlowAccount({
+  icon,
+  isEarnVault = false,
+  label,
+}: {
+  icon: string | null;
+  isEarnVault?: boolean;
+  label: string;
+}) {
   return (
     <span
       style={{
@@ -301,7 +312,7 @@ function FlowAccount({ label, icon }: { label: string; icon: string | null }) {
         whiteSpace: "nowrap",
       }}
     >
-      {label === EARN_VAULT_LABEL ? (
+      {isEarnVault || label === EARN_VAULT_LABEL ? (
         <EarnYieldIcon size={16} />
       ) : icon ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -362,7 +373,7 @@ function EarnTransactionRow({
       type="button"
     >
       <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-        <CompoundIcon />
+        <CompoundIcon isWithdraw={item.kind === "withdraw"} />
       </span>
       <span
         style={{
@@ -451,6 +462,189 @@ function EarnTransactionRow({
         </span>
       </span>
     </button>
+  );
+}
+
+function TransactionsSectionHeader({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        padding: "11px 12px 8px",
+        width: "100%",
+      }}
+    >
+      <p
+        style={{
+          color: secondary,
+          fontFamily: font,
+          fontSize: "16px",
+          fontWeight: 400,
+          letterSpacing: "-0.176px",
+          lineHeight: "20px",
+          margin: 0,
+        }}
+      >
+        {label}
+      </p>
+    </div>
+  );
+}
+
+// Placeholder for the upcoming scheduled-autodeposit feed: pinned under the
+// "Scheduled" header above the dated history. The schedule data and the
+// "Execute now" action are static until the real scheduling logic lands.
+function ScheduledTransactionRow({
+  isBalanceHidden = false,
+}: {
+  isBalanceHidden?: boolean;
+}) {
+  return (
+    <>
+      <style jsx>{`
+        .earn-scheduled-execute-btn {
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .earn-scheduled-execute-btn:hover {
+          background: #e72f34 !important;
+          transform: translateY(-1px);
+        }
+        .earn-scheduled-execute-btn:active {
+          transform: translateY(0);
+        }
+      `}</style>
+      <div
+        style={{
+          alignItems: "flex-start",
+          display: "flex",
+          padding: "0 12px",
+          width: "100%",
+        }}
+      >
+        <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+          <CompoundIcon />
+        </span>
+        <span
+          style={{
+            display: "flex",
+            flex: 1,
+            flexDirection: "column",
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              alignItems: "center",
+              display: "flex",
+              width: "100%",
+            }}
+          >
+            <span
+              style={{
+                display: "flex",
+                flex: 1,
+                flexDirection: "column",
+                gap: "2px",
+                minWidth: 0,
+                padding: "10px 0",
+              }}
+            >
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  letterSpacing: "-0.176px",
+                  lineHeight: "20px",
+                }}
+              >
+                Autodeposit
+              </span>
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  lineHeight: "16px",
+                }}
+              >
+                Tomorrow at 18:06
+              </span>
+            </span>
+            <span
+              style={{
+                alignItems: "flex-end",
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+                paddingBottom: "10px",
+                paddingLeft: "12px",
+                paddingTop: "10px",
+              }}
+            >
+              <span
+                style={{
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  lineHeight: "20px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                334.48 USDC
+              </span>
+              <span
+                style={{
+                  alignItems: "center",
+                  display: "inline-flex",
+                  gap: "4px",
+                  justifyContent: "flex-end",
+                }}
+              >
+                <FlowAccount icon="/agents/Agent-01.svg" label="Main" />
+                <span
+                  style={{
+                    color: "rgba(60, 60, 67, 0.4)",
+                    fontFamily: font,
+                    fontSize: "13px",
+                    lineHeight: "16px",
+                  }}
+                >
+                  →
+                </span>
+                <FlowAccount icon={null} isEarnVault label="Earn" />
+              </span>
+            </span>
+          </span>
+          <span style={{ display: "flex", gap: "8px", paddingBottom: "11px" }}>
+            <button
+              className="earn-scheduled-execute-btn"
+              style={{
+                alignItems: "center",
+                background: LOYAL_EARN_BRAND_COLOR,
+                border: "none",
+                borderRadius: "9999px",
+                color: "#fff",
+                cursor: "pointer",
+                display: "inline-flex",
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 500,
+                justifyContent: "center",
+                lineHeight: "20px",
+                padding: "6px 16px",
+              }}
+              type="button"
+            >
+              Execute now
+            </button>
+          </span>
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -763,55 +957,48 @@ export function EarnTransactionsPane({
         ) : transactions.length === 0 ? (
           <EarnTransactionsEmptyState />
         ) : (
-          groups.map((group) => (
+          <>
             <div
-              key={group.date}
               style={{
                 display: "flex",
                 flexDirection: "column",
                 width: "100%",
               }}
             >
-              <EnterReveal
-                isEntering={group.items.every((item) =>
-                  enteringIds.has(item.id)
-                )}
-              >
-                <div
-                  style={{
-                    padding: "11px 12px 8px",
-                    width: "100%",
-                  }}
-                >
-                  <p
-                    style={{
-                      color: secondary,
-                      fontFamily: font,
-                      fontSize: "16px",
-                      fontWeight: 400,
-                      letterSpacing: "-0.176px",
-                      lineHeight: "20px",
-                      margin: 0,
-                    }}
-                  >
-                    {group.date}
-                  </p>
-                </div>
-              </EnterReveal>
-              {group.items.map((item) => (
-                <EnterReveal
-                  isEntering={enteringIds.has(item.id)}
-                  key={item.id}
-                >
-                  <EarnTransactionRow
-                    isBalanceHidden={isBalanceHidden}
-                    item={item}
-                    onSelect={handleSelect}
-                  />
-                </EnterReveal>
-              ))}
+              <TransactionsSectionHeader label="Scheduled" />
+              <ScheduledTransactionRow isBalanceHidden={isBalanceHidden} />
             </div>
-          ))
+            {groups.map((group) => (
+              <div
+                key={group.date}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  width: "100%",
+                }}
+              >
+                <EnterReveal
+                  isEntering={group.items.every((item) =>
+                    enteringIds.has(item.id)
+                  )}
+                >
+                  <TransactionsSectionHeader label={group.date} />
+                </EnterReveal>
+                {group.items.map((item) => (
+                  <EnterReveal
+                    isEntering={enteringIds.has(item.id)}
+                    key={item.id}
+                  >
+                    <EarnTransactionRow
+                      isBalanceHidden={isBalanceHidden}
+                      item={item}
+                      onSelect={handleSelect}
+                    />
+                  </EnterReveal>
+                ))}
+              </div>
+            ))}
+          </>
         )}
       </div>
     </div>
