@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import type { AuthenticatedPrincipal } from "@/features/identity/server/auth-session";
 
 mock.module("server-only", () => ({}));
 
-const principal = {
+const principal: AuthenticatedPrincipal = {
+  authMethod: "wallet",
   settingsPda: "settings",
+  smartAccountAddress: "smart-account",
+  subjectAddress: "wallet",
+  provider: "solana",
   walletAddress: "wallet",
 };
-const resolveAuthenticatedPrincipalFromRequest = mock(async () => principal);
+const resolveAuthenticatedPrincipalFromRequest = mock(
+  async (): Promise<AuthenticatedPrincipal | null> => principal
+);
 const updateAutodepositTargetActive = mock(async () => ({
   active: false,
   balanceSweepPolicyId: BigInt(7),

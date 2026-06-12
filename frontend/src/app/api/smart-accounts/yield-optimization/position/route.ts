@@ -18,6 +18,8 @@ import {
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_VAULT_INDEX = 1;
+const CURRENT_RESERVE_LOOKUP_RETRIES = 2;
+const CURRENT_RESERVE_LOOKUP_RETRY_DELAY_MS = 250;
 
 function resolveConfiguredCluster() {
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
@@ -26,6 +28,10 @@ function resolveConfiguredCluster() {
 
 function toApyBps(supplyApy: number): string {
   return Math.round(supplyApy * 10_000).toString();
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
@@ -84,6 +90,28 @@ function serializePosition(
   };
 }
 
+async function getCurrentReserveUpdatesByReserveWithRetry(args: {
+  reserves: readonly string[];
+}): Promise<TimescaleReserveUpdateRow[]> {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= CURRENT_RESERVE_LOOKUP_RETRIES; attempt++) {
+    try {
+      return await getCurrentReserveUpdatesByReserve(args);
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === CURRENT_RESERVE_LOOKUP_RETRIES) {
+        break;
+      }
+
+      await delay(CURRENT_RESERVE_LOOKUP_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
+
 export async function GET(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
@@ -112,7 +140,7 @@ export async function GET(request: Request) {
     ? resolveTimescaleReserveForPosition(position)
     : null;
   const currentReserveRows = position
-    ? await getCurrentReserveUpdatesByReserve({
+    ? await getCurrentReserveUpdatesByReserveWithRetry({
         reserves: [timescaleReserve ?? position.currentReserve],
       }).catch((error) => {
         console.warn(

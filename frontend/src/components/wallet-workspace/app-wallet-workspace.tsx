@@ -26,6 +26,7 @@ import {
   type SmartAccountPreparedEarnUsdcAutodepositClose,
   type SmartAccountPreparedEarnUsdcAutodepositSetup,
   type SmartAccountPreparedEarnUsdcDeposit,
+  type SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
@@ -104,6 +105,7 @@ import { invalidateEarnTransactionsCache } from "@/lib/yield-optimization/earn-t
 import { useActiveEarnPosition } from "@/hooks/use-active-earn-position";
 import {
   prepareEarnDepositOnServer,
+  prepareEarnWithdrawOnServer,
   useSmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -137,6 +139,7 @@ import {
   setEarnDepositReviewPreparedDeposit,
   type EarnAutodepositSetupReviewStage,
   type EarnDepositReviewStage,
+  type EarnWithdrawReviewStage,
 } from "./earn-deposit-review";
 import { EarnTransactionsPane } from "./earn-transactions-pane";
 import {
@@ -955,8 +958,7 @@ export function AppWalletWorkspace({
     walletDesktopData.walletAddress,
   ]);
   const signInOpenedForConnectRef = useRef(false);
-  const [shouldLoadPopularTokens, setShouldLoadPopularTokens] =
-    useState(false);
+  const [shouldLoadPopularTokens, setShouldLoadPopularTokens] = useState(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
     enabled: shouldLoadPopularTokens,
   });
@@ -1072,6 +1074,12 @@ export function AppWalletWorkspace({
     useState(false);
   const [pendingEarnWithdrawDraft, setPendingEarnWithdrawDraft] =
     useState<EarnWithdrawDraft | null>(null);
+  const [pendingEarnWithdrawPrepared, setPendingEarnWithdrawPrepared] =
+    useState<SmartAccountPreparedEarnUsdcWithdraw | null>(null);
+  const [isEarnWithdrawPreparePending, setIsEarnWithdrawPreparePending] =
+    useState(false);
+  const [earnWithdrawReviewStage, setEarnWithdrawReviewStage] =
+    useState<EarnWithdrawReviewStage>("withdraw");
   const [pendingEarnAutodepositDraft, setPendingEarnAutodepositDraft] =
     useState<EarnAutodepositDraft | null>(null);
   const [
@@ -1407,9 +1415,18 @@ export function AppWalletWorkspace({
       pendingEarnWithdrawDraft && detailSelection === "earnWithdraw"
         ? buildEarnWithdrawReviewItem({
             draft: pendingEarnWithdrawDraft,
+            hasAutodepositTeardown: Boolean(
+              pendingEarnWithdrawPrepared?.autodepositClosePrepared
+            ),
+            stage: earnWithdrawReviewStage,
           })
         : null,
-    [detailSelection, pendingEarnWithdrawDraft]
+    [
+      detailSelection,
+      earnWithdrawReviewStage,
+      pendingEarnWithdrawDraft,
+      pendingEarnWithdrawPrepared?.autodepositClosePrepared,
+    ]
   );
   const earnAutodepositSetupReviewItem = useMemo(
     () =>
@@ -1471,6 +1488,13 @@ export function AppWalletWorkspace({
   const earnWithdrawMaxAmount = activeEarnPosition
     ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
     : 0;
+  const getEarnWithdrawDraftAmountRaw = useCallback(
+    (draft: EarnWithdrawDraft): bigint =>
+      draft.mode === "full" && activeEarnPosition
+        ? BigInt(activeEarnPosition.principalAmountRaw)
+        : parseTokenAmountLabelToRaw(draft.amountLabel, draft.tokenDecimals),
+    [activeEarnPosition]
+  );
   const totalBalance = useMemo(
     () =>
       splitUsdBalance(
@@ -2252,6 +2276,8 @@ export function AppWalletWorkspace({
     setIsEarnDepositPolicySetupFlow(false);
     setEarnDepositPrepareError(null);
     setPendingEarnWithdrawDraft(null);
+    setPendingEarnWithdrawPrepared(null);
+    setEarnWithdrawReviewStage("withdraw");
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
     setSelectedDetail("Deposit");
@@ -2265,6 +2291,8 @@ export function AppWalletWorkspace({
     setIsEarnDepositPolicySetupFlow(false);
     setEarnDepositPrepareError(null);
     setPendingEarnWithdrawDraft(null);
+    setPendingEarnWithdrawPrepared(null);
+    setEarnWithdrawReviewStage("withdraw");
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
     setSelectedDetail("Withdraw");
@@ -2273,6 +2301,9 @@ export function AppWalletWorkspace({
   const handleBackFromEarnWithdraw = useCallback(() => {
     markDetailPaneTransition("back");
     setPendingEarnWithdrawDraft(null);
+    setPendingEarnWithdrawPrepared(null);
+    setEarnWithdrawReviewStage("withdraw");
+    setEarnDepositPrepareError(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
@@ -2458,7 +2489,21 @@ export function AppWalletWorkspace({
   const handleDismissEarnWithdrawPreview = useCallback(() => {
     console.log("[earn-withdraw] preview dismissed");
     setPendingEarnWithdrawDraft(null);
+    setPendingEarnWithdrawPrepared(null);
+    setEarnWithdrawReviewStage("withdraw");
+    setEarnDepositPrepareError(null);
   }, []);
+
+  const handleEarnWithdrawDraftChange = useCallback(
+    (draft: EarnWithdrawDraft | null) => {
+      setPendingEarnWithdrawDraft(draft);
+      setPendingEarnWithdrawPrepared(null);
+      setEarnWithdrawReviewStage("withdraw");
+      setEarnDepositPrepareError(null);
+      setProposalActionError(null);
+    },
+    []
+  );
 
   const handleDismissFocusedEarnPreview = useCallback(() => {
     if (pendingEarnDepositDraft && isEarnDepositDetailActive) {
@@ -2586,7 +2631,7 @@ export function AppWalletWorkspace({
   );
 
   const handleSubmitEarnWithdrawDraft = useCallback(
-    (draft: EarnWithdrawDraft) => {
+    async (draft: EarnWithdrawDraft) => {
       console.log("[earn-withdraw] withdraw button submitted preview draft", {
         amountLabel: draft.amountLabel,
         destinationId: draft.destination.id,
@@ -2594,9 +2639,35 @@ export function AppWalletWorkspace({
         mode: draft.mode,
         tokenDecimals: draft.tokenDecimals,
       });
-      setPendingEarnWithdrawDraft(draft);
+      setProposalActionError(null);
+      setEarnDepositPrepareError(null);
+      setPendingEarnWithdrawPrepared(null);
+      setEarnWithdrawReviewStage("withdraw");
+
+      try {
+        setIsEarnWithdrawPreparePending(true);
+        const amountRaw = getEarnWithdrawDraftAmountRaw(draft);
+        const preparedWithdraw = await prepareEarnWithdrawOnServer({
+          amountRaw,
+          mode: draft.mode,
+        });
+        setPendingEarnWithdrawDraft(draft);
+        setPendingEarnWithdrawPrepared(preparedWithdraw);
+        setEarnWithdrawReviewStage(
+          preparedWithdraw.autodepositClosePrepared ? "autodeposit" : "withdraw"
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to prepare Earn withdrawal.";
+        setProposalActionError(message);
+        setEarnDepositPrepareError(message);
+      } finally {
+        setIsEarnWithdrawPreparePending(false);
+      }
     },
-    []
+    [getEarnWithdrawDraftAmountRaw]
   );
 
   const handleCompleteEarnPolicySetup = useCallback(async () => {
@@ -2799,6 +2870,60 @@ export function AppWalletWorkspace({
     handleCompleteEarnPolicySetup,
   ]);
 
+  const handleCompleteEarnWithdrawAutodepositClose = useCallback(async () => {
+    if (!pendingEarnWithdrawDraft) {
+      setProposalActionError("Enter a withdrawal amount before continuing.");
+      return;
+    }
+
+    const preparedClose =
+      pendingEarnWithdrawPrepared?.autodepositClosePrepared ?? null;
+    if (!preparedClose) {
+      setProposalActionError("Prepare the Autodeposit close before signing.");
+      return;
+    }
+
+    setProposalActionError(null);
+    setEarnDepositPrepareError(null);
+    try {
+      const result = await smartAccountData.executeEarnAutodepositClose({
+        policy: preparedClose.policy.account.toBase58(),
+        preparedClose,
+        recurringDelegation:
+          preparedClose.subscription.recurringDelegation.toBase58(),
+      });
+
+      if (!result.success) {
+        throw new Error(result.error ?? "Autodeposit close failed.");
+      }
+
+      setAutodepositConfig(null);
+      setIsEarnWithdrawPreparePending(true);
+      const amountRaw = getEarnWithdrawDraftAmountRaw(pendingEarnWithdrawDraft);
+      const nextPreparedWithdraw = await prepareEarnWithdrawOnServer({
+        amountRaw,
+        mode: pendingEarnWithdrawDraft.mode,
+      });
+      setPendingEarnWithdrawPrepared(nextPreparedWithdraw);
+      setEarnWithdrawReviewStage("withdraw");
+      setDetailSelection("earnWithdraw");
+      setSelectedDetail("Withdraw");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Autodeposit close failed.";
+      setProposalActionError(message);
+      setEarnDepositPrepareError(message);
+    } finally {
+      setIsEarnWithdrawPreparePending(false);
+    }
+  }, [
+    pendingEarnWithdrawDraft,
+    pendingEarnWithdrawPrepared?.autodepositClosePrepared,
+    getEarnWithdrawDraftAmountRaw,
+    setDetailSelection,
+    smartAccountData,
+  ]);
+
   const handleCompleteEarnWithdraw = useCallback(
     async (withdrawal?: { amount: number; mode: "partial" | "full" }) => {
       const withdrawalDraft = withdrawal ?? pendingEarnWithdrawDraft;
@@ -2809,13 +2934,13 @@ export function AppWalletWorkspace({
 
       setProposalActionError(null);
       try {
-        const amountRaw = parseTokenAmountLabelToRaw(
-          withdrawalDraft.amount.toString(),
-          6
-        );
+        const amountRaw = withdrawal
+          ? parseTokenAmountLabelToRaw(withdrawal.amount.toString(), 6)
+          : getEarnWithdrawDraftAmountRaw(pendingEarnWithdrawDraft!);
         const result = await smartAccountData.executeEarnWithdraw({
           amountRaw,
           mode: withdrawalDraft.mode,
+          preparedWithdraw: pendingEarnWithdrawPrepared ?? undefined,
         });
 
         if (!result.success) {
@@ -2825,6 +2950,8 @@ export function AppWalletWorkspace({
         markDetailPaneTransition("back");
         invalidateEarnClientCaches();
         setPendingEarnWithdrawDraft(null);
+        setPendingEarnWithdrawPrepared(null);
+        setEarnWithdrawReviewStage("withdraw");
         setActiveEarnPosition((current) => {
           if (!current) {
             return current;
@@ -2858,6 +2985,8 @@ export function AppWalletWorkspace({
     [
       markDetailPaneTransition,
       pendingEarnWithdrawDraft,
+      pendingEarnWithdrawPrepared,
+      getEarnWithdrawDraftAmountRaw,
       refreshActiveEarnPosition,
       setActiveEarnPosition,
       setDetailSelection,
@@ -2865,6 +2994,19 @@ export function AppWalletWorkspace({
       smartAccountData,
     ]
   );
+
+  const handleContinueEarnWithdrawReview = useCallback(() => {
+    if (earnWithdrawReviewStage === "autodeposit") {
+      void handleCompleteEarnWithdrawAutodepositClose();
+      return;
+    }
+
+    void handleCompleteEarnWithdraw();
+  }, [
+    earnWithdrawReviewStage,
+    handleCompleteEarnWithdraw,
+    handleCompleteEarnWithdrawAutodepositClose,
+  ]);
 
   const handleCompleteEarnAutodepositSetup = useCallback(async () => {
     if (!pendingEarnAutodepositDraft) {
@@ -3911,12 +4053,15 @@ export function AppWalletWorkspace({
       return (
         <EarnWithdrawView
           destinations={earnWithdrawDestinations}
-          isSubmitting={smartAccountData.isActionPending}
+          isSubmitting={
+            smartAccountData.isActionPending || isEarnWithdrawPreparePending
+          }
           maxWithdrawAmount={earnWithdrawMaxAmount}
-          onDraftChange={setPendingEarnWithdrawDraft}
+          onDraftChange={handleEarnWithdrawDraftChange}
           onDraftSubmit={handleSubmitEarnWithdrawDraft}
           onClose={handleBackFromEarnWithdraw}
           onComplete={handleCompleteEarnWithdraw}
+          submitError={earnDepositPrepareError}
         />
       );
     }
@@ -4608,33 +4753,33 @@ export function AppWalletWorkspace({
         onExecute: handleContinueEarnDepositReview,
       }
     : earnWithdrawReviewItem
-      ? {
-          approval: earnWithdrawReviewItem,
-          onApprove: () => void handleCompleteEarnWithdraw(),
-          onBack: handleBackFromEarnWithdraw,
-          onClose: handleBackFromEarnWithdraw,
-          onDecline: handleDismissEarnWithdrawPreview,
-          onExecute: () => void handleCompleteEarnWithdraw(),
-        }
-      : earnAutodepositSetupReviewItem
-        ? {
-            approval: earnAutodepositSetupReviewItem,
-            onApprove: () => void handleCompleteEarnAutodepositSetup(),
-            onBack: handleBackFromAutodeposit,
-            onClose: handleBackFromAutodeposit,
-            onDecline: handleDismissEarnAutodepositPreview,
-            onExecute: () => void handleCompleteEarnAutodepositSetup(),
-          }
-        : earnAutodepositCloseReviewItem
-          ? {
-              approval: earnAutodepositCloseReviewItem,
-              onApprove: () => void handleCompleteEarnAutodepositClose(),
-              onBack: handleBackFromAutodeposit,
-              onClose: handleBackFromAutodeposit,
-              onDecline: handleDismissEarnAutodepositPreview,
-              onExecute: () => void handleCompleteEarnAutodepositClose(),
-            }
-          : null;
+    ? {
+        approval: earnWithdrawReviewItem,
+        onApprove: handleContinueEarnWithdrawReview,
+        onBack: handleBackFromEarnWithdraw,
+        onClose: handleBackFromEarnWithdraw,
+        onDecline: handleDismissEarnWithdrawPreview,
+        onExecute: handleContinueEarnWithdrawReview,
+      }
+    : earnAutodepositSetupReviewItem
+    ? {
+        approval: earnAutodepositSetupReviewItem,
+        onApprove: () => void handleCompleteEarnAutodepositSetup(),
+        onBack: handleBackFromAutodeposit,
+        onClose: handleBackFromAutodeposit,
+        onDecline: handleDismissEarnAutodepositPreview,
+        onExecute: () => void handleCompleteEarnAutodepositSetup(),
+      }
+    : earnAutodepositCloseReviewItem
+    ? {
+        approval: earnAutodepositCloseReviewItem,
+        onApprove: () => void handleCompleteEarnAutodepositClose(),
+        onBack: handleBackFromAutodeposit,
+        onClose: handleBackFromAutodeposit,
+        onDecline: handleDismissEarnAutodepositPreview,
+        onExecute: () => void handleCompleteEarnAutodepositClose(),
+      }
+    : null;
 
   return (
     <main
@@ -4928,7 +5073,11 @@ export function AppWalletWorkspace({
                   <ApprovalReviewContent
                     actionError={proposalActionError}
                     approval={earnReviewPane.approval}
-                    isSubmitting={smartAccountData.isActionPending}
+                    isSubmitting={
+                      smartAccountData.isActionPending ||
+                      isEarnDepositPreparePending ||
+                      isEarnWithdrawPreparePending
+                    }
                     onApprove={earnReviewPane.onApprove}
                     onBack={earnReviewPane.onBack}
                     onClose={earnReviewPane.onClose}

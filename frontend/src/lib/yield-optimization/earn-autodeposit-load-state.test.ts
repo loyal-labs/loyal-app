@@ -1,4 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 mock.module("server-only", () => ({}));
 
@@ -86,6 +88,8 @@ function createMutationClient({
   updated?: unknown;
 }) {
   const calls: string[] = [];
+  const dialect = new PgDialect();
+  const executeSql: string[] = [];
   let updateSet: Record<string, unknown> | null = null;
   const selectQuery = {
     from() {
@@ -119,9 +123,15 @@ function createMutationClient({
 
   return {
     calls,
+    getExecuteSql: () => executeSql,
     getUpdateSet: () => updateSet,
     client: {
       db: {
+        execute(query: SQL) {
+          calls.push("execute");
+          executeSql.push(dialect.sqlToQuery(query).sql);
+          return {};
+        },
         select() {
           calls.push("select");
           return selectQuery;
@@ -379,6 +389,7 @@ describe("Earn autodeposit load state", () => {
       nonce: "1",
       policyAccount: "policy",
       recurringDelegation: "recurring",
+      scheduledSweeps: [],
       state: "created",
     });
   });
@@ -682,5 +693,145 @@ describe("Earn autodeposit load state", () => {
     expect(target).toBe(existing);
     expect(calls).not.toContain("insert");
     expect(calls).not.toContain("update");
+  });
+
+  test("closing an autodeposit target cancels scheduled transactions before closing rows", async () => {
+    const { recordClosedAutodepositTarget } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: true,
+      lifecycleStatus: "active",
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const updated = {
+      ...existing,
+      active: false,
+      closeSignature: "withdrawal-signature",
+      closeSlot: BigInt(300),
+      lifecycleStatus: "closed",
+    };
+    const { calls, client, getUpdateSet } = createMutationClient({
+      existing,
+      updated,
+    });
+
+    const target = await recordClosedAutodepositTarget(
+      {
+        cluster: "mainnet-beta",
+        closeSignature: "withdrawal-signature",
+        confirmedSlot: BigInt(300),
+        delegatedSigner: "delegate",
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        vaultPubkey: "vault",
+        walletAddress: "wallet",
+      },
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toBe(updated);
+    expect(getUpdateSet()).toMatchObject({
+      active: false,
+      closeSignature: "withdrawal-signature",
+      closeSlot: BigInt(300),
+      lifecycleStatus: "closed",
+      recurringDelegation: "recurring",
+    });
+    expect(calls).toEqual([
+      "select",
+      "select.from",
+      "select.where",
+      "select.limit",
+      "execute",
+      "update",
+      "update.set",
+      "update.where",
+      "update",
+      "update.set",
+      "update.where",
+      "update.returning",
+    ]);
+  });
+
+  test("already closed autodeposit targets still cancel stale scheduled transactions idempotently", async () => {
+    const { recordClosedAutodepositTarget } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: false,
+      closeSlot: BigInt(300),
+      lifecycleStatus: "closed",
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const { calls, client } = createMutationClient({ existing });
+
+    const target = await recordClosedAutodepositTarget(
+      {
+        cluster: "mainnet-beta",
+        closeSignature: "withdrawal-signature",
+        confirmedSlot: BigInt(250),
+        delegatedSigner: "delegate",
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        vaultPubkey: "vault",
+        walletAddress: "wallet",
+      },
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toBe(existing);
+    expect(calls).toEqual([
+      "select",
+      "select.from",
+      "select.where",
+      "select.limit",
+      "execute",
+    ]);
+  });
+
+  test("scheduled cancellation is scoped through observed source slots", async () => {
+    const { cancelScheduledAutodepositTransactionsForClose } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const { calls, client, getExecuteSql } = createMutationClient({
+      existing: null,
+    });
+
+    await cancelScheduledAutodepositTransactionsForClose({
+      client: client as never,
+      now: new Date("2026-06-02T00:00:00.000Z"),
+      targetId: BigInt(11),
+    });
+
+    expect(calls).toEqual(["execute"]);
+    const [query] = getExecuteSql();
+
+    expect(query).toContain("WITH scheduled_slots AS");
+    expect(query).toContain(
+      '"loyal_yield"."balance_sweep_wallet_balance_events"'
+    );
+    expect(query).toContain("event.observed_slot");
+    expect(query).toContain("scoped_lots AS");
+    expect(query).toContain("claim.status = 'selected'");
+    expect(query).toContain("status = 'released'");
+    expect(query).toContain("status = 'suppressed'");
+    expect(query).toContain("SELECT id FROM scoped_lots");
+  });
+
+  test("yield schema exposes wallet balance events for slot-scoped cancellation", async () => {
+    const { yieldOptimizationSchema } = await import(
+      "./yield-neon-client.server"
+    );
+
+    expect(
+      yieldOptimizationSchema.balanceSweepWalletBalanceEvents
+    ).toBeTruthy();
   });
 });

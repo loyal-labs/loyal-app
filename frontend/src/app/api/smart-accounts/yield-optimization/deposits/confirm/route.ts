@@ -295,7 +295,32 @@ export async function POST(request: Request) {
     );
   }
 
-  const position = await recordConfirmedYieldDeposit(input);
+  let position: UserYieldPositionRecord;
+  try {
+    position = await recordConfirmedYieldDeposit(input);
+  } catch (error) {
+    console.error("[earn-deposit-confirm] record failed", {
+      amountRaw: input.principalAmountRaw.toString(),
+      cluster: input.cluster,
+      depositSignature: input.depositSignature,
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown record error.",
+      errorName: error instanceof Error ? error.name : typeof error,
+      policyAccount: input.policyAccount,
+      policyInitialization: input.policyInitialization,
+      policySeed: input.policySeed.toString(),
+      settings: input.settings,
+      stack: error instanceof Error ? error.stack : undefined,
+      walletAddress: input.walletAddress,
+    });
+    return jsonError(
+      409,
+      "record_failed",
+      error instanceof Error
+        ? error.message
+        : "Failed to record confirmed earn deposit."
+    );
+  }
 
   return NextResponse.json({
     position: serializePosition(position),

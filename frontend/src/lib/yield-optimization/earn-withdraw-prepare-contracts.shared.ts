@@ -9,6 +9,11 @@ import {
   serializePreparedOperation,
   type WirePreparedLoyalSmartAccountsOperation,
 } from "@/lib/smart-accounts/prepared-operation-wire.shared";
+import {
+  hydratePreparedEarnUsdcAutodepositClose,
+  serializePreparedEarnUsdcAutodepositClose,
+  type WireSmartAccountPreparedEarnUsdcAutodepositClose,
+} from "./earn-autodeposit-prepare-contracts.shared";
 
 export type EarnWithdrawPrepareRequestBody = {
   amountRaw: string;
@@ -17,6 +22,7 @@ export type EarnWithdrawPrepareRequestBody = {
 
 export type WireSmartAccountPreparedEarnUsdcWithdraw = {
   amountRaw: string;
+  autodepositClosePrepared?: WireSmartAccountPreparedEarnUsdcAutodepositClose | null;
   mode: "partial" | "full";
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
   policy: {
@@ -77,9 +83,10 @@ function readWithdrawMode(body: EarnWithdrawPrepareRecord) {
   return value;
 }
 
-export function parseEarnWithdrawPrepareRequestBody(
-  body: unknown
-): { amountRaw: bigint; mode: "partial" | "full" } {
+export function parseEarnWithdrawPrepareRequestBody(body: unknown): {
+  amountRaw: bigint;
+  mode: "partial" | "full";
+} {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
 
@@ -98,6 +105,11 @@ export function serializePreparedEarnUsdcWithdraw(
 ): WireSmartAccountPreparedEarnUsdcWithdraw {
   return {
     amountRaw: preparedWithdraw.amountRaw.toString(),
+    autodepositClosePrepared: preparedWithdraw.autodepositClosePrepared
+      ? serializePreparedEarnUsdcAutodepositClose(
+          preparedWithdraw.autodepositClosePrepared
+        )
+      : null,
     mode: preparedWithdraw.mode,
     persistence: preparedWithdraw.persistence,
     policy: {
@@ -129,6 +141,9 @@ export function hydratePreparedEarnUsdcWithdraw(
 ): SmartAccountPreparedEarnUsdcWithdraw {
   return {
     amountRaw: BigInt(wire.amountRaw),
+    autodepositClosePrepared: wire.autodepositClosePrepared
+      ? hydratePreparedEarnUsdcAutodepositClose(wire.autodepositClosePrepared)
+      : null,
     mode: wire.mode,
     persistence: wire.persistence,
     policy: {

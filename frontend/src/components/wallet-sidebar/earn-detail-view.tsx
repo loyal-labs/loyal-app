@@ -1115,10 +1115,10 @@ function EarningsBlock({
     [dailyBars]
   );
   const hoveredBarEntry =
-    hoveredBar !== null ? (dailyBars[hoveredBar] ?? null) : null;
+    hoveredBar !== null ? dailyBars[hoveredBar] ?? null : null;
   const hoveredApyBps = hoveredBarEntry
     ? hoveredBarEntry.isCurrent
-      ? (earningsData?.currentApyBps ?? hoveredBarEntry.apyBps)
+      ? earningsData?.currentApyBps ?? hoveredBarEntry.apyBps
       : hoveredBarEntry.apyBps
     : null;
   const hoveredDateLabel = hoveredBarEntry
@@ -1442,7 +1442,9 @@ function EarningsBlock({
                     : 0;
                 return (
                   <button
-                    aria-label={`${bar.label} earned ${formatSignedEarningsAmount(
+                    aria-label={`${
+                      bar.label
+                    } earned ${formatSignedEarningsAmount(
                       Math.max(0, bar.earnedUsd)
                     )}`}
                     className="earnings-bar"
@@ -2019,11 +2021,12 @@ export function EarnDetailView({
     0,
     displayBalanceAmount - principalAmount
   );
-  const earnedSummaryLabel = currentPositionApyLabel
-    ? `${formatSignedEarningsAmount(
-        estimatedEarnedUsd
-      )} (${currentPositionApyLabel})`
-    : formatSignedEarningsAmount(estimatedEarnedUsd);
+  const displayApyLabel =
+    currentPositionApyLabel ??
+    `${formatEarnApyPercent(estimatedEarnedAmountApyBps)} APY`;
+  const earnedSummaryLabel = `${formatSignedEarningsAmount(
+    estimatedEarnedUsd
+  )} (${displayApyLabel})`;
 
   return (
     <div
@@ -2649,6 +2652,7 @@ export function EarnWithdrawView({
   onDraftSubmit,
   onComplete,
   destinations = FALLBACK_EARN_DEPOSIT_SOURCES,
+  submitError = null,
 }: {
   isSubmitting?: boolean;
   maxWithdrawAmount?: number;
@@ -2660,6 +2664,7 @@ export function EarnWithdrawView({
     mode: "partial" | "full";
   }) => void | Promise<void>;
   destinations?: EarnDepositSourceOption[];
+  submitError?: string | null;
 }) {
   const withdrawAmountInputRef = useRef<HTMLInputElement | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -2877,6 +2882,19 @@ export function EarnWithdrawView({
           width: "100%",
         }}
       >
+        {submitError ? (
+          <p
+            style={{
+              color: "#F9363C",
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "18px",
+              margin: "0 0 10px",
+            }}
+          >
+            {submitError}
+          </p>
+        ) : null}
         <button
           className="earn-withdraw-submit"
           disabled={isWithdrawButtonDisabled}
@@ -3422,8 +3440,8 @@ function downsampleHistoricalApySamples(
       index === 0
         ? bucket[0].observedAtMs
         : index === HISTORICAL_APY_MAX_LINE_POINTS - 1
-          ? bucket[bucket.length - 1].observedAtMs
-          : bucket[Math.floor(bucket.length / 2)].observedAtMs;
+        ? bucket[bucket.length - 1].observedAtMs
+        : bucket[Math.floor(bucket.length / 2)].observedAtMs;
     buckets.push({
       apyPercent:
         bucket.reduce((sum, sample) => sum + sample.apyPercent, 0) /
@@ -4090,8 +4108,8 @@ function ForecastChart({
                   color: isBalanceHidden
                     ? "#BBBBC0"
                     : isPrimary
-                      ? "#000"
-                      : "#3C3C43",
+                    ? "#000"
+                    : "#3C3C43",
                   filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   fontFamily: font,
                   fontSize: isPrimary ? "28px" : "16px",
@@ -4136,7 +4154,9 @@ function ForecastChart({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {`${series.label} (${formatEarnApyPercent(series.apyBps)} APY)`}
+                  {`${series.label} (${formatEarnApyPercent(
+                    series.apyBps
+                  )} APY)`}
                 </span>
               </span>
             </div>

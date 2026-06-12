@@ -467,20 +467,34 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
   persistence: SmartAccountEarnUsdcDepositMetadata;
 };
 
-export type SmartAccountEarnUsdcWithdrawInput = {
+type SmartAccountEarnUsdcWithdrawBaseInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
   policySigner: PublicKey;
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
-  mode: "partial" | "full";
   yieldRoutingPolicy?: {
     account: PublicKey;
     seed: bigint;
   };
   memo?: string;
 };
+
+export type SmartAccountEarnUsdcWithdrawAutodepositCloseInput = {
+  policy: PublicKey;
+  recurringDelegation: PublicKey;
+};
+
+export type SmartAccountEarnUsdcWithdrawInput =
+  | (SmartAccountEarnUsdcWithdrawBaseInput & {
+      mode: "partial";
+      autodepositClose?: never;
+    })
+  | (SmartAccountEarnUsdcWithdrawBaseInput & {
+      mode: "full";
+      autodepositClose?: SmartAccountEarnUsdcWithdrawAutodepositCloseInput;
+    });
 
 export type SmartAccountEarnUsdcWithdrawMetadata = {
   cluster: LoyalCluster;
@@ -501,9 +515,11 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   vaultCollateralCleanupIncluded?: boolean;
   vaultUsdcRemainderRaw?: string;
   walletTransferAmountRaw?: string;
+  autodepositClose?: SmartAccountEarnUsdcAutodepositCloseMetadata | null;
 };
 
 export type SmartAccountPreparedEarnUsdcWithdraw = {
+  autodepositClosePrepared?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   mode: "partial" | "full";
   amountRaw: bigint;

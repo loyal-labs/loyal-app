@@ -50,7 +50,16 @@ export type EarnDepositConfirmRequestBody = {
   walletAddress: string;
 };
 
+export type EarnWithdrawalAutodepositCloseConfirmRequestBody = {
+  closeSignature: string;
+  confirmedSlot: string;
+  delegatedSigner: string;
+  policyAccount: string;
+  recurringDelegation: string;
+};
+
 export type EarnWithdrawalConfirmRequestBody = {
+  autodepositClose?: EarnWithdrawalAutodepositCloseConfirmRequestBody | null;
   cluster: string;
   confirmedSlot: string;
   delegatedSigner: string;
@@ -159,6 +168,27 @@ function readMode(body: EarnConfirmRequestRecord): "partial" | "full" {
   return mode;
 }
 
+function readOptionalAutodepositClose(
+  body: EarnConfirmRequestRecord
+): NonNullable<ConfirmedYieldWithdrawalInput["autodepositClose"]> | null {
+  const value = body.autodepositClose;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!value || typeof value !== "object") {
+    throw new Error("autodepositClose must be an object when provided.");
+  }
+
+  const record = value as EarnConfirmRequestRecord;
+  return {
+    closeSignature: readRequiredString(record, "closeSignature"),
+    confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+  };
+}
+
 export function buildEarnPolicyConfirmRequestBody({
   confirmedSlot,
   preparedPolicy,
@@ -198,6 +228,8 @@ export function buildEarnDepositConfirmRequestBody({
 }
 
 export function buildEarnWithdrawalConfirmRequestBody({
+  autodepositCloseConfirmedSlot,
+  autodepositCloseSignature,
   confirmedSlot,
   preparedWithdraw,
   signature,
@@ -207,9 +239,22 @@ export function buildEarnWithdrawalConfirmRequestBody({
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
+  autodepositCloseSignature?: string;
+  autodepositCloseConfirmedSlot?: string;
 }): EarnWithdrawalConfirmRequestBody {
+  const { autodepositClose, ...persistence } = preparedWithdraw.persistence;
+
   return {
-    ...preparedWithdraw.persistence,
+    ...persistence,
+    ...(autodepositClose
+      ? {
+          autodepositClose: {
+            ...autodepositClose,
+            closeSignature: autodepositCloseSignature ?? signature,
+            confirmedSlot: autodepositCloseConfirmedSlot ?? confirmedSlot,
+          },
+        }
+      : {}),
     smartAccountAddress,
     withdrawalSignature: signature,
     confirmedSlot,
@@ -270,7 +315,9 @@ export function parseEarnWithdrawalConfirmRequestBody(
   body: unknown
 ): ConfirmedYieldWithdrawalInput {
   const record = assertRequestObject(body);
+  const autodepositClose = readOptionalAutodepositClose(record);
   return {
+    ...(autodepositClose ? { autodepositClose } : {}),
     cluster: readRequiredString(record, "cluster"),
     confirmedSlot: readBigIntString(record, "confirmedSlot"),
     delegatedSigner: readRequiredString(record, "delegatedSigner"),

@@ -98,6 +98,14 @@ export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
   vaultPubkey?: string;
 };
 
+export type ConfirmedYieldWithdrawalAutodepositCloseInput = {
+  closeSignature: string;
+  confirmedSlot: bigint;
+  delegatedSigner: string;
+  policyAccount: string;
+  recurringDelegation: string;
+};
+
 export type ConfirmedYieldWithdrawalInput = {
   cluster: string;
   walletAddress: string;
@@ -116,6 +124,7 @@ export type ConfirmedYieldWithdrawalInput = {
   liquidityMint: string;
   withdrawnAmountRaw: bigint;
   mode: "partial" | "full";
+  autodepositClose?: ConfirmedYieldWithdrawalAutodepositCloseInput | null;
 };
 
 export type ConfirmedYieldRebalanceInput = {
@@ -517,13 +526,6 @@ export async function recordConfirmedYieldDeposit(
       ),
     });
 
-  if (
-    input.policyInitialization === "reuse" &&
-    existingPosition &&
-    existingPosition.status !== "active"
-  ) {
-    throw new Error("Top-up yield deposit requires an active yield position.");
-  }
   const isDuplicateInitialDeposit =
     existingPosition?.firstDepositSignature === input.depositSignature ||
     existingPosition?.lastDepositSignature === input.depositSignature;
@@ -1190,9 +1192,7 @@ export async function verifyUserYieldPositions(
           .select()
           .from(userYieldPositionHoldingEvents)
           .where(
-            and(
-              eq(userYieldPositionHoldingEvents.positionId, position.id)
-            )
+            and(eq(userYieldPositionHoldingEvents.positionId, position.id))
           ),
       ]);
     const expectedPrincipalAmountRaw =

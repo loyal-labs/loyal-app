@@ -22,7 +22,7 @@ import {
   RISK_BASKET_MARKETS,
   STABLECOIN_MINTS,
 } from "@loyal/actions/constants";
-import { RiskBasket, Stablecoin, SwapLane } from "@loyal/actions/types";
+import { RiskBasket, Stablecoin } from "@loyal/actions/types";
 
 const EARN_VAULT_LABEL = "Earn vault";
 const USDC_MAIN_MARKET_RESERVE_ADDRESS =
@@ -32,6 +32,7 @@ const MAIN_ACCOUNT_FULL_ADDRESS =
 
 export type EarnDepositReviewStage = "deposit" | "policy";
 export type EarnAutodepositSetupReviewStage = "delegation" | "policy";
+export type EarnWithdrawReviewStage = "autodeposit" | "withdraw";
 
 export type EarnDepositReviewState = {
   draft: EarnDepositDraft | null;
@@ -73,10 +74,6 @@ function formatStablecoinMintLabels(): string {
       formatNameWithShortId(stablecoin, STABLECOIN_MINTS[stablecoin].toBase58())
     )
     .join(", ");
-}
-
-function formatSwapLaneLabel(lane: SwapLane): string {
-  return lane.charAt(0).toUpperCase() + lane.slice(1);
 }
 
 export function createSubmittedEarnDepositReviewState(args: {
@@ -152,50 +149,39 @@ export function buildEarnDepositReviewItem(args: {
   const isPolicySetupFlow = args.isPolicySetupFlow ?? stage === "policy";
   const stablecoinMintLabels = formatStablecoinMintLabels();
   const safeMarketLabels = formatSafeMarketLabels();
-  const reviewSections: ApprovalReviewDisplaySection[] = [
+  const depositRows: ApprovalReviewDisplaySection["rows"] = [
     {
-      title: "Transaction #1",
-      rows: [
-        {
-          label: "Deposit",
-          value: `Deposit $${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}`,
-        },
-      ],
+      label: "Transfer",
+      value: `Deposit $${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}`,
     },
     {
-      title: "Policy #1",
-      rows: [
-        { label: "Policy", value: "Kamino yield policy" },
-        { label: "Actions", value: "Deposit, withdraw" },
-        {
-          label: "Markets",
-          value: `Kamino markets: ${safeMarketLabels}`,
-        },
-        { label: "Mints", value: stablecoinMintLabels },
-      ],
-    },
-    {
-      title: "Policy #2",
-      rows: [
-        { label: "Policy", value: "Swap policy" },
-        { label: "Actions", value: "Swap" },
-        {
-          label: "Supported lanes",
-          value: [SwapLane.Jupiter].map(formatSwapLaneLabel).join(", "),
-        },
-        { label: "Mints", value: stablecoinMintLabels },
-      ],
-    },
-    {
-      title: "Transaction #2",
-      rows: [
-        {
-          label: "Deposit",
-          value: `${EARN_VAULT_LABEL} sends $${args.draft.amountLabel} ${args.draft.symbol} to Main Market USDC reserve (${USDC_MAIN_MARKET_RESERVE_ADDRESS})`,
-        },
-      ],
+      label: "Earn",
+      value: `${EARN_VAULT_LABEL} deposits into Main Market USDC reserve`,
     },
   ];
+  const reviewSections: ApprovalReviewDisplaySection[] = isPolicySetupFlow
+    ? [
+        {
+          title: "Approval #1",
+          rows: [
+            { label: "Setup", value: "Create yield optimization policies" },
+            { label: "Kamino policy", value: "Deposit, withdraw" },
+            { label: "Markets", value: `Kamino markets: ${safeMarketLabels}` },
+            { label: "Swap policy", value: "Swap via Jupiter" },
+            { label: "Mints", value: stablecoinMintLabels },
+          ],
+        },
+        {
+          title: "Approval #2",
+          rows: depositRows,
+        },
+      ]
+    : [
+        {
+          title: "Transaction #1",
+          rows: depositRows,
+        },
+      ];
 
   const policyPage: ApprovalReviewPage = {
     title: "Approval 1 of 2",
@@ -275,9 +261,7 @@ export function buildEarnDepositReviewItem(args: {
     destinationLabel: EARN_VAULT_LABEL,
     pages,
     primaryActionLabel:
-      stage === "policy"
-        ? "Sign"
-        : `Deposit $${args.draft.amountLabel}`,
+      stage === "policy" ? "Sign" : `Deposit $${args.draft.amountLabel}`,
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
@@ -294,11 +278,29 @@ export function buildEarnDepositReviewItem(args: {
 
 export function buildEarnWithdrawReviewItem(args: {
   draft: EarnWithdrawDraft;
+  hasAutodepositTeardown?: boolean;
+  stage?: EarnWithdrawReviewStage;
 }): ApprovalReviewDisplayItem {
   const actionLabel = args.draft.mode === "full" ? "Withdraw all" : "Withdraw";
+  const hasAutodepositTeardown =
+    args.draft.mode === "full" && Boolean(args.hasAutodepositTeardown);
+  const stage = args.stage ?? "withdraw";
   const reviewSections: ApprovalReviewDisplaySection[] = [
+    ...(hasAutodepositTeardown
+      ? [
+          {
+            title: "Transaction #1",
+            rows: [
+              {
+                label: "Autodeposit",
+                value: "Close Autodeposit policy and refund rent",
+              },
+            ],
+          },
+        ]
+      : []),
     {
-      title: "Transaction #1",
+      title: hasAutodepositTeardown ? "Transaction #2" : "Transaction #1",
       rows: [
         {
           label: "Withdraw",
@@ -316,7 +318,46 @@ export function buildEarnWithdrawReviewItem(args: {
     actionMode: "vote",
     amount: args.draft.amountLabel,
     destinationLabel: args.draft.destination.label,
-    primaryActionLabel: "Continue",
+    pages: hasAutodepositTeardown
+      ? [
+          stage === "autodeposit"
+            ? {
+                title: "Approval 1 of 2",
+                heading: "Remove Autodeposit",
+                mascotNote:
+                  "First, close the Autodeposit policy and refund its rent.",
+                rows: [
+                  {
+                    label: "Autodeposit",
+                    value: "Close Autodeposit policy and refund rent",
+                  },
+                ],
+              }
+            : {
+                title: "Approval 2 of 2",
+                amount: `$${args.draft.amountLabel}`,
+                heading: "Withdraw from Earn vault",
+                hideAmountHeading: true,
+                mascotNote:
+                  "Now withdraw from Kamino, clean up the Earn vault, and close the Earn policy.",
+                rows: [
+                  {
+                    label: "Withdraw",
+                    value: `${actionLabel} ${args.draft.amountLabel} ${args.draft.symbol} from ${EARN_VAULT_LABEL}`,
+                  },
+                  {
+                    label: "Destination",
+                    value: `${args.draft.destination.label} (${args.draft.destination.addressLabel})`,
+                  },
+                ],
+              },
+        ]
+      : undefined,
+    primaryActionLabel: hasAutodepositTeardown
+      ? stage === "autodeposit"
+        ? "Remove Autodeposit"
+        : "Withdraw"
+      : "Continue",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: EARN_VAULT_LABEL,
@@ -432,17 +473,84 @@ export function buildEarnAutodepositSetupReviewItem(args: {
           : []),
       ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
-    {
-      title: isEdit ? "Autodeposit changes" : "Allowance",
-      rows:
-        changeRows.length > 0
-          ? changeRows
-          : [{ label: "Changes", value: "No Autodeposit changes detected" }],
-    },
-    {
-      title: requiresSignature ? "On-chain setup" : "Database update",
-      rows: onChainRows,
-    },
+    ...(!requiresSignature
+      ? [
+          {
+            title: "Database update",
+            rows:
+              changeRows.length > 0
+                ? changeRows
+                : [
+                    {
+                      label: "Changes",
+                      value: "No Autodeposit changes detected",
+                    },
+                  ],
+          },
+        ]
+      : !isEdit
+      ? [
+          {
+            title: "Approval #1",
+            rows: [
+              {
+                label: "Setup",
+                value: "Create allowance authority and Autodeposit policy",
+              },
+              {
+                label: "Policy",
+                value:
+                  "Allow Loyal automation to use only this Autodeposit path",
+              },
+              ...(policyAccount
+                ? [
+                    {
+                      label: "Policy account",
+                      value: shortenAddress(policyAccount),
+                    },
+                  ]
+                : []),
+            ],
+          },
+          {
+            title: "Approval #2",
+            rows: [
+              {
+                label: "Allowance",
+                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+              },
+              {
+                label: "Minimum balance",
+                value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account`,
+              },
+              { label: "Delegatee", value: EARN_VAULT_LABEL },
+              ...(recurringDelegation
+                ? [
+                    {
+                      label: "Delegation",
+                      value: shortenAddress(recurringDelegation),
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ]
+      : [
+          {
+            title: "Approval #1",
+            rows: [
+              ...(changeRows.length > 0
+                ? changeRows
+                : [
+                    {
+                      label: "Changes",
+                      value: "No Autodeposit changes detected",
+                    },
+                  ]),
+              ...onChainRows,
+            ],
+          },
+        ]),
   ];
   const heading = !requiresSignature
     ? "Save Autodeposit setting"

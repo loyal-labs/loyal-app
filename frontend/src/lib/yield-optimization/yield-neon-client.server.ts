@@ -12,6 +12,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -62,6 +63,11 @@ export const balanceSweepSurplusClassification = loyalYieldSchema.enum(
 export const balanceSweepSurplusLotStatus = loyalYieldSchema.enum(
   "balance_sweep_surplus_lot_status",
   ["open", "selected", "consumed", "depleted", "suppressed"]
+);
+
+export const balanceSweepLotClaimStatus = loyalYieldSchema.enum(
+  "balance_sweep_lot_claim_status",
+  ["selected", "executed", "released", "failed"]
 );
 
 export type YieldSwapLane = Record<string, unknown>;
@@ -490,6 +496,42 @@ export const balanceSweepTargets = loyalYieldSchema.table(
   ]
 );
 
+export const balanceSweepWalletBalanceEvents = loyalYieldSchema.table(
+  "balance_sweep_wallet_balance_events",
+  {
+    eventId: bigint("event_id", { mode: "bigint" }).primaryKey(),
+    targetId: bigint("target_id", { mode: "bigint" }).notNull(),
+    wallet: text("wallet").notNull(),
+    walletUsdcAta: text("wallet_usdc_ata").notNull(),
+    previousAmountRaw: bigint("previous_amount_raw", { mode: "bigint" }),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    deltaAmountRaw: bigint("delta_amount_raw", { mode: "bigint" }),
+    observedSlot: bigint("observed_slot", { mode: "bigint" }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    source: text("source").notNull(),
+    sourceCommitment: text("source_commitment").notNull(),
+    txnSignature: text("txn_signature"),
+    accountDataHash: text("account_data_hash"),
+    rawEvidence: jsonb("raw_evidence")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    projectedAt: timestamp("projected_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("balance_sweep_wallet_balance_events_target_event_idx").on(
+      table.targetId,
+      table.eventId
+    ),
+    index("balance_sweep_wallet_balance_events_target_slot_idx").on(
+      table.targetId,
+      table.observedSlot
+    ),
+    index("balance_sweep_wallet_balance_events_txn_signature_idx")
+      .on(table.txnSignature)
+      .where(sql`${table.txnSignature} IS NOT NULL`),
+  ]
+);
+
 export const balanceSweepSurplusLots = loyalYieldSchema.table(
   "balance_sweep_surplus_lots",
   {
@@ -528,6 +570,47 @@ export const balanceSweepSurplusLots = loyalYieldSchema.table(
     index("balance_sweep_surplus_lots_source_signature_idx")
       .on(table.sourceSignature)
       .where(sql`${table.sourceSignature} IS NOT NULL`),
+  ]
+);
+
+export const balanceSweepLotClaims = loyalYieldSchema.table(
+  "balance_sweep_lot_claims",
+  {
+    claimToken: text("claim_token").primaryKey(),
+    targetId: bigint("target_id", { mode: "bigint" }).notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    status: balanceSweepLotClaimStatus("status").default("selected").notNull(),
+    executionId: bigint("execution_id", { mode: "bigint" }),
+    staleCheckEventId: bigint("stale_check_event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("balance_sweep_lot_claims_target_status_idx").on(
+      table.targetId,
+      table.status,
+      table.createdAt
+    ),
+  ]
+);
+
+export const balanceSweepLotClaimItems = loyalYieldSchema.table(
+  "balance_sweep_lot_claim_items",
+  {
+    claimToken: text("claim_token").notNull(),
+    lotId: bigint("lot_id", { mode: "bigint" }).notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.claimToken, table.lotId],
+      name: "balance_sweep_lot_claim_items_pkey",
+    }),
+    index("balance_sweep_lot_claim_items_lot_idx").on(
+      table.lotId,
+      table.createdAt
+    ),
   ]
 );
 
@@ -625,9 +708,12 @@ export const rebalanceDecisions = loyalYieldSchema.table(
 
 export const yieldOptimizationSchema = {
   balanceSweepExecutions,
+  balanceSweepLotClaimItems,
+  balanceSweepLotClaims,
   balanceSweepPolicies,
   balanceSweepSurplusLots,
   balanceSweepTargets,
+  balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
   earnApyHourlySnapshots,
   earnForecastSnapshots,
@@ -653,9 +739,12 @@ export type YieldOptimizationClientConfig = {
 
 export type YieldOptimizationClientTables = {
   balanceSweepExecutions: typeof balanceSweepExecutions;
+  balanceSweepLotClaimItems: typeof balanceSweepLotClaimItems;
+  balanceSweepLotClaims: typeof balanceSweepLotClaims;
   balanceSweepPolicies: typeof balanceSweepPolicies;
   balanceSweepSurplusLots: typeof balanceSweepSurplusLots;
   balanceSweepTargets: typeof balanceSweepTargets;
+  balanceSweepWalletBalanceEvents: typeof balanceSweepWalletBalanceEvents;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
   earnForecastSnapshots: typeof earnForecastSnapshots;
@@ -675,9 +764,12 @@ export class YieldOptimizationClient {
   readonly db: YieldOptimizationDatabase;
   readonly tables: YieldOptimizationClientTables = {
     balanceSweepExecutions,
+    balanceSweepLotClaimItems,
+    balanceSweepLotClaims,
     balanceSweepPolicies,
     balanceSweepSurplusLots,
     balanceSweepTargets,
+    balanceSweepWalletBalanceEvents,
     balanceSweepWalletBalancesCurrent,
     earnApyHourlySnapshots,
     earnForecastSnapshots,

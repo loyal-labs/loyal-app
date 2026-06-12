@@ -1384,6 +1384,8 @@ async function postConfirmedEarnPolicySetup(args: {
 }
 
 async function postConfirmedEarnWithdraw(args: {
+  autodepositCloseConfirmedSlot?: string;
+  autodepositCloseSignature?: string;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
   signature: string;
   confirmedSlot: string;
@@ -1984,20 +1986,61 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
   };
 }
 
+const CONFIRMED_SIGNATURE_SLOT_ATTEMPTS = 10;
+const CONFIRMED_SIGNATURE_SLOT_RETRY_MS = 350;
+
+function waitForConfirmedSignatureSlotRetry(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 async function resolveConfirmedSignatureSlot(args: {
   connection: Connection;
   signature: string;
 }): Promise<string> {
-  const { value } = await args.connection.getSignatureStatuses([
-    args.signature,
-  ]);
-  const slot = value[0]?.slot;
+  let lastStatus: string | null = null;
 
-  if (typeof slot !== "number") {
-    throw new Error("Confirmed transaction slot is unavailable.");
+  for (
+    let attempt = 0;
+    attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS;
+    attempt += 1
+  ) {
+    const { value } = await args.connection.getSignatureStatuses(
+      [args.signature],
+      { searchTransactionHistory: true }
+    );
+    const status = value[0] ?? null;
+    const slot = status?.slot;
+
+    if (typeof slot === "number") {
+      return String(slot);
+    }
+
+    lastStatus =
+      status?.confirmationStatus ??
+      (status ? "status_without_slot" : "missing_status");
+
+    const transaction = await args.connection.getTransaction(args.signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    if (typeof transaction?.slot === "number") {
+      return String(transaction.slot);
+    }
+
+    if (attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS - 1) {
+      await waitForConfirmedSignatureSlotRetry(
+        CONFIRMED_SIGNATURE_SLOT_RETRY_MS
+      );
+    }
   }
 
-  return String(slot);
+  throw new Error(
+    `Confirmed transaction slot is unavailable${
+      lastStatus ? ` (${lastStatus})` : ""
+    }.`
+  );
 }
 
 async function decompileVersionedTransaction(args: {
@@ -4378,6 +4421,59 @@ export function useSmartAccountSidebarData(
             amountRaw: request.amountRaw,
             mode: request.mode,
           }));
+
+        const autodepositClosePrepared =
+          preparedWithdraw.autodepositClosePrepared ?? null;
+        let autodepositCloseSignature: string | undefined;
+        let autodepositCloseConfirmedSlot: string | undefined;
+
+        if (autodepositClosePrepared) {
+          const closeSendResult = await sendPreparedEarnWithClusterPreflight({
+            expectedCluster: expectedEarnCluster,
+            operation: "autodeposit close",
+            preparedCluster: autodepositClosePrepared.persistence.cluster,
+            send: () =>
+              sendPreparedWithWallet({
+                connection,
+                wallet: walletBridge,
+                prepared: autodepositClosePrepared.prepared,
+                confirm: true,
+              }),
+          });
+          if (!closeSendResult.success) {
+            return closeSendResult;
+          }
+          autodepositCloseSignature = closeSendResult.signature;
+          autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
+            connection,
+            signature: autodepositCloseSignature,
+          });
+          try {
+            await postConfirmedEarnAutodepositClose({
+              preparedClose: autodepositClosePrepared,
+              signature: autodepositCloseSignature,
+              confirmedSlot: autodepositCloseConfirmedSlot,
+            });
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+          } catch (error) {
+            return {
+              success: false,
+              signature: autodepositCloseSignature,
+              confirmedSlot: autodepositCloseConfirmedSlot,
+              status: "confirmation_record_failed",
+              mode: request.mode,
+              amountRaw: request.amountRaw.toString(),
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to record confirmed Autodeposit close.",
+            };
+          }
+        }
+
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "withdrawal",
@@ -4401,6 +4497,8 @@ export function useSmartAccountSidebarData(
 
         try {
           await postConfirmedEarnWithdraw({
+            autodepositCloseConfirmedSlot,
+            autodepositCloseSignature,
             preparedWithdraw,
             signature,
             confirmedSlot,
@@ -4800,10 +4898,7 @@ export function useSmartAccountSidebarData(
   );
 
   const isLoading =
-    isBaseLoading ||
-    isVaultsLoading ||
-    isPoliciesLoading ||
-    isProposalsLoading;
+    isBaseLoading || isVaultsLoading || isPoliciesLoading || isProposalsLoading;
 
   return {
     overview,

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { STABLECOIN_MINTS, Stablecoin } from "@loyal/actions";
+import {
+  STABLECOIN_MINTS,
+  Stablecoin,
+  SUBSCRIPTIONS_PROGRAM_ID,
+} from "@loyal/actions";
 import {
   generated,
   Policy,
@@ -23,6 +27,10 @@ const walletAddress = new PublicKey("11111111111111111111111111111113");
 const feePayer = walletAddress;
 const backendSigner = new PublicKey("11111111111111111111111111111119");
 const policyAccount = new PublicKey("11111111111111111111111111111117");
+const autodepositPolicyAccount = new PublicKey(
+  "1111111111111111111111111111111A"
+);
+const recurringDelegation = new PublicKey("1111111111111111111111111111111B");
 const kaminoProgram = new PublicKey(
   "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 );
@@ -85,9 +93,9 @@ function mockKaminoDepositInstruction() {
               { address: kaminoProgram.toBase58(), role: "READONLY" },
               { address: SystemProgram.programId.toBase58(), role: "READONLY" },
             ],
-            data: Buffer.from([
-              117, 169, 176, 69, 197, 23, 15, 162,
-            ]).toString("base64"),
+            data: Buffer.from([117, 169, 176, 69, 197, 23, 15, 162]).toString(
+              "base64"
+            ),
             programAddress: kaminoProgram.toBase58(),
           },
           {
@@ -114,8 +122,7 @@ function mockKaminoDepositInstruction() {
               { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
             ],
             data: Buffer.from([
-              216, 224, 191, 27, 204, 151, 102, 175, 64, 66, 15, 0, 0, 0, 0,
-              0,
+              216, 224, 191, 27, 204, 151, 102, 175, 64, 66, 15, 0, 0, 0, 0, 0,
             ]).toString("base64"),
             programAddress: kaminoProgram.toBase58(),
           },
@@ -142,9 +149,7 @@ function mockKaminoWithdrawInstruction(
       JSON.parse((init.body as string) ?? "{}").amount
     );
     const instructionData = Buffer.alloc(16);
-    Buffer.from([
-      235, 52, 119, 152, 149, 197, 20, 7,
-    ]).copy(instructionData, 0);
+    Buffer.from([235, 52, 119, 152, 149, 197, 20, 7]).copy(instructionData, 0);
     instructionData.writeBigUInt64LE(amountRaw, 8);
     const reserveCollateralMint = kaminoReserveCollateralMint;
     const vaultCollateralAta = getAssociatedTokenAddressSync(
@@ -382,10 +387,9 @@ function expectPolicyCreateSigner(
   expectedSigner: PublicKey
 ) {
   expect(instruction).toBeDefined();
-  const [decoded] =
-    generated.executeSettingsTransactionSyncStruct.deserialize(
-      Buffer.from(instruction!.data)
-    );
+  const [decoded] = generated.executeSettingsTransactionSyncStruct.deserialize(
+    Buffer.from(instruction!.data)
+  );
   const policyCreate = decoded.args.actions.find(
     (action) => action.__kind === "PolicyCreate"
   );
@@ -782,7 +786,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       value: {
         accounts: [
           {
-            data: [createSimulatedTokenAccountData(BigInt(1_000_002)), "base64"],
+            data: [
+              createSimulatedTokenAccountData(BigInt(1_000_002)),
+              "base64",
+            ],
           },
         ],
         err: null,
@@ -816,23 +823,32 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
 
     expect(result.prepared.instructions).toHaveLength(5);
+    const simulateOptions = (
+      simulateTransaction.mock.calls[0] as unknown[]
+    )?.[1];
+    expect(simulateOptions).toMatchObject({
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const fetchCalls = fetchMock.mock.calls as unknown as Array<
       [unknown, RequestInit]
     >;
-    expect(
-      JSON.parse((fetchCalls[0]?.[1].body as string) ?? "{}").amount
-    ).toBe("1");
-    expect(
-      JSON.parse((fetchCalls[1]?.[1].body as string) ?? "{}").amount
-    ).toBe("1.000001");
+    expect(JSON.parse((fetchCalls[0]?.[1].body as string) ?? "{}").amount).toBe(
+      "1"
+    );
+    expect(JSON.parse((fetchCalls[1]?.[1].body as string) ?? "{}").amount).toBe(
+      "1.000001"
+    );
     expect(getTokenAccountBalance).toHaveBeenCalledTimes(2);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
     );
-    expect(result.prepared.instructions.slice(1).map((instruction) =>
-      instruction.programId.toBase58()
-    )).toEqual([
+    expect(
+      result.prepared.instructions
+        .slice(1)
+        .map((instruction) => instruction.programId.toBase58())
+    ).toEqual([
       programId.toBase58(),
       programId.toBase58(),
       programId.toBase58(),
@@ -851,18 +867,182 @@ describe("prepareEarnUsdcWithdraw", () => {
       deriveVaultUsdcAta(),
       { isWritable: true }
     );
-    expectInstructionAccountMeta(result.prepared.instructions[3], walletAddress, {
-      isWritable: true,
-    });
-    expectInstructionAccountMeta(result.prepared.instructions[3], deriveVault(), {
-      isWritable: true,
-    });
+    expectInstructionAccountMeta(
+      result.prepared.instructions[3],
+      walletAddress,
+      {
+        isWritable: true,
+      }
+    );
+    expectInstructionAccountMeta(
+      result.prepared.instructions[3],
+      deriveVault(),
+      {
+        isWritable: true,
+      }
+    );
     expectInstructionAccountMeta(
       result.prepared.instructions[4],
       result.policy.account,
       { isWritable: true }
     );
     expect(result.mode).toBe("full");
+    expect(result.persistence).toMatchObject({
+      mode: "full",
+      kaminoWithdrawAmountRaw: "1000001",
+      vaultCollateralCleanupIncluded: true,
+      vaultUsdcRemainderRaw: "1",
+      walletTransferAmountRaw: "1000002",
+      withdrawnAmountRaw: "1000000",
+    });
+  });
+
+  test("splits autodeposit teardown from full withdraws", async () => {
+    const fetchMock = mockKaminoWithdrawInstruction();
+    const vaultCollateralAta = getAssociatedTokenAddressSync(
+      kaminoReserveCollateralMint,
+      deriveVault(),
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const getTokenAccountBalance = mock(async (account: PublicKey) => {
+      if (account.equals(vaultCollateralAta)) {
+        return {
+          context: { slot: 1 },
+          value: {
+            amount: "200",
+            decimals: 6,
+            uiAmount: 0.0002,
+            uiAmountString: "0.0002",
+          },
+        };
+      }
+      expect(account.toBase58()).toBe(deriveVaultUsdcAta().toBase58());
+      return {
+        context: { slot: 1 },
+        value: {
+          amount: "1",
+          decimals: 6,
+          uiAmount: 0.000001,
+          uiAmountString: "0.000001",
+        },
+      };
+    });
+    const getAccountInfo = mock(async (account: PublicKey) => {
+      if (account.equals(kaminoReserve)) {
+        return createSerializedKaminoReserveAccount({
+          collateralSupplyRaw: BigInt(100),
+          liquidityAvailableAmountRaw: BigInt(500_001),
+        });
+      }
+      if (account.equals(vaultCollateralAta)) {
+        return {
+          data: createTokenAccountData({
+            amountRaw: BigInt(0),
+            mint: kaminoReserveCollateralMint,
+            owner: deriveVault(),
+          }),
+          executable: false,
+          lamports: 1,
+          owner: TOKEN_PROGRAM_ID,
+          rentEpoch: 0,
+        };
+      }
+      return createSerializedEarnPolicyAccount();
+    });
+    const simulateTransaction = mock(async () => ({
+      value: {
+        accounts: [
+          {
+            data: [
+              createSimulatedTokenAccountData(BigInt(1_000_002)),
+              "base64",
+            ],
+          },
+        ],
+        err: null,
+        logs: [],
+      },
+    }));
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getLatestBlockhash: mock(async () => ({
+          blockhash: "11111111111111111111111111111111",
+          lastValidBlockHeight: 1,
+        })),
+        getTokenAccountBalance,
+        simulateTransaction,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      autodepositClose: {
+        policy: autodepositPolicyAccount,
+        recurringDelegation,
+      },
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      mode: "full",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.autodepositClosePrepared?.prepared.instructions).toHaveLength(
+      2
+    );
+    expect(
+      result.autodepositClosePrepared?.prepared.instructions[0]?.programId.toBase58()
+    ).toBe(SUBSCRIPTIONS_PROGRAM_ID.toBase58());
+    expect(
+      result.autodepositClosePrepared?.prepared.instructions[1]?.programId.toBase58()
+    ).toBe(programId.toBase58());
+    expectInstructionAccountMeta(
+      result.autodepositClosePrepared!.prepared.instructions[1],
+      autodepositPolicyAccount,
+      { isWritable: true }
+    );
+    expect(result.prepared.instructions).toHaveLength(5);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
+    );
+    expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
+      programId.toBase58()
+    );
+    expect(
+      result.prepared.instructions
+        .slice(1)
+        .map((instruction) => instruction.programId.toBase58())
+    ).toEqual([
+      programId.toBase58(),
+      programId.toBase58(),
+      programId.toBase58(),
+      programId.toBase58(),
+    ]);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[2]);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
+    expectInstructionAccountMeta(
+      result.prepared.instructions[4],
+      result.policy.account,
+      { isWritable: true }
+    );
+    expect(result.persistence.autodepositClose).toMatchObject({
+      cluster: "mainnet-beta",
+      delegatedSigner: backendSigner.toBase58(),
+      policyAccount: autodepositPolicyAccount.toBase58(),
+      recurringDelegation: recurringDelegation.toBase58(),
+      settings: settingsPda.toBase58(),
+      vaultIndex: 1,
+      walletAddress: walletAddress.toBase58(),
+    });
     expect(result.persistence).toMatchObject({
       mode: "full",
       kaminoWithdrawAmountRaw: "1000001",
@@ -1069,9 +1249,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
       signer: walletAddress,
       policySigner: backendSigner,
       policy: policyAccount,
-      recurringDelegation: new PublicKey(
-        "11111111111111111111111111111116"
-      ),
+      recurringDelegation: new PublicKey("11111111111111111111111111111116"),
     });
 
     expect(result.prepared.instructions).toHaveLength(2);
@@ -1100,9 +1278,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
       walletAddress,
       feePayer,
       policySigner: backendSigner,
-      recurringDelegation: new PublicKey(
-        "11111111111111111111111111111116"
-      ),
+      recurringDelegation: new PublicKey("11111111111111111111111111111116"),
       amountRaw: BigInt(100_000),
     });
 
@@ -1112,9 +1288,13 @@ describe("prepareEarnUsdcAutodeposit", () => {
       backendSigner,
       { isSigner: true }
     );
-    expectInstructionAccountMeta(result.prepared.instructions[0], deriveVault(), {
-      isSigner: false,
-    });
+    expectInstructionAccountMeta(
+      result.prepared.instructions[0],
+      deriveVault(),
+      {
+        isSigner: false,
+      }
+    );
     expect(result.persistence).toMatchObject({
       amountRaw: "100000",
       delegatedSigner: backendSigner.toBase58(),

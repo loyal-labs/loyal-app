@@ -110,7 +110,9 @@ export function serializeAutodepositState(
     policyAccount: autodeposit.policy.policyAccount,
     policySeed: autodeposit.policy.policySeed.toString(),
     recurringDelegation: autodeposit.target.recurringDelegation,
-    scheduledSweeps: autodeposit.scheduledSweeps.map(serializeScheduledSweep),
+    scheduledSweeps: (autodeposit.scheduledSweeps ?? []).map(
+      serializeScheduledSweep
+    ),
     startTimestamp:
       autodeposit.target.startTimestamp?.toString() ??
       Math.floor(autodeposit.target.firstSeenAt.getTime() / 1000).toString(),

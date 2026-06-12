@@ -1,5 +1,5 @@
 {
-  "name": "@loyal/actions",
+  "name": "@loyal-labs/actions",
   "version": "0.1.0",
   "type": "module",
   "description": "Unsigned Loyal yield-route action instruction builders.",
@@ -29,7 +29,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@loyal-labs/solana-rpc": "workspace:*",
+    "@loyal-labs/solana-rpc": "^0.1.1",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {

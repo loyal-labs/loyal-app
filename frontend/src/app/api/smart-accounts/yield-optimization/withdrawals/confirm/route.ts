@@ -13,6 +13,7 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnWithdrawalConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   recordConfirmedYieldWithdrawal,
   type ConfirmedYieldWithdrawalInput,
@@ -130,6 +131,11 @@ function createCanonicalWithdrawalInput(
     canonicalInput.vaultPubkey,
     "vaultPubkey"
   );
+  if (requestInput.mode !== "full" && requestInput.autodepositClose) {
+    throw new Error(
+      "autodepositClose can only be confirmed with full withdrawals."
+    );
+  }
 
   return canonicalInput;
 }
@@ -154,6 +160,7 @@ function getConnection(cluster: SolanaEnv): Connection {
 
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
+  operation: "autodeposit close" | "withdrawal";
   signature: string;
 }): Promise<bigint> {
   const { value } = await getConnection(args.cluster).getSignatureStatuses(
@@ -163,18 +170,20 @@ async function resolveConfirmedSignatureSlot(args: {
   const status = value[0];
 
   if (!status || status.err) {
-    throw new Error("Withdrawal transaction is not confirmed.");
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
   if (
     status.confirmationStatus !== "confirmed" &&
     status.confirmationStatus !== "finalized"
   ) {
-    throw new Error("Withdrawal transaction is not confirmed.");
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
   if (typeof status.slot !== "number") {
-    throw new Error("Confirmed transaction slot is unavailable.");
+    throw new Error(
+      `Confirmed ${args.operation} transaction slot is unavailable.`
+    );
   }
 
   return BigInt(status.slot);
@@ -263,6 +272,7 @@ export async function POST(request: Request) {
   try {
     confirmedSlot = await resolveConfirmedSignatureSlot({
       cluster: solanaEnv,
+      operation: "withdrawal",
       signature: input.withdrawalSignature,
     });
   } catch (error) {
@@ -281,6 +291,48 @@ export async function POST(request: Request) {
       "slot_mismatch",
       "Confirmed yield withdrawal slot does not match the transaction status."
     );
+  }
+
+  if (input.mode === "full" && input.autodepositClose) {
+    let autodepositCloseConfirmedSlot: bigint;
+    try {
+      autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
+        cluster: solanaEnv,
+        operation: "autodeposit close",
+        signature: input.autodepositClose.closeSignature,
+      });
+    } catch (error) {
+      return jsonError(
+        400,
+        "unconfirmed_autodeposit_close_signature",
+        error instanceof Error
+          ? error.message
+          : "Autodeposit close transaction is not confirmed."
+      );
+    }
+
+    if (
+      input.autodepositClose.confirmedSlot !== autodepositCloseConfirmedSlot
+    ) {
+      return jsonError(
+        400,
+        "autodeposit_close_slot_mismatch",
+        "Confirmed autodeposit close slot does not match the transaction status."
+      );
+    }
+
+    await recordClosedAutodepositTarget({
+      cluster: input.cluster,
+      closeSignature: input.autodepositClose.closeSignature,
+      confirmedSlot: input.autodepositClose.confirmedSlot,
+      delegatedSigner: input.autodepositClose.delegatedSigner,
+      policyAccount: input.autodepositClose.policyAccount,
+      recurringDelegation: input.autodepositClose.recurringDelegation,
+      settings: input.settings,
+      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+      vaultPubkey: input.vaultPubkey,
+      walletAddress: input.walletAddress,
+    });
   }
 
   const position = await recordConfirmedYieldWithdrawal(input);

@@ -9,9 +9,12 @@ import type {
 } from "./earn-autodeposit-prepare-contracts.shared";
 import {
   balanceSweepExecutions,
+  balanceSweepLotClaimItems,
+  balanceSweepLotClaims,
   balanceSweepPolicies,
   balanceSweepSurplusLots,
   balanceSweepTargets,
+  balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
   getYieldOptimizationClient,
   type YieldOptimizationClient,
@@ -146,6 +149,104 @@ async function findTargetByPolicy(args: {
     .limit(1);
 
   return target ?? null;
+}
+
+export async function cancelScheduledAutodepositTransactionsForClose(args: {
+  client: YieldOptimizationClient;
+  targetId: bigint;
+  now: Date;
+}) {
+  await args.client.db.execute(sql`
+    WITH scheduled_slots AS (
+      SELECT DISTINCT event.observed_slot
+      FROM ${balanceSweepSurplusLots} lot
+      INNER JOIN ${balanceSweepWalletBalanceEvents} event
+        ON event.event_id = lot.source_event_id
+      WHERE lot.target_id = ${args.targetId}
+        AND lot.status IN ('open', 'selected')
+        AND lot.remaining_amount_raw > 0
+      UNION
+      SELECT DISTINCT event.observed_slot
+      FROM ${balanceSweepLotClaims} claim
+      INNER JOIN ${balanceSweepLotClaimItems} item
+        ON item.claim_token = claim.claim_token
+      INNER JOIN ${balanceSweepSurplusLots} lot
+        ON lot.id = item.lot_id
+      INNER JOIN ${balanceSweepWalletBalanceEvents} event
+        ON event.event_id = lot.source_event_id
+      WHERE claim.target_id = ${args.targetId}
+        AND claim.status = 'selected'
+    ),
+    scoped_lots AS (
+      SELECT lot.id
+      FROM ${balanceSweepSurplusLots} lot
+      INNER JOIN ${balanceSweepWalletBalanceEvents} event
+        ON event.event_id = lot.source_event_id
+      INNER JOIN scheduled_slots
+        ON scheduled_slots.observed_slot = event.observed_slot
+      WHERE lot.target_id = ${args.targetId}
+    ),
+    selected_claims AS (
+      SELECT ${balanceSweepLotClaims.claimToken} AS claim_token
+      FROM ${balanceSweepLotClaims}
+      WHERE ${balanceSweepLotClaims.targetId} = ${args.targetId}
+        AND ${balanceSweepLotClaims.status} = 'selected'
+        AND EXISTS (
+          SELECT 1
+          FROM ${balanceSweepLotClaimItems} scoped_item
+          INNER JOIN scoped_lots
+            ON scoped_lots.id = scoped_item.lot_id
+          WHERE scoped_item.claim_token = ${balanceSweepLotClaims.claimToken}
+        )
+    ),
+    restored_amounts AS (
+      SELECT
+        ${balanceSweepLotClaimItems.lotId} AS lot_id,
+        SUM(${balanceSweepLotClaimItems.amountRaw})::bigint AS amount_raw
+      FROM ${balanceSweepLotClaimItems}
+      INNER JOIN selected_claims
+        ON selected_claims.claim_token = ${balanceSweepLotClaimItems.claimToken}
+      GROUP BY ${balanceSweepLotClaimItems.lotId}
+    ),
+    restored_lots AS (
+      UPDATE ${balanceSweepSurplusLots}
+      SET
+        remaining_amount_raw = ${balanceSweepSurplusLots.remainingAmountRaw} + restored_amounts.amount_raw,
+        status = CASE
+          WHEN ${balanceSweepSurplusLots.status} = 'suppressed'
+            THEN ${balanceSweepSurplusLots.status}
+          ELSE 'open'::loyal_yield.balance_sweep_surplus_lot_status
+        END,
+        updated_at = ${args.now}
+      FROM restored_amounts
+      WHERE ${balanceSweepSurplusLots.id} = restored_amounts.lot_id
+        AND ${balanceSweepSurplusLots.targetId} = ${args.targetId}
+        AND ${balanceSweepSurplusLots.id} IN (
+          SELECT id FROM scoped_lots
+        )
+      RETURNING ${balanceSweepSurplusLots.id}
+    ),
+    released_claims AS (
+      UPDATE ${balanceSweepLotClaims}
+      SET
+        status = 'released',
+        updated_at = ${args.now}
+      WHERE ${balanceSweepLotClaims.claimToken} IN (
+        SELECT claim_token FROM selected_claims
+      )
+      RETURNING ${balanceSweepLotClaims.claimToken}
+    )
+    UPDATE ${balanceSweepSurplusLots}
+    SET
+      status = 'suppressed',
+      updated_at = ${args.now}
+    WHERE ${balanceSweepSurplusLots.targetId} = ${args.targetId}
+      AND ${balanceSweepSurplusLots.id} IN (
+        SELECT id FROM scoped_lots
+      )
+      AND ${balanceSweepSurplusLots.status} IN ('open', 'selected')
+      AND ${balanceSweepSurplusLots.remainingAmountRaw} > 0
+  `);
 }
 
 export async function findCurrentEarnAutodepositState(
@@ -779,8 +880,19 @@ export async function recordClosedAutodepositTarget(
     existing.closeSlot !== null &&
     existing.closeSlot >= input.confirmedSlot
   ) {
+    await cancelScheduledAutodepositTransactionsForClose({
+      client,
+      now,
+      targetId: existing.id,
+    });
     return existing;
   }
+
+  await cancelScheduledAutodepositTransactionsForClose({
+    client,
+    now,
+    targetId: existing.id,
+  });
 
   await client.db
     .update(balanceSweepPolicies)

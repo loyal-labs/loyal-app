@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { resolveLoyalClusterForSolanaEnv } from "@loyal/actions";
+import {
+  getKaminoUsdcEarnTargetForCluster,
+  resolveLoyalClusterForSolanaEnv,
+} from "@loyal/actions";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -14,7 +17,11 @@ import {
   serializePreparedEarnUsdcWithdraw,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { findActiveYieldRoutePolicy } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  findActiveYieldPosition,
+  findActiveYieldRoutePolicy,
+} from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
@@ -73,6 +80,7 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
+  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
   const policy = await findActiveYieldRoutePolicy({
     authority: principal.walletAddress,
     cluster,
@@ -94,6 +102,35 @@ export async function POST(request: Request) {
     );
   }
 
+  const effectiveAmountRaw =
+    mode === "full"
+      ? await (async () => {
+          const position = await findActiveYieldPosition({
+            cluster,
+            initialReserve: earnTarget.reserve.toBase58(),
+            settings: principal.settingsPda,
+            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
+          });
+
+          return position?.principalAmountRaw ?? null;
+        })()
+      : amountRaw;
+
+  if (effectiveAmountRaw === null) {
+    console.warn("[earn-withdraw-prepare] missing active Earn position", {
+      cluster,
+      settings: principal.settingsPda,
+      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+      walletAddress: principal.walletAddress,
+    });
+    return jsonError(
+      409,
+      "missing_earn_position",
+      "No active Earn position was found for this full withdrawal."
+    );
+  }
+
   try {
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
@@ -105,16 +142,60 @@ export async function POST(request: Request) {
       account: new PublicKey(policy.policyAccount),
       seed: policy.policySeed,
     };
-    const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
-      amountRaw,
+    const autodepositState =
+      mode === "full"
+        ? await findCurrentEarnAutodepositState({
+            settings: principal.settingsPda,
+            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
+          })
+        : null;
+    const autodepositClose =
+      autodepositState?.policy.policyAccount &&
+      autodepositState.target.recurringDelegation
+        ? {
+            policy: new PublicKey(autodepositState.policy.policyAccount),
+            recurringDelegation: new PublicKey(
+              autodepositState.target.recurringDelegation
+            ),
+          }
+        : undefined;
+
+    if (mode === "full" && autodepositState && !autodepositClose) {
+      console.warn(
+        "[earn-withdraw-prepare] active autodeposit state is missing close metadata",
+        {
+          cluster,
+          policyAccount: autodepositState.policy.policyAccount,
+          recurringDelegation: autodepositState.target.recurringDelegation,
+          settings: principal.settingsPda,
+          targetId: autodepositState.target.id.toString(),
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          walletAddress: principal.walletAddress,
+        }
+      );
+    }
+
+    const withdrawInput = {
+      amountRaw: effectiveAmountRaw,
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
-      mode,
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
       yieldRoutingPolicy,
-    });
+    };
+    const preparedWithdraw =
+      mode === "full"
+        ? await client.prepareEarnUsdcWithdraw({
+            ...withdrawInput,
+            ...(autodepositClose ? { autodepositClose } : {}),
+            mode,
+          })
+        : await client.prepareEarnUsdcWithdraw({
+            ...withdrawInput,
+            mode,
+          });
 
     return NextResponse.json({
       preparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
@@ -122,6 +203,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[earn-withdraw-prepare] prepare failed", {
       amountRaw: amountRaw.toString(),
+      effectiveAmountRaw: effectiveAmountRaw.toString(),
       cluster,
       errorMessage:
         error instanceof Error ? error.message : "Unknown prepare error.",

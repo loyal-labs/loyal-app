@@ -287,7 +287,11 @@ export function useActiveEarnPosition({
           return;
         }
         setPositionState((current) => {
-          if (!isActiveEarnPosition(fresh) && isActiveEarnPosition(current)) {
+          if (
+            fresh !== null &&
+            !isActiveEarnPosition(fresh) &&
+            isActiveEarnPosition(current)
+          ) {
             return current;
           }
 
