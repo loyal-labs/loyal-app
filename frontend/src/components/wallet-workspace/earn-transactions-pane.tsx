@@ -373,7 +373,25 @@ function EarnTransactionRow({
       type="button"
     >
       <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-        <CompoundIcon isWithdraw={item.kind === "withdraw"} />
+        {item.kind === "autodeposit_action" ? (
+          // Allowance create/remove moves no funds, so a single Earn coin
+          // reads better than the USDC <-> Kamino flow pair. Clipped round
+          // to match the other transaction icons.
+          <span
+            style={{
+              borderRadius: "9999px",
+              display: "inline-flex",
+              flexShrink: 0,
+              height: "48px",
+              overflow: "hidden",
+              width: "48px",
+            }}
+          >
+            <EarnYieldIcon />
+          </span>
+        ) : (
+          <CompoundIcon isWithdraw={item.kind === "withdraw"} />
+        )}
       </span>
       <span
         style={{
