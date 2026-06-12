@@ -282,7 +282,7 @@ describe("Earn autodeposit load state", () => {
 
   test("earn-state serializes active autodeposit metadata", async () => {
     const { serializeAutodepositState } = await import(
-      "@/app/api/smart-accounts/yield-optimization/earn-state/route"
+      "@/lib/yield-optimization/earn-state-serializers.server"
     );
     const policy = createRecord({ id: BigInt(7) });
     const target = createRecord({
@@ -313,7 +313,7 @@ describe("Earn autodeposit load state", () => {
 
   test("earn-state serializes pending autodeposit metadata", async () => {
     const { serializeAutodepositState } = await import(
-      "@/app/api/smart-accounts/yield-optimization/earn-state/route"
+      "@/lib/yield-optimization/earn-state-serializers.server"
     );
     const policy = createRecord({ id: BigInt(7) });
     const target = createRecord({
@@ -340,7 +340,7 @@ describe("Earn autodeposit load state", () => {
 
   test("earn-state serializes paused autodeposit metadata", async () => {
     const { serializeAutodepositState } = await import(
-      "@/app/api/smart-accounts/yield-optimization/earn-state/route"
+      "@/lib/yield-optimization/earn-state-serializers.server"
     );
     const policy = createRecord({ id: BigInt(7) });
     const target = createRecord({
