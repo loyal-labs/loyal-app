@@ -296,9 +296,9 @@ async function pollForLanding(
   const start = Date.now();
 
   while (Date.now() - start < maxWallClockMs) {
-    let status: Awaited<
-      ReturnType<Connection["getSignatureStatuses"]>
-    >["value"][number] = null;
+    let status:
+      | Awaited<ReturnType<Connection["getSignatureStatuses"]>>["value"][number]
+      | undefined = null;
     try {
       const res = await connection.getSignatureStatuses([signature], {
         searchTransactionHistory: true,
@@ -320,15 +320,20 @@ async function pollForLanding(
     // If the blockhash is past its validity window AND no status has
     // ever been recorded for the signature, the tx is definitively
     // dropped. Bail early so callers can surface a real error.
+    let currentHeight: number | null = null;
     try {
-      const currentHeight = await connection.getBlockHeight(commitment);
-      if (currentHeight > lastValidBlockHeight && !status) {
-        throw new Error(
-          `Transaction dropped: ${signature} (blockhash expired without landing)`,
-        );
-      }
+      currentHeight = await connection.getBlockHeight(commitment);
     } catch {
       // ignore height-check errors; fall through to next poll
+    }
+    if (
+      currentHeight !== null &&
+      currentHeight > lastValidBlockHeight &&
+      !status
+    ) {
+      throw new Error(
+        `Transaction dropped: ${signature} (blockhash expired without landing)`
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -407,11 +412,17 @@ export async function sendAndConfirmWithDiagnostics(params: {
 
   let signature: string;
   try {
-    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    const sendOptions: Parameters<Connection["sendRawTransaction"]>[1] = {
       skipPreflight: rpcOptions?.skipPreflight ?? false,
       preflightCommitment,
-      maxRetries: rpcOptions?.maxRetries ?? 3,
-    });
+    };
+    if (rpcOptions?.maxRetries !== undefined) {
+      sendOptions.maxRetries = rpcOptions.maxRetries;
+    }
+    signature = await connection.sendRawTransaction(
+      signedTx.serialize(),
+      sendOptions
+    );
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,

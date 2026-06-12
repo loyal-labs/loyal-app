@@ -3063,12 +3063,13 @@ async function pollForLanding(connection, signature, lastValidBlockHeight, commi
     if (meetsCommitment(status?.confirmationStatus, commitment)) {
       return signature;
     }
+    let currentHeight = null;
     try {
-      const currentHeight = await connection.getBlockHeight(commitment);
-      if (currentHeight > lastValidBlockHeight && !status) {
-        throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
-      }
+      currentHeight = await connection.getBlockHeight(commitment);
     } catch {}
+    if (currentHeight !== null && currentHeight > lastValidBlockHeight && !status) {
+      throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
+    }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
   throw new Error(`Transaction confirmation timed out after 90s: ${signature}`);
@@ -3098,11 +3099,14 @@ async function sendAndConfirmWithDiagnostics(params) {
   }
   let signature;
   try {
-    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    const sendOptions = {
       skipPreflight: rpcOptions?.skipPreflight ?? false,
-      preflightCommitment,
-      maxRetries: rpcOptions?.maxRetries ?? 3
-    });
+      preflightCommitment
+    };
+    if (rpcOptions?.maxRetries !== undefined) {
+      sendOptions.maxRetries = rpcOptions.maxRetries;
+    }
+    signature = await connection.sendRawTransaction(signedTx.serialize(), sendOptions);
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
