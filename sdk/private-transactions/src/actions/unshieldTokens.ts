@@ -31,7 +31,6 @@ import {
   type LabeledTransactionPlan,
 } from "./shieldTokens";
 import { sendPlannedUndelegateDepositTransaction } from "./undelegateDeposit";
-import { undelegatePermissionIx } from "../instructions/undelegatePermission";
 
 export type UnshieldTokensInstructionPlan = {
   instructions: LabeledTransactionInstruction[];
@@ -177,7 +176,7 @@ export async function buildUnshieldTokensInstructionPlan(params: {
       permissionAccountInfo.data.length > 0
     ) {
       // Close permissions
-      const closePermissionIxs = await closePermissionIx({ user, tokenMint });
+      const closePermissionIxs = closePermissionIx({ user, tokenMint });
       instructions.push({
         label: "closePermission",
         ix: closePermissionIxs.ix,

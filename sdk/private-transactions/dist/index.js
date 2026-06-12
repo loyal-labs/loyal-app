@@ -3632,7 +3632,7 @@ async function closeDepositIx(program, params) {
 import {
   createClosePermissionInstruction
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-async function closePermissionIx(params) {
+function closePermissionIx(params) {
   const { user, tokenMint } = params;
   const [depositPda] = findDepositPda(user, tokenMint);
   const [permissionPda] = findPermissionPda(depositPda);
