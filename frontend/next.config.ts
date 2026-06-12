@@ -25,6 +25,11 @@ function getGitInfo() {
 const { commitHash, branch } = getGitInfo();
 
 const nextConfig: NextConfig = {
+  compiler: {
+    removeConsole: {
+      exclude: ["error"],
+    },
+  },
   transpilePackages: ["@loyal-labs/shared"],
   env: {
     NEXT_PUBLIC_GIT_COMMIT_HASH: commitHash,

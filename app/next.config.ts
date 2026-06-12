@@ -33,6 +33,11 @@ const mixpanelProxyPath = mixpanelProxyPathRaw
   : "/ingest";
 
 const nextConfig: NextConfig = {
+  compiler: {
+    removeConsole: {
+      exclude: ["error"],
+    },
+  },
   turbopack: {
     root: path.resolve(__dirname, ".."),
   },
