@@ -354,6 +354,7 @@ function EarnPortfolioRow({
 function AutodepositStatusCard({
   amountLabel,
   depositedLabel,
+  isBalanceHidden = false,
   isConfigured = false,
   isError = false,
   isLoading = false,
@@ -364,6 +365,7 @@ function AutodepositStatusCard({
 }: {
   amountLabel?: string;
   depositedLabel?: string;
+  isBalanceHidden?: boolean;
   isConfigured?: boolean;
   isError?: boolean;
   isLoading?: boolean;
@@ -454,17 +456,26 @@ function AutodepositStatusCard({
               </span>
               <span
                 style={{
-                  color: "#000",
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   fontFamily: font,
                   fontSize: "20px",
                   fontWeight: 600,
                   letterSpacing: "-0.22px",
                   lineHeight: "24px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
                   whiteSpace: "nowrap",
                 }}
               >
                 {depositedWhole}
-                <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>
+                <span
+                  style={{
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
+                  }}
+                >
                   .{depositedFraction ?? "00"} out of {amountLabel ?? "$0.00"}
                 </span>
               </span>
@@ -1700,6 +1711,7 @@ export function PortfolioContent({
             <AutodepositStatusCard
               amountLabel={autodepositAmountLabel}
               depositedLabel={autodepositDepositedLabel}
+              isBalanceHidden={isBalanceHidden}
               isConfigured={isAutodepositConfigured}
               isError={hasEarnStateLoadError}
               isLoading={isEarnStateLoading}

@@ -1619,6 +1619,7 @@ function getScheduledSweepSourceLabel(classification: string): string {
 function AutodepositCard({
   amountLabel,
   floorLabel,
+  isBalanceHidden = false,
   isConfigured = false,
   scheduledSweeps = [],
   state = "idle",
@@ -1627,6 +1628,7 @@ function AutodepositCard({
 }: {
   amountLabel?: string;
   floorLabel?: string;
+  isBalanceHidden?: boolean;
   isConfigured?: boolean;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   state?: "closing" | "created" | "creating" | "idle" | "paused";
@@ -1643,6 +1645,9 @@ function AutodepositCard({
       : state === "paused"
       ? "Paused"
       : `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`;
+  // Only the configured "Up to $X/mo above $Y" status carries balance numbers;
+  // the creating/closing/paused statuses are plain text and must not blur.
+  const statusLabelHasAmount = !isBusy && state !== "paused";
 
   if (isConfigured) {
     return (
@@ -1713,11 +1718,21 @@ function AutodepositCard({
               </span>
               <span
                 style={{
-                  color: secondary,
+                  color:
+                    isBalanceHidden && statusLabelHasAmount
+                      ? "#BBBBC0"
+                      : secondary,
+                  filter:
+                    isBalanceHidden && statusLabelHasAmount
+                      ? "url(#rs-pixelate-sm)"
+                      : "none",
                   fontFamily: font,
                   fontSize: "13px",
                   fontWeight: 400,
                   lineHeight: "16px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect:
+                    isBalanceHidden && statusLabelHasAmount ? "none" : "auto",
                 }}
               >
                 {statusLabel}
@@ -1781,13 +1796,18 @@ function AutodepositCard({
                   >
                     <span
                       style={{
-                        color: "#000",
+                        color: isBalanceHidden ? "#BBBBC0" : "#000",
+                        filter: isBalanceHidden
+                          ? "url(#rs-pixelate-sm)"
+                          : "none",
                         fontFamily: font,
                         fontSize: "13px",
                         fontWeight: 500,
                         lineHeight: "16px",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
+                        transition: "filter 0.15s ease, color 0.15s ease",
+                        userSelect: isBalanceHidden ? "none" : "auto",
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -2225,6 +2245,7 @@ export function EarnDetailView({
       <AutodepositCard
         amountLabel={autodepositAmountLabel}
         floorLabel={autodepositFloorLabel}
+        isBalanceHidden={isBalanceHidden}
         isConfigured={isAutodepositConfigured}
         scheduledSweeps={autodepositScheduledSweeps}
         state={autodepositState}
