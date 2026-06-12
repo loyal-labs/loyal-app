@@ -636,7 +636,6 @@ const main = async () => {
         payer: sender.publicKey,
         sourceDeposit: depositPda,
         destinationDeposit: usernameDepositPda,
-        sessionToken: null,
         tokenMint: mint,
       })
       .signers([sender])
@@ -836,7 +835,6 @@ const main = async () => {
         user: sender.publicKey,
         payer: sender.publicKey,
         deposit: depositPda,
-        sessionToken: null,
         magicProgram: MAGIC_PROGRAM_ID,
         magicContext: MAGIC_CONTEXT_ID,
       })

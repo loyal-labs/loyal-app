@@ -766,7 +766,6 @@ describe("telegram-private-transfer", () => {
               user,
               sourceDeposit: depositPda,
               destinationDeposit: otherDepositPda,
-              sessionToken: null,
               tokenMint,
             })
             .signers([userKp])
@@ -848,7 +847,6 @@ describe("telegram-private-transfer", () => {
                 user: userKey,
                 sourceDeposit: source,
                 destinationDeposit: destination,
-                sessionToken: null,
                 tokenMint,
               })
               .signers([signer])
@@ -1073,7 +1071,6 @@ describe("telegram-private-transfer", () => {
               payer: user,
               sourceDeposit: depositPda,
               destinationDeposit: usernameDepositPda,
-              sessionToken: null,
               tokenMint,
             })
             .signers([userKp])
@@ -1265,7 +1262,6 @@ describe("telegram-private-transfer", () => {
         user,
         payer: user,
         deposit: depositPda,
-        sessionToken: null,
         magicProgram: MAGIC_PROGRAM_ID,
         magicContext: MAGIC_CONTEXT_ID,
       })
@@ -1279,7 +1275,6 @@ describe("telegram-private-transfer", () => {
         user: otherUser,
         payer: otherUser,
         deposit: otherDepositPda,
-        sessionToken: null,
         magicProgram: MAGIC_PROGRAM_ID,
         magicContext: MAGIC_CONTEXT_ID,
       })

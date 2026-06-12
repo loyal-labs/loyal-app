@@ -63,6 +63,8 @@ loyal-private-transfers unshield [--mint <MINT>] --amount <RAW_AMOUNT>
 loyal-private-transfers transfer-username [--mint <MINT>] --username <USERNAME> --amount <RAW_AMOUNT>
 ```
 
+For base deposit undelegation, `--user` must match the configured signer.
+
 `--amount` is raw token units.
 `--mint` defaults to native SOL mint (`So11111111111111111111111111111111111111112`).
 

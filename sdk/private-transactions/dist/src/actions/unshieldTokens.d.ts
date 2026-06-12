@@ -38,7 +38,6 @@ export declare function buildUnshieldTokensTransactionPlan(params: {
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
-    sessionToken?: PublicKey | null;
     magicProgram?: PublicKey;
     magicContext?: PublicKey;
 }): Promise<UnshieldTokensTransactionPlan>;
@@ -55,7 +54,6 @@ export declare function unshieldTokens(params: {
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
-    sessionToken?: PublicKey | null;
     magicProgram?: PublicKey;
     magicContext?: PublicKey;
     rpcOptions?: RpcOptions;

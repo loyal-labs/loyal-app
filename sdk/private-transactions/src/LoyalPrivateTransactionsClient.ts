@@ -501,7 +501,6 @@ export class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions,
@@ -519,7 +518,6 @@ export class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions,
@@ -545,7 +543,6 @@ export class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext,
       });
@@ -581,7 +578,6 @@ export class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext,
       });
@@ -1372,7 +1368,6 @@ export class LoyalPrivateTransactionsClient {
       destinationUser,
       amount,
       payer,
-      sessionToken,
       rpcOptions,
     } = params;
 
@@ -1396,7 +1391,6 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram.programId,
     };
-    accounts.sessionToken = sessionToken ?? null;
 
     console.log("transferDeposit Accounts:");
     Object.entries(accounts).forEach(([key, value]) => {
@@ -1424,7 +1418,6 @@ export class LoyalPrivateTransactionsClient {
       amount,
       user,
       payer,
-      sessionToken,
       rpcOptions,
     } = params;
 
@@ -1453,7 +1446,6 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram.programId,
     };
-    accounts.sessionToken = sessionToken ?? null;
 
     const signature = await this.ephemeralProgram.methods
       .transferToUsernameDeposit(new BN(amount.toString()))

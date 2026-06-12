@@ -608,7 +608,6 @@ describe("private-transactions SDK (PER)", () => {
                         amount: transferAmount,
                         user,
                         payer: user,
-                        sessionToken: null,
                         rpcOptions,
                     });
                 transferSig = transferResult.signature;

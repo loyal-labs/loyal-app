@@ -816,7 +816,6 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
               amount: config.transferAmount,
               user,
               payer: user,
-              sessionToken: null,
               rpcOptions,
             });
             break;

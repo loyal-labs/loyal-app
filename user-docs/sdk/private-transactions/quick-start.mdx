@@ -106,7 +106,6 @@ await client.transferToUsernameDeposit({
   amount: 100_000,
   user,
   payer: user,
-  sessionToken: null,
 });
 ```
 
@@ -119,7 +118,6 @@ await client.transferDeposit({
   destinationUser: new PublicKey("<recipient-wallet>"),
   amount: 100_000,
   payer: user,
-  sessionToken: null,
 });
 ```
 
@@ -147,7 +145,6 @@ await client.undelegateDeposit({
   tokenMint,
   user,
   payer: user,
-  sessionToken: null,
   magicProgram: MAGIC_PROGRAM_ID,
   magicContext: MAGIC_CONTEXT_ID,
 });

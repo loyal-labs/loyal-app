@@ -55,7 +55,6 @@ await client.transferToUsernameDeposit({
   amount: 100_000,
   user: signer.publicKey,
   payer: signer.publicKey,
-  sessionToken: null,
 });
 
 // Unshield: withdraw from private deposit in one base transaction
@@ -63,7 +62,6 @@ await client.unshieldTokens({
   tokenMint,
   user: signer.publicKey,
   amount: 1_000_000,
-  sessionToken: null,
   magicProgram: MAGIC_PROGRAM_ID,
   magicContext: MAGIC_CONTEXT_ID,
 });

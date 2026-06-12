@@ -14,19 +14,14 @@ type ParsedTransferDepositArgs = {
   amount?: { toString(): string };
 };
 
-// transfer_deposit accounts layout (with optional session_token at slot 3):
+// transfer_deposit accounts layout:
 //   [0] user (sender)
 //   [1] payer
-//   [2] session_token   <- optional
-//   [..] source_deposit
-//   [..] destination_deposit
-//   [..] token_mint
-//   [..] system_program
-//
-// Rather than guess whether session_token is present, we pin the trailing
-// four slots from the end — the ordering is stable regardless of the
-// optional account.
-const ACCOUNTS_MIN_LENGTH = 6; // no session token
+//   [2] source_deposit
+//   [3] destination_deposit
+//   [4] token_mint
+//   [5] system_program
+const ACCOUNTS_MIN_LENGTH = 6;
 const SOURCE_DEPOSIT_OFFSET_FROM_END = 4;
 const DESTINATION_DEPOSIT_OFFSET_FROM_END = 3;
 const TOKEN_MINT_OFFSET_FROM_END = 2;
