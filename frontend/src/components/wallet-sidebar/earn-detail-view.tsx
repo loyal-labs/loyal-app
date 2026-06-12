@@ -61,6 +61,10 @@ const EARN_CHART_TOP = 8;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
 const EARN_BALANCE_SAMPLE_MS = 250;
+const EARN_BALANCE_SPIN_MS = 900;
+const EARN_BALANCE_CATCH_UP_SPIN_MS = 1_800;
+const EARN_LAST_SEEN_BALANCE_STORAGE_PREFIX = "earn-detail:last-seen-balance";
+const EARN_LAST_SEEN_BALANCE_WRITE_MS = 1_000;
 const USDC_RAW_SCALE = BigInt(1_000_000);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
@@ -761,32 +765,159 @@ function DepositButton({
   );
 }
 
+type EarnLastSeenBalance = {
+  principal: number;
+  value: number;
+};
+
+function getEarnLastSeenBalanceStorageKey(storageScope: string) {
+  return `${EARN_LAST_SEEN_BALANCE_STORAGE_PREFIX}:${storageScope}`;
+}
+
+function readEarnLastSeenBalance(
+  storageScope: string | null
+): EarnLastSeenBalance | null {
+  if (!storageScope || typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(
+      getEarnLastSeenBalanceStorageKey(storageScope)
+    );
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<EarnLastSeenBalance>;
+    if (
+      typeof parsed.principal !== "number" ||
+      typeof parsed.value !== "number" ||
+      !Number.isFinite(parsed.principal) ||
+      !Number.isFinite(parsed.value)
+    ) {
+      return null;
+    }
+    return { principal: parsed.principal, value: parsed.value };
+  } catch {
+    return null;
+  }
+}
+
+function writeEarnLastSeenBalance(
+  storageScope: string | null,
+  snapshot: EarnLastSeenBalance
+) {
+  if (!storageScope || typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      getEarnLastSeenBalanceStorageKey(storageScope),
+      JSON.stringify(snapshot)
+    );
+  } catch {
+    // Persistence only powers the catch-up reveal; quota/privacy-mode
+    // failures must never break the balance display.
+  }
+}
+
 function EarnGrowingBalance({
   apyBps,
   baseAmount,
+  isEarningsReady = true,
   isHidden = false,
   principalAmount,
+  storageScope = null,
 }: {
   apyBps: number;
   baseAmount: number;
+  isEarningsReady?: boolean;
   isHidden?: boolean;
   principalAmount: number;
+  storageScope?: string | null;
 }) {
-  const [value, setValue] = useState(baseAmount);
+  // Catch-up reveal: resume from the last balance the user saw (persisted per
+  // env+wallet) and spin up to the live amount, so growth that accrued while
+  // the pane was closed plays out instead of appearing pre-applied. Skipped
+  // when the principal changed (deposits/withdrawals are not yield) and while
+  // the balance is hidden.
+  const [catchUpStartValue] = useState<number | null>(() => {
+    if (isHidden) {
+      return null;
+    }
+    const stored = readEarnLastSeenBalance(storageScope);
+    if (!stored || stored.principal !== principalAmount || stored.value <= 0) {
+      return null;
+    }
+    // With earnings data already cached the live amount is trustworthy at
+    // mount, so a stored value at/above it has nothing to replay.
+    if (isEarningsReady && stored.value >= baseAmount) {
+      return null;
+    }
+    return stored.value;
+  });
+  const [isCatchingUp, setIsCatchingUp] = useState(catchUpStartValue !== null);
+  const [value, setValue] = useState(catchUpStartValue ?? baseAmount);
+  const lastSeenRef = useRef<EarnLastSeenBalance | null>(null);
 
   useEffect(() => {
+    if (!(isCatchingUp && isEarningsReady)) {
+      return;
+    }
+    // Hold the last-seen value for one painted frame, then run a single long
+    // spin to the live amount; regular ticking starts once it lands.
+    const frame = window.requestAnimationFrame(() => setValue(baseAmount));
+    const timeout = window.setTimeout(
+      () => setIsCatchingUp(false),
+      EARN_BALANCE_CATCH_UP_SPIN_MS
+    );
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [baseAmount, isCatchingUp, isEarningsReady]);
+
+  useEffect(() => {
+    if (isCatchingUp) {
+      return;
+    }
     setValue(baseAmount);
+    lastSeenRef.current = { principal: principalAmount, value: baseAmount };
     const ratePerSecond = getEarningsRatePerSecond(apyBps, principalAmount);
     const startedAt = performance.now();
+    let lastPersistedAt = 0;
     const interval = window.setInterval(() => {
-      const elapsedSeconds = (performance.now() - startedAt) / 1000;
+      const now = performance.now();
+      const elapsedSeconds = (now - startedAt) / 1000;
       const earned = ratePerSecond * elapsedSeconds;
+      const nextValue = Number(
+        (baseAmount + earned).toFixed(EARN_BALANCE_DECIMALS)
+      );
 
-      setValue(Number((baseAmount + earned).toFixed(EARN_BALANCE_DECIMALS)));
+      setValue(nextValue);
+      lastSeenRef.current = { principal: principalAmount, value: nextValue };
+      if (now - lastPersistedAt >= EARN_LAST_SEEN_BALANCE_WRITE_MS) {
+        lastPersistedAt = now;
+        writeEarnLastSeenBalance(storageScope, lastSeenRef.current);
+      }
     }, EARN_BALANCE_SAMPLE_MS);
 
     return () => window.clearInterval(interval);
-  }, [apyBps, baseAmount, principalAmount]);
+  }, [apyBps, baseAmount, isCatchingUp, principalAmount, storageScope]);
+
+  // Persist the final value on unmount (pane switch) and on pagehide (tab or
+  // app close) so the next visit resumes from it.
+  useEffect(() => {
+    const persist = () => {
+      if (lastSeenRef.current) {
+        writeEarnLastSeenBalance(storageScope, lastSeenRef.current);
+      }
+    };
+    window.addEventListener("pagehide", persist);
+    return () => {
+      window.removeEventListener("pagehide", persist);
+      persist();
+    };
+  }, [storageScope]);
 
   return (
     <>
@@ -816,9 +947,16 @@ function EarnGrowingBalance({
         opacityTiming={{ duration: 280, easing: "ease-out" }}
         plugins={EARN_NUMBER_FLOW_PLUGINS}
         prefix="$"
-        spinTiming={{ duration: 900, easing: "cubic-bezier(0.2, 0, 0, 1)" }}
+        spinTiming={{
+          duration: isCatchingUp
+            ? EARN_BALANCE_CATCH_UP_SPIN_MS
+            : EARN_BALANCE_SPIN_MS,
+          easing: "cubic-bezier(0.2, 0, 0, 1)",
+        }}
         transformTiming={{
-          duration: 900,
+          duration: isCatchingUp
+            ? EARN_BALANCE_CATCH_UP_SPIN_MS
+            : EARN_BALANCE_SPIN_MS,
           easing: "cubic-bezier(0.2, 0, 0, 1)",
         }}
         trend={1}
@@ -2048,6 +2186,10 @@ export function EarnDetailView({
   const earnedSummaryLabel = `${formatSignedEarningsAmount(
     estimatedEarnedUsd
   )} (${displayApyLabel})`;
+  const balanceStorageScope =
+    earningsCacheScope?.solanaEnv && earningsCacheScope?.walletAddress
+      ? `${earningsCacheScope.solanaEnv}:${earningsCacheScope.walletAddress}`
+      : null;
 
   return (
     <div
@@ -2192,8 +2334,10 @@ export function EarnDetailView({
               <EarnGrowingBalance
                 apyBps={estimatedEarnedAmountApyBps}
                 baseAmount={displayBalanceAmount}
+                isEarningsReady={Boolean(earningsRangeSet || earningsError)}
                 isHidden={isBalanceHidden}
                 principalAmount={principalAmount}
+                storageScope={balanceStorageScope}
               />
             ) : (
               <>
