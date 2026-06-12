@@ -1268,6 +1268,7 @@ export type TelegramPrivateTransfer = {
             "accounts": [
                 {
                     "name": "user";
+                    "signer": true;
                     "relations": [
                         "sourceDeposit"
                     ];
@@ -1276,10 +1277,6 @@ export type TelegramPrivateTransfer = {
                     "name": "payer";
                     "writable": true;
                     "signer": true;
-                },
-                {
-                    "name": "sessionToken";
-                    "optional": true;
                 },
                 {
                     "name": "sourceDeposit";
@@ -1386,6 +1383,7 @@ export type TelegramPrivateTransfer = {
             "accounts": [
                 {
                     "name": "user";
+                    "signer": true;
                     "relations": [
                         "sourceDeposit"
                     ];
@@ -1394,10 +1392,6 @@ export type TelegramPrivateTransfer = {
                     "name": "payer";
                     "writable": true;
                     "signer": true;
-                },
-                {
-                    "name": "sessionToken";
-                    "optional": true;
                 },
                 {
                     "name": "sourceDeposit";
@@ -1475,15 +1469,12 @@ export type TelegramPrivateTransfer = {
             "accounts": [
                 {
                     "name": "user";
+                    "signer": true;
                 },
                 {
                     "name": "payer";
                     "writable": true;
                     "signer": true;
-                },
-                {
-                    "name": "sessionToken";
-                    "optional": true;
                 },
                 {
                     "name": "deposit";
@@ -1632,19 +1623,6 @@ export type TelegramPrivateTransfer = {
                 173,
                 21,
                 227
-            ];
-        },
-        {
-            "name": "sessionToken";
-            "discriminator": [
-                233,
-                4,
-                115,
-                14,
-                46,
-                21,
-                1,
-                15
             ];
         },
         {
@@ -1804,30 +1782,6 @@ export type TelegramPrivateTransfer = {
                     {
                         "name": "increase";
                         "type": "bool";
-                    }
-                ];
-            };
-        },
-        {
-            "name": "sessionToken";
-            "type": {
-                "kind": "struct";
-                "fields": [
-                    {
-                        "name": "authority";
-                        "type": "pubkey";
-                    },
-                    {
-                        "name": "targetProgram";
-                        "type": "pubkey";
-                    },
-                    {
-                        "name": "sessionSigner";
-                        "type": "pubkey";
-                    },
-                    {
-                        "name": "validUntil";
-                        "type": "i64";
                     }
                 ];
             };

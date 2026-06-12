@@ -5,9 +5,9 @@ import type {
 } from "../types";
 import { findDepositPda, findPermissionPda } from "../pda";
 
-export async function undelegatePermissionIx(
+export function undelegatePermissionIx(
   params: UndelegatePermissionParams
-): Promise<CheckedTransactionInstruction> {
+): CheckedTransactionInstruction {
   const { user, tokenMint } = params;
 
   const [depositPda] = findDepositPda(user, tokenMint);

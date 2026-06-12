@@ -11,8 +11,7 @@ export async function undelegateDepositIx(
   perProgram: Program<TelegramPrivateTransfer>,
   params: UndelegateDepositParams
 ): Promise<CheckedTransactionInstruction> {
-  const { user, tokenMint, payer, sessionToken, magicProgram, magicContext } =
-    params;
+  const { user, tokenMint, payer, magicProgram, magicContext } = params;
 
   const [depositPda] = findDepositPda(user, tokenMint);
 
@@ -23,7 +22,6 @@ export async function undelegateDepositIx(
     magicProgram,
     magicContext,
   };
-  accounts.sessionToken = sessionToken ?? null;
 
   const ix = await perProgram.methods
     .undelegate()

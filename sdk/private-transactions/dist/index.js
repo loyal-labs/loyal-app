@@ -1276,6 +1276,7 @@ var telegram_private_transfer_default = {
       accounts: [
         {
           name: "user",
+          signer: true,
           relations: [
             "source_deposit"
           ]
@@ -1284,10 +1285,6 @@ var telegram_private_transfer_default = {
           name: "payer",
           writable: true,
           signer: true
-        },
-        {
-          name: "session_token",
-          optional: true
         },
         {
           name: "source_deposit",
@@ -1394,6 +1391,7 @@ var telegram_private_transfer_default = {
       accounts: [
         {
           name: "user",
+          signer: true,
           relations: [
             "source_deposit"
           ]
@@ -1402,10 +1400,6 @@ var telegram_private_transfer_default = {
           name: "payer",
           writable: true,
           signer: true
-        },
-        {
-          name: "session_token",
-          optional: true
         },
         {
           name: "source_deposit",
@@ -1482,16 +1476,13 @@ var telegram_private_transfer_default = {
       ],
       accounts: [
         {
-          name: "user"
+          name: "user",
+          signer: true
         },
         {
           name: "payer",
           writable: true,
           signer: true
-        },
-        {
-          name: "session_token",
-          optional: true
         },
         {
           name: "deposit",
@@ -1640,19 +1631,6 @@ var telegram_private_transfer_default = {
         173,
         21,
         227
-      ]
-    },
-    {
-      name: "SessionToken",
-      discriminator: [
-        233,
-        4,
-        115,
-        14,
-        46,
-        21,
-        1,
-        15
       ]
     },
     {
@@ -1812,30 +1790,6 @@ var telegram_private_transfer_default = {
           {
             name: "increase",
             type: "bool"
-          }
-        ]
-      }
-    },
-    {
-      name: "SessionToken",
-      type: {
-        kind: "struct",
-        fields: [
-          {
-            name: "authority",
-            type: "pubkey"
-          },
-          {
-            name: "target_program",
-            type: "pubkey"
-          },
-          {
-            name: "session_signer",
-            type: "pubkey"
-          },
-          {
-            name: "valid_until",
-            type: "i64"
           }
         ]
       }
@@ -2805,7 +2759,7 @@ async function getDelegationStatus(perRpcEndpoint, account) {
   };
   const expectedValidator = getErValidatorForRpcEndpoint(perRpcEndpoint);
   const isMainnet = perRpcEndpoint.includes("mainnet-tee");
-  const teeBaseUrl = isMainnet ? "https://mainnet-tee.magicblock.app/" : "https://tee.magicblock.app/";
+  const teeBaseUrl = isMainnet ? "https://mainnet-tee.magicblock.app/" : "https://devnet-tee.magicblock.app/";
   try {
     const teeRes = await fetch(teeBaseUrl, options);
     const teeData = await teeRes.json();
@@ -3315,7 +3269,7 @@ async function delegateDepositIx(program, params) {
 
 // src/instructions/undelegateDeposit.ts
 async function undelegateDepositIx(perProgram, params) {
-  const { user, tokenMint, payer, sessionToken, magicProgram, magicContext } = params;
+  const { user, tokenMint, payer, magicProgram, magicContext } = params;
   const [depositPda] = findDepositPda(user, tokenMint);
   const accounts = {
     user,
@@ -3324,7 +3278,6 @@ async function undelegateDepositIx(perProgram, params) {
     magicProgram,
     magicContext
   };
-  accounts.sessionToken = sessionToken ?? null;
   const ix = await perProgram.methods.undelegate().accountsPartial(accounts).instruction();
   return {
     ix,
@@ -3543,7 +3496,6 @@ async function buildShieldTokensTransactionPlan(params) {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
@@ -3591,7 +3543,6 @@ async function shieldTokens(params) {
     baseProgram,
     perProgram,
     validator: params.validator,
-    sessionToken: params.sessionToken,
     magicProgram: params.magicProgram,
     magicContext: params.magicContext
   });
@@ -3681,7 +3632,7 @@ async function closeDepositIx(program, params) {
 import {
   createClosePermissionInstruction
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-async function closePermissionIx(params) {
+function closePermissionIx(params) {
   const { user, tokenMint } = params;
   const [depositPda] = findDepositPda(user, tokenMint);
   const [permissionPda] = findPermissionPda(depositPda);
@@ -3831,7 +3782,6 @@ async function buildUnshieldTokensTransactionPlan(params) {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
@@ -3878,7 +3828,6 @@ async function unshieldTokens(params) {
     baseProgram,
     perProgram,
     validator: params.validator,
-    sessionToken: params.sessionToken,
     magicProgram: params.magicProgram,
     magicContext: params.magicContext
   });
@@ -4249,7 +4198,6 @@ class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions
@@ -4265,7 +4213,6 @@ class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions
@@ -4287,7 +4234,6 @@ class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext
       });
@@ -4318,7 +4264,6 @@ class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext
       });
@@ -4673,8 +4618,12 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async delegateDeposit(params) {
-    const { user, tokenMint } = params;
-    const { ix, ensure } = await delegateDepositIx(this.baseProgram, params);
+    const delegateParams = {
+      ...params,
+      validator: params.validator ?? this.getExpectedErValidator()
+    };
+    const { user, tokenMint } = delegateParams;
+    const { ix, ensure } = await delegateDepositIx(this.baseProgram, delegateParams);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const [depositPda] = findDepositPda(user, tokenMint);
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
@@ -4709,9 +4658,9 @@ class LoyalPrivateTransactionsClient {
       username,
       tokenMint,
       payer,
-      validator,
       rpcOptions
     } = params;
+    const validator = params.validator ?? this.getExpectedErValidator();
     validateUsername(username);
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [bufferPda] = findBufferPda(depositPda);
@@ -4729,7 +4678,7 @@ class LoyalPrivateTransactionsClient {
       delegationProgram: DELEGATION_PROGRAM_ID,
       systemProgram: SystemProgram5.programId
     };
-    accounts.validator = validator ?? null;
+    accounts.validator = validator;
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
     let signature;
     try {
@@ -4781,7 +4730,6 @@ class LoyalPrivateTransactionsClient {
       destinationUser,
       amount,
       payer,
-      sessionToken,
       rpcOptions
     } = params;
     const [sourceDepositPda] = findDepositPda(user, tokenMint);
@@ -4796,7 +4744,6 @@ class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram5.programId
     };
-    accounts.sessionToken = sessionToken ?? null;
     console.log("transferDeposit Accounts:");
     Object.entries(accounts).forEach(([key, value]) => {
       console.log(key, value && value.toString());
@@ -4812,7 +4759,6 @@ class LoyalPrivateTransactionsClient {
       amount,
       user,
       payer,
-      sessionToken,
       rpcOptions
     } = params;
     validateUsername(username);
@@ -4828,7 +4774,6 @@ class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram5.programId
     };
-    accounts.sessionToken = sessionToken ?? null;
     const signature = await this.ephemeralProgram.methods.transferToUsernameDeposit(new BN2(amount.toString())).accountsPartial(accounts).rpc(rpcOptions);
     return signature;
   }
@@ -5050,7 +4995,7 @@ class LoyalPrivateTransactionsClient {
     };
     const expectedValidator = this.getExpectedErValidator();
     const ephemeralUrl = this.ephemeralProgram.provider.connection.rpcEndpoint;
-    const teeBaseUrl = ephemeralUrl.includes("mainnet-tee") ? "https://mainnet-tee.magicblock.app/" : "https://tee.magicblock.app/";
+    const teeBaseUrl = ephemeralUrl.includes("mainnet-tee") ? "https://mainnet-tee.magicblock.app/" : "https://devnet-tee.magicblock.app/";
     try {
       const teeRes = await fetch(teeBaseUrl, options);
       const teeData = await teeRes.json();
@@ -5123,7 +5068,7 @@ async function delegateUsernameDepositIx(program, params) {
 import { BN as BN3 } from "@coral-xyz/anchor";
 import { SystemProgram as SystemProgram7 } from "@solana/web3.js";
 async function transferDepositIx(program, params) {
-  const { user, tokenMint, destinationUser, amount, payer, sessionToken } = params;
+  const { user, tokenMint, destinationUser, amount, payer } = params;
   const [sourceDepositPda] = findDepositPda(user, tokenMint);
   const [destinationDepositPda] = findDepositPda(destinationUser, tokenMint);
   const accounts = {
@@ -5132,8 +5077,7 @@ async function transferDepositIx(program, params) {
     sourceDeposit: sourceDepositPda,
     destinationDeposit: destinationDepositPda,
     tokenMint,
-    systemProgram: SystemProgram7.programId,
-    sessionToken: sessionToken ?? null
+    systemProgram: SystemProgram7.programId
   };
   const ix = await program.methods.transferDeposit(new BN3(amount.toString())).accountsPartial(accounts).instruction();
   return {
@@ -5158,7 +5102,7 @@ async function transferDepositIx(program, params) {
 import { BN as BN4 } from "@coral-xyz/anchor";
 import { SystemProgram as SystemProgram8 } from "@solana/web3.js";
 async function transferToUsernameDepositIx(program, params) {
-  const { username, tokenMint, amount, user, payer, sessionToken } = params;
+  const { username, tokenMint, amount, user, payer } = params;
   validateUsername(username);
   const [sourceDepositPda] = findDepositPda(user, tokenMint);
   const [destinationDepositPda] = await findUsernameDepositPda(username, tokenMint);
@@ -5168,8 +5112,7 @@ async function transferToUsernameDepositIx(program, params) {
     sourceDeposit: sourceDepositPda,
     destinationDeposit: destinationDepositPda,
     tokenMint,
-    systemProgram: SystemProgram8.programId,
-    sessionToken: sessionToken ?? null
+    systemProgram: SystemProgram8.programId
   };
   const ix = await program.methods.transferToUsernameDeposit(new BN4(amount.toString())).accountsPartial(accounts).instruction();
   return {

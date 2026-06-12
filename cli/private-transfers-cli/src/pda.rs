@@ -186,10 +186,8 @@ pub(crate) fn build_undelegate_deposit_ix(
     Instruction {
         program_id: program_id(),
         accounts: vec![
-            AccountMeta::new_readonly(user, false),
+            AccountMeta::new_readonly(user, true),
             AccountMeta::new(payer, true),
-            // Anchor optional account sentinel for `session_token: None`.
-            AccountMeta::new_readonly(program_id(), false),
             AccountMeta::new(deposit, false),
             AccountMeta::new_readonly(magic_program_id(), false),
             AccountMeta::new(magic_context_id(), false),
@@ -236,10 +234,8 @@ pub(crate) fn build_transfer_to_username_deposit_ix(
     Instruction {
         program_id: program_id(),
         accounts: vec![
-            AccountMeta::new_readonly(user, false),
+            AccountMeta::new_readonly(user, true),
             AccountMeta::new(payer, true),
-            // Anchor optional account sentinel for `session_token: None`.
-            AccountMeta::new_readonly(program_id(), false),
             AccountMeta::new(source_deposit, false),
             AccountMeta::new(destination_deposit, false),
             AccountMeta::new_readonly(mint, false),
