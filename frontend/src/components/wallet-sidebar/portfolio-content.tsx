@@ -1256,7 +1256,9 @@ export function PortfolioContent({
         .portfolio-review-btn:hover {
           background: rgba(0, 0, 0, 0.12) !important;
         }
-        .portfolio-account-row:hover {
+        /* :global because account rows are rendered by child components
+           (MainAccountRow, SignerTreeRow), which styled-jsx scoping skips. */
+        :global(.portfolio-account-row:hover) {
           background: rgba(0, 0, 0, 0.04) !important;
         }
         .portfolio-disconnect-btn:hover {
