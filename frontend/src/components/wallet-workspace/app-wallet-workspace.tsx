@@ -2262,6 +2262,7 @@ export function AppWalletWorkspace({
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
     setEarnDepositPrepareError(null);
+    setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
@@ -2275,6 +2276,7 @@ export function AppWalletWorkspace({
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
     setEarnDepositPrepareError(null);
+    setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
     setEarnWithdrawReviewStage("withdraw");
@@ -2290,6 +2292,7 @@ export function AppWalletWorkspace({
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
     setEarnDepositPrepareError(null);
+    setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
     setEarnWithdrawReviewStage("withdraw");
@@ -2304,6 +2307,7 @@ export function AppWalletWorkspace({
     setPendingEarnWithdrawPrepared(null);
     setEarnWithdrawReviewStage("withdraw");
     setEarnDepositPrepareError(null);
+    setProposalActionError(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
@@ -2312,6 +2316,7 @@ export function AppWalletWorkspace({
   const handleOpenAutodeposit = useCallback(() => {
     markDetailPaneTransition("forward");
     setEarnAutodepositSetupReviewStage("policy");
+    setProposalActionError(null);
     setSelectedSignerId(null);
     setDetailSelection("earnAutodeposit");
     setSelectedDetail("Autodeposit");
@@ -2324,6 +2329,8 @@ export function AppWalletWorkspace({
     setPendingEarnAutodepositClosePrepared(null);
     setEarnAutodepositSetupReviewStage("policy");
     setIsEarnAutodepositCloseReview(false);
+    setEarnDepositPrepareError(null);
+    setProposalActionError(null);
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
@@ -2484,6 +2491,7 @@ export function AppWalletWorkspace({
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
     setEarnDepositPrepareError(null);
+    setProposalActionError(null);
   }, []);
 
   const handleDismissEarnWithdrawPreview = useCallback(() => {
@@ -2492,6 +2500,7 @@ export function AppWalletWorkspace({
     setPendingEarnWithdrawPrepared(null);
     setEarnWithdrawReviewStage("withdraw");
     setEarnDepositPrepareError(null);
+    setProposalActionError(null);
   }, []);
 
   const handleEarnWithdrawDraftChange = useCallback(
