@@ -263,7 +263,6 @@ export async function buildShieldTokensTransactionPlan(params: {
   baseProgram: Program<TelegramPrivateTransfer>;
   perProgram: Program<TelegramPrivateTransfer>;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
 }): Promise<ShieldTokensTransactionPlan> {
@@ -280,7 +279,6 @@ export async function buildShieldTokensTransactionPlan(params: {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID,
     });
@@ -318,7 +316,6 @@ export async function shieldTokens(params: {
   baseProgram: Program<TelegramPrivateTransfer>;
   perProgram: Program<TelegramPrivateTransfer>;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
   rpcOptions?: RpcOptions;
@@ -344,7 +341,6 @@ export async function shieldTokens(params: {
     baseProgram,
     perProgram,
     validator: params.validator,
-    sessionToken: params.sessionToken,
     magicProgram: params.magicProgram,
     magicContext: params.magicContext,
   });

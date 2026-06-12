@@ -12,7 +12,7 @@ export async function transferToUsernameDepositIx(
   program: Program<TelegramPrivateTransfer>,
   params: TransferToUsernameDepositParams
 ): Promise<CheckedTransactionInstruction> {
-  const { username, tokenMint, amount, user, payer, sessionToken } = params;
+  const { username, tokenMint, amount, user, payer } = params;
 
   validateUsername(username);
 
@@ -29,7 +29,6 @@ export async function transferToUsernameDepositIx(
     destinationDeposit: destinationDepositPda,
     tokenMint,
     systemProgram: SystemProgram.programId,
-    sessionToken: sessionToken ?? null,
   };
 
   const ix = await program.methods

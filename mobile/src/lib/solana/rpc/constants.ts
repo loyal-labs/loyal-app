@@ -28,5 +28,5 @@ export const LOCALNET_RPC_WS = "ws://127.0.0.1:8900";
 export const PER_MAINNET_RPC_ENDPOINT = "https://mainnet-tee.magicblock.app";
 export const PER_MAINNET_WS_ENDPOINT = "wss://mainnet-tee.magicblock.app";
 
-export const PER_DEVNET_RPC_ENDPOINT = "https://tee.magicblock.app";
-export const PER_DEVNET_WS_ENDPOINT = "wss://tee.magicblock.app";
+export const PER_DEVNET_RPC_ENDPOINT = "https://devnet-tee.magicblock.app";
+export const PER_DEVNET_WS_ENDPOINT = "wss://devnet-tee.magicblock.app";

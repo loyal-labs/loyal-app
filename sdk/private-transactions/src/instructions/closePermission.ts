@@ -8,9 +8,9 @@ import type {
   ClosePermissionParams,
 } from "../types";
 
-export async function closePermissionIx(
+export function closePermissionIx(
   params: ClosePermissionParams
-): Promise<CheckedTransactionInstruction> {
+): CheckedTransactionInstruction {
   const { user, tokenMint } = params;
 
   const [depositPda] = findDepositPda(user, tokenMint);

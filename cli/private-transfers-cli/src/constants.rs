@@ -8,7 +8,7 @@ pub const ER_VALIDATOR_MAINNET_STR: &str = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQ
 pub const NATIVE_MINT_STR: &str = "So11111111111111111111111111111111111111112";
 
 pub const DEFAULT_PER_RPC_MAINNET: &str = "https://mainnet-tee.magicblock.app";
-pub const DEFAULT_PER_RPC_DEVNET: &str = "https://tee.magicblock.app";
+pub const DEFAULT_PER_RPC_DEVNET: &str = "https://devnet-tee.magicblock.app";
 pub const DEFAULT_ROUTER_RPC_MAINNET: &str = "https://router.magicblock.app";
 pub const DEFAULT_ROUTER_RPC_DEVNET: &str = "https://devnet-router.magicblock.app";
 pub const DEFAULT_OWNER_WAIT_TIMEOUT_SECONDS: u64 = 60;

@@ -398,7 +398,6 @@ fn ix_info(disc: &[u8; 8]) -> Option<(&'static str, &'static [&'static str])> {
             &[
                 "user",
                 "payer",
-                "session_token",
                 "deposit",
                 "magic_program",
                 "magic_context",
@@ -492,9 +491,8 @@ fn ix_info(disc: &[u8; 8]) -> Option<(&'static str, &'static [&'static str])> {
         d if *d == IX_TRANSFER_TO_USERNAME_DEPOSIT => Some((
             "transfer_to_username_deposit",
             &[
-                "payer",
                 "user",
-                "session_token",
+                "payer",
                 "source_deposit",
                 "destination_deposit",
                 "token_mint",

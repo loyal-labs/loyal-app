@@ -50,7 +50,6 @@ export declare function buildShieldTokensTransactionPlan(params: {
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
-    sessionToken?: PublicKey | null;
     magicProgram?: PublicKey;
     magicContext?: PublicKey;
 }): Promise<ShieldTokensTransactionPlan>;
@@ -62,7 +61,6 @@ export declare function shieldTokens(params: {
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
-    sessionToken?: PublicKey | null;
     magicProgram?: PublicKey;
     magicContext?: PublicKey;
     rpcOptions?: RpcOptions;

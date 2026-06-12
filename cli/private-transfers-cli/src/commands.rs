@@ -208,6 +208,9 @@ pub(crate) fn cmd_undelegate(ctx: &mut AppContext, args: &UndelegateArgs) -> Res
             mint: _,
             deposit,
         } => {
+            if user != ctx.signer_pubkey {
+                bail!("undelegate requires --user to match the configured signer");
+            }
             let ix = build_undelegate_deposit_ix(ctx.signer_pubkey, user, deposit);
             send_ix_with_opts(
                 &ctx.per_client,
