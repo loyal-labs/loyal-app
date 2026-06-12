@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 
 import type {
   ConfirmedEarnAutodepositCloseInput,
@@ -10,6 +10,7 @@ import type {
 import {
   balanceSweepExecutions,
   balanceSweepPolicies,
+  balanceSweepSurplusLots,
   balanceSweepTargets,
   balanceSweepWalletBalancesCurrent,
   getYieldOptimizationClient,
@@ -62,6 +63,17 @@ export type BalanceSweepWalletBalanceCurrentRecord =
   typeof balanceSweepWalletBalancesCurrent.$inferSelect;
 export type BalanceSweepExecutionRecord =
   typeof balanceSweepExecutions.$inferSelect;
+export type PendingEarnAutodepositScheduledSweepRecord = Pick<
+  typeof balanceSweepSurplusLots.$inferSelect,
+  | "classification"
+  | "confidence"
+  | "eligibleAfter"
+  | "id"
+  | "originalAmountRaw"
+  | "reason"
+  | "remainingAmountRaw"
+  | "status"
+>;
 
 export type CurrentEarnAutodepositState = {
   policy: BalanceSweepPolicyRecord;
@@ -239,6 +251,39 @@ export async function sumEarnAutodepositCurrentPeriodDeposits(
     .where(and(...conditions));
 
   return row?.totalRaw ? BigInt(row.totalRaw) : BigInt(0);
+}
+
+export async function findPendingEarnAutodepositScheduledSweeps(
+  target: Pick<BalanceSweepTargetRecord, "id">,
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<PendingEarnAutodepositScheduledSweepRecord[]> {
+  return dependencies.client.db
+    .select({
+      classification: balanceSweepSurplusLots.classification,
+      confidence: balanceSweepSurplusLots.confidence,
+      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
+      id: balanceSweepSurplusLots.id,
+      originalAmountRaw: balanceSweepSurplusLots.originalAmountRaw,
+      reason: balanceSweepSurplusLots.reason,
+      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
+      status: balanceSweepSurplusLots.status,
+    })
+    .from(balanceSweepSurplusLots)
+    .where(
+      and(
+        eq(balanceSweepSurplusLots.targetId, target.id),
+        eq(balanceSweepSurplusLots.status, "open"),
+        sql`${balanceSweepSurplusLots.remainingAmountRaw} > 0`
+      )
+    )
+    .orderBy(
+      asc(balanceSweepSurplusLots.eligibleAfter),
+      asc(balanceSweepSurplusLots.createdAt),
+      asc(balanceSweepSurplusLots.id)
+    );
 }
 
 export async function findEarnAutodepositHistoryEvents(

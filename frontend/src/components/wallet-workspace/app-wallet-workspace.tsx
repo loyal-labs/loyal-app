@@ -2886,6 +2886,7 @@ export function AppWalletWorkspace({
             nonce: pendingEarnAutodepositDraft.nonce.toString(),
             policyAccount: "",
             recurringDelegation: "",
+            scheduledSweeps: [],
             state: "creating",
           }
     );
@@ -2983,6 +2984,7 @@ export function AppWalletWorkspace({
         policyAccount,
         recurringDelegation:
           result.preparedSetup.persistence.recurringDelegation,
+        scheduledSweeps: autodepositConfig?.scheduledSweeps ?? [],
         state: "created",
       });
       setPendingEarnAutodepositDraft(null);
@@ -3863,6 +3865,7 @@ export function AppWalletWorkspace({
         <EarnDetailView
           autodepositAmountLabel={autodepositAmountLabel}
           autodepositFloorLabel={autodepositFloorLabel}
+          autodepositScheduledSweeps={autodepositConfig?.scheduledSweeps}
           autodepositState={autodepositConfig?.state ?? "idle"}
           currentPositionApyLabel={activeEarnPositionApyLabel}
           currentPositionMarketName={activeEarnPosition?.display?.marketName}

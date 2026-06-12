@@ -11,8 +11,10 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   findCurrentEarnAutodepositState,
+  findPendingEarnAutodepositScheduledSweeps,
   sumEarnAutodepositCurrentPeriodDeposits,
   type CurrentEarnAutodepositState,
+  type PendingEarnAutodepositScheduledSweepRecord,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   findActiveYieldPosition,
@@ -67,7 +69,23 @@ function serializePolicy(policy: RoutePolicyRecord) {
 
 type CurrentEarnAutodepositStateWithProgress = CurrentEarnAutodepositState & {
   depositedThisPeriodRaw: bigint;
+  scheduledSweeps: PendingEarnAutodepositScheduledSweepRecord[];
 };
+
+function serializeScheduledSweep(
+  sweep: PendingEarnAutodepositScheduledSweepRecord
+) {
+  return {
+    classification: sweep.classification,
+    confidence: sweep.confidence,
+    eligibleAfter: sweep.eligibleAfter.toISOString(),
+    id: sweep.id.toString(),
+    originalAmountRaw: sweep.originalAmountRaw.toString(),
+    reason: sweep.reason,
+    remainingAmountRaw: sweep.remainingAmountRaw.toString(),
+    status: sweep.status,
+  };
+}
 
 export function serializeAutodepositState(
   autodeposit: CurrentEarnAutodepositStateWithProgress
@@ -92,6 +110,7 @@ export function serializeAutodepositState(
     policyAccount: autodeposit.policy.policyAccount,
     policySeed: autodeposit.policy.policySeed.toString(),
     recurringDelegation: autodeposit.target.recurringDelegation,
+    scheduledSweeps: autodeposit.scheduledSweeps.map(serializeScheduledSweep),
     startTimestamp:
       autodeposit.target.startTimestamp?.toString() ??
       Math.floor(autodeposit.target.firstSeenAt.getTime() / 1000).toString(),
@@ -179,10 +198,12 @@ export async function GET(request: Request) {
           return null;
         }
 
-        const depositedThisPeriodRaw =
-          await sumEarnAutodepositCurrentPeriodDeposits(state.target);
+        const [depositedThisPeriodRaw, scheduledSweeps] = await Promise.all([
+          sumEarnAutodepositCurrentPeriodDeposits(state.target),
+          findPendingEarnAutodepositScheduledSweeps(state.target),
+        ]);
 
-        return { ...state, depositedThisPeriodRaw };
+        return { ...state, depositedThisPeriodRaw, scheduledSweeps };
       }
     ),
   ]);

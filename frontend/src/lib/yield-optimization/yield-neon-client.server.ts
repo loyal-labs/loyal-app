@@ -47,6 +47,23 @@ export const decisionReason = loyalYieldSchema.enum("decision_reason", [
   "no_same_mint_edge",
 ]);
 
+export const balanceSweepSurplusClassification = loyalYieldSchema.enum(
+  "balance_sweep_surplus_classification",
+  [
+    "earn_withdrawal",
+    "simple_inbound",
+    "complex_defi",
+    "unknown",
+    "explicit_redeposit",
+    "initial_surplus",
+  ]
+);
+
+export const balanceSweepSurplusLotStatus = loyalYieldSchema.enum(
+  "balance_sweep_surplus_lot_status",
+  ["open", "selected", "consumed", "depleted", "suppressed"]
+);
+
 export type YieldSwapLane = Record<string, unknown>;
 export type YieldSnapshotContext = Record<string, unknown>;
 export type YieldPlanningMetadata = Record<string, unknown>;
@@ -473,6 +490,47 @@ export const balanceSweepTargets = loyalYieldSchema.table(
   ]
 );
 
+export const balanceSweepSurplusLots = loyalYieldSchema.table(
+  "balance_sweep_surplus_lots",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    targetId: bigint("target_id", { mode: "bigint" }).notNull(),
+    sourceEventId: bigint("source_event_id", { mode: "bigint" }).notNull(),
+    sourceSignature: text("source_signature"),
+    originalAmountRaw: bigint("original_amount_raw", {
+      mode: "bigint",
+    }).notNull(),
+    remainingAmountRaw: bigint("remaining_amount_raw", {
+      mode: "bigint",
+    }).notNull(),
+    classification: balanceSweepSurplusClassification(
+      "classification"
+    ).notNull(),
+    eligibleAfter: timestamp("eligible_after", {
+      withTimezone: true,
+    }).notNull(),
+    status: balanceSweepSurplusLotStatus("status").default("open").notNull(),
+    confidence: text("confidence").default("unknown").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("balance_sweep_surplus_lots_source_event_id_key").on(
+      table.sourceEventId
+    ),
+    index("balance_sweep_surplus_lots_target_status_eligible_idx").on(
+      table.targetId,
+      table.status,
+      table.eligibleAfter,
+      table.id
+    ),
+    index("balance_sweep_surplus_lots_source_signature_idx")
+      .on(table.sourceSignature)
+      .where(sql`${table.sourceSignature} IS NOT NULL`),
+  ]
+);
+
 export const balanceSweepWalletBalancesCurrent = loyalYieldSchema.table(
   "balance_sweep_wallet_balances_current",
   {
@@ -568,6 +626,7 @@ export const rebalanceDecisions = loyalYieldSchema.table(
 export const yieldOptimizationSchema = {
   balanceSweepExecutions,
   balanceSweepPolicies,
+  balanceSweepSurplusLots,
   balanceSweepTargets,
   balanceSweepWalletBalancesCurrent,
   earnApyHourlySnapshots,
@@ -595,6 +654,7 @@ export type YieldOptimizationClientConfig = {
 export type YieldOptimizationClientTables = {
   balanceSweepExecutions: typeof balanceSweepExecutions;
   balanceSweepPolicies: typeof balanceSweepPolicies;
+  balanceSweepSurplusLots: typeof balanceSweepSurplusLots;
   balanceSweepTargets: typeof balanceSweepTargets;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
@@ -616,6 +676,7 @@ export class YieldOptimizationClient {
   readonly tables: YieldOptimizationClientTables = {
     balanceSweepExecutions,
     balanceSweepPolicies,
+    balanceSweepSurplusLots,
     balanceSweepTargets,
     balanceSweepWalletBalancesCurrent,
     earnApyHourlySnapshots,

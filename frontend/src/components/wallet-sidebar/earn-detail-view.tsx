@@ -33,6 +33,7 @@ import type {
   EarnEarningsResponse,
   EarningsRangeId,
 } from "@/lib/yield-optimization/earnings.shared";
+import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { useEarnEarnings } from "@/hooks/use-earn-earnings";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
@@ -60,6 +61,7 @@ const EARN_CHART_TOP = 8;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
 const EARN_BALANCE_SAMPLE_MS = 250;
+const USDC_RAW_SCALE = BigInt(1_000_000);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
 const FALLBACK_EARN_APY = {
@@ -1567,10 +1569,56 @@ function AutodepositToggle({
   );
 }
 
+function formatScheduledSweepAmount(rawAmount: string): string {
+  if (!/^\d+$/.test(rawAmount)) {
+    return "$0.00";
+  }
+
+  const raw = BigInt(rawAmount);
+  const whole = raw / USDC_RAW_SCALE;
+  const cents = (raw % USDC_RAW_SCALE) / BigInt(10_000);
+
+  return `$${whole.toLocaleString("en-US")}.${cents
+    .toString()
+    .padStart(2, "0")}`;
+}
+
+function formatScheduledSweepTime(eligibleAfter: string): string {
+  const date = new Date(eligibleAfter);
+  if (Number.isNaN(date.getTime())) {
+    return "Scheduled";
+  }
+
+  return date.toLocaleString("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  });
+}
+
+function getScheduledSweepSourceLabel(classification: string): string {
+  switch (classification) {
+    case "initial_surplus":
+      return "Initial surplus";
+    case "simple_inbound":
+      return "Incoming USDC";
+    case "complex_defi":
+      return "DeFi activity";
+    case "earn_withdrawal":
+      return "Earn withdrawal";
+    case "explicit_redeposit":
+      return "Manual redeposit";
+    default:
+      return "Wallet surplus";
+  }
+}
+
 function AutodepositCard({
   amountLabel,
   floorLabel,
   isConfigured = false,
+  scheduledSweeps = [],
   state = "idle",
   onDisable,
   onSetUp,
@@ -1578,11 +1626,13 @@ function AutodepositCard({
   amountLabel?: string;
   floorLabel?: string;
   isConfigured?: boolean;
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   state?: "closing" | "created" | "creating" | "idle" | "paused";
   onDisable?: () => void;
   onSetUp?: () => void;
 }) {
   const isBusy = state === "creating" || state === "closing";
+  const visibleScheduledSweeps = scheduledSweeps.slice(0, 3);
   const statusLabel =
     state === "creating"
       ? "Creating allowance and policy"
@@ -1699,6 +1749,81 @@ function AutodepositCard({
               onToggle={onDisable}
             />
           </div>
+          {visibleScheduledSweeps.length > 0 ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px",
+                padding: "0 12px 8px 68px",
+              }}
+            >
+              {visibleScheduledSweeps.map((sweep) => (
+                <div
+                  key={sweep.id}
+                  style={{
+                    alignItems: "center",
+                    display: "flex",
+                    gap: "10px",
+                    minHeight: "36px",
+                    width: "100%",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flex: 1,
+                      flexDirection: "column",
+                      minWidth: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "#000",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {formatScheduledSweepAmount(sweep.remainingAmountRaw)}
+                    </span>
+                    <span
+                      style={{
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "12px",
+                        fontWeight: 400,
+                        lineHeight: "15px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {getScheduledSweepSourceLabel(sweep.classification)}{" "}
+                      pending
+                    </span>
+                  </div>
+                  <span
+                    style={{
+                      color: secondary,
+                      flexShrink: 0,
+                      fontFamily: font,
+                      fontSize: "12px",
+                      fontWeight: 400,
+                      lineHeight: "15px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {formatScheduledSweepTime(sweep.eligibleAfter)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
       </>
     );
@@ -1826,6 +1951,7 @@ function AutodepositCard({
 export function EarnDetailView({
   autodepositAmountLabel,
   autodepositFloorLabel,
+  autodepositScheduledSweeps = [],
   autodepositState = "idle",
   currentPositionApyLabel,
   currentPositionMarketName = "Main Market",
@@ -1843,6 +1969,7 @@ export function EarnDetailView({
 }: {
   autodepositAmountLabel?: string;
   autodepositFloorLabel?: string;
+  autodepositScheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   autodepositState?: "closing" | "created" | "creating" | "idle" | "paused";
   currentPositionApyLabel?: string;
   currentPositionMarketName?: string;
@@ -2096,6 +2223,7 @@ export function EarnDetailView({
         amountLabel={autodepositAmountLabel}
         floorLabel={autodepositFloorLabel}
         isConfigured={isAutodepositConfigured}
+        scheduledSweeps={autodepositScheduledSweeps}
         state={autodepositState}
         onDisable={onDisableAutodeposit}
         onSetUp={onOpenAutodeposit}

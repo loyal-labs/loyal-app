@@ -124,6 +124,16 @@ type EarnStateResponse = {
     policyAccount: string;
     policySeed: string;
     recurringDelegation: string | null;
+    scheduledSweeps: {
+      classification: string;
+      confidence: string;
+      eligibleAfter: string;
+      id: string;
+      originalAmountRaw: string;
+      reason: string;
+      remainingAmountRaw: string;
+      status: string;
+    }[];
     startTimestamp: string | null;
     status: "active" | "paused" | "pending";
     subscriptionAuthority: string | null;

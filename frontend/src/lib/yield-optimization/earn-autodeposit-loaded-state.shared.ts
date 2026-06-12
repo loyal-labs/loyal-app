@@ -1,3 +1,14 @@
+export type LoadedEarnAutodepositScheduledSweep = {
+  classification: string;
+  confidence: string;
+  eligibleAfter: string;
+  id: string;
+  originalAmountRaw: string;
+  reason: string;
+  remainingAmountRaw: string;
+  status: string;
+};
+
 export type LoadedEarnAutodepositState = {
   amountPerPeriodRaw: string;
   depositedThisPeriodRaw?: string | null;
@@ -5,6 +16,7 @@ export type LoadedEarnAutodepositState = {
   policySeed: string;
   periodLengthSeconds: string | null;
   recurringDelegation: string | null;
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   startTimestamp: string | null;
   status: "active" | "paused" | "pending";
   walletBalanceFloorRaw: string | null;
@@ -18,6 +30,7 @@ export type LoadedEarnAutodepositConfig = {
   policyAccount: string;
   recurringDelegation: string;
   nonce: string;
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   state: "created" | "creating" | "paused";
 };
 
@@ -91,6 +104,7 @@ export function earnAutodepositConfigFromLoadedState(
     nonce: autodeposit.policySeed,
     policyAccount: autodeposit.policyAccount,
     recurringDelegation: autodeposit.recurringDelegation ?? "",
+    scheduledSweeps: autodeposit.scheduledSweeps ?? [],
     state:
       autodeposit.status === "active"
         ? "created"
