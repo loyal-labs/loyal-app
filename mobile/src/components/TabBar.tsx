@@ -16,7 +16,6 @@ import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
 import EarnTabIcon from "../../assets/images/earn/tab-bar-icon.svg";
-import EarnTabIconActive from "../../assets/images/earn/tab-bar-icon-active.svg";
 
 // The Earn screen lives at /(tabs)/index so it's the cold-start default,
 // and the original wallet screen moved to /(tabs)/wallet.
@@ -128,6 +127,10 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 
   const handlePress = useCallback(
     (routeName: string, originalIndex: number) => {
+      // Earn hasn't been released yet — the dog stays inert (see
+      // EARN_RELEASED in app/(tabs)/index.tsx).
+      if (routeName === EARN_ROUTE_NAME) return;
+
       const event = navigation.emit({
         type: "tabPress",
         target: state.routes[originalIndex].key,
@@ -174,15 +177,13 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               onPress={() => handlePress(route.name, originalIndex)}
               onLayout={handleTabLayout(visI)}
               accessibilityRole="tab"
-              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityState={
+                isEarn ? { disabled: true } : isFocused ? { selected: true } : {}
+              }
               accessibilityLabel={isEarn ? "Earn" : undefined}
             >
               {isEarn ? (
-                isFocused ? (
-                  <EarnTabIconActive width={61} height={44} />
-                ) : (
-                  <EarnTabIcon width={61} height={44} />
-                )
+                <EarnTabIcon width={61} height={44} />
               ) : (
                 (() => {
                   const Icon =

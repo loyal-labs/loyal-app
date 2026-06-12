@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { useFocusEffect } from "expo-router";
+import { Redirect, useFocusEffect } from "expo-router";
 import { ArrowUp, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
@@ -61,7 +61,18 @@ const LINES_START_MS = 200;
 const BADGE_START_MS = 2050;
 const BADGE_MS = 500;
 
-export default function EarnScreen() {
+// Earn hasn't been released yet — "/" lands on the wallet tab and EarnScreen
+// stays unreachable until this flips to true.
+const EARN_RELEASED = false;
+
+export default function EarnRoute() {
+  if (!EARN_RELEASED) {
+    return <Redirect href="/wallet" />;
+  }
+  return <EarnScreen />;
+}
+
+function EarnScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const appReady = useAppReady();
