@@ -175,7 +175,7 @@ type DetailSelection =
   | "wallet";
 type ResizeTarget = "account" | "review";
 type EarnAutodepositConfig = Omit<LoadedEarnAutodepositConfig, "state"> & {
-  state: LoadedEarnAutodepositConfig["state"] | "closing";
+  state: LoadedEarnAutodepositConfig["state"] | "closing" | "pausing" | "resuming";
 };
 type PersistedWorkspaceSelection =
   | {
@@ -1104,7 +1104,11 @@ export function AppWalletWorkspace({
       if (current?.state === "creating" && loadedConfig?.state !== "created") {
         return current;
       }
-      if (current?.state === "closing") {
+      if (
+        current?.state === "closing" ||
+        current?.state === "pausing" ||
+        current?.state === "resuming"
+      ) {
         return current;
       }
 
@@ -2451,6 +2455,12 @@ export function AppWalletWorkspace({
       return;
     }
     if (
+      autodepositConfig.state === "pausing" ||
+      autodepositConfig.state === "resuming"
+    ) {
+      return;
+    }
+    if (
       autodepositConfig.policyAccount.length === 0 ||
       autodepositConfig.recurringDelegation.length === 0
     ) {
@@ -2458,8 +2468,15 @@ export function AppWalletWorkspace({
       return;
     }
 
-    const nextActive = autodepositConfig.state === "paused";
+    const previousState = autodepositConfig.state;
+    const nextActive = previousState === "paused";
     setProposalActionError(null);
+    // Optimistic transient state: the switch flips and spins right away
+    // while the on-chain toggle confirms; revert on failure.
+    setAutodepositConfig({
+      ...autodepositConfig,
+      state: nextActive ? "resuming" : "pausing",
+    });
 
     const result = await smartAccountData.executeEarnAutodepositToggle({
       active: nextActive,
@@ -2468,6 +2485,7 @@ export function AppWalletWorkspace({
     });
 
     if (!result.success) {
+      setAutodepositConfig({ ...autodepositConfig, state: previousState });
       setProposalActionError(
         result.error ?? "Autodeposit active state update failed."
       );

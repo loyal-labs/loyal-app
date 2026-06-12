@@ -1668,14 +1668,17 @@ function EarningsBlock({
 function AutodepositToggle({
   disabled = false,
   isOn,
+  isPending = false,
   onToggle,
 }: {
   disabled?: boolean;
   isOn: boolean;
+  isPending?: boolean;
   onToggle?: () => void;
 }) {
   return (
     <button
+      aria-busy={isPending}
       aria-checked={isOn}
       aria-label={isOn ? "Pause Autodeposit" : "Resume Autodeposit"}
       disabled={disabled}
@@ -1690,7 +1693,6 @@ function AutodepositToggle({
         display: "inline-flex",
         flexShrink: 0,
         height: "31px",
-        justifyContent: isOn ? "flex-end" : "flex-start",
         padding: "2px",
         transition: "background 0.2s ease",
         width: "51px",
@@ -1699,13 +1701,49 @@ function AutodepositToggle({
     >
       <span
         style={{
+          alignItems: "center",
           background: "#fff",
           borderRadius: "9999px",
           boxShadow: "0 3px 8px rgba(0, 0, 0, 0.15)",
+          display: "inline-flex",
           height: "27px",
+          justifyContent: "center",
+          // 51px track - 2x2px padding - 27px knob = 20px of travel.
+          transform: isOn ? "translateX(20px)" : "translateX(0)",
+          transition: "transform 0.2s ease",
           width: "27px",
         }}
-      />
+      >
+        {isPending ? (
+          <span
+            aria-hidden="true"
+            className="autodeposit-toggle-spinner"
+            style={{
+              border: "2px solid rgba(120, 120, 128, 0.25)",
+              borderRadius: "9999px",
+              borderTopColor: LOYAL_EARN_BRAND_COLOR,
+              display: "inline-block",
+              height: "16px",
+              width: "16px",
+            }}
+          />
+        ) : null}
+      </span>
+      <style jsx>{`
+        .autodeposit-toggle-spinner {
+          animation: autodeposit-toggle-spin 0.6s linear infinite;
+        }
+        @keyframes autodeposit-toggle-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .autodeposit-toggle-spinner {
+            animation-duration: 1.1s;
+          }
+        }
+      `}</style>
     </button>
   );
 }
@@ -1770,23 +1808,36 @@ function AutodepositCard({
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
-  state?: "closing" | "created" | "creating" | "idle" | "paused";
+  state?:
+    | "closing"
+    | "created"
+    | "creating"
+    | "idle"
+    | "paused"
+    | "pausing"
+    | "resuming";
   onDisable?: () => void;
   onSetUp?: () => void;
 }) {
   const isBusy = state === "creating" || state === "closing";
+  const isToggling = state === "pausing" || state === "resuming";
   const visibleScheduledSweeps = scheduledSweeps.slice(0, 3);
   const statusLabel =
     state === "creating"
       ? "Creating allowance and policy"
       : state === "closing"
       ? "Removing allowance and refunding rent"
+      : state === "pausing"
+      ? "Pausing…"
+      : state === "resuming"
+      ? "Resuming…"
       : state === "paused"
       ? "Paused"
       : `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`;
   // Only the configured "Up to $X/mo above $Y" status carries balance numbers;
-  // the creating/closing/paused statuses are plain text and must not blur.
-  const statusLabelHasAmount = !isBusy && state !== "paused";
+  // the creating/closing/pausing/resuming/paused statuses are plain text and
+  // must not blur.
+  const statusLabelHasAmount = !isBusy && !isToggling && state !== "paused";
 
   if (isConfigured) {
     return (
@@ -1900,8 +1951,15 @@ function AutodepositCard({
               <SlidersHorizontal size={20} strokeWidth={2} />
             </button>
             <AutodepositToggle
-              disabled={isBusy}
-              isOn={!isBusy && state !== "paused"}
+              disabled={isBusy || isToggling}
+              // While toggling, the knob optimistically shows the target
+              // position; on failure the workspace reverts the state.
+              isOn={
+                isToggling
+                  ? state === "resuming"
+                  : !isBusy && state !== "paused"
+              }
+              isPending={isToggling}
               onToggle={onDisable}
             />
           </div>
@@ -2131,7 +2189,14 @@ export function EarnDetailView({
   autodepositAmountLabel?: string;
   autodepositFloorLabel?: string;
   autodepositScheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
-  autodepositState?: "closing" | "created" | "creating" | "idle" | "paused";
+  autodepositState?:
+    | "closing"
+    | "created"
+    | "creating"
+    | "idle"
+    | "paused"
+    | "pausing"
+    | "resuming";
   currentPositionApyLabel?: string;
   currentPositionMarketName?: string;
   currentPositionTokenSymbol?: string;
