@@ -75,6 +75,13 @@ export type PendingEarnAutodepositScheduledSweepRecord = Pick<
   | "status"
 >;
 
+export type ImmediateEarnAutodepositScheduledSweepRequestResult = {
+  acceleratedAmountRaw: bigint;
+  acceleratedLotCount: number;
+  eligibleAfter: Date;
+  targetId: bigint;
+};
+
 export type CurrentEarnAutodepositState = {
   policy: BalanceSweepPolicyRecord;
   status: "active" | "paused" | "pending";
@@ -284,6 +291,60 @@ export async function findPendingEarnAutodepositScheduledSweeps(
       asc(balanceSweepSurplusLots.createdAt),
       asc(balanceSweepSurplusLots.id)
     );
+}
+
+export async function requestImmediateEarnAutodepositScheduledSweep(
+  state: CurrentEarnAutodepositState,
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<ImmediateEarnAutodepositScheduledSweepRequestResult | null> {
+  if (state.status !== "active") {
+    throw new Error("Autodeposit target is not active.");
+  }
+
+  const now = dependencies.now();
+  const updatedLots = await dependencies.client.db
+    .update(balanceSweepSurplusLots)
+    .set({
+      confidence: "user_requested",
+      eligibleAfter: sql`LEAST(${balanceSweepSurplusLots.eligibleAfter}, ${now})`,
+      reason: sql`CASE
+        WHEN ${balanceSweepSurplusLots.reason} LIKE 'user requested immediate autodeposit sweep;%'
+          THEN ${balanceSweepSurplusLots.reason}
+        ELSE concat('user requested immediate autodeposit sweep; ', ${balanceSweepSurplusLots.reason})
+      END`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(balanceSweepSurplusLots.targetId, state.target.id),
+        eq(balanceSweepSurplusLots.status, "open"),
+        sql`${balanceSweepSurplusLots.remainingAmountRaw} > 0`
+      )
+    )
+    .returning({
+      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
+      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
+    });
+
+  if (updatedLots.length === 0) {
+    return null;
+  }
+
+  let acceleratedAmountRaw = BigInt(0);
+  let eligibleAfter = updatedLots[0]?.eligibleAfter ?? now;
+  for (const lot of updatedLots) {
+    acceleratedAmountRaw += lot.remainingAmountRaw;
+    if (lot.eligibleAfter < eligibleAfter) {
+      eligibleAfter = lot.eligibleAfter;
+    }
+  }
+
+  return {
+    acceleratedAmountRaw,
+    acceleratedLotCount: updatedLots.length,
+    eligibleAfter,
+    targetId: state.target.id,
+  };
 }
 
 export async function findEarnAutodepositHistoryEvents(
