@@ -1,7 +1,8 @@
 "use client";
 
 import { ReceiptText } from "lucide-react";
-import { useEffect, useState } from "react";
+import { motion } from "motion/react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import type {
   ActivityRow,
@@ -19,6 +20,11 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
+
+// Poll cadence for the pseudo-realtime feed. Most ticks resolve from the
+// client cache for free; the tick after an Earn action fetches fresh data
+// because the workspace invalidates the cache on confirmation.
+const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
 
 export function getEarnTransactionRowLabel(
   item: Pick<EarnTransactionItem, "eventType" | "kind">
@@ -505,6 +511,31 @@ function EarnTransactionsEmptyState() {
   );
 }
 
+// Mount-time reveal for rows that arrive after the initial load: the slot
+// expands first (pushing the rest of the list down), then the content fades
+// in. Rows present at mount render statically (`initial: false`).
+function EnterReveal({
+  children,
+  isEntering,
+}: {
+  children: ReactNode;
+  isEntering: boolean;
+}) {
+  return (
+    <motion.div
+      animate={{ height: "auto", opacity: 1 }}
+      initial={isEntering ? { height: 0, opacity: 0 } : false}
+      style={{ overflow: "hidden", width: "100%" }}
+      transition={{
+        height: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
+        opacity: { delay: 0.22, duration: 0.28, ease: "easeOut" },
+      }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 function groupEarnTransactions(items: EarnTransactionItem[]) {
   const groups: { date: string; items: EarnTransactionItem[] }[] = [];
   for (const item of items) {
@@ -535,6 +566,9 @@ export function EarnTransactionsPane({
 }) {
   const { isAuthenticated, isHydrated } = useAuthSession();
   const [transactions, setTransactions] = useState<EarnTransactionItem[]>([]);
+  const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -551,32 +585,59 @@ export function EarnTransactionsPane({
     if (!isAuthenticated || !settingsPda || !walletAddress) {
       setIsLoading(false);
       setTransactions([]);
+      setEnteringIds(new Set());
       setErrorMessage(null);
       return;
     }
 
     let isMounted = true;
+    // Ids already on screen; null until the initial load lands. Poll results
+    // diff against this so only rows that arrive later animate in.
+    let knownIds: Set<string> | null = null;
 
-    const loadTransactions = async () => {
-      setIsLoading(true);
-      setErrorMessage(null);
-
-      const payload = await fetchEarnTransactions({
-        settingsPda,
-        solanaEnv,
-        walletAddress,
-      });
-
-      if (isMounted) {
-        setTransactions(payload.transactions);
-        setErrorMessage(null);
+    const applyTransactions = (items: EarnTransactionItem[]) => {
+      const previousIds = knownIds;
+      const freshIds =
+        previousIds === null
+          ? []
+          : items
+              .filter((item) => !previousIds.has(item.id))
+              .map((item) => item.id);
+      if (
+        previousIds !== null &&
+        freshIds.length === 0 &&
+        items.length === previousIds.size
+      ) {
+        // Same id set as the last render — skip the no-op state update.
+        return;
       }
+      knownIds = new Set(items.map((item) => item.id));
+      setTransactions(items);
+      setEnteringIds(new Set(freshIds));
     };
 
-    void loadTransactions()
-      .catch((error) => {
-        console.warn("[earn-transactions] failed to load transactions", error);
+    const loadTransactions = async ({ silent }: { silent: boolean }) => {
+      if (!silent) {
+        setIsLoading(true);
+        setErrorMessage(null);
+      }
+
+      try {
+        const payload = await fetchEarnTransactions({
+          settingsPda,
+          solanaEnv,
+          walletAddress,
+        });
+
         if (isMounted) {
+          applyTransactions(payload.transactions);
+          setErrorMessage(null);
+        }
+      } catch (error) {
+        console.warn("[earn-transactions] failed to load transactions", error);
+        // Silent polls keep whatever is on screen; only the initial load
+        // surfaces the error state.
+        if (isMounted && !silent) {
           setTransactions([]);
           setErrorMessage(
             error instanceof Error
@@ -584,15 +645,25 @@ export function EarnTransactionsPane({
               : "Failed to load earn transactions."
           );
         }
-      })
-      .finally(() => {
-        if (isMounted) {
+      } finally {
+        if (isMounted && !silent) {
           setIsLoading(false);
         }
-      });
+      }
+    };
+
+    void loadTransactions({ silent: false });
+
+    // Pseudo-realtime: poll the cached fetcher so new transactions appear
+    // without a reload. See EARN_TRANSACTIONS_POLL_INTERVAL_MS for why this
+    // stays cheap.
+    const intervalId = window.setInterval(() => {
+      void loadTransactions({ silent: true });
+    }, EARN_TRANSACTIONS_POLL_INTERVAL_MS);
 
     return () => {
       isMounted = false;
+      window.clearInterval(intervalId);
     };
   }, [isAuthenticated, isHydrated, settingsPda, solanaEnv, walletAddress]);
 
@@ -701,33 +772,43 @@ export function EarnTransactionsPane({
                 width: "100%",
               }}
             >
-              <div
-                style={{
-                  padding: "11px 12px 8px",
-                  width: "100%",
-                }}
+              <EnterReveal
+                isEntering={group.items.every((item) =>
+                  enteringIds.has(item.id)
+                )}
               >
-                <p
+                <div
                   style={{
-                    color: secondary,
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 400,
-                    letterSpacing: "-0.176px",
-                    lineHeight: "20px",
-                    margin: 0,
+                    padding: "11px 12px 8px",
+                    width: "100%",
                   }}
                 >
-                  {group.date}
-                </p>
-              </div>
+                  <p
+                    style={{
+                      color: secondary,
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 400,
+                      letterSpacing: "-0.176px",
+                      lineHeight: "20px",
+                      margin: 0,
+                    }}
+                  >
+                    {group.date}
+                  </p>
+                </div>
+              </EnterReveal>
               {group.items.map((item) => (
-                <EarnTransactionRow
-                  isBalanceHidden={isBalanceHidden}
-                  item={item}
+                <EnterReveal
+                  isEntering={enteringIds.has(item.id)}
                   key={item.id}
-                  onSelect={handleSelect}
-                />
+                >
+                  <EarnTransactionRow
+                    isBalanceHidden={isBalanceHidden}
+                    item={item}
+                    onSelect={handleSelect}
+                  />
+                </EnterReveal>
               ))}
             </div>
           ))
