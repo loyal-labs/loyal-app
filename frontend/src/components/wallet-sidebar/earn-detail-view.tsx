@@ -209,9 +209,10 @@ function formatBucksAmount(value: number) {
   });
 }
 
-// Sanitizes free-form amount typing. Amounts above the available balance are
-// allowed on purpose — the submit button switches to its "Insufficient
-// balance" state instead of the input clamping the value.
+// Sanitizes free-form amount typing. This helper never compares against a
+// balance: deposit inputs allow over-balance amounts (the submit button
+// switches to "Insufficient balance"), while the withdraw input clamps to the
+// max withdrawable amount at its call site.
 export function sanitizeBucksAmountInput(
   rawValue: string,
   previousValue: string
@@ -2832,9 +2833,17 @@ export function EarnWithdrawView({
                   rawValue,
                   withdrawAmount
                 );
-                if (sanitizedValue !== null) {
-                  setWithdrawAmount(sanitizedValue);
+                if (sanitizedValue === null) {
+                  return;
                 }
+                // Typing past the position balance snaps the field to the max
+                // withdrawable amount, which also flips the draft to "full".
+                const numericValue = Number(sanitizedValue.replace(/,/g, ""));
+                setWithdrawAmount(
+                  numericValue > maxWithdrawAmount
+                    ? formatBucksAmount(maxWithdrawAmount)
+                    : sanitizedValue
+                );
               }}
               value={withdrawAmount}
             />
