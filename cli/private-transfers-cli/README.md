@@ -33,7 +33,7 @@ Global flags mirror Solana CLI style:
 
 Defaults (auto-detected from Solana config / `--url`):
 
-- `--per-rpc https://mainnet-tee.magicblock.app` (mainnet) or `https://tee.magicblock.app` (devnet)
+- `--per-rpc https://mainnet-tee.magicblock.app` (mainnet) or `https://devnet-tee.magicblock.app` (devnet)
 - `--router-url https://devnet-router.magicblock.app`
 
 When `--per-rpc` contains `tee` and no `token=` is present, the CLI:

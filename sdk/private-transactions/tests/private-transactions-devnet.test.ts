@@ -182,7 +182,7 @@ describe("private-transactions SDK (PER)", () => {
         "confirmed";
 
     const devnetErHostname = "devnet-router.magicblock.app";
-    const devnetPerHostname = "tee.magicblock.app";
+    const devnetPerHostname = "devnet-tee.magicblock.app";
 
     const endpoint = `https://${devnetErHostname}`;
     const wsEndpoint = deriveWsEndpoint(endpoint);

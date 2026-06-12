@@ -1166,8 +1166,15 @@ export class LoyalPrivateTransactionsClient {
    * Delegate a deposit account to the ephemeral rollup
    */
   async delegateDeposit(params: DelegateDepositParams): Promise<string> {
-    const { user, tokenMint } = params;
-    const { ix, ensure } = await delegateDepositIx(this.baseProgram, params);
+    const delegateParams = {
+      ...params,
+      validator: params.validator ?? this.getExpectedErValidator(),
+    };
+    const { user, tokenMint } = delegateParams;
+    const { ix, ensure } = await delegateDepositIx(
+      this.baseProgram,
+      delegateParams
+    );
 
     await processEnsureChecks(
       this.baseProgram.provider.connection,
@@ -1229,9 +1236,9 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
       // session,
       payer,
-      validator,
       rpcOptions,
     } = params;
+    const validator = params.validator ?? this.getExpectedErValidator();
 
     validateUsername(username);
 
@@ -1259,7 +1266,7 @@ export class LoyalPrivateTransactionsClient {
       systemProgram: SystemProgram.programId,
     };
 
-    accounts.validator = validator ?? null;
+    accounts.validator = validator;
 
     const delegationWatcher = waitForAccountOwnerChange(
       this.baseProgram.provider.connection,
@@ -1865,7 +1872,7 @@ export class LoyalPrivateTransactionsClient {
     const ephemeralUrl = this.ephemeralProgram.provider.connection.rpcEndpoint;
     const teeBaseUrl = ephemeralUrl.includes("mainnet-tee")
       ? "https://mainnet-tee.magicblock.app/"
-      : "https://tee.magicblock.app/";
+      : "https://devnet-tee.magicblock.app/";
     try {
       const teeRes = await fetch(teeBaseUrl, options);
       const teeData = (await teeRes.json()) as DelegationStatusResponse;

@@ -69,16 +69,16 @@ describe("getPerEndpoints", () => {
 
   test("returns the devnet PER endpoints for non-mainnet envs", () => {
     expect(getPerEndpoints("devnet")).toEqual({
-      perRpcEndpoint: "https://tee.magicblock.app",
-      perWsEndpoint: "wss://tee.magicblock.app",
+      perRpcEndpoint: "https://devnet-tee.magicblock.app",
+      perWsEndpoint: "wss://devnet-tee.magicblock.app",
     });
     expect(getPerEndpoints("testnet")).toEqual({
-      perRpcEndpoint: "https://tee.magicblock.app",
-      perWsEndpoint: "wss://tee.magicblock.app",
+      perRpcEndpoint: "https://devnet-tee.magicblock.app",
+      perWsEndpoint: "wss://devnet-tee.magicblock.app",
     });
     expect(getPerEndpoints("localnet")).toEqual({
-      perRpcEndpoint: "https://tee.magicblock.app",
-      perWsEndpoint: "wss://tee.magicblock.app",
+      perRpcEndpoint: "https://devnet-tee.magicblock.app",
+      perWsEndpoint: "wss://devnet-tee.magicblock.app",
     });
   });
 });

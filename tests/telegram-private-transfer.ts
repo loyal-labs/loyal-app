@@ -220,10 +220,15 @@ describe("telegram-private-transfer", () => {
   );
   anchor.setProvider(provider);
   log("Provider commitment", commitment);
+  const defaultErValidator =
+    ephemeralProviderEndpoint.includes("localhost") ||
+    ephemeralProviderEndpoint.includes("127.0.0.1")
+      ? "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
+      : "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
   const erValidator = new PublicKey(
     process.env.ER_VALIDATOR ??
       process.env.MAGICBLOCK_VALIDATOR ??
-      "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
+      defaultErValidator
   );
 
   const program = new Program<TelegramPrivateTransfer>(

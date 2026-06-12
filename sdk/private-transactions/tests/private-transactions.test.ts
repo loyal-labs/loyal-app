@@ -110,7 +110,7 @@ function loadTestConfig(): TestConfig {
   const erRpcEndpoint =
     process.env.EPHEMERAL_PROVIDER_ENDPOINT ??
     (isDevnet
-      ? "https://devnet.magicblock.app"
+      ? "https://devnet-tee.magicblock.app"
       : "http://127.0.0.1:7799");
 
   const erWsEndpoint =
@@ -120,10 +120,14 @@ function loadTestConfig(): TestConfig {
       : deriveWsEndpoint(erRpcEndpoint));
 
   // Validator identity
+  const defaultErValidator =
+    erRpcEndpoint.includes("localhost") || erRpcEndpoint.includes("127.0.0.1")
+      ? "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
+      : "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
   const erValidator = new PublicKey(
     process.env.ER_VALIDATOR ??
     process.env.MAGICBLOCK_VALIDATOR ??
-    "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
+    defaultErValidator
   );
 
   // Commitment level

@@ -2759,7 +2759,7 @@ async function getDelegationStatus(perRpcEndpoint, account) {
   };
   const expectedValidator = getErValidatorForRpcEndpoint(perRpcEndpoint);
   const isMainnet = perRpcEndpoint.includes("mainnet-tee");
-  const teeBaseUrl = isMainnet ? "https://mainnet-tee.magicblock.app/" : "https://tee.magicblock.app/";
+  const teeBaseUrl = isMainnet ? "https://mainnet-tee.magicblock.app/" : "https://devnet-tee.magicblock.app/";
   try {
     const teeRes = await fetch(teeBaseUrl, options);
     const teeData = await teeRes.json();
@@ -4618,8 +4618,12 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async delegateDeposit(params) {
-    const { user, tokenMint } = params;
-    const { ix, ensure } = await delegateDepositIx(this.baseProgram, params);
+    const delegateParams = {
+      ...params,
+      validator: params.validator ?? this.getExpectedErValidator()
+    };
+    const { user, tokenMint } = delegateParams;
+    const { ix, ensure } = await delegateDepositIx(this.baseProgram, delegateParams);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const [depositPda] = findDepositPda(user, tokenMint);
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
@@ -4654,9 +4658,9 @@ class LoyalPrivateTransactionsClient {
       username,
       tokenMint,
       payer,
-      validator,
       rpcOptions
     } = params;
+    const validator = params.validator ?? this.getExpectedErValidator();
     validateUsername(username);
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [bufferPda] = findBufferPda(depositPda);
@@ -4674,7 +4678,7 @@ class LoyalPrivateTransactionsClient {
       delegationProgram: DELEGATION_PROGRAM_ID,
       systemProgram: SystemProgram5.programId
     };
-    accounts.validator = validator ?? null;
+    accounts.validator = validator;
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
     let signature;
     try {
@@ -4991,7 +4995,7 @@ class LoyalPrivateTransactionsClient {
     };
     const expectedValidator = this.getExpectedErValidator();
     const ephemeralUrl = this.ephemeralProgram.provider.connection.rpcEndpoint;
-    const teeBaseUrl = ephemeralUrl.includes("mainnet-tee") ? "https://mainnet-tee.magicblock.app/" : "https://tee.magicblock.app/";
+    const teeBaseUrl = ephemeralUrl.includes("mainnet-tee") ? "https://mainnet-tee.magicblock.app/" : "https://devnet-tee.magicblock.app/";
     try {
       const teeRes = await fetch(teeBaseUrl, options);
       const teeData = await teeRes.json();

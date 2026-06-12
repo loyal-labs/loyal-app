@@ -38,9 +38,9 @@ const MAINNET_PER_ENDPOINTS: PerEndpoints = {
   perRpcEndpoint: "https://mainnet-tee.magicblock.app",
   perWsEndpoint: "wss://mainnet-tee.magicblock.app",
 };
-const NON_MAINNET_PER_ENDPOINTS: PerEndpoints = {
-  perRpcEndpoint: "https://tee.magicblock.app",
-  perWsEndpoint: "wss://tee.magicblock.app",
+const DEVNET_PER_ENDPOINTS: PerEndpoints = {
+  perRpcEndpoint: "https://devnet-tee.magicblock.app",
+  perWsEndpoint: "wss://devnet-tee.magicblock.app",
 };
 const SOLANA_ENDPOINTS_BY_ENV: Record<SolanaEnv, SolanaEndpoints> = {
   mainnet: MAINNET_SOLANA_ENDPOINTS,
@@ -50,11 +50,11 @@ const SOLANA_ENDPOINTS_BY_ENV: Record<SolanaEnv, SolanaEndpoints> = {
 };
 const PER_ENDPOINTS_BY_ENV: Record<SolanaEnv, PerEndpoints> = {
   mainnet: MAINNET_PER_ENDPOINTS,
-  // Keep non-mainnet environments aligned on the devnet PER cluster until
-  // dedicated testnet/localnet PER endpoints exist.
-  testnet: NON_MAINNET_PER_ENDPOINTS,
-  devnet: NON_MAINNET_PER_ENDPOINTS,
-  localnet: NON_MAINNET_PER_ENDPOINTS,
+  // MagicBlock does not offer testnet/localnet PER; use devnet TEE for
+  // non-mainnet PER traffic.
+  testnet: DEVNET_PER_ENDPOINTS,
+  devnet: DEVNET_PER_ENDPOINTS,
+  localnet: DEVNET_PER_ENDPOINTS,
 };
 
 const isSolanaEnv = (value: string): value is SolanaEnv =>
