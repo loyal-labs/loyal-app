@@ -1,7 +1,7 @@
 import "server-only";
 
-import { STABLECOIN_MINTS, STABLECOINS } from "@loyal/actions/constants";
-import { Stablecoin } from "@loyal/actions/types";
+import { STABLECOIN_MINTS, STABLECOINS } from "@loyal-labs/actions/constants";
+import { Stablecoin } from "@loyal-labs/actions/types";
 
 import {
   FALLBACK_EARN_FORECAST,

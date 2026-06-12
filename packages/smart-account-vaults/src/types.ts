@@ -1,5 +1,5 @@
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts";
-import type { LoyalCluster } from "@loyal/actions";
+import type { LoyalCluster } from "@loyal-labs/actions";
 import type { DecodedSolanaInstruction } from "@loyal-labs/solana-instruction-decoder";
 import type {
   ActivityPage,

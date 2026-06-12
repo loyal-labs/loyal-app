@@ -21,8 +21,8 @@ import {
   KAMINO_ONRE_MARKET,
   RISK_BASKET_MARKETS,
   STABLECOIN_MINTS,
-} from "@loyal/actions/constants";
-import { RiskBasket, Stablecoin } from "@loyal/actions/types";
+} from "@loyal-labs/actions/constants";
+import { RiskBasket, Stablecoin } from "@loyal-labs/actions/types";
 
 const EARN_VAULT_LABEL = "Earn vault";
 const USDC_MAIN_MARKET_RESERVE_ADDRESS =

@@ -5,7 +5,7 @@ import {
   createVaultYieldRoutingPolicyPlan,
   normalizeLoyalCluster,
   type VaultYieldRoutingPolicyPlan,
-} from "@loyal/actions";
+} from "@loyal-labs/actions";
 import { PublicKey } from "@solana/web3.js";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { LoyalCluster, resolveLoyalClusterForSolanaEnv } from "@loyal/actions";
+import { LoyalCluster, resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,

@@ -40,7 +40,7 @@ mock.module("@/lib/solana/rpc-rate-limit", () => ({
   getFrontendSolanaRpcFetch: (fetchImpl: typeof fetch) => fetchImpl,
 }));
 
-mock.module("@loyal/actions", () => ({
+mock.module("@loyal-labs/actions", () => ({
   getKaminoUsdcEarnTargetForCluster: () => ({
     liquidityMint: new PublicKey(canonical.liquidityMint),
     market: new PublicKey(canonical.market),

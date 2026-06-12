@@ -4,8 +4,8 @@ import {
   RISK_BASKET_MARKETS,
   STABLECOIN_MINTS,
   STABLECOINS,
-} from "@loyal/actions/constants";
-import { RiskBasket, type Stablecoin } from "@loyal/actions/types";
+} from "@loyal-labs/actions/constants";
+import { RiskBasket, type Stablecoin } from "@loyal-labs/actions/types";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or } from "drizzle-orm";
 import {

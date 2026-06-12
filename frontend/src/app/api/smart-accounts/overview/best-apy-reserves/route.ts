@@ -1,4 +1,4 @@
-import { RiskBasket } from "@loyal/actions/types";
+import { RiskBasket } from "@loyal-labs/actions/types";
 
 import { getCurrentBestApyReserveByStablecoin } from "@/lib/kamino/timescale-reserve-client.server";
 

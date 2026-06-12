@@ -3,7 +3,7 @@ import {
   getKaminoUsdcEarnTargetForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
-} from "@loyal/actions";
+} from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";

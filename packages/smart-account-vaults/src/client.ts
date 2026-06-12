@@ -30,7 +30,7 @@ import {
   subscriptionInitAuthorityData,
   subscriptionRevokeDelegationData,
   subscriptionTransferRecurringData,
-} from "@loyal/actions";
+} from "@loyal-labs/actions";
 import { executePolicyTransaction as buildExecutePolicyTransactionInstruction } from "@loyal-labs/loyal-smart-accounts-core/internal";
 import {
   accountsForTransactionExecute,

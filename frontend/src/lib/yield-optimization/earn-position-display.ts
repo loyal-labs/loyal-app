@@ -5,7 +5,7 @@ import {
   STABLECOIN_MINTS,
   STABLECOIN_MINTS_BY_CLUSTER,
   Stablecoin,
-} from "@loyal/actions";
+} from "@loyal-labs/actions";
 
 export type EarnPositionDisplay = {
   label: string;

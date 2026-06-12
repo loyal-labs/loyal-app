@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getKaminoUsdcEarnTargetForCluster,
   resolveLoyalClusterForSolanaEnv,
-} from "@loyal/actions";
+} from "@loyal-labs/actions";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";

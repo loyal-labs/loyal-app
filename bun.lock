@@ -191,6 +191,7 @@
         "@connectrpc/connect": "^2.0.4",
         "@connectrpc/connect-web": "^2.0.4",
         "@icons-pack/react-simple-icons": "^13.7.0",
+        "@loyal-labs/actions": "workspace:*",
         "@loyal-labs/auth-core": "workspace:*",
         "@loyal-labs/db-adapter-neon": "workspace:*",
         "@loyal-labs/db-core": "workspace:*",
@@ -203,7 +204,6 @@
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
         "@loyal-labs/wallet-core": "workspace:*",
-        "@loyal/actions": "workspace:*",
         "@neondatabase/serverless": "^1.0.2",
         "@number-flow/react": "^0.6.0",
         "@radix-ui/react-avatar": "^1.1.11",
@@ -362,10 +362,10 @@
       },
     },
     "packages/loyal-actions": {
-      "name": "@loyal/actions",
+      "name": "@loyal-labs/actions",
       "version": "0.1.0",
       "dependencies": {
-        "@loyal-labs/solana-rpc": "workspace:*",
+        "@loyal-labs/solana-rpc": "^0.1.1",
         "@solana/web3.js": "^1.98.4",
       },
       "devDependencies": {
@@ -389,11 +389,11 @@
       "name": "@loyal-labs/smart-account-vaults",
       "version": "0.1.1",
       "dependencies": {
+        "@loyal-labs/actions": "workspace:*",
         "@loyal-labs/loyal-smart-accounts": "workspace:*",
         "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
         "@loyal-labs/solana-instruction-decoder": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
-        "@loyal/actions": "workspace:*",
         "@solana/spl-token": "^0.4.13",
         "@solana/web3.js": "^1.98.0",
         "bn.js": "^5.2.2",
@@ -1208,6 +1208,8 @@
 
     "@lit/reactive-element": ["@lit/reactive-element@2.1.2", "", { "dependencies": { "@lit-labs/ssr-dom-shim": "^1.5.0" } }, "sha512-pbCDiVMnne1lYUIaYNN5wrwQXDtHaYtg7YEFPeW+hws6U47WeFvISGUWekPGKWOP1ygrs0ef0o1VJMk1exos5A=="],
 
+    "@loyal-labs/actions": ["@loyal-labs/actions@workspace:packages/loyal-actions"],
+
     "@loyal-labs/auth-core": ["@loyal-labs/auth-core@workspace:packages/auth-core"],
 
     "@loyal-labs/db-adapter-neon": ["@loyal-labs/db-adapter-neon@workspace:packages/db-adapter-neon"],
@@ -1243,8 +1245,6 @@
     "@loyal-labs/userbot-worker": ["@loyal-labs/userbot-worker@workspace:workers/userbot"],
 
     "@loyal-labs/wallet-core": ["@loyal-labs/wallet-core@workspace:packages/wallet-core"],
-
-    "@loyal/actions": ["@loyal/actions@workspace:packages/loyal-actions"],
 
     "@magicblock-labs/ephemeral-rollups-sdk": ["@magicblock-labs/ephemeral-rollups-sdk@0.11.1", "", { "dependencies": { "@noble/curves": "^1.4.2", "@noble/hashes": "^1.4.0", "@phala/dcap-qvl": "^0.3.9", "@solana/web3.js": "^1.98.0", "bs58": "^6.0.0", "rpc-websockets": "^9.0.4", "tweetnacl": "^1.0.3", "typescript": "^5.3.0" } }, "sha512-4z0uFiCqpjUqdbavTVenvSdrLp4DD6EIcvlDYhwl6MMevogj9yrW9w0epyDigyB0xcGW2YH3C4ObzZ6H1a6o3w=="],
 

@@ -3,7 +3,7 @@ import {
   STABLECOIN_MINTS,
   Stablecoin,
   SUBSCRIPTIONS_PROGRAM_ID,
-} from "@loyal/actions";
+} from "@loyal-labs/actions";
 import {
   generated,
   Policy,
