@@ -19,12 +19,12 @@ export type PerEndpoints = {
 
 const DEFAULT_SOLANA_ENV: SolanaEnv = "devnet";
 const MAINNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
-  rpcEndpoint: "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
-  websocketEndpoint: "wss://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
+  rpcEndpoint: "https://fredra-z7l52f-fast-mainnet.helius-rpc.com",
+  websocketEndpoint: "wss://fredra-z7l52f-fast-mainnet.helius-rpc.com",
 };
 const DEVNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
-  rpcEndpoint: "https://aurora-o23cd4-fast-devnet.helius-rpc.com",
-  websocketEndpoint: "wss://aurora-o23cd4-fast-devnet.helius-rpc.com",
+  rpcEndpoint: "https://karlotta-a6micy-fast-devnet.helius-rpc.com",
+  websocketEndpoint: "wss://karlotta-a6micy-fast-devnet.helius-rpc.com",
 };
 const TESTNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
   rpcEndpoint: "https://api.testnet.solana.com",
