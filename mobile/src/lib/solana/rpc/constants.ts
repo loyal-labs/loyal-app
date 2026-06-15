@@ -5,7 +5,7 @@
 // the shipped JS bundle and is trivially extractable from the APK/IPA.
 // The previous endpoint (Thumbvenom) was rotated out via ASK-1334.
 export const SECURE_MAINNET_RPC_URL =
-  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
+  "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 
 // Mobile no longer opens any Solana WebSocket subscriptions — incoming
 // transfer pushes come via the Helius enhanced webhook → Expo push
