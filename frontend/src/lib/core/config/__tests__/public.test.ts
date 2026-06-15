@@ -72,7 +72,7 @@ describe("public config", () => {
 
     expect(env.solanaEnv).toBe("devnet");
     expect(env.solanaRpcEndpoint).toBe(
-      "https://aurora-o23cd4-fast-devnet.helius-rpc.com"
+      "https://karlotta-a6micy-fast-devnet.helius-rpc.com"
     );
   });
 
@@ -83,7 +83,7 @@ describe("public config", () => {
 
     expect(env.solanaEnv).toBe("mainnet");
     expect(env.solanaRpcEndpoint).toBe(
-      "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com"
+      "https://fredra-z7l52f-fast-mainnet.helius-rpc.com"
     );
   });
 
@@ -94,7 +94,7 @@ describe("public config", () => {
 
     expect(env.solanaEnv).toBe("devnet");
     expect(env.solanaRpcEndpoint).toBe(
-      "https://aurora-o23cd4-fast-devnet.helius-rpc.com"
+      "https://karlotta-a6micy-fast-devnet.helius-rpc.com"
     );
   });
 
