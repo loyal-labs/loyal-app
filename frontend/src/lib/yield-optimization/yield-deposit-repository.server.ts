@@ -18,6 +18,9 @@ import {
   userYieldPositionHoldingEvents,
   userYieldPositionWithdrawals,
   userYieldPositions,
+  vaultPositionSnapshotPositions,
+  vaultPositionSnapshots,
+  vaultReservePositionsCurrent,
   type YieldOptimizationClient,
 } from "./yield-neon-client.server";
 
@@ -93,6 +96,11 @@ export type ActiveYieldPositionLookupInput = {
   vaultIndex: number;
   walletAddress: string;
 };
+
+export type ActiveYieldPositionForVaultLookupInput = Omit<
+  ActiveYieldPositionLookupInput,
+  "initialReserve"
+>;
 
 export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
   vaultPubkey?: string;
@@ -202,6 +210,400 @@ function createDependencies(): YieldDepositRepositoryDependencies {
     client: getYieldOptimizationClient(),
     now: () => new Date(),
   };
+}
+
+function currentPositionMatchesHoldingEvent(
+  position: UserYieldPositionRecord,
+  event: UserYieldPositionHoldingEventRecord
+): boolean {
+  return (
+    position.currentReserve === event.reserve &&
+    position.currentMarket === event.market &&
+    position.currentLiquidityMint === event.liquidityMint &&
+    position.currentAmountRaw === event.amountRaw &&
+    position.currentObservedSlot === event.observedSlot &&
+    position.currentObservedAt.getTime() === event.observedAt.getTime() &&
+    position.lastHoldingEventId === event.id
+  );
+}
+
+function currentVaultPositionMatchesEvent(
+  current: typeof vaultReservePositionsCurrent.$inferSelect,
+  event: UserYieldPositionHoldingEventRecord
+): boolean {
+  return (
+    current.reserve === event.reserve &&
+    current.market === event.market &&
+    current.liquidityMint === event.liquidityMint &&
+    current.amountRaw === event.amountRaw &&
+    current.observedSlot === event.observedSlot &&
+    current.observedAt.getTime() === event.observedAt.getTime()
+  );
+}
+
+async function findLatestHoldingEventForPosition(
+  positionId: bigint,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<UserYieldPositionHoldingEventRecord | null> {
+  const [event] = await dependencies.client.db
+    .select()
+    .from(userYieldPositionHoldingEvents)
+    .where(eq(userYieldPositionHoldingEvents.positionId, positionId))
+    .orderBy(
+      desc(userYieldPositionHoldingEvents.observedSlot),
+      desc(userYieldPositionHoldingEvents.observedAt),
+      desc(userYieldPositionHoldingEvents.id)
+    )
+    .limit(1);
+
+  return (event as UserYieldPositionHoldingEventRecord | undefined) ?? null;
+}
+
+async function recordZeroCurrentVaultPositionsAfterFullWithdrawal(
+  input: ConfirmedYieldWithdrawalInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client" | "now">
+): Promise<void> {
+  const vault = await dependencies.client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, input.vaultPubkey)
+    ),
+  });
+  if (!vault) {
+    return;
+  }
+
+  const currentRows = await dependencies.client.db
+    .select()
+    .from(vaultReservePositionsCurrent)
+    .where(eq(vaultReservePositionsCurrent.vaultId, vault.id));
+  if (currentRows.length === 0) {
+    return;
+  }
+  const alreadyZeroCurrent = currentRows.every(
+    (row) => row.amountRaw === BigInt(0) && !row.hasValue
+  );
+  if (alreadyZeroCurrent) {
+    return;
+  }
+
+  const observedAt = dependencies.now();
+  const [snapshot] = await dependencies.client.db
+    .insert(vaultPositionSnapshots)
+    .values({
+      chainSlot: input.confirmedSlot,
+      context: {
+        source: "frontend_full_withdraw",
+        withdrawalSignature: input.withdrawalSignature,
+      },
+      isCurrent: false,
+      observedAt,
+      observedSlot: input.confirmedSlot,
+      policyId: vault.activePolicyId,
+      vaultId: vault.id,
+    })
+    .returning({ id: vaultPositionSnapshots.id });
+  if (!snapshot) {
+    return;
+  }
+
+  await dependencies.client.db.batch([
+    dependencies.client.db
+      .insert(vaultPositionSnapshotPositions)
+      .values(
+        currentRows.map((row) => ({
+          amountRaw: BigInt(0),
+          borrowApyBps: row.borrowApyBps,
+          hasValue: false,
+          liquidityMint: row.liquidityMint,
+          market: row.market,
+          planningMetadata: {
+            ...row.planningMetadata,
+            source: "frontend_full_withdraw",
+          },
+          reserve: row.reserve,
+          snapshotId: snapshot.id,
+          supplyApyBps: row.supplyApyBps,
+        }))
+      ) as never,
+    dependencies.client.db
+      .update(vaultPositionSnapshots)
+      .set({ isCurrent: false })
+      .where(eq(vaultPositionSnapshots.vaultId, vault.id)) as never,
+    dependencies.client.db
+      .update(vaultReservePositionsCurrent)
+      .set({
+        amountRaw: BigInt(0),
+        hasValue: false,
+        observedAt,
+        observedSlot: input.confirmedSlot,
+        snapshotId: snapshot.id,
+      })
+      .where(eq(vaultReservePositionsCurrent.vaultId, vault.id)) as never,
+    dependencies.client.db
+      .update(vaultPositionSnapshots)
+      .set({ isCurrent: true })
+      .where(eq(vaultPositionSnapshots.id, snapshot.id)) as never,
+  ]);
+}
+
+async function deactivateVaultAfterFullWithdrawal(
+  input: ConfirmedYieldWithdrawalInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">,
+  now: Date
+): Promise<void> {
+  await dependencies.client.db.batch([
+    dependencies.client.db
+      .update(routePolicies)
+      .set({
+        active: false,
+        lastSeenAt: now,
+        lastSeenSignature: input.withdrawalSignature,
+        lastSeenSlot: input.confirmedSlot,
+      })
+      .where(
+        and(
+          eq(routePolicies.authority, input.walletAddress),
+          eq(routePolicies.settings, input.settings),
+          eq(routePolicies.vaultIndex, input.vaultIndex),
+          eq(routePolicies.vaultPubkey, input.vaultPubkey)
+        )
+      ) as never,
+    dependencies.client.db
+      .update(managedVaults)
+      .set({ active: false, lastSeenAt: now })
+      .where(
+        and(
+          eq(managedVaults.settings, input.settings),
+          eq(managedVaults.vaultIndex, input.vaultIndex),
+          eq(managedVaults.vaultPubkey, input.vaultPubkey)
+        )
+      ) as never,
+  ]);
+}
+
+function assertDuplicateWithdrawalField<T extends string | bigint | number>(
+  actual: T,
+  expected: T,
+  label: string
+) {
+  if (actual !== expected) {
+    throw new Error(`Duplicate withdrawal ${label} metadata mismatch.`);
+  }
+}
+
+function assertDuplicateDepositField<T extends string | bigint | number | null>(
+  actual: T,
+  expected: T,
+  label: string
+) {
+  if (actual !== expected) {
+    throw new Error(`Duplicate deposit ${label} metadata mismatch.`);
+  }
+}
+
+async function findIdempotentDepositPosition(
+  input: ConfirmedYieldDepositInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<UserYieldPositionRecord | null> {
+  const deposit =
+    await dependencies.client.db.query.userYieldPositionDeposits.findFirst({
+      where: eq(
+        userYieldPositionDeposits.depositSignature,
+        input.depositSignature
+      ),
+    });
+  if (!deposit) {
+    return null;
+  }
+
+  assertDuplicateDepositField(
+    deposit.confirmedSlot,
+    input.confirmedSlot,
+    "confirmedSlot"
+  );
+  assertDuplicateDepositField(
+    deposit.walletAddress,
+    input.walletAddress,
+    "walletAddress"
+  );
+  assertDuplicateDepositField(
+    deposit.smartAccountAddress,
+    input.smartAccountAddress,
+    "smartAccountAddress"
+  );
+  assertDuplicateDepositField(deposit.settings, input.settings, "settings");
+  assertDuplicateDepositField(deposit.vaultIndex, input.vaultIndex, "vaultIndex");
+  assertDuplicateDepositField(
+    deposit.vaultPubkey,
+    input.vaultPubkey,
+    "vaultPubkey"
+  );
+  assertDuplicateDepositField(deposit.policyId, input.policyId, "policyId");
+  assertDuplicateDepositField(
+    deposit.policyAccount,
+    input.policyAccount,
+    "policyAccount"
+  );
+  assertDuplicateDepositField(deposit.policySeed, input.policySeed, "policySeed");
+  assertDuplicateDepositField(
+    deposit.policySignature,
+    input.policySignature,
+    "policySignature"
+  );
+  assertDuplicateDepositField(
+    deposit.targetReserve,
+    input.targetReserve,
+    "targetReserve"
+  );
+  assertDuplicateDepositField(deposit.market, input.market, "market");
+  assertDuplicateDepositField(
+    deposit.liquidityMint,
+    input.liquidityMint,
+    "liquidityMint"
+  );
+  assertDuplicateDepositField(
+    deposit.targetSupplyApyBps,
+    input.targetSupplyApyBps,
+    "targetSupplyApyBps"
+  );
+  assertDuplicateDepositField(deposit.depositMint, input.depositMint, "depositMint");
+  assertDuplicateDepositField(
+    deposit.principalAmountRaw,
+    input.principalAmountRaw,
+    "principalAmountRaw"
+  );
+
+  const event =
+    await dependencies.client.db.query.userYieldPositionHoldingEvents.findFirst({
+      orderBy: [
+        desc(userYieldPositionHoldingEvents.observedSlot),
+        desc(userYieldPositionHoldingEvents.id),
+      ],
+      where: eq(userYieldPositionHoldingEvents.sourceDepositId, deposit.id),
+    });
+  if (event) {
+    const position =
+      await dependencies.client.db.query.userYieldPositions.findFirst({
+        where: eq(userYieldPositions.id, event.positionId),
+      });
+    if (position) {
+      return position;
+    }
+  }
+
+  const position =
+    await dependencies.client.db.query.userYieldPositions.findFirst({
+      where: and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.vaultPubkey, input.vaultPubkey),
+        eq(userYieldPositions.lastDepositSignature, input.depositSignature)
+      ),
+      orderBy: [desc(userYieldPositions.updatedAt), desc(userYieldPositions.id)],
+    });
+
+  if (!position) {
+    throw new Error("Duplicate deposit position is missing.");
+  }
+
+  return position;
+}
+
+async function findIdempotentWithdrawalPosition(
+  input: ConfirmedYieldWithdrawalInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<UserYieldPositionRecord | null> {
+  const withdrawal =
+    await dependencies.client.db.query.userYieldPositionWithdrawals.findFirst({
+      where: eq(
+        userYieldPositionWithdrawals.withdrawalSignature,
+        input.withdrawalSignature
+      ),
+    });
+  if (!withdrawal) {
+    return null;
+  }
+
+  assertDuplicateWithdrawalField(
+    withdrawal.confirmedSlot,
+    input.confirmedSlot,
+    "confirmedSlot"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.walletAddress,
+    input.walletAddress,
+    "walletAddress"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.smartAccountAddress,
+    input.smartAccountAddress,
+    "smartAccountAddress"
+  );
+  assertDuplicateWithdrawalField(withdrawal.settings, input.settings, "settings");
+  assertDuplicateWithdrawalField(
+    withdrawal.vaultIndex,
+    input.vaultIndex,
+    "vaultIndex"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.vaultPubkey,
+    input.vaultPubkey,
+    "vaultPubkey"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.policyId,
+    input.policyId,
+    "policyId"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.policyAccount,
+    input.policyAccount,
+    "policyAccount"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.policySeed,
+    input.policySeed,
+    "policySeed"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.targetReserve,
+    input.targetReserve,
+    "targetReserve"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.liquidityMint,
+    input.liquidityMint,
+    "liquidityMint"
+  );
+  assertDuplicateWithdrawalField(
+    withdrawal.withdrawnAmountRaw,
+    input.withdrawnAmountRaw,
+    "withdrawnAmountRaw"
+  );
+  assertDuplicateWithdrawalField(withdrawal.mode, input.mode, "mode");
+  if (withdrawal.market !== input.market) {
+    throw new Error("Duplicate withdrawal market metadata mismatch.");
+  }
+
+  const position =
+    await dependencies.client.db.query.userYieldPositions.findFirst({
+      where: and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.vaultPubkey, input.vaultPubkey)
+      ),
+      orderBy: [desc(userYieldPositions.updatedAt), desc(userYieldPositions.id)],
+    });
+
+  if (!position) {
+    throw new Error("Duplicate withdrawal position is missing.");
+  }
+
+  return position;
 }
 
 function createYieldRoutingPolicyPlanFromRouteInput(
@@ -515,23 +917,48 @@ export async function recordConfirmedYieldDeposit(
     throw new Error("Deposit policy initialization must be create or reuse.");
   }
 
+  const idempotentPosition = await findIdempotentDepositPosition(
+    input,
+    dependencies
+  );
+  if (idempotentPosition) {
+    return idempotentPosition;
+  }
+
   const { client } = dependencies;
   const now = dependencies.now();
-  const existingPosition =
+  const activeVaultPosition = await findReconciledActiveYieldPositionForVault(
+    {
+      cluster: input.cluster,
+      settings: input.settings,
+      vaultIndex: input.vaultIndex,
+      walletAddress: input.walletAddress,
+    },
+    dependencies
+  );
+  const reservePosition =
     await dependencies.client.db.query.userYieldPositions.findFirst({
       where: and(
         eq(userYieldPositions.settings, input.settings),
         eq(userYieldPositions.vaultIndex, input.vaultIndex),
-        eq(userYieldPositions.initialReserve, input.targetReserve)
+        eq(userYieldPositions.initialReserve, input.targetReserve),
+        eq(userYieldPositions.walletAddress, input.walletAddress)
       ),
+      orderBy: [desc(userYieldPositions.id)],
     });
+  const existingPosition =
+    input.policyInitialization === "reuse"
+      ? activeVaultPosition ?? reservePosition
+      : reservePosition;
+  const activeCreateConflict =
+    input.policyInitialization === "create" ? activeVaultPosition : null;
 
   const isDuplicateInitialDeposit =
     existingPosition?.firstDepositSignature === input.depositSignature ||
     existingPosition?.lastDepositSignature === input.depositSignature;
   if (
     input.policyInitialization === "create" &&
-    existingPosition?.status === "active" &&
+    activeCreateConflict?.status === "active" &&
     !isDuplicateInitialDeposit
   ) {
     throw new Error(
@@ -577,22 +1004,24 @@ export async function recordConfirmedYieldDeposit(
 
   if (insertedDeposits.length > 0) {
     const [insertedDeposit] = insertedDeposits;
-    const position = await upsertAggregatePosition({
-      client,
-      input,
-      mode: hasActiveExistingPosition
-        ? "increment-principal"
-        : "recover-principal",
-      now,
-    });
+    const position =
+      hasActiveExistingPosition && existingPosition
+        ? existingPosition
+        : await upsertAggregatePosition({
+            client,
+            input,
+            mode: "recover-principal",
+            now,
+          });
     const sameCurrentHolding =
       !hasActiveExistingPosition ||
       (existingPosition.currentReserve === input.targetReserve &&
+        existingPosition.currentMarket === input.market &&
         existingPosition.currentLiquidityMint === input.liquidityMint);
     const nextCurrentAmountRaw = hasActiveExistingPosition
       ? sameCurrentHolding
         ? existingPosition.currentAmountRaw + input.principalAmountRaw
-        : existingPosition.currentAmountRaw
+        : input.principalAmountRaw
       : input.principalAmountRaw;
     const event = await insertHoldingEvent({
       amountRaw: nextCurrentAmountRaw,
@@ -601,13 +1030,13 @@ export async function recordConfirmedYieldDeposit(
       eventType: hasActiveExistingPosition
         ? "deposit_top_up"
         : "deposit_initialized",
-      holdingDeltaRaw: sameCurrentHolding ? input.principalAmountRaw : null,
+      holdingDeltaRaw: input.principalAmountRaw,
       liquidityMint:
-        hasActiveExistingPosition && existingPosition
+        hasActiveExistingPosition && existingPosition && sameCurrentHolding
           ? existingPosition.currentLiquidityMint
           : input.liquidityMint,
       market:
-        hasActiveExistingPosition && existingPosition
+        hasActiveExistingPosition && existingPosition && sameCurrentHolding
           ? existingPosition.currentMarket
           : input.market,
       observedAt: now,
@@ -615,7 +1044,7 @@ export async function recordConfirmedYieldDeposit(
       positionId: position.id,
       principalDeltaRaw: input.principalAmountRaw,
       reserve:
-        hasActiveExistingPosition && existingPosition
+        hasActiveExistingPosition && existingPosition && sameCurrentHolding
           ? existingPosition.currentReserve
           : input.targetReserve,
       sourceDepositId: insertedDeposit.id,
@@ -628,7 +1057,9 @@ export async function recordConfirmedYieldDeposit(
       lastConfirmedSlot: input.confirmedSlot,
       lastDepositSignature: input.depositSignature,
       now,
-      principalAmountRaw: position.principalAmountRaw,
+      principalAmountRaw: hasActiveExistingPosition
+        ? sql`${userYieldPositions.principalAmountRaw} + ${input.principalAmountRaw}`
+        : position.principalAmountRaw,
       status: "active",
     });
   }
@@ -693,9 +1124,144 @@ export async function findYieldPosition(
         eq(userYieldPositions.vaultIndex, input.vaultIndex),
         eq(userYieldPositions.walletAddress, input.walletAddress)
       ),
+      orderBy: [desc(userYieldPositions.updatedAt), desc(userYieldPositions.id)],
     });
 
   return position ?? null;
+}
+
+export async function findActiveYieldPositionForVault(
+  input: ActiveYieldPositionForVaultLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionRecord | null> {
+  const position =
+    await dependencies.client.db.query.userYieldPositions.findFirst({
+      where: and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.status, "active")
+      ),
+      orderBy: [desc(userYieldPositions.updatedAt), desc(userYieldPositions.id)],
+    });
+
+  return position ?? null;
+}
+
+export async function findReconciledActiveYieldPositionForVault(
+  input: ActiveYieldPositionForVaultLookupInput,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<UserYieldPositionRecord | null> {
+  const position = await findActiveYieldPositionForVault(input, dependencies);
+  if (!position) {
+    return null;
+  }
+
+  const vault = await dependencies.client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, position.vaultPubkey),
+      eq(managedVaults.active, true)
+    ),
+  });
+  if (!vault) {
+    return position;
+  }
+
+  const [current] = await dependencies.client.db
+    .select()
+    .from(vaultReservePositionsCurrent)
+    .where(
+      and(
+        eq(vaultReservePositionsCurrent.vaultId, vault.id),
+        eq(vaultReservePositionsCurrent.hasValue, true),
+        sql`${vaultReservePositionsCurrent.amountRaw} > 0`
+      )
+    )
+    .orderBy(
+      desc(vaultReservePositionsCurrent.observedSlot),
+      desc(vaultReservePositionsCurrent.amountRaw),
+      desc(vaultReservePositionsCurrent.snapshotId)
+    )
+    .limit(1);
+
+  if (!current) {
+    return position;
+  }
+  if (current.observedSlot <= position.currentObservedSlot) {
+    return position;
+  }
+
+  const latestEvent = await findLatestHoldingEventForPosition(
+    position.id,
+    dependencies
+  );
+  if (
+    latestEvent &&
+    currentVaultPositionMatchesEvent(current, latestEvent)
+  ) {
+    if (currentPositionMatchesHoldingEvent(position, latestEvent)) {
+      return position;
+    }
+
+    return applyHoldingEventToPosition({
+      client: dependencies.client,
+      event: latestEvent,
+      now: dependencies.now(),
+    });
+  }
+
+  const decision = await dependencies.client.db.query.rebalanceDecisions.findFirst(
+    {
+      orderBy: [
+        desc(rebalanceDecisions.confirmedSlot),
+        desc(rebalanceDecisions.id),
+      ],
+      where: and(
+        eq(rebalanceDecisions.vaultId, vault.id),
+        eq(rebalanceDecisions.status, "confirmed"),
+        eq(rebalanceDecisions.targetReserve, current.reserve),
+        eq(rebalanceDecisions.postSnapshotId, current.snapshotId)
+      ),
+    }
+  );
+
+  if (decision?.signature && decision.confirmedSlot !== null) {
+    return recordConfirmedYieldRebalance(
+      {
+        amountRaw: current.amountRaw,
+        cluster: input.cluster,
+        liquidityMint: current.liquidityMint,
+        market: current.market,
+        observedAt: current.observedAt,
+        observedSlot: current.observedSlot,
+        positionId: position.id,
+        reserve: current.reserve,
+        sourceRebalanceDecisionId: decision.id,
+        sourceSignature: decision.signature,
+        sourceSnapshotId: current.snapshotId,
+      },
+      dependencies
+    );
+  }
+
+  return recordSnapshotReconciledYieldHolding(
+    {
+      amountRaw: current.amountRaw,
+      cluster: input.cluster,
+      liquidityMint: current.liquidityMint,
+      market: current.market,
+      observedAt: current.observedAt,
+      observedSlot: current.observedSlot,
+      positionId: position.id,
+      reserve: current.reserve,
+      sourceSnapshotId: current.snapshotId,
+    },
+    dependencies
+  );
 }
 
 export async function findActiveYieldRoutePolicy(input: {
@@ -703,16 +1269,35 @@ export async function findActiveYieldRoutePolicy(input: {
   cluster: string;
   settings: string;
   vaultIndex: number;
+  vaultPubkey?: string;
 }): Promise<RoutePolicyRecord | null> {
   const client = getYieldOptimizationClient();
+  const vaultFilters = [
+    eq(managedVaults.active, true),
+    eq(managedVaults.settings, input.settings),
+    eq(managedVaults.vaultIndex, input.vaultIndex),
+  ];
+  if (input.vaultPubkey) {
+    vaultFilters.push(eq(managedVaults.vaultPubkey, input.vaultPubkey));
+  }
+
+  const vault = await client.db.query.managedVaults.findFirst({
+    where: and(...vaultFilters),
+    orderBy: [desc(managedVaults.lastSeenAt), desc(managedVaults.id)],
+  });
+  if (!vault) {
+    return null;
+  }
+
   const policy = await client.db.query.routePolicies.findFirst({
     where: and(
+      eq(routePolicies.active, true),
       eq(routePolicies.authority, input.authority),
+      eq(routePolicies.id, vault.activePolicyId),
       eq(routePolicies.settings, input.settings),
       eq(routePolicies.vaultIndex, input.vaultIndex),
-      eq(routePolicies.active, true)
+      eq(routePolicies.vaultPubkey, vault.vaultPubkey)
     ),
-    orderBy: [desc(routePolicies.id)],
   });
 
   return policy ?? null;
@@ -726,13 +1311,11 @@ export async function findYieldPositionEvents(
 ): Promise<UserYieldPositionEventRecord[]> {
   const depositFilters = [
     eq(userYieldPositionDeposits.settings, input.settings),
-    eq(userYieldPositionDeposits.targetReserve, input.initialReserve),
     eq(userYieldPositionDeposits.vaultIndex, input.vaultIndex),
     eq(userYieldPositionDeposits.walletAddress, input.walletAddress),
   ];
   const withdrawalFilters = [
     eq(userYieldPositionWithdrawals.settings, input.settings),
-    eq(userYieldPositionWithdrawals.targetReserve, input.initialReserve),
     eq(userYieldPositionWithdrawals.vaultIndex, input.vaultIndex),
     eq(userYieldPositionWithdrawals.walletAddress, input.walletAddress),
   ];
@@ -900,13 +1483,27 @@ export async function recordConfirmedYieldWithdrawal(
 
   const { client } = dependencies;
   const now = dependencies.now();
-  const existingPosition = await client.db.query.userYieldPositions.findFirst({
-    where: and(
-      eq(userYieldPositions.settings, input.settings),
-      eq(userYieldPositions.vaultIndex, input.vaultIndex),
-      eq(userYieldPositions.initialReserve, input.targetReserve)
-    ),
-  });
+  const idempotentPosition = await findIdempotentWithdrawalPosition(
+    input,
+    dependencies
+  );
+  if (idempotentPosition) {
+    if (input.mode === "full") {
+      await recordZeroCurrentVaultPositionsAfterFullWithdrawal(input, dependencies);
+      await deactivateVaultAfterFullWithdrawal(input, dependencies, now);
+    }
+    return idempotentPosition;
+  }
+
+  const existingPosition = await findReconciledActiveYieldPositionForVault(
+    {
+      cluster: input.cluster,
+      settings: input.settings,
+      vaultIndex: input.vaultIndex,
+      walletAddress: input.walletAddress,
+    },
+    dependencies
+  );
 
   if (!existingPosition) {
     throw new Error("No active yield position exists for this withdrawal.");
@@ -917,8 +1514,20 @@ export async function recordConfirmedYieldWithdrawal(
   if (existingPosition.principalAmountRaw < input.withdrawnAmountRaw) {
     throw new Error("Withdrawal exceeds the active yield position amount.");
   }
-  if (existingPosition.currentAmountRaw < input.withdrawnAmountRaw) {
+  if (
+    input.mode === "partial" &&
+    existingPosition.currentAmountRaw < input.withdrawnAmountRaw
+  ) {
     throw new Error("Withdrawal exceeds the current yield holding amount.");
+  }
+  if (
+    existingPosition.currentReserve !== input.targetReserve ||
+    existingPosition.currentLiquidityMint !== input.liquidityMint ||
+    existingPosition.currentMarket !== input.market
+  ) {
+    throw new Error(
+      "Withdrawal target does not match the current Earn holding."
+    );
   }
 
   const withdrawalValues = {
@@ -966,7 +1575,10 @@ export async function recordConfirmedYieldWithdrawal(
     client,
     createdAt: now,
     eventType: input.mode === "full" ? "withdrawal_full" : "withdrawal_partial",
-    holdingDeltaRaw: -input.withdrawnAmountRaw,
+    holdingDeltaRaw:
+      input.mode === "full"
+        ? -existingPosition.currentAmountRaw
+        : -input.withdrawnAmountRaw,
     liquidityMint: existingPosition.currentLiquidityMint,
     market: existingPosition.currentMarket,
     observedAt: now,
@@ -991,31 +1603,8 @@ export async function recordConfirmedYieldWithdrawal(
   });
 
   if (input.mode === "full") {
-    await client.db.batch([
-      client.db
-        .update(routePolicies)
-        .set({
-          active: false,
-          lastSeenAt: now,
-          lastSeenSignature: input.withdrawalSignature,
-          lastSeenSlot: input.confirmedSlot,
-        })
-        .where(
-          and(
-            eq(routePolicies.settings, input.settings),
-            eq(routePolicies.vaultIndex, input.vaultIndex)
-          )
-        ) as never,
-      client.db
-        .update(managedVaults)
-        .set({ active: false, lastSeenAt: now })
-        .where(
-          and(
-            eq(managedVaults.settings, input.settings),
-            eq(managedVaults.vaultIndex, input.vaultIndex)
-          )
-        ) as never,
-    ]);
+    await recordZeroCurrentVaultPositionsAfterFullWithdrawal(input, dependencies);
+    await deactivateVaultAfterFullWithdrawal(input, dependencies, now);
   }
 
   if (position.principalAmountRaw !== nextPrincipal) {
@@ -1180,10 +1769,6 @@ export async function verifyUserYieldPositions(
               eq(userYieldPositionDeposits.settings, position.settings),
               eq(userYieldPositionDeposits.vaultIndex, position.vaultIndex),
               eq(
-                userYieldPositionDeposits.targetReserve,
-                position.initialReserve
-              ),
-              eq(
                 userYieldPositionDeposits.walletAddress,
                 position.walletAddress
               )
@@ -1198,10 +1783,6 @@ export async function verifyUserYieldPositions(
             and(
               eq(userYieldPositionWithdrawals.settings, position.settings),
               eq(userYieldPositionWithdrawals.vaultIndex, position.vaultIndex),
-              eq(
-                userYieldPositionWithdrawals.targetReserve,
-                position.initialReserve
-              ),
               eq(
                 userYieldPositionWithdrawals.walletAddress,
                 position.walletAddress

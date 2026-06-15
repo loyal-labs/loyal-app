@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  getKaminoUsdcEarnTargetForCluster,
-  resolveLoyalClusterForSolanaEnv,
-} from "@loyal-labs/actions";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { PublicKey } from "@solana/web3.js";
 
@@ -19,8 +16,8 @@ import {
   type CurrentEarnAutodepositStateWithProgress,
 } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
-  findActiveYieldPosition,
   findActiveYieldRoutePolicy,
+  findReconciledActiveYieldPositionForVault,
   type RoutePolicyRecord,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -98,7 +95,6 @@ export async function GET(request: Request) {
 
   const serverEnv = getServerEnv();
   const cluster = resolveConfiguredCluster();
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
   const settingsPda = new PublicKey(principal.settingsPda);
   const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
   const [earnVaultPda] = pda.getSmartAccountPda({
@@ -113,9 +109,8 @@ export async function GET(request: Request) {
   });
   const [positionResult, policyResult, autodepositResult] = await Promise.all([
     loadEarnStatePart("position", () =>
-      findActiveYieldPosition({
+      findReconciledActiveYieldPositionForVault({
         cluster,
-        initialReserve: earnTarget.reserve.toBase58(),
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress: principal.walletAddress,
@@ -127,6 +122,7 @@ export async function GET(request: Request) {
         cluster,
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
       })
     ),
     loadEarnStatePart(

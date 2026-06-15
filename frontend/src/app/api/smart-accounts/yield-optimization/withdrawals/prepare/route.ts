@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  getKaminoUsdcEarnTargetForCluster,
-  resolveLoyalClusterForSolanaEnv,
-} from "@loyal-labs/actions";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -18,9 +16,10 @@ import {
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
-  findActiveYieldPosition,
   findActiveYieldRoutePolicy,
+  findReconciledActiveYieldPositionForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
@@ -80,63 +79,69 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
-  const policy = await findActiveYieldRoutePolicy({
-    authority: principal.walletAddress,
-    cluster,
-    settings: principal.settingsPda,
-    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-  });
-
-  if (!policy) {
-    console.warn("[earn-withdraw-prepare] missing active Earn policy", {
-      cluster,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    });
-    return jsonError(
-      409,
-      "missing_earn_policy",
-      "Set up the Earn policy before withdrawing USDC."
-    );
-  }
-
-  const effectiveAmountRaw =
-    mode === "full"
-      ? await (async () => {
-          const position = await findActiveYieldPosition({
-            cluster,
-            initialReserve: earnTarget.reserve.toBase58(),
-            settings: principal.settingsPda,
-            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-            walletAddress: principal.walletAddress,
-          });
-
-          return position?.principalAmountRaw ?? null;
-        })()
-      : amountRaw;
-
-  if (effectiveAmountRaw === null) {
-    console.warn("[earn-withdraw-prepare] missing active Earn position", {
-      cluster,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    });
-    return jsonError(
-      409,
-      "missing_earn_position",
-      "No active Earn position was found for this full withdrawal."
-    );
-  }
+  let policy: Awaited<ReturnType<typeof findActiveYieldRoutePolicy>> = null;
+  let effectiveAmountRaw: bigint | null = null;
 
   try {
     const serverEnv = getServerEnv();
+    const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
+    const settingsPda = new PublicKey(principal.settingsPda);
+    const [earnVaultPda] = pda.getSmartAccountPda({
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+      programId,
+      settingsPda,
+    });
+    const [policyResult, position] = await Promise.all([
+      findActiveYieldRoutePolicy({
+        authority: principal.walletAddress,
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+      }),
+      findReconciledActiveYieldPositionForVault({
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      }),
+    ]);
+    policy = policyResult;
+    effectiveAmountRaw =
+      mode === "full" ? position?.principalAmountRaw ?? null : amountRaw;
+
+    if (!policy) {
+      console.warn("[earn-withdraw-prepare] missing active Earn policy", {
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      });
+      return jsonError(
+        409,
+        "missing_earn_policy",
+        "Set up the Earn policy before withdrawing USDC."
+      );
+    }
+
+    if (!position || effectiveAmountRaw === null) {
+      console.warn("[earn-withdraw-prepare] missing active Earn position", {
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      });
+      return jsonError(
+        409,
+        "missing_earn_position",
+        "No active Earn position was found for this full withdrawal."
+      );
+    }
+
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
       connection: getConnection(solanaEnv),
-      programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
+      programId,
     });
     const yieldRoutingPolicy = {
       account: new PublicKey(policy.policyAccount),
@@ -182,6 +187,7 @@ export async function POST(request: Request) {
       feePayer: new PublicKey(principal.walletAddress),
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
+      target: earnReserveTargetFromActivePosition(position),
       walletAddress: new PublicKey(principal.walletAddress),
       yieldRoutingPolicy,
     };
@@ -203,14 +209,14 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("[earn-withdraw-prepare] prepare failed", {
       amountRaw: amountRaw.toString(),
-      effectiveAmountRaw: effectiveAmountRaw.toString(),
+      effectiveAmountRaw: effectiveAmountRaw?.toString() ?? null,
       cluster,
       errorMessage:
         error instanceof Error ? error.message : "Unknown prepare error.",
       errorName: error instanceof Error ? error.name : typeof error,
       mode,
-      policyAccount: policy.policyAccount,
-      policySeed: policy.policySeed.toString(),
+      policyAccount: policy?.policyAccount ?? null,
+      policySeed: policy?.policySeed.toString() ?? null,
       settings: principal.settingsPda,
       solanaEnv,
       stack: error instanceof Error ? error.stack : undefined,

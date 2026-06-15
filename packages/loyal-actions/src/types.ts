@@ -31,13 +31,12 @@ export enum MaxFeeBps {
 }
 
 export enum Stablecoin {
+  CASH = "CASH",
+  USDG = "USDG",
+  PYUSD = "PYUSD",
   USDC = "USDC",
   USDT = "USDT",
-  PYUSD = "PYUSD",
   USDS = "USDS",
-  USDG = "USDG",
-  USDE = "USDE",
-  SUSDE = "SUSDE",
 }
 
 export type LoyalSmartAccountConfig = {

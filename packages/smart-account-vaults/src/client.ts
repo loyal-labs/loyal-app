@@ -9,6 +9,7 @@ import {
 } from "@loyal-labs/loyal-smart-accounts";
 import {
   LoyalCluster,
+  RiskBasket,
   Stablecoin,
   SUBSCRIPTIONS_PROGRAM_ID,
   SUBSCRIPTIONS_TRANSFER_RECURRING,
@@ -21,11 +22,14 @@ import {
   SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET,
   SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET,
   SUBSCRIPTION_TRANSFER_MINT_OFFSET,
+  createYieldRoutePolicyPlan,
   deriveRecurringDelegation,
   deriveSubscriptionAuthority,
   deriveSubscriptionEventAuthority,
   getKaminoUsdcEarnTargetForCluster,
+  getRiskBasketMarketsForCluster,
   getStablecoinMintForCluster,
+  getStablecoinMintsForCluster,
   subscriptionCreateRecurringDelegationData,
   subscriptionInitAuthorityData,
   subscriptionRevokeDelegationData,
@@ -101,6 +105,7 @@ import type {
   SmartAccountEarnUsdcAutodepositSetupInput,
   SmartAccountCustomInstructionProposalInput,
   SmartAccountEarnUsdcDepositInput,
+  SmartAccountEarnUsdcReserveTargetInput,
   SmartAccountEarnUsdcYieldRoutingPolicyInput,
   SmartAccountEarnUsdcWithdrawInput,
   SmartAccountPolicyOverview,
@@ -182,7 +187,11 @@ type AsyncPolicyTransactionPayloadLike = {
 
 const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
 const EARN_SAME_MINT_INSTRUCTION_CONSTRAINT_INDEXES = [0, 1] as const;
+const EARN_POLICY_PACKET_DATA_SIZE = 1232;
 const EARN_DEPOSIT_USDC_DECIMALS = 6;
+const EARN_RISK_PROFILE = RiskBasket.Safe;
+const EARN_ROUTE_MODES = ["same_mint_kamino"] as const;
+const EARN_UNIVERSE_PRESET = "canonical_stable_kamino";
 const KAMINO_DEVNET_USDC_RESERVE_LIQUIDITY_SUPPLY = new PublicKey(
   "Bh45cPkpfRvz9hAs23ye5TowsGbhbh4BXT4AGww8JfES"
 );
@@ -233,6 +242,16 @@ type KaminoInstructionResponse = KaminoDepositInstructionResponse;
 type KaminoEarnTarget = ReturnType<typeof getKaminoUsdcEarnTargetForCluster> & {
   reserveCollateralMint?: PublicKey;
   reserveLiquiditySupply?: PublicKey;
+  supplyApyBps: bigint | null;
+};
+
+type EarnPolicyUniverse = {
+  kaminoLiquidityMints: PublicKey[];
+  kaminoMarkets: PublicKey[];
+  riskProfile: RiskBasket;
+  routeModes: readonly string[];
+  stableMints: PublicKey[];
+  universePreset: string;
 };
 
 type KaminoInstructionBundle = {
@@ -245,18 +264,110 @@ type KaminoReserveSnapshot = {
   totalLiquiditySupplyScaled: bigint;
 };
 
-function resolveKaminoEarnTarget(cluster: LoyalCluster): KaminoEarnTarget {
-  const target = getKaminoUsdcEarnTargetForCluster(cluster);
+function resolveKaminoEarnTarget(
+  cluster: LoyalCluster,
+  target?: SmartAccountEarnUsdcReserveTargetInput
+): KaminoEarnTarget {
+  const defaultTarget = getKaminoUsdcEarnTargetForCluster(cluster);
+  const resolvedTarget: KaminoEarnTarget = target
+    ? {
+        ...defaultTarget,
+        liquidityMint: target.liquidityMint,
+        market: target.market,
+        reserve: target.reserve,
+        reserveCollateralMint: target.reserveCollateralMint,
+        reserveLiquiditySupply: target.reserveLiquiditySupply,
+        supplyApyBps: target.supplyApyBps ?? null,
+      }
+    : {
+        ...defaultTarget,
+        supplyApyBps: null,
+      };
 
   if (cluster === LoyalCluster.Devnet) {
     return {
-      ...target,
-      reserveCollateralMint: KAMINO_DEVNET_USDC_RESERVE_COLLATERAL_MINT,
-      reserveLiquiditySupply: KAMINO_DEVNET_USDC_RESERVE_LIQUIDITY_SUPPLY,
+      ...resolvedTarget,
+      reserveCollateralMint:
+        resolvedTarget.reserveCollateralMint ??
+        KAMINO_DEVNET_USDC_RESERVE_COLLATERAL_MINT,
+      reserveLiquiditySupply:
+        resolvedTarget.reserveLiquiditySupply ??
+        KAMINO_DEVNET_USDC_RESERVE_LIQUIDITY_SUPPLY,
     };
   }
 
-  return target;
+  return resolvedTarget;
+}
+
+function resolveEarnPolicyUniverse(cluster: LoyalCluster): EarnPolicyUniverse {
+  const stableMints = [...getStablecoinMintsForCluster(cluster)];
+  return {
+    kaminoLiquidityMints: stableMints,
+    kaminoMarkets: [
+      ...getRiskBasketMarketsForCluster(cluster, EARN_RISK_PROFILE),
+    ],
+    riskProfile: EARN_RISK_PROFILE,
+    routeModes: EARN_ROUTE_MODES,
+    stableMints,
+    universePreset: EARN_UNIVERSE_PRESET,
+  };
+}
+
+function serializeEarnPolicyUniverse(universe: EarnPolicyUniverse) {
+  return {
+    kaminoLiquidityMints: universe.kaminoLiquidityMints.map((mint) =>
+      mint.toBase58()
+    ),
+    kaminoMarkets: universe.kaminoMarkets.map((market) => market.toBase58()),
+    riskProfile: universe.riskProfile,
+    routeModes: [...universe.routeModes],
+    stableMints: universe.stableMints.map((mint) => mint.toBase58()),
+    universePreset: universe.universePreset,
+  };
+}
+
+function earnPolicyUniverseFromPlan(
+  plan: Pick<
+    ReturnType<typeof createYieldRoutePolicyPlan>,
+    "persistence" | "spec"
+  >
+): EarnPolicyUniverse {
+  return {
+    kaminoLiquidityMints: [...plan.spec.kaminoLiquidityMints],
+    kaminoMarkets: [...plan.spec.kaminoMarkets],
+    riskProfile: plan.persistence.riskProfile,
+    routeModes: plan.persistence.routeModes,
+    stableMints: [...plan.spec.stableMints],
+    universePreset: plan.persistence.universePreset,
+  };
+}
+
+function earnPolicyUniverseWithOnlyUsdc(args: {
+  cluster: LoyalCluster;
+  universe: EarnPolicyUniverse;
+}): EarnPolicyUniverse {
+  const usdcMint = getStablecoinMintForCluster(args.cluster, Stablecoin.USDC);
+  return {
+    ...args.universe,
+    kaminoLiquidityMints: [usdcMint],
+    stableMints: [usdcMint],
+  };
+}
+
+function preparedPacketLength(
+  prepared: PreparedLoyalSmartAccountsOperation<string>
+): number | null {
+  try {
+    return compilePreparedOperation({
+      blockhash: "11111111111111111111111111111111",
+      prepared,
+    }).serialize().length;
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function getLendingMarketAuthority(args: {
@@ -472,10 +583,6 @@ function createLocalKaminoWithdrawInstruction(args: {
   });
 }
 
-function dataSliceEquals(value: readonly number[]): generated.DataConstraint {
-  return dataSliceEqualsAt(BigInt(0), value);
-}
-
 function dataSliceEqualsAt(
   offset: bigint,
   value: readonly number[] | Uint8Array
@@ -485,6 +592,10 @@ function dataSliceEqualsAt(
     dataValue: { __kind: "U8Slice", fields: [Uint8Array.from(value)] },
     operator: generated.DataOperator.Equals,
   };
+}
+
+function dataSliceEquals(value: readonly number[]): generated.DataConstraint {
+  return dataSliceEqualsAt(BigInt(0), value);
 }
 
 function dataU8Equals(offset: bigint, value: number): generated.DataConstraint {
@@ -681,33 +792,56 @@ function delegatorTokenBalanceAccountConstraint(
   };
 }
 
+function createEarnKaminoInstructionConstraint(args: {
+  accountIndex: number;
+  discriminator: readonly number[];
+  includeLiquidityMints: boolean;
+  target: KaminoEarnTarget;
+  universe: EarnPolicyUniverse;
+  vaultPda: PublicKey;
+}): generated.InstructionConstraint {
+  const accountConstraints: generated.AccountConstraint[] = [
+    pubkeyAccountConstraint(0, [args.vaultPda]),
+    pubkeyAccountConstraint(args.accountIndex, args.universe.kaminoMarkets),
+  ];
+  if (args.includeLiquidityMints) {
+    accountConstraints.push(
+      pubkeyAccountConstraint(
+        4,
+        args.universe.kaminoLiquidityMints,
+        TOKEN_PROGRAM_ID
+      )
+    );
+  }
+
+  return {
+    programId: args.target.lendProgramId,
+    accountConstraints,
+    dataConstraints: [dataSliceEquals(args.discriminator)],
+  };
+}
+
 function createEarnProgramInteractionPolicyCreationPayload(args: {
   target: KaminoEarnTarget;
+  universe: EarnPolicyUniverse;
   vaultPda: PublicKey;
 }): generated.PolicyCreationPayload {
-  const withdrawConstraint: generated.InstructionConstraint = {
-    programId: args.target.lendProgramId,
-    accountConstraints: [
-      pubkeyAccountConstraint(0, [args.vaultPda]),
-      pubkeyAccountConstraint(2, [args.target.market]),
-      pubkeyAccountConstraint(5, [args.target.liquidityMint], TOKEN_PROGRAM_ID),
-      tokenAuthorityAccountConstraint(9, args.vaultPda),
-      pubkeyAccountConstraint(11, [TOKEN_PROGRAM_ID]),
-    ],
-    dataConstraints: [dataSliceEquals(args.target.withdrawDiscriminator)],
-  };
-  const depositConstraint: generated.InstructionConstraint = {
-    programId: args.target.lendProgramId,
-    accountConstraints: [
-      pubkeyAccountConstraint(0, [args.vaultPda]),
-      pubkeyAccountConstraint(2, [args.target.market]),
-      pubkeyAccountConstraint(5, [args.target.liquidityMint], TOKEN_PROGRAM_ID),
-      tokenAuthorityAccountConstraint(9, args.vaultPda),
-      pubkeyAccountConstraint(11, [TOKEN_PROGRAM_ID]),
-    ],
-    dataConstraints: [dataSliceEquals(args.target.depositDiscriminator)],
-  };
-
+  const withdrawConstraint = createEarnKaminoInstructionConstraint({
+    accountIndex: 1,
+    discriminator: args.target.withdrawDiscriminator,
+    includeLiquidityMints: false,
+    target: args.target,
+    universe: args.universe,
+    vaultPda: args.vaultPda,
+  });
+  const depositConstraint = createEarnKaminoInstructionConstraint({
+    accountIndex: 2,
+    discriminator: args.target.depositDiscriminator,
+    includeLiquidityMints: true,
+    target: args.target,
+    universe: args.universe,
+    vaultPda: args.vaultPda,
+  });
   return {
     __kind: "ProgramInteraction",
     fields: [
@@ -3894,37 +4028,56 @@ export function createSmartAccountVaultsClient(
 
   type ResolvedEarnYieldRoutingPolicy = {
     account: PublicKey;
+    finalizeOperation?: PreparedLoyalSmartAccountsOperation<string>;
     operation?: PreparedLoyalSmartAccountsOperation<string>;
+    persistence?: ReturnType<typeof createYieldRoutePolicyPlan>["persistence"];
     seed: bigint;
   };
 
-  async function resolveEarnYieldRoutingPolicyForCreation(args: {
+  async function createEarnYieldRoutingPolicyOperation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    policySeed: bigint;
     policySigner: PublicKey;
     settingsPda: PublicKey;
+    transactionIndex: bigint;
     signer: PublicKey;
-    vaultPda: PublicKey;
-    memo?: string;
-  }): Promise<ResolvedEarnYieldRoutingPolicy> {
-    if (typeof config.connection.getAccountInfo !== "function") {
-      throw new Error(
-        "Cannot create an Earn policy without fetching the next Squads policy seed."
-      );
-    }
-    const nextPolicySeed = resolveNextPolicySeed(
-      await smartAccountsClient.smartAccounts.queries.fetchSettings(
-        args.settingsPda
-      )
-    );
+  }): Promise<{
+    finalizeOperation?: PreparedLoyalSmartAccountsOperation<string>;
+    operation: PreparedLoyalSmartAccountsOperation<string>;
+    persistence: ReturnType<typeof createYieldRoutePolicyPlan>["persistence"];
+    policyAccount: PublicKey;
+  }> {
+    const vault = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const plan = createYieldRoutePolicyPlan({
+      cluster: args.cluster,
+      policySeed: args.policySeed,
+      risk: EARN_RISK_PROFILE,
+      squads: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        authority: args.signer,
+        delegatedSigner: args.policySigner,
+        settings: args.settingsPda,
+        vault,
+      },
+      swapLanes: [],
+    });
     const policyAccount = pda.getPolicyPda({
       programId: smartAccountsClient.programId,
       settingsPda: args.settingsPda,
-      policySeed: nextPolicySeed.number,
+      policySeed:
+        typeof args.policySeed === "bigint"
+          ? Number(args.policySeed)
+          : args.policySeed,
     })[0];
     const earnTarget = resolveKaminoEarnTarget(args.cluster);
-    const operation =
-      await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+    const earnUniverse = earnPolicyUniverseFromPlan(plan);
+    const createPolicyOperation = (universe: EarnPolicyUniverse) =>
+      smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
         {
           feePayer: args.feePayer,
           settingsPda: args.settingsPda,
@@ -3932,11 +4085,12 @@ export function createSmartAccountVaultsClient(
           actions: [
             {
               __kind: "PolicyCreate",
-              seed: toBn(nextPolicySeed.bigint),
+              seed: toBn(args.policySeed),
               policyCreationPayload:
                 createEarnProgramInteractionPolicyCreationPayload({
                   target: earnTarget,
-                  vaultPda: args.vaultPda,
+                  universe,
+                  vaultPda: vault,
                 }),
               signers: [createPolicySigner(args.policySigner)],
               threshold: 1,
@@ -3945,16 +4099,106 @@ export function createSmartAccountVaultsClient(
               expirationArgs: null,
             },
           ],
-          memo: args.memo,
           remainingAccounts: [
             { pubkey: policyAccount, isWritable: true, isSigner: false },
           ],
         } as never
       );
 
+    const fullCreateOperation = await createPolicyOperation(earnUniverse);
+    const fullCreateLength = preparedPacketLength(fullCreateOperation);
+    if (
+      fullCreateLength !== null &&
+      fullCreateLength <= EARN_POLICY_PACKET_DATA_SIZE
+    ) {
+      return {
+        operation: fullCreateOperation,
+        persistence: plan.persistence,
+        policyAccount,
+      };
+    }
+
+    const usdcOnlyUniverse = earnPolicyUniverseWithOnlyUsdc({
+      cluster: args.cluster,
+      universe: earnUniverse,
+    });
+    const operation = await createPolicyOperation(usdcOnlyUniverse);
+    const policyUpdateAction: SettingsAction = {
+      __kind: "PolicyUpdate",
+      policy: policyAccount,
+      signers: [createPolicySigner(args.policySigner)],
+      threshold: 1,
+      timeLock: 0,
+      policyUpdatePayload: createEarnProgramInteractionPolicyCreationPayload({
+        target: earnTarget,
+        universe: earnUniverse,
+        vaultPda: vault,
+      }),
+      expirationArgs: null,
+    };
+    const finalizeOperation =
+      smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          signers: [args.signer],
+          actions: [policyUpdateAction],
+          remainingAccounts: [
+            { pubkey: policyAccount, isWritable: true, isSigner: false },
+          ],
+        } as never
+      );
+    const syncFinalizeOperation = await finalizeOperation;
+    const syncFinalizeLength = preparedPacketLength(syncFinalizeOperation);
+    if (
+      syncFinalizeLength !== null &&
+      syncFinalizeLength <= EARN_POLICY_PACKET_DATA_SIZE
+    ) {
+      return {
+        finalizeOperation: syncFinalizeOperation,
+        operation,
+        persistence: plan.persistence,
+        policyAccount,
+      };
+    }
+
+    throw new Error(
+      "Earn policy finalization exceeds the Solana transaction size limit even after splitting USDC-only setup from the full stablecoin update."
+    );
+  }
+
+  async function resolveEarnYieldRoutingPolicyForCreation(args: {
+    cluster: LoyalCluster;
+    feePayer: PublicKey;
+    policySigner: PublicKey;
+    settingsPda: PublicKey;
+    signer: PublicKey;
+  }): Promise<ResolvedEarnYieldRoutingPolicy> {
+    if (typeof config.connection.getAccountInfo !== "function") {
+      throw new Error(
+        "Cannot create an Earn policy without fetching the next Squads policy seed."
+      );
+    }
+    const settings = await smartAccountsClient.smartAccounts.queries.fetchSettings(
+      args.settingsPda
+    );
+    const nextPolicySeed = resolveNextPolicySeed(settings);
+    const { finalizeOperation, operation, persistence, policyAccount } =
+      await createEarnYieldRoutingPolicyOperation({
+        cluster: args.cluster,
+        feePayer: args.feePayer,
+        policySeed: nextPolicySeed.bigint,
+        policySigner: args.policySigner,
+        settingsPda: args.settingsPda,
+        transactionIndex: toBigInt(settings.transactionIndex) + BigInt(1),
+        signer: args.signer,
+      });
+
     return {
       account: policyAccount,
+      finalizeOperation,
       operation,
+      persistence,
       seed: nextPolicySeed.bigint,
     };
   }
@@ -4446,7 +4690,9 @@ export function createSmartAccountVaultsClient(
     }
 
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
-    const earnTarget = resolveKaminoEarnTarget(cluster);
+    const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
+    const earnUniverse = resolveEarnPolicyUniverse(cluster);
+    const serializedEarnUniverse = serializeEarnPolicyUniverse(earnUniverse);
     const usdcMint = earnTarget.liquidityMint;
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
@@ -4516,8 +4762,6 @@ export function createSmartAccountVaultsClient(
           policySigner: args.policySigner,
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
-          vaultPda,
-          memo: args.memo,
         })
       : args.yieldRoutingPolicy
       ? {
@@ -4527,6 +4771,7 @@ export function createSmartAccountVaultsClient(
       : await resolveEarnYieldRoutingPolicyForExecution({
           settingsPda: args.settingsPda,
         });
+    const policyPersistence = earnPolicy.persistence ?? serializedEarnUniverse;
     const policyAccount = earnPolicy.account;
     const kaminoDepositBundle =
       cluster === LoyalCluster.Devnet
@@ -4601,6 +4846,7 @@ export function createSmartAccountVaultsClient(
       }
     }
     const policyInitializationOperation = earnPolicy.operation ?? null;
+    const policyFinalizeOperation = earnPolicy.finalizeOperation ?? null;
     const depositExecution =
       await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
         {
@@ -4612,10 +4858,7 @@ export function createSmartAccountVaultsClient(
           instruction_accounts: compiledKaminoPayload.accounts,
         } as never
       );
-    const policyOperations = [
-      ...(policyInitializationOperation ? [policyInitializationOperation] : []),
-      depositExecution,
-    ];
+    const policyOperations = [depositExecution];
     const prepared = freezePreparedOperation({
       operation: "earnUsdcDeposit",
       payer: args.feePayer,
@@ -4675,6 +4918,8 @@ export function createSmartAccountVaultsClient(
       kaminoSetupAccountCount: kaminoSetupInstructionCount,
       kaminoSetupRentLamports: setupRentTopUpLamports.toString(),
       kaminoSetupRequired: requiresKaminoSetupRent,
+      policyFinalizePrepared: policyFinalizeOperation,
+      policySetupPrepared: policyInitializationOperation,
       prepared,
       policy: {
         account: policyAccount,
@@ -4694,7 +4939,7 @@ export function createSmartAccountVaultsClient(
         reserve: earnTarget.reserve,
         market: earnTarget.market,
         liquidityMint: usdcMint,
-        supplyApyBps: null,
+        supplyApyBps: earnTarget.supplyApyBps,
       },
       persistence: {
         cluster,
@@ -4712,7 +4957,8 @@ export function createSmartAccountVaultsClient(
         depositMint: usdcMint.toBase58(),
         principalAmountRaw: args.amountRaw.toString(),
         policyInitialization,
-        targetSupplyApyBps: null,
+        targetSupplyApyBps: earnTarget.supplyApyBps?.toString() ?? null,
+        ...policyPersistence,
       },
     };
   }
@@ -4721,7 +4967,7 @@ export function createSmartAccountVaultsClient(
     args: SmartAccountEarnUsdcYieldRoutingPolicyInput
   ): Promise<SmartAccountPreparedEarnUsdcYieldRoutingPolicy> {
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
-    const earnTarget = resolveKaminoEarnTarget(cluster);
+    const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
     const usdcMint = earnTarget.liquidityMint;
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
@@ -4733,42 +4979,23 @@ export function createSmartAccountVaultsClient(
         args.settingsPda
       );
     const nextPolicySeed = resolveNextPolicySeed(settings);
-    const policyAccount = pda.getPolicyPda({
-      programId: smartAccountsClient.programId,
+    const {
+      finalizeOperation: finalizePrepared,
+      operation: prepared,
+      persistence,
+      policyAccount,
+    } = await createEarnYieldRoutingPolicyOperation({
+      cluster,
+      feePayer: args.feePayer,
+      policySeed: nextPolicySeed.bigint,
+      policySigner: args.signer,
       settingsPda: args.settingsPda,
-      policySeed: nextPolicySeed.number,
-    })[0];
-
-    const prepared =
-      await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
-        {
-          feePayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          signers: [args.walletAddress],
-          actions: [
-            {
-              __kind: "PolicyCreate",
-              seed: toBn(nextPolicySeed.bigint),
-              policyCreationPayload:
-                createEarnProgramInteractionPolicyCreationPayload({
-                  target: earnTarget,
-                  vaultPda,
-                }),
-              signers: [createPolicySigner(args.signer)],
-              threshold: 1,
-              timeLock: 0,
-              startTimestamp: null,
-              expirationArgs: null,
-            },
-          ],
-          memo: args.memo,
-          remainingAccounts: [
-            { pubkey: policyAccount, isWritable: true, isSigner: false },
-          ],
-        } as never
-      );
+      transactionIndex: toBigInt(settings.transactionIndex) + BigInt(1),
+      signer: args.walletAddress,
+    });
 
     return {
+      finalizePrepared,
       prepared,
       policy: {
         account: policyAccount,
@@ -4797,6 +5024,7 @@ export function createSmartAccountVaultsClient(
         targetReserve: earnTarget.reserve.toBase58(),
         market: earnTarget.market.toBase58(),
         liquidityMint: usdcMint.toBase58(),
+        ...persistence,
       },
     };
   }
@@ -4813,7 +5041,7 @@ export function createSmartAccountVaultsClient(
     }
 
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
-    const earnTarget = resolveKaminoEarnTarget(cluster);
+    const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
     const usdcMint = earnTarget.liquidityMint;
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,

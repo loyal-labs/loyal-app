@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  getKaminoUsdcEarnTargetForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
@@ -14,6 +13,7 @@ import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnWithdrawalConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   recordConfirmedYieldWithdrawal,
   type ConfirmedYieldWithdrawalInput,
@@ -70,17 +70,21 @@ function createCanonicalWithdrawalInput(
     settingsPda: settings,
     accountIndex: EARN_DEPOSIT_VAULT_INDEX,
   })[0];
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
-  const usdcMint = earnTarget.liquidityMint.toBase58();
+  const target = assertSafeUsdcEarnReserveMetadata({
+    cluster,
+    liquidityMint: requestInput.liquidityMint,
+    market: requestInput.market,
+    targetReserve: requestInput.targetReserve,
+  });
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
-    liquidityMint: usdcMint,
-    market: earnTarget.market.toBase58(),
+    liquidityMint: target.liquidityMint,
+    market: target.market,
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
-    targetReserve: earnTarget.reserve.toBase58(),
+    targetReserve: target.targetReserve,
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
@@ -335,7 +339,34 @@ export async function POST(request: Request) {
     });
   }
 
-  const position = await recordConfirmedYieldWithdrawal(input);
+  let position: UserYieldPositionRecord;
+  try {
+    position = await recordConfirmedYieldWithdrawal(input);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Confirmed yield withdrawal could not be recorded.";
+    if (
+      message.startsWith("Duplicate withdrawal ") ||
+      message.includes("Withdrawal target does not match") ||
+      message.includes("Withdrawal exceeds")
+    ) {
+      return jsonError(409, "withdrawal_conflict", message);
+    }
+
+    console.error("[earn-withdraw-confirm] record failed", {
+      cluster: input.cluster,
+      errorMessage: message,
+      errorName: error instanceof Error ? error.name : typeof error,
+      settings: input.settings,
+      signature: input.withdrawalSignature,
+      stack: error instanceof Error ? error.stack : undefined,
+      vaultIndex: input.vaultIndex,
+      walletAddress: input.walletAddress,
+    });
+    return jsonError(500, "record_failed", message);
+  }
 
   return NextResponse.json({
     position: serializePosition(position),

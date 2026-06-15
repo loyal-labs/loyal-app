@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { PublicKey } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
@@ -13,6 +14,9 @@ const activePolicy = {
   policySeed: BigInt(7),
 };
 const activePosition = {
+  currentLiquidityMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  currentMarket: "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF",
+  currentReserve: "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59",
   principalAmountRaw: BigInt(1_000_026),
 };
 const completeAutodepositState = {
@@ -24,6 +28,11 @@ const completeAutodepositState = {
     recurringDelegation: "11111111111111111111111111111119",
   },
 };
+const [expectedEarnVaultPda] = pda.getSmartAccountPda({
+  accountIndex: 1,
+  programId: new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"),
+  settingsPda: new PublicKey(principal.settingsPda),
+});
 
 let currentPrincipal: typeof principal | null = principal;
 let currentAutodepositState: typeof completeAutodepositState | null = null;
@@ -86,17 +95,26 @@ mock.module(
       findAutodepositCalls.push(input);
       return currentAutodepositState;
     },
+    recordClosedAutodepositTarget: async () => {
+      throw new Error("recordClosedAutodepositTarget was not expected.");
+    },
   })
 );
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findActiveYieldPosition: async (input: unknown) => {
-    findPositionCalls.push(input);
-    return currentPosition;
-  },
   findActiveYieldRoutePolicy: async (input: unknown) => {
     findPolicyCalls.push(input);
     return activePolicy;
+  },
+  findReconciledActiveYieldPositionForVault: async (input: unknown) => {
+    findPositionCalls.push(input);
+    return currentPosition;
+  },
+  recordConfirmedYieldDeposit: async () => {
+    throw new Error("recordConfirmedYieldDeposit was not expected.");
+  },
+  recordConfirmedYieldWithdrawal: async () => {
+    throw new Error("recordConfirmedYieldWithdrawal was not expected.");
   },
 }));
 
@@ -135,9 +153,24 @@ describe("Earn withdrawal prepare route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(findPolicyCalls).toHaveLength(1);
+    expect(findPolicyCalls).toEqual([
+      {
+        authority: principal.walletAddress,
+        cluster: "mainnet-beta",
+        settings: principal.settingsPda,
+        vaultIndex: 1,
+        vaultPubkey: expectedEarnVaultPda.toBase58(),
+      },
+    ]);
     expect(findAutodepositCalls).toHaveLength(0);
-    expect(findPositionCalls).toHaveLength(0);
+    expect(findPositionCalls).toEqual([
+      {
+        cluster: "mainnet-beta",
+        settings: principal.settingsPda,
+        vaultIndex: 1,
+        walletAddress: principal.walletAddress,
+      },
+    ]);
     expect(prepareCalls[0]?.amountRaw).toBe(BigInt(1_000_000));
     expect(prepareCalls[0]?.mode).toBe("partial");
     expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
@@ -155,7 +188,6 @@ describe("Earn withdrawal prepare route", () => {
     expect(findPositionCalls).toEqual([
       {
         cluster: "mainnet-beta",
-        initialReserve: "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59",
         settings: principal.settingsPda,
         vaultIndex: 1,
         walletAddress: principal.walletAddress,

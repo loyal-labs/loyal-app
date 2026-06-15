@@ -6,6 +6,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { getServerEnv } from "@/lib/core/config/server";
 
 let cachedDeploymentPolicySigner: PublicKey | null = null;
+let cachedDeploymentPolicySignerSource: string | null = null;
 
 function decodeDeploymentPrivateKey(value: string): Uint8Array {
   const trimmed = value.trim();
@@ -23,18 +24,40 @@ function decodeDeploymentPrivateKey(value: string): Uint8Array {
   return bs58.decode(trimmed);
 }
 
+function publicKeyFromPrivateKey(value: string): PublicKey {
+  const bytes = decodeDeploymentPrivateKey(value);
+  return (
+    bytes.length === 32 ? Keypair.fromSeed(bytes) : Keypair.fromSecretKey(bytes)
+  ).publicKey;
+}
+
 export function getDeploymentPolicySignerPublicKey(): PublicKey {
-  if (cachedDeploymentPolicySigner) {
+  const serverEnv = getServerEnv();
+  const signerSource =
+    serverEnv.earnYieldRouterPublicKey ?? serverEnv.deploymentPrivateKey;
+
+  if (!signerSource) {
+    throw new Error(
+      "EARN_YIELD_ROUTER_PUBLIC_KEY or DEPLOYMENT_PK is not set."
+    );
+  }
+
+  if (
+    cachedDeploymentPolicySigner &&
+    cachedDeploymentPolicySignerSource === signerSource
+  ) {
     return cachedDeploymentPolicySigner;
   }
 
-  const deploymentPrivateKey = getServerEnv().deploymentPrivateKey;
-  if (!deploymentPrivateKey) {
-    throw new Error("DEPLOYMENT_PK is not set.");
+  if (serverEnv.earnYieldRouterPublicKey) {
+    cachedDeploymentPolicySigner = new PublicKey(
+      serverEnv.earnYieldRouterPublicKey
+    );
+    cachedDeploymentPolicySignerSource = signerSource;
+    return cachedDeploymentPolicySigner;
   }
 
-  cachedDeploymentPolicySigner = Keypair.fromSecretKey(
-    decodeDeploymentPrivateKey(deploymentPrivateKey)
-  ).publicKey;
+  cachedDeploymentPolicySigner = publicKeyFromPrivateKey(signerSource);
+  cachedDeploymentPolicySignerSource = signerSource;
   return cachedDeploymentPolicySigner;
 }

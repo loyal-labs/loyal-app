@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { PublicKey } from "@solana/web3.js";
+import {
+  PublicKey,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import {
   DEFAULT_MAX_FEE_BPS,
   KAMINO_ALTCOINS_MARKET,
@@ -398,7 +402,7 @@ describe("initYieldRoutePolicy", () => {
     expect(both.spec.maxFeeBps).toBe(MaxFeeBps.Bps150);
   });
 
-  test("derives stable exposure internally from the approved seven symbols", () => {
+  test("derives stable exposure internally from the approved six symbols", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
     const policy = sdk.initYieldRoutePolicy({
       policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
@@ -408,24 +412,22 @@ describe("initYieldRoutePolicy", () => {
     });
 
     expect(Object.values(Stablecoin).map(String)).toEqual([
+      "CASH",
+      "USDG",
+      "PYUSD",
       "USDC",
       "USDT",
-      "PYUSD",
       "USDS",
-      "USDG",
-      "USDE",
-      "SUSDE",
     ]);
     expect(Object.keys(STABLECOIN_MINTS)).toEqual(Object.values(Stablecoin));
     expect(policy.spec.stablecoins).toEqual(Object.values(Stablecoin));
     expect(policy.spec.stableMints.map((mint) => mint.toBase58())).toEqual([
+      "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+      "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+      "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
-      "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
       "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
-      "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
-      "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
-      "Eh6XEPhSwoLv5wFApukmnaVSHQ6sAnoD9BmgmwQoN2sN",
     ]);
     expect(policy.spec.kaminoLiquidityMints).toEqual(policy.spec.stableMints);
   });
@@ -457,17 +459,32 @@ describe("initYieldRoutePolicy", () => {
     expect(aggressive).toContain(KAMINO_ALTCOINS_MARKET);
   });
 
+  test("builds same-mint-only policy plans when swap lanes are empty", () => {
+    const plan = createYieldRoutePolicyPlan({
+      cluster: LoyalCluster.MainnetBeta,
+      policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
+      risk: RiskBasket.Safe,
+      swapLanes: [] as const,
+      squads,
+    });
+    const transaction = new VersionedTransaction(
+      new TransactionMessage({
+        payerKey: authority,
+        recentBlockhash: "11111111111111111111111111111111",
+        instructions: plan.instructions,
+      }).compileToV0Message()
+    );
+
+    expect(plan.routes.sameMint.instructionConstraintIndexes).toEqual([0, 1]);
+    expect(plan.routes.jupiter).toBeUndefined();
+    expect(plan.persistence.routeModes).toEqual(["same_mint_kamino"]);
+    expect(plan.persistence.swapLanes).toEqual([]);
+    expect(transaction.serialize().length).toBeLessThanOrEqual(1232);
+  });
+
   test("rejects invalid inputs before instruction creation", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
 
-    expect(() =>
-      sdk.initYieldRoutePolicy({
-        policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
-        risk: RiskBasket.Safe,
-        swapLanes: [],
-        squads,
-      })
-    ).toThrow("at least one swap lane is required");
     expect(() =>
       sdk.initYieldRoutePolicy({
         policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,

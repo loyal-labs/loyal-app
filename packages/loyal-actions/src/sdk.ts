@@ -64,8 +64,16 @@ const SQUADS_SEED_PREFIX = new TextEncoder().encode("smart_account");
 const DEFAULT_YIELD_ROUTING_SWAP_LANES = [SwapLane.Jupiter] as const;
 
 const YIELD_ROUTE_UNIVERSE_PRESET = "canonical_stable_kamino";
-const YIELD_ROUTE_MODES = ["same_mint_kamino", "jupiter"] as const;
 const YIELD_ROUTE_POLICY_THRESHOLD = 1;
+
+function yieldRouteModesForSwapLanes(swapLanes: readonly SwapLane[]): string[] {
+  return [
+    "same_mint_kamino",
+    ...swapLanes.map((lane) =>
+      lane === SwapLane.Jupiter ? "jupiter" : "loyal"
+    ),
+  ];
+}
 
 export function createYieldRoutePolicyPlan<
   const Lanes extends readonly SwapLane[]
@@ -183,7 +191,7 @@ export function createYieldRoutePolicyPlan<
     persistence: {
       riskProfile: input.risk,
       universePreset: YIELD_ROUTE_UNIVERSE_PRESET,
-      routeModes: [...YIELD_ROUTE_MODES],
+      routeModes: yieldRouteModesForSwapLanes(input.swapLanes),
       stableMints: stableMints.map((mint) => mint.toBase58()),
       kaminoMarkets: kaminoMarkets.map((market) => market.toBase58()),
       kaminoLiquidityMints: kaminoLiquidityMints.map((mint) => mint.toBase58()),
@@ -392,8 +400,8 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
   if (!Object.values(RiskBasket).includes(input.risk)) {
     throw new Error(`unsupported risk basket: ${String(input.risk)}`);
   }
-  if (!Array.isArray(input.swapLanes) || input.swapLanes.length === 0) {
-    throw new Error("at least one swap lane is required");
+  if (!Array.isArray(input.swapLanes)) {
+    throw new Error("swap lanes must be an array");
   }
   const seen = new Set<SwapLane>();
   for (const lane of input.swapLanes) {

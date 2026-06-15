@@ -19,12 +19,14 @@ export type WireSmartAccountPreparedEarnUsdcDeposit = {
   kaminoSetupRentLamports: string;
   kaminoSetupRequired: boolean;
   persistence: SmartAccountEarnUsdcDepositMetadata;
+  policyFinalizePrepared?: WirePreparedLoyalSmartAccountsOperation | null;
   policy: {
     account: string;
     id: string;
     sameMintInstructionConstraintIndexes: readonly [number, number];
     seed: string;
   };
+  policySetupPrepared?: WirePreparedLoyalSmartAccountsOperation | null;
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
@@ -88,6 +90,9 @@ export function serializePreparedEarnUsdcDeposit(
     kaminoSetupRentLamports: preparedDeposit.kaminoSetupRentLamports,
     kaminoSetupRequired: preparedDeposit.kaminoSetupRequired,
     persistence: preparedDeposit.persistence,
+    policyFinalizePrepared: preparedDeposit.policyFinalizePrepared
+      ? serializePreparedOperation(preparedDeposit.policyFinalizePrepared)
+      : null,
     policy: {
       account: preparedDeposit.policy.account.toBase58(),
       id: preparedDeposit.policy.id.toString(),
@@ -95,6 +100,9 @@ export function serializePreparedEarnUsdcDeposit(
         preparedDeposit.policy.sameMintInstructionConstraintIndexes,
       seed: preparedDeposit.policy.seed.toString(),
     },
+    policySetupPrepared: preparedDeposit.policySetupPrepared
+      ? serializePreparedOperation(preparedDeposit.policySetupPrepared)
+      : null,
     prepared: serializePreparedOperation(preparedDeposit.prepared),
     targetReserve: {
       liquidityMint: preparedDeposit.targetReserve.liquidityMint.toBase58(),
@@ -120,6 +128,9 @@ export function hydratePreparedEarnUsdcDeposit(
     kaminoSetupRentLamports: wire.kaminoSetupRentLamports,
     kaminoSetupRequired: wire.kaminoSetupRequired,
     persistence: wire.persistence,
+    policyFinalizePrepared: wire.policyFinalizePrepared
+      ? hydratePreparedOperation(wire.policyFinalizePrepared)
+      : null,
     policy: {
       account: new PublicKey(wire.policy.account),
       id: BigInt(wire.policy.id),
@@ -127,6 +138,9 @@ export function hydratePreparedEarnUsdcDeposit(
         wire.policy.sameMintInstructionConstraintIndexes,
       seed: BigInt(wire.policy.seed),
     },
+    policySetupPrepared: wire.policySetupPrepared
+      ? hydratePreparedOperation(wire.policySetupPrepared)
+      : null,
     prepared: hydratePreparedOperation(wire.prepared),
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),

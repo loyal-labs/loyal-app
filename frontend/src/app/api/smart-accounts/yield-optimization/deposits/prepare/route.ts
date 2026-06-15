@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  getKaminoUsdcEarnTargetForCluster,
-  resolveLoyalClusterForSolanaEnv,
-} from "@loyal-labs/actions";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -17,9 +15,10 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
+import { findBestSafeUsdcEarnReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
-  findActiveYieldPosition,
   findActiveYieldRoutePolicy,
+  findReconciledActiveYieldPositionForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
@@ -76,27 +75,37 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
-  const policy = await findActiveYieldRoutePolicy({
-    authority: principal.walletAddress,
-    cluster,
-    settings: principal.settingsPda,
-    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-  });
-  const activePosition = await findActiveYieldPosition({
-    cluster,
-    initialReserve: earnTarget.reserve.toBase58(),
-    settings: principal.settingsPda,
-    vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-    walletAddress: principal.walletAddress,
-  });
+  let policy: Awaited<ReturnType<typeof findActiveYieldRoutePolicy>> = null;
 
   try {
     const serverEnv = getServerEnv();
+    const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
+    const settingsPda = new PublicKey(principal.settingsPda);
+    const [earnVaultPda] = pda.getSmartAccountPda({
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+      programId,
+      settingsPda,
+    });
+    const [policyResult, activePosition] = await Promise.all([
+      findActiveYieldRoutePolicy({
+        authority: principal.walletAddress,
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+      }),
+      findReconciledActiveYieldPositionForVault({
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      }),
+    ]);
+    policy = policyResult;
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
       connection: getConnection(solanaEnv),
-      programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
+      programId,
     });
     const yieldRoutingPolicy = policy
       ? {
@@ -104,6 +113,17 @@ export async function POST(request: Request) {
           seed: policy.policySeed,
         }
       : undefined;
+    const target =
+      policy && activePosition
+        ? await findBestSafeUsdcEarnReserveTarget(cluster)
+        : null;
+    if (policy && activePosition && !target) {
+      return jsonError(
+        409,
+        "no_eligible_earn_reserve",
+        "No fresh Safe USDC reserve candidate is available for this top-up."
+      );
+    }
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
@@ -112,21 +132,11 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
+      ...(target ? { target } : {}),
       ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });
-    const responsePreparedDeposit =
-      policy && !activePosition
-        ? {
-            ...preparedDeposit,
-            persistence: {
-              ...preparedDeposit.persistence,
-              policyInitialization: "create" as const,
-            },
-          }
-        : preparedDeposit;
-
     return NextResponse.json({
-      preparedDeposit: serializePreparedEarnUsdcDeposit(responsePreparedDeposit),
+      preparedDeposit: serializePreparedEarnUsdcDeposit(preparedDeposit),
     });
   } catch (error) {
     console.error("[earn-deposit-prepare] prepare failed", {

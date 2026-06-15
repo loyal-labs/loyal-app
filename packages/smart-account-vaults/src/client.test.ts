@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  getRiskBasketMarketsForCluster,
+  getStablecoinMintsForCluster,
+  LoyalCluster,
+  RiskBasket,
   STABLECOIN_MINTS,
   Stablecoin,
   SUBSCRIPTIONS_PROGRAM_ID,
@@ -16,7 +20,15 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { PublicKey, SystemInstruction, SystemProgram } from "@solana/web3.js";
+import {
+  type AddressLookupTableAccount,
+  PublicKey,
+  SystemInstruction,
+  SystemProgram,
+  type TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import BN from "bn.js";
 
 import { createSmartAccountVaultsClient } from "./client";
@@ -62,6 +74,7 @@ const kaminoReserveOffsets = {
   liquidityAvailableAmount: kaminoReserveOffsetBase + 216,
   collateralMintTotalSupply: kaminoReserveOffsetBase + 2584,
 } as const;
+const PACKET_DATA_SIZE = 1232;
 
 function decimalAmountToRaw(amount: string): bigint {
   const [whole, fraction = ""] = amount.split(".");
@@ -69,6 +82,19 @@ function decimalAmountToRaw(amount: string): bigint {
     BigInt(whole || "0") * BigInt(1_000_000) +
     BigInt(fraction.padEnd(6, "0").slice(0, 6) || "0")
   );
+}
+
+function serializedPreparedLength(prepared: {
+  instructions: readonly TransactionInstruction[];
+  lookupTableAccounts?: readonly AddressLookupTableAccount[];
+}) {
+  return new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: feePayer,
+      recentBlockhash: "11111111111111111111111111111111",
+      instructions: [...prepared.instructions],
+    }).compileToV0Message([...(prepared.lookupTableAccounts ?? [])])
+  ).serialize().length;
 }
 
 function mockKaminoDepositInstruction() {
@@ -402,6 +428,190 @@ function expectPolicyCreateSigner(
   ]);
 }
 
+function decodeGeneratedPolicyCreate(
+  instruction:
+    | {
+        data: Buffer | Uint8Array;
+      }
+    | undefined
+) {
+  expect(instruction).toBeDefined();
+  const [decoded] = generated.executeSettingsTransactionSyncStruct.deserialize(
+    Buffer.from(instruction!.data)
+  );
+  const policyCreate = decoded.args.actions.find(
+    (action) => action.__kind === "PolicyCreate"
+  );
+  expect(policyCreate?.__kind).toBe("PolicyCreate");
+  if (!policyCreate || policyCreate.__kind !== "PolicyCreate") {
+    throw new Error("Expected a PolicyCreate action.");
+  }
+  return policyCreate;
+}
+
+function decodeGeneratedPolicyUpdate(
+  instruction:
+    | {
+        data: Buffer | Uint8Array;
+      }
+    | undefined
+) {
+  expect(instruction).toBeDefined();
+  const data = Buffer.from(instruction!.data);
+  let policyUpdate: generated.SettingsAction | undefined;
+  try {
+    const [decoded] =
+      generated.executeSettingsTransactionSyncStruct.deserialize(data);
+    policyUpdate = decoded.args.actions.find(
+      (action) => action.__kind === "PolicyUpdate"
+    );
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      throw error;
+    }
+  }
+
+  if (!policyUpdate) {
+    const [decoded] = generated.createSettingsTransactionStruct.deserialize(
+      data
+    );
+    policyUpdate = decoded.args.actions.find(
+      (action) => action.__kind === "PolicyUpdate"
+    );
+  }
+
+  expect(policyUpdate?.__kind).toBe("PolicyUpdate");
+  if (!policyUpdate || policyUpdate.__kind !== "PolicyUpdate") {
+    throw new Error("Expected a PolicyUpdate action.");
+  }
+  return policyUpdate;
+}
+
+function generatedPubkeyConstraintValues(
+  constraints: generated.AccountConstraint[],
+  accountIndex: number
+) {
+  const constraint = constraints.find(
+    (candidate) => candidate.accountIndex === accountIndex
+  );
+  expect(constraint?.accountConstraint.__kind).toBe("Pubkey");
+  if (!constraint || constraint.accountConstraint.__kind !== "Pubkey") {
+    throw new Error(`Expected pubkey account constraint ${accountIndex}.`);
+  }
+  return constraint.accountConstraint.fields[0].map((pubkey) =>
+    pubkey.toBase58()
+  );
+}
+
+function expectEarnPolicyPayloadUsesSafeUniverse(
+  payload: generated.PolicyCreationPayload,
+  expectedStableMints = getStablecoinMintsForCluster(LoyalCluster.MainnetBeta)
+    .map((mint) => mint.toBase58())
+) {
+  expect(payload.__kind).toBe("ProgramInteraction");
+  if (payload.__kind !== "ProgramInteraction") {
+    throw new Error("Expected ProgramInteraction policy payload.");
+  }
+  const [field] = payload.fields;
+  expect(field.accountIndex).toBe(1);
+  expect(field.instructionsConstraints).toHaveLength(2);
+
+  const expectedMarkets = getRiskBasketMarketsForCluster(
+    LoyalCluster.MainnetBeta,
+    RiskBasket.Safe
+  ).map((market) => market.toBase58());
+
+  const [withdrawConstraint, depositConstraint] = field.instructionsConstraints;
+  expect(
+    generatedPubkeyConstraintValues(withdrawConstraint!.accountConstraints, 1)
+  ).toEqual(expectedMarkets);
+  expect(
+    withdrawConstraint!.accountConstraints.some(
+      (constraint) => constraint.accountIndex === 4
+    )
+  ).toBe(false);
+  expect(
+    generatedPubkeyConstraintValues(depositConstraint!.accountConstraints, 2)
+  ).toEqual(expectedMarkets);
+  expect(
+    generatedPubkeyConstraintValues(depositConstraint!.accountConstraints, 4)
+  ).toEqual(expectedStableMints);
+}
+
+function expectEarnPolicyCreateUsesSafeUniverse(
+  instruction:
+    | {
+        data: Buffer | Uint8Array;
+      }
+    | undefined,
+  expectedStableMints?: string[]
+) {
+  const policyCreate = decodeGeneratedPolicyCreate(instruction);
+  expectEarnPolicyPayloadUsesSafeUniverse(
+    policyCreate.policyCreationPayload,
+    expectedStableMints
+  );
+}
+
+function expectEarnPolicyUpdateUsesSafeUniverse(
+  instruction:
+    | {
+        data: Buffer | Uint8Array;
+      }
+    | undefined,
+  expectedStableMints?: string[]
+) {
+  const policyUpdate = decodeGeneratedPolicyUpdate(instruction);
+  expectEarnPolicyPayloadUsesSafeUniverse(
+    policyUpdate.policyUpdatePayload,
+    expectedStableMints
+  );
+}
+
+function expectEarnPolicyInitializationUsesSafeUniverse(args: {
+  finalizePrepared?:
+    | {
+        instructions: readonly TransactionInstruction[];
+        lookupTableAccounts?: readonly AddressLookupTableAccount[];
+      }
+    | null;
+  setupPrepared:
+    | {
+        instructions: readonly TransactionInstruction[];
+        lookupTableAccounts?: readonly AddressLookupTableAccount[];
+      }
+    | null
+    | undefined;
+}) {
+  expect(args.setupPrepared).toBeTruthy();
+  expect(args.setupPrepared?.instructions).toHaveLength(1);
+  expect(
+    serializedPreparedLength({
+      instructions: args.setupPrepared!.instructions,
+      lookupTableAccounts: args.setupPrepared!.lookupTableAccounts,
+    })
+  ).toBeLessThanOrEqual(PACKET_DATA_SIZE);
+
+  if (args.finalizePrepared) {
+    expectEarnPolicyCreateUsesSafeUniverse(
+      args.setupPrepared!.instructions[0],
+      [STABLECOIN_MINTS[Stablecoin.USDC].toBase58()]
+    );
+    expect(args.finalizePrepared.instructions.length).toBeGreaterThanOrEqual(1);
+    expectEarnPolicyUpdateUsesSafeUniverse(
+      args.finalizePrepared.instructions[0]
+    );
+    expect(
+      serializedPreparedLength({
+        instructions: args.finalizePrepared.instructions,
+        lookupTableAccounts: args.finalizePrepared.lookupTableAccounts,
+      })
+    ).toBeLessThanOrEqual(PACKET_DATA_SIZE);
+  } else {
+    expectEarnPolicyCreateUsesSafeUniverse(args.setupPrepared!.instructions[0]);
+  }
+}
+
 describe("prepareEarnUsdcDeposit", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -426,7 +636,11 @@ describe("prepareEarnUsdcDeposit", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result.prepared.instructions).toHaveLength(5);
+    expectEarnPolicyInitializationUsesSafeUniverse({
+      finalizePrepared: result.policyFinalizePrepared,
+      setupPrepared: result.policySetupPrepared,
+    });
+    expect(result.prepared.instructions).toHaveLength(4);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
     );
@@ -452,12 +666,8 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(transfer.data.amount.toString()).toBe("1000000");
     expect(transfer.data.decimals).toBe(6);
 
-    expect(result.prepared.instructions[3]?.programId.toBase58()).toBe(
-      programId.toBase58()
-    );
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[4]);
-    expectPolicyCreateSigner(result.prepared.instructions[3], backendSigner);
-    expectIncludesKaminoSetupAccount(result.prepared.instructions[4]);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
+    expectIncludesKaminoSetupAccount(result.prepared.instructions[3]);
     expect(result.policy.seed).toBe(BigInt(7));
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.vault.accountIndex).toBe(1);
@@ -475,6 +685,14 @@ describe("prepareEarnUsdcDeposit", () => {
       policyInitialization: "create",
       policySeed: "7",
       principalAmountRaw: "1000000",
+      riskProfile: RiskBasket.Safe,
+      stableMints: getStablecoinMintsForCluster(LoyalCluster.MainnetBeta).map(
+        (mint) => mint.toBase58()
+      ),
+      kaminoMarkets: getRiskBasketMarketsForCluster(
+        LoyalCluster.MainnetBeta,
+        RiskBasket.Safe
+      ).map((market) => market.toBase58()),
       vaultIndex: 1,
     });
   });
@@ -634,6 +852,10 @@ describe("prepareEarnUsdcDeposit", () => {
       programId.toBase58()
     );
     expectPolicyCreateSigner(result.prepared.instructions[0], backendSigner);
+    expectEarnPolicyInitializationUsesSafeUniverse({
+      finalizePrepared: result.finalizePrepared,
+      setupPrepared: result.prepared,
+    });
     expect(result.policy.seed).toBe(BigInt(7));
     expect(result.vault).toMatchObject({
       accountIndex: 1,
@@ -646,11 +868,21 @@ describe("prepareEarnUsdcDeposit", () => {
       cluster: "mainnet-beta",
       delegatedSigner: backendSigner.toBase58(),
       liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
+      riskProfile: RiskBasket.Safe,
+      routeModes: ["same_mint_kamino"],
       policyAccount: result.policy.account.toBase58(),
       policyId: "7",
       policySeed: "7",
       settings: settingsPda.toBase58(),
+      stableMints: getStablecoinMintsForCluster(LoyalCluster.MainnetBeta).map(
+        (mint) => mint.toBase58()
+      ),
+      kaminoMarkets: getRiskBasketMarketsForCluster(
+        LoyalCluster.MainnetBeta,
+        RiskBasket.Safe
+      ).map((market) => market.toBase58()),
       targetReserve: kaminoReserve.toBase58(),
+      universePreset: "canonical_stable_kamino",
       vaultIndex: 1,
       vaultPubkey: deriveVault().toBase58(),
       walletAddress: walletAddress.toBase58(),
@@ -716,6 +948,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       programId.toBase58()
     );
     expect(result.policy.withdrawInstructionConstraintIndex).toBe(0);
+    expect("policyUpdatePrepared" in result).toBe(false);
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.mode).toBe("partial");
     expect(result.amountRaw).toBe(BigInt(1_000_000));
@@ -1009,6 +1242,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       autodepositPolicyAccount,
       { isWritable: true }
     );
+    expect("policyUpdatePrepared" in result).toBe(false);
     expect(result.prepared.instructions).toHaveLength(5);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
@@ -1144,6 +1378,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       },
     });
 
+    expect("policyUpdatePrepared" in result).toBe(false);
     expect(result.prepared.instructions).toHaveLength(5);
     expect(
       result.prepared.instructions[3]?.keys.some((key) =>

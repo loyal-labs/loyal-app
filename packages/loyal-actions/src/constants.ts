@@ -5,26 +5,23 @@ import type { Address } from "./types.ts";
 export const DEFAULT_MAX_FEE_BPS = MaxFeeBps.Bps100;
 
 export const STABLECOIN_MINTS: Record<Stablecoin, Address> = {
+  [Stablecoin.CASH]: new PublicKey(
+    "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH"
+  ),
+  [Stablecoin.USDG]: new PublicKey(
+    "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH"
+  ),
+  [Stablecoin.PYUSD]: new PublicKey(
+    "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
+  ),
   [Stablecoin.USDC]: new PublicKey(
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
   ),
   [Stablecoin.USDT]: new PublicKey(
     "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
   ),
-  [Stablecoin.PYUSD]: new PublicKey(
-    "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
-  ),
   [Stablecoin.USDS]: new PublicKey(
     "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"
-  ),
-  [Stablecoin.USDG]: new PublicKey(
-    "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH"
-  ),
-  [Stablecoin.USDE]: new PublicKey(
-    "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT"
-  ),
-  [Stablecoin.SUSDE]: new PublicKey(
-    "Eh6XEPhSwoLv5wFApukmnaVSHQ6sAnoD9BmgmwQoN2sN"
   ),
 };
 
@@ -41,13 +38,12 @@ export const STABLECOIN_MINTS_BY_CLUSTER: Record<
 };
 
 export const STABLECOINS = [
+  Stablecoin.CASH,
+  Stablecoin.USDG,
+  Stablecoin.PYUSD,
   Stablecoin.USDC,
   Stablecoin.USDT,
-  Stablecoin.PYUSD,
   Stablecoin.USDS,
-  Stablecoin.USDG,
-  Stablecoin.USDE,
-  Stablecoin.SUSDE,
 ] as const;
 
 export const KAMINO_MAIN_MARKET = new PublicKey(

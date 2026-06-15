@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  getKaminoUsdcEarnTargetForCluster,
-  resolveLoyalClusterForSolanaEnv,
-} from "@loyal-labs/actions";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
@@ -17,7 +14,10 @@ import {
   type EarningsRangeId,
 } from "@/lib/yield-optimization/earnings-calculator.server";
 import type { EarnEarningsRangeSetResponse } from "@/lib/yield-optimization/earnings.shared";
-import { findYieldPositionEvents } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import {
+  findReconciledActiveYieldPositionForVault,
+  findYieldPositionEvents,
+} from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_VAULT_INDEX = 1;
 
@@ -106,23 +106,31 @@ export async function GET(request: Request) {
   const timezone = "UTC";
   const now = new Date();
   const cluster = resolveConfiguredCluster();
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
 
   try {
-    const events = await findYieldPositionEvents({
+    const position = await findReconciledActiveYieldPositionForVault({
       cluster,
-      initialReserve: earnTarget.reserve.toBase58(),
       settings: principal.settingsPda,
       vaultIndex: EARN_VAULT_INDEX,
       walletAddress: principal.walletAddress,
     });
+    const events = position
+      ? await findYieldPositionEvents({
+          cluster,
+          initialReserve: position.initialReserve,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: position.vaultPubkey,
+          walletAddress: principal.walletAddress,
+        })
+      : [];
     const firstDepositAt = getFirstDepositAt(events);
     const apySamples =
-      firstDepositAt === null
+      firstDepositAt === null || !position
         ? []
         : await loadReserveApySamples({
             end: now,
-            reserve: earnTarget.reserve.toBase58(),
+            reserve: position.currentReserve,
             start: firstDepositAt,
           });
 

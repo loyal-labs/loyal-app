@@ -11,6 +11,7 @@ import {
 } from "@/lib/smart-accounts/prepared-operation-wire.shared";
 
 export type WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
+  finalizePrepared?: WirePreparedLoyalSmartAccountsOperation;
   persistence: SmartAccountEarnUsdcYieldRoutingPolicyMetadata;
   policy: {
     account: string;
@@ -37,6 +38,9 @@ export function serializePreparedEarnUsdcYieldRoutingPolicy(
   preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy
 ): WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy {
   return {
+    finalizePrepared: preparedPolicy.finalizePrepared
+      ? serializePreparedOperation(preparedPolicy.finalizePrepared)
+      : undefined,
     persistence: preparedPolicy.persistence,
     policy: {
       account: preparedPolicy.policy.account.toBase58(),
@@ -60,6 +64,9 @@ export function hydratePreparedEarnUsdcYieldRoutingPolicy(
   wire: WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy
 ): SmartAccountPreparedEarnUsdcYieldRoutingPolicy {
   return {
+    finalizePrepared: wire.finalizePrepared
+      ? hydratePreparedOperation(wire.finalizePrepared)
+      : undefined,
     persistence: wire.persistence,
     policy: {
       account: new PublicKey(wire.policy.account),

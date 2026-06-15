@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  getKaminoUsdcEarnTargetForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
@@ -13,6 +12,7 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnDepositConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   recordConfirmedYieldDeposit,
   type ConfirmedYieldDepositInput,
@@ -69,19 +69,29 @@ function createCanonicalDepositInput(
     settingsPda: settings,
     accountIndex: EARN_DEPOSIT_VAULT_INDEX,
   })[0];
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
-  const usdcMint = earnTarget.liquidityMint.toBase58();
+  const target = assertSafeUsdcEarnReserveMetadata({
+    cluster,
+    liquidityMint: requestInput.liquidityMint,
+    market: requestInput.market,
+    targetReserve: requestInput.targetReserve,
+  });
+  if (
+    requestInput.targetSupplyApyBps !== null &&
+    requestInput.targetSupplyApyBps < BigInt(0)
+  ) {
+    throw new Error("Earn target APY evidence cannot be negative.");
+  }
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
-    depositMint: usdcMint,
-    liquidityMint: usdcMint,
-    market: earnTarget.market.toBase58(),
+    depositMint: target.liquidityMint,
+    liquidityMint: target.liquidityMint,
+    market: target.market,
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
-    targetReserve: earnTarget.reserve.toBase58(),
-    targetSupplyApyBps: null,
+    targetReserve: target.targetReserve,
+    targetSupplyApyBps: requestInput.targetSupplyApyBps,
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };

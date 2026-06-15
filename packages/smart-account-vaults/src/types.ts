@@ -364,6 +364,15 @@ export type SmartAccountUseSpendingLimitInput = {
   memo?: string;
 };
 
+export type SmartAccountEarnUsdcReserveTargetInput = {
+  reserve: PublicKey;
+  market: PublicKey;
+  liquidityMint: PublicKey;
+  supplyApyBps?: bigint | null;
+  reserveCollateralMint?: PublicKey;
+  reserveLiquiditySupply?: PublicKey;
+};
+
 export type SmartAccountEarnUsdcDepositInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
@@ -371,6 +380,7 @@ export type SmartAccountEarnUsdcDepositInput = {
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
+  target?: SmartAccountEarnUsdcReserveTargetInput;
   initializeYieldRoutingPolicy?: boolean;
   yieldRoutingPolicy?: {
     account: PublicKey;
@@ -385,6 +395,7 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
   signer: PublicKey;
   feePayer: PublicKey;
   cluster?: LoyalCluster;
+  target?: SmartAccountEarnUsdcReserveTargetInput;
   memo?: string;
 };
 
@@ -401,9 +412,16 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyMetadata = {
   targetReserve: string;
   market: string;
   liquidityMint: string;
+  riskProfile: string;
+  routeModes: string[];
+  stableMints: string[];
+  kaminoMarkets: string[];
+  kaminoLiquidityMints: string[];
+  universePreset: string;
 };
 
 export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
+  finalizePrepared?: PreparedLoyalSmartAccountsOperation<string>;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   policy: {
     account: PublicKey;
@@ -439,12 +457,20 @@ export type SmartAccountEarnUsdcDepositMetadata = {
   principalAmountRaw: string;
   policyInitialization: "create" | "reuse";
   targetSupplyApyBps: string | null;
+  riskProfile: string;
+  routeModes: string[];
+  stableMints: string[];
+  kaminoMarkets: string[];
+  kaminoLiquidityMints: string[];
+  universePreset: string;
 };
 
 export type SmartAccountPreparedEarnUsdcDeposit = {
   kaminoSetupAccountCount: number;
   kaminoSetupRentLamports: string;
   kaminoSetupRequired: boolean;
+  policyFinalizePrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
+  policySetupPrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   policy: {
     account: PublicKey;
@@ -474,6 +500,7 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
+  target?: SmartAccountEarnUsdcReserveTargetInput;
   yieldRoutingPolicy?: {
     account: PublicKey;
     seed: bigint;

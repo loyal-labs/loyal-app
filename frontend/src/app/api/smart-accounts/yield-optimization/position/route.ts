@@ -13,7 +13,7 @@ import {
 } from "@/lib/kamino/timescale-reserve-client.server";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import {
-  findActiveYieldPosition,
+  findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -128,10 +128,8 @@ export async function GET(request: Request) {
   }
 
   const cluster = resolveConfiguredCluster();
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
-  const position = await findActiveYieldPosition({
+  const position = await findReconciledActiveYieldPositionForVault({
     cluster,
-    initialReserve: earnTarget.reserve.toBase58(),
     settings: principal.settingsPda,
     vaultIndex: EARN_VAULT_INDEX,
     walletAddress: principal.walletAddress,
