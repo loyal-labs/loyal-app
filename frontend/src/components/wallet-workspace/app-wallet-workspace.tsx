@@ -129,14 +129,13 @@ import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
 import { BuilderBlocksPane } from "./builder-blocks-pane";
 import {
-  advanceEarnDepositReviewAfterPolicySetup,
+  advanceEarnDepositReviewStage,
   applyEarnDepositFormDraftChange,
   buildEarnDepositReviewItem,
   buildEarnAutodepositCloseReviewItem,
   buildEarnAutodepositSetupReviewItem,
   buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
-  setEarnDepositReviewPreparedDeposit,
   type EarnAutodepositSetupReviewStage,
   type EarnDepositReviewStage,
   type EarnWithdrawReviewStage,
@@ -1072,6 +1071,9 @@ export function AppWalletWorkspace({
     useState<EarnDepositReviewStage>("deposit");
   const [isEarnDepositPolicySetupFlow, setIsEarnDepositPolicySetupFlow] =
     useState(false);
+  const [earnDepositPolicySignature, setEarnDepositPolicySignature] = useState<
+    string | null
+  >(null);
   const [pendingEarnWithdrawDraft, setPendingEarnWithdrawDraft] =
     useState<EarnWithdrawDraft | null>(null);
   const [pendingEarnWithdrawPrepared, setPendingEarnWithdrawPrepared] =
@@ -1422,6 +1424,7 @@ export function AppWalletWorkspace({
             hasAutodepositTeardown: Boolean(
               pendingEarnWithdrawPrepared?.autodepositClosePrepared
             ),
+            preparedWithdraw: pendingEarnWithdrawPrepared,
             stage: earnWithdrawReviewStage,
           })
         : null,
@@ -1429,7 +1432,7 @@ export function AppWalletWorkspace({
       detailSelection,
       earnWithdrawReviewStage,
       pendingEarnWithdrawDraft,
-      pendingEarnWithdrawPrepared?.autodepositClosePrepared,
+      pendingEarnWithdrawPrepared,
     ]
   );
   const earnAutodepositSetupReviewItem = useMemo(
@@ -2265,6 +2268,7 @@ export function AppWalletWorkspace({
     setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPolicySignature(null);
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
@@ -2279,6 +2283,7 @@ export function AppWalletWorkspace({
     setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPolicySignature(null);
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
@@ -2295,6 +2300,7 @@ export function AppWalletWorkspace({
     setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPolicySignature(null);
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
@@ -2508,6 +2514,7 @@ export function AppWalletWorkspace({
     setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
     setIsEarnDepositPolicySetupFlow(false);
+    setEarnDepositPolicySignature(null);
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
   }, []);
@@ -2597,6 +2604,7 @@ export function AppWalletWorkspace({
       setPendingEarnDepositPrepared(nextReview.preparedDeposit);
       setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
       setEarnDepositReviewStage(nextReview.stage);
+      setEarnDepositPolicySignature(null);
       setProposalActionError(null);
       setEarnDepositPrepareError(null);
     },
@@ -2623,22 +2631,20 @@ export function AppWalletWorkspace({
       setProposalActionError(null);
       setEarnDepositPrepareError(null);
       setPendingEarnDepositPrepared(null);
+      setEarnDepositPolicySignature(null);
 
       try {
-        const preparedDeposit = requiresPolicySetup
-          ? null
-          : await (async () => {
-              setIsEarnDepositPreparePending(true);
-              const amountRaw = parseTokenAmountLabelToRaw(
-                draft.amountLabel,
-                draft.tokenDecimals
-              );
-              return prepareEarnDepositOnServer({ amountRaw });
-            })();
+        setIsEarnDepositPreparePending(true);
+        const amountRaw = parseTokenAmountLabelToRaw(
+          draft.amountLabel,
+          draft.tokenDecimals
+        );
+        const preparedDeposit = await prepareEarnDepositOnServer({ amountRaw });
         const nextReview = createSubmittedEarnDepositReviewState({
           draft,
           preparedDeposit,
-          requiresPolicySetup,
+          requiresPolicySetup:
+            requiresPolicySetup || Boolean(preparedDeposit.policySetupPrepared),
         });
         setPendingEarnDepositDraft(nextReview.draft);
         setPendingEarnDepositPrepared(nextReview.preparedDeposit);
@@ -2697,35 +2703,45 @@ export function AppWalletWorkspace({
     [getEarnWithdrawDraftAmountRaw]
   );
 
-  const handleCompleteEarnPolicySetup = useCallback(async () => {
+  const handleCompleteEarnDepositPolicyStage = useCallback(async () => {
     if (!pendingEarnDepositDraft) {
       setProposalActionError("Enter a deposit amount before continuing.");
+      return;
+    }
+    if (!pendingEarnDepositPrepared) {
+      setProposalActionError(
+        "Prepare the Earn deposit again before signing this transaction."
+      );
+      return;
+    }
+    if (
+      earnDepositReviewStage !== "policy" &&
+      earnDepositReviewStage !== "policy-finalize"
+    ) {
+      setProposalActionError("This Earn deposit stage is not a policy stage.");
       return;
     }
 
     setProposalActionError(null);
     try {
-      const result = await smartAccountData.executeEarnPolicySetup();
+      const result = await smartAccountData.executeEarnDepositPolicyStage({
+        preparedDeposit: pendingEarnDepositPrepared,
+        stage: earnDepositReviewStage,
+      });
       if (!result.success) {
-        throw new Error(result.error ?? "Earn policy setup failed.");
+        throw new Error(result.error ?? "Earn policy approval failed.");
       }
 
-      setIsEarnDepositPreparePending(true);
-      const amountRaw = parseTokenAmountLabelToRaw(
-        pendingEarnDepositDraft.amountLabel,
-        pendingEarnDepositDraft.tokenDecimals
-      );
-      const nextReview = advanceEarnDepositReviewAfterPolicySetup(
-        setEarnDepositReviewPreparedDeposit(
-          {
-            draft: pendingEarnDepositDraft,
-            isPolicySetupFlow: isEarnDepositPolicySetupFlow,
-            preparedDeposit: null,
-            stage: earnDepositReviewStage,
-          },
-          await prepareEarnDepositOnServer({ amountRaw })
-        )
-      );
+      if (result.signature) {
+        setEarnDepositPolicySignature(result.signature);
+      }
+
+      const nextReview = advanceEarnDepositReviewStage({
+        draft: pendingEarnDepositDraft,
+        isPolicySetupFlow: isEarnDepositPolicySetupFlow,
+        preparedDeposit: pendingEarnDepositPrepared,
+        stage: earnDepositReviewStage,
+      });
       setPendingEarnDepositDraft(nextReview.draft);
       setPendingEarnDepositPrepared(nextReview.preparedDeposit);
       setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
@@ -2734,20 +2750,19 @@ export function AppWalletWorkspace({
       setSelectedDetail("Deposit");
     } catch (error) {
       const raw =
-        error instanceof Error ? error.message : "Earn policy setup failed.";
-      console.log("[earn-deposit] policy setup failed", {
+        error instanceof Error ? error.message : "Earn policy approval failed.";
+      console.log("[earn-deposit] policy approval failed", {
         errorName: error instanceof Error ? error.name : typeof error,
         errorMessage: raw,
       });
       setProposalActionError(raw);
       setEarnDepositPrepareError(raw);
-    } finally {
-      setIsEarnDepositPreparePending(false);
     }
   }, [
     earnDepositReviewStage,
     isEarnDepositPolicySetupFlow,
     pendingEarnDepositDraft,
+    pendingEarnDepositPrepared,
     setDetailSelection,
     smartAccountData,
   ]);
@@ -2783,6 +2798,9 @@ export function AppWalletWorkspace({
 
       const result = await smartAccountData.executeEarnDeposit({
         amountRaw,
+        ...(earnDepositPolicySignature
+          ? { policySignature: earnDepositPolicySignature }
+          : {}),
         preparedDeposit: pendingEarnDepositPrepared,
       });
       console.log("[earn-deposit] executeEarnDeposit result", {
@@ -2800,6 +2818,7 @@ export function AppWalletWorkspace({
       setPendingEarnDepositPrepared(null);
       setEarnDepositReviewStage("deposit");
       setIsEarnDepositPolicySetupFlow(false);
+      setEarnDepositPolicySignature(null);
       setEarnDepositPrepareError(null);
       invalidateEarnClientCaches();
       setActiveEarnPosition((current) => {
@@ -2877,6 +2896,7 @@ export function AppWalletWorkspace({
     markDetailPaneTransition,
     pendingEarnDepositDraft,
     pendingEarnDepositPrepared,
+    earnDepositPolicySignature,
     refreshActiveEarnPosition,
     setActiveEarnPosition,
     setDetailSelection,
@@ -2885,8 +2905,11 @@ export function AppWalletWorkspace({
   ]);
 
   const handleContinueEarnDepositReview = useCallback(() => {
-    if (earnDepositReviewStage === "policy") {
-      void handleCompleteEarnPolicySetup();
+    if (
+      earnDepositReviewStage === "policy" ||
+      earnDepositReviewStage === "policy-finalize"
+    ) {
+      void handleCompleteEarnDepositPolicyStage();
       return;
     }
 
@@ -2894,7 +2917,7 @@ export function AppWalletWorkspace({
   }, [
     earnDepositReviewStage,
     handleCompleteEarnDeposit,
-    handleCompleteEarnPolicySetup,
+    handleCompleteEarnDepositPolicyStage,
   ]);
 
   const handleCompleteEarnWithdrawAutodepositClose = useCallback(async () => {
@@ -2931,6 +2954,11 @@ export function AppWalletWorkspace({
         amountRaw,
         mode: pendingEarnWithdrawDraft.mode,
       });
+      if (nextPreparedWithdraw.autodepositClosePrepared) {
+        throw new Error(
+          "Autodeposit close was confirmed, but the refreshed withdrawal still includes an Autodeposit close. Review the withdrawal again before signing."
+        );
+      }
       setPendingEarnWithdrawPrepared(nextPreparedWithdraw);
       setEarnWithdrawReviewStage("withdraw");
       setDetailSelection("earnWithdraw");
@@ -2966,6 +2994,9 @@ export function AppWalletWorkspace({
           : getEarnWithdrawDraftAmountRaw(pendingEarnWithdrawDraft!);
         const result = await smartAccountData.executeEarnWithdraw({
           amountRaw,
+          autodepositCloseAlreadyCompleted:
+            earnWithdrawReviewStage === "withdraw" &&
+            withdrawalDraft.mode === "full",
           mode: withdrawalDraft.mode,
           preparedWithdraw: pendingEarnWithdrawPrepared ?? undefined,
         });
@@ -3013,6 +3044,7 @@ export function AppWalletWorkspace({
       markDetailPaneTransition,
       pendingEarnWithdrawDraft,
       pendingEarnWithdrawPrepared,
+      earnWithdrawReviewStage,
       getEarnWithdrawDraftAmountRaw,
       refreshActiveEarnPosition,
       setActiveEarnPosition,

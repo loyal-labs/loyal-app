@@ -1,9 +1,49 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildEarnDepositConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
+  parseEarnDepositConfirmRequestBody,
   parseEarnWithdrawalConfirmRequestBody,
 } from "./earn-confirm-contracts.shared";
+
+describe("Earn deposit confirmation contracts", () => {
+  test("uses the explicit policy signature separately from the deposit signature", () => {
+    const body = buildEarnDepositConfirmRequestBody({
+      confirmedSlot: "123",
+      policySignature: "policy-setup-signature",
+      preparedDeposit: {
+        persistence: {
+          cluster: "mainnet-beta",
+          delegatedSigner: "delegate",
+          depositMint: "mint",
+          liquidityMint: "mint",
+          market: "market",
+          policyAccount: "policy",
+          policyId: "7",
+          policyInitialization: "create",
+          policySeed: "7",
+          principalAmountRaw: "1000000",
+          settings: "settings",
+          targetReserve: "reserve",
+          targetSupplyApyBps: null,
+          vaultIndex: 1,
+          vaultPubkey: "vault",
+          walletAddress: "wallet",
+        },
+      } as never,
+      signature: "deposit-signature",
+      smartAccountAddress: "smart-account",
+    });
+
+    expect(body.policySignature).toBe("policy-setup-signature");
+    expect(body.depositSignature).toBe("deposit-signature");
+    expect(parseEarnDepositConfirmRequestBody(body)).toMatchObject({
+      depositSignature: "deposit-signature",
+      policySignature: "policy-setup-signature",
+    });
+  });
+});
 
 describe("Earn withdrawal confirmation contracts", () => {
   test("preserves bundled autodeposit close metadata through build and parse", () => {

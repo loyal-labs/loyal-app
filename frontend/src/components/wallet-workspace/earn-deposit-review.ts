@@ -12,6 +12,7 @@ import type {
   SmartAccountPreparedEarnUsdcAutodepositClose,
   SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
 import {
   KAMINO_ETHENA_MARKET,
@@ -24,13 +25,19 @@ import {
 } from "@loyal-labs/actions/constants";
 import { RiskBasket, Stablecoin } from "@loyal-labs/actions/types";
 
+import {
+  getEarnDepositReviewStagePosition,
+  getEarnDepositReviewStages,
+  getFirstEarnDepositReviewStage,
+  getNextEarnDepositReviewStage,
+  type EarnDepositReviewStage,
+} from "@/lib/yield-optimization/earn-deposit-flow.shared";
+
 const EARN_VAULT_LABEL = "Earn vault";
-const USDC_MAIN_MARKET_RESERVE_ADDRESS =
-  "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
 const MAIN_ACCOUNT_FULL_ADDRESS =
   "BAqgbERmvUViqDSx961xpRBHGt68SpACiWL4t9696qZZ";
 
-export type EarnDepositReviewStage = "deposit" | "policy";
+export type { EarnDepositReviewStage };
 export type EarnAutodepositSetupReviewStage = "delegation" | "policy";
 export type EarnWithdrawReviewStage = "autodeposit" | "withdraw";
 
@@ -68,6 +75,68 @@ function formatSafeMarketLabels(): string {
     .join(", ");
 }
 
+function formatKaminoMarketLabel(market: string | null | undefined): string {
+  if (!market) {
+    return "Kamino Safe market";
+  }
+
+  const marketName = KAMINO_MARKET_NAMES.get(market);
+  return formatNameWithShortId(
+    marketName ? `${marketName} Market` : "Kamino market",
+    market
+  );
+}
+
+function getDepositTargetRows(
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit | null | undefined
+): ApprovalReviewDisplaySection["rows"] {
+  const market =
+    preparedDeposit?.targetReserve.market.toBase58() ??
+    preparedDeposit?.persistence.market;
+  const reserve =
+    preparedDeposit?.targetReserve.reserve.toBase58() ??
+    preparedDeposit?.persistence.targetReserve;
+  const liquidityMint =
+    preparedDeposit?.targetReserve.liquidityMint.toBase58() ??
+    preparedDeposit?.persistence.liquidityMint;
+
+  return [
+    {
+      label: "Route",
+      value: "Safe same-mint USDC through Kamino",
+    },
+    ...(market
+      ? [{ label: "Market", value: formatKaminoMarketLabel(market) }]
+      : []),
+    ...(reserve ? [{ label: "Reserve", value: shortenAddress(reserve) }] : []),
+    ...(liquidityMint
+      ? [{ label: "Liquidity mint", value: shortenAddress(liquidityMint) }]
+      : []),
+  ];
+}
+
+function getWithdrawTargetRows(
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw | null | undefined
+): ApprovalReviewDisplaySection["rows"] {
+  const market = preparedWithdraw?.targetReserve.market.toBase58();
+  const reserve = preparedWithdraw?.targetReserve.reserve.toBase58();
+  const liquidityMint = preparedWithdraw?.targetReserve.liquidityMint.toBase58();
+
+  return [
+    {
+      label: "Route",
+      value: "Withdraw same-mint USDC from Kamino Safe",
+    },
+    ...(market
+      ? [{ label: "Market", value: formatKaminoMarketLabel(market) }]
+      : []),
+    ...(reserve ? [{ label: "Reserve", value: shortenAddress(reserve) }] : []),
+    ...(liquidityMint
+      ? [{ label: "Liquidity mint", value: shortenAddress(liquidityMint) }]
+      : []),
+  ];
+}
+
 function formatStablecoinMintLabels(): string {
   return Object.values(Stablecoin)
     .map((stablecoin) =>
@@ -81,36 +150,38 @@ export function createSubmittedEarnDepositReviewState(args: {
   preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit | null;
   requiresPolicySetup: boolean;
 }): EarnDepositReviewState {
+  const preparedDeposit = args.preparedDeposit ?? null;
+  const stages = getEarnDepositReviewStages({
+    preparedDeposit,
+    requiresPolicySetup: args.requiresPolicySetup,
+  });
+
   return {
     draft: args.draft,
-    isPolicySetupFlow: args.requiresPolicySetup,
-    preparedDeposit: args.preparedDeposit ?? null,
-    stage: args.requiresPolicySetup ? "policy" : "deposit",
+    isPolicySetupFlow: stages.some((stage) => stage !== "deposit"),
+    preparedDeposit,
+    stage: stages[0] ?? "deposit",
   };
 }
 
-export function advanceEarnDepositReviewAfterPolicySetup(
+export function advanceEarnDepositReviewStage(
   state: EarnDepositReviewState
 ): EarnDepositReviewState {
   if (!state.draft) {
     return state;
   }
 
+  const nextStage = getNextEarnDepositReviewStage({
+    currentStage: state.stage,
+    preparedDeposit: state.preparedDeposit,
+    requiresPolicySetup: state.isPolicySetupFlow,
+  });
+
   return {
     draft: state.draft,
-    isPolicySetupFlow: true,
+    isPolicySetupFlow: state.isPolicySetupFlow,
     preparedDeposit: state.preparedDeposit,
-    stage: "deposit",
-  };
-}
-
-export function setEarnDepositReviewPreparedDeposit(
-  state: EarnDepositReviewState,
-  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit
-): EarnDepositReviewState {
-  return {
-    ...state,
-    preparedDeposit,
+    stage: nextStage ?? state.stage,
   };
 }
 
@@ -145,10 +216,28 @@ export function buildEarnDepositReviewItem(args: {
   preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit | null;
   stage?: EarnDepositReviewStage;
 }): ApprovalReviewDisplayItem {
-  const stage = args.stage ?? "policy";
-  const isPolicySetupFlow = args.isPolicySetupFlow ?? stage === "policy";
+  const preparedDeposit = args.preparedDeposit ?? null;
+  const stage =
+    args.stage ??
+    getFirstEarnDepositReviewStage({
+      preparedDeposit,
+      requiresPolicySetup: args.isPolicySetupFlow,
+    });
+  const stages = getEarnDepositReviewStages({
+    preparedDeposit,
+    requiresPolicySetup: args.isPolicySetupFlow,
+  });
+  const { index: stageIndex, total: approvalCount } =
+    getEarnDepositReviewStagePosition({
+      preparedDeposit,
+      requiresPolicySetup: args.isPolicySetupFlow,
+      stage,
+    });
+  const isPolicySetupFlow =
+    args.isPolicySetupFlow ?? stages.some((item) => item !== "deposit");
   const stablecoinMintLabels = formatStablecoinMintLabels();
   const safeMarketLabels = formatSafeMarketLabels();
+  const targetRows = getDepositTargetRows(preparedDeposit);
   const depositRows: ApprovalReviewDisplaySection["rows"] = [
     {
       label: "Transfer",
@@ -156,41 +245,83 @@ export function buildEarnDepositReviewItem(args: {
     },
     {
       label: "Earn",
-      value: `${EARN_VAULT_LABEL} deposits into Main Market USDC reserve`,
+      value: `${EARN_VAULT_LABEL} deposits same-mint USDC through Kamino Safe`,
     },
+    ...targetRows,
   ];
-  const reviewSections: ApprovalReviewDisplaySection[] = isPolicySetupFlow
-    ? [
-        {
-          title: "Approval #1",
+  const reviewSections: ApprovalReviewDisplaySection[] = stages.map(
+    (item, itemIndex) => {
+      const title =
+        stages.length > 1
+          ? `Approval #${itemIndex + 1}`
+          : item === "deposit"
+            ? "Transaction #1"
+            : "Approval #1";
+
+      if (item === "policy") {
+        return {
+          title,
           rows: [
-            { label: "Setup", value: "Create yield optimization policies" },
-            { label: "Kamino policy", value: "Deposit, withdraw" },
+            { label: "Setup", value: "Create Safe Earn route policy" },
+            { label: "Kamino policy", value: "Deposit and withdraw USDC" },
             { label: "Markets", value: `Kamino markets: ${safeMarketLabels}` },
-            { label: "Swap policy", value: "Swap via Jupiter" },
             { label: "Mints", value: stablecoinMintLabels },
+            ...(preparedDeposit?.policy.account
+              ? [
+                  {
+                    label: "Policy account",
+                    value: shortenAddress(
+                      preparedDeposit.policy.account.toBase58()
+                    ),
+                  },
+                ]
+              : []),
           ],
-        },
-        {
-          title: "Approval #2",
-          rows: depositRows,
-        },
-      ]
-    : [
-        {
-          title: "Transaction #1",
-          rows: depositRows,
-        },
-      ];
+        };
+      }
+
+      if (item === "policy-finalize") {
+        return {
+          title,
+          rows: [
+            { label: "Finalize", value: "Activate Safe Earn route policy" },
+            { label: "Routing", value: "Same-mint USDC on Kamino" },
+            ...(preparedDeposit?.policy.account
+              ? [
+                  {
+                    label: "Policy account",
+                    value: shortenAddress(
+                      preparedDeposit.policy.account.toBase58()
+                    ),
+                  },
+                ]
+              : []),
+          ],
+        };
+      }
+
+      return {
+        title,
+        rows: depositRows,
+      };
+    }
+  );
+
+  const approvalTitle =
+    approvalCount > 1
+      ? `Approval ${stageIndex} of ${approvalCount}`
+      : stage === "deposit"
+        ? "Deposit"
+        : "Approval";
 
   const policyPage: ApprovalReviewPage = {
-    title: "Approval 1 of 2",
-    heading: "Set up yield routing",
-    mascotNote: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} across Kamino's Safe markets.`,
+    title: approvalTitle,
+    heading: "Set up Safe Earn routing",
+    mascotNote: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} through Kamino Safe same-mint reserves.`,
     rows: [
       {
         label: "What you're approving",
-        value: `Deposit, withdraw, and swap permissions for ${args.draft.symbol} yield.`,
+        value: `Deposit and withdraw permissions for ${args.draft.symbol} Earn routing.`,
       },
     ],
     collapsibles: [
@@ -199,19 +330,45 @@ export function buildEarnDepositReviewItem(args: {
         rows: [
           { label: "Kamino yield policy", value: "Deposit, withdraw" },
           { label: "Markets", value: safeMarketLabels },
-          { label: "Swap policy", value: "Swap via Jupiter" },
           { label: "Stablecoins", value: stablecoinMintLabels },
+          ...targetRows,
         ],
       },
     ],
   };
+  const finalizePage: ApprovalReviewPage = {
+    title: approvalTitle,
+    heading: "Finalize Earn routing",
+    mascotNote:
+      "This activates the policy payload before the deposit transaction uses it.",
+    rows: [
+      {
+        label: "Policy",
+        value: "Finalize Safe same-mint Kamino routing",
+      },
+      ...(preparedDeposit?.policy.account
+        ? [
+            {
+              label: "Policy account",
+              value: shortenAddress(preparedDeposit.policy.account.toBase58()),
+            },
+          ]
+        : []),
+    ],
+    collapsibles: [
+      {
+        title: "Routing details",
+        rows: targetRows,
+      },
+    ],
+  };
   const depositPage: ApprovalReviewPage = {
-    title: isPolicySetupFlow ? "Approval 2 of 2" : "Deposit",
+    title: approvalTitle,
     amount: `$${args.draft.amountLabel}`,
     heading: `Deposit into ${EARN_VAULT_LABEL}`,
     hideAmountHeading: true,
     mascotNote: isPolicySetupFlow
-      ? "Now, last step to put the money in!"
+      ? "Final approval: move USDC into Earn and route it through Kamino."
       : `Top up your ${EARN_VAULT_LABEL} with ${args.draft.symbol}.`,
     rows: [
       {
@@ -220,7 +377,7 @@ export function buildEarnDepositReviewItem(args: {
       },
       {
         label: "Then",
-        value: `${EARN_VAULT_LABEL} deposits the ${args.draft.symbol} into Kamino Main Market USDC.`,
+        value: `${EARN_VAULT_LABEL} deposits ${args.draft.symbol} into the prepared Kamino Safe reserve.`,
       },
     ],
     collapsibles: [
@@ -244,16 +401,17 @@ export function buildEarnDepositReviewItem(args: {
         rows: [
           { label: "From", value: args.draft.source.label },
           { label: "To", value: EARN_VAULT_LABEL },
-          { label: "Earning in", value: "Kamino Main Market USDC reserve" },
-          {
-            label: "Reserve address",
-            value: USDC_MAIN_MARKET_RESERVE_ADDRESS,
-          },
+          ...targetRows,
         ],
       },
     ],
   };
-  const pages = stage === "policy" ? [policyPage] : [depositPage];
+  const pages =
+    stage === "policy"
+      ? [policyPage]
+      : stage === "policy-finalize"
+        ? [finalizePage]
+        : [depositPage];
 
   return {
     actionMode: "vote",
@@ -261,7 +419,7 @@ export function buildEarnDepositReviewItem(args: {
     destinationLabel: EARN_VAULT_LABEL,
     pages,
     primaryActionLabel:
-      stage === "policy" ? "Sign" : `Deposit $${args.draft.amountLabel}`,
+      stage === "deposit" ? `Deposit $${args.draft.amountLabel}` : "Sign",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
@@ -269,7 +427,9 @@ export function buildEarnDepositReviewItem(args: {
     statusLabel: "Ready to review",
     summaryLabel:
       stage === "policy"
-        ? "Launch yield optimization policy"
+        ? "Set up Safe Earn routing"
+        : stage === "policy-finalize"
+          ? "Finalize Safe Earn routing"
         : `Deposit into ${EARN_VAULT_LABEL}`,
     symbol: args.draft.symbol,
     title: "Deposit",
@@ -279,38 +439,51 @@ export function buildEarnDepositReviewItem(args: {
 export function buildEarnWithdrawReviewItem(args: {
   draft: EarnWithdrawDraft;
   hasAutodepositTeardown?: boolean;
+  preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw | null;
   stage?: EarnWithdrawReviewStage;
 }): ApprovalReviewDisplayItem {
   const actionLabel = args.draft.mode === "full" ? "Withdraw all" : "Withdraw";
   const hasAutodepositTeardown =
     args.draft.mode === "full" && Boolean(args.hasAutodepositTeardown);
   const stage = args.stage ?? "withdraw";
+  const targetRows = getWithdrawTargetRows(args.preparedWithdraw);
+  const finalWithdrawRows: ApprovalReviewDisplaySection["rows"] = [
+    {
+      label: "Withdraw",
+      value: `${actionLabel} $${args.draft.amountLabel} ${args.draft.symbol} from ${EARN_VAULT_LABEL}`,
+    },
+    {
+      label: "Destination",
+      value: `${args.draft.destination.label} (${args.draft.destination.addressLabel})`,
+    },
+    ...targetRows,
+    ...(args.draft.mode === "full"
+      ? [
+          {
+            label: "Cleanup",
+            value:
+              "Close vault-owned token accounts when safe and remove the Earn policy",
+          },
+        ]
+      : []),
+  ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
     ...(hasAutodepositTeardown
       ? [
           {
-            title: "Transaction #1",
+            title: "Approval #1",
             rows: [
               {
                 label: "Autodeposit",
-                value: "Close Autodeposit policy and refund rent",
+                value: "Close recurring allowance and refund rent",
               },
             ],
           },
         ]
       : []),
     {
-      title: hasAutodepositTeardown ? "Transaction #2" : "Transaction #1",
-      rows: [
-        {
-          label: "Withdraw",
-          value: `${actionLabel} $${args.draft.amountLabel} ${args.draft.symbol} from ${EARN_VAULT_LABEL}`,
-        },
-        {
-          label: "Destination",
-          value: `${args.draft.destination.label} (${args.draft.destination.addressLabel})`,
-        },
-      ],
+      title: hasAutodepositTeardown ? "Approval #2" : "Transaction #1",
+      rows: finalWithdrawRows,
     },
   ];
 
@@ -325,11 +498,11 @@ export function buildEarnWithdrawReviewItem(args: {
                 title: "Approval 1 of 2",
                 heading: "Remove Autodeposit",
                 mascotNote:
-                  "First, close the Autodeposit policy and refund its rent.",
+                  "First, close the recurring allowance before withdrawing everything.",
                 rows: [
                   {
                     label: "Autodeposit",
-                    value: "Close Autodeposit policy and refund rent",
+                    value: "Close recurring allowance and refund rent",
                   },
                 ],
               }
@@ -339,17 +512,8 @@ export function buildEarnWithdrawReviewItem(args: {
                 heading: "Withdraw from Earn vault",
                 hideAmountHeading: true,
                 mascotNote:
-                  "Now withdraw from Kamino, clean up the Earn vault, and close the Earn policy.",
-                rows: [
-                  {
-                    label: "Withdraw",
-                    value: `${actionLabel} ${args.draft.amountLabel} ${args.draft.symbol} from ${EARN_VAULT_LABEL}`,
-                  },
-                  {
-                    label: "Destination",
-                    value: `${args.draft.destination.label} (${args.draft.destination.addressLabel})`,
-                  },
-                ],
+                  "Now withdraw from Kamino, transfer USDC back to your wallet, and clean up Earn.",
+                rows: finalWithdrawRows,
               },
         ]
       : undefined,
@@ -357,7 +521,7 @@ export function buildEarnWithdrawReviewItem(args: {
       ? stage === "autodeposit"
         ? "Remove Autodeposit"
         : "Withdraw"
-      : "Continue",
+      : "Withdraw",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: EARN_VAULT_LABEL,

@@ -62,6 +62,7 @@ import {
   buildEarnPolicyConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { resolveEarnDepositConfirmPolicySignature } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
   buildEarnAutodepositCloseConfirmRequestBody,
   buildEarnAutodepositSetupConfirmRequestBody,
@@ -151,6 +152,8 @@ type EarnStateResponse = {
   policy: {
     account: string;
     id: string;
+    lastSeenSignature: string;
+    lastSeenSlot: string;
     seed: string;
     vaultIndex: number;
     vaultPubkey: string;
@@ -332,6 +335,7 @@ export type VaultSwapResult = VaultTransferResult;
 
 export type EarnDepositRequest = {
   amountRaw: bigint;
+  policySignature?: string;
   preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit;
 };
 
@@ -348,12 +352,26 @@ export type EarnDepositResult = {
   success: boolean;
   signature?: string;
   confirmedSlot?: string;
+  status?: "executed" | "confirmation_record_failed";
+  error?: string;
+};
+
+export type EarnDepositPolicyStageRequest = {
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  stage: "policy" | "policy-finalize";
+};
+
+export type EarnDepositPolicyStageResult = {
+  success: boolean;
+  signature?: string;
+  confirmedSlot?: string;
   status?: "executed";
   error?: string;
 };
 
 export type EarnWithdrawRequest = {
   amountRaw: bigint;
+  autodepositCloseAlreadyCompleted?: boolean;
   mode: "partial" | "full";
   preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw;
 };
@@ -430,6 +448,7 @@ type PreparedEarnOperation =
   | "autodeposit close"
   | "autodeposit setup"
   | "deposit"
+  | "policy finalize"
   | "policy setup"
   | "withdrawal";
 
@@ -494,6 +513,7 @@ export type VaultTransferCapability =
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   earnAutodeposit: EarnStateResponse["autodeposit"];
+  earnPolicy: EarnStateResponse["policy"];
   earnStateLoadErrors: EarnStateResponse["loadErrors"];
   isLoading: boolean;
   isEarnStateLoading: boolean;
@@ -608,6 +628,9 @@ export type SmartAccountSidebarData = {
   executeEarnDeposit: (
     request: EarnDepositRequest
   ) => Promise<EarnDepositResult>;
+  executeEarnDepositPolicyStage: (
+    request: EarnDepositPolicyStageRequest
+  ) => Promise<EarnDepositPolicyStageResult>;
   executeEarnPolicySetup: () => Promise<EarnPolicySetupResult>;
   executeEarnWithdraw: (
     request: EarnWithdrawRequest
@@ -4196,6 +4219,8 @@ export function useSmartAccountSidebarData(
           policy: nextEarnState?.policy ?? {
             account: preparedPolicy.policy.account.toBase58(),
             id: preparedPolicy.policy.id.toString(),
+            lastSeenSignature: signature,
+            lastSeenSlot: confirmedSlot,
             seed: preparedPolicy.policy.seed.toString(),
             vaultIndex: preparedPolicy.vault.accountIndex,
             vaultPubkey: preparedPolicy.vault.pubkey.toBase58(),
@@ -4218,6 +4243,98 @@ export function useSmartAccountSidebarData(
       user?.walletAddress,
       wallet,
     ]);
+
+  const executeEarnDepositPolicyStage = useCallback(
+    async (
+      request: EarnDepositPolicyStageRequest
+    ): Promise<EarnDepositPolicyStageResult> => {
+      if (!overview || !wallet.publicKey) {
+        return { success: false, error: "Smart account not loaded yet." };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      const prepared =
+        request.stage === "policy"
+          ? request.preparedDeposit.policySetupPrepared
+          : request.preparedDeposit.policyFinalizePrepared;
+      if (!prepared) {
+        return {
+          success: false,
+          error:
+            request.stage === "policy"
+              ? "Prepared Earn policy setup is missing. Review the deposit again before signing."
+              : "Prepared Earn policy finalization is missing. Review the deposit again before signing.",
+        };
+      }
+
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
+
+      setIsActionPending(true);
+      try {
+        const sendResult = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation:
+            request.stage === "policy" ? "policy setup" : "policy finalize",
+          preparedCluster: request.preparedDeposit.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared,
+              confirm: true,
+            }),
+        });
+        if (!sendResult.success) {
+          return sendResult;
+        }
+
+        const confirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature: sendResult.signature,
+        });
+
+        return {
+          success: true,
+          signature: sendResult.signature,
+          confirmedSlot,
+          status: "executed",
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error
+            ? err.message
+            : request.stage === "policy"
+              ? "Earn policy setup failed."
+              : "Earn policy finalization failed.";
+        console.error("[executeEarnDepositPolicyStage] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [connection, overview, solanaEnv, user?.walletAddress, wallet]
+  );
 
   const executeEarnDeposit = useCallback(
     async (request: EarnDepositRequest): Promise<EarnDepositResult> => {
@@ -4303,6 +4420,19 @@ export function useSmartAccountSidebarData(
             vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
           }
         );
+        const policySignatureResolution =
+          resolveEarnDepositConfirmPolicySignature({
+            activePolicy: earnState?.policy ?? null,
+            policySignature: request.policySignature,
+            preparedDeposit,
+          });
+        if ("error" in policySignatureResolution) {
+          return {
+            success: false,
+            error: policySignatureResolution.error,
+          };
+        }
+
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "deposit",
@@ -4333,6 +4463,7 @@ export function useSmartAccountSidebarData(
 
         await postConfirmedEarnDeposit({
           preparedDeposit,
+          policySignature: policySignatureResolution.policySignature,
           signature,
           confirmedSlot,
           smartAccountAddress: overview.canonicalVaultAddress,
@@ -4371,6 +4502,7 @@ export function useSmartAccountSidebarData(
     },
     [
       connection,
+      earnState?.policy,
       overview,
       refreshAfterTx,
       solanaEnv,
@@ -4424,6 +4556,17 @@ export function useSmartAccountSidebarData(
 
         const autodepositClosePrepared =
           preparedWithdraw.autodepositClosePrepared ?? null;
+        if (
+          request.autodepositCloseAlreadyCompleted &&
+          autodepositClosePrepared
+        ) {
+          return {
+            success: false,
+            error:
+              "Prepared Earn withdrawal still includes Autodeposit close. Re-review withdrawal before signing.",
+          };
+        }
+
         let autodepositCloseSignature: string | undefined;
         let autodepositCloseConfirmedSlot: string | undefined;
 
@@ -4903,6 +5046,7 @@ export function useSmartAccountSidebarData(
   return {
     overview,
     earnAutodeposit: earnState?.autodeposit ?? null,
+    earnPolicy: earnState?.policy ?? null,
     earnStateLoadErrors: earnState?.loadErrors ?? {},
     isLoading,
     isEarnStateLoading,
@@ -4936,6 +5080,7 @@ export function useSmartAccountSidebarData(
     executeVaultTransfer,
     executeVaultSwap,
     executeEarnDeposit,
+    executeEarnDepositPolicyStage,
     executeEarnPolicySetup,
     executeEarnWithdraw,
     executeEarnAutodepositSetup,

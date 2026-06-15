@@ -295,6 +295,18 @@ describe("Earn autodeposit load state", () => {
       serializeAutodepositState({
         depositedThisPeriodRaw: BigInt(65_520_000),
         policy,
+        scheduledSweeps: [
+          {
+            classification: "simple_inbound",
+            confidence: "observed",
+            eligibleAfter: new Date("2026-06-15T18:06:00.000Z"),
+            id: BigInt(41),
+            originalAmountRaw: BigInt(334_480_000),
+            reason: "incoming USDC",
+            remainingAmountRaw: BigInt(334_480_000),
+            status: "open",
+          },
+        ],
         status: "active",
         target,
       } as never)
@@ -305,9 +317,46 @@ describe("Earn autodeposit load state", () => {
       depositedThisPeriodRaw: "65520000",
       policyAccount: "policy",
       recurringDelegation: "recurring",
+      scheduledSweeps: [
+        {
+          classification: "simple_inbound",
+          confidence: "observed",
+          eligibleAfter: "2026-06-15T18:06:00.000Z",
+          id: "41",
+          originalAmountRaw: "334480000",
+          reason: "incoming USDC",
+          remainingAmountRaw: "334480000",
+          status: "open",
+        },
+      ],
       status: "active",
       startTimestamp: "1780185600",
       walletBalanceFloorRaw: "500000000",
+    });
+  });
+
+  test("earn-state serializes active policy signature metadata", async () => {
+    const { serializeRoutePolicyState } = await import(
+      "@/lib/yield-optimization/earn-state-serializers.server"
+    );
+
+    expect(
+      serializeRoutePolicyState(
+        createRecord({
+          id: BigInt(7),
+          lastSeenSignature: "policy-signature",
+          lastSeenSlot: BigInt(456),
+          policySeed: BigInt(3),
+        }) as never
+      )
+    ).toMatchObject({
+      account: "policy",
+      id: "7",
+      lastSeenSignature: "policy-signature",
+      lastSeenSlot: "456",
+      seed: "3",
+      vaultIndex: 1,
+      vaultPubkey: "vault",
     });
   });
 
@@ -377,6 +426,18 @@ describe("Earn autodeposit load state", () => {
         policySeed: "1",
         periodLengthSeconds: "2592000",
         recurringDelegation: "recurring",
+        scheduledSweeps: [
+          {
+            classification: "simple_inbound",
+            confidence: "observed",
+            eligibleAfter: "2026-06-15T18:06:00.000Z",
+            id: "41",
+            originalAmountRaw: "334480000",
+            reason: "incoming USDC",
+            remainingAmountRaw: "334480000",
+            status: "open",
+          },
+        ],
         startTimestamp: "4102444800",
         status: "active",
         walletBalanceFloorRaw: "500000000",
@@ -389,7 +450,18 @@ describe("Earn autodeposit load state", () => {
       nonce: "1",
       policyAccount: "policy",
       recurringDelegation: "recurring",
-      scheduledSweeps: [],
+      scheduledSweeps: [
+        {
+          classification: "simple_inbound",
+          confidence: "observed",
+          eligibleAfter: "2026-06-15T18:06:00.000Z",
+          id: "41",
+          originalAmountRaw: "334480000",
+          reason: "incoming USDC",
+          remainingAmountRaw: "334480000",
+          status: "open",
+        },
+      ],
       state: "created",
     });
   });

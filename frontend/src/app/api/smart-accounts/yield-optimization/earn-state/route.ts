@@ -13,12 +13,12 @@ import {
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   serializeAutodepositState,
+  serializeRoutePolicyState,
   type CurrentEarnAutodepositStateWithProgress,
 } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
   findActiveYieldRoutePolicy,
   findReconciledActiveYieldPositionForVault,
-  type RoutePolicyRecord,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -53,16 +53,6 @@ function serializePosition(position: UserYieldPositionRecord) {
     },
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
-  };
-}
-
-function serializePolicy(policy: RoutePolicyRecord) {
-  return {
-    account: policy.policyAccount,
-    id: policy.id.toString(),
-    seed: policy.policySeed.toString(),
-    vaultIndex: policy.vaultIndex,
-    vaultPubkey: policy.vaultPubkey,
   };
 }
 
@@ -159,7 +149,7 @@ export async function GET(request: Request) {
     autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     loadErrors,
-    policy: policy ? serializePolicy(policy) : null,
+    policy: policy ? serializeRoutePolicyState(policy) : null,
     position: position ? serializePosition(position) : null,
     settingsPda: principal.settingsPda,
     vault: {

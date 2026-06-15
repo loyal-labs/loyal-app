@@ -2,6 +2,7 @@ import type {
   CurrentEarnAutodepositState,
   PendingEarnAutodepositScheduledSweepRecord,
 } from "./earn-autodeposit-repository.server";
+import type { RoutePolicyRecord } from "./yield-deposit-repository.server";
 
 export type CurrentEarnAutodepositStateWithProgress =
   CurrentEarnAutodepositState & {
@@ -62,5 +63,17 @@ export function serializeAutodepositState(
     walletBalanceFloorRaw:
       autodeposit.target.walletBalanceFloorRaw?.toString() ?? null,
     walletUsdcAta: autodeposit.target.walletUsdcAta,
+  };
+}
+
+export function serializeRoutePolicyState(policy: RoutePolicyRecord) {
+  return {
+    account: policy.policyAccount,
+    id: policy.id.toString(),
+    lastSeenSignature: policy.lastSeenSignature,
+    lastSeenSlot: policy.lastSeenSlot.toString(),
+    seed: policy.policySeed.toString(),
+    vaultIndex: policy.vaultIndex,
+    vaultPubkey: policy.vaultPubkey,
   };
 }
