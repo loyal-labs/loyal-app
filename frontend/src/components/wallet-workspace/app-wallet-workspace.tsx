@@ -908,6 +908,17 @@ function WorkspaceErrorPane({
   );
 }
 
+async function parseEarnAutodepositExecuteError(response: Response) {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { message?: string };
+  } | null;
+
+  return (
+    payload?.error?.message ??
+    "Failed to request immediate Autodeposit execution."
+  );
+}
+
 export function AppWalletWorkspace({
   initialSection = "wallet",
 }: {
@@ -1098,6 +1109,12 @@ export function AppWalletWorkspace({
     useState(false);
   const [autodepositConfig, setAutodepositConfig] =
     useState<EarnAutodepositConfig | null>(null);
+  const [isExecutingScheduledSweep, setIsExecutingScheduledSweep] =
+    useState(false);
+  const [
+    scheduledSweepExecuteError,
+    setScheduledSweepExecuteError,
+  ] = useState<string | null>(null);
   useEffect(() => {
     const loadedConfig = earnAutodepositConfigFromLoadedState(
       smartAccountData.earnAutodeposit
@@ -1572,7 +1589,7 @@ export function AppWalletWorkspace({
     if (!isSignedIn) {
       invalidateEarnClientCaches();
     }
-  }, [isAuthHydrated, isSignedIn]);
+  }, [invalidateEarnClientCaches, isAuthHydrated, isSignedIn]);
 
   useEffect(() => {
     setConnectAgentAddress(
@@ -2502,7 +2519,41 @@ export function AppWalletWorkspace({
       ...autodepositConfig,
       state: nextActive ? "created" : "paused",
     });
-  }, [autodepositConfig, invalidateEarnClientCaches, smartAccountData]);
+  }, [autodepositConfig, smartAccountData]);
+
+  const handleExecuteScheduledAutodepositSweep = useCallback(async () => {
+    if (isExecutingScheduledSweep) {
+      return;
+    }
+
+    setIsExecutingScheduledSweep(true);
+    setScheduledSweepExecuteError(null);
+
+    try {
+      const response = await fetch(
+        "/api/smart-accounts/yield-optimization/autodeposit/sweeps/execute",
+        {
+          credentials: "include",
+          method: "POST",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(await parseEarnAutodepositExecuteError(response));
+      }
+
+      invalidateEarnClientCaches();
+      await smartAccountData.refresh();
+    } catch (error) {
+      setScheduledSweepExecuteError(
+        error instanceof Error
+          ? error.message.replaceAll("autodeposit", "Autodeposit")
+          : "Failed to request immediate Autodeposit execution."
+      );
+    } finally {
+      setIsExecutingScheduledSweep(false);
+    }
+  }, [invalidateEarnClientCaches, isExecutingScheduledSweep, smartAccountData]);
 
   const handleDeleteAutodeposit = useCallback(() => {
     handleOpenAutodepositCloseReview();
@@ -5039,6 +5090,8 @@ export function AppWalletWorkspace({
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
                 isBalanceHidden={isBalanceHidden}
+                isExecutingScheduledSweep={isExecutingScheduledSweep}
+                onExecuteScheduledSweep={handleExecuteScheduledAutodepositSweep}
                 onSelectTransaction={(detail) => {
                   openActionView(
                     { type: "transaction", detail, from: "portfolio" },
@@ -5047,6 +5100,8 @@ export function AppWalletWorkspace({
                     "earn"
                   );
                 }}
+                scheduledSweepExecuteError={scheduledSweepExecuteError}
+                scheduledSweeps={autodepositConfig?.scheduledSweeps ?? []}
                 settingsPda={smartAccountData.overview?.settingsPda}
                 solanaEnv={publicEnv.solanaEnv}
                 walletAddress={walletDesktopData.walletAddress}

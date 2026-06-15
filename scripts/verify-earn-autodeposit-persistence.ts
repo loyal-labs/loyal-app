@@ -254,7 +254,7 @@ async function main() {
         "loadEarnStatePart",
         'loadEarnStatePart("position"',
         'loadEarnStatePart("policy"',
-        'loadEarnStatePart("autodeposit"',
+        'loadEarnStatePart(\n      "autodeposit"',
         "Promise<{ data: T | null; error: boolean }>",
         "positionResult.data",
         "policyResult.data",
@@ -276,8 +276,8 @@ async function main() {
         "formatNextPeriodLabel",
         "smartAccountData.earnAutodeposit",
         'status: "active" | "paused" | "pending"',
-        'state: "created" | "creating" | "paused"',
-        'state === "paused"',
+        'LoadedEarnAutodepositConfig["state"]',
+        'autodeposit.status === "paused"',
       ]
     ),
     "earn-state serializes active/pending/paused autodeposit state and the UI derives config from the API response."

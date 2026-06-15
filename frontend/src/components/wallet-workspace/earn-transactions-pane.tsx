@@ -10,6 +10,7 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
   fetchEarnTransactions,
   type EarnTransactionItem,
@@ -21,6 +22,7 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
+const USDC_RAW_SCALE = BigInt(1_000_000);
 
 // Poll cadence for the pseudo-realtime feed. Most ticks resolve from the
 // client cache for free; the tick after an Earn action fetches fresh data
@@ -508,14 +510,54 @@ function TransactionsSectionHeader({ label }: { label: string }) {
   );
 }
 
-// Placeholder for the upcoming scheduled-autodeposit feed: pinned under the
-// "Scheduled" header above the dated history. The schedule data and the
-// "Execute now" action are static until the real scheduling logic lands.
+export function formatScheduledSweepAmount(rawAmount: string): string {
+  if (!/^\d+$/.test(rawAmount)) {
+    return "0.00 USDC";
+  }
+
+  const raw = BigInt(rawAmount);
+  const whole = raw / USDC_RAW_SCALE;
+  const cents = (raw % USDC_RAW_SCALE) / BigInt(10_000);
+
+  return `${whole.toLocaleString("en-US")}.${cents
+    .toString()
+    .padStart(2, "0")} USDC`;
+}
+
+export function formatScheduledSweepTime(eligibleAfter: string): string {
+  const date = new Date(eligibleAfter);
+  if (Number.isNaN(date.getTime())) {
+    return "Scheduled";
+  }
+
+  return date.toLocaleString("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  });
+}
+
+export function shouldShowScheduledSweepsSection(
+  scheduledSweeps: readonly LoadedEarnAutodepositScheduledSweep[]
+): boolean {
+  return scheduledSweeps.length > 0;
+}
+
 function ScheduledTransactionRow({
+  isExecuting = false,
   isBalanceHidden = false,
+  onExecuteNow,
+  sweep,
 }: {
+  isExecuting?: boolean;
   isBalanceHidden?: boolean;
+  onExecuteNow?: () => void;
+  sweep: LoadedEarnAutodepositScheduledSweep;
 }) {
+  const amountLabel = formatScheduledSweepAmount(sweep.remainingAmountRaw);
+  const timeLabel = formatScheduledSweepTime(sweep.eligibleAfter);
+
   return (
     <>
       <style jsx>{`
@@ -586,7 +628,7 @@ function ScheduledTransactionRow({
                   lineHeight: "16px",
                 }}
               >
-                Tomorrow at 18:06
+                {timeLabel}
               </span>
             </span>
             <span
@@ -612,7 +654,7 @@ function ScheduledTransactionRow({
                   whiteSpace: "nowrap",
                 }}
               >
-                334.48 USDC
+                {amountLabel}
               </span>
               <span
                 style={{
@@ -639,14 +681,17 @@ function ScheduledTransactionRow({
           </span>
           <span style={{ display: "flex", gap: "8px", paddingBottom: "11px" }}>
             <button
+              aria-busy={isExecuting}
               className="earn-scheduled-execute-btn"
+              disabled={isExecuting || !onExecuteNow}
+              onClick={onExecuteNow}
               style={{
                 alignItems: "center",
-                background: LOYAL_EARN_BRAND_COLOR,
+                background: isExecuting ? "#F97B80" : LOYAL_EARN_BRAND_COLOR,
                 border: "none",
                 borderRadius: "9999px",
                 color: "#fff",
-                cursor: "pointer",
+                cursor: isExecuting || !onExecuteNow ? "default" : "pointer",
                 display: "inline-flex",
                 fontFamily: font,
                 fontSize: "14px",
@@ -657,7 +702,7 @@ function ScheduledTransactionRow({
               }}
               type="button"
             >
-              Execute now
+              {isExecuting ? "Requesting..." : "Execute now"}
             </button>
           </span>
         </span>
@@ -763,14 +808,22 @@ function groupEarnTransactions(items: EarnTransactionItem[]) {
 
 export function EarnTransactionsPane({
   isBalanceHidden = false,
+  isExecutingScheduledSweep = false,
+  onExecuteScheduledSweep,
   onSelectTransaction,
+  scheduledSweepExecuteError = null,
+  scheduledSweeps = [],
   settingsPda,
   solanaEnv,
   topInset = 0,
   walletAddress,
 }: {
   isBalanceHidden?: boolean;
+  isExecutingScheduledSweep?: boolean;
+  onExecuteScheduledSweep?: () => void;
   onSelectTransaction: (detail: TransactionDetail) => void;
+  scheduledSweepExecuteError?: string | null;
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
   solanaEnv: string;
   topInset?: number;
@@ -880,6 +933,8 @@ export function EarnTransactionsPane({
   }, [isAuthenticated, isHydrated, settingsPda, solanaEnv, walletAddress]);
 
   const groups = groupEarnTransactions(transactions);
+  const showScheduledSweeps =
+    shouldShowScheduledSweepsSection(scheduledSweeps);
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item));
@@ -972,20 +1027,44 @@ export function EarnTransactionsPane({
           <EarnTransactionsLoadingState />
         ) : errorMessage ? (
           <EarnTransactionsErrorState message={errorMessage} />
-        ) : transactions.length === 0 ? (
+        ) : transactions.length === 0 && !showScheduledSweeps ? (
           <EarnTransactionsEmptyState />
         ) : (
           <>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                width: "100%",
-              }}
-            >
-              <TransactionsSectionHeader label="Scheduled" />
-              <ScheduledTransactionRow isBalanceHidden={isBalanceHidden} />
-            </div>
+            {showScheduledSweeps ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  width: "100%",
+                }}
+              >
+                <TransactionsSectionHeader label="Scheduled" />
+                {scheduledSweeps.map((sweep) => (
+                  <ScheduledTransactionRow
+                    isBalanceHidden={isBalanceHidden}
+                    isExecuting={isExecutingScheduledSweep}
+                    key={sweep.id}
+                    onExecuteNow={onExecuteScheduledSweep}
+                    sweep={sweep}
+                  />
+                ))}
+                {scheduledSweepExecuteError ? (
+                  <p
+                    style={{
+                      color: LOYAL_EARN_BRAND_COLOR,
+                      fontFamily: font,
+                      fontSize: "13px",
+                      lineHeight: "16px",
+                      margin: "0",
+                      padding: "0 12px 10px 56px",
+                    }}
+                  >
+                    {scheduledSweepExecuteError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {groups.map((group) => (
               <div
                 key={group.date}
