@@ -390,24 +390,33 @@ async function deactivateVaultAfterFullWithdrawal(
     (policyId): policyId is bigint => typeof policyId === "bigint"
   );
 
-  await dependencies.client.db.batch([
-    ...(policyIds.length > 0
-      ? [
-          dependencies.client.db
-            .update(routePolicies)
-            .set({
-              active: false,
-              lastSeenAt: now,
-              lastSeenSignature: input.withdrawalSignature,
-              lastSeenSlot: input.confirmedSlot,
-            })
-            .where(inArray(routePolicies.id, policyIds)) as never,
-        ]
-      : []),
-    dependencies.client.db
+  if (policyIds.length === 0) {
+    const deactivateVault = dependencies.client.db
       .update(managedVaults)
       .set({ active: false, lastSeenAt: now })
-      .where(eq(managedVaults.id, vault.id)) as never,
+      .where(eq(managedVaults.id, vault.id)) as never;
+
+    await dependencies.client.db.batch([deactivateVault]);
+    return;
+  }
+
+  const deactivatePolicies = dependencies.client.db
+    .update(routePolicies)
+    .set({
+      active: false,
+      lastSeenAt: now,
+      lastSeenSignature: input.withdrawalSignature,
+      lastSeenSlot: input.confirmedSlot,
+    })
+    .where(inArray(routePolicies.id, policyIds)) as never;
+  const deactivateVault = dependencies.client.db
+    .update(managedVaults)
+    .set({ active: false, lastSeenAt: now })
+    .where(eq(managedVaults.id, vault.id)) as never;
+
+  await dependencies.client.db.batch([
+    deactivatePolicies,
+    deactivateVault,
   ]);
 }
 
