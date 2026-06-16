@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
-import {
-  LoyalCluster,
-  getKaminoUsdcEarnTargetForCluster,
-} from "@loyal-labs/actions";
+import { LoyalCluster } from "@loyal-labs/actions";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import {
-  findEarnAutodepositHistoryEvents,
-} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import {
-  findYieldPositionHistoryEvents,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { findYieldPositionHistoryEventsForVault } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   serializeEarnTransactionEvent,
   type SerializedEarnTransaction,
@@ -62,13 +55,11 @@ export async function GET(request: Request) {
   }
 
   const cluster = resolveConfiguredCluster();
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
 
   try {
     const [positionEvents, autodepositEvents] = await Promise.all([
-      findYieldPositionHistoryEvents({
+      findYieldPositionHistoryEventsForVault({
         cluster,
-        initialReserve: earnTarget.reserve.toBase58(),
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress: principal.walletAddress,
@@ -85,7 +76,9 @@ export async function GET(request: Request) {
         .filter((signature): signature is string => Boolean(signature))
     );
     const visiblePositionEvents = positionEvents.filter(
-      (event) => !autodepositDepositSignatures.has(event.signature)
+      (event) =>
+        event.type !== "reconciliation" &&
+        !autodepositDepositSignatures.has(event.signature)
     );
 
     return NextResponse.json({

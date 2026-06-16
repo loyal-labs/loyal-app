@@ -98,7 +98,12 @@ export type UserYieldPositionHistoryEventRecord = {
   principalDeltaRaw: bigint | null;
   liquidityMint: string;
   sourceReserve?: string | null;
+  sourceMarket?: string | null;
+  sourceLiquidityMint?: string | null;
   destinationReserve?: string | null;
+  destinationMarket?: string | null;
+  destinationLiquidityMint?: string | null;
+  principalAmountRaw: bigint;
   signature: string;
   type: "deposit" | "withdrawal" | "rebalance" | "reconciliation";
 };
@@ -226,6 +231,24 @@ type YieldDepositRepositoryDependencies = {
 };
 
 type AggregatePositionUpsertMode = "increment-principal" | "recover-principal";
+
+function sortYieldPositionHistoryEventsDescending(
+  events: UserYieldPositionHistoryEventRecord[]
+): UserYieldPositionHistoryEventRecord[] {
+  return [...events].sort((a, b) => {
+    const confirmedAtDelta = b.confirmedAt.getTime() - a.confirmedAt.getTime();
+    if (confirmedAtDelta !== 0) {
+      return confirmedAtDelta;
+    }
+
+    const signatureDelta = a.signature.localeCompare(b.signature);
+    if (signatureDelta !== 0) {
+      return signatureDelta;
+    }
+
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
 
 function createDependencies(): YieldDepositRepositoryDependencies {
   return {
@@ -1588,6 +1611,41 @@ export async function findYieldPositionHistoryEvents(
     return [];
   }
 
+  return findYieldPositionHistoryEventsForPosition(position, dependencies);
+}
+
+export async function findYieldPositionHistoryEventsForVault(
+  input: ActiveYieldPositionForVaultLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionHistoryEventRecord[]> {
+  const positions =
+    await dependencies.client.db.query.userYieldPositions.findMany({
+      where: and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress)
+      ),
+      orderBy: [
+        desc(userYieldPositions.updatedAt),
+        desc(userYieldPositions.id),
+      ],
+    });
+
+  const eventGroups = await Promise.all(
+    positions.map((position) =>
+      findYieldPositionHistoryEventsForPosition(position, dependencies)
+    )
+  );
+
+  return sortYieldPositionHistoryEventsDescending(eventGroups.flat());
+}
+
+async function findYieldPositionHistoryEventsForPosition(
+  position: UserYieldPositionRecord,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<UserYieldPositionHistoryEventRecord[]> {
   const events = await dependencies.client.db
     .select({
       amountRaw: userYieldPositionHoldingEvents.amountRaw,
@@ -1610,6 +1668,9 @@ export async function findYieldPositionHistoryEvents(
     .where(and(eq(userYieldPositionHoldingEvents.positionId, position.id)));
 
   let previousReserve: string | null = position.initialReserve;
+  let previousMarket: string | null = position.initialMarket;
+  let previousLiquidityMint: string | null = position.initialLiquidityMint;
+  let principalAmountRaw = BigInt(0);
   const chronologicalEvents = [...events].sort((a, b) => {
     if (a.confirmedSlot !== b.confirmedSlot) {
       return a.confirmedSlot < b.confirmedSlot ? -1 : 1;
@@ -1621,67 +1682,72 @@ export async function findYieldPositionHistoryEvents(
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
-  return chronologicalEvents
-    .map((event) => {
-      const type: UserYieldPositionHistoryEventRecord["type"] =
-        event.eventType === "rebalance_confirmed"
-          ? "rebalance"
-          : event.eventType === "snapshot_reconciled"
-          ? "reconciliation"
-          : event.eventType === "withdrawal_partial" ||
-            event.eventType === "withdrawal_full"
-          ? "withdrawal"
-          : "deposit";
+  const history = chronologicalEvents.map((event) => {
+    const type: UserYieldPositionHistoryEventRecord["type"] =
+      event.eventType === "rebalance_confirmed"
+        ? "rebalance"
+        : event.eventType === "snapshot_reconciled"
+        ? "reconciliation"
+        : event.eventType === "withdrawal_partial" ||
+          event.eventType === "withdrawal_full"
+        ? "withdrawal"
+        : "deposit";
 
-      const sourceReserve =
+    const sourceReserve =
+      type === "rebalance" || type === "reconciliation"
+        ? previousReserve
+        : null;
+    const sourceMarket =
+      type === "rebalance" || type === "reconciliation" ? previousMarket : null;
+    const sourceLiquidityMint =
+      type === "rebalance" || type === "reconciliation"
+        ? previousLiquidityMint
+        : null;
+    principalAmountRaw += event.principalDeltaRaw ?? BigInt(0);
+    previousReserve = event.reserve;
+    previousMarket = event.market;
+    previousLiquidityMint = event.liquidityMint;
+
+    return {
+      amountRaw: event.amountRaw,
+      confirmedAt: event.confirmedAt,
+      confirmedSlot: event.confirmedSlot,
+      destinationReserve:
         type === "rebalance" || type === "reconciliation"
-          ? previousReserve
-          : null;
-      previousReserve = event.reserve;
+          ? event.reserve
+          : null,
+      destinationMarket:
+        type === "rebalance" || type === "reconciliation" ? event.market : null,
+      destinationLiquidityMint:
+        type === "rebalance" || type === "reconciliation"
+          ? event.liquidityMint
+          : null,
+      eventType: event.eventType,
+      id: event.id,
+      liquidityMint: event.liquidityMint,
+      market: event.market,
+      principalDeltaRaw: event.principalDeltaRaw,
+      principalAmountRaw,
+      reserve: event.reserve,
+      signature:
+        event.signature ??
+        [
+          type,
+          event.sourceDepositId?.toString(),
+          event.sourceWithdrawalId?.toString(),
+          event.sourceRebalanceDecisionId?.toString(),
+          event.sourceSnapshotId?.toString(),
+        ]
+          .filter(Boolean)
+          .join(":"),
+      sourceLiquidityMint,
+      sourceMarket,
+      sourceReserve,
+      type,
+    };
+  });
 
-      return {
-        amountRaw: event.amountRaw,
-        confirmedAt: event.confirmedAt,
-        confirmedSlot: event.confirmedSlot,
-        destinationReserve:
-          type === "rebalance" || type === "reconciliation"
-            ? event.reserve
-            : null,
-        eventType: event.eventType,
-        id: event.id,
-        liquidityMint: event.liquidityMint,
-        market: event.market,
-        principalDeltaRaw: event.principalDeltaRaw,
-        reserve: event.reserve,
-        signature:
-          event.signature ??
-          [
-            type,
-            event.sourceDepositId?.toString(),
-            event.sourceWithdrawalId?.toString(),
-            event.sourceRebalanceDecisionId?.toString(),
-            event.sourceSnapshotId?.toString(),
-          ]
-            .filter(Boolean)
-            .join(":"),
-        sourceReserve: sourceReserve,
-        type,
-      };
-    })
-    .sort((a, b) => {
-      const confirmedAtDelta =
-        b.confirmedAt.getTime() - a.confirmedAt.getTime();
-      if (confirmedAtDelta !== 0) {
-        return confirmedAtDelta;
-      }
-
-      const signatureDelta = a.signature.localeCompare(b.signature);
-      if (signatureDelta !== 0) {
-        return signatureDelta;
-      }
-
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
+  return sortYieldPositionHistoryEventsDescending(history);
 }
 
 export async function recordConfirmedYieldWithdrawal(
