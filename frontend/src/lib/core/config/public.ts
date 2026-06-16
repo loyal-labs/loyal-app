@@ -13,6 +13,7 @@ export type { AppEnvironment } from "./shared";
 
 const LOCAL_TURNSTILE_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
+const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
 const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
 const GRID_AUTH_BASE_URL_ENV_NAME = "NEXT_PUBLIC_GRID_AUTH_BASE_URL";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
@@ -33,6 +34,7 @@ export type SwapConfig =
 
 export type PublicEnv = {
   appEnvironment: AppEnvironment;
+  loyalAppUrl: string;
   turnstile: TurnstileConfig;
   gridAuthBaseUrl: string | undefined;
   flagsManifestUrl: string | undefined;
@@ -90,6 +92,18 @@ function resolveSwapConfig(env: EnvSource): SwapConfig {
   };
 }
 
+function resolveLoyalAppUrl(
+  env: EnvSource,
+  appEnvironment: AppEnvironment
+): string {
+  return (
+    getOptionalEnv(env, APP_URL_ENV_NAME) ??
+    (appEnvironment === "local"
+      ? "http://localhost:3000/app"
+      : "https://app.askloyal.com")
+  );
+}
+
 export function createPublicEnv(env: EnvSource): PublicEnv {
   const appEnvironment = resolveAppEnvironment(
     getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
@@ -98,6 +112,7 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
 
   return {
     appEnvironment,
+    loyalAppUrl: resolveLoyalAppUrl(env, appEnvironment),
     turnstile: resolveTurnstileConfig(env, appEnvironment),
     gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
     flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
