@@ -336,6 +336,29 @@ function createSerializedSettingsAccount(policySeed: BN | null = null) {
   };
 }
 
+function createSerializedSubscriptionAuthorityAccount(initId = BigInt(1)) {
+  const data = Buffer.alloc(106);
+  data.writeBigInt64LE(initId, 98);
+
+  return {
+    data,
+    executable: false,
+    lamports: 1,
+    owner: SUBSCRIPTIONS_PROGRAM_ID,
+    rentEpoch: 0,
+  };
+}
+
+function createSerializedRecurringDelegationAccount() {
+  return {
+    data: Buffer.alloc(211),
+    executable: false,
+    lamports: 1,
+    owner: SUBSCRIPTIONS_PROGRAM_ID,
+    rentEpoch: 0,
+  };
+}
+
 function createSerializedKaminoReserveAccount(args: {
   collateralSupplyRaw: bigint;
   liquidityAvailableAmountRaw: bigint;
@@ -1669,7 +1692,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
     mock.restore();
   });
 
-  test("builds setup policy creation with the backend signer", async () => {
+  test("cold start initializes only the subscription authority", async () => {
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(settingsPda)) {
         return createSerializedSettingsAccount();
@@ -1692,13 +1715,139 @@ describe("prepareEarnUsdcAutodeposit", () => {
     });
 
     expect(result.stage).toBe("initialize_subscription_authority");
-    expect(result.prepared.instructions).toHaveLength(2);
-    expectPolicyCreateSigner(result.prepared.instructions[1], backendSigner);
+    expect(result.prepared.instructions).toHaveLength(1);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      SUBSCRIPTIONS_PROGRAM_ID.toBase58()
+    );
     expect(result.persistence).toMatchObject({
       delegatedSigner: backendSigner.toBase58(),
+      policyAccount: result.policy.account?.toBase58(),
+      policySeed: "1",
       subscriptionDelegatee: deriveVault().toBase58(),
+      subscriptionAuthorityInitialization: "required",
       walletAddress: walletAddress.toBase58(),
     });
+  });
+
+  test("warm follow-up creates the policy and recurring delegation together", async () => {
+    let nonSettingsLookupCount = 0;
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      nonSettingsLookupCount += 1;
+      if (nonSettingsLookupCount === 1) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositSetup({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(result.stage).toBe("create_recurring_delegation");
+    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      programId.toBase58()
+    );
+    expectPolicyCreateSigner(result.prepared.instructions[0], backendSigner);
+    expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
+    );
+    expect(result.prepared.instructions[2]?.programId.toBase58()).toBe(
+      SUBSCRIPTIONS_PROGRAM_ID.toBase58()
+    );
+    expect(result.persistence).toMatchObject({
+      policyAccount: result.policy.account?.toBase58(),
+      policySeed: "1",
+      subscriptionAuthorityInitialization: "exists",
+    });
+  });
+
+  test("existing policy with missing delegation skips duplicate policy creation", async () => {
+    let nonSettingsLookupCount = 0;
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      nonSettingsLookupCount += 1;
+      if (nonSettingsLookupCount === 1) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      if (nonSettingsLookupCount === 2) {
+        return createSerializedEarnPolicyAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositSetup({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(result.stage).toBe("create_recurring_delegation");
+    expect(result.prepared.instructions).toHaveLength(2);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
+    );
+    expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
+      SUBSCRIPTIONS_PROGRAM_ID.toBase58()
+    );
+  });
+
+  test("rejects setup when policy and recurring delegation already exist", async () => {
+    let nonSettingsLookupCount = 0;
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      nonSettingsLookupCount += 1;
+      if (nonSettingsLookupCount === 1) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      if (nonSettingsLookupCount === 2) {
+        return createSerializedEarnPolicyAccount();
+      }
+      return createSerializedRecurringDelegationAccount();
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareEarnUsdcAutodepositSetup({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        signer: walletAddress,
+        policySigner: backendSigner,
+        amountRaw: BigInt(1_000_000),
+        nonce: BigInt(42),
+      })
+    ).rejects.toThrow(
+      "Autodeposit policy and recurring delegation already exist."
+    );
   });
 
   test("builds close policy removal with backend signer metadata", async () => {

@@ -21,7 +21,6 @@ export type EarnAutodepositSetupPrepareRequestBody = {
 
 export type EarnAutodepositSetupStage =
   | "initialize_subscription_authority"
-  | "create_policy"
   | "create_recurring_delegation";
 
 export type ConfirmedEarnAutodepositSetupInput = {
@@ -270,7 +269,6 @@ function readSetupStage(
   const value = readRequiredString(body, "setupStage");
   if (
     value !== "initialize_subscription_authority" &&
-    value !== "create_policy" &&
     value !== "create_recurring_delegation"
   ) {
     throw new Error("setupStage is not a supported autodeposit stage.");

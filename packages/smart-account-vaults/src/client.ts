@@ -5756,50 +5756,12 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       policySeed: policySeedNumber,
     })[0];
-    const policyAccountInfo = await config.connection.getAccountInfo(
-      policyAccount,
-      "confirmed"
-    );
-    const policyCreation =
-      await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
-        {
-          feePayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          signers: [args.signer],
-          actions: [
-            {
-              __kind: "PolicyCreate",
-              seed: toBn(policySeed),
-              policyCreationPayload:
-                createSubscriptionSweepProgramInteractionPolicyCreationPayload({
-                  delegator: args.walletAddress,
-                  maxAmountPerPeriodRaw: amountPerPeriodRaw,
-                  minimumDelegatorBalanceRaw,
-                  mint: usdcMint,
-                  vaultPda,
-                  vaultUsdcAta,
-                  walletUsdcAta,
-                }),
-              signers: [createPolicySigner(args.policySigner)],
-              threshold: 1,
-              timeLock: 0,
-              startTimestamp: null,
-              expirationArgs: null,
-            },
-          ],
-          memo: args.memo,
-          remainingAccounts: [
-            { pubkey: policyAccount, isWritable: true, isSigner: false },
-          ],
-        } as never
-      );
 
     if (!authorityAccount) {
       const prepared = freezePreparedOperation({
-        operation:
-          "earnUsdcAutodepositInitializeSubscriptionAuthorityAndPolicy",
+        operation: "earnUsdcAutodepositInitializeSubscriptionAuthority",
         payer: args.feePayer,
-        programId: smartAccountsClient.programId,
+        programId: SUBSCRIPTIONS_PROGRAM_ID,
         requiresConfirmation: true,
         instructions: [
           createSubscriptionInitAuthorityInstruction({
@@ -5808,11 +5770,8 @@ export function createSmartAccountVaultsClient(
             tokenMint: usdcMint,
             userAta: walletUsdcAta,
           }),
-          ...policyCreation.instructions,
         ],
-        lookupTableAccounts: dedupeLookupTableAccounts(
-          policyCreation.lookupTableAccounts ?? []
-        ),
+        lookupTableAccounts: [],
       });
 
       return {
@@ -5854,53 +5813,29 @@ export function createSmartAccountVaultsClient(
       );
     }
 
-    if (!policyAccountInfo) {
-      const prepared = freezePreparedOperation({
-        operation: "earnUsdcAutodepositCreatePolicy",
-        payer: args.feePayer,
-        programId: smartAccountsClient.programId,
-        requiresConfirmation: true,
-        instructions: [...policyCreation.instructions],
-        lookupTableAccounts: dedupeLookupTableAccounts(
-          policyCreation.lookupTableAccounts ?? []
-        ),
-      });
-
-      return {
-        prepared,
-        stage: "create_policy",
-        authorityInitializationRequired: false,
-        policy: {
-          account: policyAccount,
-          id: policySeed,
-          seed: policySeed,
-        },
-        vault: {
-          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
-          pubkey: vaultPda,
-          usdcAta: vaultUsdcAta,
-        },
-        subscription: {
-          authority: subscriptionAuthority,
-          recurringDelegation,
-          amountPerPeriodRaw,
-          periodLengthSeconds,
-          nonce,
-          startTimestamp,
-          expiryTimestamp,
-        },
-        persistence: {
-          ...basePersistence,
-          policyId: policySeed.toString(),
-          policyAccount: policyAccount.toBase58(),
-          policySeed: policySeed.toString(),
-          subscriptionAuthorityInitialization: "exists",
-        },
-      };
-    }
-
     const expectedSubscriptionAuthorityInitId =
       readSubscriptionAuthorityInitId(authorityAccount);
+    const policyAccountInfo = await config.connection.getAccountInfo(
+      policyAccount,
+      "confirmed"
+    );
+    const delegationAccount = await config.connection.getAccountInfo(
+      recurringDelegation
+    );
+
+    if (delegationAccount) {
+      if (!delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
+        throw new Error(
+          "Recurring delegation is owned by an unexpected program."
+        );
+      }
+      throw new Error(
+        policyAccountInfo
+          ? "Autodeposit policy and recurring delegation already exist."
+          : "Autodeposit recurring delegation already exists before policy setup."
+      );
+    }
+
     const createDelegationInstruction =
       createSubscriptionCreateRecurringDelegationInstruction({
         amountPerPeriodRaw,
@@ -5914,81 +5849,68 @@ export function createSmartAccountVaultsClient(
         startTimestamp,
         subscriptionAuthority,
       });
-    const delegationAccount = await config.connection.getAccountInfo(
-      recurringDelegation
-    );
-    if (!delegationAccount) {
-      const prepared = freezePreparedOperation({
-        operation: "earnUsdcAutodepositCreateRecurringDelegation",
-        payer: args.feePayer,
-        programId: SUBSCRIPTIONS_PROGRAM_ID,
-        requiresConfirmation: true,
-        instructions: [
-          createAssociatedTokenAccountIdempotentInstruction(
-            args.feePayer,
-            vaultUsdcAta,
-            vaultPda,
-            usdcMint,
-            TOKEN_PROGRAM_ID
-          ),
-          createDelegationInstruction,
-        ],
-        lookupTableAccounts: [],
-      });
-
-      return {
-        prepared,
-        stage: "create_recurring_delegation",
-        authorityInitializationRequired: false,
-        policy: {
-          account: policyAccount,
-          id: policySeed,
-          seed: policySeed,
-        },
-        vault: {
-          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
-          pubkey: vaultPda,
-          usdcAta: vaultUsdcAta,
-        },
-        subscription: {
-          authority: subscriptionAuthority,
-          recurringDelegation,
-          amountPerPeriodRaw,
-          periodLengthSeconds,
-          nonce,
-          startTimestamp,
-          expiryTimestamp,
-        },
-        persistence: {
-          ...basePersistence,
-          policyId: policySeed.toString(),
-          policyAccount: policyAccount.toBase58(),
-          policySeed: policySeed.toString(),
-          subscriptionAuthorityInitialization: "exists",
-        },
-      };
-    }
-
-    if (!delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
-      throw new Error(
-        "Recurring delegation is owned by an unexpected program."
-      );
-    }
-
+    const policyCreation = policyAccountInfo
+      ? null
+      : await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+          {
+            feePayer: args.feePayer,
+            settingsPda: args.settingsPda,
+            signers: [args.signer],
+            actions: [
+              {
+                __kind: "PolicyCreate",
+                seed: toBn(policySeed),
+                policyCreationPayload:
+                  createSubscriptionSweepProgramInteractionPolicyCreationPayload({
+                    delegator: args.walletAddress,
+                    maxAmountPerPeriodRaw: amountPerPeriodRaw,
+                    minimumDelegatorBalanceRaw,
+                    mint: usdcMint,
+                    vaultPda,
+                    vaultUsdcAta,
+                    walletUsdcAta,
+                  }),
+                signers: [createPolicySigner(args.policySigner)],
+                threshold: 1,
+                timeLock: 0,
+                startTimestamp: null,
+                expirationArgs: null,
+              },
+            ],
+            memo: args.memo,
+            remainingAccounts: [
+              { pubkey: policyAccount, isWritable: true, isSigner: false },
+            ],
+          } as never
+        );
     const prepared = freezePreparedOperation({
-      operation: "earnUsdcAutodepositSetup",
+      operation: policyCreation
+        ? "earnUsdcAutodepositCreatePolicyAndRecurringDelegation"
+        : "earnUsdcAutodepositCreateRecurringDelegation",
       payer: args.feePayer,
-      programId: smartAccountsClient.programId,
+      programId: policyCreation
+        ? smartAccountsClient.programId
+        : SUBSCRIPTIONS_PROGRAM_ID,
       requiresConfirmation: true,
-      instructions: [...policyCreation.instructions],
-      lookupTableAccounts: dedupeLookupTableAccounts(
-        policyCreation.lookupTableAccounts ?? []
-      ),
+      instructions: [
+        ...(policyCreation?.instructions ?? []),
+        createAssociatedTokenAccountIdempotentInstruction(
+          args.feePayer,
+          vaultUsdcAta,
+          vaultPda,
+          usdcMint,
+          TOKEN_PROGRAM_ID
+        ),
+        createDelegationInstruction,
+      ],
+      lookupTableAccounts: policyCreation
+        ? dedupeLookupTableAccounts(policyCreation.lookupTableAccounts ?? [])
+        : [],
     });
 
     return {
       prepared,
-      stage: "create_policy",
+      stage: "create_recurring_delegation",
       authorityInitializationRequired: false,
       policy: {
         account: policyAccount,

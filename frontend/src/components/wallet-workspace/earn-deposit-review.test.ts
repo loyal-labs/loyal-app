@@ -1,16 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
 import { PublicKey } from "@solana/web3.js";
 
 import type {
+  EarnAutodepositDraft,
   EarnDepositDraft,
   EarnWithdrawDraft,
 } from "@/components/wallet-sidebar/earn-detail-view";
 
 import {
+  buildEarnAutodepositSetupReviewItem,
   buildEarnDepositReviewItem,
   buildEarnWithdrawReviewItem,
 } from "./earn-deposit-review";
@@ -47,6 +50,18 @@ const partialWithdrawDraft = {
   symbol: "USDC",
   tokenDecimals: 6,
 } satisfies EarnWithdrawDraft;
+
+const autodepositDraft = {
+  amount: 100,
+  amountLabel: "100.00",
+  keepAmount: 500,
+  keepAmountLabel: "500.00",
+  nonce: BigInt(42),
+  requiresSignature: true,
+  source,
+  symbol: "USDC",
+  tokenDecimals: 6,
+} satisfies EarnAutodepositDraft;
 
 function textOf(value: unknown): string {
   return JSON.stringify(value);
@@ -89,6 +104,18 @@ function createPreparedWithdraw(): SmartAccountPreparedEarnUsdcWithdraw {
       reserve: PUBLIC_KEY,
     },
   } as SmartAccountPreparedEarnUsdcWithdraw;
+}
+
+function createPreparedAutodepositSetup(
+  stage: SmartAccountPreparedEarnUsdcAutodepositSetup["stage"]
+): SmartAccountPreparedEarnUsdcAutodepositSetup {
+  return {
+    persistence: {
+      policyAccount: PUBLIC_KEY.toBase58(),
+      recurringDelegation: PUBLIC_KEY.toBase58(),
+    },
+    stage,
+  } as SmartAccountPreparedEarnUsdcAutodepositSetup;
 }
 
 describe("Earn deposit review", () => {
@@ -192,5 +219,43 @@ describe("Earn withdrawal review", () => {
       "Approval #2",
     ]);
     expect(textOf(item)).toContain("Close recurring allowance");
+  });
+});
+
+describe("Earn Autodeposit review", () => {
+  test("cold-start approval one initializes only the allowance authority", () => {
+    const item = buildEarnAutodepositSetupReviewItem({
+      draft: autodepositDraft,
+      preparedSetup: createPreparedAutodepositSetup(
+        "initialize_subscription_authority"
+      ),
+      stage: "policy",
+    });
+
+    expect(item.pages?.[0]?.title).toBe("Approval 1 of 2");
+    expect(item.pages?.[0]?.heading).toBe("Initialize allowance authority");
+    expect(textOf(item.pages?.[0])).not.toContain("policy");
+    expect(textOf(item.reviewSections?.[0])).toContain(
+      "Initialize allowance authority"
+    );
+  });
+
+  test("final approval creates policy and recurring allowance", () => {
+    const item = buildEarnAutodepositSetupReviewItem({
+      draft: autodepositDraft,
+      preparedSetup: createPreparedAutodepositSetup(
+        "create_recurring_delegation"
+      ),
+      stage: "delegation",
+    });
+
+    expect(item.pages?.[0]?.title).toBe("Approval 2 of 2");
+    expect(item.pages?.[0]?.heading).toBe(
+      "Create policy and recurring allowance"
+    );
+    expect(textOf(item.pages?.[0])).toContain(
+      "Create the Autodeposit policy"
+    );
+    expect(item.primaryActionLabel).toBe("Create policy and allowance");
   });
 });

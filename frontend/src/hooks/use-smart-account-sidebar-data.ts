@@ -4894,8 +4894,7 @@ export function useSmartAccountSidebarData(
           return {
             success: false,
             signature: setupSend.signature,
-            ...(preparedSetup.stage === "initialize_subscription_authority" ||
-            preparedSetup.stage === "create_policy"
+            ...(preparedSetup.stage === "initialize_subscription_authority"
               ? { authorityInitializationSignature: setupSend.signature }
               : { recurringDelegationSignature: setupSend.signature }),
             confirmedSlot,
@@ -4912,8 +4911,9 @@ export function useSmartAccountSidebarData(
             ? null
             : await prepareEarnAutodepositSetupOnServer({
                 amountRaw: request.amountRaw,
-                nonce: request.nonce,
+                nonce: preparedSetup.subscription.nonce,
                 policySeed: preparedSetup.policy.seed ?? undefined,
+                walletBalanceFloorRaw: request.walletBalanceFloorRaw,
               });
 
         const nextEarnState = await fetchEarnState();
@@ -4934,8 +4934,7 @@ export function useSmartAccountSidebarData(
         return {
           success: true,
           signature: setupSend.signature,
-          ...(preparedSetup.stage === "initialize_subscription_authority" ||
-          preparedSetup.stage === "create_policy"
+          ...(preparedSetup.stage === "initialize_subscription_authority"
             ? { authorityInitializationSignature: setupSend.signature }
             : { recurringDelegationSignature: setupSend.signature }),
           confirmedSlot,

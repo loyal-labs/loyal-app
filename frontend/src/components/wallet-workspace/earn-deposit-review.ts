@@ -540,7 +540,10 @@ export function buildEarnAutodepositSetupReviewItem(args: {
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
   stage?: EarnAutodepositSetupReviewStage;
 }): ApprovalReviewDisplayItem {
-  const stage = args.stage ?? "policy";
+  const stage =
+    args.preparedSetup?.stage === "create_recurring_delegation"
+      ? "delegation"
+      : args.stage ?? "policy";
   const isEdit = Boolean(
     args.draft.amountChanged !== undefined ||
       args.draft.keepAmountChanged !== undefined
@@ -597,25 +600,13 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     ? [
         {
           label: "Primitive",
-          value: "Create allowance authority and policy",
+          value: "Initialize allowance authority",
         },
-        {
-          label: "Policy",
-          value: "Allow Loyal automation to pull only this allowance into Earn",
-        },
-        ...(policyAccount
-          ? [
-              {
-                label: "Policy account",
-                value: shortenAddress(policyAccount),
-              },
-            ]
-          : []),
       ]
     : [
         {
           label: "Primitive",
-          value: "Create recurring allowance",
+          value: "Create policy and recurring allowance",
         },
         {
           label: "Delegatee",
@@ -661,26 +652,18 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             rows: [
               {
                 label: "Setup",
-                value: "Create allowance authority and Autodeposit policy",
+                value: "Initialize allowance authority",
               },
-              {
-                label: "Policy",
-                value:
-                  "Allow Loyal automation to use only this Autodeposit path",
-              },
-              ...(policyAccount
-                ? [
-                    {
-                      label: "Policy account",
-                      value: shortenAddress(policyAccount),
-                    },
-                  ]
-                : []),
             ],
           },
           {
             title: "Approval #2",
             rows: [
+              {
+                label: "Policy",
+                value:
+                  "Create the Autodeposit policy for this recurring allowance",
+              },
               {
                 label: "Allowance",
                 value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
@@ -722,7 +705,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     ? "Save Autodeposit setting"
     : isEdit
     ? "Update recurring allowance"
-    : "Create allowance authority and policy";
+    : "Initialize allowance authority";
   const firstPageTitle = !requiresSignature
     ? "Autodeposit"
     : isEdit
@@ -742,14 +725,14 @@ export function buildEarnAutodepositSetupReviewItem(args: {
               ? "This setting updates your saved Autodeposit rule only."
               : isEdit
               ? "This updates the signed allowance while keeping the same Earn policy."
-              : "First, create the allowance authority and policy that lets Loyal use only this Autodeposit path.",
+              : "First, initialize the allowance authority for your Main Account.",
             rows: changeRows,
             collapsibles: [
               {
                 title: requiresSignature
                   ? "On-chain details"
                   : "Update details",
-                rows: reviewSections.flatMap((section) => section.rows),
+                rows: [...changeRows, ...onChainRows],
               },
             ],
           }
@@ -757,9 +740,9 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             title: "Approval 2 of 2",
             amount: args.draft.amountLabel,
             symbol: args.draft.symbol,
-            heading: "Create recurring allowance",
+            heading: "Create policy and recurring allowance",
             mascotNote:
-              "Now create the recurring allowance from Main Account to the Earn vault.",
+              "Now create the Autodeposit policy and recurring allowance from Main Account to the Earn vault.",
             rows: [
               {
                 label: "Frequency",
@@ -781,8 +764,8 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     primaryActionLabel: !requiresSignature
       ? "Save changes"
       : stage === "policy"
-      ? "Sign"
-      : "Create recurring allowance",
+      ? "Initialize authority"
+      : "Create policy and allowance",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
