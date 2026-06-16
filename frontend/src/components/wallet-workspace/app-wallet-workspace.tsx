@@ -140,7 +140,10 @@ import {
   type EarnDepositReviewStage,
   type EarnWithdrawReviewStage,
 } from "./earn-deposit-review";
-import { EarnTransactionsPane } from "./earn-transactions-pane";
+import {
+  EarnTransactionsPane,
+  type PendingScheduledSweepPreview,
+} from "./earn-transactions-pane";
 import {
   mockPolicies,
   type NewPolicyMode,
@@ -443,6 +446,8 @@ function parseTokenAmountLabelToRaw(
     BigInt(fraction || "0")
   );
 }
+
+const DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL = "10,000";
 
 function rawTokenAmountToNumber(amountRaw: string, decimals: number): number {
   if (!/^\d+$/.test(amountRaw)) {
@@ -1403,6 +1408,52 @@ export function AppWalletWorkspace({
     walletDesktopData.positions,
     walletDesktopData.walletAddress,
   ]);
+  const pendingScheduledSweepPreview =
+    useMemo<PendingScheduledSweepPreview | null>(() => {
+      if (
+        !autodepositConfig ||
+        autodepositConfig.state !== "created" ||
+        (autodepositConfig.scheduledSweeps?.length ?? 0) > 0
+      ) {
+        return null;
+      }
+
+      const source = earnDepositSources.find((entry) => entry.id === "main");
+      if (!source) {
+        return null;
+      }
+
+      try {
+        const balanceRaw = parseTokenAmountLabelToRaw(
+          source.balance.toString(),
+          source.decimals
+        );
+        const floorRaw = parseTokenAmountLabelToRaw(
+          autodepositConfig.keepAmount,
+          source.decimals
+        );
+        const allowanceRaw = parseTokenAmountLabelToRaw(
+          autodepositConfig.amount,
+          source.decimals
+        );
+        const depositedRaw = parseTokenAmountLabelToRaw(
+          autodepositConfig.depositedAmount,
+          source.decimals
+        );
+        const surplusRaw = balanceRaw - floorRaw;
+        const remainingAllowanceRaw = allowanceRaw - depositedRaw;
+        const amountRaw =
+          surplusRaw < remainingAllowanceRaw
+            ? surplusRaw
+            : remainingAllowanceRaw;
+
+        return amountRaw > BigInt(0)
+          ? { amountRaw: amountRaw.toString() }
+          : null;
+      } catch {
+        return null;
+      }
+    }, [autodepositConfig, earnDepositSources]);
   const earnWithdrawDestinations = useMemo<EarnDepositSourceOption[]>(() => {
     const mainDestination = earnDepositSources.find(
       (source) => source.id === "main"
@@ -2377,19 +2428,21 @@ export function AppWalletWorkspace({
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleSaveAutodeposit = useCallback(
-    (amount: string, keepAmount: string) => {
+    (keepAmount: string) => {
       const source = earnDepositSources.find((entry) => entry.id === "main");
       if (!source) {
         setProposalActionError("Main Account USDC source is not loaded yet.");
         return;
       }
 
-      const normalizedAmount = Number((amount || "0").replace(/,/g, ""));
+      const amount =
+        autodepositConfig?.amount ?? DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL;
+      const normalizedAmount = Number(amount.replace(/,/g, ""));
       const normalizedKeepAmount = Number(
         (keepAmount || "0").replace(/,/g, "")
       );
-      if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
-        setProposalActionError("Enter an Autodeposit amount.");
+      if (!Number.isFinite(normalizedKeepAmount) || normalizedKeepAmount < 0) {
+        setProposalActionError("Enter an Autodeposit minimum balance.");
         return;
       }
 
@@ -4163,7 +4216,6 @@ export function AppWalletWorkspace({
         <AutodepositSetupView
           earnBalance={earnWithdrawMaxAmount}
           earnVaultAddressLabel={earnVaultAddressLabel}
-          initialAmount={autodepositConfig?.amount ?? "100"}
           initialKeepAmount={autodepositConfig?.keepAmount ?? "500"}
           isEditing={Boolean(autodepositConfig)}
           mainSource={
@@ -5109,6 +5161,7 @@ export function AppWalletWorkspace({
                 isBalanceHidden={isBalanceHidden}
                 isExecutingScheduledSweep={isExecutingScheduledSweep}
                 onExecuteScheduledSweep={handleExecuteScheduledAutodepositSweep}
+                onRefreshScheduledSweeps={smartAccountData.refresh}
                 onSelectTransaction={(detail) => {
                   openActionView(
                     { type: "transaction", detail, from: "portfolio" },
@@ -5117,6 +5170,7 @@ export function AppWalletWorkspace({
                     "earn"
                   );
                 }}
+                pendingScheduledSweep={pendingScheduledSweepPreview}
                 scheduledSweepExecuteError={scheduledSweepExecuteError}
                 scheduledSweeps={autodepositConfig?.scheduledSweeps ?? []}
                 settingsPda={smartAccountData.overview?.settingsPda}

@@ -43,5 +43,8 @@ describe("Earn transactions scheduled sweeps", () => {
   test("only shows the scheduled section when earn-state has sweeps", () => {
     expect(shouldShowScheduledSweepsSection([])).toBe(false);
     expect(shouldShowScheduledSweepsSection([createSweep()])).toBe(true);
+    expect(
+      shouldShowScheduledSweepsSection([], { amountRaw: "16967897" })
+    ).toBe(true);
   });
 });

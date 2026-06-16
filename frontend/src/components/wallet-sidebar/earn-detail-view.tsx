@@ -42,7 +42,6 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const POSITIVE_AMOUNT_COLOR = "#34C759";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
-const MAIN_ACCOUNT_SHORT_ADDRESS = "BAqg...6qZZ";
 
 const TOP_EARN_VAULT = {
   label: "Kamino · Lending Yield",
@@ -5731,14 +5730,11 @@ function AutodepositSummaryRow({
   );
 }
 
-// Autodeposit setup / edit pane. Mirrors the Deposit pane structure (amount
-// input + To/From rows + bottom button). `isEditing` flips the title button to
-// "Save Autodeposit" and the amount is preset by `initialAmount`. Autodeposit
-// is not wired yet — this drives a client-side demo flow only.
+// Autodeposit setup / edit pane. The signed allowance is fixed elsewhere for
+// now; this pane only edits the Main Account balance floor.
 export function AutodepositSetupView({
   earnBalance = 0,
   earnVaultAddressLabel,
-  initialAmount = "100",
   initialKeepAmount = "500",
   isEditing = false,
   mainSource,
@@ -5748,50 +5744,37 @@ export function AutodepositSetupView({
 }: {
   earnBalance?: number;
   earnVaultAddressLabel?: string | null;
-  initialAmount?: string;
   initialKeepAmount?: string;
   isEditing?: boolean;
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
   onDelete?: () => void;
-  onSubmit?: (amount: string, keepAmount: string) => void;
+  onSubmit?: (keepAmount: string) => void;
 }) {
-  const amountInputRef = useRef<HTMLInputElement | null>(null);
   const keepAmountInputRef = useRef<HTMLInputElement | null>(null);
-  const [amount, setAmount] = useState(initialAmount);
   const [keepAmount, setKeepAmount] = useState(initialKeepAmount);
   const earnBalanceLabel = formatMoney(earnBalance);
   const [earnWhole, earnFraction = "00"] = earnBalanceLabel.split(".");
   const normalizeAutodepositAmount = (value: string) =>
     Number(value.replace(/,/g, "")) || 0;
-  const hasAmount = normalizeAutodepositAmount(amount) > 0;
-  const amountChanged =
-    normalizeAutodepositAmount(amount) !==
-    normalizeAutodepositAmount(initialAmount);
   const keepAmountChanged =
     normalizeAutodepositAmount(keepAmount) !==
     normalizeAutodepositAmount(initialKeepAmount);
-  const hasChanges = !isEditing || amountChanged || keepAmountChanged;
-  const canSubmit = hasAmount && hasChanges;
-  const submitLabel = !hasAmount
-    ? "Enter amount"
-    : isEditing
+  const hasChanges = !isEditing || keepAmountChanged;
+  const canSubmit = hasChanges;
+  const submitLabel = isEditing
     ? !hasChanges
       ? "No changes yet"
-      : amountChanged && keepAmountChanged
-      ? "Update Autodeposit"
-      : amountChanged
-      ? "Update deposit goal"
       : "Update minimum balance"
     : "Create Autodeposit";
 
-  const focusAmount = () => {
-    amountInputRef.current?.focus();
-    amountInputRef.current?.select();
+  const focusKeepAmount = () => {
+    keepAmountInputRef.current?.focus();
+    keepAmountInputRef.current?.select();
   };
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(focusAmount);
+    const frame = window.requestAnimationFrame(focusKeepAmount);
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
@@ -5906,47 +5889,7 @@ export function AutodepositSetupView({
           style={{
             display: "flex",
             flexDirection: "column",
-            padding: "22px 20px 0",
-            width: "100%",
-          }}
-        >
-          <p
-            style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 400,
-              lineHeight: "20px",
-              margin: 0,
-              padding: "0 0 4px",
-            }}
-          >
-            Your deposit goal (maximum allowance)
-          </p>
-          <AutodepositAmountInputRow
-            inputRef={amountInputRef}
-            onValueChange={setAmount}
-            value={amount}
-          />
-          <p
-            style={{
-              color: secondary,
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 400,
-              lineHeight: "20px",
-              margin: 0,
-            }}
-          >
-            over 1 month
-          </p>
-        </section>
-
-        <section
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            padding: "28px 8px 8px",
+            padding: "22px 8px 8px",
             width: "100%",
           }}
         >
@@ -6068,9 +6011,7 @@ export function AutodepositSetupView({
           disabled={!canSubmit}
           // A stranded trailing dot ("8.") is valid mid-typing but not a
           // valid amount label downstream, so it is dropped on submit.
-          onClick={() =>
-            onSubmit?.(amount.replace(/\.$/, ""), keepAmount.replace(/\.$/, ""))
-          }
+          onClick={() => onSubmit?.(keepAmount.replace(/\.$/, ""))}
           style={{
             alignItems: "center",
             background: canSubmit ? "#000" : "rgba(0, 0, 0, 0.06)",

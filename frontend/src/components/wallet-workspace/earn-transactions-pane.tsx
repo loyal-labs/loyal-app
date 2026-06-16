@@ -29,6 +29,10 @@ const USDC_RAW_SCALE = BigInt(1_000_000);
 // because the workspace invalidates the cache on confirmation.
 const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
 
+export type PendingScheduledSweepPreview = {
+  amountRaw: string;
+};
+
 export function getEarnTransactionRowLabel(
   item: Pick<EarnTransactionItem, "eventType" | "kind">
 ) {
@@ -541,24 +545,33 @@ export function formatScheduledSweepTime(eligibleAfter: string): string {
 }
 
 export function shouldShowScheduledSweepsSection(
-  scheduledSweeps: readonly LoadedEarnAutodepositScheduledSweep[]
+  scheduledSweeps: readonly LoadedEarnAutodepositScheduledSweep[],
+  pendingScheduledSweep?: PendingScheduledSweepPreview | null
 ): boolean {
-  return scheduledSweeps.length > 0;
+  return scheduledSweeps.length > 0 || Boolean(pendingScheduledSweep);
 }
 
 function ScheduledTransactionRow({
   isExecuting = false,
+  isPending = false,
   isBalanceHidden = false,
   onExecuteNow,
   sweep,
 }: {
   isExecuting?: boolean;
+  isPending?: boolean;
   isBalanceHidden?: boolean;
   onExecuteNow?: () => void;
-  sweep: LoadedEarnAutodepositScheduledSweep;
+  sweep: LoadedEarnAutodepositScheduledSweep | PendingScheduledSweepPreview;
 }) {
-  const amountLabel = formatScheduledSweepAmount(sweep.remainingAmountRaw);
-  const timeLabel = formatScheduledSweepTime(sweep.eligibleAfter);
+  const amountLabel = formatScheduledSweepAmount(
+    "remainingAmountRaw" in sweep ? sweep.remainingAmountRaw : sweep.amountRaw
+  );
+  const timeLabel =
+    "eligibleAfter" in sweep
+      ? formatScheduledSweepTime(sweep.eligibleAfter)
+      : "Scheduling...";
+  const isButtonDisabled = isPending || isExecuting || !onExecuteNow;
 
   return (
     <>
@@ -572,6 +585,14 @@ function ScheduledTransactionRow({
         }
         .earn-scheduled-execute-btn:active {
           transform: translateY(0);
+        }
+        .earn-scheduled-spinner {
+          animation: earn-scheduled-spin 0.8s linear infinite;
+        }
+        @keyframes earn-scheduled-spin {
+          to {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
       <div
@@ -685,16 +706,20 @@ function ScheduledTransactionRow({
             <button
               aria-busy={isExecuting}
               className="earn-scheduled-execute-btn"
-              disabled={isExecuting || !onExecuteNow}
+              disabled={isButtonDisabled}
               onClick={onExecuteNow}
               style={{
                 alignItems: "center",
-                background: isExecuting ? "#F97B80" : LOYAL_EARN_BRAND_COLOR,
+                background:
+                  isPending || isExecuting
+                    ? "#F97B80"
+                    : LOYAL_EARN_BRAND_COLOR,
                 border: "none",
                 borderRadius: "9999px",
                 color: "#fff",
-                cursor: isExecuting || !onExecuteNow ? "default" : "pointer",
+                cursor: isButtonDisabled ? "default" : "pointer",
                 display: "inline-flex",
+                gap: "6px",
                 fontFamily: font,
                 fontSize: "14px",
                 fontWeight: 500,
@@ -704,7 +729,25 @@ function ScheduledTransactionRow({
               }}
               type="button"
             >
-              {isExecuting ? "Requesting..." : "Execute now"}
+              {isPending ? (
+                <span
+                  aria-hidden="true"
+                  className="earn-scheduled-spinner"
+                  style={{
+                    border: "2px solid rgba(255, 255, 255, 0.45)",
+                    borderRadius: "9999px",
+                    borderTopColor: "#fff",
+                    display: "inline-block",
+                    height: "12px",
+                    width: "12px",
+                  }}
+                />
+              ) : null}
+              {isPending
+                ? "Scheduling"
+                : isExecuting
+                ? "Requesting..."
+                : "Execute now"}
             </button>
           </span>
         </span>
@@ -812,7 +855,9 @@ export function EarnTransactionsPane({
   isBalanceHidden = false,
   isExecutingScheduledSweep = false,
   onExecuteScheduledSweep,
+  onRefreshScheduledSweeps,
   onSelectTransaction,
+  pendingScheduledSweep = null,
   scheduledSweepExecuteError = null,
   scheduledSweeps = [],
   settingsPda,
@@ -823,7 +868,9 @@ export function EarnTransactionsPane({
   isBalanceHidden?: boolean;
   isExecutingScheduledSweep?: boolean;
   onExecuteScheduledSweep?: () => void;
+  onRefreshScheduledSweeps?: () => Promise<void> | void;
   onSelectTransaction: (detail: TransactionDetail) => void;
+  pendingScheduledSweep?: PendingScheduledSweepPreview | null;
   scheduledSweepExecuteError?: string | null;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
@@ -861,6 +908,15 @@ export function EarnTransactionsPane({
     // Ids already on screen; null until the initial load lands. Poll results
     // diff against this so only rows that arrive later animate in.
     let knownIds: Set<string> | null = null;
+
+    const refreshScheduledSweeps = () => {
+      void Promise.resolve(onRefreshScheduledSweeps?.()).catch((error) => {
+        console.warn(
+          "[earn-transactions] failed to refresh scheduled sweeps",
+          error
+        );
+      });
+    };
 
     const applyTransactions = (items: EarnTransactionItem[]) => {
       const previousIds = knownIds;
@@ -920,22 +976,34 @@ export function EarnTransactionsPane({
     };
 
     void loadTransactions({ silent: false });
+    refreshScheduledSweeps();
 
     // Pseudo-realtime: poll the cached fetcher so new transactions appear
-    // without a reload. See EARN_TRANSACTIONS_POLL_INTERVAL_MS for why this
-    // stays cheap.
+    // without a reload. Refresh loaded Earn state on the same cadence because
+    // scheduled sweep lots are created by the background worker after setup.
     const intervalId = window.setInterval(() => {
       void loadTransactions({ silent: true });
+      refreshScheduledSweeps();
     }, EARN_TRANSACTIONS_POLL_INTERVAL_MS);
 
     return () => {
       isMounted = false;
       window.clearInterval(intervalId);
     };
-  }, [isAuthenticated, isHydrated, settingsPda, solanaEnv, walletAddress]);
+  }, [
+    isAuthenticated,
+    isHydrated,
+    onRefreshScheduledSweeps,
+    settingsPda,
+    solanaEnv,
+    walletAddress,
+  ]);
 
   const groups = groupEarnTransactions(transactions);
-  const showScheduledSweeps = shouldShowScheduledSweepsSection(scheduledSweeps);
+  const showScheduledSweeps = shouldShowScheduledSweepsSection(
+    scheduledSweeps,
+    pendingScheduledSweep
+  );
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item));
@@ -1041,6 +1109,13 @@ export function EarnTransactionsPane({
                 }}
               >
                 <TransactionsSectionHeader label="Scheduled" />
+                {pendingScheduledSweep ? (
+                  <ScheduledTransactionRow
+                    isBalanceHidden={isBalanceHidden}
+                    isPending
+                    sweep={pendingScheduledSweep}
+                  />
+                ) : null}
                 {scheduledSweeps.map((sweep) => (
                   <ScheduledTransactionRow
                     isBalanceHidden={isBalanceHidden}
