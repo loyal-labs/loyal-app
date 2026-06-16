@@ -6,6 +6,7 @@ import {
 } from "@loyal-labs/actions";
 
 import {
+  collapseDuplicateEarnRebalanceTransactions,
   serializeEarnTransactionEvent,
   type EarnTransactionEvent,
 } from "./formatter";
@@ -101,9 +102,64 @@ describe("earn transaction formatter", () => {
     } satisfies YieldPositionEvent);
 
     expect(item.kind).toBe("rebalance");
+    expect(item.id).toBe("rebalance-signature:1");
     expect(item.amount).toBe("$5.00");
     expect(item.rawAmount).toBe("$5.000000");
     expect(item.source.label).toBe("Main USDC");
     expect(item.destination.label).toBe("OnRe USDC");
+  });
+
+  test("collapses duplicate rebalance rows from the same signature", () => {
+    const usdcMint = STABLECOIN_MINTS.USDC.toBase58();
+    const mainToOnre = serializeEarnTransactionEvent({
+      amountRaw: BigInt(4_211_753),
+      confirmedAt: new Date("2026-06-16T13:58:00.000Z"),
+      confirmedSlot: BigInt(789),
+      destinationLiquidityMint: usdcMint,
+      destinationMarket: KAMINO_ONRE_MARKET.toBase58(),
+      destinationReserve: "onre-reserve",
+      eventType: "rebalance_confirmed",
+      id: BigInt(1),
+      liquidityMint: usdcMint,
+      market: KAMINO_ONRE_MARKET.toBase58(),
+      principalAmountRaw: BigInt(5_000_000),
+      principalDeltaRaw: null,
+      reserve: "onre-reserve",
+      signature: "rebalance-signature",
+      sourceLiquidityMint: usdcMint,
+      sourceMarket: KAMINO_MAIN_MARKET.toBase58(),
+      sourceReserve: "main-reserve",
+      type: "rebalance",
+    } satisfies YieldPositionEvent);
+    const onreToOnre = serializeEarnTransactionEvent({
+      amountRaw: BigInt(4_211_753),
+      confirmedAt: new Date("2026-06-16T13:58:00.000Z"),
+      confirmedSlot: BigInt(789),
+      destinationLiquidityMint: usdcMint,
+      destinationMarket: KAMINO_ONRE_MARKET.toBase58(),
+      destinationReserve: "onre-reserve",
+      eventType: "rebalance_confirmed",
+      id: BigInt(2),
+      liquidityMint: usdcMint,
+      market: KAMINO_ONRE_MARKET.toBase58(),
+      principalAmountRaw: BigInt(5_000_000),
+      principalDeltaRaw: null,
+      reserve: "onre-reserve",
+      signature: "rebalance-signature",
+      sourceLiquidityMint: usdcMint,
+      sourceMarket: KAMINO_ONRE_MARKET.toBase58(),
+      sourceReserve: "onre-reserve",
+      type: "rebalance",
+    } satisfies YieldPositionEvent);
+
+    const collapsed = collapseDuplicateEarnRebalanceTransactions([
+      onreToOnre,
+      mainToOnre,
+    ]);
+
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]?.id).toBe(mainToOnre.id);
+    expect(collapsed[0]?.source.label).toBe("Main USDC");
+    expect(collapsed[0]?.destination.label).toBe("OnRe USDC");
   });
 });

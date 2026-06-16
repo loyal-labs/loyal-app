@@ -45,6 +45,41 @@ export type SerializedEarnTransaction = {
   timestamp: string;
 };
 
+function isSelfMovement(transaction: SerializedEarnTransaction): boolean {
+  return transaction.source.label === transaction.destination.label;
+}
+
+export function collapseDuplicateEarnRebalanceTransactions(
+  transactions: SerializedEarnTransaction[]
+): SerializedEarnTransaction[] {
+  const collapsedBySignature = new Map<string, SerializedEarnTransaction>();
+  const result: SerializedEarnTransaction[] = [];
+
+  for (const transaction of transactions) {
+    if (transaction.kind !== "rebalance" || transaction.signature.length === 0) {
+      result.push(transaction);
+      continue;
+    }
+
+    const existing = collapsedBySignature.get(transaction.signature);
+    if (!existing) {
+      collapsedBySignature.set(transaction.signature, transaction);
+      result.push(transaction);
+      continue;
+    }
+
+    if (isSelfMovement(existing) && !isSelfMovement(transaction)) {
+      collapsedBySignature.set(transaction.signature, transaction);
+      const index = result.findIndex((item) => item.id === existing.id);
+      if (index >= 0) {
+        result[index] = transaction;
+      }
+    }
+  }
+
+  return result;
+}
+
 function formatExactUsdcAmount(rawAmount: bigint): string {
   const sign = rawAmount < BigInt(0) ? "-" : "";
   const absolute = rawAmount < BigInt(0) ? -rawAmount : rawAmount;
@@ -197,7 +232,7 @@ export function serializeEarnTransactionEvent(
       label: destinationLabel,
     },
     eventType: event.eventType,
-    id: event.signature,
+    id: `${event.signature}:${event.id.toString()}`,
     kind,
     rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,

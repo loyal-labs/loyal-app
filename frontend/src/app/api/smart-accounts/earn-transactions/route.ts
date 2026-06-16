@@ -6,6 +6,7 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { findYieldPositionHistoryEventsForVault } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
+  collapseDuplicateEarnRebalanceTransactions,
   serializeEarnTransactionEvent,
   type SerializedEarnTransaction,
 } from "./formatter";
@@ -83,8 +84,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       transactions: sortEarnTransactions(
-        [...visiblePositionEvents, ...autodepositEvents].map(
-          serializeEarnTransactionEvent
+        collapseDuplicateEarnRebalanceTransactions(
+          [...visiblePositionEvents, ...autodepositEvents].map(
+            serializeEarnTransactionEvent
+          )
         )
       ),
     });
