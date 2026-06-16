@@ -113,6 +113,7 @@ export const managedVaults = loyalYieldSchema.table(
     vaultIndex: smallint("vault_index").notNull(),
     vaultPubkey: text("vault_pubkey").notNull(),
     activePolicyId: bigint("active_policy_id", { mode: "bigint" }).notNull(),
+    setupPolicyId: bigint("setup_policy_id", { mode: "bigint" }),
     active: boolean("active").notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
@@ -123,6 +124,9 @@ export const managedVaults = loyalYieldSchema.table(
       table.vaultIndex,
       table.vaultPubkey
     ),
+    index("managed_vaults_setup_policy_idx")
+      .on(table.setupPolicyId)
+      .where(sql`${table.setupPolicyId} IS NOT NULL`),
   ]
 );
 

@@ -11,6 +11,7 @@ describe("Earn deposit confirmation contracts", () => {
   test("uses the explicit policy signature separately from the deposit signature", () => {
     const body = buildEarnDepositConfirmRequestBody({
       confirmedSlot: "123",
+      policyConfirmedSlot: "121",
       policySignature: "policy-setup-signature",
       preparedDeposit: {
         persistence: {
@@ -25,6 +26,9 @@ describe("Earn deposit confirmation contracts", () => {
           policySeed: "7",
           principalAmountRaw: "1000000",
           settings: "settings",
+          setupPolicyAccount: "setup-policy",
+          setupPolicyId: "8",
+          setupPolicySeed: "8",
           targetReserve: "reserve",
           targetSupplyApyBps: null,
           vaultIndex: 1,
@@ -32,15 +36,26 @@ describe("Earn deposit confirmation contracts", () => {
           walletAddress: "wallet",
         },
       } as never,
+      setupPolicyConfirmedSlot: "122",
+      setupPolicySignature: "setup-policy-signature",
       signature: "deposit-signature",
       smartAccountAddress: "smart-account",
     });
 
     expect(body.policySignature).toBe("policy-setup-signature");
+    expect(body.policyConfirmedSlot).toBe("121");
+    expect(body.setupPolicySignature).toBe("setup-policy-signature");
+    expect(body.setupPolicyConfirmedSlot).toBe("122");
     expect(body.depositSignature).toBe("deposit-signature");
     expect(parseEarnDepositConfirmRequestBody(body)).toMatchObject({
       depositSignature: "deposit-signature",
+      policyConfirmedSlot: BigInt(121),
       policySignature: "policy-setup-signature",
+      setupPolicyAccount: "setup-policy",
+      setupPolicyConfirmedSlot: BigInt(122),
+      setupPolicyId: BigInt(8),
+      setupPolicySeed: BigInt(8),
+      setupPolicySignature: "setup-policy-signature",
     });
   });
 });

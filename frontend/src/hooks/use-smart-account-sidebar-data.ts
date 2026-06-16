@@ -335,7 +335,10 @@ export type VaultSwapResult = VaultTransferResult;
 
 export type EarnDepositRequest = {
   amountRaw: bigint;
+  policyConfirmedSlot?: string;
   policySignature?: string;
+  setupPolicyConfirmedSlot?: string;
+  setupPolicySignature?: string;
   preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit;
 };
 
@@ -450,6 +453,7 @@ type PreparedEarnOperation =
   | "deposit"
   | "policy finalize"
   | "policy setup"
+  | "setup policy setup"
   | "withdrawal";
 
 type EarnClusterPreflightResult =
@@ -1080,7 +1084,10 @@ async function postConfirmedEarnDeposit(args: {
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
+  policyConfirmedSlot?: string;
   policySignature?: string;
+  setupPolicyConfirmedSlot?: string;
+  setupPolicySignature?: string;
 }) {
   const body = buildEarnDepositConfirmRequestBody(args);
   const response = await fetch(
@@ -1384,6 +1391,8 @@ async function postConfirmedEarnPolicySetup(args: {
   preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
   signature: string;
   confirmedSlot: string;
+  setupPolicySignature: string;
+  setupPolicyConfirmedSlot: string;
 }) {
   const body = buildEarnPolicyConfirmRequestBody(args);
   const response = await fetch(
@@ -4172,6 +4181,14 @@ export function useSmartAccountSidebarData(
       setIsActionPending(true);
       try {
         const preparedPolicy = await prepareEarnPolicyOnServer();
+        const setupPolicyPrepared = preparedPolicy.finalizePrepared;
+        if (!setupPolicyPrepared) {
+          return {
+            success: false,
+            error:
+              "Prepared Earn setup policy is missing. Review Earn again before signing.",
+          };
+        }
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "policy setup",
@@ -4192,11 +4209,33 @@ export function useSmartAccountSidebarData(
           connection,
           signature,
         });
+        const setupSendResult = await sendPreparedEarnWithClusterPreflight({
+          expectedCluster: expectedEarnCluster,
+          operation: "setup policy setup",
+          preparedCluster: preparedPolicy.persistence.cluster,
+          send: () =>
+            sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared: setupPolicyPrepared,
+              confirm: true,
+            }),
+        });
+        if (!setupSendResult.success) {
+          return setupSendResult;
+        }
+        const setupPolicySignature = setupSendResult.signature;
+        const setupPolicyConfirmedSlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature: setupPolicySignature,
+        });
 
         await postConfirmedEarnPolicySetup({
           preparedPolicy,
           signature,
           confirmedSlot,
+          setupPolicySignature,
+          setupPolicyConfirmedSlot,
         });
 
         const nextEarnState = await fetchEarnState();
@@ -4295,7 +4334,9 @@ export function useSmartAccountSidebarData(
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation:
-            request.stage === "policy" ? "policy setup" : "policy finalize",
+            request.stage === "policy"
+              ? "policy setup"
+              : "setup policy setup",
           preparedCluster: request.preparedDeposit.persistence.cluster,
           send: () =>
             sendPreparedWithWallet({
@@ -4423,8 +4464,11 @@ export function useSmartAccountSidebarData(
         const policySignatureResolution =
           resolveEarnDepositConfirmPolicySignature({
             activePolicy: earnState?.policy ?? null,
+            policyConfirmedSlot: request.policyConfirmedSlot,
             policySignature: request.policySignature,
             preparedDeposit,
+            setupPolicyConfirmedSlot: request.setupPolicyConfirmedSlot,
+            setupPolicySignature: request.setupPolicySignature,
           });
         if ("error" in policySignatureResolution) {
           return {
@@ -4463,7 +4507,11 @@ export function useSmartAccountSidebarData(
 
         await postConfirmedEarnDeposit({
           preparedDeposit,
+          policyConfirmedSlot: policySignatureResolution.policyConfirmedSlot,
           policySignature: policySignatureResolution.policySignature,
+          setupPolicyConfirmedSlot:
+            policySignatureResolution.setupPolicyConfirmedSlot,
+          setupPolicySignature: policySignatureResolution.setupPolicySignature,
           signature,
           confirmedSlot,
           smartAccountAddress: overview.canonicalVaultAddress,

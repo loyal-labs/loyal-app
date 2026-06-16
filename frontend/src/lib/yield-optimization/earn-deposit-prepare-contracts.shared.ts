@@ -26,11 +26,18 @@ export type WireSmartAccountPreparedEarnUsdcDeposit = {
     sameMintInstructionConstraintIndexes: readonly [number, number];
     seed: string;
   };
+  setupPolicy?: {
+    account: string;
+    id: string;
+    initObligationInstructionConstraintIndex: 0;
+    seed: string;
+  };
   policySetupPrepared?: WirePreparedLoyalSmartAccountsOperation | null;
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
     market: string;
+    obligation: string;
     reserve: string;
     supplyApyBps: string | null;
   };
@@ -100,6 +107,18 @@ export function serializePreparedEarnUsdcDeposit(
         preparedDeposit.policy.sameMintInstructionConstraintIndexes,
       seed: preparedDeposit.policy.seed.toString(),
     },
+    ...(preparedDeposit.setupPolicy
+      ? {
+          setupPolicy: {
+            account: preparedDeposit.setupPolicy.account.toBase58(),
+            id: preparedDeposit.setupPolicy.id.toString(),
+            initObligationInstructionConstraintIndex:
+              preparedDeposit.setupPolicy
+                .initObligationInstructionConstraintIndex,
+            seed: preparedDeposit.setupPolicy.seed.toString(),
+          },
+        }
+      : {}),
     policySetupPrepared: preparedDeposit.policySetupPrepared
       ? serializePreparedOperation(preparedDeposit.policySetupPrepared)
       : null,
@@ -107,6 +126,7 @@ export function serializePreparedEarnUsdcDeposit(
     targetReserve: {
       liquidityMint: preparedDeposit.targetReserve.liquidityMint.toBase58(),
       market: preparedDeposit.targetReserve.market.toBase58(),
+      obligation: preparedDeposit.targetReserve.obligation.toBase58(),
       reserve: preparedDeposit.targetReserve.reserve.toBase58(),
       supplyApyBps:
         preparedDeposit.targetReserve.supplyApyBps?.toString() ?? null,
@@ -138,6 +158,17 @@ export function hydratePreparedEarnUsdcDeposit(
         wire.policy.sameMintInstructionConstraintIndexes,
       seed: BigInt(wire.policy.seed),
     },
+    ...(wire.setupPolicy
+      ? {
+          setupPolicy: {
+            account: new PublicKey(wire.setupPolicy.account),
+            id: BigInt(wire.setupPolicy.id),
+            initObligationInstructionConstraintIndex:
+              wire.setupPolicy.initObligationInstructionConstraintIndex,
+            seed: BigInt(wire.setupPolicy.seed),
+          },
+        }
+      : {}),
     policySetupPrepared: wire.policySetupPrepared
       ? hydratePreparedOperation(wire.policySetupPrepared)
       : null,
@@ -145,6 +176,7 @@ export function hydratePreparedEarnUsdcDeposit(
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
       market: new PublicKey(wire.targetReserve.market),
+      obligation: new PublicKey(wire.targetReserve.obligation),
       reserve: new PublicKey(wire.targetReserve.reserve),
       supplyApyBps: wire.targetReserve.supplyApyBps
         ? BigInt(wire.targetReserve.supplyApyBps)

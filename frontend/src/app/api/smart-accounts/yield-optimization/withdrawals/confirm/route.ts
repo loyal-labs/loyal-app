@@ -62,14 +62,26 @@ function createCanonicalWithdrawalInput(
   const cluster = normalizeLoyalCluster(requestInput.cluster);
   const normalizedRequestInput = { ...requestInput, cluster };
   const settings = new PublicKey(requestInput.settings);
+  const expectedSetupPolicySeed = requestInput.policySeed + BigInt(1);
   const expectedPolicyAccount = pda.getPolicyPda({
     settingsPda: settings,
     policySeed: toSafePolicySeed(requestInput.policySeed),
+  })[0];
+  const expectedSetupPolicyAccount = pda.getPolicyPda({
+    settingsPda: settings,
+    policySeed: toSafePolicySeed(expectedSetupPolicySeed),
   })[0];
   const expectedVault = pda.getSmartAccountPda({
     settingsPda: settings,
     accountIndex: EARN_DEPOSIT_VAULT_INDEX,
   })[0];
+  const hasSetupPolicyMetadata =
+    (requestInput.setupPolicyId !== undefined &&
+      requestInput.setupPolicyId !== null) ||
+    (requestInput.setupPolicyAccount !== undefined &&
+      requestInput.setupPolicyAccount !== null) ||
+    (requestInput.setupPolicySeed !== undefined &&
+      requestInput.setupPolicySeed !== null);
   const target = assertSafeUsdcEarnReserveMetadata({
     cluster,
     liquidityMint: requestInput.liquidityMint,
@@ -84,6 +96,13 @@ function createCanonicalWithdrawalInput(
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
+    ...(hasSetupPolicyMetadata
+      ? {
+          setupPolicyAccount: expectedSetupPolicyAccount.toBase58(),
+          setupPolicyId: expectedSetupPolicySeed,
+          setupPolicySeed: expectedSetupPolicySeed,
+        }
+      : {}),
     targetReserve: target.targetReserve,
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
@@ -120,6 +139,23 @@ function createCanonicalWithdrawalInput(
     canonicalInput.policySeed,
     "policySeed"
   );
+  if (hasSetupPolicyMetadata) {
+    assertCanonicalField(
+      requestInput.setupPolicyAccount ?? null,
+      canonicalInput.setupPolicyAccount ?? null,
+      "setupPolicyAccount"
+    );
+    assertCanonicalField(
+      requestInput.setupPolicyId ?? null,
+      canonicalInput.setupPolicyId ?? null,
+      "setupPolicyId"
+    );
+    assertCanonicalField(
+      requestInput.setupPolicySeed ?? null,
+      canonicalInput.setupPolicySeed ?? null,
+      "setupPolicySeed"
+    );
+  }
   assertCanonicalField(
     requestInput.targetReserve,
     canonicalInput.targetReserve,

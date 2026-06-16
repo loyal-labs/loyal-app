@@ -17,8 +17,9 @@ import {
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { findBestSafeUsdcEarnReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
-  findActiveYieldRoutePolicy,
+  findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
+  type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-  let policy: Awaited<ReturnType<typeof findActiveYieldRoutePolicy>> = null;
+  let policy: RoutePolicyRecord | null = null;
 
   try {
     const serverEnv = getServerEnv();
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
       settingsPda,
     });
     const [policyResult, activePosition] = await Promise.all([
-      findActiveYieldRoutePolicy({
+      findActiveYieldRoutePolicyPair({
         authority: principal.walletAddress,
         cluster,
         settings: principal.settingsPda,
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
         walletAddress: principal.walletAddress,
       }),
     ]);
-    policy = policyResult;
+    policy = policyResult?.routePolicy ?? null;
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
       connection: getConnection(solanaEnv),
@@ -111,6 +112,14 @@ export async function POST(request: Request) {
       ? {
           account: new PublicKey(policy.policyAccount),
           seed: policy.policySeed,
+          ...(policyResult?.setupPolicy
+            ? {
+                setupPolicy: {
+                  account: new PublicKey(policyResult.setupPolicy.policyAccount),
+                  seed: policyResult.setupPolicy.policySeed,
+                },
+              }
+            : {}),
         }
       : undefined;
     const target =

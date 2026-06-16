@@ -320,6 +320,7 @@ describe("yield deposit repository idempotency", () => {
                 activePolicyId: BigInt(7),
                 id: BigInt(44),
                 settings: "settings",
+                setupPolicyId: BigInt(8),
                 vaultIndex: 1,
                 vaultPubkey: "vault",
               })),

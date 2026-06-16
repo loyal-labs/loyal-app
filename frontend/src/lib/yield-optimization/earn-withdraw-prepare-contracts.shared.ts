@@ -32,10 +32,16 @@ export type WireSmartAccountPreparedEarnUsdcWithdraw = {
     seed: string;
     withdrawInstructionConstraintIndex: 0;
   };
+  setupPolicy?: {
+    account: string;
+    id: string;
+    seed: string;
+  };
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
     market: string;
+    obligation: string;
     reserve: string;
   };
   vault: {
@@ -121,10 +127,20 @@ export function serializePreparedEarnUsdcWithdraw(
       withdrawInstructionConstraintIndex:
         preparedWithdraw.policy.withdrawInstructionConstraintIndex,
     },
+    ...(preparedWithdraw.setupPolicy
+      ? {
+          setupPolicy: {
+            account: preparedWithdraw.setupPolicy.account.toBase58(),
+            id: preparedWithdraw.setupPolicy.id.toString(),
+            seed: preparedWithdraw.setupPolicy.seed.toString(),
+          },
+        }
+      : {}),
     prepared: serializePreparedOperation(preparedWithdraw.prepared),
     targetReserve: {
       liquidityMint: preparedWithdraw.targetReserve.liquidityMint.toBase58(),
       market: preparedWithdraw.targetReserve.market.toBase58(),
+      obligation: preparedWithdraw.targetReserve.obligation.toBase58(),
       reserve: preparedWithdraw.targetReserve.reserve.toBase58(),
     },
     vault: {
@@ -155,10 +171,20 @@ export function hydratePreparedEarnUsdcWithdraw(
       withdrawInstructionConstraintIndex:
         wire.policy.withdrawInstructionConstraintIndex,
     },
+    ...(wire.setupPolicy
+      ? {
+          setupPolicy: {
+            account: new PublicKey(wire.setupPolicy.account),
+            id: BigInt(wire.setupPolicy.id),
+            seed: BigInt(wire.setupPolicy.seed),
+          },
+        }
+      : {}),
     prepared: hydratePreparedOperation(wire.prepared),
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
       market: new PublicKey(wire.targetReserve.market),
+      obligation: new PublicKey(wire.targetReserve.obligation),
       reserve: new PublicKey(wire.targetReserve.reserve),
     },
     vault: {

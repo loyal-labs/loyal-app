@@ -20,6 +20,11 @@ export type EarnPolicyConfirmRequestBody = {
   policyId: string;
   policySeed: string;
   policySignature: string;
+  setupPolicyAccount?: string | null;
+  setupPolicyConfirmedSlot?: string | null;
+  setupPolicyId?: string | null;
+  setupPolicySeed?: string | null;
+  setupPolicySignature?: string | null;
   settings: string;
   targetReserve: string;
   vaultIndex: number;
@@ -37,11 +42,17 @@ export type EarnDepositConfirmRequestBody = {
   market: string | null;
   policyAccount: string;
   policyId: string;
+  policyConfirmedSlot?: string | null;
   policyInitialization: "create" | "reuse";
   policySeed: string;
   policySignature: string;
   principalAmountRaw: string;
   settings: string;
+  setupPolicyAccount?: string | null;
+  setupPolicyConfirmedSlot?: string | null;
+  setupPolicyId?: string | null;
+  setupPolicySeed?: string | null;
+  setupPolicySignature?: string | null;
   smartAccountAddress: string;
   targetReserve: string;
   targetSupplyApyBps: string | null;
@@ -69,6 +80,9 @@ export type EarnWithdrawalConfirmRequestBody = {
   policyAccount: string;
   policyId: string;
   policySeed: string;
+  setupPolicyAccount?: string | null;
+  setupPolicyId?: string | null;
+  setupPolicySeed?: string | null;
   settings: string;
   smartAccountAddress: string;
   targetReserve: string;
@@ -193,23 +207,32 @@ export function buildEarnPolicyConfirmRequestBody({
   confirmedSlot,
   preparedPolicy,
   signature,
+  setupPolicyConfirmedSlot,
+  setupPolicySignature,
 }: {
   preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
   signature: string;
   confirmedSlot: string;
+  setupPolicySignature?: string;
+  setupPolicyConfirmedSlot?: string;
 }): EarnPolicyConfirmRequestBody {
   return {
     ...preparedPolicy.persistence,
     policySignature: signature,
+    setupPolicySignature,
+    setupPolicyConfirmedSlot,
     confirmedSlot,
   };
 }
 
 export function buildEarnDepositConfirmRequestBody({
   confirmedSlot,
+  policyConfirmedSlot,
   policySignature,
   preparedDeposit,
   signature,
+  setupPolicyConfirmedSlot,
+  setupPolicySignature,
   smartAccountAddress,
 }: {
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
@@ -217,11 +240,17 @@ export function buildEarnDepositConfirmRequestBody({
   confirmedSlot: string;
   smartAccountAddress: string;
   policySignature?: string;
+  policyConfirmedSlot?: string;
+  setupPolicySignature?: string;
+  setupPolicyConfirmedSlot?: string;
 }): EarnDepositConfirmRequestBody {
   return {
     ...preparedDeposit.persistence,
     smartAccountAddress,
     policySignature: policySignature ?? signature,
+    policyConfirmedSlot,
+    setupPolicySignature,
+    setupPolicyConfirmedSlot,
     depositSignature: signature,
     confirmedSlot,
   };
@@ -275,6 +304,14 @@ export function parseEarnPolicyConfirmRequestBody(
     policyId: readBigIntString(record, "policyId"),
     policySeed: readBigIntString(record, "policySeed"),
     policySignature: readRequiredString(record, "policySignature"),
+    setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
+    setupPolicyConfirmedSlot: readOptionalBigIntString(
+      record,
+      "setupPolicyConfirmedSlot"
+    ),
+    setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
+    setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
+    setupPolicySignature: readOptionalString(record, "setupPolicySignature"),
     settings: readRequiredString(record, "settings"),
     targetReserve: readRequiredString(record, "targetReserve"),
     vaultIndex: readVaultIndex(record),
@@ -297,11 +334,20 @@ export function parseEarnDepositConfirmRequestBody(
     market: readOptionalString(record, "market"),
     policyAccount: readRequiredString(record, "policyAccount"),
     policyId: readBigIntString(record, "policyId"),
+    policyConfirmedSlot: readOptionalBigIntString(record, "policyConfirmedSlot"),
     policyInitialization: readPolicyInitialization(record),
     policySeed: readBigIntString(record, "policySeed"),
     policySignature: readRequiredString(record, "policySignature"),
     principalAmountRaw: readBigIntString(record, "principalAmountRaw"),
     settings: readRequiredString(record, "settings"),
+    setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
+    setupPolicyConfirmedSlot: readOptionalBigIntString(
+      record,
+      "setupPolicyConfirmedSlot"
+    ),
+    setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
+    setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
+    setupPolicySignature: readOptionalString(record, "setupPolicySignature"),
     smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
     targetReserve: readRequiredString(record, "targetReserve"),
     targetSupplyApyBps: readOptionalBigIntString(record, "targetSupplyApyBps"),
@@ -327,6 +373,9 @@ export function parseEarnWithdrawalConfirmRequestBody(
     policyAccount: readRequiredString(record, "policyAccount"),
     policyId: readBigIntString(record, "policyId"),
     policySeed: readBigIntString(record, "policySeed"),
+    setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
+    setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
+    setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
     settings: readRequiredString(record, "settings"),
     smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
     targetReserve: readRequiredString(record, "targetReserve"),

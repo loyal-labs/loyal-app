@@ -61,9 +61,14 @@ function createCanonicalPolicyInput(
   const cluster = normalizeLoyalCluster(requestInput.cluster);
   const normalizedRequestInput = { ...requestInput, cluster };
   const settings = new PublicKey(requestInput.settings);
+  const expectedSetupPolicySeed = requestInput.policySeed + BigInt(1);
   const expectedPolicyAccount = pda.getPolicyPda({
     settingsPda: settings,
     policySeed: toSafePolicySeed(requestInput.policySeed),
+  })[0];
+  const expectedSetupPolicyAccount = pda.getPolicyPda({
+    settingsPda: settings,
+    policySeed: toSafePolicySeed(expectedSetupPolicySeed),
   })[0];
   const expectedVault = pda.getSmartAccountPda({
     settingsPda: settings,
@@ -78,6 +83,9 @@ function createCanonicalPolicyInput(
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
+    setupPolicyAccount: expectedSetupPolicyAccount.toBase58(),
+    setupPolicyId: expectedSetupPolicySeed,
+    setupPolicySeed: expectedSetupPolicySeed,
     targetReserve: earnTarget.reserve.toBase58(),
     vaultIndex: EARN_POLICY_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
@@ -113,6 +121,32 @@ function createCanonicalPolicyInput(
     requestInput.policySeed,
     canonicalInput.policySeed,
     "policySeed"
+  );
+  if (!requestInput.setupPolicySignature) {
+    throw new Error("setupPolicySignature is required for policy setup.");
+  }
+  if (
+    requestInput.setupPolicyConfirmedSlot === null ||
+    requestInput.setupPolicyConfirmedSlot === undefined
+  ) {
+    throw new Error(
+      "setupPolicyConfirmedSlot is required for policy setup."
+    );
+  }
+  assertCanonicalField(
+    requestInput.setupPolicyAccount ?? null,
+    canonicalInput.setupPolicyAccount,
+    "setupPolicyAccount"
+  );
+  assertCanonicalField(
+    requestInput.setupPolicyId ?? null,
+    canonicalInput.setupPolicyId,
+    "setupPolicyId"
+  );
+  assertCanonicalField(
+    requestInput.setupPolicySeed ?? null,
+    canonicalInput.setupPolicySeed,
+    "setupPolicySeed"
   );
   assertCanonicalField(
     requestInput.targetReserve,
@@ -153,6 +187,7 @@ function getConnection(cluster: SolanaEnv): Connection {
 
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
+  operation: "route policy setup" | "setup policy setup";
   signature: string;
 }): Promise<bigint> {
   const { value } = await getConnection(args.cluster).getSignatureStatuses(
@@ -162,14 +197,14 @@ async function resolveConfirmedSignatureSlot(args: {
   const status = value[0];
 
   if (!status || status.err) {
-    throw new Error("Policy setup transaction is not confirmed.");
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
   if (
     status.confirmationStatus !== "confirmed" &&
     status.confirmationStatus !== "finalized"
   ) {
-    throw new Error("Policy setup transaction is not confirmed.");
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
   if (typeof status.slot !== "number") {
@@ -244,6 +279,7 @@ export async function POST(request: Request) {
   try {
     confirmedSlot = await resolveConfirmedSignatureSlot({
       cluster: solanaEnv,
+      operation: "route policy setup",
       signature: input.policySignature,
     });
   } catch (error) {
@@ -261,6 +297,31 @@ export async function POST(request: Request) {
       400,
       "slot_mismatch",
       "Confirmed yield policy slot does not match the transaction status."
+    );
+  }
+
+  let setupPolicyConfirmedSlot: bigint;
+  try {
+    setupPolicyConfirmedSlot = await resolveConfirmedSignatureSlot({
+      cluster: solanaEnv,
+      operation: "setup policy setup",
+      signature: input.setupPolicySignature ?? "",
+    });
+  } catch (error) {
+    return jsonError(
+      400,
+      "unconfirmed_setup_policy_signature",
+      error instanceof Error
+        ? error.message
+        : "Setup policy transaction is not confirmed."
+    );
+  }
+
+  if (input.setupPolicyConfirmedSlot !== setupPolicyConfirmedSlot) {
+    return jsonError(
+      400,
+      "setup_policy_slot_mismatch",
+      "Confirmed setup policy slot does not match the transaction status."
     );
   }
 

@@ -17,11 +17,26 @@ import {
   getKaminoUsdcEarnTargetForCluster,
 } from "../packages/loyal-actions/src/index.ts";
 import {
-  createSmartAccountVaultsClient,
   sendPreparedWithWallet,
 } from "../packages/smart-account-vaults/src/index.ts";
 import { compilePreparedOperation } from "../sdk/loyal-smart-accounts-core/src/index.ts";
 import { PROGRAM_ADDRESS, pda } from "../sdk/loyal-smart-accounts/src/index.ts";
+import {
+  buildEarnDepositConfirmRequestBody,
+  buildEarnWithdrawalConfirmRequestBody,
+} from "../frontend/src/lib/yield-optimization/earn-confirm-contracts.shared.ts";
+import {
+  hydratePreparedEarnUsdcDeposit,
+  type EarnDepositPrepareResponse,
+} from "../frontend/src/lib/yield-optimization/earn-deposit-prepare-contracts.shared.ts";
+import {
+  hydratePreparedEarnUsdcWithdraw,
+  type EarnWithdrawPrepareResponse,
+} from "../frontend/src/lib/yield-optimization/earn-withdraw-prepare-contracts.shared.ts";
+import type {
+  SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
+} from "../packages/smart-account-vaults/src/types.ts";
 import {
   getSolanaEndpoints,
   resolveSolanaEnv,
@@ -81,6 +96,14 @@ const RESUME_FIRST_DEPOSIT_SIGNATURE =
   process.env.EARN_FIRST_DEPOSIT_SIGNATURE?.trim() || null;
 const RESUME_FIRST_DEPOSIT_SLOT =
   process.env.EARN_FIRST_DEPOSIT_SLOT?.trim() || null;
+const RESUME_FIRST_POLICY_SIGNATURE =
+  process.env.EARN_FIRST_POLICY_SIGNATURE?.trim() || null;
+const RESUME_FIRST_POLICY_SLOT =
+  process.env.EARN_FIRST_POLICY_SLOT?.trim() || null;
+const RESUME_FIRST_SETUP_POLICY_SIGNATURE =
+  process.env.EARN_FIRST_SETUP_POLICY_SIGNATURE?.trim() || null;
+const RESUME_FIRST_SETUP_POLICY_SLOT =
+  process.env.EARN_FIRST_SETUP_POLICY_SLOT?.trim() || null;
 const RESUME_TOP_UP_DEPOSIT_SIGNATURE =
   process.env.EARN_TOP_UP_DEPOSIT_SIGNATURE?.trim() || null;
 const RESUME_TOP_UP_DEPOSIT_SLOT =
@@ -123,28 +146,6 @@ function loadTestingKeypair(): Keypair {
   }
 
   return Keypair.fromSecretKey(bs58.decode(trimmed));
-}
-
-function loadDeploymentPolicySigner(): PublicKey {
-  const raw = process.env.DEPLOYMENT_PK;
-  if (!raw) {
-    throw new Error("DEPLOYMENT_PK is not set.");
-  }
-
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("[")) {
-    return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(trimmed))).publicKey;
-  }
-
-  if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
-    return Keypair.fromSecretKey(
-      Uint8Array.from(
-        trimmed.match(/../g)!.map((byte) => Number.parseInt(byte, 16))
-      )
-    ).publicKey;
-  }
-
-  return Keypair.fromSecretKey(bs58.decode(trimmed)).publicKey;
 }
 
 function assertDevnet() {
@@ -257,16 +258,6 @@ async function resolveConfirmedSignatureSlot(args: {
   return status.slot.toString();
 }
 
-function hasEarnPolicy(overview: OverviewResponse["data"]): boolean {
-	  return (
-	    overview?.policies?.some(
-	      (policy) =>
-	        policy.state === "ProgramInteraction" &&
-	        policy.accountIndex === 1
-	    ) ?? false
-  );
-}
-
 async function fetchOverview(cookie: string) {
   const response = await getJson<OverviewResponse>(
     "/api/smart-accounts/overview/base",
@@ -370,90 +361,73 @@ async function ensureDevnetVaultCollateralAta(args: {
   console.log(`collateral ATA ready: ${collateralAta.toBase58()}`);
 }
 
-async function ensureEarnYieldRoutingPolicy(args: {
-  connection: Connection;
-  policySigner: PublicKey;
-  wallet: Keypair;
-  overview: NonNullable<OverviewResponse["data"]>;
-}) {
-  const settings = new PublicKey(args.overview.settingsPda);
-  const client = createSmartAccountVaultsClient({
-    connection: args.connection,
-    programId: PROGRAM_ID,
-  });
-  const policyOverview = await client.fetchPolicyOverview({
-    settingsPda: settings,
-    rootSigners: [],
-  });
-  const onChainEarnPolicy = policyOverview.policies.find(
-    (policy) =>
-      policy.state === "ProgramInteraction" && policy.accountIndex === 1
+async function prepareDeposit(args: {
+  amountRaw: bigint;
+  cookie: string;
+}): Promise<SmartAccountPreparedEarnUsdcDeposit> {
+  const response = await postJson<EarnDepositPrepareResponse>(
+    "/api/smart-accounts/yield-optimization/deposits/prepare",
+    { amountRaw: args.amountRaw.toString() },
+    args.cookie
   );
-
-  if (onChainEarnPolicy || hasEarnPolicy(args.overview)) {
-    console.log("earn policy already initialized");
-    return;
-  }
-
-  const prepared = await client.prepareEarnUsdcYieldRoutingPolicy({
-    cluster: LoyalCluster.Devnet,
-    feePayer: args.wallet.publicKey,
-    settingsPda: settings,
-    signer: args.policySigner,
-    walletAddress: args.wallet.publicKey,
-  });
-  const { signature } = await executePrepared({
-    label: "earn policy initialization",
-    connection: args.connection,
-    wallet: args.wallet,
-    prepared,
-  });
-  console.log(`earn policy initialized: ${signature}`);
+  return hydratePreparedEarnUsdcDeposit(response.body.preparedDeposit);
 }
 
 async function confirmDeposit(args: {
   cookie: string;
-  preparedDeposit: Awaited<
-    ReturnType<
-      ReturnType<typeof createSmartAccountVaultsClient>["prepareEarnUsdcDeposit"]
-    >
-  >;
+  policyConfirmedSlot?: string;
+  policySignature?: string;
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  setupPolicyConfirmedSlot?: string;
+  setupPolicySignature?: string;
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
 }) {
   return postJson<PositionResponse>(
     "/api/smart-accounts/yield-optimization/deposits/confirm",
-    {
-      ...args.preparedDeposit.persistence,
+    buildEarnDepositConfirmRequestBody({
       smartAccountAddress: args.smartAccountAddress,
-      policySignature: args.signature,
-      depositSignature: args.signature,
+      policyConfirmedSlot: args.policyConfirmedSlot,
+      policySignature: args.policySignature,
+      preparedDeposit: args.preparedDeposit,
+      setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot,
+      setupPolicySignature: args.setupPolicySignature,
+      signature: args.signature,
       confirmedSlot: args.confirmedSlot,
-    },
+    }),
     args.cookie
   );
 }
 
+async function prepareWithdrawal(args: {
+  amountRaw: bigint;
+  cookie: string;
+  mode: "partial" | "full";
+}): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
+  const response = await postJson<EarnWithdrawPrepareResponse>(
+    "/api/smart-accounts/yield-optimization/withdrawals/prepare",
+    { amountRaw: args.amountRaw.toString(), mode: args.mode },
+    args.cookie
+  );
+  return hydratePreparedEarnUsdcWithdraw(response.body.preparedWithdraw);
+}
+
 async function confirmWithdrawal(args: {
   cookie: string;
-  preparedWithdraw: Awaited<
-    ReturnType<
-      ReturnType<typeof createSmartAccountVaultsClient>["prepareEarnUsdcWithdraw"]
-    >
-  >;
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
 }) {
   return postJson<PositionResponse>(
     "/api/smart-accounts/yield-optimization/withdrawals/confirm",
-    {
-      ...args.preparedWithdraw.persistence,
+    buildEarnWithdrawalConfirmRequestBody({
       smartAccountAddress: args.smartAccountAddress,
-      withdrawalSignature: args.signature,
+      preparedWithdraw: args.preparedWithdraw,
+      signature: args.signature,
       confirmedSlot: args.confirmedSlot,
-    },
+    }),
     args.cookie
   );
 }
@@ -501,12 +475,7 @@ async function main() {
   assertDevnet();
 
   const wallet = loadTestingKeypair();
-  const policySigner = loadDeploymentPolicySigner();
   const connection = new Connection(RPC_URL, { commitment: "confirmed" });
-  const client = createSmartAccountVaultsClient({
-    connection,
-    programId: PROGRAM_ID,
-  });
 
   console.log(`API: ${API_BASE_URL}`);
   console.log(`RPC: ${RPC_URL}`);
@@ -536,25 +505,41 @@ async function main() {
 	    wallet,
 	    vaultPda: earnVaultPda,
 	  });
-	  await ensureEarnYieldRoutingPolicy({
-	    connection,
-	    policySigner,
-	    wallet,
-	    overview,
-	  });
-	  overview = {
-	    ...overview,
-	    policies: await fetchPolicies(cookie),
-	  };
-	  const firstDeposit = await client.prepareEarnUsdcDeposit({
-	    settingsPda,
-	    walletAddress: wallet.publicKey,
-	    feePayer: wallet.publicKey,
-	    policySigner,
+	  const firstDeposit = await prepareDeposit({
 	    amountRaw: FIRST_DEPOSIT_RAW,
-	    cluster: LoyalCluster.Devnet,
-	    initializeYieldRoutingPolicy: false,
+	    cookie,
 	  });
+  let firstPolicySignature = RESUME_FIRST_POLICY_SIGNATURE;
+  let firstPolicyConfirmedSlot = RESUME_FIRST_POLICY_SLOT;
+  let firstSetupPolicySignature = RESUME_FIRST_SETUP_POLICY_SIGNATURE;
+  let firstSetupPolicyConfirmedSlot = RESUME_FIRST_SETUP_POLICY_SLOT;
+  if (firstDeposit.policySetupPrepared) {
+    if (!firstDeposit.policyFinalizePrepared || !firstDeposit.setupPolicy) {
+      throw new Error(
+        "first deposit prepare did not include the setup init-obligation policy transaction"
+      );
+    }
+    if (!firstPolicySignature) {
+      const policyTx = await executePrepared({
+        label: "earn route policy setup",
+        connection,
+        wallet,
+        prepared: firstDeposit.policySetupPrepared,
+      });
+      firstPolicySignature = policyTx.signature;
+      firstPolicyConfirmedSlot = policyTx.confirmedSlot;
+    }
+    if (!firstSetupPolicySignature) {
+      const setupPolicyTx = await executePrepared({
+        label: "earn init-obligation policy setup",
+        connection,
+        wallet,
+        prepared: firstDeposit.policyFinalizePrepared,
+      });
+      firstSetupPolicySignature = setupPolicyTx.signature;
+      firstSetupPolicyConfirmedSlot = setupPolicyTx.confirmedSlot;
+    }
+  }
 	  const firstDepositTx = RESUME_FIRST_DEPOSIT_SIGNATURE
 	    ? {
 	        signature: RESUME_FIRST_DEPOSIT_SIGNATURE,
@@ -579,6 +564,10 @@ async function main() {
 	  await confirmDeposit({
 	    cookie,
 	    preparedDeposit: firstDeposit,
+    policyConfirmedSlot: firstPolicyConfirmedSlot ?? undefined,
+    policySignature: firstPolicySignature ?? undefined,
+    setupPolicyConfirmedSlot: firstSetupPolicyConfirmedSlot ?? undefined,
+    setupPolicySignature: firstSetupPolicySignature ?? undefined,
     signature: firstDepositTx.signature,
     confirmedSlot: firstDepositTx.confirmedSlot,
     smartAccountAddress: overview.canonicalVaultAddress,
@@ -589,14 +578,9 @@ async function main() {
     policies: await fetchPolicies(cookie),
   };
 
-	  const topUpDeposit = await client.prepareEarnUsdcDeposit({
-	    settingsPda,
-	    walletAddress: wallet.publicKey,
-	    feePayer: wallet.publicKey,
-	    policySigner,
+	  const topUpDeposit = await prepareDeposit({
 	    amountRaw: TOP_UP_DEPOSIT_RAW,
-	    cluster: LoyalCluster.Devnet,
-	    initializeYieldRoutingPolicy: false,
+	    cookie,
 	  });
 	  const topUpTx = RESUME_TOP_UP_DEPOSIT_SIGNATURE
 	    ? {
@@ -627,13 +611,9 @@ async function main() {
     smartAccountAddress: overview.canonicalVaultAddress,
   });
 
-	  const partialWithdraw = await client.prepareEarnUsdcWithdraw({
-	    settingsPda,
-	    walletAddress: wallet.publicKey,
-	    feePayer: wallet.publicKey,
-	    policySigner,
+	  const partialWithdraw = await prepareWithdrawal({
 	    amountRaw: PARTIAL_WITHDRAW_RAW,
-	    cluster: LoyalCluster.Devnet,
+	    cookie,
 	    mode: "partial",
 	  });
 	  const partialWithdrawTx = RESUME_PARTIAL_WITHDRAW_SIGNATURE
@@ -667,13 +647,9 @@ async function main() {
 
   const remainingRaw =
     FIRST_DEPOSIT_RAW + TOP_UP_DEPOSIT_RAW - PARTIAL_WITHDRAW_RAW;
-	  const fullWithdraw = await client.prepareEarnUsdcWithdraw({
-	    settingsPda,
-	    walletAddress: wallet.publicKey,
-	    feePayer: wallet.publicKey,
-	    policySigner,
+	  const fullWithdraw = await prepareWithdrawal({
 	    amountRaw: remainingRaw,
-	    cluster: LoyalCluster.Devnet,
+	    cookie,
 	    mode: "full",
 	  });
 	  const fullWithdrawTx = RESUME_FULL_WITHDRAW_SIGNATURE

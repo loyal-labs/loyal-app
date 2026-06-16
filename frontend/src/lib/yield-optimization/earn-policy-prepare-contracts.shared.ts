@@ -18,10 +18,17 @@ export type WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
     id: string;
     seed: string;
   };
+  setupPolicy: {
+    account: string;
+    id: string;
+    initObligationInstructionConstraintIndex: 0;
+    seed: string;
+  };
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
     market: string;
+    obligation: string;
     reserve: string;
   };
   vault: {
@@ -47,10 +54,18 @@ export function serializePreparedEarnUsdcYieldRoutingPolicy(
       id: preparedPolicy.policy.id.toString(),
       seed: preparedPolicy.policy.seed.toString(),
     },
+    setupPolicy: {
+      account: preparedPolicy.setupPolicy.account.toBase58(),
+      id: preparedPolicy.setupPolicy.id.toString(),
+      initObligationInstructionConstraintIndex:
+        preparedPolicy.setupPolicy.initObligationInstructionConstraintIndex,
+      seed: preparedPolicy.setupPolicy.seed.toString(),
+    },
     prepared: serializePreparedOperation(preparedPolicy.prepared),
     targetReserve: {
       liquidityMint: preparedPolicy.targetReserve.liquidityMint.toBase58(),
       market: preparedPolicy.targetReserve.market.toBase58(),
+      obligation: preparedPolicy.targetReserve.obligation.toBase58(),
       reserve: preparedPolicy.targetReserve.reserve.toBase58(),
     },
     vault: {
@@ -73,10 +88,18 @@ export function hydratePreparedEarnUsdcYieldRoutingPolicy(
       id: BigInt(wire.policy.id),
       seed: BigInt(wire.policy.seed),
     },
+    setupPolicy: {
+      account: new PublicKey(wire.setupPolicy.account),
+      id: BigInt(wire.setupPolicy.id),
+      initObligationInstructionConstraintIndex:
+        wire.setupPolicy.initObligationInstructionConstraintIndex,
+      seed: BigInt(wire.setupPolicy.seed),
+    },
     prepared: hydratePreparedOperation(wire.prepared),
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
       market: new PublicKey(wire.targetReserve.market),
+      obligation: new PublicKey(wire.targetReserve.obligation),
       reserve: new PublicKey(wire.targetReserve.reserve),
     },
     vault: {

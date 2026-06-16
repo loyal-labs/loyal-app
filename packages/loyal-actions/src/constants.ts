@@ -170,6 +170,7 @@ export function getRiskBasketMarketsForCluster(
 
 export function getKaminoUsdcEarnTargetForCluster(cluster: LoyalCluster): {
   depositDiscriminator: readonly number[];
+  initObligationDiscriminator: readonly number[];
   liquidityMint: Address;
   lendProgramId: Address;
   market: Address;
@@ -180,6 +181,7 @@ export function getKaminoUsdcEarnTargetForCluster(cluster: LoyalCluster): {
     return {
       depositDiscriminator:
         KAMINO_DEVNET_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
+      initObligationDiscriminator: KAMINO_INIT_OBLIGATION_DISCRIMINATOR,
       liquidityMint: getStablecoinMintForCluster(cluster, Stablecoin.USDC),
       lendProgramId: KAMINO_DEVNET_LEND_PROGRAM_ID,
       market: KAMINO_DEVNET_MAIN_MARKET,
@@ -191,6 +193,7 @@ export function getKaminoUsdcEarnTargetForCluster(cluster: LoyalCluster): {
 
   return {
     depositDiscriminator: KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
+    initObligationDiscriminator: KAMINO_INIT_OBLIGATION_DISCRIMINATOR,
     liquidityMint: getStablecoinMintForCluster(cluster, Stablecoin.USDC),
     lendProgramId: KAMINO_LEND_PROGRAM_ID,
     market: KAMINO_MAIN_MARKET,
@@ -217,6 +220,14 @@ export const KAMINO_DEVNET_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR = [
 export const KAMINO_DEVNET_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR = [
   234, 117, 181, 125, 185, 142, 220, 29,
 ] as const;
+export const KAMINO_INIT_OBLIGATION_DISCRIMINATOR = [
+  251, 10, 231, 76, 27, 11, 159, 96,
+] as const;
+export const KAMINO_VANILLA_OBLIGATION_TAG = 0;
+export const KAMINO_VANILLA_OBLIGATION_ID = 0;
+export const KAMINO_USER_METADATA_SEED = new TextEncoder().encode(
+  "user_meta"
+);
 
 export const JUPITER_SWAP_DISCRIMINATOR = [
   187, 100, 250, 204, 49, 196, 175, 20,

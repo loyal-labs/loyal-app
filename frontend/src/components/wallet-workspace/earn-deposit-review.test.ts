@@ -74,6 +74,7 @@ function createPreparedDeposit(args: {
     targetReserve: {
       liquidityMint: PUBLIC_KEY,
       market: PUBLIC_KEY,
+      obligation: PUBLIC_KEY,
       reserve: PUBLIC_KEY,
     },
   } as SmartAccountPreparedEarnUsdcDeposit;
@@ -84,6 +85,7 @@ function createPreparedWithdraw(): SmartAccountPreparedEarnUsdcWithdraw {
     targetReserve: {
       liquidityMint: PUBLIC_KEY,
       market: PUBLIC_KEY,
+      obligation: PUBLIC_KEY,
       reserve: PUBLIC_KEY,
     },
   } as SmartAccountPreparedEarnUsdcWithdraw;
@@ -127,7 +129,7 @@ describe("Earn deposit review", () => {
       "Approval #2",
       "Approval #3",
     ]);
-    expect(textOf(item)).toContain("Finalize Safe Earn routing");
+    expect(textOf(item)).toContain("Set up Earn obligation");
   });
 
   test("top-up deposit shows a single deposit approval", () => {

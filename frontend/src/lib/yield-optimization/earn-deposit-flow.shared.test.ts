@@ -42,10 +42,14 @@ describe("Earn deposit flow helpers", () => {
     ]);
     expect(
       resolveEarnDepositConfirmPolicySignature({
+        policyConfirmedSlot: "121",
         policySignature: "setup-signature",
         preparedDeposit,
       })
-    ).toEqual({ policySignature: "setup-signature" });
+    ).toEqual({
+      policyConfirmedSlot: "121",
+      policySignature: "setup-signature",
+    });
   });
 
   test("first deposit with finalize requires setup, finalize, then deposit", () => {
@@ -62,10 +66,36 @@ describe("Earn deposit flow helpers", () => {
     ]);
     expect(
       resolveEarnDepositConfirmPolicySignature({
-        policySignature: "finalize-signature",
+        policyConfirmedSlot: "121",
+        policySignature: "policy-signature",
         preparedDeposit,
+        setupPolicyConfirmedSlot: "122",
+        setupPolicySignature: "setup-policy-signature",
       })
-    ).toEqual({ policySignature: "finalize-signature" });
+    ).toEqual({
+      policyConfirmedSlot: "121",
+      policySignature: "policy-signature",
+      setupPolicyConfirmedSlot: "122",
+      setupPolicySignature: "setup-policy-signature",
+    });
+  });
+
+  test("first deposit with finalize rejects missing setup policy signature", () => {
+    const preparedDeposit = createPreparedDeposit({
+      finalize: true,
+      policyInitialization: "create",
+      setup: true,
+    });
+
+    const resolution = resolveEarnDepositConfirmPolicySignature({
+      policyConfirmedSlot: "121",
+      policySignature: "policy-signature",
+      preparedDeposit,
+    });
+
+    expect("error" in resolution ? resolution.error : "").toContain(
+      "setup policy signature"
+    );
   });
 
   test("top-up uses the active policy signature", () => {
@@ -81,11 +111,15 @@ describe("Earn deposit flow helpers", () => {
         activePolicy: {
           account: POLICY_ACCOUNT.toBase58(),
           lastSeenSignature: "active-policy-signature",
+          lastSeenSlot: "121",
           seed: "7",
         },
         preparedDeposit,
       })
-    ).toEqual({ policySignature: "active-policy-signature" });
+    ).toEqual({
+      policyConfirmedSlot: "121",
+      policySignature: "active-policy-signature",
+    });
   });
 
   test("top-up rejects a missing active policy signature", () => {
