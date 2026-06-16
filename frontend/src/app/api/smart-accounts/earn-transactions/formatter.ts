@@ -1,4 +1,5 @@
 import type { EarnAutodepositHistoryEventRecord } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { resolveEarnTransactionMarketLabel } from "@/lib/yield-optimization/earn-position-display";
 import type { UserYieldPositionHistoryEventRecord } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const AUTODEPOSIT_LABEL = "Autodeposit";
@@ -86,16 +87,6 @@ function formatTimestamp(date: Date): string {
   });
 }
 
-function shortReserveLabel(reserve: string | null | undefined): string {
-  if (!reserve) {
-    return "Unknown reserve";
-  }
-  if (reserve.length <= 10) {
-    return reserve;
-  }
-  return `${reserve.slice(0, 4)}...${reserve.slice(-4)}`;
-}
-
 function serializeKind(
   event: UserYieldPositionHistoryEventRecord
 ): Exclude<EarnTransactionKind, "autodeposit_action" | "balance_sweep"> {
@@ -118,6 +109,9 @@ function resolveTransactionAmountRaw(args: {
   const { event, kind } = args;
   if (kind === "deposit" || kind === "withdraw") {
     return event.principalDeltaRaw ?? event.amountRaw;
+  }
+  if (event.principalAmountRaw > BigInt(0)) {
+    return event.principalAmountRaw;
   }
 
   return event.amountRaw;
@@ -176,15 +170,23 @@ export function serializeEarnTransactionEvent(
   const transactionAmountRaw = resolveTransactionAmountRaw({ event, kind });
   const isMovement = kind === "rebalance" || kind === "reconciliation";
   const sourceLabel = isMovement
-    ? shortReserveLabel(event.sourceReserve)
+    ? resolveEarnTransactionMarketLabel({
+        liquidityMint: event.sourceLiquidityMint,
+        market: event.sourceMarket,
+        reserve: event.sourceReserve,
+      })
     : kind === "deposit"
-      ? MAIN_USDC_LABEL
-      : EARN_VAULT_LABEL;
+    ? MAIN_USDC_LABEL
+    : EARN_VAULT_LABEL;
   const destinationLabel = isMovement
-    ? shortReserveLabel(event.destinationReserve)
+    ? resolveEarnTransactionMarketLabel({
+        liquidityMint: event.destinationLiquidityMint,
+        market: event.destinationMarket,
+        reserve: event.destinationReserve,
+      })
     : kind === "deposit"
-      ? EARN_VAULT_LABEL
-      : MAIN_USDC_LABEL;
+    ? EARN_VAULT_LABEL
+    : MAIN_USDC_LABEL;
 
   return {
     amount: formatDisplayUsdcAmount(transactionAmountRaw, direction),

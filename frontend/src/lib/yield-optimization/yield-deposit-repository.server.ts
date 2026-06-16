@@ -2,12 +2,14 @@ import "server-only";
 
 import {
   RiskBasket,
-  createVaultYieldRoutingPolicyPlan,
+  createYieldRoutePolicyPlan,
+  createYieldRouteSetupPolicyPlan,
   normalizeLoyalCluster,
-  type VaultYieldRoutingPolicyPlan,
+  type YieldRoutePolicyPlan,
+  type YieldRouteSetupPolicyPlan,
 } from "@loyal-labs/actions";
 import { PublicKey } from "@solana/web3.js";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import {
   getYieldOptimizationClient,
@@ -37,6 +39,12 @@ export type ConfirmedYieldDepositInput = {
   policyInitialization: "create" | "reuse";
   policySeed: bigint;
   policySignature: string;
+  policyConfirmedSlot?: bigint | null;
+  setupPolicyId?: bigint | null;
+  setupPolicyAccount?: string | null;
+  setupPolicySeed?: bigint | null;
+  setupPolicySignature?: string | null;
+  setupPolicyConfirmedSlot?: bigint | null;
   depositSignature: string;
   confirmedSlot: bigint;
   targetReserve: string;
@@ -58,6 +66,12 @@ export type ConfirmedYieldRoutePolicyInput = {
   policyAccount: string;
   policySeed: bigint;
   policySignature: string;
+  policyConfirmedSlot?: bigint | null;
+  setupPolicyId?: bigint | null;
+  setupPolicyAccount?: string | null;
+  setupPolicySeed?: bigint | null;
+  setupPolicySignature?: string | null;
+  setupPolicyConfirmedSlot?: bigint | null;
   confirmedSlot: bigint;
   targetReserve: string;
   market: string | null;
@@ -84,7 +98,12 @@ export type UserYieldPositionHistoryEventRecord = {
   principalDeltaRaw: bigint | null;
   liquidityMint: string;
   sourceReserve?: string | null;
+  sourceMarket?: string | null;
+  sourceLiquidityMint?: string | null;
   destinationReserve?: string | null;
+  destinationMarket?: string | null;
+  destinationLiquidityMint?: string | null;
+  principalAmountRaw: bigint;
   signature: string;
   type: "deposit" | "withdrawal" | "rebalance" | "reconciliation";
 };
@@ -125,6 +144,9 @@ export type ConfirmedYieldWithdrawalInput = {
   policyId: bigint;
   policyAccount: string;
   policySeed: bigint;
+  setupPolicyId?: bigint | null;
+  setupPolicyAccount?: string | null;
+  setupPolicySeed?: bigint | null;
   withdrawalSignature: string;
   confirmedSlot: bigint;
   targetReserve: string;
@@ -198,12 +220,35 @@ export type YieldPositionVerificationFailure = {
   reason: YieldPositionVerificationFailureReason;
 };
 
+export type ActiveYieldRoutePolicyPair = {
+  routePolicy: RoutePolicyRecord;
+  setupPolicy: RoutePolicyRecord | null;
+};
+
 type YieldDepositRepositoryDependencies = {
   client: YieldOptimizationClient;
   now: () => Date;
 };
 
 type AggregatePositionUpsertMode = "increment-principal" | "recover-principal";
+
+function sortYieldPositionHistoryEventsDescending(
+  events: UserYieldPositionHistoryEventRecord[]
+): UserYieldPositionHistoryEventRecord[] {
+  return [...events].sort((a, b) => {
+    const confirmedAtDelta = b.confirmedAt.getTime() - a.confirmedAt.getTime();
+    if (confirmedAtDelta !== 0) {
+      return confirmedAtDelta;
+    }
+
+    const signatureDelta = a.signature.localeCompare(b.signature);
+    if (signatureDelta !== 0) {
+      return signatureDelta;
+    }
+
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
 
 function createDependencies(): YieldDepositRepositoryDependencies {
   return {
@@ -353,33 +398,48 @@ async function deactivateVaultAfterFullWithdrawal(
   dependencies: Pick<YieldDepositRepositoryDependencies, "client">,
   now: Date
 ): Promise<void> {
-  await dependencies.client.db.batch([
-    dependencies.client.db
-      .update(routePolicies)
-      .set({
-        active: false,
-        lastSeenAt: now,
-        lastSeenSignature: input.withdrawalSignature,
-        lastSeenSlot: input.confirmedSlot,
-      })
-      .where(
-        and(
-          eq(routePolicies.authority, input.walletAddress),
-          eq(routePolicies.settings, input.settings),
-          eq(routePolicies.vaultIndex, input.vaultIndex),
-          eq(routePolicies.vaultPubkey, input.vaultPubkey)
-        )
-      ) as never,
-    dependencies.client.db
+  const vault = await dependencies.client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, input.vaultPubkey)
+    ),
+  });
+  if (!vault) {
+    return;
+  }
+
+  const policyIds = [vault.activePolicyId, vault.setupPolicyId].filter(
+    (policyId): policyId is bigint => typeof policyId === "bigint"
+  );
+
+  if (policyIds.length === 0) {
+    const deactivateVault = dependencies.client.db
       .update(managedVaults)
       .set({ active: false, lastSeenAt: now })
-      .where(
-        and(
-          eq(managedVaults.settings, input.settings),
-          eq(managedVaults.vaultIndex, input.vaultIndex),
-          eq(managedVaults.vaultPubkey, input.vaultPubkey)
-        )
-      ) as never,
+      .where(eq(managedVaults.id, vault.id)) as never;
+
+    await dependencies.client.db.batch([deactivateVault]);
+    return;
+  }
+
+  const deactivatePolicies = dependencies.client.db
+    .update(routePolicies)
+    .set({
+      active: false,
+      lastSeenAt: now,
+      lastSeenSignature: input.withdrawalSignature,
+      lastSeenSlot: input.confirmedSlot,
+    })
+    .where(inArray(routePolicies.id, policyIds)) as never;
+  const deactivateVault = dependencies.client.db
+    .update(managedVaults)
+    .set({ active: false, lastSeenAt: now })
+    .where(eq(managedVaults.id, vault.id)) as never;
+
+  await dependencies.client.db.batch([
+    deactivatePolicies,
+    deactivateVault,
   ]);
 }
 
@@ -608,23 +668,111 @@ async function findIdempotentWithdrawalPosition(
 
 function createYieldRoutingPolicyPlanFromRouteInput(
   input: ConfirmedYieldRoutePolicyInput
-): VaultYieldRoutingPolicyPlan {
-  return createVaultYieldRoutingPolicyPlan({
+): YieldRoutePolicyPlan<readonly []> {
+  return createYieldRoutePolicyPlan({
     cluster: normalizeLoyalCluster(input.cluster),
     policySeed: input.policySeed,
     risk: RiskBasket.Safe,
-    smartAccount: {
+    swapLanes: [] as const,
+    squads: {
       settings: new PublicKey(input.settings),
       authority: new PublicKey(input.walletAddress),
       delegatedSigner: new PublicKey(input.delegatedSigner),
+      accountIndex: input.vaultIndex,
+      vault: new PublicKey(input.vaultPubkey),
     },
-    vaultIndex: input.vaultIndex,
   });
 }
 
-export function createRoutePolicyValuesFromPlan(
-  plan: VaultYieldRoutingPolicyPlan,
+function createYieldRoutingSetupPolicyPlanFromRouteInput(
   input: ConfirmedYieldRoutePolicyInput,
+  setupPolicySeed: bigint
+): YieldRouteSetupPolicyPlan {
+  return createYieldRouteSetupPolicyPlan({
+    cluster: normalizeLoyalCluster(input.cluster),
+    policySeed: setupPolicySeed,
+    risk: RiskBasket.Safe,
+    squads: {
+      settings: new PublicKey(input.settings),
+      authority: new PublicKey(input.walletAddress),
+      delegatedSigner: new PublicKey(input.delegatedSigner),
+      accountIndex: input.vaultIndex,
+      vault: new PublicKey(input.vaultPubkey),
+    },
+  });
+}
+
+type RoutePolicyValuesInput = Pick<
+  ConfirmedYieldRoutePolicyInput,
+  | "cluster"
+  | "delegatedSigner"
+  | "settings"
+  | "vaultIndex"
+  | "vaultPubkey"
+  | "walletAddress"
+> & {
+  confirmedSlot: bigint;
+  policyAccount: string;
+  policySeed: bigint;
+  policySignature: string;
+};
+
+type ConfirmedSetupPolicyMetadata = {
+  confirmedSlot: bigint;
+  policyAccount: string;
+  policySeed: bigint;
+  policySignature: string;
+};
+
+function getRoutePolicyConfirmedSlot(
+  input: ConfirmedYieldRoutePolicyInput
+): bigint {
+  return input.policyConfirmedSlot ?? input.confirmedSlot;
+}
+
+function getConfirmedSetupPolicyMetadata(
+  input: ConfirmedYieldRoutePolicyInput
+): ConfirmedSetupPolicyMetadata | null {
+  const hasSetupConfirmation =
+    (input.setupPolicySignature !== undefined &&
+      input.setupPolicySignature !== null) ||
+    (input.setupPolicyConfirmedSlot !== undefined &&
+      input.setupPolicyConfirmedSlot !== null);
+
+  if (!hasSetupConfirmation) {
+    return null;
+  }
+
+  if (
+    !input.setupPolicyAccount ||
+    input.setupPolicySeed === undefined ||
+    input.setupPolicySeed === null ||
+    !input.setupPolicySignature ||
+    input.setupPolicyConfirmedSlot === undefined ||
+    input.setupPolicyConfirmedSlot === null
+  ) {
+    throw new Error("Confirmed setup policy metadata is incomplete.");
+  }
+
+  if (
+    input.setupPolicyId !== undefined &&
+    input.setupPolicyId !== null &&
+    input.setupPolicyId !== input.setupPolicySeed
+  ) {
+    throw new Error("Confirmed setup policy id must match setup policy seed.");
+  }
+
+  return {
+    confirmedSlot: input.setupPolicyConfirmedSlot,
+    policyAccount: input.setupPolicyAccount,
+    policySeed: input.setupPolicySeed,
+    policySignature: input.setupPolicySignature,
+  };
+}
+
+export function createRoutePolicyValuesFromPlan(
+  plan: YieldRoutePolicyPlan | YieldRouteSetupPolicyPlan,
+  input: RoutePolicyValuesInput,
   now: Date
 ) {
   return {
@@ -658,11 +806,16 @@ async function upsertConfirmedYieldRoutePolicy(args: {
 }): Promise<RoutePolicyRecord> {
   const { client, input, now } = args;
   const routePolicyPlan = createYieldRoutingPolicyPlanFromRouteInput(input);
+  const routePolicyInput = {
+    ...input,
+    confirmedSlot: getRoutePolicyConfirmedSlot(input),
+  };
   const routePolicyValues = createRoutePolicyValuesFromPlan(
     routePolicyPlan,
-    input,
+    routePolicyInput,
     now
   );
+  const setupPolicyMetadata = getConfirmedSetupPolicyMetadata(input);
   const [routePolicy] = await client.db
     .insert(routePolicies)
     .values(routePolicyValues)
@@ -676,7 +829,7 @@ async function upsertConfirmedYieldRoutePolicy(args: {
         kaminoMarkets: sql`excluded.kamino_markets`,
         lastSeenAt: now,
         lastSeenSignature: input.policySignature,
-        lastSeenSlot: input.confirmedSlot,
+        lastSeenSlot: routePolicyInput.confirmedSlot,
         policySeed: input.policySeed,
         riskProfile: sql`excluded.risk_profile`,
         routeModes: sql`excluded.route_modes`,
@@ -694,12 +847,63 @@ async function upsertConfirmedYieldRoutePolicy(args: {
     throw new Error("Failed to record confirmed yield route policy.");
   }
 
+  let setupPolicy: RoutePolicyRecord | null = null;
+  if (setupPolicyMetadata) {
+    const setupPolicyPlan = createYieldRoutingSetupPolicyPlanFromRouteInput(
+      input,
+      setupPolicyMetadata.policySeed
+    );
+    const setupPolicyValues = createRoutePolicyValuesFromPlan(
+      setupPolicyPlan,
+      {
+        ...input,
+        confirmedSlot: setupPolicyMetadata.confirmedSlot,
+        policyAccount: setupPolicyMetadata.policyAccount,
+        policySeed: setupPolicyMetadata.policySeed,
+        policySignature: setupPolicyMetadata.policySignature,
+      },
+      now
+    );
+    const [record] = await client.db
+      .insert(routePolicies)
+      .values(setupPolicyValues)
+      .onConflictDoUpdate({
+        target: [routePolicies.policyAccount],
+        set: {
+          active: true,
+          authority: sql`excluded.authority`,
+          delegatedSigners: sql`excluded.delegated_signers`,
+          kaminoLiquidityMints: sql`excluded.kamino_liquidity_mints`,
+          kaminoMarkets: sql`excluded.kamino_markets`,
+          lastSeenAt: now,
+          lastSeenSignature: setupPolicyMetadata.policySignature,
+          lastSeenSlot: setupPolicyMetadata.confirmedSlot,
+          policySeed: setupPolicyMetadata.policySeed,
+          riskProfile: sql`excluded.risk_profile`,
+          routeModes: sql`excluded.route_modes`,
+          stableMints: sql`excluded.stable_mints`,
+          swapLanes: sql`excluded.swap_lanes`,
+          threshold: sql`excluded.threshold`,
+          universePreset: sql`excluded.universe_preset`,
+          vaultIndex: setupPolicyValues.vaultIndex,
+          vaultPubkey: setupPolicyValues.vaultPubkey,
+        },
+      })
+      .returning();
+
+    if (!record) {
+      throw new Error("Failed to record confirmed yield setup policy.");
+    }
+    setupPolicy = record;
+  }
+
   const managedVaultValues = {
     active: true,
     activePolicyId: routePolicy.id,
     firstSeenAt: now,
     lastSeenAt: now,
     settings: input.settings,
+    ...(setupPolicy ? { setupPolicyId: setupPolicy.id } : {}),
     vaultIndex: routePolicyPlan.metadata.vaultIndex,
     vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
   };
@@ -716,6 +920,7 @@ async function upsertConfirmedYieldRoutePolicy(args: {
         active: true,
         activePolicyId: routePolicy.id,
         lastSeenAt: now,
+        ...(setupPolicy ? { setupPolicyId: setupPolicy.id } : {}),
       },
     });
 
@@ -1264,13 +1469,13 @@ export async function findReconciledActiveYieldPositionForVault(
   );
 }
 
-export async function findActiveYieldRoutePolicy(input: {
+export async function findActiveYieldRoutePolicyPair(input: {
   authority: string;
   cluster: string;
   settings: string;
   vaultIndex: number;
   vaultPubkey?: string;
-}): Promise<RoutePolicyRecord | null> {
+}): Promise<ActiveYieldRoutePolicyPair | null> {
   const client = getYieldOptimizationClient();
   const vaultFilters = [
     eq(managedVaults.active, true),
@@ -1289,7 +1494,7 @@ export async function findActiveYieldRoutePolicy(input: {
     return null;
   }
 
-  const policy = await client.db.query.routePolicies.findFirst({
+  const routePolicy = await client.db.query.routePolicies.findFirst({
     where: and(
       eq(routePolicies.active, true),
       eq(routePolicies.authority, input.authority),
@@ -1300,7 +1505,39 @@ export async function findActiveYieldRoutePolicy(input: {
     ),
   });
 
-  return policy ?? null;
+  if (!routePolicy) {
+    return null;
+  }
+
+  const setupPolicy =
+    typeof vault.setupPolicyId !== "bigint"
+      ? null
+      : await client.db.query.routePolicies.findFirst({
+          where: and(
+            eq(routePolicies.active, true),
+            eq(routePolicies.authority, input.authority),
+            eq(routePolicies.id, vault.setupPolicyId),
+            eq(routePolicies.settings, input.settings),
+            eq(routePolicies.vaultIndex, input.vaultIndex),
+            eq(routePolicies.vaultPubkey, vault.vaultPubkey)
+          ),
+        });
+
+  return {
+    routePolicy,
+    setupPolicy: setupPolicy ?? null,
+  };
+}
+
+export async function findActiveYieldRoutePolicy(input: {
+  authority: string;
+  cluster: string;
+  settings: string;
+  vaultIndex: number;
+  vaultPubkey?: string;
+}): Promise<RoutePolicyRecord | null> {
+  const pair = await findActiveYieldRoutePolicyPair(input);
+  return pair?.routePolicy ?? null;
 }
 
 export async function findYieldPositionEvents(
@@ -1374,6 +1611,41 @@ export async function findYieldPositionHistoryEvents(
     return [];
   }
 
+  return findYieldPositionHistoryEventsForPosition(position, dependencies);
+}
+
+export async function findYieldPositionHistoryEventsForVault(
+  input: ActiveYieldPositionForVaultLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionHistoryEventRecord[]> {
+  const positions =
+    await dependencies.client.db.query.userYieldPositions.findMany({
+      where: and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.walletAddress, input.walletAddress)
+      ),
+      orderBy: [
+        desc(userYieldPositions.updatedAt),
+        desc(userYieldPositions.id),
+      ],
+    });
+
+  const eventGroups = await Promise.all(
+    positions.map((position) =>
+      findYieldPositionHistoryEventsForPosition(position, dependencies)
+    )
+  );
+
+  return sortYieldPositionHistoryEventsDescending(eventGroups.flat());
+}
+
+async function findYieldPositionHistoryEventsForPosition(
+  position: UserYieldPositionRecord,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<UserYieldPositionHistoryEventRecord[]> {
   const events = await dependencies.client.db
     .select({
       amountRaw: userYieldPositionHoldingEvents.amountRaw,
@@ -1396,6 +1668,9 @@ export async function findYieldPositionHistoryEvents(
     .where(and(eq(userYieldPositionHoldingEvents.positionId, position.id)));
 
   let previousReserve: string | null = position.initialReserve;
+  let previousMarket: string | null = position.initialMarket;
+  let previousLiquidityMint: string | null = position.initialLiquidityMint;
+  let principalAmountRaw = BigInt(0);
   const chronologicalEvents = [...events].sort((a, b) => {
     if (a.confirmedSlot !== b.confirmedSlot) {
       return a.confirmedSlot < b.confirmedSlot ? -1 : 1;
@@ -1407,67 +1682,72 @@ export async function findYieldPositionHistoryEvents(
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
 
-  return chronologicalEvents
-    .map((event) => {
-      const type: UserYieldPositionHistoryEventRecord["type"] =
-        event.eventType === "rebalance_confirmed"
-          ? "rebalance"
-          : event.eventType === "snapshot_reconciled"
-          ? "reconciliation"
-          : event.eventType === "withdrawal_partial" ||
-            event.eventType === "withdrawal_full"
-          ? "withdrawal"
-          : "deposit";
+  const history = chronologicalEvents.map((event) => {
+    const type: UserYieldPositionHistoryEventRecord["type"] =
+      event.eventType === "rebalance_confirmed"
+        ? "rebalance"
+        : event.eventType === "snapshot_reconciled"
+        ? "reconciliation"
+        : event.eventType === "withdrawal_partial" ||
+          event.eventType === "withdrawal_full"
+        ? "withdrawal"
+        : "deposit";
 
-      const sourceReserve =
+    const sourceReserve =
+      type === "rebalance" || type === "reconciliation"
+        ? previousReserve
+        : null;
+    const sourceMarket =
+      type === "rebalance" || type === "reconciliation" ? previousMarket : null;
+    const sourceLiquidityMint =
+      type === "rebalance" || type === "reconciliation"
+        ? previousLiquidityMint
+        : null;
+    principalAmountRaw += event.principalDeltaRaw ?? BigInt(0);
+    previousReserve = event.reserve;
+    previousMarket = event.market;
+    previousLiquidityMint = event.liquidityMint;
+
+    return {
+      amountRaw: event.amountRaw,
+      confirmedAt: event.confirmedAt,
+      confirmedSlot: event.confirmedSlot,
+      destinationReserve:
         type === "rebalance" || type === "reconciliation"
-          ? previousReserve
-          : null;
-      previousReserve = event.reserve;
+          ? event.reserve
+          : null,
+      destinationMarket:
+        type === "rebalance" || type === "reconciliation" ? event.market : null,
+      destinationLiquidityMint:
+        type === "rebalance" || type === "reconciliation"
+          ? event.liquidityMint
+          : null,
+      eventType: event.eventType,
+      id: event.id,
+      liquidityMint: event.liquidityMint,
+      market: event.market,
+      principalDeltaRaw: event.principalDeltaRaw,
+      principalAmountRaw,
+      reserve: event.reserve,
+      signature:
+        event.signature ??
+        [
+          type,
+          event.sourceDepositId?.toString(),
+          event.sourceWithdrawalId?.toString(),
+          event.sourceRebalanceDecisionId?.toString(),
+          event.sourceSnapshotId?.toString(),
+        ]
+          .filter(Boolean)
+          .join(":"),
+      sourceLiquidityMint,
+      sourceMarket,
+      sourceReserve,
+      type,
+    };
+  });
 
-      return {
-        amountRaw: event.amountRaw,
-        confirmedAt: event.confirmedAt,
-        confirmedSlot: event.confirmedSlot,
-        destinationReserve:
-          type === "rebalance" || type === "reconciliation"
-            ? event.reserve
-            : null,
-        eventType: event.eventType,
-        id: event.id,
-        liquidityMint: event.liquidityMint,
-        market: event.market,
-        principalDeltaRaw: event.principalDeltaRaw,
-        reserve: event.reserve,
-        signature:
-          event.signature ??
-          [
-            type,
-            event.sourceDepositId?.toString(),
-            event.sourceWithdrawalId?.toString(),
-            event.sourceRebalanceDecisionId?.toString(),
-            event.sourceSnapshotId?.toString(),
-          ]
-            .filter(Boolean)
-            .join(":"),
-        sourceReserve: sourceReserve,
-        type,
-      };
-    })
-    .sort((a, b) => {
-      const confirmedAtDelta =
-        b.confirmedAt.getTime() - a.confirmedAt.getTime();
-      if (confirmedAtDelta !== 0) {
-        return confirmedAtDelta;
-      }
-
-      const signatureDelta = a.signature.localeCompare(b.signature);
-      if (signatureDelta !== 0) {
-        return signatureDelta;
-      }
-
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
+  return sortYieldPositionHistoryEventsDescending(history);
 }
 
 export async function recordConfirmedYieldWithdrawal(
@@ -1584,7 +1864,10 @@ export async function recordConfirmedYieldWithdrawal(
     observedAt: now,
     observedSlot: input.confirmedSlot,
     positionId: existingPosition.id,
-    principalDeltaRaw: -input.withdrawnAmountRaw,
+    principalDeltaRaw:
+      input.mode === "full"
+        ? -existingPosition.principalAmountRaw
+        : -input.withdrawnAmountRaw,
     reserve: existingPosition.currentReserve,
     sourceSignature: input.withdrawalSignature,
     sourceWithdrawalId: insertedWithdrawal.id,
@@ -1796,20 +2079,27 @@ export async function verifyUserYieldPositions(
             and(eq(userYieldPositionHoldingEvents.positionId, position.id))
           ),
       ]);
-    const expectedPrincipalAmountRaw =
-      deposits.reduce(
-        (total, deposit) => total + deposit.amountRaw,
-        BigInt(0)
-      ) -
-      withdrawals.reduce(
-        (total, withdrawal) => total + withdrawal.amountRaw,
-        BigInt(0)
-      );
     const sortedHoldingEvents = sortHoldingEventsAscending(
       holdingEvents as UserYieldPositionHoldingEventRecord[]
     );
     const latestEvent =
       sortedHoldingEvents[sortedHoldingEvents.length - 1] ?? null;
+    const expectedPrincipalAmountRaw =
+      sortedHoldingEvents.length > 0
+        ? sortedHoldingEvents.reduce((principal, event) => {
+            if (event.eventType === "withdrawal_full") {
+              return BigInt(0);
+            }
+            return principal + (event.principalDeltaRaw ?? BigInt(0));
+          }, BigInt(0))
+        : deposits.reduce(
+            (total, deposit) => total + deposit.amountRaw,
+            BigInt(0)
+          ) -
+          withdrawals.reduce(
+            (total, withdrawal) => total + withdrawal.amountRaw,
+            BigInt(0)
+          );
 
     if (position.principalAmountRaw < BigInt(0)) {
       failures.push(

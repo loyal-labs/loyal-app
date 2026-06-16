@@ -13,6 +13,7 @@ const canonical = {
   market: "11111111111111111111111111111116",
   policyAccount: "11111111111111111111111111111117",
   reserve: "11111111111111111111111111111118",
+  setupPolicyAccount: "1111111111111111111111111111111A",
   vaultPubkey: "11111111111111111111111111111119",
 };
 
@@ -54,7 +55,13 @@ mock.module("@loyal-labs/actions", () => ({
 
 mock.module("@loyal-labs/loyal-smart-accounts", () => ({
   pda: {
-    getPolicyPda: () => [new PublicKey(canonical.policyAccount)],
+    getPolicyPda: (input: { policySeed: number }) => [
+      new PublicKey(
+        input.policySeed === 8
+          ? canonical.setupPolicyAccount
+          : canonical.policyAccount
+      ),
+    ],
     getSmartAccountPda: () => [new PublicKey(canonical.vaultPubkey)],
   },
 }));
@@ -162,12 +169,18 @@ function createDepositInput(overrides: Record<string, unknown> = {}) {
     liquidityMint: canonical.liquidityMint,
     market: canonical.market,
     policyAccount: canonical.policyAccount,
+    policyConfirmedSlot: BigInt(300),
     policyId: BigInt(7),
     policyInitialization: "create",
     policySeed: BigInt(7),
     policySignature: "policy-signature",
     principalAmountRaw: BigInt(1000000),
     settings: principal.settingsPda,
+    setupPolicyAccount: canonical.setupPolicyAccount,
+    setupPolicyConfirmedSlot: BigInt(300),
+    setupPolicyId: BigInt(8),
+    setupPolicySeed: BigInt(8),
+    setupPolicySignature: "setup-policy-signature",
     smartAccountAddress: principal.smartAccountAddress,
     targetReserve: canonical.reserve,
     targetSupplyApyBps: BigInt(123),
@@ -347,8 +360,14 @@ describe("Earn deposit confirm route", () => {
       liquidityMint: canonical.liquidityMint,
       market: canonical.market,
       policyAccount: canonical.policyAccount,
+      policyConfirmedSlot: BigInt(300),
       policyId: BigInt(7),
       policySeed: BigInt(7),
+      setupPolicyAccount: canonical.setupPolicyAccount,
+      setupPolicyConfirmedSlot: BigInt(300),
+      setupPolicyId: BigInt(8),
+      setupPolicySeed: BigInt(8),
+      setupPolicySignature: "setup-policy-signature",
       settings: principal.settingsPda,
       targetReserve: canonical.reserve,
       vaultIndex: 1,

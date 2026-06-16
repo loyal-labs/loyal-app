@@ -278,6 +278,26 @@ export type SmartAccountUpdateSignerPermissionsInput = {
   memo?: string;
 };
 
+export type SmartAccountRootSignerChangeInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  memo?: string;
+};
+
+export type SmartAccountAddRootSignerInput =
+  SmartAccountRootSignerChangeInput & {
+    /**
+     * Root Settings permissions to grant. Defaults to all current Settings
+     * permissions so the added wallet can initiate, vote, and execute.
+     */
+    permissions?: SmartAccountSignerPermission[];
+  };
+
+export type SmartAccountRemoveRootSignerInput =
+  SmartAccountRootSignerChangeInput;
+
 export type SmartAccountPolicyCustomInstructionProposalInput = {
   policyPda: PublicKey;
   creator: PublicKey;
@@ -385,6 +405,10 @@ export type SmartAccountEarnUsdcDepositInput = {
   yieldRoutingPolicy?: {
     account: PublicKey;
     seed: bigint;
+    setupPolicy?: {
+      account: PublicKey;
+      seed: bigint;
+    } | null;
   };
   memo?: string;
 };
@@ -409,6 +433,9 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyMetadata = {
   policyId: string;
   policyAccount: string;
   policySeed: string;
+  setupPolicyId: string;
+  setupPolicyAccount: string;
+  setupPolicySeed: string;
   targetReserve: string;
   market: string;
   liquidityMint: string;
@@ -428,6 +455,12 @@ export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
     id: bigint;
     seed: bigint;
   };
+  setupPolicy: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+    initObligationInstructionConstraintIndex: 0;
+  };
   vault: {
     accountIndex: 1;
     pubkey: PublicKey;
@@ -436,6 +469,7 @@ export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    obligation: PublicKey;
   };
   persistence: SmartAccountEarnUsdcYieldRoutingPolicyMetadata;
 };
@@ -450,6 +484,9 @@ export type SmartAccountEarnUsdcDepositMetadata = {
   policyId: string;
   policyAccount: string;
   policySeed: string;
+  setupPolicyId?: string;
+  setupPolicyAccount?: string;
+  setupPolicySeed?: string;
   targetReserve: string;
   market: string;
   liquidityMint: string;
@@ -478,6 +515,12 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
     seed: bigint;
     sameMintInstructionConstraintIndexes: readonly [number, number];
   };
+  setupPolicy?: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+    initObligationInstructionConstraintIndex: 0;
+  };
   vault: {
     accountIndex: 1;
     collateralAta: PublicKey | null;
@@ -488,6 +531,7 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    obligation: PublicKey;
     supplyApyBps: bigint | null;
   };
   persistence: SmartAccountEarnUsdcDepositMetadata;
@@ -504,6 +548,10 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
   yieldRoutingPolicy?: {
     account: PublicKey;
     seed: bigint;
+    setupPolicy?: {
+      account: PublicKey;
+      seed: bigint;
+    } | null;
   };
   memo?: string;
 };
@@ -533,6 +581,9 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   policyId: string;
   policyAccount: string;
   policySeed: string;
+  setupPolicyId?: string;
+  setupPolicyAccount?: string;
+  setupPolicySeed?: string;
   targetReserve: string;
   market: string;
   liquidityMint: string;
@@ -557,6 +608,11 @@ export type SmartAccountPreparedEarnUsdcWithdraw = {
     withdrawInstructionConstraintIndex: 0;
     sameMintInstructionConstraintIndexes: readonly [number, number];
   };
+  setupPolicy?: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+  };
   vault: {
     accountIndex: 1;
     pubkey: PublicKey;
@@ -567,6 +623,7 @@ export type SmartAccountPreparedEarnUsdcWithdraw = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    obligation: PublicKey;
   };
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };

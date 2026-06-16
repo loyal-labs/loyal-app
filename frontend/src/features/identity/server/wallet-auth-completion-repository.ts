@@ -21,6 +21,7 @@ export type WalletAuthCompletionRecord = Pick<
   | "processingStartedAt"
   | "userId"
   | "smartAccountAddress"
+  | "settingsPda"
   | "provisioningOutcome"
   | "lastErrorCode"
   | "lastErrorMessage"
@@ -115,7 +116,9 @@ export async function beginWalletAuthCompletion(
     })
     .onConflictDoNothing();
 
-  let record = await findWalletAuthCompletionByChallengeHash(input.challengeHash);
+  let record = await findWalletAuthCompletionByChallengeHash(
+    input.challengeHash
+  );
   if (!record) {
     throw new Error("Failed to create wallet auth completion record");
   }
@@ -127,26 +130,29 @@ export async function beginWalletAuthCompletion(
       record.processingStartedAt.getTime() <= input.staleBefore.getTime())
   ) {
     const staleStartedAtClause = record.processingStartedAt
-      ? eq(appWalletAuthCompletions.processingStartedAt, record.processingStartedAt)
+      ? eq(
+          appWalletAuthCompletions.processingStartedAt,
+          record.processingStartedAt
+        )
       : isNull(appWalletAuthCompletions.processingStartedAt);
 
-      const takeover = await db
-        .update(appWalletAuthCompletions)
-        .set({
-          processingToken: input.processingToken,
-          processingStartedAt: now,
-          updatedAt: now,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-        })
-        .where(
-          and(
-            eq(appWalletAuthCompletions.challengeHash, input.challengeHash),
-            eq(appWalletAuthCompletions.state, "processing"),
-            staleStartedAtClause
-          )
+    const takeover = await db
+      .update(appWalletAuthCompletions)
+      .set({
+        processingToken: input.processingToken,
+        processingStartedAt: now,
+        updatedAt: now,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+      })
+      .where(
+        and(
+          eq(appWalletAuthCompletions.challengeHash, input.challengeHash),
+          eq(appWalletAuthCompletions.state, "processing"),
+          staleStartedAtClause
         )
-        .returning();
+      )
+      .returning();
 
     if (takeover[0]) {
       record = takeover[0];
@@ -169,6 +175,7 @@ export async function markWalletAuthCompletionCompleted(
     processingToken: string;
     userId: string;
     smartAccountAddress: string;
+    settingsPda: string;
     provisioningOutcome: AppWalletAuthProvisioningOutcome;
   },
   dependencies: WalletAuthCompletionRepositoryDependencies = createRepositoryDependencies()
@@ -184,6 +191,7 @@ export async function markWalletAuthCompletionCompleted(
       processingStartedAt: null,
       userId: input.userId,
       smartAccountAddress: input.smartAccountAddress,
+      settingsPda: input.settingsPda,
       provisioningOutcome: input.provisioningOutcome,
       lastErrorCode: null,
       lastErrorMessage: null,

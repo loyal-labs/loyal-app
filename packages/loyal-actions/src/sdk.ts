@@ -10,6 +10,7 @@ import {
 import { clusterConfigFor } from "./cluster.ts";
 import {
   kaminoDepositConstraint,
+  kaminoInitObligationConstraint,
   kaminoWithdrawConstraint,
   jupiterConstraint,
   loyalHubConstraint,
@@ -37,10 +38,12 @@ import type {
   CreateVaultYieldRoutingPolicyPlanInput,
   CreateVaultSubscriptionSweepPolicyPlanInput,
   CreateYieldRoutePolicyPlanInput,
+  CreateYieldRouteSetupPolicyPlanInput,
   CreateLoyalActionsSdkConfig,
   InitSubscriptionSweepPolicyInput,
   InitYieldRoutePolicyInput,
   InitYieldRoutePolicyResult,
+  InitYieldRouteSetupPolicyInput,
   InitYieldRoutingPolicyInput,
   InitYieldRoutingPolicyResult,
   LoyalActionsSdk,
@@ -48,6 +51,7 @@ import type {
   LoyalSmartAccountConfig,
   SubscriptionSweepPolicyPlan,
   VaultYieldRoutingPolicyPlan,
+  YieldRouteSetupPolicyPlan,
   YieldRoutePolicyPlan,
 } from "./types.ts";
 
@@ -65,6 +69,7 @@ const DEFAULT_YIELD_ROUTING_SWAP_LANES = [SwapLane.Jupiter] as const;
 
 const YIELD_ROUTE_UNIVERSE_PRESET = "canonical_stable_kamino";
 const YIELD_ROUTE_POLICY_THRESHOLD = 1;
+const YIELD_ROUTE_SETUP_MODES = ["kamino_init_obligation"] as const;
 
 function yieldRouteModesForSwapLanes(swapLanes: readonly SwapLane[]): string[] {
   return [
@@ -196,6 +201,85 @@ export function createYieldRoutePolicyPlan<
       kaminoMarkets: kaminoMarkets.map((market) => market.toBase58()),
       kaminoLiquidityMints: kaminoLiquidityMints.map((mint) => mint.toBase58()),
       swapLanes: persistenceSwapLanes,
+      threshold: YIELD_ROUTE_POLICY_THRESHOLD,
+    },
+  };
+}
+
+export function createYieldRouteSetupPolicyPlan(
+  input: CreateYieldRouteSetupPolicyPlanInput
+): YieldRouteSetupPolicyPlan {
+  if (!Object.values(LoyalCluster).includes(input.cluster)) {
+    throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
+  }
+  const clusterConfig = clusterConfigFor(input.cluster);
+  validateSetupInput(input);
+
+  const stableMints = [...getStablecoinMintsForCluster(input.cluster)];
+  if (uniquePubkeys(stableMints).length !== stableMints.length) {
+    throw new Error("stablecoin mint registry contains duplicates");
+  }
+  const kaminoMarkets = [
+    ...getRiskBasketMarketsForCluster(input.cluster, input.risk),
+  ];
+  const kaminoEarnTarget = getKaminoUsdcEarnTargetForCluster(input.cluster);
+  const kaminoLiquidityMints = [...stableMints];
+  const policySeed = requirePolicySeed(input.policySeed);
+  const actionAccount = deriveActionAccount(
+    clusterConfig,
+    input.squads.settings,
+    policySeed
+  );
+  const constraints = [
+    kaminoInitObligationConstraint(
+      input.squads.vault,
+      kaminoMarkets,
+      kaminoEarnTarget.lendProgramId,
+      kaminoEarnTarget.initObligationDiscriminator
+    ),
+  ];
+
+  const instruction = createProgramInteractionPolicyInstruction(
+    clusterConfig,
+    input.squads,
+    constraints,
+    policySeed
+  );
+
+  return {
+    instructions: [instruction],
+    actionAccount,
+    routes: {
+      initObligation: {
+        actionAccount,
+        instructionConstraintIndexes: [0] as const,
+      },
+    },
+    spec: {
+      risk: input.risk,
+      stablecoins: [...getStablecoinsForCluster(input.cluster)],
+      stableMints,
+      kaminoMarkets,
+      kaminoLiquidityMints,
+      swapLanes: [],
+      maxFeeBps: DEFAULT_MAX_FEE_BPS,
+    },
+    metadata: {
+      policySeed,
+      vaultIndex: input.squads.accountIndex,
+      vault: input.squads.vault,
+      lockKey: `${input.squads.settings.toBase58()}:${
+        input.squads.accountIndex
+      }`,
+    },
+    persistence: {
+      riskProfile: input.risk,
+      universePreset: YIELD_ROUTE_UNIVERSE_PRESET,
+      routeModes: [...YIELD_ROUTE_SETUP_MODES],
+      stableMints: stableMints.map((mint) => mint.toBase58()),
+      kaminoMarkets: kaminoMarkets.map((market) => market.toBase58()),
+      kaminoLiquidityMints: kaminoLiquidityMints.map((mint) => mint.toBase58()),
+      swapLanes: [],
       threshold: YIELD_ROUTE_POLICY_THRESHOLD,
     },
   };
@@ -341,6 +425,15 @@ export function createLoyalActionsSdk(
     });
   }
 
+  function createYieldRouteSetupPolicyPlanForSdk(
+    input: InitYieldRouteSetupPolicyInput
+  ): YieldRouteSetupPolicyPlan {
+    return createYieldRouteSetupPolicyPlan({
+      ...input,
+      cluster: config.cluster,
+    });
+  }
+
   function createVaultYieldRoutingPolicyPlanForSdk(
     input: InitYieldRoutingPolicyInput
   ): VaultYieldRoutingPolicyPlan {
@@ -378,11 +471,13 @@ export function createLoyalActionsSdk(
 
   return {
     createYieldRoutePolicyPlan: createYieldRoutePolicyPlanForSdk,
+    createYieldRouteSetupPolicyPlan: createYieldRouteSetupPolicyPlanForSdk,
     createVaultYieldRoutingPolicyPlan: createVaultYieldRoutingPolicyPlanForSdk,
     createSubscriptionSweepPolicyPlan: createSubscriptionSweepPolicyPlanForSdk,
     createVaultSubscriptionSweepPolicyPlan:
       createVaultSubscriptionSweepPolicyPlanForSdk,
     initYieldRoutePolicy,
+    initYieldRouteSetupPolicy: createYieldRouteSetupPolicyPlanForSdk,
     initYieldRoutingPolicy(
       input: InitYieldRoutingPolicyInput
     ): InitYieldRoutingPolicyResult {
@@ -432,6 +527,20 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
     if (!(value instanceof PublicKey)) {
       throw new Error(`squads.${name} must be a PublicKey`);
     }
+  }
+}
+
+function validateSetupInput(input: InitYieldRouteSetupPolicyInput): void {
+  if (!Object.values(RiskBasket).includes(input.risk)) {
+    throw new Error(`unsupported risk basket: ${String(input.risk)}`);
+  }
+  requirePolicySeed(input.policySeed);
+  validateVaultIndex(input.squads.accountIndex, "squads.accountIndex");
+  for (const [name, value] of Object.entries(input.squads)) {
+    if (name === "accountIndex") {
+      continue;
+    }
+    requirePublicKey(value, `squads.${name}`);
   }
 }
 

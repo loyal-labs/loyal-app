@@ -55,6 +55,11 @@ export type LoyalActionRoute2 = {
   instructionConstraintIndexes: readonly [number, number];
 };
 
+export type LoyalActionRoute1 = {
+  actionAccount: Address;
+  instructionConstraintIndexes: readonly [number];
+};
+
 export type LoyalActionRoute3 = {
   actionAccount: Address;
   instructionConstraintIndexes: readonly [number, number, number];
@@ -81,6 +86,23 @@ export type CreateYieldRoutePolicyPlanInput<
 > = InitYieldRoutePolicyInput<Lanes> & {
   cluster: LoyalCluster;
 };
+
+export type InitYieldRouteSetupPolicyInput = {
+  policySeed: PolicySeed;
+  risk: RiskBasket;
+  squads: {
+    settings: Address;
+    authority: Address;
+    delegatedSigner: Address;
+    accountIndex: number;
+    vault: Address;
+  };
+};
+
+export type CreateYieldRouteSetupPolicyPlanInput =
+  InitYieldRouteSetupPolicyInput & {
+    cluster: LoyalCluster;
+  };
 
 export type InitYieldRoutingPolicyInput = {
   policySeed: PolicySeed;
@@ -152,6 +174,15 @@ export type InitYieldRoutePolicyResult<
 export type YieldRoutePolicyPlan<
   Lanes extends readonly SwapLane[] = readonly SwapLane[]
 > = InitYieldRoutePolicyResult<Lanes>;
+
+export type YieldRouteSetupPolicyPlan = Omit<
+  InitYieldRoutePolicyResult<readonly []>,
+  "routes"
+> & {
+  routes: {
+    initObligation: LoyalActionRoute1;
+  };
+};
 
 export type VaultYieldRoutingPolicyPlan = YieldRoutePolicyPlan<
   readonly [SwapLane.Jupiter]
@@ -230,6 +261,9 @@ export type LoyalActionsSdk = {
   createYieldRoutePolicyPlan<const Lanes extends readonly SwapLane[]>(
     input: Omit<CreateYieldRoutePolicyPlanInput<Lanes>, "cluster">
   ): YieldRoutePolicyPlan<Lanes>;
+  createYieldRouteSetupPolicyPlan(
+    input: Omit<CreateYieldRouteSetupPolicyPlanInput, "cluster">
+  ): YieldRouteSetupPolicyPlan;
   createVaultYieldRoutingPolicyPlan(
     input: Omit<
       CreateVaultYieldRoutingPolicyPlanInput,
@@ -248,6 +282,9 @@ export type LoyalActionsSdk = {
   initYieldRoutePolicy<const Lanes extends readonly SwapLane[]>(
     input: InitYieldRoutePolicyInput<Lanes>
   ): InitYieldRoutePolicyResult<Lanes>;
+  initYieldRouteSetupPolicy(
+    input: InitYieldRouteSetupPolicyInput
+  ): YieldRouteSetupPolicyPlan;
   initYieldRoutingPolicy(
     input: InitYieldRoutingPolicyInput
   ): InitYieldRoutingPolicyResult;

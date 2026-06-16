@@ -5,11 +5,17 @@ export type EarnDepositReviewStage = "deposit" | "policy" | "policy-finalize";
 export type EarnDepositPolicySignatureSource = {
   account: string;
   lastSeenSignature?: string | null;
+  lastSeenSlot?: string | null;
   seed: string;
 } | null;
 
 export type EarnDepositPolicySignatureResolution =
-  | { policySignature: string }
+  | {
+      policyConfirmedSlot?: string;
+      policySignature: string;
+      setupPolicyConfirmedSlot?: string;
+      setupPolicySignature?: string;
+    }
   | { error: string };
 
 export function getEarnDepositReviewStages(args: {
@@ -67,12 +73,49 @@ export function getEarnDepositReviewStagePosition(args: {
 
 export function resolveEarnDepositConfirmPolicySignature(args: {
   activePolicy?: EarnDepositPolicySignatureSource;
+  policyConfirmedSlot?: string | null;
   policySignature?: string | null;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  setupPolicyConfirmedSlot?: string | null;
+  setupPolicySignature?: string | null;
 }): EarnDepositPolicySignatureResolution {
   const provided = args.policySignature?.trim();
+  const providedPolicyConfirmedSlot = args.policyConfirmedSlot?.trim();
+  const providedSetup = args.setupPolicySignature?.trim();
+  const providedSetupConfirmedSlot = args.setupPolicyConfirmedSlot?.trim();
   if (provided) {
-    return { policySignature: provided };
+    const requiresPolicySetup = Boolean(args.preparedDeposit.policySetupPrepared);
+    const requiresSetupPolicySetup = Boolean(
+      args.preparedDeposit.policyFinalizePrepared
+    );
+
+    if (requiresPolicySetup && !providedPolicyConfirmedSlot) {
+      return {
+        error:
+          "Confirming this first Earn deposit requires the policy setup slot. Review the deposit again before signing.",
+      };
+    }
+
+    if (
+      requiresSetupPolicySetup &&
+      (!providedSetup || !providedSetupConfirmedSlot)
+    ) {
+      return {
+        error:
+          "Confirming this first Earn deposit requires the setup policy signature. Review the deposit again before signing.",
+      };
+    }
+
+    return {
+      policySignature: provided,
+      ...(providedPolicyConfirmedSlot
+        ? { policyConfirmedSlot: providedPolicyConfirmedSlot }
+        : {}),
+      ...(providedSetup ? { setupPolicySignature: providedSetup } : {}),
+      ...(providedSetupConfirmedSlot
+        ? { setupPolicyConfirmedSlot: providedSetupConfirmedSlot }
+        : {}),
+    };
   }
 
   const initializesPolicy =
@@ -95,7 +138,12 @@ export function resolveEarnDepositConfirmPolicySignature(args: {
     activePolicy.seed === policySeed &&
     activePolicy.lastSeenSignature
   ) {
-    return { policySignature: activePolicy.lastSeenSignature };
+    return {
+      policySignature: activePolicy.lastSeenSignature,
+      ...(activePolicy.lastSeenSlot
+        ? { policyConfirmedSlot: activePolicy.lastSeenSlot }
+        : {}),
+    };
   }
 
   return {

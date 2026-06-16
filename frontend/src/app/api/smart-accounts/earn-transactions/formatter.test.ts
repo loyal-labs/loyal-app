@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import {
+  KAMINO_MAIN_MARKET,
+  KAMINO_ONRE_MARKET,
+  STABLECOIN_MINTS,
+} from "@loyal-labs/actions";
 
 import {
   serializeEarnTransactionEvent,
@@ -9,10 +14,9 @@ type AutodepositEvent = Extract<
   EarnTransactionEvent,
   { type: "autodeposit_action" }
 >;
+type YieldPositionEvent = Exclude<EarnTransactionEvent, AutodepositEvent>;
 
-function createAutodepositEvent(
-  overrides: Partial<AutodepositEvent> = {}
-) {
+function createAutodepositEvent(overrides: Partial<AutodepositEvent> = {}) {
   return {
     actionType: "create" as const,
     amountRaw: BigInt(0),
@@ -71,5 +75,35 @@ describe("earn transaction formatter", () => {
     expect(item.rawAmount).toBe("$1.234567");
     expect(item.source.label).toBe("Main USDC");
     expect(item.destination.label).toBe("Earn vault");
+  });
+
+  test("serializes rebalances with market labels and principal USDC amounts", () => {
+    const usdcMint = STABLECOIN_MINTS.USDC.toBase58();
+    const item = serializeEarnTransactionEvent({
+      amountRaw: BigInt(4_211_753),
+      confirmedAt: new Date("2026-06-16T13:58:00.000Z"),
+      confirmedSlot: BigInt(789),
+      destinationLiquidityMint: usdcMint,
+      destinationMarket: KAMINO_ONRE_MARKET.toBase58(),
+      destinationReserve: "onre-reserve",
+      eventType: "rebalance_confirmed",
+      id: BigInt(1),
+      liquidityMint: usdcMint,
+      market: KAMINO_ONRE_MARKET.toBase58(),
+      principalAmountRaw: BigInt(5_000_000),
+      principalDeltaRaw: null,
+      reserve: "onre-reserve",
+      signature: "rebalance-signature",
+      sourceLiquidityMint: usdcMint,
+      sourceMarket: KAMINO_MAIN_MARKET.toBase58(),
+      sourceReserve: "main-reserve",
+      type: "rebalance",
+    } satisfies YieldPositionEvent);
+
+    expect(item.kind).toBe("rebalance");
+    expect(item.amount).toBe("$5.00");
+    expect(item.rawAmount).toBe("$5.000000");
+    expect(item.source.label).toBe("Main USDC");
+    expect(item.destination.label).toBe("OnRe USDC");
   });
 });

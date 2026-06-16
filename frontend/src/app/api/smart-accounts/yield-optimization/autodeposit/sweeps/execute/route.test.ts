@@ -15,13 +15,22 @@ const principal: AuthenticatedPrincipal = {
 const resolveAuthenticatedPrincipalFromRequest = mock(
   async (): Promise<AuthenticatedPrincipal | null> => principal
 );
-const findCurrentEarnAutodepositState = mock(async () => createState());
-const requestImmediateEarnAutodepositScheduledSweep = mock(async () => ({
-  acceleratedAmountRaw: BigInt(334_480_000),
-  acceleratedLotCount: 2,
-  eligibleAfter: new Date("2026-06-15T18:06:00.000Z"),
-  targetId: BigInt(11),
-}));
+const findCurrentEarnAutodepositState = mock(
+  async (): Promise<ReturnType<typeof createState> | null> => createState()
+);
+const requestImmediateEarnAutodepositScheduledSweep = mock(
+  async (): Promise<{
+    acceleratedAmountRaw: bigint;
+    acceleratedLotCount: number;
+    eligibleAfter: Date;
+    targetId: bigint;
+  } | null> => ({
+    acceleratedAmountRaw: BigInt(334_480_000),
+    acceleratedLotCount: 2,
+    eligibleAfter: new Date("2026-06-15T18:06:00.000Z"),
+    targetId: BigInt(11),
+  })
+);
 
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,

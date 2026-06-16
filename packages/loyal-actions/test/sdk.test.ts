@@ -40,6 +40,7 @@ import {
   createVaultYieldRoutingPolicyPlan,
   createLoyalActionsSdk,
   createYieldRoutePolicyPlan,
+  createYieldRouteSetupPolicyPlan,
   deriveRecurringDelegation,
   deriveSubscriptionAuthority,
   deriveSubscriptionEventAuthority,
@@ -317,6 +318,7 @@ describe("initYieldRoutePolicy", () => {
       swapLanes: [SwapLane.Jupiter] as const,
       squads,
     });
+    const decoded = decodePolicyCreate(policy.instructions[0]!.data);
 
     expect(policy.instructions).toHaveLength(1);
     expect(policy.instructions[0]?.programId.toBase58()).toBe(
@@ -344,6 +346,16 @@ describe("initYieldRoutePolicy", () => {
       0, 1, 2,
     ]);
     expect(policy.routes.loyal).toBeUndefined();
+    expect(
+      decoded.payload.instructionConstraints[0]?.accountConstraints.map(
+        (constraint) => constraint.accountIndex
+      )
+    ).toEqual([0, 2, 5]);
+    expect(
+      decoded.payload.instructionConstraints[2]?.accountConstraints.map(
+        (constraint) => constraint.accountIndex
+      )
+    ).toEqual([0, 2, 5]);
     expect(policy.spec.maxFeeBps).toBe(DEFAULT_MAX_FEE_BPS);
     expect(policy.metadata).toEqual({
       policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
@@ -727,6 +739,36 @@ describe("yield route policy plan compilers", () => {
     expect(plan.actionAccount).not.toEqual(
       derivePolicy(settings, YIELD_ROUTE_STANDALONE_ACTION_SEED)
     );
+  });
+
+  test("creates a separate init obligation setup policy plan", () => {
+    const plan = createYieldRouteSetupPolicyPlan({
+      cluster: LoyalCluster.MainnetBeta,
+      policySeed: 8,
+      risk: RiskBasket.Safe,
+      squads,
+    });
+    const decoded = decodePolicyCreate(plan.instructions[0]!.data);
+    const [initObligationConstraint] =
+      decoded.payload.instructionConstraints;
+
+    expect(decoded.seed).toBe(BigInt(8));
+    expect(plan.routes.initObligation.instructionConstraintIndexes).toEqual([
+      0,
+    ]);
+    expect(plan.persistence).toMatchObject({
+      riskProfile: RiskBasket.Safe,
+      routeModes: ["kamino_init_obligation"],
+      swapLanes: [],
+      threshold: 1,
+      universePreset: "canonical_stable_kamino",
+    });
+    expect(decoded.payload.instructionConstraints).toHaveLength(1);
+    expect(
+      initObligationConstraint?.accountConstraints.map(
+        (constraint) => constraint.accountIndex
+      )
+    ).toEqual([0, 1, 3, 4, 5, 6, 7, 8]);
   });
 });
 

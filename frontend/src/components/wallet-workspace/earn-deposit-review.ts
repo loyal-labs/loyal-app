@@ -284,14 +284,14 @@ export function buildEarnDepositReviewItem(args: {
         return {
           title,
           rows: [
-            { label: "Finalize", value: "Activate Safe Earn route policy" },
-            { label: "Routing", value: "Same-mint USDC on Kamino" },
-            ...(preparedDeposit?.policy.account
+            { label: "Setup", value: "Create Kamino obligation policy" },
+            { label: "Permission", value: "Initialize the Earn obligation" },
+            ...(preparedDeposit?.setupPolicy?.account
               ? [
                   {
                     label: "Policy account",
                     value: shortenAddress(
-                      preparedDeposit.policy.account.toBase58()
+                      preparedDeposit.setupPolicy.account.toBase58()
                     ),
                   },
                 ]
@@ -338,19 +338,21 @@ export function buildEarnDepositReviewItem(args: {
   };
   const finalizePage: ApprovalReviewPage = {
     title: approvalTitle,
-    heading: "Finalize Earn routing",
+    heading: "Set up Earn obligation",
     mascotNote:
-      "This activates the policy payload before the deposit transaction uses it.",
+      "This one-time policy lets the Earn vault initialize its Kamino obligation before depositing.",
     rows: [
       {
         label: "Policy",
-        value: "Finalize Safe same-mint Kamino routing",
+        value: "Initialize Kamino obligation",
       },
-      ...(preparedDeposit?.policy.account
+      ...(preparedDeposit?.setupPolicy?.account
         ? [
             {
               label: "Policy account",
-              value: shortenAddress(preparedDeposit.policy.account.toBase58()),
+              value: shortenAddress(
+                preparedDeposit.setupPolicy.account.toBase58()
+              ),
             },
           ]
         : []),
@@ -429,7 +431,7 @@ export function buildEarnDepositReviewItem(args: {
       stage === "policy"
         ? "Set up Safe Earn routing"
         : stage === "policy-finalize"
-          ? "Finalize Safe Earn routing"
+          ? "Set up Earn obligation"
         : `Deposit into ${EARN_VAULT_LABEL}`,
     symbol: args.draft.symbol,
     title: "Deposit",

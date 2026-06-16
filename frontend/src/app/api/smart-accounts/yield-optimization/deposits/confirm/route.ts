@@ -61,14 +61,28 @@ function createCanonicalDepositInput(
   const cluster = normalizeLoyalCluster(requestInput.cluster);
   const normalizedRequestInput = { ...requestInput, cluster };
   const settings = new PublicKey(requestInput.settings);
+  const expectedSetupPolicySeed = requestInput.policySeed + BigInt(1);
   const expectedPolicyAccount = pda.getPolicyPda({
     settingsPda: settings,
     policySeed: toSafePolicySeed(requestInput.policySeed),
+  })[0];
+  const expectedSetupPolicyAccount = pda.getPolicyPda({
+    settingsPda: settings,
+    policySeed: toSafePolicySeed(expectedSetupPolicySeed),
   })[0];
   const expectedVault = pda.getSmartAccountPda({
     settingsPda: settings,
     accountIndex: EARN_DEPOSIT_VAULT_INDEX,
   })[0];
+  const hasSetupPolicyMetadata =
+    (requestInput.setupPolicyId !== undefined &&
+      requestInput.setupPolicyId !== null) ||
+    (requestInput.setupPolicyAccount !== undefined &&
+      requestInput.setupPolicyAccount !== null) ||
+    (requestInput.setupPolicySeed !== undefined &&
+      requestInput.setupPolicySeed !== null);
+  const requiresSetupPolicyMetadata =
+    requestInput.policyInitialization === "create" || hasSetupPolicyMetadata;
   const target = assertSafeUsdcEarnReserveMetadata({
     cluster,
     liquidityMint: requestInput.liquidityMint,
@@ -90,6 +104,13 @@ function createCanonicalDepositInput(
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
+    ...(requiresSetupPolicyMetadata
+      ? {
+          setupPolicyAccount: expectedSetupPolicyAccount.toBase58(),
+          setupPolicyId: expectedSetupPolicySeed,
+          setupPolicySeed: expectedSetupPolicySeed,
+        }
+      : {}),
     targetReserve: target.targetReserve,
     targetSupplyApyBps: requestInput.targetSupplyApyBps,
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
@@ -132,6 +153,55 @@ function createCanonicalDepositInput(
     canonicalInput.policySeed,
     "policySeed"
   );
+  if (requestInput.policyInitialization === "create") {
+    if (
+      requestInput.policyConfirmedSlot === null ||
+      requestInput.policyConfirmedSlot === undefined
+    ) {
+      throw new Error("policyConfirmedSlot is required for policy creation.");
+    }
+    if (!requestInput.setupPolicySignature) {
+      throw new Error("setupPolicySignature is required for policy creation.");
+    }
+    if (
+      requestInput.setupPolicyConfirmedSlot === null ||
+      requestInput.setupPolicyConfirmedSlot === undefined
+    ) {
+      throw new Error(
+        "setupPolicyConfirmedSlot is required for policy creation."
+      );
+    }
+  }
+  if (requiresSetupPolicyMetadata) {
+    assertCanonicalField(
+      requestInput.setupPolicyAccount ?? null,
+      canonicalInput.setupPolicyAccount ?? null,
+      "setupPolicyAccount"
+    );
+    assertCanonicalField(
+      requestInput.setupPolicyId ?? null,
+      canonicalInput.setupPolicyId ?? null,
+      "setupPolicyId"
+    );
+    assertCanonicalField(
+      requestInput.setupPolicySeed ?? null,
+      canonicalInput.setupPolicySeed ?? null,
+      "setupPolicySeed"
+    );
+  }
+  const hasSetupPolicyConfirmation =
+    (requestInput.setupPolicySignature !== undefined &&
+      requestInput.setupPolicySignature !== null) ||
+    (requestInput.setupPolicyConfirmedSlot !== undefined &&
+      requestInput.setupPolicyConfirmedSlot !== null);
+  if (
+    hasSetupPolicyConfirmation &&
+    (!requestInput.setupPolicySignature ||
+      requestInput.setupPolicyConfirmedSlot === null ||
+      requestInput.setupPolicyConfirmedSlot === undefined)
+  ) {
+    throw new Error("Setup policy confirmation metadata is incomplete.");
+  }
   assertCanonicalField(
     requestInput.targetReserve,
     canonicalInput.targetReserve,
@@ -176,6 +246,7 @@ function getConnection(cluster: SolanaEnv): Connection {
 
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
+  operation: "deposit" | "route policy setup" | "setup policy setup";
   signature: string;
 }): Promise<bigint> {
   const { value } = await getConnection(args.cluster).getSignatureStatuses(
@@ -185,14 +256,14 @@ async function resolveConfirmedSignatureSlot(args: {
   const status = value[0];
 
   if (!status || status.err) {
-    throw new Error("Deposit transaction is not confirmed.");
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
   if (
     status.confirmationStatus !== "confirmed" &&
     status.confirmationStatus !== "finalized"
   ) {
-    throw new Error("Deposit transaction is not confirmed.");
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
   if (typeof status.slot !== "number") {
@@ -285,6 +356,7 @@ export async function POST(request: Request) {
   try {
     confirmedSlot = await resolveConfirmedSignatureSlot({
       cluster: solanaEnv,
+      operation: "deposit",
       signature: input.depositSignature,
     });
   } catch (error) {
@@ -303,6 +375,58 @@ export async function POST(request: Request) {
       "slot_mismatch",
       "Confirmed yield deposit slot does not match the transaction status."
     );
+  }
+
+  if (input.policyInitialization === "create") {
+    let policyConfirmedSlot: bigint;
+    try {
+      policyConfirmedSlot = await resolveConfirmedSignatureSlot({
+        cluster: solanaEnv,
+        operation: "route policy setup",
+        signature: input.policySignature,
+      });
+    } catch (error) {
+      return jsonError(
+        400,
+        "unconfirmed_policy_signature",
+        error instanceof Error
+          ? error.message
+          : "Route policy setup transaction is not confirmed."
+      );
+    }
+
+    if (input.policyConfirmedSlot !== policyConfirmedSlot) {
+      return jsonError(
+        400,
+        "policy_slot_mismatch",
+        "Confirmed route policy setup slot does not match the transaction status."
+      );
+    }
+
+    let setupPolicyConfirmedSlot: bigint;
+    try {
+      setupPolicyConfirmedSlot = await resolveConfirmedSignatureSlot({
+        cluster: solanaEnv,
+        operation: "setup policy setup",
+        signature: input.setupPolicySignature ?? "",
+      });
+    } catch (error) {
+      return jsonError(
+        400,
+        "unconfirmed_setup_policy_signature",
+        error instanceof Error
+          ? error.message
+          : "Setup policy transaction is not confirmed."
+      );
+    }
+
+    if (input.setupPolicyConfirmedSlot !== setupPolicyConfirmedSlot) {
+      return jsonError(
+        400,
+        "setup_policy_slot_mismatch",
+        "Confirmed setup policy slot does not match the transaction status."
+      );
+    }
   }
 
   let position: UserYieldPositionRecord;

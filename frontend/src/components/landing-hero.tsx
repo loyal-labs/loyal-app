@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const appUrl = "https://app.askloyal.com";
+import { usePublicEnv } from "@/contexts/public-env-context";
 
 async function loadLottieLight() {
   const mod = await import("lottie-web/build/player/lottie_light");
@@ -14,6 +14,7 @@ async function loadLottieLight() {
 }
 
 export function LandingHero() {
+  const { loyalAppUrl } = usePublicEnv();
   const animationRef = useRef<AnimationItem | null>(null);
   const isPausedRef = useRef(false);
   const [activeProgressBar, setActiveProgressBar] = useState<0 | 1>(0);
@@ -155,7 +156,7 @@ export function LandingHero() {
               >
                 Get extension
               </HeroButton>
-              <HeroButton href={appUrl} tone="solid">
+              <HeroButton href={loyalAppUrl} tone="solid">
                 Open web app
               </HeroButton>
               <HeroButton

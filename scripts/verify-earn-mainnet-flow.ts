@@ -19,6 +19,8 @@ import {
   getRiskBasketMarketsForCluster,
   getKaminoUsdcEarnTargetForCluster,
   getStablecoinMintsForCluster,
+  KAMINO_VANILLA_OBLIGATION_ID,
+  KAMINO_VANILLA_OBLIGATION_TAG,
   LoyalCluster,
   RiskBasket,
   Stablecoin,
@@ -112,10 +114,16 @@ type EvidenceStep = {
   policyUpdateSimulationLogs?: string[];
   policyUpdateUnsignedSimulationLogs?: string[];
   confirmedFinalizeSlot?: string | null;
+  routeConfirmedSlot?: string | null;
+  routeSignature?: string | null;
   finalizeInstructionCount?: number;
   finalizePacketLength?: number | null;
   finalizeSignature?: string | null;
   finalizeSimulationLogs?: string[];
+  setupConfirmedSlot?: string | null;
+  setupPacketLength?: number | null;
+  setupPolicy?: unknown;
+  setupPolicyUnsignedSimulationLogs?: string[];
   policyUniverse?: unknown;
   postKaminoVaultUsdcRaw?: string | null;
   persistence?: unknown;
@@ -123,6 +131,7 @@ type EvidenceStep = {
   negativeCases?: unknown;
   sendsTransactions?: boolean;
   signature?: string;
+  preparedTarget?: unknown;
   simulationLogs?: string[];
   setupSignature?: string;
   stderr?: string;
@@ -186,6 +195,14 @@ const RESUME_INITIAL_POLICY_ACCOUNT =
   process.env.EARN_INITIAL_POLICY_ACCOUNT?.trim() || null;
 const RESUME_INITIAL_POLICY_SEED =
   process.env.EARN_INITIAL_POLICY_SEED?.trim() || null;
+const RESUME_INITIAL_SETUP_POLICY_SIGNATURE =
+  process.env.EARN_INITIAL_SETUP_POLICY_SIGNATURE?.trim() || null;
+const RESUME_INITIAL_SETUP_POLICY_SLOT =
+  process.env.EARN_INITIAL_SETUP_POLICY_SLOT?.trim() || null;
+const RESUME_INITIAL_SETUP_POLICY_ACCOUNT =
+  process.env.EARN_INITIAL_SETUP_POLICY_ACCOUNT?.trim() || null;
+const RESUME_INITIAL_SETUP_POLICY_SEED =
+  process.env.EARN_INITIAL_SETUP_POLICY_SEED?.trim() || null;
 const RESUME_TOP_UP_DEPOSIT_SIGNATURE =
   process.env.EARN_TOP_UP_DEPOSIT_SIGNATURE?.trim() || null;
 const RESUME_TOP_UP_DEPOSIT_SLOT =
@@ -498,15 +515,21 @@ async function prepareEarnDepositViaFrontend(args: {
 
 function buildEarnDepositConfirmFrontendBody(args: {
   confirmedSlot: bigint;
+  policyConfirmedSlot?: bigint;
   policySignature?: string;
   prepared: SmartAccountPreparedEarnUsdcDeposit;
   session: FrontendSession;
+  setupPolicyConfirmedSlot?: bigint;
+  setupPolicySignature?: string;
   signature: string;
 }) {
   return buildEarnDepositConfirmRequestBody({
     confirmedSlot: args.confirmedSlot.toString(),
+    policyConfirmedSlot: args.policyConfirmedSlot?.toString(),
     policySignature: args.policySignature,
     preparedDeposit: args.prepared,
+    setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot?.toString(),
+    setupPolicySignature: args.setupPolicySignature,
     signature: args.signature,
     smartAccountAddress: args.session.smartAccountAddress,
   });
@@ -514,9 +537,12 @@ function buildEarnDepositConfirmFrontendBody(args: {
 
 async function confirmEarnDepositViaFrontend(args: {
   confirmedSlot: bigint;
+  policyConfirmedSlot?: bigint;
   policySignature?: string;
   prepared: SmartAccountPreparedEarnUsdcDeposit;
   session: FrontendSession;
+  setupPolicyConfirmedSlot?: bigint;
+  setupPolicySignature?: string;
   signature: string;
 }) {
   const response = await frontendPostJson<{ position: unknown }>({
@@ -610,6 +636,41 @@ function assertSafePolicyUniverse(
   }
 }
 
+function preparedTargetEvidence(
+  prepared:
+    | SmartAccountPreparedEarnUsdcDeposit
+    | SmartAccountPreparedEarnUsdcYieldRoutingPolicy
+    | SmartAccountPreparedEarnUsdcWithdraw
+) {
+  return {
+    targetReserve: {
+      reserve: prepared.targetReserve.reserve.toBase58(),
+      market: prepared.targetReserve.market.toBase58(),
+      liquidityMint: prepared.targetReserve.liquidityMint.toBase58(),
+      obligation: prepared.targetReserve.obligation.toBase58(),
+      ...("supplyApyBps" in prepared.targetReserve
+        ? {
+            supplyApyBps:
+              prepared.targetReserve.supplyApyBps?.toString() ?? null,
+          }
+        : {}),
+    },
+    vault: {
+      accountIndex: prepared.vault.accountIndex,
+      pubkey: prepared.vault.pubkey.toBase58(),
+      ...("usdcAta" in prepared.vault
+        ? { usdcAta: prepared.vault.usdcAta.toBase58() }
+        : {}),
+      ...("collateralAta" in prepared.vault
+        ? {
+            collateralAta:
+              prepared.vault.collateralAta?.toBase58() ?? null,
+          }
+        : {}),
+    },
+  };
+}
+
 function createSerializedSettingsAccount(policySeed: BN | null = null) {
   const [data] = Settings.fromArgs({
     accountUtilization: 0,
@@ -678,7 +739,7 @@ function assertPolicyPayloadUsesSafeUniverse(args: {
   const [withdrawConstraint, depositConstraint] = field.instructionsConstraints;
   const withdrawMarkets = generatedPubkeyConstraintValues(
     withdrawConstraint!.accountConstraints,
-    1
+    2
   );
   const markets = generatedPubkeyConstraintValues(
     depositConstraint!.accountConstraints,
@@ -686,7 +747,7 @@ function assertPolicyPayloadUsesSafeUniverse(args: {
   );
   const mints = generatedPubkeyConstraintValues(
     depositConstraint!.accountConstraints,
-    4
+    5
   );
   if (
     JSON.stringify(withdrawMarkets) !==
@@ -704,6 +765,13 @@ function assertPolicyPayloadUsesSafeUniverse(args: {
     throw new Error(
       `${args.label} withdraw constraint must not duplicate the stable mint allowlist.`
     );
+  }
+  if (
+    withdrawConstraint!.accountConstraints.some(
+      (constraint) => constraint.accountIndex === 1
+    )
+  ) {
+    throw new Error(`${args.label} withdraw constraint must not allow obligation.`);
   }
   if (
     JSON.stringify(markets) !==
@@ -738,22 +806,63 @@ function assertPreparedPolicyCreateUsesSafeUniverse(args: {
   });
 }
 
-function assertPreparedPolicyUpdateUsesSafeUniverse(
+function assertPreparedSetupPolicyCreateUsesInitObligation(
   prepared: SmartAccountPreparedEarnUsdcYieldRoutingPolicy["prepared"]
 ) {
   const [decoded] = generated.executeSettingsTransactionSyncStruct.deserialize(
     Buffer.from(prepared.instructions[0]?.data ?? [])
   );
-  const policyUpdate = decoded.args.actions.find(
-    (action) => action.__kind === "PolicyUpdate"
+  const policyCreate = decoded.args.actions.find(
+    (action) => action.__kind === "PolicyCreate"
   );
-  if (!policyUpdate || policyUpdate.__kind !== "PolicyUpdate") {
-    throw new Error("Expected a PolicyUpdate action.");
+  if (!policyCreate || policyCreate.__kind !== "PolicyCreate") {
+    throw new Error("Expected an init-obligation PolicyCreate action.");
   }
-  assertPolicyPayloadUsesSafeUniverse({
-    label: "PolicyUpdate",
-    payload: policyUpdate.policyUpdatePayload,
-  });
+  const payload = policyCreate.policyCreationPayload;
+  if (payload.__kind !== "ProgramInteraction") {
+    throw new Error("Expected ProgramInteraction setup policy payload.");
+  }
+  const [field] = payload.fields;
+  if (field.accountIndex !== 1) {
+    throw new Error("Expected setup policy to target Earn vault index 1.");
+  }
+  if (field.instructionsConstraints.length !== 1) {
+    throw new Error("Expected exactly one init-obligation constraint.");
+  }
+  const [initObligationConstraint] = field.instructionsConstraints;
+  if (!initObligationConstraint) {
+    throw new Error("Expected init-obligation instruction constraint.");
+  }
+  const markets = generatedPubkeyConstraintValues(
+    initObligationConstraint.accountConstraints,
+    3
+  );
+  if (
+    JSON.stringify(markets) !== JSON.stringify(EARN_POLICY_UNIVERSE.kaminoMarkets)
+  ) {
+    throw new Error("Setup policy Safe Kamino market constraint mismatch.");
+  }
+  const [dataConstraint] = initObligationConstraint.dataConstraints;
+  if (
+    !dataConstraint ||
+    dataConstraint.operator !== generated.DataOperator.Equals ||
+    dataConstraint.dataOffset.toString() !== "0" ||
+    dataConstraint.dataValue.__kind !== "U8Slice"
+  ) {
+    throw new Error("Expected setup policy init-obligation data prefix check.");
+  }
+  const expectedPrefix = Uint8Array.from([
+    ...EARN_TARGET.initObligationDiscriminator,
+    KAMINO_VANILLA_OBLIGATION_TAG,
+    KAMINO_VANILLA_OBLIGATION_ID,
+  ]);
+  const actualPrefix = dataConstraint.dataValue.fields[0];
+  if (
+    actualPrefix.length !== expectedPrefix.length ||
+    !actualPrefix.every((value, index) => value === expectedPrefix[index])
+  ) {
+    throw new Error("Setup policy init-obligation discriminator mismatch.");
+  }
 }
 
 function installOfflineKaminoWithdrawMock(args: {
@@ -846,15 +955,13 @@ async function runOfflinePolicyVerifier(): Promise<void> {
   });
   assertSafePolicyUniverse(preparedPolicy.persistence);
   const finalizePrepared = preparedPolicy.finalizePrepared ?? null;
+  if (!finalizePrepared) {
+    throw new Error("Earn policy verifier expected an init-obligation setup policy transaction.");
+  }
   assertPreparedPolicyCreateUsesSafeUniverse({
-    expectedStableMints: finalizePrepared
-      ? [EARN_TARGET.liquidityMint.toBase58()]
-      : undefined,
     prepared: preparedPolicy.prepared,
   });
-  if (finalizePrepared) {
-    assertPreparedPolicyUpdateUsesSafeUniverse(finalizePrepared);
-  }
+  assertPreparedSetupPolicyCreateUsesInitObligation(finalizePrepared);
   const policyPacketLength = preparedPacketLength(preparedPolicy.prepared);
   if (policyPacketLength > PACKET_DATA_SIZE) {
     throw new Error(`PolicyCreate packet too large: ${policyPacketLength}.`);
@@ -863,7 +970,9 @@ async function runOfflinePolicyVerifier(): Promise<void> {
     ? preparedPacketLength(finalizePrepared)
     : null;
   if (finalizePacketLength !== null && finalizePacketLength > PACKET_DATA_SIZE) {
-    throw new Error(`PolicyUpdate packet too large: ${finalizePacketLength}.`);
+    throw new Error(
+      `Init-obligation PolicyCreate packet too large: ${finalizePacketLength}.`
+    );
   }
 
   const vaultPda = preparedPolicy.vault.pubkey;
@@ -889,6 +998,10 @@ async function runOfflinePolicyVerifier(): Promise<void> {
       yieldRoutingPolicy: {
         account: preparedPolicy.policy.account,
         seed: preparedPolicy.policy.seed,
+        setupPolicy: {
+          account: preparedPolicy.setupPolicy.account,
+          seed: preparedPolicy.setupPolicy.seed,
+        },
       },
     });
     if ("policyUpdatePrepared" in preparedWithdraw) {
@@ -1092,14 +1205,24 @@ async function readGitCommit(cwd: string): Promise<string | null> {
   return result.stdout.trim() || null;
 }
 
-function sameMintMonitorCommand(options: {
-  execute: boolean;
-}): readonly string[] {
+function opRunSiblingCargoCommand(args: readonly string[]): readonly string[] {
   return [
     "op",
     "run",
     "--env-file=.env.1password",
     "--",
+    "sh",
+    "-c",
+    'YIELD_ROUTER_KEYPAIR="$DEPLOYMENT_PK" exec "$@"',
+    "yield-router-cargo",
+    ...args,
+  ];
+}
+
+function sameMintMonitorCommand(options: {
+  execute: boolean;
+}): readonly string[] {
+  return opRunSiblingCargoCommand([
     "cargo",
     "run",
     "-p",
@@ -1110,18 +1233,14 @@ function sameMintMonitorCommand(options: {
     "--once",
     "--all-active-vaults",
     ...(options.execute ? ["--execute"] : []),
-  ];
+  ]);
 }
 
 function sameMintReserveSwapSetupObligationCommand(args: {
   execute: boolean;
   reserve: string;
 }): readonly string[] {
-  return [
-    "op",
-    "run",
-    "--env-file=.env.1password",
-    "--",
+  return opRunSiblingCargoCommand([
     "cargo",
     "run",
     "-p",
@@ -1136,7 +1255,7 @@ function sameMintReserveSwapSetupObligationCommand(args: {
     "--setup-obligation-reserve",
     args.reserve,
     ...(args.execute ? ["--execute"] : []),
-  ];
+  ]);
 }
 
 async function loadTopSafeUsdcCandidateEvidence() {
@@ -1292,6 +1411,7 @@ async function simulatePrepared(args: {
 
 async function simulatePreparedUnsigned(args: {
   connection: Connection;
+  label?: string;
   prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"];
 }): Promise<string[]> {
   const blockhash = await args.connection.getLatestBlockhash("confirmed");
@@ -1305,8 +1425,11 @@ async function simulatePreparedUnsigned(args: {
   });
 
   if (simulation.value.err) {
+    const label = args.label ? `${args.label}: ` : "";
     throw new Error(
-      `Unsigned simulation failed: ${JSON.stringify(simulation.value.err)}\n${(
+      `${label}Unsigned simulation failed: ${JSON.stringify(
+        simulation.value.err
+      )}\n${(
         simulation.value.logs ?? []
       ).join("\n")}`
     );
@@ -1401,8 +1524,11 @@ async function sendOrResumePrepared(args: {
 
 function depositInput(args: {
   prepared: SmartAccountPreparedEarnUsdcDeposit;
+  policyConfirmedSlot?: bigint;
   policyInitialization?: "create" | "reuse";
   policySignature: string;
+  setupPolicyConfirmedSlot?: bigint;
+  setupPolicySignature?: string;
   signature: string;
   slot: bigint;
 }) {
@@ -1420,10 +1546,20 @@ function depositInput(args: {
     policyInitialization:
       args.policyInitialization ?? persistence.policyInitialization,
     policySeed: BigInt(persistence.policySeed),
+    policyConfirmedSlot: args.policyConfirmedSlot,
     policySignature: args.policySignature,
     principalAmountRaw: BigInt(persistence.principalAmountRaw),
     settings: persistence.settings,
     smartAccountAddress: persistence.vaultPubkey,
+    setupPolicyAccount: persistence.setupPolicyAccount,
+    setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot,
+    setupPolicyId: persistence.setupPolicyId
+      ? BigInt(persistence.setupPolicyId)
+      : undefined,
+    setupPolicySeed: persistence.setupPolicySeed
+      ? BigInt(persistence.setupPolicySeed)
+      : undefined,
+    setupPolicySignature: args.setupPolicySignature,
     targetReserve: persistence.targetReserve,
     targetSupplyApyBps:
       persistence.targetSupplyApyBps === null
@@ -1437,11 +1573,15 @@ function depositInput(args: {
 
 function policyInput(args: {
   prepared: SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
+  setupSignature?: string;
+  setupSlot?: bigint;
   signature: string;
   slot: bigint;
 }) {
   return policyInputFromPersistence({
     persistence: args.prepared.persistence,
+    setupSignature: args.setupSignature,
+    setupSlot: args.setupSlot,
     signature: args.signature,
     slot: args.slot,
   });
@@ -1449,6 +1589,8 @@ function policyInput(args: {
 
 function policyInputFromPersistence(args: {
   persistence: SmartAccountPreparedEarnUsdcYieldRoutingPolicy["persistence"];
+  setupSignature?: string;
+  setupSlot?: bigint;
   signature: string;
   slot: bigint;
 }) {
@@ -1462,8 +1604,14 @@ function policyInputFromPersistence(args: {
     policyAccount: persistence.policyAccount,
     policyId: BigInt(persistence.policyId),
     policySeed: BigInt(persistence.policySeed),
+    policyConfirmedSlot: args.slot,
     policySignature: args.signature,
     settings: persistence.settings,
+    setupPolicyAccount: persistence.setupPolicyAccount,
+    setupPolicyConfirmedSlot: args.setupSlot,
+    setupPolicyId: BigInt(persistence.setupPolicyId),
+    setupPolicySeed: BigInt(persistence.setupPolicySeed),
+    setupPolicySignature: args.setupSignature,
     targetReserve: persistence.targetReserve,
     vaultIndex: persistence.vaultIndex,
     vaultPubkey: persistence.vaultPubkey,
@@ -1489,6 +1637,13 @@ function withdrawalInput(args: {
     policySeed: BigInt(persistence.policySeed),
     settings: persistence.settings,
     smartAccountAddress: persistence.vaultPubkey,
+    setupPolicyAccount: persistence.setupPolicyAccount,
+    setupPolicyId: persistence.setupPolicyId
+      ? BigInt(persistence.setupPolicyId)
+      : undefined,
+    setupPolicySeed: persistence.setupPolicySeed
+      ? BigInt(persistence.setupPolicySeed)
+      : undefined,
     targetReserve: persistence.targetReserve,
     vaultIndex: persistence.vaultIndex,
     vaultPubkey: persistence.vaultPubkey,
@@ -1559,6 +1714,7 @@ async function tokenAmount(
 async function loadState(args: {
   connection: Connection;
   policyAccount?: PublicKey | null;
+  setupPolicyAccount?: PublicKey | null;
   vaultCollateralAta?: PublicKey | null;
   vaultPubkey: PublicKey;
   vaultUsdcAta: PublicKey;
@@ -1584,12 +1740,16 @@ async function loadState(args: {
   const [
     walletAccount,
     policyAccount,
+    setupPolicyAccount,
     vaultUsdcAccount,
     vaultCollateralAccount,
   ] = await Promise.all([
     args.connection.getAccountInfo(args.walletAddress, "confirmed"),
     args.policyAccount
       ? args.connection.getAccountInfo(args.policyAccount, "confirmed")
+      : null,
+    args.setupPolicyAccount
+      ? args.connection.getAccountInfo(args.setupPolicyAccount, "confirmed")
       : null,
     args.connection.getAccountInfo(args.vaultUsdcAta, "confirmed"),
     args.vaultCollateralAta
@@ -1601,7 +1761,6 @@ async function loadState(args: {
     vaultUsdcRaw,
     vaultCollateralRaw,
     position,
-    routePolicy,
     managedVault,
     deposits,
     withdrawals,
@@ -1618,15 +1777,6 @@ async function loadState(args: {
         eq(userYieldPositions.vaultIndex, 1),
         eq(userYieldPositions.initialReserve, EARN_TARGET.reserve.toBase58()),
         eq(userYieldPositions.walletAddress, wallet)
-      ),
-    }),
-    args.yieldClient.db.query.routePolicies.findFirst({
-      orderBy: [desc(routePolicies.id)],
-      where: and(
-        eq(routePolicies.settings, settings),
-        eq(routePolicies.vaultIndex, 1),
-        eq(routePolicies.authority, wallet),
-        eq(routePolicies.vaultPubkey, args.vaultPubkey.toBase58())
       ),
     }),
     args.yieldClient.db.query.managedVaults.findFirst({
@@ -1661,10 +1811,27 @@ async function loadState(args: {
         where: eq(userYieldPositionHoldingEvents.positionId, position.id),
       })
     : [];
+  const routePolicy =
+    managedVault &&
+    "activePolicyId" in managedVault &&
+    typeof managedVault.activePolicyId === "bigint"
+      ? await args.yieldClient.db.query.routePolicies.findFirst({
+          where: eq(routePolicies.id, managedVault.activePolicyId),
+        })
+      : null;
+  const setupPolicy =
+    managedVault &&
+    "setupPolicyId" in managedVault &&
+    typeof managedVault.setupPolicyId === "bigint"
+      ? await args.yieldClient.db.query.routePolicies.findFirst({
+          where: eq(routePolicies.id, managedVault.setupPolicyId),
+        })
+      : null;
 
   return {
     accounts: {
       policy: accountSnapshot(policyAccount),
+      setupPolicy: accountSnapshot(setupPolicyAccount),
       vaultCollateralAta: accountSnapshot(vaultCollateralAccount),
       vaultUsdcAta: accountSnapshot(vaultUsdcAccount),
       wallet: accountSnapshot(walletAccount),
@@ -1675,6 +1842,7 @@ async function loadState(args: {
       managedVault,
       position: compactPosition(position),
       routePolicy,
+      setupPolicy,
       withdrawals,
     },
     tokenBalances: {
@@ -1702,6 +1870,10 @@ function assertNoPositionActive(
   const routePolicy = state.db.routePolicy as { active?: boolean } | null;
   if (routePolicy?.active) {
     throw new Error("Expected no active Earn route policy.");
+  }
+  const setupPolicy = state.db.setupPolicy as { active?: boolean } | null;
+  if (setupPolicy?.active) {
+    throw new Error("Expected no active Earn setup policy.");
   }
   const managedVault = state.db.managedVault as { active?: boolean } | null;
   if (managedVault?.active) {
@@ -2092,9 +2264,12 @@ async function main() {
   async function verifyDepositConfirmReplayAndFailures(args: {
     confirmedSlot: bigint;
     label: string;
+    policyConfirmedSlot?: bigint;
     policySignature?: string;
     prepared: SmartAccountPreparedEarnUsdcDeposit;
     session: FrontendSession;
+    setupPolicyConfirmedSlot?: bigint;
+    setupPolicySignature?: string;
     signature: string;
   }) {
     const body = buildEarnDepositConfirmFrontendBody(args);
@@ -2319,13 +2494,14 @@ async function main() {
         "Active Earn position has no current holding to withdraw."
       );
     }
-    const activeRoutePolicy = await repository.findActiveYieldRoutePolicy({
+    const activePolicyPair = await repository.findActiveYieldRoutePolicyPair({
       authority: wallet.publicKey.toBase58(),
       cluster: LoyalCluster.MainnetBeta,
       settings: SETTINGS_PDA.toBase58(),
       vaultIndex: 1,
       vaultPubkey: vaultPubkey.toBase58(),
     });
+    const activeRoutePolicy = activePolicyPair?.routePolicy ?? null;
     if (!activeRoutePolicy) {
       throw new Error("full-withdraw-cleanup requires an active Earn policy.");
     }
@@ -2347,13 +2523,25 @@ async function main() {
           yieldRoutingPolicy: {
             account: new PublicKey(activeRoutePolicy.policyAccount),
             seed: activeRoutePolicy.policySeed,
+            ...(activePolicyPair?.setupPolicy
+              ? {
+                  setupPolicy: {
+                    account: new PublicKey(
+                      activePolicyPair.setupPolicy.policyAccount
+                    ),
+                    seed: activePolicyPair.setupPolicy.policySeed,
+                  },
+                }
+              : {}),
           },
         });
     const policyAccount = prepared.policy.account;
+    const setupPolicyAccount = prepared.setupPolicy?.account ?? null;
     const vaultCollateralAta = prepared.vault.collateralAta;
     const preState = await loadState({
       connection,
       policyAccount,
+      setupPolicyAccount,
       schema,
       vaultCollateralAta,
       vaultPubkey,
@@ -2372,16 +2560,17 @@ async function main() {
         throughInstructionCount: 2,
         tokenAccount: vaultUsdcAta,
       });
-      evidence.steps.fullWithdrawal = {
-        amountRaw: activePosition.currentAmountRaw.toString(),
-        cleanupCandidates: fullWithdrawCleanupCandidates(prepared),
-        instructionCount: prepared.prepared.instructions.length,
-        kaminoWithdrawAmountRaw:
-          prepared.persistence.kaminoWithdrawAmountRaw ??
-          activePosition.currentAmountRaw.toString(),
-        persistence: prepared.persistence,
-        postKaminoVaultUsdcRaw: postKaminoVaultUsdc.amountRaw,
-        status: "skipped",
+        evidence.steps.fullWithdrawal = {
+          amountRaw: activePosition.currentAmountRaw.toString(),
+          cleanupCandidates: fullWithdrawCleanupCandidates(prepared),
+          instructionCount: prepared.prepared.instructions.length,
+          kaminoWithdrawAmountRaw:
+            prepared.persistence.kaminoWithdrawAmountRaw ??
+            activePosition.currentAmountRaw.toString(),
+          preparedTarget: preparedTargetEvidence(prepared),
+          persistence: prepared.persistence,
+          postKaminoVaultUsdcRaw: postKaminoVaultUsdc.amountRaw,
+          status: "skipped",
         unsignedSimulationLogs: postKaminoVaultUsdc.logs.slice(-12),
         vaultUsdcRemainderRaw:
           prepared.persistence.vaultUsdcRemainderRaw ??
@@ -2391,6 +2580,7 @@ async function main() {
       await writeEvidence(evidence);
       const unsignedSimulationLogs = await simulatePreparedUnsigned({
         connection,
+        label: "full withdrawal",
         prepared: prepared.prepared,
       });
       evidence.steps.fullWithdrawal = {
@@ -2398,11 +2588,12 @@ async function main() {
         amountRaw: activePosition.currentAmountRaw.toString(),
         cleanupCandidates: fullWithdrawCleanupCandidates(prepared),
         instructionCount: prepared.prepared.instructions.length,
-        kaminoWithdrawAmountRaw:
-          prepared.persistence.kaminoWithdrawAmountRaw ??
-          activePosition.currentAmountRaw.toString(),
-        persistence: prepared.persistence,
-        status: "skipped",
+          kaminoWithdrawAmountRaw:
+            prepared.persistence.kaminoWithdrawAmountRaw ??
+            activePosition.currentAmountRaw.toString(),
+          preparedTarget: preparedTargetEvidence(prepared),
+          persistence: prepared.persistence,
+          status: "skipped",
         unsignedSimulationLogs: unsignedSimulationLogs.slice(-12),
         vaultUsdcRemainderRaw:
           prepared.persistence.vaultUsdcRemainderRaw ??
@@ -2473,8 +2664,9 @@ async function main() {
         ? {
             metadataMismatch: idempotency.metadataMismatch,
             missingSession: idempotency.missingSession,
-          }
+        }
         : undefined,
+      preparedTarget: preparedTargetEvidence(prepared),
       persistence: { position: compactPosition(position) },
       signature: sent.signature,
       simulationLogs: sent.simulationLogs.slice(-12),
@@ -2488,6 +2680,7 @@ async function main() {
     const postState = await loadState({
       connection,
       policyAccount,
+      setupPolicyAccount,
       schema,
       vaultCollateralAta,
       vaultPubkey,
@@ -2514,6 +2707,7 @@ async function main() {
       prepared.persistence.vaultCollateralCleanupIncluded === true;
     const expectedRent =
       BigInt(preState.accounts.policy?.lamports ?? 0) +
+      BigInt(preState.accounts.setupPolicy?.lamports ?? 0) +
       (collateralCleanupIncluded
         ? BigInt(preState.accounts.vaultCollateralAta?.lamports ?? 0)
         : BigInt(0)) +
@@ -2537,6 +2731,11 @@ async function main() {
     if (postState.accounts.policy) {
       throw new Error(
         "Earn policy account still exists after full withdrawal."
+      );
+    }
+    if (postState.accounts.setupPolicy) {
+      throw new Error(
+        "Earn setup policy account still exists after full withdrawal."
       );
     }
     if (collateralCleanupIncluded && postState.accounts.vaultCollateralAta) {
@@ -2594,18 +2793,26 @@ async function main() {
       assertSafePolicyUniverse(prepared.persistence);
       const policySetupPrepared = prepared.policySetupPrepared ?? null;
       const policyFinalizePrepared = prepared.policyFinalizePrepared ?? null;
+      if (!policySetupPrepared || !policyFinalizePrepared || !prepared.setupPolicy) {
+        throw new Error(
+          "Frontend initial deposit did not return the required route and init-obligation policy setup transactions."
+        );
+      }
+      assertPreparedPolicyCreateUsesSafeUniverse({
+        prepared: policySetupPrepared,
+      });
+      assertPreparedSetupPolicyCreateUsesInitObligation(policyFinalizePrepared);
 
       if (DRY_RUN) {
-        const unsignedDepositSimulationLogs = await simulatePreparedUnsigned({
+        const unsignedPolicySimulationLogs = await simulatePreparedUnsigned({
           connection,
-          prepared: prepared.prepared,
+          label: "initial route policy setup",
+          prepared: policySetupPrepared,
         });
-        const unsignedPolicySimulationLogs = policySetupPrepared
-          ? await simulatePreparedUnsigned({
-              connection,
-              prepared: policySetupPrepared,
-            })
-          : [];
+        const setupPolicySimulationSkippedReason =
+          "Dry-run does not send the route policy transaction, so the init-obligation setup policy transaction is not simulated against unadvanced settings state.";
+        const depositSimulationSkippedReason =
+          "Dry-run does not send the route/setup policy transactions, so the final deposit transaction is not simulated against non-existent policy accounts.";
         const frontendFailureCases = await verifyDryRunFrontendFailureCases({
           prepared,
           session: frontendSession,
@@ -2621,8 +2828,13 @@ async function main() {
             ? preparedPacketLength(policySetupPrepared)
             : null,
           policyUniverse: EARN_POLICY_UNIVERSE,
+          preparedTarget: preparedTargetEvidence(prepared),
           persistence: prepared.persistence,
           status: "skipped",
+          setupPolicy: prepared.setupPolicy,
+          setupPacketLength: preparedPacketLength(policyFinalizePrepared),
+          setupPolicyUnsignedSimulationSkippedReason:
+            setupPolicySimulationSkippedReason,
           unsignedSimulationLogs: unsignedPolicySimulationLogs.slice(-12),
         };
         evidence.steps.initialDeposit = {
@@ -2632,10 +2844,11 @@ async function main() {
           kaminoSetupRentLamports: prepared.kaminoSetupRentLamports,
           kaminoSetupRequired: prepared.kaminoSetupRequired,
           packetLength: preparedPacketLength(prepared.prepared),
+          preparedTarget: preparedTargetEvidence(prepared),
           persistence: prepared.persistence,
           policyUniverse: EARN_POLICY_UNIVERSE,
           status: "skipped",
-          unsignedSimulationLogs: unsignedDepositSimulationLogs.slice(-12),
+          unsignedSimulationSkippedReason: depositSimulationSkippedReason,
         };
         evidence.steps.frontendFailureCases = {
           negativeCases: frontendFailureCases,
@@ -2652,23 +2865,22 @@ async function main() {
       let policySlot = RESUME_INITIAL_POLICY_SLOT
         ? BigInt(RESUME_INITIAL_POLICY_SLOT)
         : null;
+      let setupPolicySignature = RESUME_INITIAL_SETUP_POLICY_SIGNATURE;
+      let setupPolicySlot = RESUME_INITIAL_SETUP_POLICY_SLOT
+        ? BigInt(RESUME_INITIAL_SETUP_POLICY_SLOT)
+        : null;
       let sentPolicy: {
         signature: string;
         simulationLogs: string[];
         slot: bigint;
       } | null = null;
-      let sentFinalize: {
+      let sentSetupPolicy: {
         signature: string;
         simulationLogs: string[];
         slot: bigint;
       } | null = null;
 
       if (!policySignature) {
-        if (!policySetupPrepared) {
-          throw new Error(
-            "Frontend initial deposit did not return a policy setup transaction."
-          );
-        }
         sentPolicy = await sendOrResumePrepared({
           connection,
           prepared: policySetupPrepared,
@@ -2676,17 +2888,8 @@ async function main() {
           resumeSlot: null,
           wallet,
         });
-        sentFinalize = policyFinalizePrepared
-          ? await sendOrResumePrepared({
-              connection,
-              prepared: policyFinalizePrepared,
-              resumeSignature: null,
-              resumeSlot: null,
-              wallet,
-            })
-          : null;
-        policySignature = sentFinalize?.signature ?? sentPolicy.signature;
-        policySlot = sentFinalize?.slot ?? sentPolicy.slot;
+        policySignature = sentPolicy.signature;
+        policySlot = sentPolicy.slot;
       }
 
       if (!policySignature) {
@@ -2696,6 +2899,26 @@ async function main() {
         policySlot = await resolveConfirmedSignatureSlot({
           connection,
           signature: policySignature,
+        });
+      }
+      if (!setupPolicySignature) {
+        sentSetupPolicy = await sendOrResumePrepared({
+          connection,
+          prepared: policyFinalizePrepared,
+          resumeSignature: null,
+          resumeSlot: null,
+          wallet,
+        });
+        setupPolicySignature = sentSetupPolicy.signature;
+        setupPolicySlot = sentSetupPolicy.slot;
+      }
+      if (!setupPolicySignature) {
+        throw new Error("Frontend setup policy signature is unavailable.");
+      }
+      if (!setupPolicySlot) {
+        setupPolicySlot = await resolveConfirmedSignatureSlot({
+          connection,
+          signature: setupPolicySignature,
         });
       }
 
@@ -2720,9 +2943,12 @@ async function main() {
       }
       const depositConfirmArgs = {
         confirmedSlot: sent.slot,
+        policyConfirmedSlot: policySlot,
         policySignature,
         prepared,
         session: frontendSession,
+        setupPolicyConfirmedSlot: setupPolicySlot,
+        setupPolicySignature,
         signature: sent.signature,
       };
       const position = await confirmEarnDepositViaFrontend(depositConfirmArgs);
@@ -2731,18 +2957,24 @@ async function main() {
         label: "initial deposit confirm",
       });
       evidence.steps.initialPolicy = {
-        confirmedFinalizeSlot: sentFinalize?.slot.toString() ?? null,
+        confirmedFinalizeSlot: setupPolicySlot.toString(),
         confirmedSlot: policySlot.toString(),
         finalizeInstructionCount:
           policyFinalizePrepared?.instructions.length ?? 0,
-        finalizeSignature: sentFinalize?.signature ?? null,
+        finalizeSignature: setupPolicySignature,
         instructionCount: policySetupPrepared?.instructions.length ?? 0,
         policyUniverse: EARN_POLICY_UNIVERSE,
+        preparedTarget: preparedTargetEvidence(prepared),
         persistence: prepared.persistence,
+        routeConfirmedSlot: policySlot.toString(),
+        routeSignature: policySignature,
+        setupConfirmedSlot: setupPolicySlot.toString(),
+        setupPolicy: prepared.setupPolicy,
         signature: policySignature,
-        setupSignature: sentPolicy?.signature ?? policySignature,
+        setupSignature: setupPolicySignature,
         simulationLogs: sentPolicy?.simulationLogs.slice(-12) ?? [],
-        finalizeSimulationLogs: sentFinalize?.simulationLogs.slice(-12) ?? [],
+        finalizeSimulationLogs:
+          sentSetupPolicy?.simulationLogs.slice(-12) ?? [],
         status: "success",
       };
       evidence.steps.initialDeposit = {
@@ -2759,6 +2991,7 @@ async function main() {
           missingSession: idempotency.missingSession,
         },
         policyUniverse: EARN_POLICY_UNIVERSE,
+        preparedTarget: preparedTargetEvidence(prepared),
         persistence: { position: compactPosition(position) },
         signature: sent.signature,
         simulationLogs: sent.simulationLogs.slice(-12),
@@ -2768,6 +3001,7 @@ async function main() {
       const postState = await loadState({
         connection,
         policyAccount: prepared.policy.account,
+        setupPolicyAccount: prepared.setupPolicy?.account ?? null,
         schema,
         vaultCollateralAta:
           prepared.vault.collateralAta ??
@@ -2798,6 +3032,9 @@ async function main() {
       if (!postState.accounts.policy) {
         throw new Error("Earn policy account was not created.");
       }
+      if (!postState.accounts.setupPolicy) {
+        throw new Error("Earn setup policy account was not created.");
+      }
       if (
         prepared.vault.collateralAta &&
         !postState.accounts.vaultCollateralAta
@@ -2821,12 +3058,21 @@ async function main() {
       const routePolicy = postState.db.routePolicy as {
         active?: boolean;
       } | null;
-      const managedVault = postState.db.managedVault as {
+      const setupPolicy = postState.db.setupPolicy as {
         active?: boolean;
       } | null;
-      if (!routePolicy?.active || !managedVault?.active) {
+      const managedVault = postState.db.managedVault as {
+        active?: boolean;
+        setupPolicyId?: bigint | null;
+      } | null;
+      if (
+        !routePolicy?.active ||
+        !setupPolicy?.active ||
+        !managedVault?.active ||
+        typeof managedVault?.setupPolicyId !== "bigint"
+      ) {
         throw new Error(
-          "Initial deposit did not activate policy/vault DB rows."
+          "Initial deposit did not activate route/setup policy and vault DB rows."
         );
       }
       evidence.verifierFailures = await assertNoVerifierFailures({
@@ -2842,6 +3088,13 @@ async function main() {
       persistence: SmartAccountPreparedEarnUsdcYieldRoutingPolicy["persistence"];
       seed: bigint;
       signature: string;
+      slot: bigint;
+      setupPolicy: {
+        account: PublicKey;
+        seed: bigint;
+        signature: string;
+        slot: bigint;
+      };
     } | null = null;
 
     if (RESUME_INITIAL_POLICY_SIGNATURE) {
@@ -2852,6 +3105,21 @@ async function main() {
       }
       const policyAccount = new PublicKey(RESUME_INITIAL_POLICY_ACCOUNT);
       const policySeed = BigInt(RESUME_INITIAL_POLICY_SEED);
+      const setupPolicySeed = RESUME_INITIAL_SETUP_POLICY_SEED
+        ? BigInt(RESUME_INITIAL_SETUP_POLICY_SEED)
+        : policySeed + 1n;
+      const setupPolicyAccount = RESUME_INITIAL_SETUP_POLICY_ACCOUNT
+        ? new PublicKey(RESUME_INITIAL_SETUP_POLICY_ACCOUNT)
+        : pda.getPolicyPda({
+            programId: PROGRAM_ID,
+            settingsPda: SETTINGS_PDA,
+            policySeed: Number(setupPolicySeed),
+          })[0];
+      if (!RESUME_INITIAL_SETUP_POLICY_SIGNATURE) {
+        throw new Error(
+          "Resuming an initial policy requires EARN_INITIAL_SETUP_POLICY_SIGNATURE."
+        );
+      }
       const policyAccountInfo = await connection.getAccountInfo(
         policyAccount,
         "confirmed"
@@ -2861,6 +3129,15 @@ async function main() {
           `Resumed policy account ${policyAccount.toBase58()} does not exist.`
         );
       }
+      const setupPolicyAccountInfo = await connection.getAccountInfo(
+        setupPolicyAccount,
+        "confirmed"
+      );
+      if (!setupPolicyAccountInfo) {
+        throw new Error(
+          `Resumed setup policy account ${setupPolicyAccount.toBase58()} does not exist.`
+        );
+      }
       const sentPolicy = {
         signature: RESUME_INITIAL_POLICY_SIGNATURE,
         slot: RESUME_INITIAL_POLICY_SLOT
@@ -2868,6 +3145,15 @@ async function main() {
           : await resolveConfirmedSignatureSlot({
               connection,
               signature: RESUME_INITIAL_POLICY_SIGNATURE,
+            }),
+      };
+      const sentSetupPolicy = {
+        signature: RESUME_INITIAL_SETUP_POLICY_SIGNATURE,
+        slot: RESUME_INITIAL_SETUP_POLICY_SLOT
+          ? BigInt(RESUME_INITIAL_SETUP_POLICY_SLOT)
+          : await resolveConfirmedSignatureSlot({
+              connection,
+              signature: RESUME_INITIAL_SETUP_POLICY_SIGNATURE,
             }),
       };
       const persistence: SmartAccountPreparedEarnUsdcYieldRoutingPolicy["persistence"] =
@@ -2881,6 +3167,9 @@ async function main() {
           policyId: policySeed.toString(),
           policyAccount: policyAccount.toBase58(),
           policySeed: policySeed.toString(),
+          setupPolicyId: setupPolicySeed.toString(),
+          setupPolicyAccount: setupPolicyAccount.toBase58(),
+          setupPolicySeed: setupPolicySeed.toString(),
           targetReserve: EARN_TARGET.reserve.toBase58(),
           market: EARN_TARGET.market.toBase58(),
           liquidityMint: EARN_TARGET.liquidityMint.toBase58(),
@@ -2902,6 +3191,8 @@ async function main() {
       await repository.recordConfirmedYieldRoutePolicy(
         policyInputFromPersistence({
           persistence,
+          setupSignature: sentSetupPolicy.signature,
+          setupSlot: sentSetupPolicy.slot,
           signature: sentPolicy.signature,
           slot: sentPolicy.slot,
         })
@@ -2911,13 +3202,29 @@ async function main() {
         persistence,
         seed: policySeed,
         signature: sentPolicy.signature,
+        slot: sentPolicy.slot,
+        setupPolicy: {
+          account: setupPolicyAccount,
+          seed: setupPolicySeed,
+          signature: sentSetupPolicy.signature,
+          slot: sentSetupPolicy.slot,
+        },
       };
       evidence.steps.initialPolicy = {
         confirmedSlot: sentPolicy.slot.toString(),
+        confirmedFinalizeSlot: sentSetupPolicy.slot.toString(),
         instructionCount: 0,
         policyUniverse: EARN_POLICY_UNIVERSE,
         persistence,
+        routeConfirmedSlot: sentPolicy.slot.toString(),
+        routeSignature: sentPolicy.signature,
         signature: sentPolicy.signature,
+        setupConfirmedSlot: sentSetupPolicy.slot.toString(),
+        setupPolicy: {
+          account: setupPolicyAccount.toBase58(),
+          seed: setupPolicySeed.toString(),
+        },
+        setupSignature: sentSetupPolicy.signature,
         simulationLogs: [],
         status: "success",
       };
@@ -2932,11 +3239,23 @@ async function main() {
       });
       assertSafePolicyUniverse(preparedPolicy.persistence);
       const finalizePrepared = preparedPolicy.finalizePrepared ?? null;
+      if (!finalizePrepared) {
+        throw new Error(
+          "Direct initial policy preparation did not return the required init-obligation setup policy transaction."
+        );
+      }
+      assertPreparedPolicyCreateUsesSafeUniverse({
+        prepared: preparedPolicy.prepared,
+      });
+      assertPreparedSetupPolicyCreateUsesInitObligation(finalizePrepared);
       if (DRY_RUN) {
         const unsignedPolicySimulationLogs = await simulatePreparedUnsigned({
           connection,
+          label: "direct initial route policy setup",
           prepared: preparedPolicy.prepared,
         });
+        const setupPolicySimulationSkippedReason =
+          "Dry-run does not send the route policy transaction, so the init-obligation setup policy transaction is not simulated against unadvanced settings state.";
         evidence.steps.initialPolicy = {
           finalizeInstructionCount: finalizePrepared?.instructions.length ?? 0,
           finalizePacketLength: finalizePrepared
@@ -2945,8 +3264,13 @@ async function main() {
           instructionCount: preparedPolicy.prepared.instructions.length,
           packetLength: preparedPacketLength(preparedPolicy.prepared),
           policyUniverse: EARN_POLICY_UNIVERSE,
+          preparedTarget: preparedTargetEvidence(preparedPolicy),
           persistence: preparedPolicy.persistence,
           status: "skipped",
+          setupPolicy: preparedPolicy.setupPolicy,
+          setupPacketLength: preparedPacketLength(finalizePrepared),
+          setupPolicyUnsignedSimulationSkippedReason:
+            setupPolicySimulationSkippedReason,
           unsignedSimulationLogs: unsignedPolicySimulationLogs.slice(-12),
         };
         await writeEvidence(evidence);
@@ -2969,11 +3293,16 @@ async function main() {
             wallet,
           })
         : null;
-      const policySignature = sentFinalize?.signature ?? sentPolicy.signature;
-      const policySlot = sentFinalize?.slot ?? sentPolicy.slot;
+      if (!sentFinalize) {
+        throw new Error("Setup policy transaction was not sent.");
+      }
+      const policySignature = sentPolicy.signature;
+      const policySlot = sentPolicy.slot;
       await repository.recordConfirmedYieldRoutePolicy(
         policyInput({
           prepared: preparedPolicy,
+          setupSignature: sentFinalize.signature,
+          setupSlot: sentFinalize.slot,
           signature: policySignature,
           slot: policySlot,
         })
@@ -2983,6 +3312,13 @@ async function main() {
         persistence: preparedPolicy.persistence,
         seed: preparedPolicy.policy.seed,
         signature: policySignature,
+        slot: policySlot,
+        setupPolicy: {
+          account: preparedPolicy.setupPolicy.account,
+          seed: preparedPolicy.setupPolicy.seed,
+          signature: sentFinalize.signature,
+          slot: sentFinalize.slot,
+        },
       };
       evidence.steps.initialPolicy = {
         confirmedFinalizeSlot: sentFinalize?.slot.toString() ?? null,
@@ -2991,9 +3327,14 @@ async function main() {
         finalizeSignature: sentFinalize?.signature ?? null,
         instructionCount: preparedPolicy.prepared.instructions.length,
         policyUniverse: EARN_POLICY_UNIVERSE,
+        preparedTarget: preparedTargetEvidence(preparedPolicy),
         persistence: preparedPolicy.persistence,
+        routeConfirmedSlot: policySlot.toString(),
+        routeSignature: policySignature,
+        setupConfirmedSlot: sentFinalize.slot.toString(),
+        setupPolicy: preparedPolicy.setupPolicy,
         signature: policySignature,
-        setupSignature: sentPolicy.signature,
+        setupSignature: sentFinalize.signature,
         simulationLogs: sentPolicy.simulationLogs.slice(-12),
         finalizeSimulationLogs: sentFinalize?.simulationLogs.slice(-12) ?? [],
         status: "success",
@@ -3016,6 +3357,10 @@ async function main() {
       yieldRoutingPolicy: {
         account: initialPolicy.account,
         seed: initialPolicy.seed,
+        setupPolicy: {
+          account: initialPolicy.setupPolicy.account,
+          seed: initialPolicy.setupPolicy.seed,
+        },
       },
     });
     assertSafePolicyUniverse(prepared.persistence);
@@ -3042,8 +3387,11 @@ async function main() {
     const position = await repository.recordConfirmedYieldDeposit(
       depositInput({
         policyInitialization: "create",
+        policyConfirmedSlot: initialPolicy.slot,
         policySignature: initialPolicy.signature,
         prepared,
+        setupPolicyConfirmedSlot: initialPolicy.setupPolicy.slot,
+        setupPolicySignature: initialPolicy.setupPolicy.signature,
         signature: sent.signature,
         slot: sent.slot,
       })
@@ -3057,6 +3405,7 @@ async function main() {
       kaminoSetupRentLamports: prepared.kaminoSetupRentLamports,
       kaminoSetupRequired: prepared.kaminoSetupRequired,
       policyUniverse: EARN_POLICY_UNIVERSE,
+      preparedTarget: preparedTargetEvidence(prepared),
       persistence: { position: compactPosition(position) },
       signature: sent.signature,
       simulationLogs: sent.simulationLogs.slice(-12),
@@ -3066,6 +3415,7 @@ async function main() {
     const postState = await loadState({
       connection,
       policyAccount: prepared.policy.account,
+      setupPolicyAccount: prepared.setupPolicy?.account ?? null,
       schema,
       vaultCollateralAta:
         prepared.vault.collateralAta ??
@@ -3091,6 +3441,9 @@ async function main() {
     }
     if (!postState.accounts.policy) {
       throw new Error("Earn policy account was not created.");
+    }
+    if (!postState.accounts.setupPolicy) {
+      throw new Error("Earn setup policy account was not created.");
     }
     if (
       prepared.vault.collateralAta &&
@@ -3120,11 +3473,20 @@ async function main() {
       );
     }
     const routePolicy = postState.db.routePolicy as { active?: boolean } | null;
+    const setupPolicy = postState.db.setupPolicy as { active?: boolean } | null;
     const managedVault = postState.db.managedVault as {
       active?: boolean;
+      setupPolicyId?: bigint | null;
     } | null;
-    if (!routePolicy?.active || !managedVault?.active) {
-      throw new Error("Initial deposit did not activate policy/vault DB rows.");
+    if (
+      !routePolicy?.active ||
+      !setupPolicy?.active ||
+      !managedVault?.active ||
+      typeof managedVault?.setupPolicyId !== "bigint"
+    ) {
+      throw new Error(
+        "Initial deposit did not activate route/setup policy and vault DB rows."
+      );
     }
     evidence.verifierFailures = await assertNoVerifierFailures({
       settings: SETTINGS_PDA.toBase58(),
@@ -3368,13 +3730,14 @@ async function main() {
       includePartialWithdrawal: true,
     }
   ) {
-    const activeRoutePolicy = await repository.findActiveYieldRoutePolicy({
+    const activePolicyPair = await repository.findActiveYieldRoutePolicyPair({
       authority: wallet.publicKey.toBase58(),
       cluster: LoyalCluster.MainnetBeta,
       settings: SETTINGS_PDA.toBase58(),
       vaultIndex: 1,
       vaultPubkey: vaultPubkey.toBase58(),
     });
+    const activeRoutePolicy = activePolicyPair?.routePolicy ?? null;
     if (!activeRoutePolicy) {
       throw new Error("top-up-partial-smoke requires an active Earn policy.");
     }
@@ -3400,12 +3763,23 @@ async function main() {
           yieldRoutingPolicy: {
             account: new PublicKey(activeRoutePolicy.policyAccount),
             seed: activeRoutePolicy.policySeed,
+            ...(activePolicyPair?.setupPolicy
+              ? {
+                  setupPolicy: {
+                    account: new PublicKey(
+                      activePolicyPair.setupPolicy.policyAccount
+                    ),
+                    seed: activePolicyPair.setupPolicy.policySeed,
+                  },
+                }
+              : {}),
           },
         });
     assertSafePolicyUniverse(topUp.persistence);
     if (DRY_RUN) {
       const unsignedSimulationLogs = await simulatePreparedUnsigned({
         connection,
+        label: "top-up deposit",
         prepared: topUp.prepared,
       });
       evidence.steps.topUpDeposit = {
@@ -3415,6 +3789,7 @@ async function main() {
         kaminoSetupRentLamports: topUp.kaminoSetupRentLamports,
         kaminoSetupRequired: topUp.kaminoSetupRequired,
         policyUniverse: EARN_POLICY_UNIVERSE,
+        preparedTarget: preparedTargetEvidence(topUp),
         persistence: {
           candidateRanking,
           prepared: topUp.persistence,
@@ -3470,6 +3845,7 @@ async function main() {
             }
           : undefined,
         policyUniverse: EARN_POLICY_UNIVERSE,
+        preparedTarget: preparedTargetEvidence(topUp),
         persistence: {
           candidateRanking,
           prepared: topUp.persistence,
@@ -3506,16 +3882,28 @@ async function main() {
           yieldRoutingPolicy: {
             account: new PublicKey(activeRoutePolicy.policyAccount),
             seed: activeRoutePolicy.policySeed,
+            ...(activePolicyPair?.setupPolicy
+              ? {
+                  setupPolicy: {
+                    account: new PublicKey(
+                      activePolicyPair.setupPolicy.policyAccount
+                    ),
+                    seed: activePolicyPair.setupPolicy.policySeed,
+                  },
+                }
+              : {}),
           },
         });
     if (DRY_RUN) {
       const unsignedSimulationLogs = await simulatePreparedUnsigned({
         connection,
+        label: "partial withdrawal",
         prepared: partial.prepared,
       });
       evidence.steps.partialWithdrawal = {
         amountRaw: PARTIAL_WITHDRAW_RAW.toString(),
         instructionCount: partial.prepared.instructions.length,
+        preparedTarget: preparedTargetEvidence(partial),
         persistence: partial.persistence,
         sendsTransactions: false,
         status: "skipped",
@@ -3562,8 +3950,9 @@ async function main() {
         ? {
             metadataMismatch: idempotency.metadataMismatch,
             missingSession: idempotency.missingSession,
-          }
+        }
         : undefined,
+      preparedTarget: preparedTargetEvidence(partial),
       persistence: { position: compactPosition(after) },
       sendsTransactions: true,
       signature: partialSent.signature,

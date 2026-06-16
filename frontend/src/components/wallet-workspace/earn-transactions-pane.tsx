@@ -51,9 +51,9 @@ export function getEarnTransactionRowLabel(
     case "withdraw":
       return "Withdraw";
     case "rebalance":
-      return "Moved";
+      return "Rebalanced";
     case "reconciliation":
-      return "Updated";
+      return "Reconciled";
     case "balance_sweep":
       return "Balance sweep";
     case "autodeposit_action":
@@ -74,7 +74,9 @@ export function buildEarnTransactionDetail(
     counterparty: isAutodepositAction
       ? item.destination.label
       : isMovement
-      ? `Moved ${item.source.label} -> ${item.destination.label}`
+      ? `${getEarnTransactionRowLabel(item)} ${item.source.label} -> ${
+          item.destination.label
+        }`
       : isDeposit
       ? item.source.label
       : item.destination.label,
@@ -933,8 +935,7 @@ export function EarnTransactionsPane({
   }, [isAuthenticated, isHydrated, settingsPda, solanaEnv, walletAddress]);
 
   const groups = groupEarnTransactions(transactions);
-  const showScheduledSweeps =
-    shouldShowScheduledSweepsSection(scheduledSweeps);
+  const showScheduledSweeps = shouldShowScheduledSweepsSection(scheduledSweeps);
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item));

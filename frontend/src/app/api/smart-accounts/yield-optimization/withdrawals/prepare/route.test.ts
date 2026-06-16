@@ -13,6 +13,10 @@ const activePolicy = {
   policyAccount: "11111111111111111111111111111117",
   policySeed: BigInt(7),
 };
+const activeSetupPolicy = {
+  policyAccount: "11111111111111111111111111111118",
+  policySeed: BigInt(8),
+};
 const activePosition = {
   currentLiquidityMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   currentMarket: "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF",
@@ -102,9 +106,12 @@ mock.module(
 );
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findActiveYieldRoutePolicy: async (input: unknown) => {
+  findActiveYieldRoutePolicyPair: async (input: unknown) => {
     findPolicyCalls.push(input);
-    return activePolicy;
+    return {
+      routePolicy: activePolicy,
+      setupPolicy: activeSetupPolicy,
+    };
   },
   findReconciledActiveYieldPositionForVault: async (input: unknown) => {
     findPositionCalls.push(input);
@@ -174,6 +181,20 @@ describe("Earn withdrawal prepare route", () => {
     expect(prepareCalls[0]?.amountRaw).toBe(BigInt(1_000_000));
     expect(prepareCalls[0]?.mode).toBe("partial");
     expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
+    expect(
+      (
+        prepareCalls[0]?.yieldRoutingPolicy as {
+          setupPolicy?: { account: PublicKey; seed: bigint };
+        }
+      ).setupPolicy?.account.toBase58()
+    ).toBe(activeSetupPolicy.policyAccount);
+    expect(
+      (
+        prepareCalls[0]?.yieldRoutingPolicy as {
+          setupPolicy?: { account: PublicKey; seed: bigint };
+        }
+      ).setupPolicy?.seed
+    ).toBe(activeSetupPolicy.policySeed);
   });
 
   test("passes complete active autodeposit close metadata for full withdrawals", async () => {
