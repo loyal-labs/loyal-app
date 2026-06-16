@@ -19,6 +19,7 @@ export type EarnTransactionItem = {
     | "withdrawal_full"
     | "rebalance_confirmed"
     | "snapshot_reconciled";
+  confirmedAt?: string;
   dateGroup: string;
   timestamp: string;
   amount: string;

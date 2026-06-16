@@ -22,6 +22,7 @@ const secondary = "rgba(60, 60, 67, 0.6)";
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
 const EARN_VAULT_LABEL = "Earn vault";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
+const UTC_TIME_ZONE = "UTC";
 const USDC_RAW_SCALE = BigInt(1_000_000);
 
 // Poll cadence for the pseudo-realtime feed. Most ticks resolve from the
@@ -32,6 +33,75 @@ const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
 export type PendingScheduledSweepPreview = {
   amountRaw: string;
 };
+
+export function resolveEarnTransactionDisplayTimeZone(
+  timeZone?: string | null
+): string {
+  const candidate =
+    timeZone ??
+    (typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : null);
+
+  if (!candidate) {
+    return UTC_TIME_ZONE;
+  }
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(
+      new Date(0)
+    );
+    return candidate;
+  } catch {
+    return UTC_TIME_ZONE;
+  }
+}
+
+function parseEarnTransactionInstant(confirmedAt: string | null | undefined) {
+  if (!confirmedAt) {
+    return null;
+  }
+
+  const date = new Date(confirmedAt);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatEarnTransactionDateGroup(
+  confirmedAt: string | null | undefined,
+  timeZone?: string | null
+): string | null {
+  const date = parseEarnTransactionInstant(confirmedAt);
+  if (!date) {
+    return null;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "long",
+    timeZone: resolveEarnTransactionDisplayTimeZone(timeZone),
+  });
+}
+
+export function formatEarnTransactionTimestamp(
+  confirmedAt: string | null | undefined,
+  timeZone?: string | null
+): string | null {
+  const date = parseEarnTransactionInstant(confirmedAt);
+  if (!date) {
+    return null;
+  }
+
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    hour12: true,
+    minute: "2-digit",
+    timeZone: resolveEarnTransactionDisplayTimeZone(timeZone),
+  });
+}
+
+function getEarnTransactionConfirmedAt(item: EarnTransactionItem) {
+  return item.confirmedAt ?? item.sortTimestamp ?? null;
+}
 
 export function getEarnTransactionRowLabel(
   item: Pick<EarnTransactionItem, "eventType" | "kind">
@@ -66,12 +136,18 @@ export function getEarnTransactionRowLabel(
 }
 
 export function buildEarnTransactionDetail(
-  item: EarnTransactionItem
+  item: EarnTransactionItem,
+  timeZone?: string | null
 ): TransactionDetail {
   const isDeposit = item.kind === "deposit" || item.kind === "balance_sweep";
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
   const isAutodepositAction = item.kind === "autodeposit_action";
+  const confirmedAt = getEarnTransactionConfirmedAt(item);
+  const timestamp =
+    formatEarnTransactionTimestamp(confirmedAt, timeZone) ?? item.timestamp;
+  const dateGroup =
+    formatEarnTransactionDateGroup(confirmedAt, timeZone) ?? item.dateGroup;
   const activity: ActivityRow = {
     id: item.signature,
     type: isDeposit ? "received" : "sent",
@@ -85,8 +161,8 @@ export function buildEarnTransactionDetail(
       ? item.source.label
       : item.destination.label,
     amount: item.amount,
-    timestamp: item.timestamp,
-    date: item.dateGroup,
+    timestamp,
+    date: dateGroup,
     icon: KAMINO_ICON,
   };
   return {
@@ -352,15 +428,22 @@ function FlowAccount({
 }
 
 function EarnTransactionRow({
+  displayTimeZone,
   isBalanceHidden = false,
   item,
   onSelect,
 }: {
+  displayTimeZone: string;
   isBalanceHidden?: boolean;
   item: EarnTransactionItem;
   onSelect: (item: EarnTransactionItem) => void;
 }) {
   const label = getEarnTransactionRowLabel(item);
+  const timestamp =
+    formatEarnTransactionTimestamp(
+      getEarnTransactionConfirmedAt(item),
+      displayTimeZone
+    ) ?? item.timestamp;
   return (
     <button
       className="earn-tx-row"
@@ -431,7 +514,7 @@ function EarnTransactionRow({
             lineHeight: "16px",
           }}
         >
-          {item.timestamp}
+          {timestamp}
         </span>
       </span>
       <span
@@ -530,7 +613,10 @@ export function formatScheduledSweepAmount(rawAmount: string): string {
     .padStart(2, "0")} USDC`;
 }
 
-export function formatScheduledSweepTime(eligibleAfter: string): string {
+export function formatScheduledSweepTime(
+  eligibleAfter: string,
+  timeZone?: string | null
+): string {
   const date = new Date(eligibleAfter);
   if (Number.isNaN(date.getTime())) {
     return "Scheduled";
@@ -541,6 +627,7 @@ export function formatScheduledSweepTime(eligibleAfter: string): string {
     hour: "numeric",
     minute: "2-digit",
     month: "short",
+    timeZone: resolveEarnTransactionDisplayTimeZone(timeZone),
   });
 }
 
@@ -552,12 +639,14 @@ export function shouldShowScheduledSweepsSection(
 }
 
 function ScheduledTransactionRow({
+  displayTimeZone,
   isExecuting = false,
   isPending = false,
   isBalanceHidden = false,
   onExecuteNow,
   sweep,
 }: {
+  displayTimeZone: string;
   isExecuting?: boolean;
   isPending?: boolean;
   isBalanceHidden?: boolean;
@@ -569,7 +658,7 @@ function ScheduledTransactionRow({
   );
   const timeLabel =
     "eligibleAfter" in sweep
-      ? formatScheduledSweepTime(sweep.eligibleAfter)
+      ? formatScheduledSweepTime(sweep.eligibleAfter, displayTimeZone)
       : "Scheduling...";
   const isButtonDisabled = isPending || isExecuting || !onExecuteNow;
 
@@ -838,14 +927,22 @@ function EnterReveal({
   );
 }
 
-function groupEarnTransactions(items: EarnTransactionItem[]) {
+export function groupEarnTransactions(
+  items: EarnTransactionItem[],
+  timeZone?: string | null
+) {
   const groups: { date: string; items: EarnTransactionItem[] }[] = [];
   for (const item of items) {
+    const date =
+      formatEarnTransactionDateGroup(
+        getEarnTransactionConfirmedAt(item),
+        timeZone
+      ) ?? item.dateGroup;
     const last = groups[groups.length - 1];
-    if (last && last.date === item.dateGroup) {
+    if (last && last.date === date) {
       last.items.push(item);
     } else {
-      groups.push({ date: item.dateGroup, items: [item] });
+      groups.push({ date, items: [item] });
     }
   }
   return groups;
@@ -999,14 +1096,15 @@ export function EarnTransactionsPane({
     walletAddress,
   ]);
 
-  const groups = groupEarnTransactions(transactions);
+  const displayTimeZone = resolveEarnTransactionDisplayTimeZone();
+  const groups = groupEarnTransactions(transactions, displayTimeZone);
   const showScheduledSweeps = shouldShowScheduledSweepsSection(
     scheduledSweeps,
     pendingScheduledSweep
   );
 
   const handleSelect = (item: EarnTransactionItem) => {
-    onSelectTransaction(buildEarnTransactionDetail(item));
+    onSelectTransaction(buildEarnTransactionDetail(item, displayTimeZone));
   };
 
   return (
@@ -1111,6 +1209,7 @@ export function EarnTransactionsPane({
                 <TransactionsSectionHeader label="Scheduled" />
                 {pendingScheduledSweep ? (
                   <ScheduledTransactionRow
+                    displayTimeZone={displayTimeZone}
                     isBalanceHidden={isBalanceHidden}
                     isPending
                     sweep={pendingScheduledSweep}
@@ -1118,6 +1217,7 @@ export function EarnTransactionsPane({
                 ) : null}
                 {scheduledSweeps.map((sweep) => (
                   <ScheduledTransactionRow
+                    displayTimeZone={displayTimeZone}
                     isBalanceHidden={isBalanceHidden}
                     isExecuting={isExecutingScheduledSweep}
                     key={sweep.id}
@@ -1163,6 +1263,7 @@ export function EarnTransactionsPane({
                     key={item.id}
                   >
                     <EarnTransactionRow
+                      displayTimeZone={displayTimeZone}
                       isBalanceHidden={isBalanceHidden}
                       item={item}
                       onSelect={handleSelect}

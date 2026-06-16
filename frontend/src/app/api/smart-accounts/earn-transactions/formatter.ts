@@ -22,6 +22,7 @@ export type EarnTransactionEvent =
 
 export type SerializedEarnTransaction = {
   amount: string;
+  confirmedAt: string;
   confirmedSlot: string;
   dateGroup: string;
   destination: {
@@ -164,6 +165,7 @@ function serializeAutodepositActionEvent(
       transactionAmountRaw,
       isBalanceSweep ? "in" : "neutral"
     ),
+    confirmedAt: event.confirmedAt.toISOString(),
     confirmedSlot: event.confirmedSlot.toString(),
     dateGroup: formatDateGroup(event.confirmedAt),
     destination: {
@@ -225,6 +227,7 @@ export function serializeEarnTransactionEvent(
 
   return {
     amount: formatDisplayUsdcAmount(transactionAmountRaw, direction),
+    confirmedAt: event.confirmedAt.toISOString(),
     confirmedSlot: event.confirmedSlot.toString(),
     dateGroup: formatDateGroup(event.confirmedAt),
     destination: {
