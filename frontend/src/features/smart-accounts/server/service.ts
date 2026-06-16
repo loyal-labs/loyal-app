@@ -17,16 +17,20 @@ import { getServerEnv } from "@/lib/core/config/server";
 
 import {
   fetchProgramConfigAccount,
+  fetchRootSettingsSigners,
   findSettingsSignerAddresses,
 } from "./onchain";
 import { createOnchainSmartAccountProvisioner } from "./provisioner";
 import {
   AppUserSmartAccountSettingsConflictError,
+  findActiveRootSmartAccountSignerMemberships,
   findAppUserSmartAccountByUserIdAndEnv,
   listStaleAppUserSmartAccounts,
+  markRootSmartAccountSignerRemoved,
   markAppUserSmartAccountFailed,
   markAppUserSmartAccountReady,
   reserveProvisioningAppUserSmartAccount,
+  upsertActiveRootSmartAccountSigner,
 } from "./repository";
 
 function createServiceDependencies(): SmartAccountServiceDependencies {
@@ -47,9 +51,13 @@ function createServiceDependencies(): SmartAccountServiceDependencies {
     fetchProgramConfig: fetchProgramConfigAccount,
     createSmartAccount: (input) => provisioner.createSmartAccount(input),
     findSignerAddressesForSettings: findSettingsSignerAddresses,
-    isSettingsReservationConflict: (
-      error
-    ) => error instanceof AppUserSmartAccountSettingsConflictError,
+    findActiveRootSignerMemberships:
+      findActiveRootSmartAccountSignerMemberships,
+    fetchRootSettingsSigners,
+    recordActiveRootSignerMembership: upsertActiveRootSmartAccountSigner,
+    markRootSignerRemoved: markRootSmartAccountSignerRemoved,
+    isSettingsReservationConflict: (error) =>
+      error instanceof AppUserSmartAccountSettingsConflictError,
   };
 }
 

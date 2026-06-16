@@ -31,6 +31,18 @@ type PendingRecordResolution =
   | { kind: "owner_mismatch" }
   | { kind: "ready"; record: ServiceRecord };
 
+type RootSignerMembershipRecord = {
+  id: string;
+  solanaEnv: AppUserSmartAccountSolanaEnv;
+  settingsPda: string;
+  smartAccountAddress: string;
+  signerAddress: string;
+  permissionMask: number | null;
+  sourceSignature: string | null;
+  sourceSlot: bigint | null;
+  updatedAt: Date;
+};
+
 export type SmartAccountProvisioningOutcome = AppWalletAuthProvisioningOutcome;
 
 export type SmartAccountSummary = {
@@ -90,6 +102,30 @@ export type SmartAccountServiceDependencies = {
     programId: string;
     settingsPda: string;
   }) => Promise<string[] | null>;
+  findActiveRootSignerMemberships: (input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    signerAddress: string;
+  }) => Promise<RootSignerMembershipRecord[]>;
+  fetchRootSettingsSigners: (input: {
+    solanaEnv: SolanaEnv;
+    programId: string;
+    settingsPda: string;
+  }) => Promise<Array<{ address: string; permissionMask: number }> | null>;
+  recordActiveRootSignerMembership: (input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    smartAccountAddress: string;
+    settingsPda: string;
+    signerAddress: string;
+    permissionMask?: number | null;
+    sourceSignature?: string | null;
+    sourceSlot?: bigint | number | null;
+    userId?: string | null;
+  }) => Promise<RootSignerMembershipRecord>;
+  markRootSignerRemoved: (input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    settingsPda: string;
+    signerAddress: string;
+  }) => Promise<RootSignerMembershipRecord | null>;
   isSettingsReservationConflict: (error: unknown) => boolean;
 };
 
@@ -123,14 +159,17 @@ function toSummary(args: {
   programId: string;
   settingsPda: string;
   creationSignature: string | null;
+  smartAccountAddress?: string;
 }): SmartAccountSummary {
   return {
     programId: args.programId,
     settingsPda: args.settingsPda,
-    smartAccountAddress: deriveCanonicalSmartAccountAddress({
-      programId: args.programId,
-      settingsPda: args.settingsPda,
-    }),
+    smartAccountAddress:
+      args.smartAccountAddress ??
+      deriveCanonicalSmartAccountAddress({
+        programId: args.programId,
+        settingsPda: args.settingsPda,
+      }),
     creationSignature: args.creationSignature,
   };
 }
@@ -172,11 +211,12 @@ async function maybePromoteRecord(args: {
     return { kind: "ready", record: args.record };
   }
 
-  const signerAddresses = await args.dependencies.findSignerAddressesForSettings({
-    solanaEnv: args.record.solanaEnv,
-    programId: args.programId,
-    settingsPda: args.record.settingsPda,
-  });
+  const signerAddresses =
+    await args.dependencies.findSignerAddressesForSettings({
+      solanaEnv: args.record.solanaEnv,
+      programId: args.programId,
+      settingsPda: args.record.settingsPda,
+    });
 
   if (!signerAddresses) {
     return { kind: "missing" };
@@ -299,6 +339,69 @@ async function sponsorRecord(args: {
   }
 }
 
+async function resolveDelegatedRootSignerMembership(args: {
+  userId: string;
+  solanaEnv: AppUserSmartAccountSolanaEnv;
+  programId: string;
+  walletAddress: string;
+  dependencies: SmartAccountServiceDependencies;
+}): Promise<SmartAccountSummary | null> {
+  const memberships = await args.dependencies.findActiveRootSignerMemberships({
+    solanaEnv: args.solanaEnv,
+    signerAddress: args.walletAddress,
+  });
+
+  for (const membership of memberships) {
+    const expectedSmartAccountAddress = deriveCanonicalSmartAccountAddress({
+      programId: args.programId,
+      settingsPda: membership.settingsPda,
+    });
+
+    if (membership.smartAccountAddress !== expectedSmartAccountAddress) {
+      continue;
+    }
+
+    const rootSigners = await args.dependencies.fetchRootSettingsSigners({
+      solanaEnv: membership.solanaEnv,
+      programId: args.programId,
+      settingsPda: membership.settingsPda,
+    });
+
+    const rootSigner = rootSigners?.find(
+      (signer) => signer.address === args.walletAddress
+    );
+
+    if (!rootSigner) {
+      await args.dependencies.markRootSignerRemoved({
+        solanaEnv: membership.solanaEnv,
+        settingsPda: membership.settingsPda,
+        signerAddress: args.walletAddress,
+      });
+      continue;
+    }
+
+    await args.dependencies.recordActiveRootSignerMembership({
+      solanaEnv: membership.solanaEnv,
+      smartAccountAddress: membership.smartAccountAddress,
+      settingsPda: membership.settingsPda,
+      signerAddress: args.walletAddress,
+      permissionMask: rootSigner.permissionMask,
+      sourceSignature: membership.sourceSignature,
+      sourceSlot: membership.sourceSlot,
+      userId: args.userId,
+    });
+
+    return toSummary({
+      programId: args.programId,
+      settingsPda: membership.settingsPda,
+      smartAccountAddress: membership.smartAccountAddress,
+      creationSignature: null,
+    });
+  }
+
+  return null;
+}
+
 export async function ensureUserSmartAccount(
   args: {
     userId: string;
@@ -339,6 +442,21 @@ export async function ensureUserSmartAccount(
           creationSignature: reconciledRecord.record.creationSignature,
         }),
         provisioningOutcome: "reconciled_ready",
+      };
+    }
+
+    const delegatedSmartAccount = await resolveDelegatedRootSignerMembership({
+      userId: args.userId,
+      solanaEnv,
+      programId,
+      walletAddress: args.walletAddress,
+      dependencies,
+    });
+
+    if (delegatedSmartAccount) {
+      return {
+        smartAccount: delegatedSmartAccount,
+        provisioningOutcome: "delegated_root_signer",
       };
     }
 
@@ -392,6 +510,21 @@ export async function ensureUserSmartAccount(
         existingRecord.state === "failed"
           ? "retried_failed_record"
           : "sponsored_existing_record",
+    };
+  }
+
+  const delegatedSmartAccount = await resolveDelegatedRootSignerMembership({
+    userId: args.userId,
+    solanaEnv,
+    programId,
+    walletAddress: args.walletAddress,
+    dependencies,
+  });
+
+  if (delegatedSmartAccount) {
+    return {
+      smartAccount: delegatedSmartAccount,
+      provisioningOutcome: "delegated_root_signer",
     };
   }
 

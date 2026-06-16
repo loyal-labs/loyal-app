@@ -278,6 +278,26 @@ export type SmartAccountUpdateSignerPermissionsInput = {
   memo?: string;
 };
 
+export type SmartAccountRootSignerChangeInput = {
+  settingsPda: PublicKey;
+  creator: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  memo?: string;
+};
+
+export type SmartAccountAddRootSignerInput =
+  SmartAccountRootSignerChangeInput & {
+    /**
+     * Root Settings permissions to grant. Defaults to all current Settings
+     * permissions so the added wallet can initiate, vote, and execute.
+     */
+    permissions?: SmartAccountSignerPermission[];
+  };
+
+export type SmartAccountRemoveRootSignerInput =
+  SmartAccountRootSignerChangeInput;
+
 export type SmartAccountPolicyCustomInstructionProposalInput = {
   policyPda: PublicKey;
   creator: PublicKey;

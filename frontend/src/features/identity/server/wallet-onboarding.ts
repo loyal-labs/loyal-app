@@ -139,16 +139,26 @@ function toReplayFailure(record: WalletAuthCompletionRecord): WalletAuthError {
     {
       code: record.lastErrorCode ?? "wallet_onboarding_failed",
       status:
-        record.lastErrorCode === "smart_account_reservation_conflict" ? 409 : 502,
+        record.lastErrorCode === "smart_account_reservation_conflict"
+          ? 409
+          : 502,
     }
   );
 }
 
 function classifyProvisioningOutcome(
   provisioningOutcome: EnsureUserSmartAccountResult["provisioningOutcome"]
-): "existing_smart_account_reused" | "sponsorship_submitted" | "reconciliation_succeeded" {
+):
+  | "existing_smart_account_reused"
+  | "delegated_smart_account_reused"
+  | "sponsorship_submitted"
+  | "reconciliation_succeeded" {
   if (provisioningOutcome === "existing_ready") {
     return "existing_smart_account_reused";
+  }
+
+  if (provisioningOutcome === "delegated_root_signer") {
+    return "delegated_smart_account_reused";
   }
 
   if (provisioningOutcome === "reconciled_ready") {
@@ -166,11 +176,21 @@ async function replayCompletedOnboarding(args: {
     throw new Error("Wallet auth completion record is missing replay data");
   }
 
-  const smartAccount = await args.dependencies.findReadySmartAccount({
-    userId: args.record.userId,
-  });
+  const config = args.dependencies.getConfig();
+  const smartAccount = args.record.settingsPda
+    ? {
+        creationSignature: null,
+        programId: config.loyalSmartAccounts.programId,
+        settingsPda: args.record.settingsPda,
+        smartAccountAddress: args.record.smartAccountAddress,
+      }
+    : await args.dependencies.findReadySmartAccount({
+        userId: args.record.userId,
+      });
   if (!smartAccount) {
-    throw new Error("Wallet auth completion replay could not find a ready smart account");
+    throw new Error(
+      "Wallet auth completion replay could not find a ready smart account"
+    );
   }
 
   const user = buildWalletSessionUser({
@@ -385,7 +405,8 @@ export async function completeWalletOnboarding(
         origin: args.requestOrigin,
         walletAddress: claims.walletAddress,
         solanaEnv: config.solanaEnv,
-        errorCode: observedLease.record.lastErrorCode ?? "wallet_onboarding_failed",
+        errorCode:
+          observedLease.record.lastErrorCode ?? "wallet_onboarding_failed",
       });
       throw toReplayFailure(observedLease.record);
     }
@@ -422,6 +443,7 @@ export async function completeWalletOnboarding(
         processingToken,
         userId: userRecord.id,
         smartAccountAddress: ensureResult.smartAccount.smartAccountAddress,
+        settingsPda: ensureResult.smartAccount.settingsPda,
         provisioningOutcome: ensureResult.provisioningOutcome,
       },
       {
@@ -436,13 +458,23 @@ export async function completeWalletOnboarding(
       settingsPda: ensureResult.smartAccount.settingsPda,
     });
     const sessionClaims = createAuthSessionTokenClaims(user);
-    const eventType = classifyProvisioningOutcome(ensureResult.provisioningOutcome);
+    const eventType = classifyProvisioningOutcome(
+      ensureResult.provisioningOutcome
+    );
     if (eventType === "existing_smart_account_reused") {
       dependencies.trackEvent("existing_smart_account_reused", {
         origin: args.requestOrigin,
         walletAddress: claims.walletAddress,
         solanaEnv: config.solanaEnv,
         provisioningOutcome: ensureResult.provisioningOutcome,
+      });
+    } else if (eventType === "delegated_smart_account_reused") {
+      dependencies.trackEvent("existing_smart_account_reused", {
+        origin: args.requestOrigin,
+        walletAddress: claims.walletAddress,
+        solanaEnv: config.solanaEnv,
+        provisioningOutcome: ensureResult.provisioningOutcome,
+        smartAccountAddress: ensureResult.smartAccount.smartAccountAddress,
       });
     } else if (eventType === "reconciliation_succeeded") {
       dependencies.trackEvent("reconciliation_succeeded", {
@@ -495,8 +527,8 @@ export async function completeWalletOnboarding(
               error instanceof WalletAuthError
                 ? error.code
                 : isSmartAccountProvisioningError(error)
-                  ? error.code
-                  : "wallet_onboarding_failed",
+                ? error.code
+                : "wallet_onboarding_failed",
             errorMessage:
               error instanceof Error
                 ? error.message
@@ -508,11 +540,14 @@ export async function completeWalletOnboarding(
           }
         );
       } catch (markFailedError) {
-        console.error("[wallet-onboarding] failed to persist completion failure", {
-          challengeHash,
-          walletAddress: claims.walletAddress,
-          error: markFailedError,
-        });
+        console.error(
+          "[wallet-onboarding] failed to persist completion failure",
+          {
+            challengeHash,
+            walletAddress: claims.walletAddress,
+            error: markFailedError,
+          }
+        );
       }
     }
 

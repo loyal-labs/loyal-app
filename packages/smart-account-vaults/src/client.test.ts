@@ -470,6 +470,20 @@ function decodeGeneratedPolicyCreate(
   return policyCreate;
 }
 
+function decodeGeneratedSettingsActions(
+  instruction:
+    | {
+        data: Buffer | Uint8Array;
+      }
+    | undefined
+) {
+  expect(instruction).toBeDefined();
+  const [decoded] = generated.executeSettingsTransactionSyncStruct.deserialize(
+    Buffer.from(instruction!.data)
+  );
+  return decoded.args.actions;
+}
+
 function generatedPubkeyConstraintValues(
   constraints: generated.AccountConstraint[],
   accountIndex: number
@@ -488,8 +502,9 @@ function generatedPubkeyConstraintValues(
 
 function expectEarnRoutePolicyPayloadUsesSafeUniverse(
   payload: generated.PolicyCreationPayload,
-  expectedStableMints = getStablecoinMintsForCluster(LoyalCluster.MainnetBeta)
-    .map((mint) => mint.toBase58())
+  expectedStableMints = getStablecoinMintsForCluster(
+    LoyalCluster.MainnetBeta
+  ).map((mint) => mint.toBase58())
 ) {
   expect(payload.__kind).toBe("ProgramInteraction");
   if (payload.__kind !== "ProgramInteraction") {
@@ -565,7 +580,7 @@ function expectEarnSetupPolicyCreateUsesSafeUniverse(
     | {
         data: Buffer | Uint8Array;
       }
-    | undefined,
+    | undefined
 ) {
   const policyCreate = decodeGeneratedPolicyCreate(instruction);
   expectEarnSetupPolicyPayloadUsesSafeUniverse(
@@ -574,12 +589,10 @@ function expectEarnSetupPolicyCreateUsesSafeUniverse(
 }
 
 function expectEarnPolicyInitializationUsesSafeUniverse(args: {
-  finalizePrepared?:
-    | {
-        instructions: readonly TransactionInstruction[];
-        lookupTableAccounts?: readonly AddressLookupTableAccount[];
-      }
-    | null;
+  finalizePrepared?: {
+    instructions: readonly TransactionInstruction[];
+    lookupTableAccounts?: readonly AddressLookupTableAccount[];
+  } | null;
   setupPrepared:
     | {
         instructions: readonly TransactionInstruction[];
@@ -617,6 +630,67 @@ function expectEarnPolicyInitializationUsesSafeUniverse(args: {
     );
   }
 }
+
+describe("root Settings signer changes", () => {
+  test("builds a root AddSigner settings action", async () => {
+    const getAccountInfo = mock(async (_address: PublicKey) =>
+      createSerializedSettingsAccount()
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareAddRootSigner({
+      creator: walletAddress,
+      feePayer,
+      settingsPda,
+      signer: backendSigner,
+    });
+
+    expect(result.prepared.instructions).toHaveLength(1);
+    expect(result.transactionIndex).toBe(BigInt(1));
+    const actions = decodeGeneratedSettingsActions(
+      result.prepared.instructions[0]
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.__kind).toBe("AddSigner");
+    if (actions[0]?.__kind !== "AddSigner") {
+      throw new Error("Expected AddSigner action.");
+    }
+    expect(actions[0].newSigner.key.toBase58()).toBe(backendSigner.toBase58());
+    expect(actions[0].newSigner.permissions.mask).toBe(7);
+  });
+
+  test("builds a root RemoveSigner settings action", async () => {
+    const getAccountInfo = mock(async (_address: PublicKey) =>
+      createSerializedSettingsAccount()
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareRemoveRootSigner({
+      creator: walletAddress,
+      feePayer,
+      settingsPda,
+      signer: backendSigner,
+    });
+
+    expect(result.prepared.instructions).toHaveLength(1);
+    expect(result.transactionIndex).toBe(BigInt(1));
+    const actions = decodeGeneratedSettingsActions(
+      result.prepared.instructions[0]
+    );
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.__kind).toBe("RemoveSigner");
+    if (actions[0]?.__kind !== "RemoveSigner") {
+      throw new Error("Expected RemoveSigner action.");
+    }
+    expect(actions[0].oldSigner.toBase58()).toBe(backendSigner.toBase58());
+  });
+});
 
 describe("prepareEarnUsdcDeposit", () => {
   afterEach(() => {
@@ -687,9 +761,9 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(result.policy.seed).toBe(BigInt(7));
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.setupPolicy?.seed).toBe(BigInt(8));
-    expect(
-      result.setupPolicy?.initObligationInstructionConstraintIndex
-    ).toBe(0);
+    expect(result.setupPolicy?.initObligationInstructionConstraintIndex).toBe(
+      0
+    );
     expect(result.vault.accountIndex).toBe(1);
     expect(result.vault.collateralAta?.toBase58()).toBe(
       kaminoCollateralAta.toBase58()

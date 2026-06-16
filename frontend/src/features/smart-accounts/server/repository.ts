@@ -1,7 +1,13 @@
 import "server-only";
 
-import { and, asc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
 import {
+  appSmartAccountSettingsChangeRequests,
+  appSmartAccountSigners,
+  type AppSmartAccountSettingsChangeAction,
+  type AppSmartAccountSettingsChangeRequest,
+  type AppSmartAccountSettingsChangeRequestStatus,
+  type AppSmartAccountSigner,
   appUserSmartAccounts,
   type AppUserSmartAccount,
   type AppUserSmartAccountSolanaEnv,
@@ -27,13 +33,63 @@ type SmartAccountRepositoryRecord = Pick<
 
 export type AppUserSmartAccountRecord = SmartAccountRepositoryRecord;
 
+type SmartAccountSettingsChangeRequestRepositoryRecord = Pick<
+  AppSmartAccountSettingsChangeRequest,
+  | "id"
+  | "solanaEnv"
+  | "smartAccountAddress"
+  | "settingsPda"
+  | "signerAddress"
+  | "scope"
+  | "action"
+  | "status"
+  | "idempotencyKey"
+  | "requestedByUserId"
+  | "transactionIndex"
+  | "signature"
+  | "submittedAt"
+  | "confirmedSlot"
+  | "confirmedAt"
+  | "errorCode"
+  | "errorMessage"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+export type AppSmartAccountSettingsChangeRequestRecord =
+  SmartAccountSettingsChangeRequestRepositoryRecord;
+
+type SmartAccountSignerRepositoryRecord = Pick<
+  AppSmartAccountSigner,
+  | "id"
+  | "solanaEnv"
+  | "smartAccountAddress"
+  | "settingsPda"
+  | "signerAddress"
+  | "scope"
+  | "state"
+  | "permissionMask"
+  | "sourceSignature"
+  | "sourceSlot"
+  | "activatedAt"
+  | "removedAt"
+  | "lastCheckedAt"
+  | "userId"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+export type AppSmartAccountSignerRecord = SmartAccountSignerRepositoryRecord;
+
 type AppUserSmartAccountRepositoryDependencies = {
   now: () => Date;
 };
 
 export class AppUserSmartAccountSettingsConflictError extends Error {
   constructor() {
-    super("Smart account settings PDA is already reserved for this environment.");
+    super(
+      "Smart account settings PDA is already reserved for this environment."
+    );
     this.name = "AppUserSmartAccountSettingsConflictError";
   }
 }
@@ -222,4 +278,305 @@ export async function markAppUserSmartAccountFailed(
   }
 
   return result[0];
+}
+
+export async function upsertDraftSmartAccountSettingsChangeRequest(
+  input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    smartAccountAddress: string;
+    settingsPda: string;
+    signerAddress: string;
+    action: AppSmartAccountSettingsChangeAction;
+    idempotencyKey: string;
+    requestedByUserId?: string | null;
+    transactionIndex?: string | bigint | null;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSettingsChangeRequestRecord> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .insert(appSmartAccountSettingsChangeRequests)
+    .values({
+      solanaEnv: input.solanaEnv,
+      smartAccountAddress: input.smartAccountAddress,
+      settingsPda: input.settingsPda,
+      signerAddress: input.signerAddress,
+      scope: "root_settings",
+      action: input.action,
+      status: "draft",
+      idempotencyKey: input.idempotencyKey,
+      requestedByUserId: input.requestedByUserId ?? null,
+      transactionIndex: input.transactionIndex?.toString() ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        appSmartAccountSettingsChangeRequests.solanaEnv,
+        appSmartAccountSettingsChangeRequests.idempotencyKey,
+      ],
+      set: {
+        updatedAt: now,
+      },
+    })
+    .returning();
+
+  if (!result[0]) {
+    throw new Error("Failed to upsert smart account settings change request");
+  }
+
+  return result[0];
+}
+
+export async function markSmartAccountSettingsChangeRequestSubmitted(
+  input: {
+    id: string;
+    signature?: string | null;
+    transactionIndex?: string | bigint | null;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSettingsChangeRequestRecord> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .update(appSmartAccountSettingsChangeRequests)
+    .set({
+      status: "submitted",
+      signature: input.signature ?? null,
+      transactionIndex: input.transactionIndex?.toString() ?? null,
+      submittedAt: now,
+      updatedAt: now,
+      errorCode: null,
+      errorMessage: null,
+    })
+    .where(eq(appSmartAccountSettingsChangeRequests.id, input.id))
+    .returning();
+
+  if (!result[0]) {
+    throw new Error("Failed to mark smart account settings change submitted");
+  }
+
+  return result[0];
+}
+
+export async function markSmartAccountSettingsChangeRequestConfirmed(
+  input: {
+    id: string;
+    signature?: string | null;
+    confirmedSlot?: bigint | number | null;
+    status?: Extract<
+      AppSmartAccountSettingsChangeRequestStatus,
+      "confirmed" | "superseded"
+    >;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSettingsChangeRequestRecord> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .update(appSmartAccountSettingsChangeRequests)
+    .set({
+      status: input.status ?? "confirmed",
+      ...(input.signature !== undefined ? { signature: input.signature } : {}),
+      confirmedSlot:
+        input.confirmedSlot == null ? null : BigInt(input.confirmedSlot),
+      confirmedAt: now,
+      updatedAt: now,
+      errorCode: null,
+      errorMessage: null,
+    })
+    .where(eq(appSmartAccountSettingsChangeRequests.id, input.id))
+    .returning();
+
+  if (!result[0]) {
+    throw new Error("Failed to mark smart account settings change confirmed");
+  }
+
+  return result[0];
+}
+
+export async function markSmartAccountSettingsChangeRequestFailed(
+  input: {
+    id: string;
+    errorCode: string;
+    errorMessage: string;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSettingsChangeRequestRecord> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .update(appSmartAccountSettingsChangeRequests)
+    .set({
+      status: "failed",
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      updatedAt: now,
+    })
+    .where(eq(appSmartAccountSettingsChangeRequests.id, input.id))
+    .returning();
+
+  if (!result[0]) {
+    throw new Error("Failed to mark smart account settings change failed");
+  }
+
+  return result[0];
+}
+
+export async function findActiveRootSmartAccountSignerMemberships(input: {
+  solanaEnv: AppUserSmartAccountSolanaEnv;
+  signerAddress: string;
+}): Promise<AppSmartAccountSignerRecord[]> {
+  const db = getDatabase();
+
+  return db.query.appSmartAccountSigners.findMany({
+    where: and(
+      eq(appSmartAccountSigners.solanaEnv, input.solanaEnv),
+      eq(appSmartAccountSigners.signerAddress, input.signerAddress),
+      eq(appSmartAccountSigners.scope, "root_settings"),
+      eq(appSmartAccountSigners.state, "active")
+    ),
+    orderBy: [
+      desc(appSmartAccountSigners.sourceSlot),
+      desc(appSmartAccountSigners.updatedAt),
+      desc(appSmartAccountSigners.settingsPda),
+    ],
+  });
+}
+
+export async function upsertActiveRootSmartAccountSigner(
+  input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    smartAccountAddress: string;
+    settingsPda: string;
+    signerAddress: string;
+    permissionMask?: number | null;
+    sourceSignature?: string | null;
+    sourceSlot?: bigint | number | null;
+    userId?: string | null;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSignerRecord> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .insert(appSmartAccountSigners)
+    .values({
+      solanaEnv: input.solanaEnv,
+      smartAccountAddress: input.smartAccountAddress,
+      settingsPda: input.settingsPda,
+      signerAddress: input.signerAddress,
+      scope: "root_settings",
+      state: "active",
+      permissionMask: input.permissionMask ?? null,
+      sourceSignature: input.sourceSignature ?? null,
+      sourceSlot: input.sourceSlot == null ? null : BigInt(input.sourceSlot),
+      activatedAt: now,
+      removedAt: null,
+      lastCheckedAt: now,
+      userId: input.userId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        appSmartAccountSigners.solanaEnv,
+        appSmartAccountSigners.settingsPda,
+        appSmartAccountSigners.scope,
+        appSmartAccountSigners.signerAddress,
+      ],
+      set: {
+        smartAccountAddress: input.smartAccountAddress,
+        state: "active",
+        permissionMask: input.permissionMask ?? null,
+        sourceSignature: input.sourceSignature ?? null,
+        sourceSlot: input.sourceSlot == null ? null : BigInt(input.sourceSlot),
+        removedAt: null,
+        lastCheckedAt: now,
+        ...(input.userId !== undefined ? { userId: input.userId } : {}),
+        updatedAt: now,
+      },
+    })
+    .returning();
+
+  if (!result[0]) {
+    throw new Error("Failed to upsert smart account signer");
+  }
+
+  return result[0];
+}
+
+export async function markRootSmartAccountSignerRemoved(
+  input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    settingsPda: string;
+    signerAddress: string;
+    sourceSignature?: string | null;
+    sourceSlot?: bigint | number | null;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSignerRecord | null> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .update(appSmartAccountSigners)
+    .set({
+      state: "removed",
+      sourceSignature: input.sourceSignature ?? null,
+      sourceSlot: input.sourceSlot == null ? null : BigInt(input.sourceSlot),
+      removedAt: now,
+      lastCheckedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(appSmartAccountSigners.solanaEnv, input.solanaEnv),
+        eq(appSmartAccountSigners.settingsPda, input.settingsPda),
+        eq(appSmartAccountSigners.scope, "root_settings"),
+        eq(appSmartAccountSigners.signerAddress, input.signerAddress)
+      )
+    )
+    .returning();
+
+  return result[0] ?? null;
+}
+
+export async function linkRootSmartAccountSignerToUser(
+  input: {
+    solanaEnv: AppUserSmartAccountSolanaEnv;
+    settingsPda: string;
+    signerAddress: string;
+    userId: string;
+  },
+  dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
+): Promise<AppSmartAccountSignerRecord | null> {
+  const db = getDatabase();
+  const now = dependencies.now();
+
+  const result = await db
+    .update(appSmartAccountSigners)
+    .set({
+      userId: input.userId,
+      lastCheckedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(appSmartAccountSigners.solanaEnv, input.solanaEnv),
+        eq(appSmartAccountSigners.settingsPda, input.settingsPda),
+        eq(appSmartAccountSigners.scope, "root_settings"),
+        eq(appSmartAccountSigners.signerAddress, input.signerAddress),
+        eq(appSmartAccountSigners.state, "active")
+      )
+    )
+    .returning();
+
+  return result[0] ?? null;
 }

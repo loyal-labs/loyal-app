@@ -100,6 +100,7 @@ import type {
   SmartAccountOverview,
   SmartAccountOverviewBase,
   SmartAccountAddSignerProposalInput,
+  SmartAccountAddRootSignerInput,
   SmartAccountClosePoliciesProposalInput,
   SmartAccountClosePoliciesSyncInput,
   SmartAccountClosePolicyProposalInput,
@@ -132,6 +133,7 @@ import type {
   SmartAccountSpendingLimitSnapshot,
   SmartAccountProposalSummary,
   SmartAccountRemoveSignerProposalInput,
+  SmartAccountRemoveRootSignerInput,
   SmartAccountUpdateSignerPermissionsInput,
   SmartAccountTokenTransferProposalInput,
   SmartAccountTransferProposalInput,
@@ -889,7 +891,11 @@ function createEarnKaminoInitObligationInstructionConstraint(args: {
 }): generated.InstructionConstraint {
   const marketList = args.universe.kaminoMarkets;
   const obligations = marketList.map((market) =>
-    deriveKaminoVanillaObligation(args.vaultPda, market, args.target.lendProgramId)
+    deriveKaminoVanillaObligation(
+      args.vaultPda,
+      market,
+      args.target.lendProgramId
+    )
   );
   const dataPrefix = [
     ...args.target.initObligationDiscriminator,
@@ -4134,7 +4140,9 @@ export function createSmartAccountVaultsClient(
     persistence: ReturnType<typeof createYieldRoutePolicyPlan>["persistence"];
     policyAccount: PublicKey;
     setupOperation: PreparedLoyalSmartAccountsOperation<string>;
-    setupPersistence: ReturnType<typeof createYieldRouteSetupPolicyPlan>["persistence"];
+    setupPersistence: ReturnType<
+      typeof createYieldRouteSetupPolicyPlan
+    >["persistence"];
     setupPolicyAccount: PublicKey;
     setupPolicySeed: bigint;
   }> {
@@ -4227,7 +4235,9 @@ export function createSmartAccountVaultsClient(
       operationLength !== null &&
       operationLength > EARN_POLICY_PACKET_DATA_SIZE
     ) {
-      throw new Error("Earn route policy setup exceeds the Solana transaction size limit.");
+      throw new Error(
+        "Earn route policy setup exceeds the Solana transaction size limit."
+      );
     }
 
     const setupOperation = await createPolicyOperation({
@@ -4244,7 +4254,9 @@ export function createSmartAccountVaultsClient(
       setupOperationLength !== null &&
       setupOperationLength > EARN_POLICY_PACKET_DATA_SIZE
     ) {
-      throw new Error("Earn init-obligation policy setup exceeds the Solana transaction size limit.");
+      throw new Error(
+        "Earn init-obligation policy setup exceeds the Solana transaction size limit."
+      );
     }
 
     return {
@@ -4271,9 +4283,10 @@ export function createSmartAccountVaultsClient(
         "Cannot create an Earn policy without fetching the next Squads policy seed."
       );
     }
-    const settings = await smartAccountsClient.smartAccounts.queries.fetchSettings(
-      args.settingsPda
-    );
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
     const nextPolicySeed = resolveNextPolicySeed(settings);
     const {
       finalizeOperation,
@@ -4607,6 +4620,57 @@ export function createSmartAccountVaultsClient(
       feePayer: args.feePayer,
       memo: args.memo,
       operation: "updateSignerPermissions",
+      policies: [],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareAddRootSigner(
+    args: SmartAccountAddRootSignerInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    const permissions = args.permissions ?? ["initiate", "vote", "execute"];
+    const flags = toPermissionFlags(permissions);
+    if (flags.length === 0) {
+      throw new Error(
+        "Root Settings signer must have at least one permission."
+      );
+    }
+
+    return prepareSettingsChange({
+      actions: [
+        {
+          __kind: "AddSigner",
+          newSigner: {
+            key: args.signer,
+            permissions: Permissions.fromPermissions(flags),
+          },
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "addRootSettingsSigner",
+      policies: [],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+  }
+
+  async function prepareRemoveRootSigner(
+    args: SmartAccountRemoveRootSignerInput
+  ): Promise<SmartAccountPreparedSettingsChange> {
+    return prepareSettingsChange({
+      actions: [
+        {
+          __kind: "RemoveSigner",
+          oldSigner: args.signer,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: args.memo,
+      operation: "removeRootSettingsSigner",
       policies: [],
       settingsPda: args.settingsPda,
       spendingLimits: [],
@@ -6721,7 +6785,9 @@ export function createSmartAccountVaultsClient(
     prepareCustomInstructionProposal,
     preparePolicyCustomInstructionProposal,
     prepareAddInitiateSigner,
+    prepareAddRootSigner,
     prepareRemoveInitiateSigner,
+    prepareRemoveRootSigner,
     prepareUpdateSignerPermissions,
     prepareUpdatePolicySignerPermissions,
     prepareSetSpendingLimitPolicy,
