@@ -460,6 +460,46 @@ type EarnClusterPreflightResult =
   | { success: true; signature: string }
   | { success: false; error: string };
 
+function readErrorField(error: unknown, field: string): unknown {
+  return error && typeof error === "object"
+    ? (error as Record<string, unknown>)[field]
+    : undefined;
+}
+
+function stringifyErrorDetail(value: unknown): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Error) {
+    return value.message;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getDetailedWalletErrorMessage(error: unknown, fallback: string) {
+  const baseMessage = error instanceof Error ? error.message : fallback;
+  const nested =
+    stringifyErrorDetail(readErrorField(error, "error")) ??
+    stringifyErrorDetail(readErrorField(error, "cause")) ??
+    stringifyErrorDetail(readErrorField(error, "logs"));
+
+  if (!nested || nested === baseMessage) {
+    return baseMessage;
+  }
+
+  return `${baseMessage}: ${nested}`;
+}
+
 export function validatePreparedEarnPersistenceCluster({
   expectedCluster,
   operation,
@@ -4740,8 +4780,10 @@ export function useSmartAccountSidebarData(
           amountRaw: request.amountRaw.toString(),
         };
       } catch (err) {
-        const error =
-          err instanceof Error ? err.message : "Earn withdrawal failed.";
+        const error = getDetailedWalletErrorMessage(
+          err,
+          "Earn withdrawal failed."
+        );
         console.error("[executeEarnWithdraw] failed", err);
         return { success: false, error };
       } finally {

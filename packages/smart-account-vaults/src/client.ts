@@ -5423,7 +5423,7 @@ export function createSmartAccountVaultsClient(
           memo: args.memo,
         } as never
       );
-    const walletTransferAmountRaw =
+    const simulatedVaultUsdcAmountRaw =
       args.mode === "full"
         ? await simulatePreparedTokenAccountAmount({
             connection: config.connection,
@@ -5449,6 +5449,13 @@ export function createSmartAccountVaultsClient(
             tokenAccount: vaultUsdcAta,
           })
         : args.amountRaw;
+    const expectedFullWithdrawTransferAmountRaw =
+      kaminoWithdrawAmountRaw + fullWithdrawVaultUsdcRemainderRaw;
+    const walletTransferAmountRaw =
+      args.mode === "full" &&
+      expectedFullWithdrawTransferAmountRaw > simulatedVaultUsdcAmountRaw
+        ? expectedFullWithdrawTransferAmountRaw
+        : simulatedVaultUsdcAmountRaw;
     if (args.mode === "full") {
       kaminoWithdrawAmountRaw =
         walletTransferAmountRaw > fullWithdrawVaultUsdcRemainderRaw

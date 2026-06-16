@@ -1252,6 +1252,120 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
   });
 
+  test("includes idle vault USDC when full withdraw simulation only returns redeemed Kamino liquidity", async () => {
+    const fetchMock = mockKaminoWithdrawInstruction();
+    const vaultCollateralAta = getAssociatedTokenAddressSync(
+      kaminoReserveCollateralMint,
+      deriveVault(),
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const kaminoRedeemableAmountRaw = BigInt(404_324_176);
+    const vaultUsdcRemainderRaw = BigInt(75_676_540);
+    const getTokenAccountBalance = mock(async (account: PublicKey) => {
+      if (account.equals(vaultCollateralAta)) {
+        return {
+          context: { slot: 1 },
+          value: {
+            amount: "388709978",
+            decimals: 6,
+            uiAmount: 388.709978,
+            uiAmountString: "388.709978",
+          },
+        };
+      }
+      expect(account.toBase58()).toBe(deriveVaultUsdcAta().toBase58());
+      return {
+        context: { slot: 1 },
+        value: {
+          amount: vaultUsdcRemainderRaw.toString(),
+          decimals: 6,
+          uiAmount: 75.67654,
+          uiAmountString: "75.676540",
+        },
+      };
+    });
+    const getAccountInfo = mock(async (account: PublicKey) => {
+      if (account.equals(kaminoReserve)) {
+        return createSerializedKaminoReserveAccount({
+          collateralSupplyRaw: BigInt(388_709_978),
+          liquidityAvailableAmountRaw: kaminoRedeemableAmountRaw + BigInt(1),
+        });
+      }
+      if (account.equals(vaultCollateralAta)) {
+        return {
+          data: createTokenAccountData({
+            amountRaw: BigInt(0),
+            mint: kaminoReserveCollateralMint,
+            owner: deriveVault(),
+          }),
+          executable: false,
+          lamports: 1,
+          owner: TOKEN_PROGRAM_ID,
+          rentEpoch: 0,
+        };
+      }
+      return createSerializedEarnPolicyAccount();
+    });
+    const simulateTransaction = mock(async () => ({
+      value: {
+        accounts: [
+          {
+            data: [
+              createSimulatedTokenAccountData(kaminoRedeemableAmountRaw),
+              "base64",
+            ],
+          },
+        ],
+        err: null,
+        logs: [],
+      },
+    }));
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getLatestBlockhash: mock(async () => ({
+          blockhash: "11111111111111111111111111111111",
+          lastValidBlockHeight: 1,
+        })),
+        getTokenAccountBalance,
+        simulateTransaction,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(480_000_000),
+      mode: "full",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const fetchCalls = fetchMock.mock.calls as unknown as Array<
+      [unknown, RequestInit]
+    >;
+    expect(JSON.parse((fetchCalls[0]?.[1].body as string) ?? "{}").amount).toBe(
+      "480"
+    );
+    expect(JSON.parse((fetchCalls[1]?.[1].body as string) ?? "{}").amount).toBe(
+      "404.324176"
+    );
+    expect(result.persistence).toMatchObject({
+      mode: "full",
+      kaminoWithdrawAmountRaw: kaminoRedeemableAmountRaw.toString(),
+      vaultUsdcRemainderRaw: vaultUsdcRemainderRaw.toString(),
+      walletTransferAmountRaw: "480000716",
+      withdrawnAmountRaw: "480000000",
+    });
+  });
+
   test("splits autodeposit teardown from full withdraws", async () => {
     const fetchMock = mockKaminoWithdrawInstruction();
     const vaultCollateralAta = getAssociatedTokenAddressSync(
