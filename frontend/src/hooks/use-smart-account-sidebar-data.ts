@@ -4287,7 +4287,7 @@ export function useSmartAccountSidebarData(
     async (
       request: EarnDepositPolicyStageRequest
     ): Promise<EarnDepositPolicyStageResult> => {
-      if (!overview || !wallet.publicKey) {
+      if (!wallet.publicKey) {
         return { success: false, error: "Smart account not loaded yet." };
       }
 
@@ -4374,7 +4374,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, overview, solanaEnv, user?.walletAddress, wallet]
+    [connection, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnDeposit = useCallback(
@@ -4382,13 +4382,15 @@ export function useSmartAccountSidebarData(
       console.log("[executeEarnDeposit] called", {
         amountRaw: request.amountRaw.toString(),
         hasOverview: Boolean(overview),
+        hasSmartAccountAddress: Boolean(user?.smartAccountAddress),
         hasUserWalletAddress: Boolean(user?.walletAddress),
         hasWalletPublicKey: Boolean(wallet.publicKey),
       });
 
-      if (!overview || !wallet.publicKey) {
+      if (!wallet.publicKey) {
         console.log("[executeEarnDeposit] aborted: smart account not loaded", {
           hasOverview: Boolean(overview),
+          hasSmartAccountAddress: Boolean(user?.smartAccountAddress),
           hasWalletPublicKey: Boolean(wallet.publicKey),
         });
         return { success: false, error: "Smart account not loaded yet." };
@@ -4410,6 +4412,14 @@ export function useSmartAccountSidebarData(
         return {
           success: false,
           error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      if (!user.smartAccountAddress) {
+        console.log("[executeEarnDeposit] aborted: no session smart account");
+        return {
+          success: false,
+          error: "Smart account not loaded yet.",
         };
       }
 
@@ -4514,7 +4524,7 @@ export function useSmartAccountSidebarData(
           setupPolicySignature: policySignatureResolution.setupPolicySignature,
           signature,
           confirmedSlot,
-          smartAccountAddress: overview.canonicalVaultAddress,
+          smartAccountAddress: user.smartAccountAddress,
         });
         console.log("[executeEarnDeposit] backend confirmation posted", {
           confirmedSlot,
@@ -4554,6 +4564,7 @@ export function useSmartAccountSidebarData(
       overview,
       refreshAfterTx,
       solanaEnv,
+      user?.smartAccountAddress,
       user?.walletAddress,
       wallet,
     ]
