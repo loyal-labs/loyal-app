@@ -1094,6 +1094,8 @@ export function PortfolioContent({
   const [expandedSignerVaults, setExpandedSignerVaults] = useState<Set<number>>(
     () => new Set()
   );
+  const shouldShowAutodepositSkeleton =
+    isEarnStateLoading && !hasEarnStateLoadError && !isAutodepositConfigured;
   const sortedVaultEntries = useMemo(
     () =>
       [...vaultEntries].sort(
@@ -1716,7 +1718,7 @@ export function PortfolioContent({
               isBalanceHidden={isBalanceHidden}
               isConfigured={isAutodepositConfigured}
               isError={hasEarnStateLoadError}
-              isLoading={isEarnStateLoading}
+              isLoading={shouldShowAutodepositSkeleton}
               nextPeriodLabel={autodepositNextPeriodLabel}
               onRetry={onSmartAccountRetry}
               onSetUp={onOpenAutodeposit}
