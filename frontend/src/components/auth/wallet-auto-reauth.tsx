@@ -45,7 +45,7 @@ export function WalletAutoReauth() {
   }, [connected, publicKey]);
 
   useEffect(() => {
-    if (!isHydrated || isAuthenticated) {
+    if (!isHydrated || isAuthenticated || isSignInModalOpen) {
       return;
     }
 
@@ -96,7 +96,18 @@ export function WalletAutoReauth() {
     }
 
     void reauthenticate();
-  }, [authApiClient, connected, isAuthenticated, isHydrated, publicKey, refreshSession, signMessage, silentTurnstileToken, retryCount]);
+  }, [
+    authApiClient,
+    connected,
+    isAuthenticated,
+    isHydrated,
+    isSignInModalOpen,
+    publicKey,
+    refreshSession,
+    signMessage,
+    silentTurnstileToken,
+    retryCount,
+  ]);
 
   // Auto-dismiss "done" banner after delay
   useEffect(() => {

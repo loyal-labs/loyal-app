@@ -113,6 +113,12 @@ export function useWalletProofAuth({
     }
 
     if (!signMessage) {
+      handleFailure(
+        new WalletProofSignerError(
+          "This wallet does not support message signing.",
+          "wallet_signing_unsupported"
+        )
+      );
       return;
     }
 
@@ -138,14 +144,31 @@ export function useWalletProofAuth({
       // ask the modal to issue a fresh one before any subsequent attempt.
       onTurnstileConsumedRef.current?.();
     }
-  }, [authApiClient, close, handleFailure, publicKey, refreshSession, signMessage]);
+  }, [
+    authApiClient,
+    close,
+    handleFailure,
+    publicKey,
+    refreshSession,
+    signMessage,
+  ]);
 
   useEffect(() => {
     if (state.status !== "connecting") {
       return;
     }
 
-    if (connected && publicKey && signMessage) {
+    if (connected && publicKey) {
+      if (!signMessage) {
+        handleFailure(
+          new WalletProofSignerError(
+            "This wallet does not support message signing.",
+            "wallet_signing_unsupported"
+          )
+        );
+        return;
+      }
+
       if (verifyAttemptedForAddressRef.current === publicKey.toBase58()) {
         return;
       }
@@ -186,10 +209,41 @@ export function useWalletProofAuth({
       verifyAttemptedForAddressRef.current = null;
       selectedWalletNameRef.current = walletName;
       onFlowStart?.();
+
+      if (
+        wallet?.adapter.name === walletName &&
+        connected &&
+        publicKey &&
+        signMessage
+      ) {
+        void verifyConnectedWallet();
+        return;
+      }
+
       dispatch({ type: "connecting" });
+
+      if (wallet?.adapter.name === walletName) {
+        connectAttemptedRef.current = true;
+        void connect().catch((error) => {
+          connectAttemptedRef.current = false;
+          handleFailure(error);
+        });
+        return;
+      }
+
       select(walletName);
     },
-    [onFlowStart, select]
+    [
+      connected,
+      connect,
+      handleFailure,
+      onFlowStart,
+      publicKey,
+      select,
+      signMessage,
+      verifyConnectedWallet,
+      wallet,
+    ]
   );
 
   const retry = useCallback(() => {

@@ -82,7 +82,7 @@ function ConnectedView() {
           <button
             className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
             onClick={async () => {
-              await logout();
+              await Promise.allSettled([logout(), disconnect()]);
               close();
             }}
             type="button"
