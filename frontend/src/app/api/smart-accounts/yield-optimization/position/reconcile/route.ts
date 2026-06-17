@@ -52,6 +52,9 @@ export async function POST(request: Request) {
   }
 
   try {
+    const body = (await request.json().catch(() => ({}))) as {
+      force?: unknown;
+    };
     const solanaEnv = getConfiguredSolanaEnv();
     const serverEnv = getServerEnv();
     const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
@@ -65,6 +68,7 @@ export async function POST(request: Request) {
       authority: principal.walletAddress,
       cluster: resolveLoyalClusterForSolanaEnv(solanaEnv),
       connection: getConnection(solanaEnv),
+      force: body.force === true,
       settings: principal.settingsPda,
       vaultPubkey: earnVaultPda.toBase58(),
     });

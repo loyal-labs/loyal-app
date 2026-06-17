@@ -90,7 +90,7 @@ function selectEarnWithdrawSource(args: {
   reserveRows: CurrentYieldVaultReservePositionRecord[];
 }): SelectedEarnWithdrawSource {
   const reserveSources = args.reserveRows
-    .filter((row) => row.amountRaw > BigInt(0) && row.hasValue)
+    .filter((row) => row.amountRaw > BigInt(0))
     .map((row) => {
       if (!row.market) {
         throw new Error("Reconciled Earn reserve row is missing a market.");
@@ -333,13 +333,11 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       target: earnReserveTargetFromActivePosition(position),
-      ...(mode === "full" && currentReserveRows.length > 1
+      ...(mode === "full" && selectedSource.type === "reserve"
         ? {
             fullWithdrawalTargets: currentReserveRows
               .filter((row) =>
-                selectedSource.type === "reserve"
-                  ? row.reserve === selectedSource.reserve
-                  : false
+                row.reserve === selectedSource.reserve
               )
               .map((row) => {
                 if (!row.market) {

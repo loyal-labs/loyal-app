@@ -3,11 +3,16 @@ import "server-only";
 import { getKaminoUsdcEarnTargetForCluster } from "@loyal-labs/actions";
 import {
   calculateKaminoRedeemableLiquidityAmountRaw,
+  parseKaminoReserveTokenAccounts,
   parseKaminoReserveSnapshot,
   resolveEarnUsdcVaultTokenAccounts,
   type SmartAccountEarnUsdcReserveTargetInput,
 } from "@loyal-labs/smart-account-vaults";
-import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  AccountLayout,
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import type { AccountInfo, Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 
@@ -41,6 +46,7 @@ type ReconcileEarnVaultPositionInput = {
   authority: string;
   cluster: Parameters<typeof getKaminoUsdcEarnTargetForCluster>[0];
   connection: Pick<Connection, "getMultipleAccountsInfoAndContext">;
+  force?: boolean;
   settings: string;
   vaultPubkey: string;
 };
@@ -53,6 +59,13 @@ type ReserveCandidate = {
   planningMetadata: Record<string, unknown>;
   reserve: string;
   supplyApyBps: bigint | null;
+};
+
+type ReconciledReserveCandidate = {
+  candidate: ReserveCandidate;
+  collateralAta: PublicKey;
+  reserveAccount: AccountInfo<Buffer>;
+  reserveCollateralMint: PublicKey;
 };
 
 function isFresh(lastReconciledAt: Date | null, now: Date): boolean {
@@ -266,7 +279,7 @@ export async function reconcileEarnVaultPosition(
     };
   }
 
-  if (isFresh(managed.vault.lastReconciledAt, now)) {
+  if (!input.force && isFresh(managed.vault.lastReconciledAt, now)) {
     return {
       lastReconciledAt: managed.vault.lastReconciledAt?.toISOString() ?? null,
       lastReconciledSlot: managed.vault.lastReconciledSlot?.toString() ?? null,
@@ -289,49 +302,85 @@ export async function reconcileEarnVaultPosition(
     position,
     vaultPda,
   });
-  const reconcilableCandidates = candidates.filter(
-    (candidate): candidate is ReserveCandidate & { collateralAta: PublicKey } =>
-      candidate.collateralAta !== null
-  );
   const canonicalAccounts = resolveEarnUsdcVaultTokenAccounts({
     cluster: input.cluster,
     vaultPda,
   });
   const accountKeys = [
-    ...reconcilableCandidates.map(
-      (candidate) => new PublicKey(candidate.reserve)
-    ),
-    ...reconcilableCandidates.map((candidate) => candidate.collateralAta),
+    ...candidates.map((candidate) => new PublicKey(candidate.reserve)),
     canonicalAccounts.usdcAta,
   ];
-  const { context, value } =
+  const { context: reserveContext, value: reserveValues } =
     await input.connection.getMultipleAccountsInfoAndContext(
       accountKeys,
       SOURCE_COMMITMENT
     );
-  const reserveAccountOffset = 0;
-  const collateralAccountOffset = reconcilableCandidates.length;
-  const idleAccount = value[value.length - 1] ?? null;
-  const observedSlot = BigInt(context.slot);
+  const idleAccount = reserveValues[reserveValues.length - 1] ?? null;
 
-  const positions = reconcilableCandidates.map((candidate, index) => {
-    const reserveAccount = value[reserveAccountOffset + index];
-    if (!reserveAccount) {
-      throw new Error(
-        `Kamino reserve account ${candidate.reserve} was not found.`
+  const reconciledCandidates: ReconciledReserveCandidate[] = candidates.map(
+    (candidate, index) => {
+      const reserveAccount = reserveValues[index] ?? null;
+      if (!reserveAccount) {
+        throw new Error(
+          `Kamino reserve account ${candidate.reserve} was not found.`
+        );
+      }
+      const reserveTokenAccounts = parseKaminoReserveTokenAccounts(
+        reserveAccount.data
       );
+      const collateralAta =
+        candidate.collateralAta ??
+        getAssociatedTokenAddressSync(
+          reserveTokenAccounts.reserveCollateralMint,
+          vaultPda,
+          true,
+          TOKEN_PROGRAM_ID
+        );
+      return {
+        candidate,
+        collateralAta,
+        reserveAccount,
+        reserveCollateralMint: reserveTokenAccounts.reserveCollateralMint,
+      };
     }
-    const collateralAccount = value[collateralAccountOffset + index] ?? null;
+  );
+
+  const { context: collateralContext, value: collateralValues } =
+    reconciledCandidates.length > 0
+      ? await input.connection.getMultipleAccountsInfoAndContext(
+          reconciledCandidates.map((candidate) => candidate.collateralAta),
+          SOURCE_COMMITMENT
+        )
+      : { context: reserveContext, value: [] };
+  const observedSlot = BigInt(
+    Math.max(reserveContext.slot, collateralContext.slot)
+  );
+
+  const positions = reconciledCandidates.map((reconciled, index) => {
+    const { candidate, collateralAta, reserveAccount, reserveCollateralMint } =
+      reconciled;
+    const collateralAccount = collateralValues[index] ?? null;
     const collateralAmountRaw = decodeTokenAccountAmount({
       account: collateralAccount,
-      expectedMint: reserveTargetFromCandidate(candidate).reserveCollateralMint,
+      expectedMint: reserveCollateralMint,
       expectedOwner: vaultPda,
     });
     const reserveSnapshot = parseKaminoReserveSnapshot(reserveAccount.data);
-    const amountRaw = calculateKaminoRedeemableLiquidityAmountRaw({
+    const measuredAmountRaw = calculateKaminoRedeemableLiquidityAmountRaw({
       collateralAmountRaw,
       snapshot: reserveSnapshot,
     });
+    const fallbackRow = currentRows.find(
+      (row) => row.reserve === candidate.reserve && row.amountRaw > BigInt(0)
+    );
+    const positionFallbackRaw =
+      position?.currentReserve === candidate.reserve
+        ? position.currentAmountRaw
+        : BigInt(0);
+    const amountRaw =
+      measuredAmountRaw > BigInt(0)
+        ? measuredAmountRaw
+        : fallbackRow?.amountRaw ?? positionFallbackRaw;
 
     return {
       amountRaw,
@@ -343,8 +392,14 @@ export async function reconcileEarnVaultPosition(
         ...candidate.planningMetadata,
         amountSemantics: "kamino_redeemable_liquidity",
         collateralAmountRaw: collateralAmountRaw.toString(),
+        measuredAmountRaw: measuredAmountRaw.toString(),
+        reconciliationFallback:
+          measuredAmountRaw <= BigInt(0) && amountRaw > BigInt(0)
+            ? "confirmed_position_or_current_row"
+            : null,
+        reserveCollateralMint: reserveCollateralMint.toBase58(),
         sourceCommitment: SOURCE_COMMITMENT,
-        vaultCollateralAta: candidate.collateralAta.toBase58(),
+        vaultCollateralAta: collateralAta.toBase58(),
       },
       reserve: candidate.reserve,
       supplyApyBps: candidate.supplyApyBps,
@@ -363,7 +418,7 @@ export async function reconcileEarnVaultPosition(
     context: {
       source: "frontend_position_reconcile",
       sourceCommitment: SOURCE_COMMITMENT,
-      skippedReserveCount: candidates.length - reconcilableCandidates.length,
+      skippedReserveCount: candidates.length - reconciledCandidates.length,
     },
     idleTokenBalance: {
       amountRaw: idleAmountRaw,

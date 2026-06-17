@@ -48,6 +48,7 @@ import type {
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   SmartAccountPreparedEarnUsdcWithdraw,
+  SmartAccountEarnUsdcWithdrawInput,
 } from "../packages/smart-account-vaults/src/types.ts";
 import {
   getSolanaEndpoints,
@@ -146,6 +147,24 @@ type EvidenceStep = {
   transactionFeeLamports?: string;
   vaultUsdcRemainderRaw?: string;
 };
+
+class FrontendRequestError extends Error {
+  readonly body: unknown;
+  readonly path: string | null;
+  readonly status: number;
+
+  constructor(args: { body: unknown; path?: string | null; status: number }) {
+    super(
+      `Frontend request${args.path ? ` ${args.path}` : ""} failed with ${
+        args.status
+      }: ${JSON.stringify(args.body)}`
+    );
+    this.name = "FrontendRequestError";
+    this.body = args.body;
+    this.path = args.path ?? null;
+    this.status = args.status;
+  }
+}
 
 const SOLANA_ENV = resolveSolanaEnv(
   process.env.NEXT_PUBLIC_SOLANA_ENV ?? process.env.SOLANA_ENV ?? "mainnet"
@@ -417,14 +436,15 @@ function extractCookieHeader(response: Response): string {
   return cookies.join("; ");
 }
 
-async function readJsonResponse<T>(response: Response): Promise<T> {
+async function readJsonResponse<T>(
+  response: Response,
+  path?: string
+): Promise<T> {
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(
-      `Frontend request failed with ${response.status}: ${JSON.stringify(body)}`
-    );
+    throw new FrontendRequestError({ body, path, status: response.status });
   }
 
   return body as T;
@@ -447,7 +467,7 @@ async function frontendPostJson<T>(args: {
   });
 
   return {
-    body: await readJsonResponse<T>(response),
+    body: await readJsonResponse<T>(response, args.path),
     response,
   };
 }
@@ -466,7 +486,7 @@ async function frontendGetJson<T>(args: {
   });
 
   return {
-    body: await readJsonResponse<T>(response),
+    body: await readJsonResponse<T>(response, args.path),
     response,
   };
 }
@@ -637,10 +657,11 @@ async function fetchEarnPositionViaFrontend(args: {
 }
 
 async function reconcileEarnPositionViaFrontend(args: {
+  force?: boolean;
   session: FrontendSession;
 }) {
   const response = await frontendPostJson<unknown>({
-    body: {},
+    body: args.force ? { force: true } : {},
     cookie: args.session.cookie,
     path: "/api/smart-accounts/yield-optimization/position/reconcile",
     session: args.session,
@@ -1303,6 +1324,114 @@ function withdrawSourceFromHolding(
   };
 }
 
+function withdrawSourceFromCurrentRows(args: {
+  holdingEvents?: unknown[];
+  idleRows: unknown[];
+  label: string;
+  reserveRows: unknown[];
+}): NonNullable<EarnWithdrawPrepareRequestBody["source"]> {
+  const activeReserveRows = args.reserveRows.filter(
+    (row) => (getRawAmountField(row, "amountRaw") ?? 0n) > 0n
+  );
+  const activeIdleRows = args.idleRows.filter(
+    (row) => (getRawAmountField(row, "amountRaw") ?? 0n) > 0n
+  );
+  const activeSourceCount = activeReserveRows.length + activeIdleRows.length;
+  if (activeSourceCount === 0) {
+    const event = (args.holdingEvents ?? []).find(
+      (row) =>
+        (getRawAmountField(row, "amountRaw") ?? 0n) > 0n &&
+        getStringField(row, "reserve") &&
+        getStringField(row, "market")
+    );
+    if (event) {
+      const amountRaw = getRawAmountField(event, "amountRaw");
+      const reserve = getStringField(event, "reserve");
+      const market = getStringField(event, "market");
+      const liquidityMint =
+        getStringField(event, "liquidityMint") ??
+        EARN_TARGET.liquidityMint.toBase58();
+      if (amountRaw && reserve && market) {
+        return {
+          amountRaw: amountRaw.toString(),
+          id: reserve,
+          liquidityMint,
+          market,
+          reserve,
+          type: "reserve",
+        };
+      }
+    }
+  }
+  if (activeSourceCount !== 1) {
+    throw new Error(
+      `${args.label} expected exactly one active source, found ${activeSourceCount}.`
+    );
+  }
+
+  const reserveRow = activeReserveRows[0];
+  if (reserveRow) {
+    const amountRaw = getRawAmountField(reserveRow, "amountRaw");
+    const reserve = getStringField(reserveRow, "reserve");
+    const market = getStringField(reserveRow, "market");
+    const liquidityMint =
+      getStringField(reserveRow, "liquidityMint") ??
+      EARN_TARGET.liquidityMint.toBase58();
+    if (!amountRaw || !reserve || !market) {
+      throw new Error(
+        `${args.label} active reserve row is missing source metadata.`
+      );
+    }
+    return {
+      amountRaw: amountRaw.toString(),
+      id: reserve,
+      liquidityMint,
+      market,
+      reserve,
+      type: "reserve",
+    };
+  }
+
+  const idleRow = activeIdleRows[0];
+  const amountRaw = getRawAmountField(idleRow, "amountRaw");
+  const mint =
+    getStringField(idleRow, "mint") ?? EARN_TARGET.liquidityMint.toBase58();
+  const tokenAccount = getStringField(idleRow, "tokenAccount");
+  if (!amountRaw || !tokenAccount) {
+    throw new Error(`${args.label} active idle row is missing source metadata.`);
+  }
+  return {
+    amountRaw: amountRaw.toString(),
+    id: tokenAccount,
+    mint,
+    tokenAccount,
+    type: "idle",
+  };
+}
+
+function toClientWithdrawSource(
+  source: NonNullable<EarnWithdrawPrepareRequestBody["source"]>
+): SmartAccountEarnUsdcWithdrawInput["source"] {
+  if (source.type === "idle") {
+    return {
+      amountRaw: BigInt(source.amountRaw),
+      id: source.id,
+      mint: new PublicKey(source.mint),
+      tokenAccount: new PublicKey(source.tokenAccount),
+      type: "idle",
+    };
+  }
+
+  return {
+    amountRaw: BigInt(source.amountRaw),
+    id: source.id,
+    liquidityMint: new PublicKey(source.liquidityMint),
+    market: new PublicKey(source.market),
+    reserve: new PublicKey(source.reserve),
+    type: "reserve",
+  };
+}
+
 function assertPreparedSourceMetadata(args: {
   label: string;
   prepared: SmartAccountPreparedEarnUsdcWithdraw;
@@ -1357,6 +1486,38 @@ function decodeCustomProgramError(error: unknown): {
     code,
     name: decoded?.name ?? null,
   };
+}
+
+function frontendRequestErrorEvidence(error: unknown): unknown {
+  if (!(error instanceof FrontendRequestError)) {
+    return null;
+  }
+
+  return {
+    body: error.body,
+    status: error.status,
+  };
+}
+
+function extractSimulationLogEvidence(error: unknown): string[] {
+  const text =
+    error instanceof FrontendRequestError
+      ? JSON.stringify(error.body)
+      : error instanceof Error
+      ? error.message
+      : String(error);
+  return text
+    .replace(/\\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.includes("InstructionError") ||
+        line.includes("Program ") ||
+        line.includes("AnchorError") ||
+        line.includes("custom program error")
+    )
+    .slice(-40);
 }
 
 function monitorResultMatchesSelectedVault(
@@ -1718,6 +1879,12 @@ async function simulatePreparedPrefixTokenBalance(args: {
   }
 
   const data = Buffer.from(accountData[0] as string, "base64");
+  if (data.length < AccountLayout.span) {
+    return {
+      amountRaw: null,
+      logs: simulation.value.logs ?? [],
+    };
+  }
   return {
     amountRaw: AccountLayout.decode(data).amount.toString(),
     logs: simulation.value.logs ?? [],
@@ -1806,11 +1973,9 @@ async function sendOrResumeUsdcTransfer(args: {
       TOKEN_PROGRAM_ID
     )
   );
-  transaction.sign(args.wallet);
-  const simulation = await args.connection.simulateTransaction(transaction, {
-    commitment: "confirmed",
-    sigVerify: true,
-  });
+  const simulation = await args.connection.simulateTransaction(transaction, [
+    args.wallet,
+  ]);
   if (simulation.value.err) {
     throw new Error(
       `Idle funding simulation failed: ${JSON.stringify(
@@ -1818,6 +1983,7 @@ async function sendOrResumeUsdcTransfer(args: {
       )}\n${(simulation.value.logs ?? []).join("\n")}`
     );
   }
+  transaction.sign(args.wallet);
   const signature = await args.connection.sendRawTransaction(
     transaction.serialize(),
     {
@@ -2856,18 +3022,109 @@ async function main() {
       throw new Error("full-withdraw-cleanup requires an active Earn policy.");
     }
 
-    const prepared = frontendSession
-      ? await prepareEarnWithdrawViaFrontend({
-          amountRaw: activePosition.currentAmountRaw,
+    let selectedSource: NonNullable<EarnWithdrawPrepareRequestBody["source"]>;
+    if (frontendSession) {
+      const position = await fetchEarnPositionViaFrontend({
+        session: frontendSession,
+      });
+      let holdings = readEarnHoldings(position);
+      let cleanupStepIndex = 0;
+      while (holdings.length > 1) {
+        const holding =
+          holdings.find((entry) => entry.kind === "idle") ?? holdings[0]!;
+        const source = withdrawSourceFromHolding(holding);
+        const sourceAmountRaw = BigInt(source.amountRaw);
+        const preparedSource = await prepareEarnWithdrawViaFrontend({
+          amountRaw: sourceAmountRaw,
           mode: "full",
           session: frontendSession,
+          source,
+        });
+        assertPreparedSourceMetadata({
+          label: `full-withdraw-cleanup source ${cleanupStepIndex}`,
+          prepared: preparedSource,
+          source,
+        });
+        const sentSource = await sendOrResumePrepared({
+          connection,
+          prepared: preparedSource.prepared,
+          resumeSignature: null,
+          resumeSlot: null,
+          wallet,
+        });
+        const confirmedPosition = await confirmEarnWithdrawViaFrontend({
+          confirmedSlot: sentSource.slot,
+          prepared: preparedSource,
+          session: frontendSession,
+          signature: sentSource.signature,
+        });
+        evidence.steps[`fullWithdrawalSource${cleanupStepIndex}`] = {
+          amountRaw: source.amountRaw,
+          confirmedSlot: sentSource.slot.toString(),
+          instructionCount: preparedSource.prepared.instructions.length,
+          preparedTarget: preparedTargetEvidence(preparedSource),
+          persistence: {
+            position: compactPosition(confirmedPosition),
+            prepared: preparedSource.persistence,
+            source,
+          },
+          sendsTransactions: true,
+          signature: sentSource.signature,
+          simulationLogs: sentSource.simulationLogs.slice(-12),
+          status: "success",
+        };
+        await writeEvidence(evidence);
+        holdings = readEarnHoldings(
+          await fetchEarnPositionViaFrontend({
+            session: frontendSession,
+          })
+        );
+        cleanupStepIndex += 1;
+      }
+      if (holdings.length !== 1) {
+        throw new Error(
+          `full-withdraw-cleanup expected exactly one active frontend holding, found ${holdings.length}.`
+        );
+      }
+      selectedSource = withdrawSourceFromHolding(holdings[0]!);
+    } else {
+      const sourceState = await loadState({
+        connection,
+        policyAccount: new PublicKey(activeRoutePolicy.policyAccount),
+        setupPolicyAccount: activePolicyPair?.setupPolicy
+          ? new PublicKey(activePolicyPair.setupPolicy.policyAccount)
+          : null,
+        schema,
+        vaultCollateralAta: null,
+        vaultPubkey,
+        vaultUsdcAta,
+        walletAddress: wallet.publicKey,
+        walletUsdcAta,
+        yieldClient,
+      });
+      selectedSource = withdrawSourceFromCurrentRows({
+        holdingEvents: getArrayField(sourceState.db, "holdingEvents"),
+        idleRows: getArrayField(sourceState.db, "currentIdleRows"),
+        label: "full-withdraw-cleanup",
+        reserveRows: getArrayField(sourceState.db, "currentReserveRows"),
+      });
+    }
+    const selectedAmountRaw = BigInt(selectedSource.amountRaw);
+
+    const prepared = frontendSession
+      ? await prepareEarnWithdrawViaFrontend({
+          amountRaw: selectedAmountRaw,
+          mode: "full",
+          session: frontendSession,
+          source: selectedSource,
         })
       : await client.prepareEarnUsdcWithdraw({
-          amountRaw: activePosition.currentAmountRaw,
+          amountRaw: selectedAmountRaw,
           cluster: LoyalCluster.MainnetBeta,
           feePayer: wallet.publicKey,
           mode: "full",
           policySigner,
+          source: toClientWithdrawSource(selectedSource),
           settingsPda: SETTINGS_PDA,
           walletAddress: wallet.publicKey,
           yieldRoutingPolicy: {
@@ -2911,12 +3168,12 @@ async function main() {
         tokenAccount: vaultUsdcAta,
       });
       evidence.steps.fullWithdrawal = {
-        amountRaw: activePosition.currentAmountRaw.toString(),
+        amountRaw: selectedAmountRaw.toString(),
         cleanupCandidates: fullWithdrawCleanupCandidates(prepared),
         instructionCount: prepared.prepared.instructions.length,
         kaminoWithdrawAmountRaw:
           prepared.persistence.kaminoWithdrawAmountRaw ??
-          activePosition.currentAmountRaw.toString(),
+          selectedAmountRaw.toString(),
         preparedTarget: preparedTargetEvidence(prepared),
         persistence: prepared.persistence,
         postKaminoVaultUsdcRaw: postKaminoVaultUsdc.amountRaw,
@@ -2935,12 +3192,12 @@ async function main() {
       });
       evidence.steps.fullWithdrawal = {
         ...evidence.steps.fullWithdrawal,
-        amountRaw: activePosition.currentAmountRaw.toString(),
+        amountRaw: selectedAmountRaw.toString(),
         cleanupCandidates: fullWithdrawCleanupCandidates(prepared),
         instructionCount: prepared.prepared.instructions.length,
         kaminoWithdrawAmountRaw:
           prepared.persistence.kaminoWithdrawAmountRaw ??
-          activePosition.currentAmountRaw.toString(),
+          selectedAmountRaw.toString(),
         preparedTarget: preparedTargetEvidence(prepared),
         persistence: prepared.persistence,
         status: "skipped",
@@ -2999,7 +3256,7 @@ async function main() {
         label: "full withdrawal confirm",
       }));
     evidence.steps.fullWithdrawal = {
-      amountRaw: activePosition.currentAmountRaw.toString(),
+      amountRaw: selectedAmountRaw.toString(),
       cleanupCandidates: fullWithdrawCleanupCandidates(prepared),
       autodepositCloseConfirmedSlot:
         sentAutodepositClose?.slot.toString() ?? null,
@@ -3009,7 +3266,7 @@ async function main() {
       instructionCount: prepared.prepared.instructions.length,
       kaminoWithdrawAmountRaw:
         prepared.persistence.kaminoWithdrawAmountRaw ??
-        activePosition.currentAmountRaw.toString(),
+        selectedAmountRaw.toString(),
       negativeCases: idempotency
         ? {
             metadataMismatch: idempotency.metadataMismatch,
@@ -3046,7 +3303,7 @@ async function main() {
     const expectedWalletUsdcDelta = BigInt(
       prepared.persistence.walletTransferAmountRaw ??
         prepared.persistence.kaminoWithdrawAmountRaw ??
-        activePosition.currentAmountRaw.toString()
+        selectedAmountRaw.toString()
     );
     if (postWalletUsdc - preWalletUsdc !== expectedWalletUsdcDelta) {
       throw new Error(
@@ -3134,6 +3391,42 @@ async function main() {
     });
     evidence.preState = preState;
     await writeEvidence(evidence);
+
+    if (RESUME_INITIAL_DEPOSIT_SIGNATURE) {
+      const resumedPosition = frontendSession
+        ? await fetchEarnPositionViaFrontend({ session: frontendSession })
+        : preState.db.position;
+      const resumedPositionSummary = compactPosition(resumedPosition);
+      if (resumedPositionSummary.status !== "active") {
+        throw new Error(
+          "Resumed initial deposit did not point at an active Earn position."
+        );
+      }
+      evidence.steps.initialPolicy = {
+        confirmedFinalizeSlot: RESUME_INITIAL_SETUP_POLICY_SLOT,
+        confirmedSlot: RESUME_INITIAL_POLICY_SLOT,
+        finalizeSignature: RESUME_INITIAL_SETUP_POLICY_SIGNATURE,
+        routeConfirmedSlot: RESUME_INITIAL_POLICY_SLOT,
+        routeSignature: RESUME_INITIAL_POLICY_SIGNATURE,
+        setupConfirmedSlot: RESUME_INITIAL_SETUP_POLICY_SLOT,
+        setupSignature: RESUME_INITIAL_SETUP_POLICY_SIGNATURE,
+        signature: RESUME_INITIAL_POLICY_SIGNATURE ?? undefined,
+        sendsTransactions: false,
+        status: "success",
+      };
+      evidence.steps.initialDeposit = {
+        amountRaw: FIRST_DEPOSIT_RAW.toString(),
+        confirmedSlot: RESUME_INITIAL_DEPOSIT_SLOT ?? undefined,
+        persistence: { position: resumedPositionSummary },
+        reason:
+          "Resumed from an already-confirmed initial deposit after a prior verifier attempt failed after deposit confirmation.",
+        sendsTransactions: false,
+        signature: RESUME_INITIAL_DEPOSIT_SIGNATURE,
+        status: "success",
+      };
+      await writeEvidence(evidence);
+      return;
+    }
 
     if (frontendSession) {
       const prepared = await prepareEarnDepositViaFrontend({
@@ -3895,6 +4188,7 @@ async function main() {
       vaultUsdcAta
     );
     const reconcileResult = await reconcileEarnPositionViaFrontend({
+      force: true,
       session: frontendSession,
     });
     const positionAfterIdleFunding = await fetchEarnPositionViaFrontend({
@@ -3949,11 +4243,13 @@ async function main() {
         error: error instanceof Error ? error.message : String(error),
         persistence: {
           customError: decodeCustomProgramError(error),
+          frontendError: frontendRequestErrorEvidence(error),
           holdingsBeforeWithdraw: holdingsAfterIdleFunding,
           source: idleSource,
         },
         sendsTransactions: false,
         status: "failed",
+        unsignedSimulationLogs: extractSimulationLogEvidence(error),
       };
       await writeEvidence(evidence);
       throw error;
@@ -4007,14 +4303,14 @@ async function main() {
         (row) =>
           getStringField(row, "reserve") ===
             kaminoHoldingAfterIdleFunding.reserve &&
-          BigInt(getStringField(row, "amountRaw") ?? "0") > 0n
+          (getRawAmountField(row, "amountRaw") ?? 0n) > 0n
       )
     ) {
       throw new Error("Idle withdrawal did not preserve the Kamino reserve row.");
     }
     if (
       postIdleIdleRows.some(
-        (row) => BigInt(getStringField(row, "amountRaw") ?? "0") > 0n
+        (row) => (getRawAmountField(row, "amountRaw") ?? 0n) > 0n
       )
     ) {
       throw new Error("Idle withdrawal did not zero idle vault USDC rows.");
@@ -4087,6 +4383,7 @@ async function main() {
             setupPolicyActive: postIdleSetupPolicy?.active ?? null,
           },
           holdingsBeforeWithdraw: holdingsAfterIdleWithdrawal,
+          frontendError: frontendRequestErrorEvidence(error),
           policyAccount: postIdleRoutePolicy?.policyAccount ?? null,
           setupPolicyAccount: postIdleSetupPolicy?.policyAccount ?? null,
           settings: SETTINGS_PDA.toBase58(),
@@ -4096,6 +4393,7 @@ async function main() {
         },
         sendsTransactions: false,
         status: "failed",
+        unsignedSimulationLogs: extractSimulationLogEvidence(error),
       };
       await writeEvidence(evidence);
       throw error;
@@ -4217,6 +4515,21 @@ async function main() {
       signature: reserveSent.signature,
       simulationLogs: reserveSent.simulationLogs.slice(-12),
       status: "success",
+      rentRefundMath: {
+        allowanceLamports: RENT_REFUND_ROUNDING_ALLOWANCE_LAMPORTS.toString(),
+        expectedRentLamports: expectedRent.toString(),
+        observedWalletDeltaLamports: (
+          postReserveSol - preReserveSol
+        ).toString(),
+        postWalletLamports: postReserveSol.toString(),
+        preWalletLamports: preReserveSol.toString(),
+        transactionFeeLamports: reserveTransactionFee.toString(),
+        walletDeltaPlusFeeLamports: (
+          postReserveSol -
+          preReserveSol +
+          reserveTransactionFee
+        ).toString(),
+      },
       transactionFeeLamports: reserveTransactionFee.toString(),
     };
     evidence.postState = postReserveState;

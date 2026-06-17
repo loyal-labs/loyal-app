@@ -647,13 +647,39 @@ function assertDuplicateDepositField<T extends string | bigint | number | null>(
 function normalizeReserveWithdrawalsForCompare(
   value: YieldWithdrawalReserveMetadata[] | null | undefined
 ): string {
-  return JSON.stringify(value ?? []);
+  const normalized = (value ?? []).map((withdrawal) => {
+    const record = withdrawal as YieldWithdrawalReserveMetadata & {
+      amountRaw?: string;
+    };
+    return {
+      amountRaw:
+        record.withdrawnAmountRaw ??
+        record.amountRaw ??
+        record.kaminoWithdrawAmountRaw,
+      liquidityMint: record.liquidityMint,
+      market: record.market,
+      reserve: record.accountingReserve ?? record.reserve,
+    };
+  });
+  normalized.sort((left, right) =>
+    `${left.reserve}:${left.market ?? ""}:${left.liquidityMint}:${left.amountRaw}`.localeCompare(
+      `${right.reserve}:${right.market ?? ""}:${right.liquidityMint}:${right.amountRaw}`
+    )
+  );
+  return JSON.stringify(normalized);
 }
 
 function normalizeSourceMetadataForCompare(
   value: Record<string, unknown> | null | undefined
 ): string {
-  return JSON.stringify(value ?? {});
+  const metadata = value ?? {};
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(metadata).sort(([left], [right]) =>
+        left.localeCompare(right)
+      )
+    )
+  );
 }
 
 function normalizeWithdrawalSource(input: ConfirmedYieldWithdrawalInput): {
@@ -741,7 +767,7 @@ async function resolveWithdrawalSource(
   ]);
   const currentReserveRows = (
     reserveRows as CurrentYieldVaultReservePositionRecord[]
-  ).filter((row) => row.amountRaw > BigInt(0) && row.hasValue);
+  ).filter((row) => row.amountRaw > BigInt(0));
   const currentIdleRows = (
     idleRows as CurrentYieldVaultIdleTokenBalanceRecord[]
   ).filter((row) => row.amountRaw > BigInt(0));
@@ -1820,7 +1846,6 @@ export async function findReconciledActiveYieldPositionForVault(
     .where(
       and(
         eq(vaultReservePositionsCurrent.vaultId, vault.id),
-        eq(vaultReservePositionsCurrent.hasValue, true),
         sql`${vaultReservePositionsCurrent.amountRaw} > 0`
       )
     )
@@ -1930,7 +1955,6 @@ export async function findCurrentNonzeroYieldVaultReservePositions(
     .where(
       and(
         eq(vaultReservePositionsCurrent.vaultId, vault.id),
-        eq(vaultReservePositionsCurrent.hasValue, true),
         sql`${vaultReservePositionsCurrent.amountRaw} > 0`
       )
     )
@@ -2557,6 +2581,8 @@ export async function recordConfirmedYieldWithdrawal(
   };
   const nextPrincipal = withdrawalSource.isFinalExit
     ? BigInt(0)
+    : withdrawalSource.sourceType === "idle"
+    ? existingPosition.principalAmountRaw
     : existingPosition.principalAmountRaw - input.withdrawnAmountRaw;
   const insertedWithdrawals = await client.db
     .insert(userYieldPositionWithdrawals)
@@ -2601,6 +2627,8 @@ export async function recordConfirmedYieldWithdrawal(
     positionId: existingPosition.id,
     principalDeltaRaw: withdrawalSource.isFinalExit
       ? -existingPosition.principalAmountRaw
+      : withdrawalSource.sourceType === "idle"
+      ? BigInt(0)
       : -input.withdrawnAmountRaw,
     reserve:
       withdrawalSource.selectedReserveRow?.reserve ??
@@ -2616,6 +2644,8 @@ export async function recordConfirmedYieldWithdrawal(
     now,
     principalAmountRaw: withdrawalSource.isFinalExit
       ? BigInt(0)
+      : withdrawalSource.sourceType === "idle"
+      ? existingPosition.principalAmountRaw
       : sql`${userYieldPositions.principalAmountRaw} - ${input.withdrawnAmountRaw}`,
     status: withdrawalSource.isFinalExit ? "closed" : "active",
   });
