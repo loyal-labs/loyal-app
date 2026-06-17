@@ -4327,6 +4327,7 @@ export function AppWalletWorkspace({
           autodepositFloorLabel={autodepositFloorLabel}
           autodepositScheduledSweeps={autodepositConfig?.scheduledSweeps}
           autodepositState={autodepositConfig?.state ?? "idle"}
+          currentPositionHoldings={activeEarnPosition?.holdings}
           currentPositionMarketName={activeEarnPosition?.display?.marketName}
           currentPositionTokenSymbol={activeEarnPosition?.display?.mintSymbol}
           earningsCacheKey={earnEarningsCacheKey}

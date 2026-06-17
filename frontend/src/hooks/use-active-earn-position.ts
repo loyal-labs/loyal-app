@@ -8,7 +8,21 @@ import {
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
 
-const EARN_POSITION_CACHE_VERSION = 1;
+const EARN_POSITION_CACHE_VERSION = 2;
+
+export type ActiveEarnPositionHolding = {
+  amountRaw: string;
+  kind: "idle" | "kamino";
+  label: string;
+  liquidityMint: string;
+  market: string | null;
+  marketName: string;
+  observedAt: string;
+  observedSlot: string;
+  provenance: Record<string, string | null>;
+  reserve: string | null;
+  supplyApyBps: string | null;
+};
 
 export type ActiveEarnPosition = {
   currentSupplyApyBps: string | null;
@@ -23,6 +37,7 @@ export type ActiveEarnPosition = {
     reserve: string;
     supplyApyBps: string | null;
   };
+  holdings?: ActiveEarnPositionHolding[];
   currentHolding: {
     amountRaw: string;
     liquidityMint: string;
@@ -50,6 +65,10 @@ type LastEarnPositionCachePayload = {
 
 type ActiveEarnPositionResponse = {
   position: ActiveEarnPosition | null;
+};
+
+type ReconcileEarnPositionResponse = {
+  status: "cached" | "missing" | "refreshed";
 };
 
 export function isActiveEarnPosition(
@@ -204,6 +223,31 @@ export async function fetchActiveEarnPosition(): Promise<ActiveEarnPosition | nu
   return payload.position;
 }
 
+async function reconcileActiveEarnPosition(): Promise<ReconcileEarnPositionResponse | null> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/position/reconcile",
+    {
+      credentials: "include",
+      method: "POST",
+    }
+  );
+
+  if (response.status === 401 || response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to reconcile active earn position."
+    );
+  }
+
+  return (await response.json()) as ReconcileEarnPositionResponse;
+}
+
 export function useActiveEarnPosition({
   enabled,
   settingsPda,
@@ -303,6 +347,28 @@ export function useActiveEarnPosition({
           });
           return fresh;
         });
+
+        return reconcileActiveEarnPosition();
+      })
+      .then((reconciled) => {
+        if (cancelled || reconciled?.status !== "refreshed") {
+          return null;
+        }
+
+        return fetchActiveEarnPosition();
+      })
+      .then((reconciledFresh) => {
+        if (cancelled || !reconciledFresh) {
+          return;
+        }
+
+        writeEarnPositionCache({
+          solanaEnv,
+          walletAddress,
+          settingsPda,
+          position: reconciledFresh,
+        });
+        setPositionState(reconciledFresh);
       })
       .catch((error) => {
         if (cancelled) {

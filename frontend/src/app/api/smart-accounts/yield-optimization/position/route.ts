@@ -13,7 +13,11 @@ import {
 } from "@/lib/kamino/timescale-reserve-client.server";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import {
+  findCurrentNonzeroYieldVaultReservePositions,
+  findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
+  type CurrentYieldVaultIdleTokenBalanceRecord,
+  type CurrentYieldVaultReservePositionRecord,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -55,7 +59,8 @@ function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
 
 function serializePosition(
   position: UserYieldPositionRecord,
-  currentReserve: TimescaleReserveUpdateRow | null = null
+  currentReserve: TimescaleReserveUpdateRow | null = null,
+  holdings: ReturnType<typeof serializeHoldings> = []
 ) {
   return {
     currentHolding: {
@@ -85,9 +90,99 @@ function serializePosition(
       reserve: position.initialReserve,
       supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
     },
+    holdings,
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
   };
+}
+
+function serializeKaminoHolding(
+  row: CurrentYieldVaultReservePositionRecord
+) {
+  const display = resolveEarnPositionDisplay({
+    liquidityMint: row.liquidityMint,
+    market: row.market,
+  });
+
+  return {
+    amountRaw: row.amountRaw.toString(),
+    kind: "kamino" as const,
+    label: display.label,
+    liquidityMint: row.liquidityMint,
+    market: row.market,
+    marketName: display.marketName,
+    observedAt: row.observedAt.toISOString(),
+    observedSlot: row.observedSlot.toString(),
+    provenance: {
+      snapshotId: row.snapshotId.toString(),
+      source: "vault_reserve_positions_current",
+    },
+    reserve: row.reserve,
+    supplyApyBps: row.supplyApyBps?.toString() ?? null,
+  };
+}
+
+function serializeIdleHolding(row: CurrentYieldVaultIdleTokenBalanceRecord) {
+  return {
+    amountRaw: row.amountRaw.toString(),
+    kind: "idle" as const,
+    label: "Idle USDC",
+    liquidityMint: row.mint,
+    market: null,
+    marketName: "Earn vault",
+    observedAt: row.observedAt.toISOString(),
+    observedSlot: row.observedSlot.toString(),
+    provenance: {
+      owner: row.owner,
+      source: "vault_idle_token_balances_current",
+      sourceCommitment: row.sourceCommitment,
+      tokenAccount: row.tokenAccount,
+    },
+    reserve: null,
+    supplyApyBps: null,
+  };
+}
+
+function serializePositionCurrentHoldingAsKamino(position: UserYieldPositionRecord) {
+  const display = resolveEarnPositionDisplay({
+    liquidityMint: position.currentLiquidityMint,
+    market: position.currentMarket,
+  });
+
+  return {
+    amountRaw: position.currentAmountRaw.toString(),
+    kind: "kamino" as const,
+    label: display.label,
+    liquidityMint: position.currentLiquidityMint,
+    market: position.currentMarket,
+    marketName: display.marketName,
+    observedAt: position.currentObservedAt.toISOString(),
+    observedSlot: position.currentObservedSlot.toString(),
+    provenance: {
+      lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
+      source: "user_yield_positions",
+    },
+    reserve: position.currentReserve,
+    supplyApyBps: null,
+  };
+}
+
+function serializeHoldings(args: {
+  idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
+  position: UserYieldPositionRecord;
+  reserveRows: CurrentYieldVaultReservePositionRecord[];
+}) {
+  const kaminoHoldings =
+    args.reserveRows.length > 0
+      ? args.reserveRows.map(serializeKaminoHolding)
+      : args.position.currentAmountRaw > BigInt(0)
+        ? [serializePositionCurrentHoldingAsKamino(args.position)]
+        : [];
+  const idleHoldings = args.idleRows
+    .filter((row) => row.amountRaw > BigInt(0))
+    .map(serializeIdleHolding);
+
+  return [...kaminoHoldings, ...idleHoldings];
 }
 
 async function getCurrentReserveUpdatesByReserveWithRetry(args: {
@@ -155,6 +250,24 @@ export async function GET(request: Request) {
   const currentReserveByReserve = new Map(
     currentReserveRows.map((row) => [row.reserve, row])
   );
+  const [reserveHoldings, idleHoldings] = position
+    ? await Promise.all([
+        findCurrentNonzeroYieldVaultReservePositions({
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: position.vaultPubkey,
+          walletAddress: principal.walletAddress,
+        }),
+        findCurrentYieldVaultIdleTokenBalances({
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: position.vaultPubkey,
+          walletAddress: principal.walletAddress,
+        }),
+      ])
+    : [[], []];
 
   return NextResponse.json({
     position: position
@@ -162,7 +275,12 @@ export async function GET(request: Request) {
           position,
           currentReserveByReserve.get(
             timescaleReserve ?? position.currentReserve
-          ) ?? null
+          ) ?? null,
+          serializeHoldings({
+            idleRows: idleHoldings,
+            position,
+            reserveRows: reserveHoldings,
+          })
         )
       : null,
   });

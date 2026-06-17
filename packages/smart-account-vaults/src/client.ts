@@ -269,7 +269,7 @@ type KaminoInstructionBundle = {
   instructions: TransactionInstruction[];
 };
 
-type KaminoReserveSnapshot = {
+export type KaminoReserveSnapshot = {
   collateralSupplyRaw: bigint;
   totalLiquiditySupplyScaled: bigint;
 };
@@ -410,7 +410,7 @@ function readUint128LE(data: Buffer, offset: number): bigint {
   return low + (high << BigInt(64));
 }
 
-function parseKaminoReserveSnapshot(
+export function parseKaminoReserveSnapshot(
   data: Buffer | Uint8Array
 ): KaminoReserveSnapshot {
   const normalizedData = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -465,7 +465,7 @@ function parseKaminoReserveSnapshot(
   };
 }
 
-function calculateKaminoRedeemableLiquidityAmountRaw(args: {
+export function calculateKaminoRedeemableLiquidityAmountRaw(args: {
   collateralAmountRaw: bigint;
   snapshot: KaminoReserveSnapshot;
 }): bigint {
@@ -483,6 +483,51 @@ function calculateKaminoRedeemableLiquidityAmountRaw(args: {
     (args.collateralAmountRaw * args.snapshot.totalLiquiditySupplyScaled) /
     (args.snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE)
   );
+}
+
+export function resolveEarnUsdcVaultTokenAccounts(args: {
+  cluster?: LoyalCluster;
+  target?: SmartAccountEarnUsdcReserveTargetInput;
+  vaultPda: PublicKey;
+}): {
+  collateralAta: PublicKey | null;
+  targetReserve: {
+    liquidityMint: PublicKey;
+    market: PublicKey;
+    reserve: PublicKey;
+    reserveCollateralMint?: PublicKey;
+  };
+  usdcAta: PublicKey;
+} {
+  const target = resolveKaminoEarnTarget(
+    args.cluster ?? LoyalCluster.MainnetBeta,
+    args.target
+  );
+  const usdcAta = getAssociatedTokenAddressSync(
+    target.liquidityMint,
+    args.vaultPda,
+    true,
+    TOKEN_PROGRAM_ID
+  );
+  const collateralAta = target.reserveCollateralMint
+    ? getAssociatedTokenAddressSync(
+        target.reserveCollateralMint,
+        args.vaultPda,
+        true,
+        TOKEN_PROGRAM_ID
+      )
+    : null;
+
+  return {
+    collateralAta,
+    targetReserve: {
+      liquidityMint: target.liquidityMint,
+      market: target.market,
+      reserve: target.reserve,
+      reserveCollateralMint: target.reserveCollateralMint,
+    },
+    usdcAta,
+  };
 }
 
 function requireLocalKaminoTargetAccounts(target: KaminoEarnTarget): {

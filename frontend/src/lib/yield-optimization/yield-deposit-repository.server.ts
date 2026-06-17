@@ -20,6 +20,7 @@ import {
   userYieldPositionHoldingEvents,
   userYieldPositionWithdrawals,
   userYieldPositions,
+  vaultIdleTokenBalancesCurrent,
   vaultPositionSnapshotPositions,
   vaultPositionSnapshots,
   vaultReservePositionsCurrent,
@@ -123,6 +124,48 @@ export type ActiveYieldPositionForVaultLookupInput = Omit<
 
 export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
   vaultPubkey?: string;
+};
+
+export type CurrentYieldVaultReservePositionRecord =
+  typeof vaultReservePositionsCurrent.$inferSelect;
+export type CurrentYieldVaultIdleTokenBalanceRecord =
+  typeof vaultIdleTokenBalancesCurrent.$inferSelect;
+export type ManagedYieldVaultRecord = typeof managedVaults.$inferSelect;
+
+export type ActiveManagedYieldVaultWithPolicy = {
+  routePolicy: RoutePolicyRecord;
+  setupPolicy: RoutePolicyRecord | null;
+  vault: ManagedYieldVaultRecord;
+};
+
+export type ReconciledYieldVaultReservePositionInput = {
+  amountRaw: bigint;
+  borrowApyBps?: bigint | null;
+  hasValue: boolean;
+  liquidityMint: string;
+  market: string | null;
+  planningMetadata?: Record<string, unknown>;
+  reserve: string;
+  supplyApyBps?: bigint | null;
+};
+
+export type ReconciledYieldVaultIdleTokenBalanceInput = {
+  amountRaw: bigint;
+  mint: string;
+  owner: string;
+  tokenAccount: string;
+};
+
+export type ReconciledYieldVaultSnapshotInput = {
+  chainSlot?: bigint | null;
+  context: Record<string, unknown>;
+  idleTokenBalance: ReconciledYieldVaultIdleTokenBalanceInput;
+  observedAt?: Date;
+  observedSlot: bigint;
+  policyId: bigint;
+  positions: ReconciledYieldVaultReservePositionInput[];
+  sourceCommitment: string;
+  vaultId: bigint;
 };
 
 export type ConfirmedYieldWithdrawalAutodepositCloseInput = {
@@ -1469,6 +1512,80 @@ export async function findReconciledActiveYieldPositionForVault(
   );
 }
 
+export async function findCurrentNonzeroYieldVaultReservePositions(
+  input: ActiveYieldPositionForVaultLookupInput & { vaultPubkey?: string },
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<CurrentYieldVaultReservePositionRecord[]> {
+  const position = await findActiveYieldPositionForVault(input, dependencies);
+  if (!position) {
+    return [];
+  }
+
+  const vault = await dependencies.client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, input.vaultPubkey ?? position.vaultPubkey),
+      eq(managedVaults.active, true)
+    ),
+  });
+  if (!vault) {
+    return [];
+  }
+
+  return dependencies.client.db
+    .select()
+    .from(vaultReservePositionsCurrent)
+    .where(
+      and(
+        eq(vaultReservePositionsCurrent.vaultId, vault.id),
+        eq(vaultReservePositionsCurrent.hasValue, true),
+        sql`${vaultReservePositionsCurrent.amountRaw} > 0`
+      )
+    )
+    .orderBy(
+      desc(vaultReservePositionsCurrent.observedSlot),
+      desc(vaultReservePositionsCurrent.amountRaw),
+      desc(vaultReservePositionsCurrent.snapshotId)
+    );
+}
+
+export async function findCurrentYieldVaultIdleTokenBalances(
+  input: ActiveYieldPositionForVaultLookupInput & { vaultPubkey?: string },
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<CurrentYieldVaultIdleTokenBalanceRecord[]> {
+  const position = await findActiveYieldPositionForVault(input, dependencies);
+  if (!position) {
+    return [];
+  }
+
+  const vault = await dependencies.client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, input.vaultPubkey ?? position.vaultPubkey),
+      eq(managedVaults.active, true)
+    ),
+  });
+  if (!vault) {
+    return [];
+  }
+
+  return dependencies.client.db
+    .select()
+    .from(vaultIdleTokenBalancesCurrent)
+    .where(
+      and(
+        eq(vaultIdleTokenBalancesCurrent.vaultId, vault.id),
+        sql`${vaultIdleTokenBalancesCurrent.amountRaw} > 0`
+      )
+    )
+    .orderBy(
+      desc(vaultIdleTokenBalancesCurrent.observedSlot),
+      desc(vaultIdleTokenBalancesCurrent.updatedAt)
+    );
+}
+
 export async function findActiveYieldRoutePolicyPair(input: {
   authority: string;
   cluster: string;
@@ -1529,6 +1646,66 @@ export async function findActiveYieldRoutePolicyPair(input: {
   };
 }
 
+export async function findActiveManagedYieldVaultWithPolicy(input: {
+  authority: string;
+  cluster: string;
+  settings: string;
+  vaultIndex: number;
+  vaultPubkey?: string;
+}): Promise<ActiveManagedYieldVaultWithPolicy | null> {
+  const client = getYieldOptimizationClient();
+  const vaultFilters = [
+    eq(managedVaults.active, true),
+    eq(managedVaults.settings, input.settings),
+    eq(managedVaults.vaultIndex, input.vaultIndex),
+  ];
+  if (input.vaultPubkey) {
+    vaultFilters.push(eq(managedVaults.vaultPubkey, input.vaultPubkey));
+  }
+
+  const vault = await client.db.query.managedVaults.findFirst({
+    where: and(...vaultFilters),
+    orderBy: [desc(managedVaults.lastSeenAt), desc(managedVaults.id)],
+  });
+  if (!vault) {
+    return null;
+  }
+
+  const routePolicy = await client.db.query.routePolicies.findFirst({
+    where: and(
+      eq(routePolicies.active, true),
+      eq(routePolicies.authority, input.authority),
+      eq(routePolicies.id, vault.activePolicyId),
+      eq(routePolicies.settings, input.settings),
+      eq(routePolicies.vaultIndex, input.vaultIndex),
+      eq(routePolicies.vaultPubkey, vault.vaultPubkey)
+    ),
+  });
+  if (!routePolicy) {
+    return null;
+  }
+
+  const setupPolicy =
+    typeof vault.setupPolicyId !== "bigint"
+      ? null
+      : await client.db.query.routePolicies.findFirst({
+          where: and(
+            eq(routePolicies.active, true),
+            eq(routePolicies.authority, input.authority),
+            eq(routePolicies.id, vault.setupPolicyId),
+            eq(routePolicies.settings, input.settings),
+            eq(routePolicies.vaultIndex, input.vaultIndex),
+            eq(routePolicies.vaultPubkey, vault.vaultPubkey)
+          ),
+        });
+
+  return {
+    routePolicy,
+    setupPolicy: setupPolicy ?? null,
+    vault,
+  };
+}
+
 export async function findActiveYieldRoutePolicy(input: {
   authority: string;
   cluster: string;
@@ -1538,6 +1715,134 @@ export async function findActiveYieldRoutePolicy(input: {
 }): Promise<RoutePolicyRecord | null> {
   const pair = await findActiveYieldRoutePolicyPair(input);
   return pair?.routePolicy ?? null;
+}
+
+export async function recordReconciledYieldVaultSnapshot(
+  input: ReconciledYieldVaultSnapshotInput,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<{ snapshotId: bigint }> {
+  const now = dependencies.now();
+  const observedAt = input.observedAt ?? now;
+
+  const [snapshot] = await dependencies.client.db
+    .insert(vaultPositionSnapshots)
+    .values({
+      chainSlot: input.chainSlot ?? null,
+      context: input.context,
+      isCurrent: false,
+      observedAt,
+      observedSlot: input.observedSlot,
+      policyId: input.policyId,
+      vaultId: input.vaultId,
+    })
+    .returning({ id: vaultPositionSnapshots.id });
+
+  if (!snapshot) {
+    throw new Error("Failed to record reconciled yield vault snapshot.");
+  }
+
+  const snapshotPositionValues = input.positions.map((position) => ({
+    amountRaw: position.amountRaw,
+    borrowApyBps: position.borrowApyBps ?? null,
+    hasValue: position.hasValue,
+    liquidityMint: position.liquidityMint,
+    market: position.market,
+    planningMetadata: {
+      source: "frontend_position_reconcile",
+      ...(position.planningMetadata ?? {}),
+    },
+    reserve: position.reserve,
+    snapshotId: snapshot.id,
+    supplyApyBps: position.supplyApyBps ?? null,
+  }));
+  const currentPositionValues = snapshotPositionValues.map((position) => ({
+    amountRaw: position.amountRaw,
+    borrowApyBps: position.borrowApyBps,
+    hasValue: position.hasValue,
+    liquidityMint: position.liquidityMint,
+    market: position.market,
+    observedAt,
+    observedSlot: input.observedSlot,
+    planningMetadata: position.planningMetadata,
+    reserve: position.reserve,
+    snapshotId: snapshot.id,
+    supplyApyBps: position.supplyApyBps,
+    vaultId: input.vaultId,
+  }));
+
+  const statements: never[] = [
+    dependencies.client.db
+      .update(vaultPositionSnapshots)
+      .set({ isCurrent: false })
+      .where(eq(vaultPositionSnapshots.vaultId, input.vaultId)) as never,
+    dependencies.client.db
+      .delete(vaultReservePositionsCurrent)
+      .where(eq(vaultReservePositionsCurrent.vaultId, input.vaultId)) as never,
+  ];
+
+  if (snapshotPositionValues.length > 0) {
+    statements.push(
+      dependencies.client.db
+        .insert(vaultPositionSnapshotPositions)
+        .values(snapshotPositionValues) as never
+    );
+    statements.push(
+      dependencies.client.db
+        .insert(vaultReservePositionsCurrent)
+        .values(currentPositionValues) as never
+    );
+  }
+
+  statements.push(
+    dependencies.client.db
+      .insert(vaultIdleTokenBalancesCurrent)
+      .values({
+        amountRaw: input.idleTokenBalance.amountRaw,
+        mint: input.idleTokenBalance.mint,
+        observedAt,
+        observedSlot: input.observedSlot,
+        owner: input.idleTokenBalance.owner,
+        sourceCommitment: input.sourceCommitment,
+        tokenAccount: input.idleTokenBalance.tokenAccount,
+        updatedAt: now,
+        vaultId: input.vaultId,
+      })
+      .onConflictDoUpdate({
+        target: [
+          vaultIdleTokenBalancesCurrent.vaultId,
+          vaultIdleTokenBalancesCurrent.mint,
+        ],
+        set: {
+          amountRaw: input.idleTokenBalance.amountRaw,
+          observedAt,
+          observedSlot: input.observedSlot,
+          owner: input.idleTokenBalance.owner,
+          sourceCommitment: input.sourceCommitment,
+          tokenAccount: input.idleTokenBalance.tokenAccount,
+          updatedAt: now,
+        },
+      }) as never
+  );
+  statements.push(
+    dependencies.client.db
+      .update(vaultPositionSnapshots)
+      .set({ isCurrent: true })
+      .where(eq(vaultPositionSnapshots.id, snapshot.id)) as never
+  );
+  statements.push(
+    dependencies.client.db
+      .update(managedVaults)
+      .set({
+        lastReconciledAt: observedAt,
+        lastReconciledSlot: input.observedSlot,
+        lastSeenAt: now,
+      })
+      .where(eq(managedVaults.id, input.vaultId)) as never
+  );
+
+  await dependencies.client.db.batch(statements as [never, ...never[]]);
+
+  return { snapshotId: snapshot.id };
 }
 
 export async function findYieldPositionEvents(

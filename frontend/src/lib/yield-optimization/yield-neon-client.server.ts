@@ -75,6 +75,17 @@ export type YieldSwapLane = Record<string, unknown>;
 export type YieldSnapshotContext = Record<string, unknown>;
 export type YieldPlanningMetadata = Record<string, unknown>;
 export type EarnForecastSnapshotSample = EarnForecastApyHistorySample;
+export type YieldWithdrawalReserveMetadata = {
+  accountingReserve: string;
+  collateralAta: string;
+  executionMarket: string;
+  executionReserve: string;
+  kaminoWithdrawAmountRaw: string;
+  liquidityMint: string;
+  market: string | null;
+  reserve: string;
+  withdrawnAmountRaw: string;
+};
 
 export const routePolicies = loyalYieldSchema.table(
   "route_policies",
@@ -118,6 +129,8 @@ export const managedVaults = loyalYieldSchema.table(
     active: boolean("active").notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+    lastReconciledSlot: bigint("last_reconciled_slot", { mode: "bigint" }),
   },
   (table) => [
     uniqueIndex("managed_vaults_settings_index_uidx").on(
@@ -284,6 +297,10 @@ export const userYieldPositionWithdrawals = loyalYieldSchema.table(
     withdrawnAmountRaw: bigint("withdrawn_amount_raw", {
       mode: "bigint",
     }).notNull(),
+    reserveWithdrawals: jsonb("reserve_withdrawals")
+      .$type<YieldWithdrawalReserveMetadata[]>()
+      .notNull()
+      .default([]),
     mode: text("mode").notNull(),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -346,6 +363,28 @@ export const vaultReservePositionsCurrent = loyalYieldSchema.table(
       .$type<YieldPlanningMetadata>()
       .notNull(),
   }
+);
+
+export const vaultIdleTokenBalancesCurrent = loyalYieldSchema.table(
+  "vault_idle_token_balances_current",
+  {
+    vaultId: bigint("vault_id", { mode: "bigint" }).notNull(),
+    mint: text("mint").notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    owner: text("owner").notNull(),
+    tokenAccount: text("token_account").notNull(),
+    observedSlot: bigint("observed_slot", { mode: "bigint" }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    sourceCommitment: text("source_commitment").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.vaultId, table.mint],
+      name: "vault_idle_token_balances_current_pkey",
+    }),
+    index("vault_idle_token_balances_current_mint_idx").on(table.mint),
+  ]
 );
 
 export const earnForecastSnapshots = loyalYieldSchema.table(

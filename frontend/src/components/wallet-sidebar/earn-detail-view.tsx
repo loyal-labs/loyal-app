@@ -34,6 +34,7 @@ import type {
   EarningsRangeId,
 } from "@/lib/yield-optimization/earnings.shared";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
 import { useEarnEarnings } from "@/hooks/use-earn-earnings";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
@@ -1807,6 +1808,14 @@ function formatScheduledSweepAmount(rawAmount: string): string {
     .padStart(2, "0")}`;
 }
 
+function formatRawUsdcAmount(rawAmount: string) {
+  if (!/^\d+$/.test(rawAmount)) {
+    return formatForecastMoney(0, true);
+  }
+
+  return formatForecastMoney(Number(BigInt(rawAmount)) / 1_000_000, true);
+}
+
 function formatScheduledSweepTime(eligibleAfter: string): string {
   const date = new Date(eligibleAfter);
   if (Number.isNaN(date.getTime())) {
@@ -2219,6 +2228,7 @@ export function EarnDetailView({
   autodepositFloorLabel,
   autodepositScheduledSweeps = [],
   autodepositState = "idle",
+  currentPositionHoldings,
   currentPositionMarketName = "Main Market",
   currentPositionTokenSymbol = "USDC",
   earningsCacheKey,
@@ -2243,6 +2253,7 @@ export function EarnDetailView({
     | "paused"
     | "pausing"
     | "resuming";
+  currentPositionHoldings?: ActiveEarnPositionHolding[];
   currentPositionMarketName?: string;
   currentPositionTokenSymbol?: string;
   earningsCacheKey?: string;
@@ -2279,6 +2290,34 @@ export function EarnDetailView({
     earningsError,
     fallbackApyBps: earnForecastApy.apyBps,
   });
+  const visibleCurrentPositionHoldings =
+    currentPositionHoldings?.filter((holding) => {
+      try {
+        return BigInt(holding.amountRaw) > BigInt(0);
+      } catch {
+        return false;
+      }
+    }) ?? [];
+  const currentPositionRows =
+    visibleCurrentPositionHoldings.length > 0
+      ? visibleCurrentPositionHoldings.map((holding) => ({
+          amount: formatRawUsdcAmount(holding.amountRaw),
+          key: `${holding.kind}:${holding.reserve ?? holding.liquidityMint}`,
+          primary:
+            holding.kind === "idle" ? holding.label : holding.marketName,
+          secondary:
+            holding.kind === "idle"
+              ? holding.marketName
+              : currentPositionTokenSymbol,
+        }))
+      : [
+          {
+            amount: formatForecastMoney(principalAmount, true),
+            key: "current-position",
+            primary: currentPositionMarketName,
+            secondary: currentPositionTokenSymbol,
+          },
+        ];
   const displayBalanceAmount = deriveEstimatedEarnBalanceAmount({
     apyBps: estimatedEarnedAmountApyBps,
     earningsData,
@@ -2530,74 +2569,79 @@ export function EarnDetailView({
               Current positions
             </h3>
           </div>
-          <div
-            style={{
-              alignItems: "center",
-              display: "flex",
-              minHeight: "60px",
-              overflow: "hidden",
-              padding: "0 12px",
-              width: "100%",
-            }}
-          >
-            <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-              <VaultIcon logo={TOP_EARN_VAULT.logo} />
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flex: 1,
-                flexDirection: "column",
-                gap: "2px",
-                justifyContent: "center",
-                minWidth: 0,
-              }}
-            >
-              <span
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {currentPositionRows.map((row) => (
+              <div
+                key={row.key}
                 style={{
-                  color: "#000",
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  letterSpacing: "-0.176px",
-                  lineHeight: "20px",
+                  alignItems: "center",
+                  display: "flex",
+                  minHeight: "60px",
                   overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  padding: "0 12px",
+                  width: "100%",
                 }}
               >
-                {currentPositionMarketName}
-              </span>
-              <span
-                style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "13px",
-                  lineHeight: "16px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {currentPositionTokenSymbol}
-              </span>
-            </div>
-            <span
-              style={{
-                color: isBalanceHidden ? "#BBBBC0" : "#000",
-                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                marginLeft: "12px",
-                transition: "filter 0.15s ease, color 0.15s ease",
-                userSelect: isBalanceHidden ? "none" : "auto",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {formatForecastMoney(principalAmount, true)}
-            </span>
+                <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+                  <VaultIcon logo={TOP_EARN_VAULT.logo} />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    flex: 1,
+                    flexDirection: "column",
+                    gap: "2px",
+                    justifyContent: "center",
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: "#000",
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 500,
+                      letterSpacing: "-0.176px",
+                      lineHeight: "20px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.primary}
+                  </span>
+                  <span
+                    style={{
+                      color: secondary,
+                      fontFamily: font,
+                      fontSize: "13px",
+                      lineHeight: "16px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.secondary}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#BBBBC0" : "#000",
+                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    lineHeight: "20px",
+                    marginLeft: "12px",
+                    transition: "filter 0.15s ease, color 0.15s ease",
+                    userSelect: isBalanceHidden ? "none" : "auto",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {row.amount}
+                </span>
+              </div>
+            ))}
           </div>
         </section>
       ) : null}
