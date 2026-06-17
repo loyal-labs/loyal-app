@@ -1,10 +1,13 @@
 import type { EarnAutodepositHistoryEventRecord } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import { resolveEarnTransactionMarketLabel } from "@/lib/yield-optimization/earn-position-display";
+import {
+  resolveEarnTransactionMarketIcon,
+  resolveEarnTransactionMarketLabel,
+} from "@/lib/yield-optimization/earn-position-display";
 import type { UserYieldPositionHistoryEventRecord } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const AUTODEPOSIT_LABEL = "Autodeposit";
-const MAIN_USDC_LABEL = "Main USDC";
-const EARN_VAULT_LABEL = "Earn vault";
+const MAIN_USDC_LABEL = "Main";
+const EARN_VAULT_LABEL = "Earn";
 const MAIN_USDC_ICON = "/agents/Agent-01.svg";
 const EARN_VAULT_ICON = null;
 
@@ -227,6 +230,18 @@ export function serializeEarnTransactionEvent(
     : kind === "deposit"
     ? EARN_VAULT_LABEL
     : MAIN_USDC_LABEL;
+  // Rebalances move funds between two Kamino markets, so each side carries its
+  // own market logo. Deposits/withdrawals keep the Main USDC ↔ Earn vault art.
+  const sourceIcon = isMovement
+    ? resolveEarnTransactionMarketIcon({ market: event.sourceMarket })
+    : kind === "deposit"
+    ? MAIN_USDC_ICON
+    : EARN_VAULT_ICON;
+  const destinationIcon = isMovement
+    ? resolveEarnTransactionMarketIcon({ market: event.destinationMarket })
+    : kind === "deposit"
+    ? EARN_VAULT_ICON
+    : MAIN_USDC_ICON;
 
   return {
     amount: formatDisplayUsdcAmount(transactionAmountRaw, direction),
@@ -234,7 +249,7 @@ export function serializeEarnTransactionEvent(
     confirmedSlot: event.confirmedSlot.toString(),
     dateGroup: formatDateGroup(event.confirmedAt),
     destination: {
-      icon: isMovement || kind === "deposit" ? EARN_VAULT_ICON : MAIN_USDC_ICON,
+      icon: destinationIcon,
       label: destinationLabel,
     },
     eventType: event.eventType,
@@ -244,7 +259,7 @@ export function serializeEarnTransactionEvent(
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),
     source: {
-      icon: kind === "deposit" ? MAIN_USDC_ICON : EARN_VAULT_ICON,
+      icon: sourceIcon,
       label: sourceLabel,
     },
     timestamp: formatTimestamp(event.confirmedAt),

@@ -239,7 +239,7 @@ function hourlyRowsToEarnForecast(
         },
         {
           key: "mainUsdcReserve",
-          label: "Main Market USDC",
+          label: "Main Kamino USDC",
           metadata: {
             metric: "rolling_time_weighted_apy_bps",
           },

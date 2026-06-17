@@ -23,9 +23,9 @@ export type EarnPositionDisplay = {
 };
 
 const KNOWN_MARKET_NAMES = new Map([
-  [KAMINO_MAIN_MARKET.toBase58(), "Main Market"],
-  [KAMINO_DEVNET_MAIN_MARKET.toBase58(), "Main Market"],
-  [KAMINO_FIGURE_MARKET.toBase58(), "Figure Market"],
+  [KAMINO_MAIN_MARKET.toBase58(), "Main Kamino"],
+  [KAMINO_DEVNET_MAIN_MARKET.toBase58(), "Main Kamino"],
+  [KAMINO_FIGURE_MARKET.toBase58(), "Prime Market"],
   [KAMINO_MAPLE_MARKET.toBase58(), "Maple Market"],
   [KAMINO_ONRE_MARKET.toBase58(), "OnRe Market"],
   [KAMINO_ETHENA_MARKET.toBase58(), "Ethena Market"],
@@ -42,6 +42,20 @@ const COMPACT_MARKET_NAMES = new Map(
     name.replace(/\s+Market$/, ""),
   ])
 );
+
+// Default coin art for any Kamino market without a dedicated brand icon
+// (Main + JLP/Bitcoin/Superstate/Huma/Solstice/etc.). Specific markets in
+// the Safe basket get their own logo.
+const DEFAULT_MARKET_ICON = "/wallet-workspace/earn-kamino.png";
+
+const MARKET_ICONS = new Map<string, string>([
+  [KAMINO_MAIN_MARKET.toBase58(), DEFAULT_MARKET_ICON],
+  [KAMINO_DEVNET_MAIN_MARKET.toBase58(), DEFAULT_MARKET_ICON],
+  [KAMINO_FIGURE_MARKET.toBase58(), "/wallet-workspace/earn-prime.png"],
+  [KAMINO_MAPLE_MARKET.toBase58(), "/wallet-workspace/earn-maple.svg"],
+  [KAMINO_ONRE_MARKET.toBase58(), "/wallet-workspace/earn-onre.png"],
+  [KAMINO_ETHENA_MARKET.toBase58(), "/wallet-workspace/earn-ethena.png"],
+]);
 
 const devnetUsdcMint =
   STABLECOIN_MINTS_BY_CLUSTER[LoyalCluster.Devnet][Stablecoin.USDC]?.toBase58();
@@ -82,19 +96,24 @@ export function resolveEarnTransactionMarketLabel(args: {
   market: string | null | undefined;
   reserve?: string | null | undefined;
 }): string {
-  const mintSymbol = args.liquidityMint
-    ? KNOWN_MINT_SYMBOLS.get(args.liquidityMint) ??
-      shortenAddress(args.liquidityMint)
-    : "position";
-
-  if (!args.market) {
-    return args.reserve
-      ? `${shortenAddress(args.reserve)} ${mintSymbol}`
-      : mintSymbol;
+  if (args.market) {
+    return COMPACT_MARKET_NAMES.get(args.market) ?? shortenAddress(args.market);
   }
 
-  const marketName =
-    COMPACT_MARKET_NAMES.get(args.market) ?? shortenAddress(args.market);
+  if (args.reserve) {
+    return shortenAddress(args.reserve);
+  }
 
-  return `${marketName} ${mintSymbol}`;
+  return args.liquidityMint
+    ? KNOWN_MINT_SYMBOLS.get(args.liquidityMint) ??
+        shortenAddress(args.liquidityMint)
+    : "position";
+}
+
+export function resolveEarnTransactionMarketIcon(args: {
+  market: string | null | undefined;
+}): string {
+  return args.market
+    ? MARKET_ICONS.get(args.market) ?? DEFAULT_MARKET_ICON
+    : DEFAULT_MARKET_ICON;
 }

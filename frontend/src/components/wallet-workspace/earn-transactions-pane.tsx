@@ -20,7 +20,7 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 
 const KAMINO_ICON = "/wallet-workspace/earn-kamino.png";
-const EARN_VAULT_LABEL = "Earn vault";
+const EARN_VAULT_LABEL = "Earn";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
 const UTC_TIME_ZONE = "UTC";
 const USDC_RAW_SCALE = BigInt(1_000_000);
@@ -333,9 +333,40 @@ function CompoundKaminoImage() {
   );
 }
 
+function CompoundMarketImage({ src }: { src: string }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt="" src={src} style={COMPOUND_ICON_IMAGE_STYLE} />
+  );
+}
+
 // Reads source (back, top-left) -> destination (front, bottom-right):
-// deposits flow USDC -> Kamino, withdrawals flow Kamino -> USDC.
-function CompoundIcon({ isWithdraw = false }: { isWithdraw?: boolean }) {
+// deposits flow USDC -> Kamino, withdrawals flow Kamino -> USDC. Rebalances
+// pass explicit market logos (backSrc/frontSrc) so each Kamino market shows
+// its own brand icon instead of the generic vault art.
+function CompoundIcon({
+  backSrc = null,
+  frontSrc = null,
+  isWithdraw = false,
+}: {
+  backSrc?: string | null;
+  frontSrc?: string | null;
+  isWithdraw?: boolean;
+}) {
+  const back = backSrc ? (
+    <CompoundMarketImage src={backSrc} />
+  ) : isWithdraw ? (
+    <CompoundKaminoImage />
+  ) : (
+    <CompoundUsdcImage />
+  );
+  const front = frontSrc ? (
+    <CompoundMarketImage src={frontSrc} />
+  ) : isWithdraw ? (
+    <CompoundUsdcImage />
+  ) : (
+    <CompoundKaminoImage />
+  );
   return (
     <span
       aria-hidden="true"
@@ -359,7 +390,7 @@ function CompoundIcon({ isWithdraw = false }: { isWithdraw?: boolean }) {
           width: "32px",
         }}
       >
-        {isWithdraw ? <CompoundKaminoImage /> : <CompoundUsdcImage />}
+        {back}
       </span>
       <span
         style={{
@@ -372,7 +403,7 @@ function CompoundIcon({ isWithdraw = false }: { isWithdraw?: boolean }) {
           width: "32px",
         }}
       >
-        {isWithdraw ? <CompoundUsdcImage /> : <CompoundKaminoImage />}
+        {front}
       </span>
     </span>
   );
@@ -439,6 +470,7 @@ function EarnTransactionRow({
   onSelect: (item: EarnTransactionItem) => void;
 }) {
   const label = getEarnTransactionRowLabel(item);
+  const isMovement = item.kind === "rebalance" || item.kind === "reconciliation";
   const timestamp =
     formatEarnTransactionTimestamp(
       getEarnTransactionConfirmedAt(item),
@@ -481,7 +513,11 @@ function EarnTransactionRow({
             <EarnYieldIcon />
           </span>
         ) : (
-          <CompoundIcon isWithdraw={item.kind === "withdraw"} />
+          <CompoundIcon
+            backSrc={isMovement ? item.source.icon : null}
+            frontSrc={isMovement ? item.destination.icon : null}
+            isWithdraw={item.kind === "withdraw"}
+          />
         )}
       </span>
       <span

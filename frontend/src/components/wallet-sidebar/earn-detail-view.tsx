@@ -28,6 +28,7 @@ import {
   type EarnForecastApy,
   type EarnForecastApyHistoryResponse,
 } from "@/lib/kamino/earn-forecast.shared";
+import { getTokenIconUrl } from "@/lib/token-icon";
 import type {
   EarnEarningsBar,
   EarnEarningsResponse,
@@ -43,6 +44,10 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const POSITIVE_AMOUNT_COLOR = "#34C759";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
+// USDC mark badged onto the Main Account icon when a row reflects only the
+// account's USDC balance (deposit/withdraw/autodeposit), so it isn't confused
+// with the account's full multi-token value. Mirrors the shielded-asset badge.
+const USDC_BADGE_ICON_URL = getTokenIconUrl("USDC");
 
 const TOP_EARN_VAULT = {
   label: "Kamino · Lending Yield",
@@ -445,7 +450,7 @@ const EARN_COMPARISON_SERIES: {
     dashed: true,
     fixedApyBps: 559,
     key: "mainUsdcReserve",
-    label: "Main Market USDC",
+    label: "Main Kamino USDC",
   },
   {
     color: "#8E8E93",
@@ -464,7 +469,7 @@ const EARN_SERIES_DISPLAY: Record<
   { color: string; label: string }
 > = {
   loyal: { color: LOYAL_EARN_BRAND_COLOR, label: "Loyal Earn" },
-  mainUsdcReserve: { color: "#A7B3F6", label: "Main Market" },
+  mainUsdcReserve: { color: "#A7B3F6", label: "Main Kamino" },
   tBill: { color: "#B1B1B4", label: "T-Bill" },
 };
 
@@ -621,6 +626,51 @@ function ApyBadge({ value }: { value: string }) {
         style={{ height: "20px", width: "12px" }}
       />
       {value}
+    </span>
+  );
+}
+
+// 48px Main Account icon with a small USDC badge at the bottom-right. Used in
+// flows where the amount next to it is the account's USDC-only balance, so the
+// same wallet icon isn't mistaken for the full multi-token account value.
+function MainAccountUsdcIcon({ src }: { src: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "inline-block",
+        flexShrink: 0,
+        height: "48px",
+        position: "relative",
+        width: "48px",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt=""
+        src={src}
+        style={{
+          borderRadius: "12px",
+          height: "48px",
+          objectFit: "cover",
+          width: "48px",
+        }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt=""
+        src={USDC_BADGE_ICON_URL}
+        style={{
+          border: "2px solid #fff",
+          borderRadius: "9999px",
+          bottom: "-14px",
+          boxSizing: "border-box",
+          height: "28px",
+          position: "absolute",
+          right: "-12px",
+          width: "28px",
+        }}
+      />
     </span>
   );
 }
@@ -2315,7 +2365,7 @@ export function EarnDetailView({
   autodepositScheduledSweeps = [],
   autodepositState = "idle",
   currentPositionHoldings,
-  currentPositionMarketName = "Main Market",
+  currentPositionMarketName = "Main Kamino",
   currentPositionTokenSymbol = "USDC",
   earningsCacheKey,
   earningsCacheScope,
@@ -2867,7 +2917,7 @@ function WithdrawRouteRow({
         cursor: onClick ? "pointer" : "default",
         display: "flex",
         minHeight: "60px",
-        overflow: "hidden",
+        overflow: "visible",
         padding: "0 12px",
         textAlign: "left",
         transition: "background 0.15s ease",
@@ -2884,18 +2934,7 @@ function WithdrawRouteRow({
         {isPosition ? (
           <VaultIcon logo={icon} />
         ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            alt=""
-            aria-hidden="true"
-            src={icon}
-            style={{
-              borderRadius: "12px",
-              height: "48px",
-              objectFit: "cover",
-              width: "48px",
-            }}
-          />
+          <MainAccountUsdcIcon src={icon} />
         )}
       </div>
       <div
@@ -3660,7 +3699,7 @@ function DepositSourceRow({
           cursor: onClick ? "pointer" : "default",
           display: "flex",
           minHeight: "60px",
-          overflow: "hidden",
+          overflow: "visible",
           padding: "0 12px",
           textAlign: "left",
           width: "100%",
@@ -3668,18 +3707,7 @@ function DepositSourceRow({
         type="button"
       >
         <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            src={source.icon}
-            style={{
-              borderRadius: "12px",
-              height: "48px",
-              objectFit: "cover",
-              width: "48px",
-            }}
-          />
+          <MainAccountUsdcIcon src={source.icon} />
         </div>
         <div
           style={{
@@ -5941,7 +5969,7 @@ function AutodepositSummaryRow({
         alignItems: "center",
         borderRadius: "16px",
         display: "flex",
-        overflow: "hidden",
+        overflow: "visible",
         padding: "0 12px",
         width: "100%",
       }}
@@ -6210,19 +6238,7 @@ export function AutodepositSetupView({
             fraction={mainSource?.balanceFraction ?? "00"}
             icon={
               mainSource?.icon ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  src={mainSource.icon}
-                  style={{
-                    borderRadius: "12px",
-                    flexShrink: 0,
-                    height: "48px",
-                    objectFit: "cover",
-                    width: "48px",
-                  }}
-                />
+                <MainAccountUsdcIcon src={mainSource.icon} />
               ) : (
                 <AutodepositEarnIcon />
               )

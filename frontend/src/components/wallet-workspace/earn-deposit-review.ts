@@ -52,8 +52,8 @@ export type EarnDepositReviewState = {
 };
 
 const KAMINO_MARKET_NAMES = new Map<string, string>([
-  [KAMINO_MAIN_MARKET.toBase58(), "Main"],
-  [KAMINO_FIGURE_MARKET.toBase58(), "Figure"],
+  [KAMINO_MAIN_MARKET.toBase58(), "Main Kamino"],
+  [KAMINO_FIGURE_MARKET.toBase58(), "Prime"],
   [KAMINO_MAPLE_MARKET.toBase58(), "Maple"],
   [KAMINO_ONRE_MARKET.toBase58(), "OnRe"],
   [KAMINO_ETHENA_MARKET.toBase58(), "Ethena"],

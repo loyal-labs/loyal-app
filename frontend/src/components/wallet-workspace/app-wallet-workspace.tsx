@@ -3309,8 +3309,8 @@ export function AppWalletWorkspace({
         const tokenMint = pendingEarnDepositDraft.tokenMint ?? "";
         const next = {
           display: current?.display ?? {
-            label: "Main Market · USDC",
-            marketName: "Main Market",
+            label: "Main Kamino · USDC",
+            marketName: "Main Kamino",
             mintSymbol: "USDC",
           },
           initialHolding: current?.initialHolding ?? {
