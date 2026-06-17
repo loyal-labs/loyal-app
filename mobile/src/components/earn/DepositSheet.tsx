@@ -5,7 +5,7 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { ArrowDownUp, ChevronDown, X } from "lucide-react-native";
+import { X } from "lucide-react-native";
 import {
   useCallback,
   useEffect,
@@ -30,29 +30,33 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
-const TOKEN_SYMBOL = "USDC";
-const TOKEN_BALANCE_USD = 6266.86;
+// Earn only accepts USDC, so the asset is fixed and the selector is replaced
+// by a static logo chip (Figma 75:33570, annotation "вместо селекта").
+const MIN_DEPOSIT_USD = 5;
 
-const COLOR_DIM = "rgba(60, 60, 67, 0.4)";
 const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_CHIP_BG = "#F2F2F7";
+const COLOR_CHIP_SOFT = "rgba(0, 0, 0, 0.04)";
 const COLOR_BLACK = "#000";
-const COLOR_DISABLED_BG = "#E5E5EA";
-const COLOR_DISABLED_TEXT = "#8E8E93";
+const COLOR_ERROR_BG = "rgba(249, 54, 60, 0.14)";
+const COLOR_ERROR_TEXT = "#F9363C";
 
 // `Dimensions.get('screen')` returns the full physical screen height — does
 // NOT shrink when the keyboard opens (unlike `useWindowDimensions`, which
 // follows the window and can be racy inside the modal portal). This lets us
 // pin BottomSheetView to a definite height matching the modal's snap point.
 const SCREEN_HEIGHT = Dimensions.get("screen").height;
+const SCREEN_WIDTH = Dimensions.get("screen").width;
 const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
-const USD_FORMATTER = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
+// Amount auto-shrink: when "$12,345.67" gets too wide for the row, the font
+// scales down so it stays on one line, while `lineHeight` stays pinned at the
+// max size (so the baseline/vertical metrics don't shift). RN has no
+// synchronous text measurement, so width is approximated from the character
+// count — close enough for the decimal-pad character set.
+const AMOUNT_MAX_FONT_SIZE = 48;
+const AMOUNT_MIN_FONT_SIZE = 22;
+const AMOUNT_CHAR_WIDTH_RATIO = 0.6;
 
 const BALANCE_FORMATTER = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -99,9 +103,17 @@ type DepositSheetProps = {
   open: boolean;
   onClose: () => void;
   onDeposit?: () => void;
+  // The wallet's spendable USDC balance (token units ≈ dollars). `null` while
+  // holdings are still loading or the wallet has no USDC.
+  availableUsdc?: number | null;
 };
 
-export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
+export function DepositSheet({
+  open,
+  onClose,
+  onDeposit,
+  availableUsdc,
+}: DepositSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
   // The underlying input is gesture-handler's TextInput (forwarded through
   // @gorhom/bottom-sheet); only `.focus()` is called here.
@@ -112,6 +124,9 @@ export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
   const [caretOn, setCaretOn] = useState(true);
 
   const snapPoints = useMemo(() => ["94%"], []);
+  const available = Number.isFinite(availableUsdc ?? NaN)
+    ? (availableUsdc as number)
+    : 0;
 
   useEffect(() => {
     if (open) {
@@ -154,17 +169,17 @@ export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
 
   const handleMax = useCallback(() => {
     void Haptics.selectionAsync();
-    setAmount(TOKEN_BALANCE_USD.toFixed(2));
-  }, []);
+    setAmount(available.toFixed(2));
+  }, [available]);
 
   const handleDeposit = useCallback(() => {
     const usd = amountToUsd(amount);
-    if (usd <= 0) return;
+    if (usd < MIN_DEPOSIT_USD || usd > available) return;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
     onDeposit?.();
     sheetRef.current?.dismiss();
-  }, [amount, onDeposit]);
+  }, [amount, available, onDeposit]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -178,9 +193,30 @@ export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
     [],
   );
 
-  const usdValue = amountToUsd(amount);
   const displayValue = formatAmountDisplay(amount);
-  const depositDisabled = usdValue <= 0;
+  const enteredUsd = amountToUsd(amount);
+  // < $5 (incl. the empty/zero state) → "Minimum"; ≥ $5 but over the wallet
+  // balance → "Insufficient balance". Both render the same red, non-pressable
+  // CTA; the minimum check takes precedence.
+  const belowMinimum = enteredUsd < MIN_DEPOSIT_USD;
+  const insufficientFunds = !belowMinimum && enteredUsd > available;
+  const hasError = belowMinimum || insufficientFunds;
+  const ctaLabel = belowMinimum
+    ? "Minimum deposit is $5"
+    : insufficientFunds
+      ? "Insufficient balance"
+      : "Deposit";
+
+  // Scale the amount text down to fit the row; line-height stays pinned at the
+  // max size (see AMOUNT_* constants) so the baseline doesn't move.
+  const amountFontSize = useMemo(() => {
+    const text = `$${displayValue || "0"}`;
+    const availableWidth = SCREEN_WIDTH - 48;
+    const fitted = Math.floor(
+      availableWidth / (text.length * AMOUNT_CHAR_WIDTH_RATIO),
+    );
+    return Math.max(AMOUNT_MIN_FONT_SIZE, Math.min(AMOUNT_MAX_FONT_SIZE, fitted));
+  }, [displayValue]);
 
   // gorhom's BottomSheetFooter zeroes out keyboard height on Android with
   // `adjustResize` (BottomSheet.js:1168), assuming the portal container will
@@ -234,42 +270,25 @@ export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
         </View>
 
         {/* Amount input — a transparent BottomSheetTextInput covers the row
-            and captures taps/keyboard. The visible digit + caret are rendered
-            on top via pointerEvents="none" so they don't block re-focusing. */}
+            and captures taps/keyboard. The visible "$" + digits + caret are
+            rendered on top via pointerEvents="none" so they don't block
+            re-focusing. The value is entered in dollars (USDC ≈ $1). */}
         <View style={styles.body}>
-          <View style={styles.amountSection}>
+          <View style={styles.amountInputWrap}>
             <View style={styles.amountRow}>
-              <View style={styles.amountDigits} pointerEvents="none">
-                {!displayValue && (
-                  <View
-                    style={[
-                      styles.caret,
-                      { opacity: isFocused && caretOn ? 1 : 0 },
-                    ]}
-                  />
-                )}
-                <Text style={styles.amountText}>{displayValue || "0"}</Text>
-                {!!displayValue && (
-                  <View
-                    style={[
-                      styles.caret,
-                      { opacity: isFocused && caretOn ? 1 : 0 },
-                    ]}
-                  />
-                )}
-              </View>
-              <Text style={styles.amountSymbol} pointerEvents="none">
-                {TOKEN_SYMBOL}
-              </Text>
-              <View style={styles.amountRowFiller} pointerEvents="none" />
-              {/* Swap arrows — visual only per design instructions. */}
-              <View
-                style={styles.swapButton}
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              >
-                <ArrowDownUp size={14} color="#FFF" strokeWidth={2.2} />
+              <View style={styles.amountVisual} pointerEvents="none">
+                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
+                  $
+                </Text>
+                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
+                  {displayValue || "0"}
+                </Text>
+                <View
+                  style={[
+                    styles.caret,
+                    { opacity: isFocused && caretOn ? 1 : 0 },
+                  ]}
+                />
               </View>
               {/* Transparent overlay input — sits on top of the row, captures
                   taps directly so re-focus after keyboard dismiss is just a
@@ -288,33 +307,6 @@ export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
                 accessibilityLabel="Deposit amount"
               />
             </View>
-            <Text style={styles.amountUsd}>
-              {USD_FORMATTER.format(usdValue)}
-            </Text>
-          </View>
-
-          {/* Token selector pill — USDC dropdown is inert per design notes. */}
-          <View style={styles.tokenPill}>
-            <View style={styles.tokenPillInner}>
-              <Image source={usdcLogo} style={styles.tokenLogo} />
-              <Text style={styles.tokenSymbol}>{TOKEN_SYMBOL}</Text>
-              <ChevronDown size={16} color="#1C1C1E" strokeWidth={2} />
-            </View>
-            <Text style={styles.tokenBalance}>
-              {BALANCE_FORMATTER.format(TOKEN_BALANCE_USD)}
-            </Text>
-            <Pressable
-              onPress={handleMax}
-              accessibilityRole="button"
-              accessibilityLabel="Use maximum balance"
-              style={({ pressed }) => [
-                styles.maxBadge,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-              hitSlop={8}
-            >
-              <Text style={styles.maxBadgeText}>MAX</Text>
-            </Pressable>
           </View>
         </View>
 
@@ -328,24 +320,51 @@ export function DepositSheet({ open, onClose, onDeposit }: DepositSheetProps) {
             animatedFooterStyle,
           ]}
         >
+          {/* Balance cell — USDC only, so the selector is a static logo chip
+              with the available balance and a MAX shortcut. Lives directly
+              above the CTA (not under the input) and rides up with the
+              keyboard alongside the button. */}
+          <View style={styles.balanceCell}>
+            <View style={styles.logoChip}>
+              <Image
+                source={usdcLogo}
+                style={styles.tokenLogo}
+                accessibilityLabel="USDC"
+              />
+            </View>
+            <View style={styles.balanceMiddle}>
+              <Text style={styles.balanceAmount}>
+                {BALANCE_FORMATTER.format(available)}
+              </Text>
+              <Text style={styles.balanceAvailable}>Available</Text>
+            </View>
+            <Pressable
+              onPress={handleMax}
+              accessibilityRole="button"
+              accessibilityLabel="Use maximum balance"
+              style={({ pressed }) => [
+                styles.maxBadge,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+              hitSlop={8}
+            >
+              <Text style={styles.maxBadgeText}>MAX</Text>
+            </Pressable>
+          </View>
+
           <Pressable
             onPress={handleDeposit}
             accessibilityRole="button"
-            accessibilityLabel="Deposit"
-            disabled={depositDisabled}
+            accessibilityLabel={ctaLabel}
+            disabled={hasError}
             style={({ pressed }) => [
-              styles.depositCta,
-              depositDisabled && styles.depositCtaDisabled,
-              !depositDisabled && pressed && styles.depositCtaPressed,
+              styles.cta,
+              hasError ? styles.ctaError : styles.ctaEnabled,
+              !hasError && pressed && styles.ctaPressed,
             ]}
           >
-            <Text
-              style={[
-                styles.depositCtaLabel,
-                depositDisabled && styles.depositCtaLabelDisabled,
-              ]}
-            >
-              Deposit
+            <Text style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}>
+              {ctaLabel}
             </Text>
           </Pressable>
         </Animated.View>
@@ -399,26 +418,20 @@ const styles = StyleSheet.create({
   body: {
     paddingHorizontal: 16,
     paddingTop: 36,
-    gap: 12,
   },
-  amountSection: {
-    paddingHorizontal: 8,
-    gap: 4,
+  amountInputWrap: {
+    paddingBottom: 24,
   },
   amountRow: {
-    flexDirection: "row",
-    // Bottom-align so the digit's baseline matches USDC's baseline. With
-    // `alignItems: "center"` the larger font (48px) hangs lower than the
-    // smaller one (32px) because their line-box centers align, not their
-    // baselines. Pinning each Text's `lineHeight` to its `fontSize` makes
-    // line-box-bottom ≈ baseline (no descenders in 0–9 / capitals), so
-    // flex-end becomes baseline alignment in practice.
-    alignItems: "flex-end",
-    height: 56,
-    gap: 8,
+    position: "relative",
+    height: 48,
+    justifyContent: "flex-end",
   },
-  amountDigits: {
+  amountVisual: {
     flexDirection: "row",
+    // Bottom-align so the "$", digits, and caret share a baseline. Pinning
+    // each Text's `lineHeight` to its `fontSize` makes line-box-bottom ≈
+    // baseline (no descenders in "$" / 0–9), so flex-end reads as baseline.
     alignItems: "flex-end",
   },
   amountText: {
@@ -450,81 +463,43 @@ const styles = StyleSheet.create({
     padding: 0,
     fontSize: 48,
   },
-  amountSymbol: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 32,
-    lineHeight: 32,
-    color: COLOR_DIM,
-    letterSpacing: 0.4,
-    includeFontPadding: false,
+  balanceCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
   },
-  footerAbsolute: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "#FFF",
-    paddingHorizontal: 32,
-    paddingTop: 16,
-  },
-  amountRowFiller: {
-    flex: 1,
-  },
-  swapButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: COLOR_BLACK,
+  logoChip: {
+    padding: 4,
+    borderRadius: 999,
+    backgroundColor: COLOR_CHIP_SOFT,
     alignItems: "center",
     justifyContent: "center",
   },
-  amountUsd: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 17,
-    lineHeight: 22,
-    color: COLOR_LABEL_DIM,
-  },
-  tokenPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLOR_CHIP_BG,
-    borderRadius: 26,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    gap: 12,
-  },
-  tokenPillInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFF",
-    borderRadius: 54,
-    paddingLeft: 4,
-    paddingRight: 6,
-    paddingVertical: 4,
-    gap: 6,
-  },
   tokenLogo: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
-  tokenSymbol: {
-    fontFamily: "Geist_500Medium",
+  balanceMiddle: {
+    flex: 1,
+    paddingVertical: 8,
+  },
+  balanceAmount: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 20,
+    lineHeight: 24,
+    color: COLOR_BLACK,
+  },
+  balanceAvailable: {
+    fontFamily: "Geist_400Regular",
     fontSize: 15,
     lineHeight: 20,
-    color: COLOR_BLACK,
-  },
-  tokenBalance: {
-    flex: 1,
-    fontFamily: "Geist_500Medium",
-    fontSize: 17,
-    lineHeight: 22,
-    color: COLOR_BLACK,
-    letterSpacing: -0.187,
+    color: COLOR_LABEL_DIM,
   },
   maxBadge: {
     minWidth: 64,
-    backgroundColor: COLOR_BLACK,
+    backgroundColor: COLOR_CHIP_SOFT,
     borderRadius: 40,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -535,28 +510,44 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_500Medium",
     fontSize: 15,
     lineHeight: 20,
-    color: "#FFF",
+    color: COLOR_BLACK,
+    textAlign: "center",
   },
-  depositCta: {
+  footerAbsolute: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#FFF",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  cta: {
     height: 50,
-    borderRadius: 78,
-    backgroundColor: COLOR_BLACK,
+    borderRadius: 9999,
     alignItems: "center",
     justifyContent: "center",
   },
-  depositCtaPressed: {
+  ctaEnabled: {
+    backgroundColor: COLOR_BLACK,
+  },
+  ctaError: {
+    backgroundColor: COLOR_ERROR_BG,
+  },
+  ctaPressed: {
     opacity: 0.85,
   },
-  depositCtaDisabled: {
-    backgroundColor: COLOR_DISABLED_BG,
-  },
-  depositCtaLabel: {
+  ctaLabelEnabled: {
     fontFamily: "Geist_400Regular",
     fontSize: 17,
     lineHeight: 22,
     color: "#FFF",
   },
-  depositCtaLabelDisabled: {
-    color: COLOR_DISABLED_TEXT,
+  ctaLabelError: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 16,
+    lineHeight: 20,
+    color: COLOR_ERROR_TEXT,
+    textAlign: "center",
   },
 });
