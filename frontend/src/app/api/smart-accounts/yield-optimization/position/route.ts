@@ -126,10 +126,10 @@ function serializeIdleHolding(row: CurrentYieldVaultIdleTokenBalanceRecord) {
   return {
     amountRaw: row.amountRaw.toString(),
     kind: "idle" as const,
-    label: "Idle USDC",
+    label: "Idle Balance",
     liquidityMint: row.mint,
     market: null,
-    marketName: "Earn vault",
+    marketName: "USDC",
     observedAt: row.observedAt.toISOString(),
     observedSlot: row.observedSlot.toString(),
     provenance: {
