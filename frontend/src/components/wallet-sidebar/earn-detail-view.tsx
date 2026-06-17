@@ -1098,21 +1098,81 @@ export function deriveEstimatedEarnBalanceAmount({
   const principalUsd = Number.isFinite(earningsData.principalUsd)
     ? earningsData.principalUsd
     : principalAmount;
-  const lifetimeEarnedUsd = Number.isFinite(earningsData.lifetimeEarnedUsd)
-    ? earningsData.lifetimeEarnedUsd
+  const sinceLastDepositEarnedUsd = Number.isFinite(
+    earningsData.sinceLastDepositEarnedUsd
+  )
+    ? earningsData.sinceLastDepositEarnedUsd
     : 0;
+  const liveEarnedUsd = deriveLiveEarnedUsd({
+    apyBps,
+    generatedAt,
+    principalAmount: principalUsd,
+  });
+
+  return Number(
+    (principalUsd + sinceLastDepositEarnedUsd + liveEarnedUsd).toFixed(
+      EARN_BALANCE_DECIMALS
+    )
+  );
+}
+
+function deriveLiveEarnedUsd({
+  apyBps,
+  generatedAt,
+  principalAmount,
+}: {
+  apyBps: number;
+  generatedAt: string | null;
+  principalAmount: number;
+}) {
   const generatedAtMs = generatedAt ? Date.parse(generatedAt) : Number.NaN;
   const elapsedSeconds = Number.isFinite(generatedAtMs)
     ? Math.max(0, (Date.now() - generatedAtMs) / 1000)
     : 0;
-  const liveEarnedUsd =
-    getEarningsRatePerSecond(apyBps, principalAmount) * elapsedSeconds;
+
+  return getEarningsRatePerSecond(apyBps, principalAmount) * elapsedSeconds;
+}
+
+export function deriveEstimatedEarnedSummaryAmount({
+  apyBps,
+  earningsData,
+  earningsError,
+  generatedAt,
+  principalAmount,
+}: {
+  apyBps: number;
+  earningsData: EarnEarningsResponse | null;
+  earningsError: string | null;
+  generatedAt: string | null;
+  principalAmount: number;
+}) {
+  if (earningsError || !earningsData) {
+    return 0;
+  }
+
+  const principalUsd = Number.isFinite(earningsData.principalUsd)
+    ? earningsData.principalUsd
+    : principalAmount;
+  const sinceLastDepositEarnedUsd = Number.isFinite(
+    earningsData.sinceLastDepositEarnedUsd
+  )
+    ? earningsData.sinceLastDepositEarnedUsd
+    : 0;
 
   return Number(
-    (principalUsd + lifetimeEarnedUsd + liveEarnedUsd).toFixed(
-      EARN_BALANCE_DECIMALS
-    )
+    (
+      sinceLastDepositEarnedUsd +
+      deriveLiveEarnedUsd({
+        apyBps,
+        generatedAt,
+        principalAmount: principalUsd,
+      })
+    ).toFixed(EARN_BALANCE_DECIMALS)
   );
+}
+
+export function formatEarnedSummaryLabel(value: number) {
+  return formatSignedEarningsAmount(value);
 }
 
 export function deriveEstimatedEarnedAmountApyBps({
@@ -1269,21 +1329,7 @@ function EarningsBlock({
   );
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
-    headerSubtitle = (
-      <>
-        {"Total earned "}
-        <span
-          style={{
-            color: POSITIVE_AMOUNT_COLOR,
-            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-          }}
-        >
-          {`${formatSignedEarningsAmount(
-            earningsData?.rangeEarnedUsd ?? estimatedEarnedUsd
-          )} Past 30 Days`}
-        </span>
-      </>
-    );
+    headerSubtitle = "";
   } else if (hoveredApyBps !== null) {
     headerSubtitle = `with ${formatEarnApyPercent(hoveredApyBps)} APY`;
   } else if (hoveredBarEntry.isCurrent) {
@@ -2173,7 +2219,6 @@ export function EarnDetailView({
   autodepositFloorLabel,
   autodepositScheduledSweeps = [],
   autodepositState = "idle",
-  currentPositionApyLabel,
   currentPositionMarketName = "Main Market",
   currentPositionTokenSymbol = "USDC",
   earningsCacheKey,
@@ -2198,7 +2243,6 @@ export function EarnDetailView({
     | "paused"
     | "pausing"
     | "resuming";
-  currentPositionApyLabel?: string;
   currentPositionMarketName?: string;
   currentPositionTokenSymbol?: string;
   earningsCacheKey?: string;
@@ -2242,16 +2286,14 @@ export function EarnDetailView({
     generatedAt: earningsRangeSet?.generatedAt ?? null,
     principalAmount,
   });
-  const estimatedEarnedUsd = Math.max(
-    0,
-    displayBalanceAmount - principalAmount
-  );
-  const displayApyLabel =
-    currentPositionApyLabel ??
-    `${formatEarnApyPercent(estimatedEarnedAmountApyBps)} APY`;
-  const earnedSummaryLabel = `${formatSignedEarningsAmount(
-    estimatedEarnedUsd
-  )} (${displayApyLabel})`;
+  const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
+    apyBps: estimatedEarnedAmountApyBps,
+    earningsData,
+    earningsError,
+    generatedAt: earningsRangeSet?.generatedAt ?? null,
+    principalAmount,
+  });
+  const earnedSummaryLabel = formatEarnedSummaryLabel(estimatedEarnedUsd);
   const balanceStorageScope =
     earningsCacheScope?.solanaEnv && earningsCacheScope?.walletAddress
       ? `${earningsCacheScope.solanaEnv}:${earningsCacheScope.walletAddress}`

@@ -123,7 +123,6 @@ import {
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
 import { trackWalletShieldPressed } from "@/lib/core/analytics";
-import { formatEarnApyPercent } from "@/lib/kamino/earn-forecast.shared";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
@@ -1028,11 +1027,6 @@ export function AppWalletWorkspace({
     solanaEnv: publicEnv.solanaEnv,
     walletAddress: walletDesktopData.walletAddress,
   });
-  const activeEarnPositionApyBps = activeEarnPosition?.currentSupplyApyBps;
-  const activeEarnPositionApyLabel =
-    activeEarnPositionApyBps !== null && activeEarnPositionApyBps !== undefined
-      ? `${formatEarnApyPercent(Number(activeEarnPositionApyBps))} APY`
-      : undefined;
   const invalidateEarnClientCaches = useCallback(() => {
     invalidateEarnEarningsCache();
     invalidateEarnTransactionsCache({
@@ -4333,7 +4327,6 @@ export function AppWalletWorkspace({
           autodepositFloorLabel={autodepositFloorLabel}
           autodepositScheduledSweeps={autodepositConfig?.scheduledSweeps}
           autodepositState={autodepositConfig?.state ?? "idle"}
-          currentPositionApyLabel={activeEarnPositionApyLabel}
           currentPositionMarketName={activeEarnPosition?.display?.marketName}
           currentPositionTokenSymbol={activeEarnPosition?.display?.mintSymbol}
           earningsCacheKey={earnEarningsCacheKey}

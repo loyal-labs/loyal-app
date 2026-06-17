@@ -377,6 +377,10 @@ export function calculateEarnEarnings(args: {
   );
   const firstDepositAt =
     events.find((event) => event.type === "deposit")?.confirmedAt ?? null;
+  const lastDepositAt =
+    [...events]
+      .reverse()
+      .find((event) => event.type === "deposit")?.confirmedAt ?? null;
   const buckets = createEarningsBuckets({
     firstDepositAt,
     now: args.now,
@@ -416,6 +420,12 @@ export function calculateEarnEarnings(args: {
     events,
     startAt: lifetimeStart,
   });
+  const sinceLastDeposit = calculateWindow({
+    apySamples,
+    endAt: args.now,
+    events,
+    startAt: lastDepositAt ?? args.now,
+  });
   const today = calculateWindow({
     apySamples,
     endAt: args.now,
@@ -428,10 +438,12 @@ export function calculateEarnEarnings(args: {
   return {
     bars,
     currentApyBps: currentApy === null ? null : Math.round(currentApy * 10_000),
+    lastDepositAt: lastDepositAt?.toISOString() ?? null,
     lifetimeEarnedUsd: lifetime.earnedUsd,
     principalAmountRaw: principalAmountRaw.toString(),
     principalUsd: rawToUsd(principalAmountRaw),
     rangeEarnedUsd: bars.reduce((sum, bar) => sum + bar.earnedUsd, 0),
+    sinceLastDepositEarnedUsd: sinceLastDeposit.earnedUsd,
     todayEarnedUsd: today.earnedUsd,
   };
 }

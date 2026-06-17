@@ -10,7 +10,7 @@ import type { EarnEarningsRangeSetResponse } from "@/lib/yield-optimization/earn
 
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_CACHE_KEY = "default";
-const EARN_EARNINGS_CACHE_VERSION = 1;
+const EARN_EARNINGS_CACHE_VERSION = 2;
 
 type EarnEarningsCacheEntry = {
   expiresAt: number;
@@ -20,9 +20,11 @@ type EarnEarningsCacheEntry = {
 export type EarnDisplayCachePayload = {
   currentApyBps: number | null;
   displayedAt: number;
+  lastDepositAt: string | null;
   lifetimeEarnedUsd: number;
   principalAmountRaw: string;
   principalUsd: number;
+  sinceLastDepositEarnedUsd: number;
 };
 
 type EarnEarningsCacheScope = {

@@ -17,10 +17,12 @@ export type EarnEarningsBar = {
 export type EarnEarningsResponse = {
   bars: EarnEarningsBar[];
   currentApyBps: number | null;
+  lastDepositAt: string | null;
   lifetimeEarnedUsd: number;
   principalAmountRaw: string;
   principalUsd: number;
   rangeEarnedUsd: number;
+  sinceLastDepositEarnedUsd: number;
   todayEarnedUsd: number;
 };
 
