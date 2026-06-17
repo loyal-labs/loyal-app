@@ -44,9 +44,15 @@ import {
 import { WalletSignIn } from "@/components/auth/wallet-sign-in";
 import { DogWithMood } from "@/components/chat-input";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
-import { ApprovalReviewContent } from "@/components/wallet-sidebar/approval-review-content";
+import {
+  ApprovalReviewContent,
+  type ApprovalReviewDisplayItem,
+} from "@/components/wallet-sidebar/approval-review-content";
 import { ConnectRequestContent } from "@/components/wallet-sidebar/connect-request-content";
-import { PortfolioContent } from "@/components/wallet-sidebar/portfolio-content";
+import {
+  PortfolioContent,
+  type MockRootSignerEntry,
+} from "@/components/wallet-sidebar/portfolio-content";
 import { ReceiveContent } from "@/components/wallet-sidebar/receive-content";
 import {
   type RecipientSuggestion,
@@ -142,6 +148,7 @@ import {
   buildEarnAutodepositSetupReviewItem,
   buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
+  getNextEarnWithdrawReviewStage,
   type EarnAutodepositSetupReviewStage,
   type EarnDepositReviewStage,
   type EarnWithdrawReviewStage,
@@ -183,7 +190,17 @@ type DetailSelection =
   | "wallet";
 type ResizeTarget = "account" | "review";
 type EarnAutodepositConfig = Omit<LoadedEarnAutodepositConfig, "state"> & {
-  state: LoadedEarnAutodepositConfig["state"] | "closing" | "pausing" | "resuming";
+  state:
+    | LoadedEarnAutodepositConfig["state"]
+    | "closing"
+    | "pausing"
+    | "resuming";
+};
+type PendingRootSignerDraft = {
+  signerAddress: string;
+};
+type PendingRootSignerRemovalDraft = {
+  signerAddress: string;
 };
 type PersistedWorkspaceSelection =
   | {
@@ -210,6 +227,9 @@ const ACCOUNT_PANE_DEFAULT_WIDTH = 400;
 const REVIEW_PANE_MIN_WIDTH = 320;
 const REVIEW_PANE_MAX_WIDTH = 520;
 const REVIEW_PANE_DEFAULT_WIDTH = 400;
+const ENABLE_MOCK_BACKUP_SIGNER_FLOW = true;
+const EXPERIMENTAL_MODE_SESSION_KEY = "loyal.wallet.experimentalMode";
+const EXPERIMENTAL_MODE_CLICK_THRESHOLD = 5;
 
 // Named variants so the exit propagates to descendants (the floating mascot
 // fades itself out on "exit"); "afterChildren" holds the slide-out until that
@@ -236,6 +256,10 @@ function clampWidth(value: number, min: number, max: number) {
 
 function getWalletIcon(): string {
   return "/agents/Agent-01.svg";
+}
+
+function getMockRootSignerIcon(index: number): string {
+  return `/agents/Agent-${String(index + 2).padStart(2, "0")}.svg`;
 }
 
 function formatAddressForEarnSource(
@@ -673,6 +697,7 @@ function WalletRail({
   isSignedIn,
   isWalletLoading,
   onDisconnect,
+  onExperimentalModeClick,
   onShieldUsdc,
   onSectionChange,
 }: {
@@ -683,6 +708,7 @@ function WalletRail({
   isSignedIn: boolean;
   isWalletLoading: boolean;
   onDisconnect: () => void;
+  onExperimentalModeClick: () => void;
   onShieldUsdc: () => void;
   onSectionChange: (section: WorkspaceSection) => void;
 }) {
@@ -705,7 +731,14 @@ function WalletRail({
     <aside className="wallet-workspace-rail" aria-label="Workspace navigation">
       <div className="wallet-workspace-rail-top">
         <div className="wallet-workspace-mascot">
-          <DogWithMood cry={dogCry} nice={dogNice} squint={isBalanceHidden} />
+          <button
+            aria-label="Loyal"
+            className="wallet-workspace-mascot-button"
+            onClick={onExperimentalModeClick}
+            type="button"
+          >
+            <DogWithMood cry={dogCry} nice={dogNice} squint={isBalanceHidden} />
+          </button>
           <span
             className="wallet-workspace-mascot-spinner"
             data-visible={isWalletLoading}
@@ -1040,6 +1073,8 @@ export function AppWalletWorkspace({
     walletDesktopData.walletAddress,
   ]);
   const signInOpenedForConnectRef = useRef(false);
+  const experimentalModeClickCountRef = useRef(0);
+  const [isExperimentalMode, setIsExperimentalMode] = useState(false);
   const [shouldLoadPopularTokens, setShouldLoadPopularTokens] = useState(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
     enabled: shouldLoadPopularTokens,
@@ -1052,6 +1087,31 @@ export function AppWalletWorkspace({
       : initialSection;
   const [activeSection, setActiveSection] =
     useState<WorkspaceSection>(routeSection);
+  const isMockBackupSignerFlowEnabled =
+    ENABLE_MOCK_BACKUP_SIGNER_FLOW && !isExperimentalMode;
+
+  useEffect(() => {
+    setIsExperimentalMode(
+      window.sessionStorage.getItem(EXPERIMENTAL_MODE_SESSION_KEY) === "1"
+    );
+  }, []);
+
+  const handleExperimentalModeClick = useCallback(() => {
+    experimentalModeClickCountRef.current += 1;
+    if (
+      experimentalModeClickCountRef.current >= EXPERIMENTAL_MODE_CLICK_THRESHOLD
+    ) {
+      const nextExperimentalMode = !isExperimentalMode;
+      experimentalModeClickCountRef.current = 0;
+      if (nextExperimentalMode) {
+        window.sessionStorage.setItem(EXPERIMENTAL_MODE_SESSION_KEY, "1");
+      } else {
+        window.sessionStorage.removeItem(EXPERIMENTAL_MODE_SESSION_KEY);
+      }
+      setIsExperimentalMode(nextExperimentalMode);
+    }
+  }, [isExperimentalMode]);
+
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [selectedPolicyId, setSelectedPolicyIdState] =
@@ -1127,6 +1187,26 @@ export function AppWalletWorkspace({
   const [pendingOpenSignerAddress, setPendingOpenSignerAddress] = useState<
     string | null
   >(null);
+  const [pendingRootSignerDraft, setPendingRootSignerDraft] =
+    useState<PendingRootSignerDraft | null>(null);
+  const [pendingRootSignerRemovalDraft, setPendingRootSignerRemovalDraft] =
+    useState<PendingRootSignerRemovalDraft | null>(null);
+  const [mockRootSigners, setMockRootSigners] = useState<MockRootSignerEntry[]>(
+    []
+  );
+  useEffect(() => {
+    if (!isExperimentalMode) {
+      return;
+    }
+
+    setPendingRootSignerDraft(null);
+    setPendingRootSignerRemovalDraft(null);
+    if (selectedSignerId?.startsWith("mock-root-signer:")) {
+      setSelectedSignerId(null);
+      setDetailSelectionState("wallet");
+      setSelectedDetail("My Wallet");
+    }
+  }, [isExperimentalMode, selectedSignerId]);
   const [draftProposal, setDraftProposal] = useState<DraftProposalView | null>(
     null
   );
@@ -1165,7 +1245,7 @@ export function AppWalletWorkspace({
   const [isEarnWithdrawPreparePending, setIsEarnWithdrawPreparePending] =
     useState(false);
   const [earnWithdrawReviewStage, setEarnWithdrawReviewStage] =
-    useState<EarnWithdrawReviewStage>("withdraw");
+    useState<EarnWithdrawReviewStage>("withdraw-0");
   const [pendingEarnAutodepositDraft, setPendingEarnAutodepositDraft] =
     useState<EarnAutodepositDraft | null>(null);
   const [
@@ -1188,10 +1268,9 @@ export function AppWalletWorkspace({
   ] = useState(false);
   const [isExecutingScheduledSweep, setIsExecutingScheduledSweep] =
     useState(false);
-  const [
-    scheduledSweepExecuteError,
-    setScheduledSweepExecuteError,
-  ] = useState<string | null>(null);
+  const [scheduledSweepExecuteError, setScheduledSweepExecuteError] = useState<
+    string | null
+  >(null);
   const autodepositCacheScope = useMemo(() => {
     const settingsPda = smartAccountData.overview?.settingsPda;
     const walletAddress = walletDesktopData.walletAddress;
@@ -1214,9 +1293,7 @@ export function AppWalletWorkspace({
       return;
     }
 
-    const cachedConfig = readCachedEarnAutodepositConfig(
-      autodepositCacheScope
-    );
+    const cachedConfig = readCachedEarnAutodepositConfig(autodepositCacheScope);
     if (!cachedConfig) {
       return;
     }
@@ -1234,7 +1311,7 @@ export function AppWalletWorkspace({
       if (
         current?.state === "closing" ||
         current?.state === "pausing" ||
-          current?.state === "resuming"
+        current?.state === "resuming"
       ) {
         return current;
       }
@@ -1364,6 +1441,15 @@ export function AppWalletWorkspace({
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
     ) ?? null;
+  const selectedMockRootSigner =
+    isMockBackupSignerFlowEnabled
+      ? mockRootSigners.find((signer) => signer.id === selectedSignerId) ?? null
+      : null;
+  const activeMockRootSigners = useMemo(
+    () => (isMockBackupSignerFlowEnabled ? mockRootSigners : []),
+    [isMockBackupSignerFlowEnabled, mockRootSigners]
+  );
+  const hasBackupAccount = activeMockRootSigners.length >= 1;
   const availablePolicySigners = useMemo(() => {
     const PALETTE = [
       "#ffd41b",
@@ -1407,6 +1493,112 @@ export function AppWalletWorkspace({
       ) ?? null,
     [selectedApprovalId, smartAccountData.approvals]
   );
+  const allKnownSignerEntries = useMemo(() => {
+    const byAddress = new Map<
+      string,
+      Pick<SmartAccountSignerEntry, "address" | "label">
+    >();
+    for (const vault of smartAccountData.vaultEntries) {
+      for (const signer of vault.signers) {
+        byAddress.set(signer.address, signer);
+      }
+    }
+    for (const signer of activeMockRootSigners) {
+      byAddress.set(signer.address, signer);
+    }
+    return [...byAddress.values()];
+  }, [activeMockRootSigners, smartAccountData.vaultEntries]);
+  const pendingRootSignerReviewItem = useMemo<ApprovalReviewDisplayItem | null>(
+    () =>
+      isMockBackupSignerFlowEnabled && pendingRootSignerDraft
+        ? {
+            actionMode: "vote",
+            amount: "",
+            destinationLabel: "Backup Account",
+            pages: [
+              {
+                heading: "Add backup",
+                rows: [
+                  {
+                    label: "Signer wallet",
+                    value: pendingRootSignerDraft.signerAddress,
+                  },
+                  {
+                    label: "Signer role",
+                    value: "Backup Account",
+                  },
+                  {
+                    label: "Backend action",
+                    value: "add_root_signer via prepareAddRootSigner",
+                  },
+                  {
+                    label: "Future permissions",
+                    value:
+                      "Full root Settings signer permissions: initiate, approve, and execute account actions.",
+                  },
+                ],
+                subheading:
+                  "This preview adds the Backup Account as the second root signer. The future backend flow will grant this wallet full root Settings signer permissions.",
+                title: "Add backup",
+              },
+            ],
+            primaryActionLabel: "Accept",
+            secondaryActionLabel: "Cancel",
+            sourceLabel: "Root settings",
+            status: "active",
+            statusLabel: "Preview",
+            symbol: "",
+            title: "Add backup",
+          }
+        : null,
+    [isMockBackupSignerFlowEnabled, pendingRootSignerDraft]
+  );
+  const pendingRootSignerRemovalReviewItem =
+    useMemo<ApprovalReviewDisplayItem | null>(() => {
+      const signer = pendingRootSignerRemovalDraft
+        ? activeMockRootSigners.find(
+            (entry) =>
+              entry.address === pendingRootSignerRemovalDraft.signerAddress
+          )
+        : null;
+
+      return signer
+        ? {
+            actionMode: "vote",
+            amount: "",
+            destinationLabel: "Backup Account",
+            pages: [
+              {
+                heading: "Remove backup",
+                rows: [
+                  {
+                    label: "Signer wallet",
+                    value: signer.address,
+                  },
+                  {
+                    label: "Signer role",
+                    value: "Backup Account",
+                  },
+                  {
+                    label: "Backend action",
+                    value: "remove_root_signer via prepareRemoveRootSigner",
+                  },
+                ],
+                subheading:
+                  "This preview removes the Backup Account from the root account signer set. The real flow will submit this as a root Settings signer change.",
+                title: "Remove backup",
+              },
+            ],
+            primaryActionLabel: "Agree",
+            secondaryActionLabel: "Cancel",
+            sourceLabel: "Root settings",
+            status: "active",
+            statusLabel: "Preview",
+            symbol: "",
+            title: "Remove backup",
+          }
+        : null;
+    }, [activeMockRootSigners, pendingRootSignerRemovalDraft]);
   const latestPendingApproval = useMemo(
     () =>
       smartAccountData.approvals.find(
@@ -1687,7 +1879,9 @@ export function AppWalletWorkspace({
     earnDepositReviewItem ||
       earnWithdrawReviewItem ||
       earnAutodepositSetupReviewItem ||
-      earnAutodepositCloseReviewItem
+      earnAutodepositCloseReviewItem ||
+      pendingRootSignerReviewItem ||
+      pendingRootSignerRemovalReviewItem
   );
   // While a dismissed review slides out, AnimatePresence keeps its overlay
   // mounted. This flag keeps the pane lifted above the fading scrim until the
@@ -1706,10 +1900,10 @@ export function AppWalletWorkspace({
     : 0;
   const getEarnWithdrawDraftAmountRaw = useCallback(
     (draft: EarnWithdrawDraft): bigint =>
-      draft.mode === "full" && activeEarnPosition
-        ? BigInt(activeEarnPosition.principalAmountRaw)
+      draft.mode === "full"
+        ? BigInt(draft.source.amountRaw)
         : parseTokenAmountLabelToRaw(draft.amountLabel, draft.tokenDecimals),
-    [activeEarnPosition]
+    []
   );
   const totalBalance = useMemo(
     () =>
@@ -2497,7 +2691,7 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
-    setEarnWithdrawReviewStage("withdraw");
+    setEarnWithdrawReviewStage("withdraw-0");
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
     setSelectedDetail("Deposit");
@@ -2514,7 +2708,7 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
-    setEarnWithdrawReviewStage("withdraw");
+    setEarnWithdrawReviewStage("withdraw-0");
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
     setSelectedDetail("Withdraw");
@@ -2524,7 +2718,7 @@ export function AppWalletWorkspace({
     markDetailPaneTransition("back");
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
-    setEarnWithdrawReviewStage("withdraw");
+    setEarnWithdrawReviewStage("withdraw-0");
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
     setSelectedSignerId(null);
@@ -2768,7 +2962,7 @@ export function AppWalletWorkspace({
     console.log("[earn-withdraw] preview dismissed");
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
-    setEarnWithdrawReviewStage("withdraw");
+    setEarnWithdrawReviewStage("withdraw-0");
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
   }, []);
@@ -2777,7 +2971,7 @@ export function AppWalletWorkspace({
     (draft: EarnWithdrawDraft | null) => {
       setPendingEarnWithdrawDraft(draft);
       setPendingEarnWithdrawPrepared(null);
-      setEarnWithdrawReviewStage("withdraw");
+      setEarnWithdrawReviewStage("withdraw-0");
       setEarnDepositPrepareError(null);
       setProposalActionError(null);
     },
@@ -2785,6 +2979,18 @@ export function AppWalletWorkspace({
   );
 
   const handleDismissFocusedEarnPreview = useCallback(() => {
+    if (pendingRootSignerDraft) {
+      setPendingRootSignerDraft(null);
+      setProposalActionError(null);
+      return;
+    }
+
+    if (pendingRootSignerRemovalDraft) {
+      setPendingRootSignerRemovalDraft(null);
+      setProposalActionError(null);
+      return;
+    }
+
     if (pendingEarnDepositDraft && isEarnDepositDetailActive) {
       handleDismissEarnDepositPreview();
       return;
@@ -2811,6 +3017,8 @@ export function AppWalletWorkspace({
     pendingEarnAutodepositDraft,
     pendingEarnDepositDraft,
     pendingEarnWithdrawDraft,
+    pendingRootSignerRemovalDraft,
+    pendingRootSignerDraft,
   ]);
 
   const handleEarnPreviewBackdropPointerDown = useCallback(
@@ -2915,12 +3123,14 @@ export function AppWalletWorkspace({
         destinationId: draft.destination.id,
         destinationLabel: draft.destination.label,
         mode: draft.mode,
+        sourceId: draft.source.sourceId,
+        sourceType: draft.source.type,
         tokenDecimals: draft.tokenDecimals,
       });
       setProposalActionError(null);
       setEarnDepositPrepareError(null);
       setPendingEarnWithdrawPrepared(null);
-      setEarnWithdrawReviewStage("withdraw");
+      setEarnWithdrawReviewStage("withdraw-0");
 
       try {
         setIsEarnWithdrawPreparePending(true);
@@ -2928,11 +3138,22 @@ export function AppWalletWorkspace({
         const preparedWithdraw = await prepareEarnWithdrawOnServer({
           amountRaw,
           mode: draft.mode,
+          source: {
+            amountRaw: draft.source.amountRaw,
+            id: draft.source.sourceId,
+            liquidityMint: draft.source.liquidityMint,
+            market: draft.source.market,
+            reserve: draft.source.reserve,
+            tokenAccount: draft.source.tokenAccount,
+            type: draft.source.type,
+          },
         });
         setPendingEarnWithdrawDraft(draft);
         setPendingEarnWithdrawPrepared(preparedWithdraw);
         setEarnWithdrawReviewStage(
-          preparedWithdraw.autodepositClosePrepared ? "autodeposit" : "withdraw"
+          preparedWithdraw.autodepositClosePrepared
+            ? "autodeposit"
+            : "withdraw-0"
         );
       } catch (error) {
         const message =
@@ -3207,6 +3428,15 @@ export function AppWalletWorkspace({
       const nextPreparedWithdraw = await prepareEarnWithdrawOnServer({
         amountRaw,
         mode: pendingEarnWithdrawDraft.mode,
+        source: {
+          amountRaw: pendingEarnWithdrawDraft.source.amountRaw,
+          id: pendingEarnWithdrawDraft.source.sourceId,
+          liquidityMint: pendingEarnWithdrawDraft.source.liquidityMint,
+          market: pendingEarnWithdrawDraft.source.market,
+          reserve: pendingEarnWithdrawDraft.source.reserve,
+          tokenAccount: pendingEarnWithdrawDraft.source.tokenAccount,
+          type: pendingEarnWithdrawDraft.source.type,
+        },
       });
       if (nextPreparedWithdraw.autodepositClosePrepared) {
         throw new Error(
@@ -3214,7 +3444,7 @@ export function AppWalletWorkspace({
         );
       }
       setPendingEarnWithdrawPrepared(nextPreparedWithdraw);
-      setEarnWithdrawReviewStage("withdraw");
+      setEarnWithdrawReviewStage("withdraw-0");
       setDetailSelection("earnWithdraw");
       setSelectedDetail("Withdraw");
     } catch (error) {
@@ -3249,21 +3479,37 @@ export function AppWalletWorkspace({
         const result = await smartAccountData.executeEarnWithdraw({
           amountRaw,
           autodepositCloseAlreadyCompleted:
-            earnWithdrawReviewStage === "withdraw" &&
+            earnWithdrawReviewStage !== "autodeposit" &&
             withdrawalDraft.mode === "full",
           mode: withdrawalDraft.mode,
           preparedWithdraw: pendingEarnWithdrawPrepared ?? undefined,
+          stepIndex:
+            earnWithdrawReviewStage === "autodeposit"
+              ? 0
+              : Number(earnWithdrawReviewStage.replace("withdraw-", "")) || 0,
         });
 
         if (!result.success) {
           throw new Error(result.error ?? "Earn withdrawal failed.");
         }
 
+        const nextStage = getNextEarnWithdrawReviewStage({
+          currentStage: earnWithdrawReviewStage,
+          hasAutodepositTeardown: Boolean(
+            pendingEarnWithdrawPrepared?.autodepositClosePrepared
+          ),
+          preparedWithdraw: pendingEarnWithdrawPrepared,
+        });
+        if (nextStage) {
+          setEarnWithdrawReviewStage(nextStage);
+          return;
+        }
+
         markDetailPaneTransition("back");
         invalidateEarnClientCaches();
         setPendingEarnWithdrawDraft(null);
         setPendingEarnWithdrawPrepared(null);
-        setEarnWithdrawReviewStage("withdraw");
+        setEarnWithdrawReviewStage("withdraw-0");
         setActiveEarnPosition((current) => {
           if (!current) {
             return current;
@@ -3566,6 +3812,21 @@ export function AppWalletWorkspace({
     ]
   );
 
+  const handleOpenMockRootSigner = useCallback(
+    (signer: MockRootSignerEntry) => {
+      if (!isMockBackupSignerFlowEnabled) {
+        return;
+      }
+
+      markDetailPaneTransition("switch");
+      setDetailInitialTab("tokens");
+      setSelectedSignerId(signer.id);
+      setDetailSelection("wallet");
+      setSelectedDetail(`${signer.label} · ${signer.shortAddress}`);
+    },
+    [isMockBackupSignerFlowEnabled, markDetailPaneTransition, setDetailSelection]
+  );
+
   const handleOpenFirstPolicyAgent = useCallback(() => {
     const firstVaultAgent = smartAccountData.vaultEntries
       .map((vault) => ({
@@ -3622,30 +3883,36 @@ export function AppWalletWorkspace({
 
   const handleOpenAddSigner = useCallback(
     (accountIndex: number) => {
+      if (!isMockBackupSignerFlowEnabled || hasBackupAccount) {
+        return;
+      }
+
       markDetailPaneTransition("forward");
+      setPendingRootSignerDraft(null);
       setDetailSelection("addSigner");
       setSelectedSignerId(null);
       smartAccountData.setSelectedVaultIndex(accountIndex);
-      setSelectedDetail(`Add signer to Stash ${accountIndex}`);
+      setSelectedDetail("Add backup");
     },
-    [markDetailPaneTransition, setDetailSelection, smartAccountData]
+    [
+      hasBackupAccount,
+      isMockBackupSignerFlowEnabled,
+      markDetailPaneTransition,
+      setDetailSelection,
+      smartAccountData,
+    ]
   );
 
   const handleBackFromAddSigner = useCallback(() => {
     markDetailPaneTransition("back");
-    setDetailSelection("vault");
-    setSelectedDetail(selectedVault?.entry.label ?? "Stash");
-  }, [
-    markDetailPaneTransition,
-    selectedVault?.entry.label,
-    setDetailSelection,
-  ]);
+    setPendingRootSignerDraft(null);
+    setDetailSelection("wallet");
+    setSelectedDetail("Main Account");
+  }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleCommandAddSigner = useCallback(() => {
-    if (!selectedVault) return;
-
-    handleOpenAddSigner(selectedVault.entry.accountIndex);
-  }, [handleOpenAddSigner, selectedVault]);
+    handleOpenAddSigner(selectedVault?.entry.accountIndex ?? 1);
+  }, [handleOpenAddSigner, selectedVault?.entry.accountIndex]);
 
   // After a signer is added, switch to that signer's detail screen as soon as
   // the refreshed vault data exposes it.
@@ -3984,16 +4251,18 @@ export function AppWalletWorkspace({
           label: "Shield",
           onSelect: () => runOnWallet(handleCommandShield),
         },
-        {
-          description: selectedVault
-            ? `Add signer to ${selectedVault.entry.label}`
-            : undefined,
-          disabled: !isSignedIn || !selectedVault,
-          icon: <Plus size={20} strokeWidth={1.8} />,
-          id: "action:add-signer",
-          label: "Add signer",
-          onSelect: () => runOnWallet(handleCommandAddSigner),
-        },
+        ...(isMockBackupSignerFlowEnabled
+          ? [
+              {
+                description: selectedVault ? "Add Backup Account" : undefined,
+                disabled: !isSignedIn || !selectedVault || hasBackupAccount,
+                icon: <Plus size={20} strokeWidth={1.8} />,
+                id: "action:add-signer",
+                label: "Add backup",
+                onSelect: () => runOnWallet(handleCommandAddSigner),
+              },
+            ]
+          : []),
       ],
     };
     const tokensGroup: WalletCommandGroup = {
@@ -4099,7 +4368,9 @@ export function AppWalletWorkspace({
     handleDisconnect,
     handleNewPolicy,
     handleTokenDetail,
+    hasBackupAccount,
     isBalanceHidden,
+    isMockBackupSignerFlowEnabled,
     isSignedIn,
     latestPendingApproval,
     openSignIn,
@@ -4369,6 +4640,7 @@ export function AppWalletWorkspace({
     if (detailSelection === "earnWithdraw") {
       return (
         <EarnWithdrawView
+          currentPositionHoldings={activeEarnPosition?.holdings}
           destinations={earnWithdrawDestinations}
           isSubmitting={
             smartAccountData.isActionPending || isEarnWithdrawPreparePending
@@ -4384,16 +4656,40 @@ export function AppWalletWorkspace({
     }
 
     if (detailSelection === "wallet") {
+      const walletDetailAddress =
+        selectedMockRootSigner?.address ?? walletDesktopData.walletAddress;
+      const walletDetailIcon = selectedMockRootSigner?.icon ?? getWalletIcon();
+      const walletDetailBalanceWhole =
+        selectedMockRootSigner?.balanceWhole ?? walletDesktopData.balanceWhole;
+      const walletDetailBalanceFraction =
+        selectedMockRootSigner?.balanceFraction ??
+        walletDesktopData.balanceFraction;
+      const walletDetailTokenRows = selectedMockRootSigner
+        ? []
+        : walletDesktopData.allTokenRows;
+      const walletDetailActivityRows = selectedMockRootSigner
+        ? []
+        : walletDesktopData.allActivityRows;
+      const walletDetailTransactionDetails = selectedMockRootSigner
+        ? {}
+        : walletDesktopData.transactionDetails;
+
       return (
         <WalletDetailView
-          address={walletDesktopData.walletAddress}
-          activityRows={walletDesktopData.allActivityRows}
-          balanceFraction={walletDesktopData.balanceFraction}
-          balanceWhole={walletDesktopData.balanceWhole}
-          icon={getWalletIcon()}
+          address={walletDetailAddress}
+          activityRows={walletDetailActivityRows}
+          balanceFraction={walletDetailBalanceFraction}
+          balanceWhole={walletDetailBalanceWhole}
+          icon={walletDetailIcon}
           initialTab={detailInitialTab}
           isBalanceHidden={isBalanceHidden}
-          label={selectedSignerId ? "Main Account" : "My Wallet"}
+          label={
+            selectedMockRootSigner
+              ? selectedMockRootSigner.label
+              : selectedSignerId
+                ? "Main Account"
+                : "My Wallet"
+          }
           onNavigate={(view) =>
             openWorkspaceActionView(
               view,
@@ -4417,6 +4713,14 @@ export function AppWalletWorkspace({
               "wallet"
             );
           }}
+          onRemoveSigner={
+            selectedMockRootSigner
+              ? () =>
+                  setPendingRootSignerRemovalDraft({
+                    signerAddress: selectedMockRootSigner.address,
+                  })
+              : undefined
+          }
           accessLevel={
             selectedSignerId ? selectedAgent?.accessLevel : undefined
           }
@@ -4457,17 +4761,21 @@ export function AppWalletWorkspace({
           }
           getTokenActions={getTokenActions}
           onActivityTabOpen={() => {
-            void walletDesktopData.loadActivity();
+            if (!selectedMockRootSigner) {
+              void walletDesktopData.loadActivity();
+            }
           }}
           onTokenDetail={handleTokenDetail}
-          tokenRows={walletDesktopData.allTokenRows}
-          transactionDetails={walletDesktopData.transactionDetails}
+          tokenRows={walletDetailTokenRows}
+          transactionDetails={walletDetailTransactionDetails}
           receiveLabel="Receive"
           spendingLimit={
-            selectedSignerId ? selectedVaultSpendingLimit : undefined
+            selectedSignerId && !selectedMockRootSigner
+              ? selectedVaultSpendingLimit
+              : undefined
           }
           isSpendingLimitPending={
-            selectedSignerId
+            selectedSignerId && !selectedMockRootSigner
               ? smartAccountData.pendingSpendingLimitActionKey !== null &&
                 walletSpendingLimitActionKeys.has(
                   smartAccountData.pendingSpendingLimitActionKey
@@ -4475,7 +4783,7 @@ export function AppWalletWorkspace({
               : false
           }
           onSetSpendingLimit={
-            selectedSignerId
+            selectedSignerId && !selectedMockRootSigner
               ? async (amountUsd) => {
                   if (!walletDesktopData.walletAddress) {
                     throw new Error(
@@ -4497,7 +4805,7 @@ export function AppWalletWorkspace({
               : undefined
           }
           onDeleteSpendingLimit={
-            selectedSignerId
+            selectedSignerId && !selectedMockRootSigner
               ? async (spendingLimit) => {
                   if (!walletDesktopData.walletAddress) {
                     throw new Error(
@@ -4689,28 +4997,22 @@ export function AppWalletWorkspace({
       );
     }
 
-    if (detailSelection === "addSigner" && selectedVault) {
+    if (isMockBackupSignerFlowEnabled && detailSelection === "addSigner") {
       return (
         <AddSignerPane
-          accountIndex={selectedVault.entry.accountIndex}
-          existingSigners={selectedVault.entry.signers}
-          onAddSigner={({ signerAddress, accessLevel }) =>
-            smartAccountData.addInitiateSigner({
-              signerAddress,
-              permissions:
-                accessLevel === "suggest"
-                  ? ["initiate"]
-                  : accessLevel === "sign"
-                  ? ["initiate", "vote"]
-                  : ["initiate", "vote", "execute"],
-            })
-          }
-          onAdded={({ signerAddress }) =>
-            setPendingOpenSignerAddress(signerAddress)
-          }
-          pendingActionKey={smartAccountData.pendingSpendingLimitActionKey}
-          vaultAddress={selectedVault.entry.address}
-          vaultLabel={selectedVault.entry.label}
+          connectedWalletAddress={walletDesktopData.walletAddress}
+          existingSigners={allKnownSignerEntries}
+          isBackupLimitReached={hasBackupAccount}
+          onPreviewSigner={({ signerAddress }) => {
+            if (hasBackupAccount) {
+              return;
+            }
+
+            setProposalActionError(null);
+            setPendingRootSignerDraft({ signerAddress });
+          }}
+          settingsAddress={smartAccountData.overview?.settingsPda}
+          targetAccountLabel="Main Account"
         />
       );
     }
@@ -5096,6 +5398,77 @@ export function AppWalletWorkspace({
         onDecline: handleDismissEarnAutodepositPreview,
         onExecute: () => void handleCompleteEarnAutodepositClose(),
       }
+    : pendingRootSignerReviewItem
+    ? {
+        approval: pendingRootSignerReviewItem,
+        onApprove: () => {
+          if (
+            !isMockBackupSignerFlowEnabled ||
+            !pendingRootSignerDraft ||
+            hasBackupAccount
+          ) {
+            return;
+          }
+          const signerAddress = pendingRootSignerDraft.signerAddress;
+          const existingSigner = mockRootSigners.find(
+            (entry) => entry.address === signerAddress
+          );
+          const nextSigner =
+            existingSigner ??
+            ({
+              address: signerAddress,
+              balanceFraction: walletDesktopData.balanceFraction,
+              balanceWhole: walletDesktopData.balanceWhole,
+              icon: getMockRootSignerIcon(mockRootSigners.length),
+              id: `mock-root-signer:${signerAddress}`,
+              label: "Backup Account",
+              shortAddress: shortAddressForLabel(signerAddress),
+            } satisfies MockRootSignerEntry);
+          setMockRootSigners((current) => {
+            if (
+              current.some((entry) => entry.address === nextSigner.address)
+            ) {
+              return current;
+            }
+
+            return [...current, nextSigner];
+          });
+          setPendingRootSignerDraft(null);
+          setSelectedSignerId(nextSigner.id);
+          setDetailSelection("wallet");
+          setSelectedDetail(`${nextSigner.label} · ${nextSigner.shortAddress}`);
+        },
+        onBack: () => setPendingRootSignerDraft(null),
+        onClose: () => setPendingRootSignerDraft(null),
+        onDecline: () => setPendingRootSignerDraft(null),
+        onExecute: () => undefined,
+      }
+    : pendingRootSignerRemovalReviewItem
+    ? {
+        approval: pendingRootSignerRemovalReviewItem,
+        onApprove: () => {
+          if (
+            !isMockBackupSignerFlowEnabled ||
+            !pendingRootSignerRemovalDraft
+          ) {
+            return;
+          }
+          setMockRootSigners((current) =>
+            current.filter(
+              (entry) =>
+                entry.address !== pendingRootSignerRemovalDraft.signerAddress
+            )
+          );
+          setPendingRootSignerRemovalDraft(null);
+          setSelectedSignerId(null);
+          setDetailSelection("wallet");
+          setSelectedDetail("My Wallet");
+        },
+        onBack: () => setPendingRootSignerRemovalDraft(null),
+        onClose: () => setPendingRootSignerRemovalDraft(null),
+        onDecline: () => setPendingRootSignerRemovalDraft(null),
+        onExecute: () => undefined,
+      }
     : null;
 
   return (
@@ -5121,6 +5494,7 @@ export function AppWalletWorkspace({
         isSignedIn={isSignedIn}
         isWalletLoading={isWorkspaceLoading}
         onDisconnect={handleDisconnect}
+        onExperimentalModeClick={handleExperimentalModeClick}
         onShieldUsdc={() => runOnWallet(handleCommandShieldUsdc)}
         onSectionChange={handleSectionChange}
       />
@@ -5176,11 +5550,22 @@ export function AppWalletWorkspace({
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
                 isLoading={isWorkspaceLoading || isSmartAccountShellLoading}
+                enableMockBackupSignerFlow={isMockBackupSignerFlowEnabled}
+                mockRootSigners={activeMockRootSigners}
                 onBalanceHiddenChange={setIsBalanceHidden}
                 onClose={() => undefined}
                 onDisconnect={handleDisconnect}
                 onOpenAgent={handleOpenAgent}
-                onOpenAddSigner={handleOpenAddSigner}
+                onOpenAddSigner={
+                  isMockBackupSignerFlowEnabled
+                    ? handleOpenAddSigner
+                    : undefined
+                }
+                onOpenMockRootSigner={
+                  isMockBackupSignerFlowEnabled
+                    ? handleOpenMockRootSigner
+                    : undefined
+                }
                 onOpenCommandMenu={() => setIsCommandMenuOpen(true)}
                 onOpenReceive={() => handleRailAction("receive")}
                 onOpenSend={() => handleRailAction("send")}
@@ -5478,6 +5863,24 @@ export function AppWalletWorkspace({
           align-items: flex-start;
           justify-content: center;
           overflow: visible;
+        }
+
+        .wallet-workspace-mascot-button {
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+          width: 44px;
+          height: 44px;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          cursor: pointer;
+        }
+
+        .wallet-workspace-mascot-button:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.45);
+          outline-offset: 2px;
+          border-radius: 8px;
         }
 
         .wallet-workspace-mascot svg {

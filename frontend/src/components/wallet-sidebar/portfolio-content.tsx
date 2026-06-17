@@ -45,6 +45,17 @@ const COLLAPSED_SIGNER_COUNT = 3;
 const SIGNER_EXPAND_THRESHOLD = 5;
 const rowHoverBackground = "rgba(0, 0, 0, 0.04)";
 
+export type MockRootSignerEntry = Pick<
+  SmartAccountSignerEntry,
+  | "address"
+  | "balanceFraction"
+  | "balanceWhole"
+  | "icon"
+  | "id"
+  | "label"
+  | "shortAddress"
+>;
+
 function getSmartAccountErrorCopy(error: string | null | undefined) {
   const isRateLimited = error?.toLowerCase().includes("rate limited") ?? false;
 
@@ -167,6 +178,7 @@ export function EarnYieldIcon({ size = 48 }: { size?: number }) {
 function EarnPortfolioRow({
   balance = 0,
   hasPosition = false,
+  isAutodepositConfigured = false,
   isBalanceHidden = false,
   isSelected,
   onDeposit,
@@ -174,6 +186,7 @@ function EarnPortfolioRow({
 }: {
   balance?: number;
   hasPosition?: boolean;
+  isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
   isSelected?: boolean;
   onDeposit?: () => void;
@@ -200,6 +213,9 @@ function EarnPortfolioRow({
     event.stopPropagation();
     onDeposit?.();
   };
+  const isDepositRed = !hasPosition || isAutodepositConfigured;
+  const depositBackground = isDepositRed ? "#F9363C" : "#000";
+  const depositHoverBackground = isDepositRed ? "#e72f34" : "#222";
 
   return (
     <>
@@ -215,7 +231,7 @@ function EarnPortfolioRow({
           transition: background 0.15s ease, transform 0.15s ease;
         }
         .portfolio-earn-deposit-btn:hover {
-          background: #e72f34 !important;
+          background: ${depositHoverBackground} !important;
           transform: translateY(-1px);
         }
         .portfolio-earn-deposit-btn:active {
@@ -328,7 +344,7 @@ function EarnPortfolioRow({
           className="portfolio-earn-deposit-btn"
           onClick={handleDepositClick}
           style={{
-            background: "#F9363C",
+            background: depositBackground,
             border: "none",
             borderRadius: "9999px",
             color: "#fff",
@@ -354,6 +370,7 @@ function EarnPortfolioRow({
 function AutodepositStatusCard({
   amountLabel,
   depositedLabel,
+  hasEarnPosition = false,
   isBalanceHidden = false,
   isConfigured = false,
   isError = false,
@@ -365,6 +382,7 @@ function AutodepositStatusCard({
 }: {
   amountLabel?: string;
   depositedLabel?: string;
+  hasEarnPosition?: boolean;
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
   isError?: boolean;
@@ -512,6 +530,9 @@ function AutodepositStatusCard({
     : "Start earning the moment your money arrives";
   const actionLabel = isError ? "Retry" : "Set up";
   const action = isError ? onRetry : onSetUp;
+  const shouldShowAction = !isLoading && (hasEarnPosition || isError);
+  const actionBackground = isError ? "#000" : "#F9363C";
+  const actionHoverBackground = isError ? "#1a1a1a" : "#e72f34";
 
   return (
     <>
@@ -520,7 +541,7 @@ function AutodepositStatusCard({
           transition: background 0.15s ease, transform 0.15s ease;
         }
         .auto-earn-status-btn:hover {
-          background: #1a1a1a !important;
+          background: ${actionHoverBackground} !important;
           transform: translateY(-1px);
         }
         .auto-earn-status-btn:active {
@@ -574,40 +595,40 @@ function AutodepositStatusCard({
             </>
           ) : (
             <>
-            <span
-              style={{
-                color: "#000",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 600,
-                letterSpacing: "-0.176px",
-                lineHeight: "20px",
-              }}
-            >
-              Autodeposit
-            </span>
-            <span
-              style={{
-                color: "rgba(60, 60, 67, 0.6)",
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "16px",
-              }}
-            >
-              {body}
-            </span>
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.176px",
+                  lineHeight: "20px",
+                }}
+              >
+                Autodeposit
+              </span>
+              <span
+                style={{
+                  color: "rgba(60, 60, 67, 0.6)",
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                }}
+              >
+                {body}
+              </span>
             </>
           )}
         </div>
         {isLoading ? (
           <span style={skeletonBar("64px", "32px")} />
-        ) : (
+        ) : shouldShowAction ? (
           <button
             className="auto-earn-status-btn"
             onClick={action}
             style={{
-              background: "#000",
+              background: actionBackground,
               border: "none",
               borderRadius: "9999px",
               color: "#fff",
@@ -625,7 +646,7 @@ function AutodepositStatusCard({
           >
             {actionLabel}
           </button>
-        )}
+        ) : null}
       </div>
     </>
   );
@@ -807,11 +828,15 @@ function SignerTreeRow({
 }
 
 function AddSignerTreeRow({
-  isFirst,
+  isFirst = false,
+  label = "Add",
   onOpen,
+  showConnector = false,
 }: {
-  isFirst: boolean;
+  isFirst?: boolean;
+  label?: string;
   onOpen: () => void;
+  showConnector?: boolean;
 }) {
   return (
     <button
@@ -822,7 +847,7 @@ function AddSignerTreeRow({
         display: "flex",
         alignItems: "center",
         minHeight: "56px",
-        marginTop: isFirst ? "12px" : 0,
+        marginTop: showConnector ? (isFirst ? "12px" : 0) : "12px",
         padding: "0 12px",
         borderRadius: "16px",
         background: "transparent",
@@ -834,33 +859,37 @@ function AddSignerTreeRow({
       }}
       type="button"
     >
-      <div
-        style={{
-          position: "absolute",
-          left: "36px",
-          top: isFirst ? "-12px" : 0,
-          bottom: "28px",
-          width: "1px",
-          background: "rgba(60, 60, 67, 0.16)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: "36px",
-          top: "28px",
-          width: "12px",
-          height: "1px",
-          background: "rgba(60, 60, 67, 0.16)",
-        }}
-      />
+      {showConnector ? (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: "36px",
+              top: isFirst ? "-12px" : 0,
+              bottom: "28px",
+              width: "1px",
+              background: "rgba(60, 60, 67, 0.16)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: "36px",
+              top: "28px",
+              width: "12px",
+              height: "1px",
+              background: "rgba(60, 60, 67, 0.16)",
+            }}
+          />
+        </>
+      ) : null}
       <span
         style={{
           width: "48px",
           height: "48px",
           borderRadius: "12px",
           flexShrink: 0,
-          marginLeft: "36px",
+          marginLeft: showConnector ? "36px" : 0,
           marginRight: "12px",
           background: "rgba(249, 54, 60, 0.14)",
           display: "inline-flex",
@@ -881,8 +910,118 @@ function AddSignerTreeRow({
           letterSpacing: "-0.176px",
         }}
       >
-        Add
+        {label}
       </span>
+    </button>
+  );
+}
+
+function MockRootSignerRow({
+  isBalanceHidden,
+  isSelected,
+  onOpen,
+  signer,
+}: {
+  isBalanceHidden: boolean;
+  isSelected: boolean;
+  onOpen: (signer: MockRootSignerEntry) => void;
+  signer: MockRootSignerEntry;
+}) {
+  return (
+    <button
+      className="portfolio-account-row"
+      onClick={() => onOpen(signer)}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        minHeight: "68px",
+        marginTop: "12px",
+        padding: "4px 12px",
+        borderRadius: "16px",
+        background: isSelected ? rowHoverBackground : "transparent",
+        border: "none",
+        cursor: "pointer",
+        width: "100%",
+        transition: "background 0.15s ease",
+        textAlign: "left",
+      }}
+      title={signer.address}
+      type="button"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={signer.label}
+        src={signer.icon}
+        style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "12px",
+          flexShrink: 0,
+          marginRight: "12px",
+        }}
+      />
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: "2px",
+          padding: "9px 0",
+        }}
+      >
+        <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              letterSpacing: "-0.22px",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
+              display: "block",
+            }}
+          >
+            {signer.balanceWhole}
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
+              {signer.balanceFraction}
+            </span>
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: secondary,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {signer.label} · {signer.shortAddress}
+          </span>
+          <RowCopyAddress address={signer.address} />
+        </div>
+      </div>
     </button>
   );
 }
@@ -1021,6 +1160,7 @@ export function PortfolioContent({
   onOpenVault,
   onOpenAgent,
   onOpenAddSigner,
+  onOpenMockRootSigner,
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
@@ -1029,6 +1169,7 @@ export function PortfolioContent({
   autodepositNextPeriodLabel = null,
   autodepositProgress,
   earnBalance = 0,
+  enableMockBackupSignerFlow = true,
   hasEarnStateLoadError = false,
   hasEarnPosition = false,
   isAutodepositConfigured = false,
@@ -1041,6 +1182,7 @@ export function PortfolioContent({
   showApprovals = true,
   showHeaderControls = true,
   showMainAccountOnly = false,
+  mockRootSigners = [],
   topInset = 0,
 }: {
   balanceFraction: string;
@@ -1068,6 +1210,7 @@ export function PortfolioContent({
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   onOpenAddSigner?: (accountIndex: number) => void;
+  onOpenMockRootSigner?: (signer: MockRootSignerEntry) => void;
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
@@ -1076,6 +1219,7 @@ export function PortfolioContent({
   autodepositNextPeriodLabel?: string | null;
   autodepositProgress?: number;
   earnBalance?: number;
+  enableMockBackupSignerFlow?: boolean;
   hasEarnStateLoadError?: boolean;
   hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
@@ -1087,6 +1231,7 @@ export function PortfolioContent({
   showApprovals?: boolean;
   showHeaderControls?: boolean;
   showMainAccountOnly?: boolean;
+  mockRootSigners?: MockRootSignerEntry[];
   topInset?: number;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1715,6 +1860,7 @@ export function PortfolioContent({
             <AutodepositStatusCard
               amountLabel={autodepositAmountLabel}
               depositedLabel={autodepositDepositedLabel}
+              hasEarnPosition={hasEarnPosition}
               isBalanceHidden={isBalanceHidden}
               isConfigured={isAutodepositConfigured}
               isError={hasEarnStateLoadError}
@@ -1729,6 +1875,7 @@ export function PortfolioContent({
             <EarnPortfolioRow
               balance={earnBalance}
               hasPosition={hasEarnPosition}
+              isAutodepositConfigured={isAutodepositConfigured}
               isBalanceHidden={isBalanceHidden}
               isSelected={isEarnSelected}
               onDeposit={onOpenEarnDeposit}
@@ -1763,13 +1910,37 @@ export function PortfolioContent({
                     return null;
                   }
                   return (
-                    <MainAccountRow
-                      isBalanceHidden={isBalanceHidden}
-                      isSelected={selectedSignerId === mainSigner.id}
+                    <div
                       key={mainSigner.id}
-                      onOpen={() => onOpenAgent(mainSigner)}
-                      signer={mainSigner}
-                    />
+                      style={{ display: "flex", flexDirection: "column" }}
+                    >
+                      <MainAccountRow
+                        isBalanceHidden={isBalanceHidden}
+                        isSelected={selectedSignerId === mainSigner.id}
+                        onOpen={() => onOpenAgent(mainSigner)}
+                        signer={mainSigner}
+                      />
+                      {enableMockBackupSignerFlow
+                        ? mockRootSigners.map((signer) => (
+                            <MockRootSignerRow
+                              isBalanceHidden={isBalanceHidden}
+                              isSelected={selectedSignerId === signer.id}
+                              key={signer.id}
+                              onOpen={(nextSigner) =>
+                                onOpenMockRootSigner?.(nextSigner)
+                              }
+                              signer={signer}
+                            />
+                          ))
+                        : null}
+                      {enableMockBackupSignerFlow &&
+                      mockRootSigners.length === 0 ? (
+                        <AddSignerTreeRow
+                          label="Add backup"
+                          onOpen={() => onOpenAddSigner?.(vault.accountIndex)}
+                        />
+                      ) : null}
+                    </div>
                   );
                 }
                 const signersExpanded = expandedSignerVaults.has(
@@ -2004,6 +2175,7 @@ export function PortfolioContent({
                     <AddSignerTreeRow
                       isFirst={visibleSigners.length === 0}
                       onOpen={() => onOpenAddSigner?.(vault.accountIndex)}
+                      showConnector
                     />
                   </div>
                 );

@@ -84,6 +84,7 @@ export function WalletDetailView({
   onOpenSend,
   onOpenReceive,
   onOpenShield,
+  onRemoveSigner,
   getTokenActions,
   onTokenDetail,
   onActivityTabOpen,
@@ -111,6 +112,7 @@ export function WalletDetailView({
   onOpenSend: () => void;
   onOpenReceive: () => void;
   onOpenShield: () => void;
+  onRemoveSigner?: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
   onActivityTabOpen?: () => void;
@@ -183,6 +185,9 @@ export function WalletDetailView({
         }
         .wallet-detail-primary:hover {
           background: #222 !important;
+        }
+        .wallet-detail-remove-btn:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
         }
         .wallet-detail-address-btn:hover {
           opacity: 0.72 !important;
@@ -305,6 +310,33 @@ export function WalletDetailView({
             </button>
           )}
         </div>
+        {onRemoveSigner ? (
+          <button
+            className="wallet-detail-remove-btn"
+            onClick={onRemoveSigner}
+            style={{
+              alignItems: "center",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              borderRadius: "9999px",
+              color: "#F9363C",
+              cursor: "pointer",
+              display: "inline-flex",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              justifyContent: "center",
+              lineHeight: "20px",
+              padding: "6px 16px",
+              transition: "background 0.15s ease",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            Remove
+          </button>
+        ) : null}
       </div>
 
       <div
