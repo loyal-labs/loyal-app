@@ -217,6 +217,74 @@ async function fetchCoinGeckoTokenMarket(
   }
 }
 
+type OnchainTokenMetadata = {
+  imageUrl: string | null;
+  name: string | null;
+  symbol: string | null;
+};
+
+type HeliusGetAssetResponse = {
+  result?: {
+    content?: {
+      files?: { cdn_uri?: string | null; uri?: string | null }[];
+      links?: { image?: string | null };
+      metadata?: { name?: string | null; symbol?: string | null };
+    };
+    token_info?: { symbol?: string | null };
+  };
+};
+
+// CoinGecko has no listing for many new/long-tail mints. Read the token's own
+// on-chain metadata via the Helius DAS `getAsset` method (the configured RPC is
+// Helius for mainnet/devnet) so the row shows the real name/symbol/icon instead
+// of the generic "TOKEN" placeholder. Returns null on localnet or for mints
+// without metadata, leaving the existing placeholder behavior intact.
+async function fetchOnchainTokenMetadata(
+  rpcFetch: typeof fetch,
+  rpcEndpoint: string,
+  mint: string
+): Promise<OnchainTokenMetadata | null> {
+  try {
+    const response = await fetchJson<HeliusGetAssetResponse>(
+      rpcFetch,
+      rpcEndpoint,
+      {
+        body: JSON.stringify({
+          id: `getAsset:${mint}`,
+          jsonrpc: "2.0",
+          method: "getAsset",
+          params: { id: mint },
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      }
+    );
+
+    const result = response.result;
+    if (!result) {
+      return null;
+    }
+
+    const metadata = result.content?.metadata;
+    const symbol =
+      metadata?.symbol?.trim() || result.token_info?.symbol?.trim() || null;
+    const name = metadata?.name?.trim() || null;
+    const imageUrl =
+      result.content?.links?.image?.trim() ||
+      result.content?.files?.[0]?.cdn_uri?.trim() ||
+      result.content?.files?.[0]?.uri?.trim() ||
+      null;
+
+    if (!symbol && !name) {
+      return null;
+    }
+
+    return { imageUrl, name, symbol };
+  } catch {
+    return null;
+  }
+}
+
 function createNativeSolBalance(
   lamports: number,
   metadata: AssetDescriptor,
@@ -275,6 +343,7 @@ export function createFrontendAssetProvider(args: {
 }): AssetProvider {
   let rpcConnection: Connection | null = null;
   let websocketConnection: Connection | null = null;
+  const rpcFetch = getFrontendSolanaRpcFetch(args.fetchImpl);
   const metadataCache = new Map<
     string,
     Promise<{
@@ -340,33 +409,31 @@ export function createFrontendAssetProvider(args: {
       }
 
       const market = await fetchCoinGeckoTokenMarket(args.fetchImpl, mint);
+      const coinGeckoSymbol = market?.token.symbol?.trim() || null;
+      const priceUsd = toSafePositiveNumber(market?.market.priceUsd);
 
-      if (market) {
-        const symbol = market.token.symbol?.trim() || "TOKEN";
+      // CoinGecko is the primary source (it also carries price). When it has no
+      // name/symbol for this mint, fall back to the token's own on-chain
+      // metadata so the row shows real info instead of the "TOKEN" placeholder.
+      const onchain = coinGeckoSymbol
+        ? null
+        : await fetchOnchainTokenMetadata(rpcFetch, args.rpcEndpoint, mint);
 
-        return {
-          descriptor: {
-            mint,
-            symbol,
-            name: market.token.name?.trim() || symbol,
-            decimals: market.token.decimals ?? decimals,
-            imageUrl: market.token.logoUrl ?? null,
-            isNative: false,
-          },
-          priceUsd: toSafePositiveNumber(market.market.priceUsd),
-        };
-      }
+      const symbol = coinGeckoSymbol ?? onchain?.symbol ?? null;
+      const name =
+        market?.token.name?.trim() || onchain?.name || symbol || "Token";
+      const imageUrl = market?.token.logoUrl ?? onchain?.imageUrl ?? null;
 
       return {
         descriptor: {
           mint,
-          symbol: "TOKEN",
-          name: "Token",
-          decimals,
-          imageUrl: null,
+          symbol: symbol ?? "TOKEN",
+          name,
+          decimals: market?.token.decimals ?? decimals,
+          imageUrl,
           isNative: false,
         },
-        priceUsd: null,
+        priceUsd,
       };
     })();
 
