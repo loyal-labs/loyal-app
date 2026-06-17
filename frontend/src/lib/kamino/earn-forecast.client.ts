@@ -74,12 +74,10 @@ const FALLBACK_SUMMARY: EarnForecastSummaryResponse = {
   history: EMPTY_EARN_FORECAST_HISTORY,
 };
 
-let cachedSummary:
-  | {
-      expiresAt: number;
-      value: EarnForecastSummaryResponse;
-    }
-  | null = null;
+let cachedSummary: {
+  expiresAt: number;
+  value: EarnForecastSummaryResponse;
+} | null = null;
 let inflightSummary: Promise<EarnForecastSummaryResponse> | null = null;
 
 export function toForecastApy(

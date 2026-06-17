@@ -2,7 +2,9 @@
 // Run `bun run generate:abi` in packages/loyal-actions after schema changes.
 
 export const CONFIG_SEED = new Uint8Array([99, 111, 110, 102, 105, 103]);
-export const HUB_AUTHORITY_SEED = new Uint8Array([104, 117, 98, 45, 97, 117, 116, 104, 111, 114, 105, 116, 121]);
+export const HUB_AUTHORITY_SEED = new Uint8Array([
+  104, 117, 98, 45, 97, 117, 116, 104, 111, 114, 105, 116, 121,
+]);
 export const MAX_ALLOWED_MINTS = 16;
 export const MAX_REBALANCE_TRANSFERS = 16;
 export const MAX_FEE_BPS = 10000;

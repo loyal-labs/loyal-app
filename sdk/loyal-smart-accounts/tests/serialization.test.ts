@@ -9,7 +9,9 @@ describe("serialization helpers", () => {
       accountIndexes: [0, 2],
       data: [7, 8, 9],
     });
-    const decoded = codecs.compiledMsInstructionBeet.deserialize(Buffer.from(bytes))[0];
+    const decoded = codecs.compiledMsInstructionBeet.deserialize(
+      Buffer.from(bytes)
+    )[0];
 
     expect(decoded.programIdIndex).toBe(1);
     expect(decoded.accountIndexes).toEqual([0, 2]);

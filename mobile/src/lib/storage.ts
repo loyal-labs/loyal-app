@@ -55,7 +55,7 @@ function createMmkvStorage(): StorageAdapter | null {
   } catch (error) {
     console.warn(
       "[storage] MMKV unavailable, falling back to in-memory storage.",
-      error,
+      error
     );
     return null;
   }

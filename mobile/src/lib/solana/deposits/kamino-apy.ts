@@ -27,7 +27,7 @@ const clientPromises = new Map<
 >();
 
 function getReadOnlyClient(
-  solanaEnv: SolanaEnv,
+  solanaEnv: SolanaEnv
 ): Promise<LoyalPrivateTransactionsClientType> {
   const cached = clients.get(solanaEnv);
   if (cached) return Promise.resolve(cached);
@@ -70,7 +70,7 @@ export function clearKaminoApyCache(): void {
 }
 
 export async function getCachedKaminoLendingApyBps(
-  mint: string,
+  mint: string
 ): Promise<number | null> {
   const solanaEnv = getSolanaEnv();
   const key = `${solanaEnv}:${mint}`;

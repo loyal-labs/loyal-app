@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   SetNewSettingsAuthorityArgs,
   setNewSettingsAuthorityArgsBeet,
-} from '../types/SetNewSettingsAuthorityArgs'
+} from "../types/SetNewSettingsAuthorityArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type SetNewSettingsAuthorityAsAuthorityInstructionArgs = {
-  args: SetNewSettingsAuthorityArgs
-}
+  args: SetNewSettingsAuthorityArgs;
+};
 /**
  * @category Instructions
  * @category SetNewSettingsAuthorityAsAuthority
@@ -28,15 +28,15 @@ export type SetNewSettingsAuthorityAsAuthorityInstructionArgs = {
 export const setNewSettingsAuthorityAsAuthorityStruct =
   new beet.FixableBeetArgsStruct<
     SetNewSettingsAuthorityAsAuthorityInstructionArgs & {
-      instructionDiscriminator: number[] /* size: 8 */
+      instructionDiscriminator: number[] /* size: 8 */;
     }
   >(
     [
-      ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-      ['args', setNewSettingsAuthorityArgsBeet],
+      ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+      ["args", setNewSettingsAuthorityArgsBeet],
     ],
-    'SetNewSettingsAuthorityAsAuthorityInstructionArgs'
-  )
+    "SetNewSettingsAuthorityAsAuthorityInstructionArgs"
+  );
 /**
  * Accounts required by the _setNewSettingsAuthorityAsAuthority_ instruction
  *
@@ -49,17 +49,17 @@ export const setNewSettingsAuthorityAsAuthorityStruct =
  * @category generated
  */
 export type SetNewSettingsAuthorityAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const setNewSettingsAuthorityAsAuthorityInstructionDiscriminator = [
   221, 112, 133, 229, 146, 58, 90, 56,
-]
+];
 
 /**
  * Creates a _SetNewSettingsAuthorityAsAuthority_ instruction.
@@ -77,13 +77,13 @@ export const setNewSettingsAuthorityAsAuthorityInstructionDiscriminator = [
 export function createSetNewSettingsAuthorityAsAuthorityInstruction(
   accounts: SetNewSettingsAuthorityAsAuthorityInstructionAccounts,
   args: SetNewSettingsAuthorityAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = setNewSettingsAuthorityAsAuthorityStruct.serialize({
     instructionDiscriminator:
       setNewSettingsAuthorityAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -110,11 +110,11 @@ export function createSetNewSettingsAuthorityAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -122,6 +122,6 @@ export function createSetNewSettingsAuthorityAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

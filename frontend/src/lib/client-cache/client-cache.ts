@@ -84,7 +84,10 @@ export function readClientCacheEntry<T>(args: {
     return null;
   }
 
-  if (args.settingsPda !== undefined && parsed.settingsPda !== args.settingsPda) {
+  if (
+    args.settingsPda !== undefined &&
+    parsed.settingsPda !== args.settingsPda
+  ) {
     return null;
   }
 

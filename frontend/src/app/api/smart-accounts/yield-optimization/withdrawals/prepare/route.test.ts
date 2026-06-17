@@ -44,7 +44,22 @@ let currentPosition: typeof activePosition | null = activePosition;
 let findAutodepositCalls: unknown[] = [];
 let findPolicyCalls: unknown[] = [];
 let findPositionCalls: unknown[] = [];
+let findReserveRowsCalls: unknown[] = [];
+let findIdleRowsCalls: unknown[] = [];
 let prepareCalls: Record<string, unknown>[] = [];
+let currentReserveRows: Array<{
+  hasValue?: boolean;
+  amountRaw: bigint;
+  liquidityMint: string;
+  market: string | null;
+  reserve: string;
+  supplyApyBps: bigint | null;
+}> = [];
+let currentIdleRows: Array<{
+  amountRaw: bigint;
+  mint: string;
+  tokenAccount: string;
+}> = [];
 
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest: async () => currentPrincipal,
@@ -84,9 +99,11 @@ mock.module(
     parseEarnWithdrawPrepareRequestBody: (body: {
       amountRaw: string;
       mode: "partial" | "full";
+      source?: unknown;
     }) => ({
       amountRaw: BigInt(body.amountRaw),
       mode: body.mode,
+      source: body.source ?? null,
     }),
     serializePreparedEarnUsdcWithdraw: () => ({ ok: true }),
   })
@@ -116,6 +133,17 @@ mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
   findReconciledActiveYieldPositionForVault: async (input: unknown) => {
     findPositionCalls.push(input);
     return currentPosition;
+  },
+  findCurrentNonzeroYieldVaultReservePositions: async (input: unknown) => {
+    findReserveRowsCalls.push(input);
+    return currentReserveRows.map((row) => ({
+      ...row,
+      hasValue: row.hasValue ?? true,
+    }));
+  },
+  findCurrentYieldVaultIdleTokenBalances: async (input: unknown) => {
+    findIdleRowsCalls.push(input);
+    return currentIdleRows;
   },
   recordConfirmedYieldDeposit: async () => {
     throw new Error("recordConfirmedYieldDeposit was not expected.");
@@ -149,6 +177,18 @@ describe("Earn withdrawal prepare route", () => {
     findAutodepositCalls = [];
     findPolicyCalls = [];
     findPositionCalls = [];
+    findReserveRowsCalls = [];
+    findIdleRowsCalls = [];
+    currentReserveRows = [
+      {
+        amountRaw: activePosition.principalAmountRaw,
+        liquidityMint: activePosition.currentLiquidityMint,
+        market: activePosition.currentMarket,
+        reserve: activePosition.currentReserve,
+        supplyApyBps: BigInt(300),
+      },
+    ];
+    currentIdleRows = [];
     prepareCalls = [];
   });
 
@@ -178,6 +218,7 @@ describe("Earn withdrawal prepare route", () => {
         walletAddress: principal.walletAddress,
       },
     ]);
+    expect(findReserveRowsCalls).toHaveLength(1);
     expect(prepareCalls[0]?.amountRaw).toBe(BigInt(1_000_000));
     expect(prepareCalls[0]?.mode).toBe("partial");
     expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
@@ -214,6 +255,7 @@ describe("Earn withdrawal prepare route", () => {
         walletAddress: principal.walletAddress,
       },
     ]);
+    expect(findReserveRowsCalls).toHaveLength(1);
     expect(prepareCalls[0]?.amountRaw).toBe(activePosition.principalAmountRaw);
     expect(findAutodepositCalls).toEqual([
       {
@@ -251,13 +293,98 @@ describe("Earn withdrawal prepare route", () => {
     } as never;
 
     const response = await POST(
-      createRequest({ amountRaw: "1000000", mode: "full" })
+      createRequest({
+        amountRaw: "1000000",
+        mode: "full",
+        source: {
+          id: activePosition.currentReserve,
+          reserve: activePosition.currentReserve,
+          type: "reserve",
+        },
+      })
     );
 
     expect(response.status).toBe(200);
     expect(findAutodepositCalls).toHaveLength(1);
     expect(findPositionCalls).toHaveLength(1);
     expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
+  });
+
+  test("passes reconciled nonzero reserve rows as full withdrawal targets", async () => {
+    const { POST } = await import("./route");
+    currentReserveRows = [
+      {
+        amountRaw: BigInt(600_000),
+        liquidityMint: activePosition.currentLiquidityMint,
+        market: activePosition.currentMarket,
+        reserve: activePosition.currentReserve,
+        supplyApyBps: BigInt(300),
+      },
+      {
+        amountRaw: BigInt(400_000),
+        liquidityMint: activePosition.currentLiquidityMint,
+        market: activePosition.currentMarket,
+        reserve: "6UeJYTLU1adaoHWeApWsoj1xNEDbWA2RhMbrZgYFutJk",
+        supplyApyBps: BigInt(200),
+      },
+    ];
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "1000000",
+        mode: "full",
+        source: {
+          id: activePosition.currentReserve,
+          reserve: activePosition.currentReserve,
+          type: "reserve",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const targets = prepareCalls[0]?.fullWithdrawalTargets as Array<{
+      amountRaw: bigint;
+      reserve: PublicKey;
+    }>;
+    expect(targets).toHaveLength(1);
+    expect(targets.map((target) => target.amountRaw)).toEqual([
+      BigInt(600_000),
+    ]);
+    expect(targets[0]?.reserve.toBase58()).toBe(activePosition.currentReserve);
+  });
+
+  test("passes selected idle vault USDC as its own withdrawal source", async () => {
+    const { POST } = await import("./route");
+    currentIdleRows = [
+      {
+        amountRaw: BigInt(250_000),
+        mint: activePosition.currentLiquidityMint,
+        tokenAccount: "11111111111111111111111111111116",
+      },
+    ];
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "1",
+        mode: "full",
+        source: {
+          id: "11111111111111111111111111111116",
+          tokenAccount: "11111111111111111111111111111116",
+          type: "idle",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.amountRaw).toBe(BigInt(250_000));
+    expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(false);
+    expect(prepareCalls[0]?.fullWithdrawalTargets).toBeUndefined();
+    expect(prepareCalls[0]?.source).toMatchObject({
+      amountRaw: BigInt(250_000),
+      id: "11111111111111111111111111111116",
+      type: "idle",
+    });
+    expect(findAutodepositCalls).toHaveLength(0);
   });
 
   test("rejects full withdrawals when no active position exists", async () => {

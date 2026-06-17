@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   CreateProposalArgs,
   createProposalArgsBeet,
-} from '../types/CreateProposalArgs'
+} from "../types/CreateProposalArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type CreateProposalInstructionArgs = {
-  args: CreateProposalArgs
-}
+  args: CreateProposalArgs;
+};
 /**
  * @category Instructions
  * @category CreateProposal
@@ -27,15 +27,15 @@ export type CreateProposalInstructionArgs = {
  */
 export const createProposalStruct = new beet.BeetArgsStruct<
   CreateProposalInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', createProposalArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", createProposalArgsBeet],
   ],
-  'CreateProposalInstructionArgs'
-)
+  "CreateProposalInstructionArgs"
+);
 /**
  * Accounts required by the _createProposal_ instruction
  *
@@ -49,18 +49,18 @@ export const createProposalStruct = new beet.BeetArgsStruct<
  * @category generated
  */
 export type CreateProposalInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  proposal: web3.PublicKey
-  creator: web3.PublicKey
-  rentPayer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  proposal: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentPayer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const createProposalInstructionDiscriminator = [
   132, 116, 68, 174, 216, 160, 198, 22,
-]
+];
 
 /**
  * Creates a _CreateProposal_ instruction.
@@ -75,12 +75,12 @@ export const createProposalInstructionDiscriminator = [
 export function createCreateProposalInstruction(
   accounts: CreateProposalInstructionAccounts,
   args: CreateProposalInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = createProposalStruct.serialize({
     instructionDiscriminator: createProposalInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -112,11 +112,11 @@ export function createCreateProposalInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -124,6 +124,6 @@ export function createCreateProposalInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

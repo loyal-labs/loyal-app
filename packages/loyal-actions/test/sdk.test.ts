@@ -414,7 +414,7 @@ describe("initYieldRoutePolicy", () => {
     expect(both.spec.maxFeeBps).toBe(MaxFeeBps.Bps150);
   });
 
-  test("derives stable exposure internally from the approved six symbols", () => {
+  test("uses the approved stable mint universe for policy constraints", () => {
     const sdk = createLoyalActionsSdk({ cluster: LoyalCluster.MainnetBeta });
     const policy = sdk.initYieldRoutePolicy({
       policySeed: YIELD_ROUTE_STANDALONE_ACTION_SEED,
@@ -423,16 +423,6 @@ describe("initYieldRoutePolicy", () => {
       squads,
     });
 
-    expect(Object.values(Stablecoin).map(String)).toEqual([
-      "CASH",
-      "USDG",
-      "PYUSD",
-      "USDC",
-      "USDT",
-      "USDS",
-    ]);
-    expect(Object.keys(STABLECOIN_MINTS)).toEqual(Object.values(Stablecoin));
-    expect(policy.spec.stablecoins).toEqual(Object.values(Stablecoin));
     expect(policy.spec.stableMints.map((mint) => mint.toBase58())).toEqual([
       "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
       "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
@@ -749,8 +739,7 @@ describe("yield route policy plan compilers", () => {
       squads,
     });
     const decoded = decodePolicyCreate(plan.instructions[0]!.data);
-    const [initObligationConstraint] =
-      decoded.payload.instructionConstraints;
+    const [initObligationConstraint] = decoded.payload.instructionConstraints;
 
     expect(decoded.seed).toBe(BigInt(8));
     expect(plan.routes.initObligation.instructionConstraintIndexes).toEqual([

@@ -57,7 +57,10 @@ export function collapseDuplicateEarnRebalanceTransactions(
   const result: SerializedEarnTransaction[] = [];
 
   for (const transaction of transactions) {
-    if (transaction.kind !== "rebalance" || transaction.signature.length === 0) {
+    if (
+      transaction.kind !== "rebalance" ||
+      transaction.signature.length === 0
+    ) {
       result.push(transaction);
       continue;
     }

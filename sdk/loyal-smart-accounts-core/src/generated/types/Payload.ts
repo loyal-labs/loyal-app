@@ -5,15 +5,15 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   TransactionPayloadDetails,
   transactionPayloadDetailsBeet,
-} from './TransactionPayloadDetails'
+} from "./TransactionPayloadDetails";
 import {
   PolicyActionPayloadDetails,
   policyActionPayloadDetailsBeet,
-} from './PolicyActionPayloadDetails'
+} from "./PolicyActionPayloadDetails";
 /**
  * This type is used to derive the {@link Payload} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link Payload} type instead.
@@ -24,9 +24,9 @@ import {
  * @private
  */
 export type PayloadRecord = {
-  TransactionPayload: { fields: [TransactionPayloadDetails] }
-  PolicyPayload: { fields: [PolicyActionPayloadDetails] }
-}
+  TransactionPayload: { fields: [TransactionPayloadDetails] };
+  PolicyPayload: { fields: [PolicyActionPayloadDetails] };
+};
 
 /**
  * Union type respresenting the Payload data enum defined in Rust.
@@ -39,15 +39,15 @@ export type PayloadRecord = {
  * @category enums
  * @category generated
  */
-export type Payload = beet.DataEnumKeyAsKind<PayloadRecord>
+export type Payload = beet.DataEnumKeyAsKind<PayloadRecord>;
 
 export const isPayloadTransactionPayload = (
   x: Payload
-): x is Payload & { __kind: 'TransactionPayload' } =>
-  x.__kind === 'TransactionPayload'
+): x is Payload & { __kind: "TransactionPayload" } =>
+  x.__kind === "TransactionPayload";
 export const isPayloadPolicyPayload = (
   x: Payload
-): x is Payload & { __kind: 'PolicyPayload' } => x.__kind === 'PolicyPayload'
+): x is Payload & { __kind: "PolicyPayload" } => x.__kind === "PolicyPayload";
 
 /**
  * @category userTypes
@@ -55,17 +55,17 @@ export const isPayloadPolicyPayload = (
  */
 export const payloadBeet = beet.dataEnum<PayloadRecord>([
   [
-    'TransactionPayload',
-    new beet.FixableBeetArgsStruct<PayloadRecord['TransactionPayload']>(
-      [['fields', beet.tuple([transactionPayloadDetailsBeet])]],
+    "TransactionPayload",
+    new beet.FixableBeetArgsStruct<PayloadRecord["TransactionPayload"]>(
+      [["fields", beet.tuple([transactionPayloadDetailsBeet])]],
       'PayloadRecord["TransactionPayload"]'
     ),
   ],
   [
-    'PolicyPayload',
-    new beet.FixableBeetArgsStruct<PayloadRecord['PolicyPayload']>(
-      [['fields', beet.tuple([policyActionPayloadDetailsBeet])]],
+    "PolicyPayload",
+    new beet.FixableBeetArgsStruct<PayloadRecord["PolicyPayload"]>(
+      [["fields", beet.tuple([policyActionPayloadDetailsBeet])]],
       'PayloadRecord["PolicyPayload"]'
     ),
   ],
-]) as beet.FixableBeet<Payload, Payload>
+]) as beet.FixableBeet<Payload, Payload>;

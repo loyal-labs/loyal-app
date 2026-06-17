@@ -71,8 +71,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const requestResult =
-      await requestImmediateEarnAutodepositScheduledSweep(autodeposit);
+    const requestResult = await requestImmediateEarnAutodepositScheduledSweep(
+      autodeposit
+    );
 
     if (!requestResult) {
       return jsonError(

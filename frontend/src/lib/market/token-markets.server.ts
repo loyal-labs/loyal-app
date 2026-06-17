@@ -37,9 +37,7 @@ function getCoinGeckoApiKey(): string | null {
   );
 }
 
-function parseNumber(
-  value: string | number | null | undefined
-): number | null {
+function parseNumber(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) {
     return null;
   }
@@ -47,9 +45,7 @@ function parseNumber(
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function fetchTokenMarketsBatch(
-  mints: string[]
-): Promise<TokenMarket[]> {
+async function fetchTokenMarketsBatch(mints: string[]): Promise<TokenMarket[]> {
   const apiKey = getCoinGeckoApiKey();
   if (!apiKey) {
     return mints.map((mint) => ({
@@ -59,7 +55,9 @@ async function fetchTokenMarketsBatch(
     }));
   }
 
-  const path = `/onchain/simple/networks/${SOLANA_NETWORK}/token_price/${mints.join(",")}?include_24hr_price_change=true`;
+  const path = `/onchain/simple/networks/${SOLANA_NETWORK}/token_price/${mints.join(
+    ","
+  )}?include_24hr_price_change=true`;
   const response = await fetch(`${COINGECKO_BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",

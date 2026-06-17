@@ -121,7 +121,15 @@ export function splitAtSentenceBoundary(
 export async function streamResponse(
   params: StreamResponseParams
 ): Promise<StreamResponseResult> {
-  const { bot, chatId, threadId, telegramThreadId, context, systemPrompt, model } = params;
+  const {
+    bot,
+    chatId,
+    threadId,
+    telegramThreadId,
+    context,
+    systemPrompt,
+    model,
+  } = params;
 
   let fullText = "";
   let currentChunkText = "";
@@ -188,11 +196,19 @@ export async function streamResponse(
             });
           } catch (draftError) {
             // sendMessageDraft failed - fallback to send/edit message pattern
-            console.warn("sendMessageDraft failed, using fallback:", draftError);
+            console.warn(
+              "sendMessageDraft failed, using fallback:",
+              draftError
+            );
 
             if (fallbackMessageId) {
               try {
-                await editMessage(bot, chatId, fallbackMessageId, currentChunkText);
+                await editMessage(
+                  bot,
+                  chatId,
+                  fallbackMessageId,
+                  currentChunkText
+                );
               } catch (editError) {
                 console.warn("Failed to edit fallback message:", editError);
               }
@@ -245,7 +261,8 @@ export async function streamResponse(
       threadId,
       senderType: "bot",
       content: fullText,
-      telegramMessageId: sentMessageIds.length > 0 ? BigInt(sentMessageIds[0]) : undefined,
+      telegramMessageId:
+        sentMessageIds.length > 0 ? BigInt(sentMessageIds[0]) : undefined,
     });
 
     if (!messageId) {

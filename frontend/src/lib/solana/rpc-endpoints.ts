@@ -40,9 +40,7 @@ function readEndpointOverride(env: SolanaEnv): SolanaEndpoints | null {
   };
 }
 
-export function getFrontendSolanaEndpoints(
-  env: SolanaEnv
-): SolanaEndpoints {
+export function getFrontendSolanaEndpoints(env: SolanaEnv): SolanaEndpoints {
   const override = readEndpointOverride(env);
   if (override) {
     return override;

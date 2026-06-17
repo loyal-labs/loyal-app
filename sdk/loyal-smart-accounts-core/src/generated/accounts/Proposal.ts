@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { ProposalStatus, proposalStatusBeet } from '../types/ProposalStatus'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { ProposalStatus, proposalStatusBeet } from "../types/ProposalStatus";
 
 /**
  * Arguments used to create {@link Proposal}
@@ -16,17 +16,17 @@ import { ProposalStatus, proposalStatusBeet } from '../types/ProposalStatus'
  * @category generated
  */
 export type ProposalArgs = {
-  settings: web3.PublicKey
-  transactionIndex: beet.bignum
-  rentCollector: web3.PublicKey
-  status: ProposalStatus
-  bump: number
-  approved: web3.PublicKey[]
-  rejected: web3.PublicKey[]
-  cancelled: web3.PublicKey[]
-}
+  settings: web3.PublicKey;
+  transactionIndex: beet.bignum;
+  rentCollector: web3.PublicKey;
+  status: ProposalStatus;
+  bump: number;
+  approved: web3.PublicKey[];
+  rejected: web3.PublicKey[];
+  cancelled: web3.PublicKey[];
+};
 
-export const proposalDiscriminator = [26, 94, 189, 187, 116, 136, 53, 33]
+export const proposalDiscriminator = [26, 94, 189, 187, 116, 136, 53, 33];
 /**
  * Holds the data for the {@link Proposal} Account and provides de/serialization
  * functionality for that data
@@ -59,7 +59,7 @@ export class Proposal implements ProposalArgs {
       args.approved,
       args.rejected,
       args.cancelled
-    )
+    );
   }
 
   /**
@@ -70,7 +70,7 @@ export class Proposal implements ProposalArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [Proposal, number] {
-    return Proposal.deserialize(accountInfo.data, offset)
+    return Proposal.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -87,11 +87,11 @@ export class Proposal implements ProposalArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find Proposal account at ${address}`)
+      throw new Error(`Unable to find Proposal account at ${address}`);
     }
-    return Proposal.fromAccountInfo(accountInfo, 0)[0]
+    return Proposal.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -102,10 +102,10 @@ export class Proposal implements ProposalArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, proposalBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, proposalBeet);
   }
 
   /**
@@ -113,7 +113,7 @@ export class Proposal implements ProposalArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [Proposal, number] {
-    return proposalBeet.deserialize(buf, offset)
+    return proposalBeet.deserialize(buf, offset);
   }
 
   /**
@@ -124,7 +124,7 @@ export class Proposal implements ProposalArgs {
     return proposalBeet.serialize({
       accountDiscriminator: proposalDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -135,11 +135,11 @@ export class Proposal implements ProposalArgs {
    * depends on them
    */
   static byteSize(args: ProposalArgs) {
-    const instance = Proposal.fromArgs(args)
+    const instance = Proposal.fromArgs(args);
     return proposalBeet.toFixedFromValue({
       accountDiscriminator: proposalDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -158,7 +158,7 @@ export class Proposal implements ProposalArgs {
     return connection.getMinimumBalanceForRentExemption(
       Proposal.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -169,15 +169,15 @@ export class Proposal implements ProposalArgs {
     return {
       settings: this.settings.toBase58(),
       transactionIndex: (() => {
-        const x = <{ toNumber: () => number }>this.transactionIndex
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.transactionIndex;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       rentCollector: this.rentCollector.toBase58(),
       status: this.status.__kind,
@@ -185,7 +185,7 @@ export class Proposal implements ProposalArgs {
       approved: this.approved,
       rejected: this.rejected,
       cancelled: this.cancelled,
-    }
+    };
   }
 }
 
@@ -196,20 +196,20 @@ export class Proposal implements ProposalArgs {
 export const proposalBeet = new beet.FixableBeetStruct<
   Proposal,
   ProposalArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['settings', beetSolana.publicKey],
-    ['transactionIndex', beet.u64],
-    ['rentCollector', beetSolana.publicKey],
-    ['status', proposalStatusBeet],
-    ['bump', beet.u8],
-    ['approved', beet.array(beetSolana.publicKey)],
-    ['rejected', beet.array(beetSolana.publicKey)],
-    ['cancelled', beet.array(beetSolana.publicKey)],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["settings", beetSolana.publicKey],
+    ["transactionIndex", beet.u64],
+    ["rentCollector", beetSolana.publicKey],
+    ["status", proposalStatusBeet],
+    ["bump", beet.u8],
+    ["approved", beet.array(beetSolana.publicKey)],
+    ["rejected", beet.array(beetSolana.publicKey)],
+    ["cancelled", beet.array(beetSolana.publicKey)],
   ],
   Proposal.fromArgs,
-  'Proposal'
-)
+  "Proposal"
+);

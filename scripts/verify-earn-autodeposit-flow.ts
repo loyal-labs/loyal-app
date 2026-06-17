@@ -164,7 +164,7 @@ async function accountStatus(connection: Connection, pubkey: string | null) {
         lamports: account.lamports,
         owner: account.owner.toBase58(),
       }
-      : { exists: false };
+    : { exists: false };
 }
 
 async function waitForAccountStatus(args: {
@@ -333,14 +333,14 @@ async function main() {
             signers: [user],
           })),
         }
-          : {
-            status: "success",
-            signature: await sendPrepared({
-              connection,
-              prepared: setup.prepared,
-              wallet: keypairWallet(user),
-            }),
-          };
+      : {
+          status: "success",
+          signature: await sendPrepared({
+            connection,
+            prepared: setup.prepared,
+            wallet: keypairWallet(user),
+          }),
+        };
 
     if (DRY_RUN) {
       evidence.pull = {
@@ -455,7 +455,8 @@ async function main() {
   if (SKIP_PULL) {
     evidence.pull = {
       status: "skipped",
-      error: "AUTODEPOSIT_SKIP_PULL=1; continuing to close/refund verification.",
+      error:
+        "AUTODEPOSIT_SKIP_PULL=1; continuing to close/refund verification.",
     };
   } else {
     const pull = await client.prepareEarnUsdcAutodepositPull({

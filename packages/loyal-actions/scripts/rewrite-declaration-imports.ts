@@ -19,7 +19,7 @@ async function rewriteDeclarationImports(directory: string): Promise<void> {
     const original = await readFile(path, "utf8");
     const rewritten = original.replace(
       /(from\s+["']\.\.?\/[^"']+)\.ts(["'])/g,
-      "$1.js$2",
+      "$1.js$2"
     );
     if (rewritten !== original) {
       await writeFile(path, rewritten);

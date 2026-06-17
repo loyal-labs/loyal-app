@@ -13,10 +13,7 @@ import {
   NATIVE_SOL_DECIMALS,
   NATIVE_SOL_MINT,
 } from "../constants";
-import {
-  isDustSolTransfer,
-  isDustTokenTransfer,
-} from "../domain/dust-filter";
+import { isDustSolTransfer, isDustTokenTransfer } from "../domain/dust-filter";
 import { decodeWalletInstruction } from "./instruction-manifest";
 import type {
   WalletActivity,
@@ -61,9 +58,7 @@ const accountKeyToString = (
   }
 
   if ("pubkey" in (key as ParsedMessage["accountKeys"][number])) {
-    return (
-      key as ParsedMessage["accountKeys"][number]
-    ).pubkey.toString();
+    return (key as ParsedMessage["accountKeys"][number]).pubkey.toString();
   }
 
   return (key as PublicKey).toString();
@@ -345,7 +340,10 @@ function findSplTokenTransferCounterparty(args: {
     }
   }
 
-  const instructions = flattenInstructions(args.message, args.innerInstructions);
+  const instructions = flattenInstructions(
+    args.message,
+    args.innerInstructions
+  );
   for (const instruction of instructions) {
     if (!("program" in instruction)) {
       continue;
@@ -461,9 +459,7 @@ function toProgramActionActivity(args: {
     feeLamports: args.tx.meta?.fee ?? 0,
     status: args.tx.meta?.err ? "failed" : "success",
     counterparty: args.counterparty,
-    ...(args.tokenChange
-      ? { token: toTokenAmount(args.tokenChange) }
-      : {}),
+    ...(args.tokenChange ? { token: toTokenAmount(args.tokenChange) } : {}),
   };
 }
 
@@ -553,23 +549,15 @@ export function normalizeParsedTransaction(args: {
     direction: solDirection,
   });
 
-  const decodedInstruction = flattenInstructions(
-    message,
-    innerInstructions
-  )
+  const decodedInstruction = flattenInstructions(message, innerInstructions)
     .filter(
-      (
-        instruction
-      ): instruction is PartiallyDecodedInstruction =>
+      (instruction): instruction is PartiallyDecodedInstruction =>
         "data" in instruction && typeof instruction.data === "string"
     )
     .map((instruction) => decodeWalletInstruction(instruction.data))
     .find((instruction) => instruction !== null);
 
-  if (
-    decodedInstruction?.type === "modify_balance" &&
-    tokenChange !== null
-  ) {
+  if (decodedInstruction?.type === "modify_balance" && tokenChange !== null) {
     return {
       type: decodedInstruction.increase ? "secure" : "unshield",
       signature: args.signature,
@@ -684,10 +672,8 @@ export function normalizeParsedTransaction(args: {
       signature: args.signature,
       tx: args.tx,
       decodedAction: decodedInstruction.action,
-      direction:
-        tokenChange !== null ? tokenChange.direction : solDirection,
-      amountLamports:
-        tokenChange !== null ? 0 : solAmountLamports,
+      direction: tokenChange !== null ? tokenChange.direction : solDirection,
+      amountLamports: tokenChange !== null ? 0 : solAmountLamports,
       netChangeLamports,
       counterparty,
       tokenChange,

@@ -40,7 +40,7 @@ export const getWalletProvider = async (): Promise<AnchorProvider> => {
 };
 
 export const getCustomWalletProvider = async (
-  signer: Signer,
+  signer: Signer
 ): Promise<AnchorProvider> => {
   const connection = getWebsocketConnection();
   const wallet = new SimpleWallet(signer);
@@ -90,7 +90,7 @@ const isRetryableBalanceError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return RETRYABLE_BALANCE_ERROR_PATTERNS.some((pattern) =>
-    message.includes(pattern),
+    message.includes(pattern)
   );
 };
 
@@ -115,7 +115,11 @@ export const getWalletBalance = async (
     const signer = await getWalletSigner();
     let lastError: unknown = null;
 
-    for (let attempt = 0; attempt <= BALANCE_RETRY_DELAYS_MS.length; attempt++) {
+    for (
+      let attempt = 0;
+      attempt <= BALANCE_RETRY_DELAYS_MS.length;
+      attempt++
+    ) {
       try {
         const lamports = await connection.getBalance(
           signer.publicKey,
@@ -202,7 +206,7 @@ export const subscribeToWalletBalance = async (
 export const sendSolTransaction = async (
   destination: string | PublicKey,
   lamports: number,
-  signerOverride?: Signer,
+  signerOverride?: Signer
 ): Promise<string> => {
   if (lamports <= 0) {
     throw new Error("Lamports must be greater than zero");
@@ -230,7 +234,7 @@ export const sendSolTransaction = async (
   await signer.signTransaction(transaction);
   const signature = await connection.sendRawTransaction(
     transaction.serialize(),
-    { skipPreflight: false },
+    { skipPreflight: false }
   );
 
   console.log("Transaction sent:", signature);
@@ -256,7 +260,7 @@ export const sendSplTokenTransaction = async (
   tokenMint: string | PublicKey,
   rawAmount: bigint,
   decimals: number,
-  signerOverride?: Signer,
+  signerOverride?: Signer
 ): Promise<string> => {
   if (rawAmount <= 0n) {
     throw new Error("Token amount must be greater than zero");
@@ -283,13 +287,13 @@ export const sendSplTokenTransaction = async (
     mintPubkey,
     owner,
     false,
-    TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID
   );
   const recipientAta = getAssociatedTokenAddressSync(
     mintPubkey,
     toPubkey,
     false,
-    TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID
   );
 
   const transaction = new Transaction();
@@ -301,8 +305,8 @@ export const sendSplTokenTransaction = async (
         recipientAta,
         toPubkey,
         mintPubkey,
-        TOKEN_PROGRAM_ID,
-      ),
+        TOKEN_PROGRAM_ID
+      )
     );
   }
 
@@ -315,8 +319,8 @@ export const sendSplTokenTransaction = async (
       rawAmount,
       decimals,
       [],
-      TOKEN_PROGRAM_ID,
-    ),
+      TOKEN_PROGRAM_ID
+    )
   );
 
   transaction.feePayer = owner;
@@ -328,7 +332,7 @@ export const sendSplTokenTransaction = async (
   await signer.signTransaction(transaction);
   const signature = await connection.sendRawTransaction(
     transaction.serialize(),
-    { skipPreflight: false },
+    { skipPreflight: false }
   );
 
   console.log("Token transaction sent:", signature);

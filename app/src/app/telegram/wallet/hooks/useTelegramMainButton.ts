@@ -18,7 +18,10 @@ import {
   createShareMessage,
   shareSavedInlineMessage,
 } from "@/lib/telegram/mini-app/share-message";
-import type { IncomingTransaction, TransactionDetailsData } from "@/types/wallet";
+import type {
+  IncomingTransaction,
+  TransactionDetailsData,
+} from "@/types/wallet";
 
 import { CLAIM_SOURCES, type ClaimSource } from "../wallet-analytics";
 
@@ -67,8 +70,12 @@ interface TelegramMainButtonParams {
   setSwapView: React.Dispatch<React.SetStateAction<SwapView>>;
   setSwapActiveTab: React.Dispatch<React.SetStateAction<"swap" | "secure">>;
   setSwapError: React.Dispatch<React.SetStateAction<string | null>>;
-  setSwappedFromAmount: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setSwappedFromSymbol: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setSwappedFromAmount: React.Dispatch<
+    React.SetStateAction<number | undefined>
+  >;
+  setSwappedFromSymbol: React.Dispatch<
+    React.SetStateAction<string | undefined>
+  >;
   setSwappedToAmount: React.Dispatch<React.SetStateAction<number | undefined>>;
   setSwappedToSymbol: React.Dispatch<React.SetStateAction<string | undefined>>;
   setTransactionDetailsSheetOpen: React.Dispatch<React.SetStateAction<boolean>>;

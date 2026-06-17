@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-type ErrorWithCode = Error & { code: number }
-type MaybeErrorWithCode = ErrorWithCode | null | undefined
+type ErrorWithCode = Error & { code: number };
+type MaybeErrorWithCode = ErrorWithCode | null | undefined;
 
-const createErrorFromCodeLookup: Map<number, () => ErrorWithCode> = new Map()
-const createErrorFromNameLookup: Map<string, () => ErrorWithCode> = new Map()
+const createErrorFromCodeLookup: Map<number, () => ErrorWithCode> = new Map();
+const createErrorFromNameLookup: Map<string, () => ErrorWithCode> = new Map();
 
 /**
  * AccountNotEmpty: 'Account is not empty'
@@ -18,21 +18,21 @@ const createErrorFromNameLookup: Map<string, () => ErrorWithCode> = new Map()
  * @category generated
  */
 export class AccountNotEmptyError extends Error {
-  readonly code: number = 0x1770
-  readonly name: string = 'AccountNotEmpty'
+  readonly code: number = 0x1770;
+  readonly name: string = "AccountNotEmpty";
   constructor() {
-    super('Account is not empty')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, AccountNotEmptyError)
+    super("Account is not empty");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, AccountNotEmptyError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1770, () => new AccountNotEmptyError())
+createErrorFromCodeLookup.set(0x1770, () => new AccountNotEmptyError());
 createErrorFromNameLookup.set(
-  'AccountNotEmpty',
+  "AccountNotEmpty",
   () => new AccountNotEmptyError()
-)
+);
 
 /**
  * DuplicateSigner: 'Found multiple signers with the same pubkey'
@@ -41,21 +41,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class DuplicateSignerError extends Error {
-  readonly code: number = 0x1771
-  readonly name: string = 'DuplicateSigner'
+  readonly code: number = 0x1771;
+  readonly name: string = "DuplicateSigner";
   constructor() {
-    super('Found multiple signers with the same pubkey')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, DuplicateSignerError)
+    super("Found multiple signers with the same pubkey");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, DuplicateSignerError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1771, () => new DuplicateSignerError())
+createErrorFromCodeLookup.set(0x1771, () => new DuplicateSignerError());
 createErrorFromNameLookup.set(
-  'DuplicateSigner',
+  "DuplicateSigner",
   () => new DuplicateSignerError()
-)
+);
 
 /**
  * EmptySigners: 'Signers array is empty'
@@ -64,18 +64,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class EmptySignersError extends Error {
-  readonly code: number = 0x1772
-  readonly name: string = 'EmptySigners'
+  readonly code: number = 0x1772;
+  readonly name: string = "EmptySigners";
   constructor() {
-    super('Signers array is empty')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, EmptySignersError)
+    super("Signers array is empty");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, EmptySignersError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1772, () => new EmptySignersError())
-createErrorFromNameLookup.set('EmptySigners', () => new EmptySignersError())
+createErrorFromCodeLookup.set(0x1772, () => new EmptySignersError());
+createErrorFromNameLookup.set("EmptySigners", () => new EmptySignersError());
 
 /**
  * TooManySigners: 'Too many signers, can be up to 65535'
@@ -84,18 +84,21 @@ createErrorFromNameLookup.set('EmptySigners', () => new EmptySignersError())
  * @category generated
  */
 export class TooManySignersError extends Error {
-  readonly code: number = 0x1773
-  readonly name: string = 'TooManySigners'
+  readonly code: number = 0x1773;
+  readonly name: string = "TooManySigners";
   constructor() {
-    super('Too many signers, can be up to 65535')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TooManySignersError)
+    super("Too many signers, can be up to 65535");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TooManySignersError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1773, () => new TooManySignersError())
-createErrorFromNameLookup.set('TooManySigners', () => new TooManySignersError())
+createErrorFromCodeLookup.set(0x1773, () => new TooManySignersError());
+createErrorFromNameLookup.set(
+  "TooManySigners",
+  () => new TooManySignersError()
+);
 
 /**
  * InvalidThreshold: 'Invalid threshold, must be between 1 and number of signers with vote permissions'
@@ -104,23 +107,23 @@ createErrorFromNameLookup.set('TooManySigners', () => new TooManySignersError())
  * @category generated
  */
 export class InvalidThresholdError extends Error {
-  readonly code: number = 0x1774
-  readonly name: string = 'InvalidThreshold'
+  readonly code: number = 0x1774;
+  readonly name: string = "InvalidThreshold";
   constructor() {
     super(
-      'Invalid threshold, must be between 1 and number of signers with vote permissions'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidThresholdError)
+      "Invalid threshold, must be between 1 and number of signers with vote permissions"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidThresholdError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1774, () => new InvalidThresholdError())
+createErrorFromCodeLookup.set(0x1774, () => new InvalidThresholdError());
 createErrorFromNameLookup.set(
-  'InvalidThreshold',
+  "InvalidThreshold",
   () => new InvalidThresholdError()
-)
+);
 
 /**
  * Unauthorized: 'Attempted to perform an unauthorized action'
@@ -129,18 +132,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class UnauthorizedError extends Error {
-  readonly code: number = 0x1775
-  readonly name: string = 'Unauthorized'
+  readonly code: number = 0x1775;
+  readonly name: string = "Unauthorized";
   constructor() {
-    super('Attempted to perform an unauthorized action')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, UnauthorizedError)
+    super("Attempted to perform an unauthorized action");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, UnauthorizedError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1775, () => new UnauthorizedError())
-createErrorFromNameLookup.set('Unauthorized', () => new UnauthorizedError())
+createErrorFromCodeLookup.set(0x1775, () => new UnauthorizedError());
+createErrorFromNameLookup.set("Unauthorized", () => new UnauthorizedError());
 
 /**
  * NotASigner: 'Provided pubkey is not a signer of the smart account'
@@ -149,18 +152,18 @@ createErrorFromNameLookup.set('Unauthorized', () => new UnauthorizedError())
  * @category generated
  */
 export class NotASignerError extends Error {
-  readonly code: number = 0x1776
-  readonly name: string = 'NotASigner'
+  readonly code: number = 0x1776;
+  readonly name: string = "NotASigner";
   constructor() {
-    super('Provided pubkey is not a signer of the smart account')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NotASignerError)
+    super("Provided pubkey is not a signer of the smart account");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NotASignerError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1776, () => new NotASignerError())
-createErrorFromNameLookup.set('NotASigner', () => new NotASignerError())
+createErrorFromCodeLookup.set(0x1776, () => new NotASignerError());
+createErrorFromNameLookup.set("NotASigner", () => new NotASignerError());
 
 /**
  * InvalidTransactionMessage: 'TransactionMessage is malformed.'
@@ -169,12 +172,12 @@ createErrorFromNameLookup.set('NotASigner', () => new NotASignerError())
  * @category generated
  */
 export class InvalidTransactionMessageError extends Error {
-  readonly code: number = 0x1777
-  readonly name: string = 'InvalidTransactionMessage'
+  readonly code: number = 0x1777;
+  readonly name: string = "InvalidTransactionMessage";
   constructor() {
-    super('TransactionMessage is malformed.')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidTransactionMessageError)
+    super("TransactionMessage is malformed.");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidTransactionMessageError);
     }
   }
 }
@@ -182,11 +185,11 @@ export class InvalidTransactionMessageError extends Error {
 createErrorFromCodeLookup.set(
   0x1777,
   () => new InvalidTransactionMessageError()
-)
+);
 createErrorFromNameLookup.set(
-  'InvalidTransactionMessage',
+  "InvalidTransactionMessage",
   () => new InvalidTransactionMessageError()
-)
+);
 
 /**
  * StaleProposal: 'Proposal is stale'
@@ -195,18 +198,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class StaleProposalError extends Error {
-  readonly code: number = 0x1778
-  readonly name: string = 'StaleProposal'
+  readonly code: number = 0x1778;
+  readonly name: string = "StaleProposal";
   constructor() {
-    super('Proposal is stale')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, StaleProposalError)
+    super("Proposal is stale");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, StaleProposalError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1778, () => new StaleProposalError())
-createErrorFromNameLookup.set('StaleProposal', () => new StaleProposalError())
+createErrorFromCodeLookup.set(0x1778, () => new StaleProposalError());
+createErrorFromNameLookup.set("StaleProposal", () => new StaleProposalError());
 
 /**
  * InvalidProposalStatus: 'Invalid proposal status'
@@ -215,21 +218,21 @@ createErrorFromNameLookup.set('StaleProposal', () => new StaleProposalError())
  * @category generated
  */
 export class InvalidProposalStatusError extends Error {
-  readonly code: number = 0x1779
-  readonly name: string = 'InvalidProposalStatus'
+  readonly code: number = 0x1779;
+  readonly name: string = "InvalidProposalStatus";
   constructor() {
-    super('Invalid proposal status')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidProposalStatusError)
+    super("Invalid proposal status");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidProposalStatusError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1779, () => new InvalidProposalStatusError())
+createErrorFromCodeLookup.set(0x1779, () => new InvalidProposalStatusError());
 createErrorFromNameLookup.set(
-  'InvalidProposalStatus',
+  "InvalidProposalStatus",
   () => new InvalidProposalStatusError()
-)
+);
 
 /**
  * InvalidTransactionIndex: 'Invalid transaction index'
@@ -238,21 +241,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidTransactionIndexError extends Error {
-  readonly code: number = 0x177a
-  readonly name: string = 'InvalidTransactionIndex'
+  readonly code: number = 0x177a;
+  readonly name: string = "InvalidTransactionIndex";
   constructor() {
-    super('Invalid transaction index')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidTransactionIndexError)
+    super("Invalid transaction index");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidTransactionIndexError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x177a, () => new InvalidTransactionIndexError())
+createErrorFromCodeLookup.set(0x177a, () => new InvalidTransactionIndexError());
 createErrorFromNameLookup.set(
-  'InvalidTransactionIndex',
+  "InvalidTransactionIndex",
   () => new InvalidTransactionIndexError()
-)
+);
 
 /**
  * AlreadyApproved: 'Signer already approved the transaction'
@@ -261,21 +264,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class AlreadyApprovedError extends Error {
-  readonly code: number = 0x177b
-  readonly name: string = 'AlreadyApproved'
+  readonly code: number = 0x177b;
+  readonly name: string = "AlreadyApproved";
   constructor() {
-    super('Signer already approved the transaction')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, AlreadyApprovedError)
+    super("Signer already approved the transaction");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, AlreadyApprovedError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x177b, () => new AlreadyApprovedError())
+createErrorFromCodeLookup.set(0x177b, () => new AlreadyApprovedError());
 createErrorFromNameLookup.set(
-  'AlreadyApproved',
+  "AlreadyApproved",
   () => new AlreadyApprovedError()
-)
+);
 
 /**
  * AlreadyRejected: 'Signer already rejected the transaction'
@@ -284,21 +287,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class AlreadyRejectedError extends Error {
-  readonly code: number = 0x177c
-  readonly name: string = 'AlreadyRejected'
+  readonly code: number = 0x177c;
+  readonly name: string = "AlreadyRejected";
   constructor() {
-    super('Signer already rejected the transaction')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, AlreadyRejectedError)
+    super("Signer already rejected the transaction");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, AlreadyRejectedError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x177c, () => new AlreadyRejectedError())
+createErrorFromCodeLookup.set(0x177c, () => new AlreadyRejectedError());
 createErrorFromNameLookup.set(
-  'AlreadyRejected',
+  "AlreadyRejected",
   () => new AlreadyRejectedError()
-)
+);
 
 /**
  * AlreadyCancelled: 'Signer already cancelled the transaction'
@@ -307,21 +310,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class AlreadyCancelledError extends Error {
-  readonly code: number = 0x177d
-  readonly name: string = 'AlreadyCancelled'
+  readonly code: number = 0x177d;
+  readonly name: string = "AlreadyCancelled";
   constructor() {
-    super('Signer already cancelled the transaction')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, AlreadyCancelledError)
+    super("Signer already cancelled the transaction");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, AlreadyCancelledError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x177d, () => new AlreadyCancelledError())
+createErrorFromCodeLookup.set(0x177d, () => new AlreadyCancelledError());
 createErrorFromNameLookup.set(
-  'AlreadyCancelled',
+  "AlreadyCancelled",
   () => new AlreadyCancelledError()
-)
+);
 
 /**
  * InvalidNumberOfAccounts: 'Wrong number of accounts provided'
@@ -330,21 +333,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidNumberOfAccountsError extends Error {
-  readonly code: number = 0x177e
-  readonly name: string = 'InvalidNumberOfAccounts'
+  readonly code: number = 0x177e;
+  readonly name: string = "InvalidNumberOfAccounts";
   constructor() {
-    super('Wrong number of accounts provided')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidNumberOfAccountsError)
+    super("Wrong number of accounts provided");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidNumberOfAccountsError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x177e, () => new InvalidNumberOfAccountsError())
+createErrorFromCodeLookup.set(0x177e, () => new InvalidNumberOfAccountsError());
 createErrorFromNameLookup.set(
-  'InvalidNumberOfAccounts',
+  "InvalidNumberOfAccounts",
   () => new InvalidNumberOfAccountsError()
-)
+);
 
 /**
  * InvalidAccount: 'Invalid account provided'
@@ -353,18 +356,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidAccountError extends Error {
-  readonly code: number = 0x177f
-  readonly name: string = 'InvalidAccount'
+  readonly code: number = 0x177f;
+  readonly name: string = "InvalidAccount";
   constructor() {
-    super('Invalid account provided')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidAccountError)
+    super("Invalid account provided");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidAccountError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x177f, () => new InvalidAccountError())
-createErrorFromNameLookup.set('InvalidAccount', () => new InvalidAccountError())
+createErrorFromCodeLookup.set(0x177f, () => new InvalidAccountError());
+createErrorFromNameLookup.set(
+  "InvalidAccount",
+  () => new InvalidAccountError()
+);
 
 /**
  * RemoveLastSigner: 'Cannot remove last signer'
@@ -373,21 +379,21 @@ createErrorFromNameLookup.set('InvalidAccount', () => new InvalidAccountError())
  * @category generated
  */
 export class RemoveLastSignerError extends Error {
-  readonly code: number = 0x1780
-  readonly name: string = 'RemoveLastSigner'
+  readonly code: number = 0x1780;
+  readonly name: string = "RemoveLastSigner";
   constructor() {
-    super('Cannot remove last signer')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, RemoveLastSignerError)
+    super("Cannot remove last signer");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, RemoveLastSignerError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1780, () => new RemoveLastSignerError())
+createErrorFromCodeLookup.set(0x1780, () => new RemoveLastSignerError());
 createErrorFromNameLookup.set(
-  'RemoveLastSigner',
+  "RemoveLastSigner",
   () => new RemoveLastSignerError()
-)
+);
 
 /**
  * NoVoters: 'Signers don't include any voters'
@@ -396,18 +402,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class NoVotersError extends Error {
-  readonly code: number = 0x1781
-  readonly name: string = 'NoVoters'
+  readonly code: number = 0x1781;
+  readonly name: string = "NoVoters";
   constructor() {
-    super("Signers don't include any voters")
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NoVotersError)
+    super("Signers don't include any voters");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NoVotersError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1781, () => new NoVotersError())
-createErrorFromNameLookup.set('NoVoters', () => new NoVotersError())
+createErrorFromCodeLookup.set(0x1781, () => new NoVotersError());
+createErrorFromNameLookup.set("NoVoters", () => new NoVotersError());
 
 /**
  * NoProposers: 'Signers don't include any proposers'
@@ -416,18 +422,18 @@ createErrorFromNameLookup.set('NoVoters', () => new NoVotersError())
  * @category generated
  */
 export class NoProposersError extends Error {
-  readonly code: number = 0x1782
-  readonly name: string = 'NoProposers'
+  readonly code: number = 0x1782;
+  readonly name: string = "NoProposers";
   constructor() {
-    super("Signers don't include any proposers")
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NoProposersError)
+    super("Signers don't include any proposers");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NoProposersError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1782, () => new NoProposersError())
-createErrorFromNameLookup.set('NoProposers', () => new NoProposersError())
+createErrorFromCodeLookup.set(0x1782, () => new NoProposersError());
+createErrorFromNameLookup.set("NoProposers", () => new NoProposersError());
 
 /**
  * NoExecutors: 'Signers don't include any executors'
@@ -436,18 +442,18 @@ createErrorFromNameLookup.set('NoProposers', () => new NoProposersError())
  * @category generated
  */
 export class NoExecutorsError extends Error {
-  readonly code: number = 0x1783
-  readonly name: string = 'NoExecutors'
+  readonly code: number = 0x1783;
+  readonly name: string = "NoExecutors";
   constructor() {
-    super("Signers don't include any executors")
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NoExecutorsError)
+    super("Signers don't include any executors");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NoExecutorsError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1783, () => new NoExecutorsError())
-createErrorFromNameLookup.set('NoExecutors', () => new NoExecutorsError())
+createErrorFromCodeLookup.set(0x1783, () => new NoExecutorsError());
+createErrorFromNameLookup.set("NoExecutors", () => new NoExecutorsError());
 
 /**
  * InvalidStaleTransactionIndex: '`stale_transaction_index` must be <= `transaction_index`'
@@ -456,12 +462,12 @@ createErrorFromNameLookup.set('NoExecutors', () => new NoExecutorsError())
  * @category generated
  */
 export class InvalidStaleTransactionIndexError extends Error {
-  readonly code: number = 0x1784
-  readonly name: string = 'InvalidStaleTransactionIndex'
+  readonly code: number = 0x1784;
+  readonly name: string = "InvalidStaleTransactionIndex";
   constructor() {
-    super('`stale_transaction_index` must be <= `transaction_index`')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidStaleTransactionIndexError)
+    super("`stale_transaction_index` must be <= `transaction_index`");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidStaleTransactionIndexError);
     }
   }
 }
@@ -469,11 +475,11 @@ export class InvalidStaleTransactionIndexError extends Error {
 createErrorFromCodeLookup.set(
   0x1784,
   () => new InvalidStaleTransactionIndexError()
-)
+);
 createErrorFromNameLookup.set(
-  'InvalidStaleTransactionIndex',
+  "InvalidStaleTransactionIndex",
   () => new InvalidStaleTransactionIndexError()
-)
+);
 
 /**
  * NotSupportedForControlled: 'Instruction not supported for controlled smart account'
@@ -482,12 +488,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class NotSupportedForControlledError extends Error {
-  readonly code: number = 0x1785
-  readonly name: string = 'NotSupportedForControlled'
+  readonly code: number = 0x1785;
+  readonly name: string = "NotSupportedForControlled";
   constructor() {
-    super('Instruction not supported for controlled smart account')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NotSupportedForControlledError)
+    super("Instruction not supported for controlled smart account");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NotSupportedForControlledError);
     }
   }
 }
@@ -495,11 +501,11 @@ export class NotSupportedForControlledError extends Error {
 createErrorFromCodeLookup.set(
   0x1785,
   () => new NotSupportedForControlledError()
-)
+);
 createErrorFromNameLookup.set(
-  'NotSupportedForControlled',
+  "NotSupportedForControlled",
   () => new NotSupportedForControlledError()
-)
+);
 
 /**
  * TimeLockNotReleased: 'Proposal time lock has not been released'
@@ -508,21 +514,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TimeLockNotReleasedError extends Error {
-  readonly code: number = 0x1786
-  readonly name: string = 'TimeLockNotReleased'
+  readonly code: number = 0x1786;
+  readonly name: string = "TimeLockNotReleased";
   constructor() {
-    super('Proposal time lock has not been released')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TimeLockNotReleasedError)
+    super("Proposal time lock has not been released");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TimeLockNotReleasedError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1786, () => new TimeLockNotReleasedError())
+createErrorFromCodeLookup.set(0x1786, () => new TimeLockNotReleasedError());
 createErrorFromNameLookup.set(
-  'TimeLockNotReleased',
+  "TimeLockNotReleased",
   () => new TimeLockNotReleasedError()
-)
+);
 
 /**
  * NoActions: 'Config transaction must have at least one action'
@@ -531,18 +537,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class NoActionsError extends Error {
-  readonly code: number = 0x1787
-  readonly name: string = 'NoActions'
+  readonly code: number = 0x1787;
+  readonly name: string = "NoActions";
   constructor() {
-    super('Config transaction must have at least one action')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NoActionsError)
+    super("Config transaction must have at least one action");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NoActionsError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1787, () => new NoActionsError())
-createErrorFromNameLookup.set('NoActions', () => new NoActionsError())
+createErrorFromCodeLookup.set(0x1787, () => new NoActionsError());
+createErrorFromNameLookup.set("NoActions", () => new NoActionsError());
 
 /**
  * MissingAccount: 'Missing account'
@@ -551,18 +557,21 @@ createErrorFromNameLookup.set('NoActions', () => new NoActionsError())
  * @category generated
  */
 export class MissingAccountError extends Error {
-  readonly code: number = 0x1788
-  readonly name: string = 'MissingAccount'
+  readonly code: number = 0x1788;
+  readonly name: string = "MissingAccount";
   constructor() {
-    super('Missing account')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, MissingAccountError)
+    super("Missing account");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, MissingAccountError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1788, () => new MissingAccountError())
-createErrorFromNameLookup.set('MissingAccount', () => new MissingAccountError())
+createErrorFromCodeLookup.set(0x1788, () => new MissingAccountError());
+createErrorFromNameLookup.set(
+  "MissingAccount",
+  () => new MissingAccountError()
+);
 
 /**
  * InvalidMint: 'Invalid mint'
@@ -571,18 +580,18 @@ createErrorFromNameLookup.set('MissingAccount', () => new MissingAccountError())
  * @category generated
  */
 export class InvalidMintError extends Error {
-  readonly code: number = 0x1789
-  readonly name: string = 'InvalidMint'
+  readonly code: number = 0x1789;
+  readonly name: string = "InvalidMint";
   constructor() {
-    super('Invalid mint')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidMintError)
+    super("Invalid mint");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidMintError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1789, () => new InvalidMintError())
-createErrorFromNameLookup.set('InvalidMint', () => new InvalidMintError())
+createErrorFromCodeLookup.set(0x1789, () => new InvalidMintError());
+createErrorFromNameLookup.set("InvalidMint", () => new InvalidMintError());
 
 /**
  * InvalidDestination: 'Invalid destination'
@@ -591,21 +600,21 @@ createErrorFromNameLookup.set('InvalidMint', () => new InvalidMintError())
  * @category generated
  */
 export class InvalidDestinationError extends Error {
-  readonly code: number = 0x178a
-  readonly name: string = 'InvalidDestination'
+  readonly code: number = 0x178a;
+  readonly name: string = "InvalidDestination";
   constructor() {
-    super('Invalid destination')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidDestinationError)
+    super("Invalid destination");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidDestinationError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x178a, () => new InvalidDestinationError())
+createErrorFromCodeLookup.set(0x178a, () => new InvalidDestinationError());
 createErrorFromNameLookup.set(
-  'InvalidDestination',
+  "InvalidDestination",
   () => new InvalidDestinationError()
-)
+);
 
 /**
  * SpendingLimitExceeded: 'Spending limit exceeded'
@@ -614,21 +623,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitExceededError extends Error {
-  readonly code: number = 0x178b
-  readonly name: string = 'SpendingLimitExceeded'
+  readonly code: number = 0x178b;
+  readonly name: string = "SpendingLimitExceeded";
   constructor() {
-    super('Spending limit exceeded')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SpendingLimitExceededError)
+    super("Spending limit exceeded");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SpendingLimitExceededError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x178b, () => new SpendingLimitExceededError())
+createErrorFromCodeLookup.set(0x178b, () => new SpendingLimitExceededError());
 createErrorFromNameLookup.set(
-  'SpendingLimitExceeded',
+  "SpendingLimitExceeded",
   () => new SpendingLimitExceededError()
-)
+);
 
 /**
  * DecimalsMismatch: 'Decimals don't match the mint'
@@ -637,21 +646,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class DecimalsMismatchError extends Error {
-  readonly code: number = 0x178c
-  readonly name: string = 'DecimalsMismatch'
+  readonly code: number = 0x178c;
+  readonly name: string = "DecimalsMismatch";
   constructor() {
-    super("Decimals don't match the mint")
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, DecimalsMismatchError)
+    super("Decimals don't match the mint");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, DecimalsMismatchError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x178c, () => new DecimalsMismatchError())
+createErrorFromCodeLookup.set(0x178c, () => new DecimalsMismatchError());
 createErrorFromNameLookup.set(
-  'DecimalsMismatch',
+  "DecimalsMismatch",
   () => new DecimalsMismatchError()
-)
+);
 
 /**
  * UnknownPermission: 'Signer has unknown permission'
@@ -660,21 +669,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class UnknownPermissionError extends Error {
-  readonly code: number = 0x178d
-  readonly name: string = 'UnknownPermission'
+  readonly code: number = 0x178d;
+  readonly name: string = "UnknownPermission";
   constructor() {
-    super('Signer has unknown permission')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, UnknownPermissionError)
+    super("Signer has unknown permission");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, UnknownPermissionError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x178d, () => new UnknownPermissionError())
+createErrorFromCodeLookup.set(0x178d, () => new UnknownPermissionError());
 createErrorFromNameLookup.set(
-  'UnknownPermission',
+  "UnknownPermission",
   () => new UnknownPermissionError()
-)
+);
 
 /**
  * ProtectedAccount: 'Account is protected, it cannot be passed into a CPI as writable'
@@ -683,21 +692,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProtectedAccountError extends Error {
-  readonly code: number = 0x178e
-  readonly name: string = 'ProtectedAccount'
+  readonly code: number = 0x178e;
+  readonly name: string = "ProtectedAccount";
   constructor() {
-    super('Account is protected, it cannot be passed into a CPI as writable')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProtectedAccountError)
+    super("Account is protected, it cannot be passed into a CPI as writable");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProtectedAccountError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x178e, () => new ProtectedAccountError())
+createErrorFromCodeLookup.set(0x178e, () => new ProtectedAccountError());
 createErrorFromNameLookup.set(
-  'ProtectedAccount',
+  "ProtectedAccount",
   () => new ProtectedAccountError()
-)
+);
 
 /**
  * TimeLockExceedsMaxAllowed: 'Time lock exceeds the maximum allowed (90 days)'
@@ -706,12 +715,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TimeLockExceedsMaxAllowedError extends Error {
-  readonly code: number = 0x178f
-  readonly name: string = 'TimeLockExceedsMaxAllowed'
+  readonly code: number = 0x178f;
+  readonly name: string = "TimeLockExceedsMaxAllowed";
   constructor() {
-    super('Time lock exceeds the maximum allowed (90 days)')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TimeLockExceedsMaxAllowedError)
+    super("Time lock exceeds the maximum allowed (90 days)");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TimeLockExceedsMaxAllowedError);
     }
   }
 }
@@ -719,11 +728,11 @@ export class TimeLockExceedsMaxAllowedError extends Error {
 createErrorFromCodeLookup.set(
   0x178f,
   () => new TimeLockExceedsMaxAllowedError()
-)
+);
 createErrorFromNameLookup.set(
-  'TimeLockExceedsMaxAllowed',
+  "TimeLockExceedsMaxAllowed",
   () => new TimeLockExceedsMaxAllowedError()
-)
+);
 
 /**
  * IllegalAccountOwner: 'Account is not owned by Smart Account program'
@@ -732,21 +741,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class IllegalAccountOwnerError extends Error {
-  readonly code: number = 0x1790
-  readonly name: string = 'IllegalAccountOwner'
+  readonly code: number = 0x1790;
+  readonly name: string = "IllegalAccountOwner";
   constructor() {
-    super('Account is not owned by Smart Account program')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, IllegalAccountOwnerError)
+    super("Account is not owned by Smart Account program");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, IllegalAccountOwnerError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1790, () => new IllegalAccountOwnerError())
+createErrorFromCodeLookup.set(0x1790, () => new IllegalAccountOwnerError());
 createErrorFromNameLookup.set(
-  'IllegalAccountOwner',
+  "IllegalAccountOwner",
   () => new IllegalAccountOwnerError()
-)
+);
 
 /**
  * RentReclamationDisabled: 'Rent reclamation is disabled for this smart account'
@@ -755,21 +764,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class RentReclamationDisabledError extends Error {
-  readonly code: number = 0x1791
-  readonly name: string = 'RentReclamationDisabled'
+  readonly code: number = 0x1791;
+  readonly name: string = "RentReclamationDisabled";
   constructor() {
-    super('Rent reclamation is disabled for this smart account')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, RentReclamationDisabledError)
+    super("Rent reclamation is disabled for this smart account");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, RentReclamationDisabledError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1791, () => new RentReclamationDisabledError())
+createErrorFromCodeLookup.set(0x1791, () => new RentReclamationDisabledError());
 createErrorFromNameLookup.set(
-  'RentReclamationDisabled',
+  "RentReclamationDisabled",
   () => new RentReclamationDisabledError()
-)
+);
 
 /**
  * InvalidRentCollector: 'Invalid rent collector address'
@@ -778,21 +787,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidRentCollectorError extends Error {
-  readonly code: number = 0x1792
-  readonly name: string = 'InvalidRentCollector'
+  readonly code: number = 0x1792;
+  readonly name: string = "InvalidRentCollector";
   constructor() {
-    super('Invalid rent collector address')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidRentCollectorError)
+    super("Invalid rent collector address");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidRentCollectorError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1792, () => new InvalidRentCollectorError())
+createErrorFromCodeLookup.set(0x1792, () => new InvalidRentCollectorError());
 createErrorFromNameLookup.set(
-  'InvalidRentCollector',
+  "InvalidRentCollector",
   () => new InvalidRentCollectorError()
-)
+);
 
 /**
  * ProposalForAnotherSmartAccount: 'Proposal is for another smart account'
@@ -801,12 +810,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProposalForAnotherSmartAccountError extends Error {
-  readonly code: number = 0x1793
-  readonly name: string = 'ProposalForAnotherSmartAccount'
+  readonly code: number = 0x1793;
+  readonly name: string = "ProposalForAnotherSmartAccount";
   constructor() {
-    super('Proposal is for another smart account')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProposalForAnotherSmartAccountError)
+    super("Proposal is for another smart account");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProposalForAnotherSmartAccountError);
     }
   }
 }
@@ -814,11 +823,11 @@ export class ProposalForAnotherSmartAccountError extends Error {
 createErrorFromCodeLookup.set(
   0x1793,
   () => new ProposalForAnotherSmartAccountError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProposalForAnotherSmartAccount',
+  "ProposalForAnotherSmartAccount",
   () => new ProposalForAnotherSmartAccountError()
-)
+);
 
 /**
  * TransactionForAnotherSmartAccount: 'Transaction is for another smart account'
@@ -827,12 +836,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TransactionForAnotherSmartAccountError extends Error {
-  readonly code: number = 0x1794
-  readonly name: string = 'TransactionForAnotherSmartAccount'
+  readonly code: number = 0x1794;
+  readonly name: string = "TransactionForAnotherSmartAccount";
   constructor() {
-    super('Transaction is for another smart account')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TransactionForAnotherSmartAccountError)
+    super("Transaction is for another smart account");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TransactionForAnotherSmartAccountError);
     }
   }
 }
@@ -840,11 +849,11 @@ export class TransactionForAnotherSmartAccountError extends Error {
 createErrorFromCodeLookup.set(
   0x1794,
   () => new TransactionForAnotherSmartAccountError()
-)
+);
 createErrorFromNameLookup.set(
-  'TransactionForAnotherSmartAccount',
+  "TransactionForAnotherSmartAccount",
   () => new TransactionForAnotherSmartAccountError()
-)
+);
 
 /**
  * TransactionNotMatchingProposal: 'Transaction doesn't match proposal'
@@ -853,12 +862,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TransactionNotMatchingProposalError extends Error {
-  readonly code: number = 0x1795
-  readonly name: string = 'TransactionNotMatchingProposal'
+  readonly code: number = 0x1795;
+  readonly name: string = "TransactionNotMatchingProposal";
   constructor() {
-    super("Transaction doesn't match proposal")
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TransactionNotMatchingProposalError)
+    super("Transaction doesn't match proposal");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TransactionNotMatchingProposalError);
     }
   }
 }
@@ -866,11 +875,11 @@ export class TransactionNotMatchingProposalError extends Error {
 createErrorFromCodeLookup.set(
   0x1795,
   () => new TransactionNotMatchingProposalError()
-)
+);
 createErrorFromNameLookup.set(
-  'TransactionNotMatchingProposal',
+  "TransactionNotMatchingProposal",
   () => new TransactionNotMatchingProposalError()
-)
+);
 
 /**
  * TransactionNotLastInBatch: 'Transaction is not last in batch'
@@ -879,12 +888,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TransactionNotLastInBatchError extends Error {
-  readonly code: number = 0x1796
-  readonly name: string = 'TransactionNotLastInBatch'
+  readonly code: number = 0x1796;
+  readonly name: string = "TransactionNotLastInBatch";
   constructor() {
-    super('Transaction is not last in batch')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TransactionNotLastInBatchError)
+    super("Transaction is not last in batch");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TransactionNotLastInBatchError);
     }
   }
 }
@@ -892,11 +901,11 @@ export class TransactionNotLastInBatchError extends Error {
 createErrorFromCodeLookup.set(
   0x1796,
   () => new TransactionNotLastInBatchError()
-)
+);
 createErrorFromNameLookup.set(
-  'TransactionNotLastInBatch',
+  "TransactionNotLastInBatch",
   () => new TransactionNotLastInBatchError()
-)
+);
 
 /**
  * BatchNotEmpty: 'Batch is not empty'
@@ -905,18 +914,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class BatchNotEmptyError extends Error {
-  readonly code: number = 0x1797
-  readonly name: string = 'BatchNotEmpty'
+  readonly code: number = 0x1797;
+  readonly name: string = "BatchNotEmpty";
   constructor() {
-    super('Batch is not empty')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, BatchNotEmptyError)
+    super("Batch is not empty");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, BatchNotEmptyError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1797, () => new BatchNotEmptyError())
-createErrorFromNameLookup.set('BatchNotEmpty', () => new BatchNotEmptyError())
+createErrorFromCodeLookup.set(0x1797, () => new BatchNotEmptyError());
+createErrorFromNameLookup.set("BatchNotEmpty", () => new BatchNotEmptyError());
 
 /**
  * SpendingLimitInvalidAmount: 'Invalid SpendingLimit amount'
@@ -925,12 +934,12 @@ createErrorFromNameLookup.set('BatchNotEmpty', () => new BatchNotEmptyError())
  * @category generated
  */
 export class SpendingLimitInvalidAmountError extends Error {
-  readonly code: number = 0x1798
-  readonly name: string = 'SpendingLimitInvalidAmount'
+  readonly code: number = 0x1798;
+  readonly name: string = "SpendingLimitInvalidAmount";
   constructor() {
-    super('Invalid SpendingLimit amount')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SpendingLimitInvalidAmountError)
+    super("Invalid SpendingLimit amount");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SpendingLimitInvalidAmountError);
     }
   }
 }
@@ -938,11 +947,11 @@ export class SpendingLimitInvalidAmountError extends Error {
 createErrorFromCodeLookup.set(
   0x1798,
   () => new SpendingLimitInvalidAmountError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvalidAmount',
+  "SpendingLimitInvalidAmount",
   () => new SpendingLimitInvalidAmountError()
-)
+);
 
 /**
  * InvalidInstructionArgs: 'Invalid Instruction Arguments'
@@ -951,21 +960,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidInstructionArgsError extends Error {
-  readonly code: number = 0x1799
-  readonly name: string = 'InvalidInstructionArgs'
+  readonly code: number = 0x1799;
+  readonly name: string = "InvalidInstructionArgs";
   constructor() {
-    super('Invalid Instruction Arguments')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidInstructionArgsError)
+    super("Invalid Instruction Arguments");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidInstructionArgsError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x1799, () => new InvalidInstructionArgsError())
+createErrorFromCodeLookup.set(0x1799, () => new InvalidInstructionArgsError());
 createErrorFromNameLookup.set(
-  'InvalidInstructionArgs',
+  "InvalidInstructionArgs",
   () => new InvalidInstructionArgsError()
-)
+);
 
 /**
  * FinalBufferHashMismatch: 'Final message buffer hash doesnt match the expected hash'
@@ -974,21 +983,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class FinalBufferHashMismatchError extends Error {
-  readonly code: number = 0x179a
-  readonly name: string = 'FinalBufferHashMismatch'
+  readonly code: number = 0x179a;
+  readonly name: string = "FinalBufferHashMismatch";
   constructor() {
-    super('Final message buffer hash doesnt match the expected hash')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, FinalBufferHashMismatchError)
+    super("Final message buffer hash doesnt match the expected hash");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, FinalBufferHashMismatchError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x179a, () => new FinalBufferHashMismatchError())
+createErrorFromCodeLookup.set(0x179a, () => new FinalBufferHashMismatchError());
 createErrorFromNameLookup.set(
-  'FinalBufferHashMismatch',
+  "FinalBufferHashMismatch",
   () => new FinalBufferHashMismatchError()
-)
+);
 
 /**
  * FinalBufferSizeExceeded: 'Final buffer size cannot exceed 4000 bytes'
@@ -997,21 +1006,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class FinalBufferSizeExceededError extends Error {
-  readonly code: number = 0x179b
-  readonly name: string = 'FinalBufferSizeExceeded'
+  readonly code: number = 0x179b;
+  readonly name: string = "FinalBufferSizeExceeded";
   constructor() {
-    super('Final buffer size cannot exceed 4000 bytes')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, FinalBufferSizeExceededError)
+    super("Final buffer size cannot exceed 4000 bytes");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, FinalBufferSizeExceededError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x179b, () => new FinalBufferSizeExceededError())
+createErrorFromCodeLookup.set(0x179b, () => new FinalBufferSizeExceededError());
 createErrorFromNameLookup.set(
-  'FinalBufferSizeExceeded',
+  "FinalBufferSizeExceeded",
   () => new FinalBufferSizeExceededError()
-)
+);
 
 /**
  * FinalBufferSizeMismatch: 'Final buffer size mismatch'
@@ -1020,21 +1029,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class FinalBufferSizeMismatchError extends Error {
-  readonly code: number = 0x179c
-  readonly name: string = 'FinalBufferSizeMismatch'
+  readonly code: number = 0x179c;
+  readonly name: string = "FinalBufferSizeMismatch";
   constructor() {
-    super('Final buffer size mismatch')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, FinalBufferSizeMismatchError)
+    super("Final buffer size mismatch");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, FinalBufferSizeMismatchError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x179c, () => new FinalBufferSizeMismatchError())
+createErrorFromCodeLookup.set(0x179c, () => new FinalBufferSizeMismatchError());
 createErrorFromNameLookup.set(
-  'FinalBufferSizeMismatch',
+  "FinalBufferSizeMismatch",
   () => new FinalBufferSizeMismatchError()
-)
+);
 
 /**
  * SmartAccountCreateDeprecated: 'smart_account_create has been deprecated. Use smart_account_create_v2 instead.'
@@ -1043,14 +1052,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SmartAccountCreateDeprecatedError extends Error {
-  readonly code: number = 0x179d
-  readonly name: string = 'SmartAccountCreateDeprecated'
+  readonly code: number = 0x179d;
+  readonly name: string = "SmartAccountCreateDeprecated";
   constructor() {
     super(
-      'smart_account_create has been deprecated. Use smart_account_create_v2 instead.'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SmartAccountCreateDeprecatedError)
+      "smart_account_create has been deprecated. Use smart_account_create_v2 instead."
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SmartAccountCreateDeprecatedError);
     }
   }
 }
@@ -1058,11 +1067,11 @@ export class SmartAccountCreateDeprecatedError extends Error {
 createErrorFromCodeLookup.set(
   0x179d,
   () => new SmartAccountCreateDeprecatedError()
-)
+);
 createErrorFromNameLookup.set(
-  'SmartAccountCreateDeprecated',
+  "SmartAccountCreateDeprecated",
   () => new SmartAccountCreateDeprecatedError()
-)
+);
 
 /**
  * ThresholdNotReached: 'Signers do not reach consensus threshold'
@@ -1071,21 +1080,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ThresholdNotReachedError extends Error {
-  readonly code: number = 0x179e
-  readonly name: string = 'ThresholdNotReached'
+  readonly code: number = 0x179e;
+  readonly name: string = "ThresholdNotReached";
   constructor() {
-    super('Signers do not reach consensus threshold')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ThresholdNotReachedError)
+    super("Signers do not reach consensus threshold");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ThresholdNotReachedError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x179e, () => new ThresholdNotReachedError())
+createErrorFromCodeLookup.set(0x179e, () => new ThresholdNotReachedError());
 createErrorFromNameLookup.set(
-  'ThresholdNotReached',
+  "ThresholdNotReached",
   () => new ThresholdNotReachedError()
-)
+);
 
 /**
  * InvalidSignerCount: 'Invalid number of signer accounts. Must be greater or equal to the threshold'
@@ -1094,23 +1103,23 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidSignerCountError extends Error {
-  readonly code: number = 0x179f
-  readonly name: string = 'InvalidSignerCount'
+  readonly code: number = 0x179f;
+  readonly name: string = "InvalidSignerCount";
   constructor() {
     super(
-      'Invalid number of signer accounts. Must be greater or equal to the threshold'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidSignerCountError)
+      "Invalid number of signer accounts. Must be greater or equal to the threshold"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidSignerCountError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x179f, () => new InvalidSignerCountError())
+createErrorFromCodeLookup.set(0x179f, () => new InvalidSignerCountError());
 createErrorFromNameLookup.set(
-  'InvalidSignerCount',
+  "InvalidSignerCount",
   () => new InvalidSignerCountError()
-)
+);
 
 /**
  * MissingSignature: 'Missing signature'
@@ -1119,21 +1128,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class MissingSignatureError extends Error {
-  readonly code: number = 0x17a0
-  readonly name: string = 'MissingSignature'
+  readonly code: number = 0x17a0;
+  readonly name: string = "MissingSignature";
   constructor() {
-    super('Missing signature')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, MissingSignatureError)
+    super("Missing signature");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, MissingSignatureError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a0, () => new MissingSignatureError())
+createErrorFromCodeLookup.set(0x17a0, () => new MissingSignatureError());
 createErrorFromNameLookup.set(
-  'MissingSignature',
+  "MissingSignature",
   () => new MissingSignatureError()
-)
+);
 
 /**
  * InsufficientAggregatePermissions: 'Insufficient aggregate permissions across signing members'
@@ -1142,12 +1151,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InsufficientAggregatePermissionsError extends Error {
-  readonly code: number = 0x17a1
-  readonly name: string = 'InsufficientAggregatePermissions'
+  readonly code: number = 0x17a1;
+  readonly name: string = "InsufficientAggregatePermissions";
   constructor() {
-    super('Insufficient aggregate permissions across signing members')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InsufficientAggregatePermissionsError)
+    super("Insufficient aggregate permissions across signing members");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InsufficientAggregatePermissionsError);
     }
   }
 }
@@ -1155,11 +1164,11 @@ export class InsufficientAggregatePermissionsError extends Error {
 createErrorFromCodeLookup.set(
   0x17a1,
   () => new InsufficientAggregatePermissionsError()
-)
+);
 createErrorFromNameLookup.set(
-  'InsufficientAggregatePermissions',
+  "InsufficientAggregatePermissions",
   () => new InsufficientAggregatePermissionsError()
-)
+);
 
 /**
  * InsufficientVotePermissions: 'Insufficient vote permissions across signing members'
@@ -1168,12 +1177,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InsufficientVotePermissionsError extends Error {
-  readonly code: number = 0x17a2
-  readonly name: string = 'InsufficientVotePermissions'
+  readonly code: number = 0x17a2;
+  readonly name: string = "InsufficientVotePermissions";
   constructor() {
-    super('Insufficient vote permissions across signing members')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InsufficientVotePermissionsError)
+    super("Insufficient vote permissions across signing members");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InsufficientVotePermissionsError);
     }
   }
 }
@@ -1181,11 +1190,11 @@ export class InsufficientVotePermissionsError extends Error {
 createErrorFromCodeLookup.set(
   0x17a2,
   () => new InsufficientVotePermissionsError()
-)
+);
 createErrorFromNameLookup.set(
-  'InsufficientVotePermissions',
+  "InsufficientVotePermissions",
   () => new InsufficientVotePermissionsError()
-)
+);
 
 /**
  * TimeLockNotZero: 'Smart account must not be time locked'
@@ -1194,21 +1203,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TimeLockNotZeroError extends Error {
-  readonly code: number = 0x17a3
-  readonly name: string = 'TimeLockNotZero'
+  readonly code: number = 0x17a3;
+  readonly name: string = "TimeLockNotZero";
   constructor() {
-    super('Smart account must not be time locked')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TimeLockNotZeroError)
+    super("Smart account must not be time locked");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TimeLockNotZeroError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a3, () => new TimeLockNotZeroError())
+createErrorFromCodeLookup.set(0x17a3, () => new TimeLockNotZeroError());
 createErrorFromNameLookup.set(
-  'TimeLockNotZero',
+  "TimeLockNotZero",
   () => new TimeLockNotZeroError()
-)
+);
 
 /**
  * NotImplemented: 'Feature not implemented'
@@ -1217,18 +1226,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class NotImplementedError extends Error {
-  readonly code: number = 0x17a4
-  readonly name: string = 'NotImplemented'
+  readonly code: number = 0x17a4;
+  readonly name: string = "NotImplemented";
   constructor() {
-    super('Feature not implemented')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, NotImplementedError)
+    super("Feature not implemented");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, NotImplementedError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a4, () => new NotImplementedError())
-createErrorFromNameLookup.set('NotImplemented', () => new NotImplementedError())
+createErrorFromCodeLookup.set(0x17a4, () => new NotImplementedError());
+createErrorFromNameLookup.set(
+  "NotImplemented",
+  () => new NotImplementedError()
+);
 
 /**
  * SpendingLimitInvalidCadenceConfiguration: 'Invalid cadence configuration'
@@ -1237,15 +1249,15 @@ createErrorFromNameLookup.set('NotImplemented', () => new NotImplementedError())
  * @category generated
  */
 export class SpendingLimitInvalidCadenceConfigurationError extends Error {
-  readonly code: number = 0x17a5
-  readonly name: string = 'SpendingLimitInvalidCadenceConfiguration'
+  readonly code: number = 0x17a5;
+  readonly name: string = "SpendingLimitInvalidCadenceConfiguration";
   constructor() {
-    super('Invalid cadence configuration')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Invalid cadence configuration");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvalidCadenceConfigurationError
-      )
+      );
     }
   }
 }
@@ -1253,11 +1265,11 @@ export class SpendingLimitInvalidCadenceConfigurationError extends Error {
 createErrorFromCodeLookup.set(
   0x17a5,
   () => new SpendingLimitInvalidCadenceConfigurationError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvalidCadenceConfiguration',
+  "SpendingLimitInvalidCadenceConfiguration",
   () => new SpendingLimitInvalidCadenceConfigurationError()
-)
+);
 
 /**
  * InvalidDataConstraint: 'Invalid data constraint'
@@ -1266,21 +1278,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidDataConstraintError extends Error {
-  readonly code: number = 0x17a6
-  readonly name: string = 'InvalidDataConstraint'
+  readonly code: number = 0x17a6;
+  readonly name: string = "InvalidDataConstraint";
   constructor() {
-    super('Invalid data constraint')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidDataConstraintError)
+    super("Invalid data constraint");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidDataConstraintError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a6, () => new InvalidDataConstraintError())
+createErrorFromCodeLookup.set(0x17a6, () => new InvalidDataConstraintError());
 createErrorFromNameLookup.set(
-  'InvalidDataConstraint',
+  "InvalidDataConstraint",
   () => new InvalidDataConstraintError()
-)
+);
 
 /**
  * InvalidPayload: 'Invalid payload'
@@ -1289,18 +1301,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidPayloadError extends Error {
-  readonly code: number = 0x17a7
-  readonly name: string = 'InvalidPayload'
+  readonly code: number = 0x17a7;
+  readonly name: string = "InvalidPayload";
   constructor() {
-    super('Invalid payload')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidPayloadError)
+    super("Invalid payload");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidPayloadError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a7, () => new InvalidPayloadError())
-createErrorFromNameLookup.set('InvalidPayload', () => new InvalidPayloadError())
+createErrorFromCodeLookup.set(0x17a7, () => new InvalidPayloadError());
+createErrorFromNameLookup.set(
+  "InvalidPayload",
+  () => new InvalidPayloadError()
+);
 
 /**
  * ProtectedInstruction: 'Protected instruction'
@@ -1309,21 +1324,21 @@ createErrorFromNameLookup.set('InvalidPayload', () => new InvalidPayloadError())
  * @category generated
  */
 export class ProtectedInstructionError extends Error {
-  readonly code: number = 0x17a8
-  readonly name: string = 'ProtectedInstruction'
+  readonly code: number = 0x17a8;
+  readonly name: string = "ProtectedInstruction";
   constructor() {
-    super('Protected instruction')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProtectedInstructionError)
+    super("Protected instruction");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProtectedInstructionError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a8, () => new ProtectedInstructionError())
+createErrorFromCodeLookup.set(0x17a8, () => new ProtectedInstructionError());
 createErrorFromNameLookup.set(
-  'ProtectedInstruction',
+  "ProtectedInstruction",
   () => new ProtectedInstructionError()
-)
+);
 
 /**
  * PlaceholderError: 'Placeholder error'
@@ -1332,21 +1347,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PlaceholderErrorError extends Error {
-  readonly code: number = 0x17a9
-  readonly name: string = 'PlaceholderError'
+  readonly code: number = 0x17a9;
+  readonly name: string = "PlaceholderError";
   constructor() {
-    super('Placeholder error')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, PlaceholderErrorError)
+    super("Placeholder error");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, PlaceholderErrorError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17a9, () => new PlaceholderErrorError())
+createErrorFromCodeLookup.set(0x17a9, () => new PlaceholderErrorError());
 createErrorFromNameLookup.set(
-  'PlaceholderError',
+  "PlaceholderError",
   () => new PlaceholderErrorError()
-)
+);
 
 /**
  * InvalidPolicyPayload: 'Invalid policy payload'
@@ -1355,21 +1370,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidPolicyPayloadError extends Error {
-  readonly code: number = 0x17aa
-  readonly name: string = 'InvalidPolicyPayload'
+  readonly code: number = 0x17aa;
+  readonly name: string = "InvalidPolicyPayload";
   constructor() {
-    super('Invalid policy payload')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidPolicyPayloadError)
+    super("Invalid policy payload");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidPolicyPayloadError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17aa, () => new InvalidPolicyPayloadError())
+createErrorFromCodeLookup.set(0x17aa, () => new InvalidPolicyPayloadError());
 createErrorFromNameLookup.set(
-  'InvalidPolicyPayload',
+  "InvalidPolicyPayload",
   () => new InvalidPolicyPayloadError()
-)
+);
 
 /**
  * InvalidEmptyPolicy: 'Invalid empty policy'
@@ -1378,21 +1393,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InvalidEmptyPolicyError extends Error {
-  readonly code: number = 0x17ab
-  readonly name: string = 'InvalidEmptyPolicy'
+  readonly code: number = 0x17ab;
+  readonly name: string = "InvalidEmptyPolicy";
   constructor() {
-    super('Invalid empty policy')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, InvalidEmptyPolicyError)
+    super("Invalid empty policy");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, InvalidEmptyPolicyError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17ab, () => new InvalidEmptyPolicyError())
+createErrorFromCodeLookup.set(0x17ab, () => new InvalidEmptyPolicyError());
 createErrorFromNameLookup.set(
-  'InvalidEmptyPolicy',
+  "InvalidEmptyPolicy",
   () => new InvalidEmptyPolicyError()
-)
+);
 
 /**
  * TransactionForAnotherPolicy: 'Transaction is for another policy'
@@ -1401,12 +1416,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class TransactionForAnotherPolicyError extends Error {
-  readonly code: number = 0x17ac
-  readonly name: string = 'TransactionForAnotherPolicy'
+  readonly code: number = 0x17ac;
+  readonly name: string = "TransactionForAnotherPolicy";
   constructor() {
-    super('Transaction is for another policy')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, TransactionForAnotherPolicyError)
+    super("Transaction is for another policy");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, TransactionForAnotherPolicyError);
     }
   }
 }
@@ -1414,11 +1429,11 @@ export class TransactionForAnotherPolicyError extends Error {
 createErrorFromCodeLookup.set(
   0x17ac,
   () => new TransactionForAnotherPolicyError()
-)
+);
 createErrorFromNameLookup.set(
-  'TransactionForAnotherPolicy',
+  "TransactionForAnotherPolicy",
   () => new TransactionForAnotherPolicyError()
-)
+);
 
 /**
  * ProgramInteractionAsyncPayloadNotAllowedWithSyncTransaction: 'Program interaction sync payload not allowed with async transaction'
@@ -1427,16 +1442,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionAsyncPayloadNotAllowedWithSyncTransactionError extends Error {
-  readonly code: number = 0x17ad
+  readonly code: number = 0x17ad;
   readonly name: string =
-    'ProgramInteractionAsyncPayloadNotAllowedWithSyncTransaction'
+    "ProgramInteractionAsyncPayloadNotAllowedWithSyncTransaction";
   constructor() {
-    super('Program interaction sync payload not allowed with async transaction')
-    if (typeof Error.captureStackTrace === 'function') {
+    super(
+      "Program interaction sync payload not allowed with async transaction"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionAsyncPayloadNotAllowedWithSyncTransactionError
-      )
+      );
     }
   }
 }
@@ -1444,11 +1461,11 @@ export class ProgramInteractionAsyncPayloadNotAllowedWithSyncTransactionError ex
 createErrorFromCodeLookup.set(
   0x17ad,
   () => new ProgramInteractionAsyncPayloadNotAllowedWithSyncTransactionError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionAsyncPayloadNotAllowedWithSyncTransaction',
+  "ProgramInteractionAsyncPayloadNotAllowedWithSyncTransaction",
   () => new ProgramInteractionAsyncPayloadNotAllowedWithSyncTransactionError()
-)
+);
 
 /**
  * ProgramInteractionSyncPayloadNotAllowedWithAsyncTransaction: 'Program interaction sync payload not allowed with sync transaction'
@@ -1457,16 +1474,16 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionSyncPayloadNotAllowedWithAsyncTransactionError extends Error {
-  readonly code: number = 0x17ae
+  readonly code: number = 0x17ae;
   readonly name: string =
-    'ProgramInteractionSyncPayloadNotAllowedWithAsyncTransaction'
+    "ProgramInteractionSyncPayloadNotAllowedWithAsyncTransaction";
   constructor() {
-    super('Program interaction sync payload not allowed with sync transaction')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Program interaction sync payload not allowed with sync transaction");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionSyncPayloadNotAllowedWithAsyncTransactionError
-      )
+      );
     }
   }
 }
@@ -1474,11 +1491,11 @@ export class ProgramInteractionSyncPayloadNotAllowedWithAsyncTransactionError ex
 createErrorFromCodeLookup.set(
   0x17ae,
   () => new ProgramInteractionSyncPayloadNotAllowedWithAsyncTransactionError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionSyncPayloadNotAllowedWithAsyncTransaction',
+  "ProgramInteractionSyncPayloadNotAllowedWithAsyncTransaction",
   () => new ProgramInteractionSyncPayloadNotAllowedWithAsyncTransactionError()
-)
+);
 
 /**
  * ProgramInteractionDataTooShort: 'Program interaction data constraint failed: instruction data too short'
@@ -1487,14 +1504,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionDataTooShortError extends Error {
-  readonly code: number = 0x17af
-  readonly name: string = 'ProgramInteractionDataTooShort'
+  readonly code: number = 0x17af;
+  readonly name: string = "ProgramInteractionDataTooShort";
   constructor() {
     super(
-      'Program interaction data constraint failed: instruction data too short'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProgramInteractionDataTooShortError)
+      "Program interaction data constraint failed: instruction data too short"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProgramInteractionDataTooShortError);
     }
   }
 }
@@ -1502,11 +1519,11 @@ export class ProgramInteractionDataTooShortError extends Error {
 createErrorFromCodeLookup.set(
   0x17af,
   () => new ProgramInteractionDataTooShortError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionDataTooShort',
+  "ProgramInteractionDataTooShort",
   () => new ProgramInteractionDataTooShortError()
-)
+);
 
 /**
  * ProgramInteractionInvalidNumericValue: 'Program interaction data constraint failed: invalid numeric value'
@@ -1515,12 +1532,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionInvalidNumericValueError extends Error {
-  readonly code: number = 0x17b0
-  readonly name: string = 'ProgramInteractionInvalidNumericValue'
+  readonly code: number = 0x17b0;
+  readonly name: string = "ProgramInteractionInvalidNumericValue";
   constructor() {
-    super('Program interaction data constraint failed: invalid numeric value')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProgramInteractionInvalidNumericValueError)
+    super("Program interaction data constraint failed: invalid numeric value");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProgramInteractionInvalidNumericValueError);
     }
   }
 }
@@ -1528,11 +1545,11 @@ export class ProgramInteractionInvalidNumericValueError extends Error {
 createErrorFromCodeLookup.set(
   0x17b0,
   () => new ProgramInteractionInvalidNumericValueError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionInvalidNumericValue',
+  "ProgramInteractionInvalidNumericValue",
   () => new ProgramInteractionInvalidNumericValueError()
-)
+);
 
 /**
  * ProgramInteractionInvalidByteSequence: 'Program interaction data constraint failed: invalid byte sequence'
@@ -1541,12 +1558,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionInvalidByteSequenceError extends Error {
-  readonly code: number = 0x17b1
-  readonly name: string = 'ProgramInteractionInvalidByteSequence'
+  readonly code: number = 0x17b1;
+  readonly name: string = "ProgramInteractionInvalidByteSequence";
   constructor() {
-    super('Program interaction data constraint failed: invalid byte sequence')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProgramInteractionInvalidByteSequenceError)
+    super("Program interaction data constraint failed: invalid byte sequence");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProgramInteractionInvalidByteSequenceError);
     }
   }
 }
@@ -1554,11 +1571,11 @@ export class ProgramInteractionInvalidByteSequenceError extends Error {
 createErrorFromCodeLookup.set(
   0x17b1,
   () => new ProgramInteractionInvalidByteSequenceError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionInvalidByteSequence',
+  "ProgramInteractionInvalidByteSequence",
   () => new ProgramInteractionInvalidByteSequenceError()
-)
+);
 
 /**
  * ProgramInteractionUnsupportedSliceOperator: 'Program interaction data constraint failed: unsupported operator for byte slice'
@@ -1567,17 +1584,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionUnsupportedSliceOperatorError extends Error {
-  readonly code: number = 0x17b2
-  readonly name: string = 'ProgramInteractionUnsupportedSliceOperator'
+  readonly code: number = 0x17b2;
+  readonly name: string = "ProgramInteractionUnsupportedSliceOperator";
   constructor() {
     super(
-      'Program interaction data constraint failed: unsupported operator for byte slice'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction data constraint failed: unsupported operator for byte slice"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionUnsupportedSliceOperatorError
-      )
+      );
     }
   }
 }
@@ -1585,11 +1602,11 @@ export class ProgramInteractionUnsupportedSliceOperatorError extends Error {
 createErrorFromCodeLookup.set(
   0x17b2,
   () => new ProgramInteractionUnsupportedSliceOperatorError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionUnsupportedSliceOperator',
+  "ProgramInteractionUnsupportedSliceOperator",
   () => new ProgramInteractionUnsupportedSliceOperatorError()
-)
+);
 
 /**
  * ProgramInteractionDataParsingError: 'Program interaction constraint failed: instruction data parsing error'
@@ -1598,14 +1615,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionDataParsingErrorError extends Error {
-  readonly code: number = 0x17b3
-  readonly name: string = 'ProgramInteractionDataParsingError'
+  readonly code: number = 0x17b3;
+  readonly name: string = "ProgramInteractionDataParsingError";
   constructor() {
     super(
-      'Program interaction constraint failed: instruction data parsing error'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProgramInteractionDataParsingErrorError)
+      "Program interaction constraint failed: instruction data parsing error"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProgramInteractionDataParsingErrorError);
     }
   }
 }
@@ -1613,11 +1630,11 @@ export class ProgramInteractionDataParsingErrorError extends Error {
 createErrorFromCodeLookup.set(
   0x17b3,
   () => new ProgramInteractionDataParsingErrorError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionDataParsingError',
+  "ProgramInteractionDataParsingError",
   () => new ProgramInteractionDataParsingErrorError()
-)
+);
 
 /**
  * ProgramInteractionProgramIdMismatch: 'Program interaction constraint failed: program ID mismatch'
@@ -1626,12 +1643,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionProgramIdMismatchError extends Error {
-  readonly code: number = 0x17b4
-  readonly name: string = 'ProgramInteractionProgramIdMismatch'
+  readonly code: number = 0x17b4;
+  readonly name: string = "ProgramInteractionProgramIdMismatch";
   constructor() {
-    super('Program interaction constraint failed: program ID mismatch')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProgramInteractionProgramIdMismatchError)
+    super("Program interaction constraint failed: program ID mismatch");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProgramInteractionProgramIdMismatchError);
     }
   }
 }
@@ -1639,11 +1656,11 @@ export class ProgramInteractionProgramIdMismatchError extends Error {
 createErrorFromCodeLookup.set(
   0x17b4,
   () => new ProgramInteractionProgramIdMismatchError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionProgramIdMismatch',
+  "ProgramInteractionProgramIdMismatch",
   () => new ProgramInteractionProgramIdMismatchError()
-)
+);
 
 /**
  * ProgramInteractionAccountConstraintViolated: 'Program interaction constraint violation: account constraint'
@@ -1652,15 +1669,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionAccountConstraintViolatedError extends Error {
-  readonly code: number = 0x17b5
-  readonly name: string = 'ProgramInteractionAccountConstraintViolated'
+  readonly code: number = 0x17b5;
+  readonly name: string = "ProgramInteractionAccountConstraintViolated";
   constructor() {
-    super('Program interaction constraint violation: account constraint')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Program interaction constraint violation: account constraint");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionAccountConstraintViolatedError
-      )
+      );
     }
   }
 }
@@ -1668,11 +1685,11 @@ export class ProgramInteractionAccountConstraintViolatedError extends Error {
 createErrorFromCodeLookup.set(
   0x17b5,
   () => new ProgramInteractionAccountConstraintViolatedError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionAccountConstraintViolated',
+  "ProgramInteractionAccountConstraintViolated",
   () => new ProgramInteractionAccountConstraintViolatedError()
-)
+);
 
 /**
  * ProgramInteractionConstraintIndexOutOfBounds: 'Program interaction constraint violation: instruction constraint index out of bounds'
@@ -1681,17 +1698,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionConstraintIndexOutOfBoundsError extends Error {
-  readonly code: number = 0x17b6
-  readonly name: string = 'ProgramInteractionConstraintIndexOutOfBounds'
+  readonly code: number = 0x17b6;
+  readonly name: string = "ProgramInteractionConstraintIndexOutOfBounds";
   constructor() {
     super(
-      'Program interaction constraint violation: instruction constraint index out of bounds'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: instruction constraint index out of bounds"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionConstraintIndexOutOfBoundsError
-      )
+      );
     }
   }
 }
@@ -1699,11 +1716,11 @@ export class ProgramInteractionConstraintIndexOutOfBoundsError extends Error {
 createErrorFromCodeLookup.set(
   0x17b6,
   () => new ProgramInteractionConstraintIndexOutOfBoundsError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionConstraintIndexOutOfBounds',
+  "ProgramInteractionConstraintIndexOutOfBounds",
   () => new ProgramInteractionConstraintIndexOutOfBoundsError()
-)
+);
 
 /**
  * ProgramInteractionInstructionCountMismatch: 'Program interaction constraint violation: instruction count mismatch'
@@ -1712,17 +1729,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionInstructionCountMismatchError extends Error {
-  readonly code: number = 0x17b7
-  readonly name: string = 'ProgramInteractionInstructionCountMismatch'
+  readonly code: number = 0x17b7;
+  readonly name: string = "ProgramInteractionInstructionCountMismatch";
   constructor() {
     super(
-      'Program interaction constraint violation: instruction count mismatch'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: instruction count mismatch"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionInstructionCountMismatchError
-      )
+      );
     }
   }
 }
@@ -1730,11 +1747,11 @@ export class ProgramInteractionInstructionCountMismatchError extends Error {
 createErrorFromCodeLookup.set(
   0x17b7,
   () => new ProgramInteractionInstructionCountMismatchError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionInstructionCountMismatch',
+  "ProgramInteractionInstructionCountMismatch",
   () => new ProgramInteractionInstructionCountMismatchError()
-)
+);
 
 /**
  * ProgramInteractionInsufficientLamportAllowance: 'Program interaction constraint violation: insufficient remaining lamport allowance'
@@ -1743,17 +1760,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionInsufficientLamportAllowanceError extends Error {
-  readonly code: number = 0x17b8
-  readonly name: string = 'ProgramInteractionInsufficientLamportAllowance'
+  readonly code: number = 0x17b8;
+  readonly name: string = "ProgramInteractionInsufficientLamportAllowance";
   constructor() {
     super(
-      'Program interaction constraint violation: insufficient remaining lamport allowance'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: insufficient remaining lamport allowance"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionInsufficientLamportAllowanceError
-      )
+      );
     }
   }
 }
@@ -1761,11 +1778,11 @@ export class ProgramInteractionInsufficientLamportAllowanceError extends Error {
 createErrorFromCodeLookup.set(
   0x17b8,
   () => new ProgramInteractionInsufficientLamportAllowanceError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionInsufficientLamportAllowance',
+  "ProgramInteractionInsufficientLamportAllowance",
   () => new ProgramInteractionInsufficientLamportAllowanceError()
-)
+);
 
 /**
  * ProgramInteractionInsufficientTokenAllowance: 'Program interaction constraint violation: insufficient remaining token allowance'
@@ -1774,17 +1791,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionInsufficientTokenAllowanceError extends Error {
-  readonly code: number = 0x17b9
-  readonly name: string = 'ProgramInteractionInsufficientTokenAllowance'
+  readonly code: number = 0x17b9;
+  readonly name: string = "ProgramInteractionInsufficientTokenAllowance";
   constructor() {
     super(
-      'Program interaction constraint violation: insufficient remaining token allowance'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: insufficient remaining token allowance"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionInsufficientTokenAllowanceError
-      )
+      );
     }
   }
 }
@@ -1792,11 +1809,11 @@ export class ProgramInteractionInsufficientTokenAllowanceError extends Error {
 createErrorFromCodeLookup.set(
   0x17b9,
   () => new ProgramInteractionInsufficientTokenAllowanceError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionInsufficientTokenAllowance',
+  "ProgramInteractionInsufficientTokenAllowance",
   () => new ProgramInteractionInsufficientTokenAllowanceError()
-)
+);
 
 /**
  * ProgramInteractionModifiedIllegalBalance: 'Program interaction constraint violation: modified illegal balance'
@@ -1805,15 +1822,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionModifiedIllegalBalanceError extends Error {
-  readonly code: number = 0x17ba
-  readonly name: string = 'ProgramInteractionModifiedIllegalBalance'
+  readonly code: number = 0x17ba;
+  readonly name: string = "ProgramInteractionModifiedIllegalBalance";
   constructor() {
-    super('Program interaction constraint violation: modified illegal balance')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Program interaction constraint violation: modified illegal balance");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionModifiedIllegalBalanceError
-      )
+      );
     }
   }
 }
@@ -1821,11 +1838,11 @@ export class ProgramInteractionModifiedIllegalBalanceError extends Error {
 createErrorFromCodeLookup.set(
   0x17ba,
   () => new ProgramInteractionModifiedIllegalBalanceError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionModifiedIllegalBalance',
+  "ProgramInteractionModifiedIllegalBalance",
   () => new ProgramInteractionModifiedIllegalBalanceError()
-)
+);
 
 /**
  * ProgramInteractionIllegalTokenAccountModification: 'Program interaction constraint violation: illegal token account modification'
@@ -1834,17 +1851,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionIllegalTokenAccountModificationError extends Error {
-  readonly code: number = 0x17bb
-  readonly name: string = 'ProgramInteractionIllegalTokenAccountModification'
+  readonly code: number = 0x17bb;
+  readonly name: string = "ProgramInteractionIllegalTokenAccountModification";
   constructor() {
     super(
-      'Program interaction constraint violation: illegal token account modification'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: illegal token account modification"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionIllegalTokenAccountModificationError
-      )
+      );
     }
   }
 }
@@ -1852,11 +1869,11 @@ export class ProgramInteractionIllegalTokenAccountModificationError extends Erro
 createErrorFromCodeLookup.set(
   0x17bb,
   () => new ProgramInteractionIllegalTokenAccountModificationError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionIllegalTokenAccountModification',
+  "ProgramInteractionIllegalTokenAccountModification",
   () => new ProgramInteractionIllegalTokenAccountModificationError()
-)
+);
 
 /**
  * ProgramInteractionDuplicateSpendingLimit: 'Program interaction invariant violation: duplicate spending limit for the same mint'
@@ -1865,17 +1882,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionDuplicateSpendingLimitError extends Error {
-  readonly code: number = 0x17bc
-  readonly name: string = 'ProgramInteractionDuplicateSpendingLimit'
+  readonly code: number = 0x17bc;
+  readonly name: string = "ProgramInteractionDuplicateSpendingLimit";
   constructor() {
     super(
-      'Program interaction invariant violation: duplicate spending limit for the same mint'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction invariant violation: duplicate spending limit for the same mint"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionDuplicateSpendingLimitError
-      )
+      );
     }
   }
 }
@@ -1883,11 +1900,11 @@ export class ProgramInteractionDuplicateSpendingLimitError extends Error {
 createErrorFromCodeLookup.set(
   0x17bc,
   () => new ProgramInteractionDuplicateSpendingLimitError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionDuplicateSpendingLimit',
+  "ProgramInteractionDuplicateSpendingLimit",
   () => new ProgramInteractionDuplicateSpendingLimitError()
-)
+);
 
 /**
  * ProgramInteractionTooManyInstructionConstraints: 'Program interaction constraint violation: too many instruction constraints. Max is 20'
@@ -1896,17 +1913,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionTooManyInstructionConstraintsError extends Error {
-  readonly code: number = 0x17bd
-  readonly name: string = 'ProgramInteractionTooManyInstructionConstraints'
+  readonly code: number = 0x17bd;
+  readonly name: string = "ProgramInteractionTooManyInstructionConstraints";
   constructor() {
     super(
-      'Program interaction constraint violation: too many instruction constraints. Max is 20'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: too many instruction constraints. Max is 20"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionTooManyInstructionConstraintsError
-      )
+      );
     }
   }
 }
@@ -1914,11 +1931,11 @@ export class ProgramInteractionTooManyInstructionConstraintsError extends Error 
 createErrorFromCodeLookup.set(
   0x17bd,
   () => new ProgramInteractionTooManyInstructionConstraintsError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionTooManyInstructionConstraints',
+  "ProgramInteractionTooManyInstructionConstraints",
   () => new ProgramInteractionTooManyInstructionConstraintsError()
-)
+);
 
 /**
  * ProgramInteractionTooManySpendingLimits: 'Program interaction constraint violation: too many spending limits. Max is 10'
@@ -1927,17 +1944,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionTooManySpendingLimitsError extends Error {
-  readonly code: number = 0x17be
-  readonly name: string = 'ProgramInteractionTooManySpendingLimits'
+  readonly code: number = 0x17be;
+  readonly name: string = "ProgramInteractionTooManySpendingLimits";
   constructor() {
     super(
-      'Program interaction constraint violation: too many spending limits. Max is 10'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction constraint violation: too many spending limits. Max is 10"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionTooManySpendingLimitsError
-      )
+      );
     }
   }
 }
@@ -1945,11 +1962,11 @@ export class ProgramInteractionTooManySpendingLimitsError extends Error {
 createErrorFromCodeLookup.set(
   0x17be,
   () => new ProgramInteractionTooManySpendingLimitsError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionTooManySpendingLimits',
+  "ProgramInteractionTooManySpendingLimits",
   () => new ProgramInteractionTooManySpendingLimitsError()
-)
+);
 
 /**
  * ProgramInteractionTemplateHookError: 'Program interaction hook violation: template hook error'
@@ -1958,12 +1975,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionTemplateHookErrorError extends Error {
-  readonly code: number = 0x17bf
-  readonly name: string = 'ProgramInteractionTemplateHookError'
+  readonly code: number = 0x17bf;
+  readonly name: string = "ProgramInteractionTemplateHookError";
   constructor() {
-    super('Program interaction hook violation: template hook error')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ProgramInteractionTemplateHookErrorError)
+    super("Program interaction hook violation: template hook error");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ProgramInteractionTemplateHookErrorError);
     }
   }
 }
@@ -1971,11 +1988,11 @@ export class ProgramInteractionTemplateHookErrorError extends Error {
 createErrorFromCodeLookup.set(
   0x17bf,
   () => new ProgramInteractionTemplateHookErrorError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionTemplateHookError',
+  "ProgramInteractionTemplateHookError",
   () => new ProgramInteractionTemplateHookErrorError()
-)
+);
 
 /**
  * ProgramInteractionHookAuthorityCannotBePartOfHookAccounts: 'Program interaction hook violation: hook authority cannot be part of hook accounts'
@@ -1984,18 +2001,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ProgramInteractionHookAuthorityCannotBePartOfHookAccountsError extends Error {
-  readonly code: number = 0x17c0
+  readonly code: number = 0x17c0;
   readonly name: string =
-    'ProgramInteractionHookAuthorityCannotBePartOfHookAccounts'
+    "ProgramInteractionHookAuthorityCannotBePartOfHookAccounts";
   constructor() {
     super(
-      'Program interaction hook violation: hook authority cannot be part of hook accounts'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Program interaction hook violation: hook authority cannot be part of hook accounts"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         ProgramInteractionHookAuthorityCannotBePartOfHookAccountsError
-      )
+      );
     }
   }
 }
@@ -2003,11 +2020,11 @@ export class ProgramInteractionHookAuthorityCannotBePartOfHookAccountsError exte
 createErrorFromCodeLookup.set(
   0x17c0,
   () => new ProgramInteractionHookAuthorityCannotBePartOfHookAccountsError()
-)
+);
 createErrorFromNameLookup.set(
-  'ProgramInteractionHookAuthorityCannotBePartOfHookAccounts',
+  "ProgramInteractionHookAuthorityCannotBePartOfHookAccounts",
   () => new ProgramInteractionHookAuthorityCannotBePartOfHookAccountsError()
-)
+);
 
 /**
  * SpendingLimitNotActive: 'Spending limit is not active'
@@ -2016,21 +2033,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitNotActiveError extends Error {
-  readonly code: number = 0x17c1
-  readonly name: string = 'SpendingLimitNotActive'
+  readonly code: number = 0x17c1;
+  readonly name: string = "SpendingLimitNotActive";
   constructor() {
-    super('Spending limit is not active')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SpendingLimitNotActiveError)
+    super("Spending limit is not active");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SpendingLimitNotActiveError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17c1, () => new SpendingLimitNotActiveError())
+createErrorFromCodeLookup.set(0x17c1, () => new SpendingLimitNotActiveError());
 createErrorFromNameLookup.set(
-  'SpendingLimitNotActive',
+  "SpendingLimitNotActive",
   () => new SpendingLimitNotActiveError()
-)
+);
 
 /**
  * SpendingLimitExpired: 'Spending limit is expired'
@@ -2039,21 +2056,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitExpiredError extends Error {
-  readonly code: number = 0x17c2
-  readonly name: string = 'SpendingLimitExpired'
+  readonly code: number = 0x17c2;
+  readonly name: string = "SpendingLimitExpired";
   constructor() {
-    super('Spending limit is expired')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SpendingLimitExpiredError)
+    super("Spending limit is expired");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SpendingLimitExpiredError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17c2, () => new SpendingLimitExpiredError())
+createErrorFromCodeLookup.set(0x17c2, () => new SpendingLimitExpiredError());
 createErrorFromNameLookup.set(
-  'SpendingLimitExpired',
+  "SpendingLimitExpired",
   () => new SpendingLimitExpiredError()
-)
+);
 
 /**
  * SpendingLimitPolicyInvariantAccumulateUnused: 'Spending limit policy invariant violation: usage state cannot be Some() if accumulate_unused is true'
@@ -2062,17 +2079,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitPolicyInvariantAccumulateUnusedError extends Error {
-  readonly code: number = 0x17c3
-  readonly name: string = 'SpendingLimitPolicyInvariantAccumulateUnused'
+  readonly code: number = 0x17c3;
+  readonly name: string = "SpendingLimitPolicyInvariantAccumulateUnused";
   constructor() {
     super(
-      'Spending limit policy invariant violation: usage state cannot be Some() if accumulate_unused is true'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit policy invariant violation: usage state cannot be Some() if accumulate_unused is true"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitPolicyInvariantAccumulateUnusedError
-      )
+      );
     }
   }
 }
@@ -2080,11 +2097,11 @@ export class SpendingLimitPolicyInvariantAccumulateUnusedError extends Error {
 createErrorFromCodeLookup.set(
   0x17c3,
   () => new SpendingLimitPolicyInvariantAccumulateUnusedError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitPolicyInvariantAccumulateUnused',
+  "SpendingLimitPolicyInvariantAccumulateUnused",
   () => new SpendingLimitPolicyInvariantAccumulateUnusedError()
-)
+);
 
 /**
  * SpendingLimitViolatesExactQuantityConstraint: 'Amount violates exact quantity constraint'
@@ -2093,15 +2110,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitViolatesExactQuantityConstraintError extends Error {
-  readonly code: number = 0x17c4
-  readonly name: string = 'SpendingLimitViolatesExactQuantityConstraint'
+  readonly code: number = 0x17c4;
+  readonly name: string = "SpendingLimitViolatesExactQuantityConstraint";
   constructor() {
-    super('Amount violates exact quantity constraint')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Amount violates exact quantity constraint");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitViolatesExactQuantityConstraintError
-      )
+      );
     }
   }
 }
@@ -2109,11 +2126,11 @@ export class SpendingLimitViolatesExactQuantityConstraintError extends Error {
 createErrorFromCodeLookup.set(
   0x17c4,
   () => new SpendingLimitViolatesExactQuantityConstraintError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitViolatesExactQuantityConstraint',
+  "SpendingLimitViolatesExactQuantityConstraint",
   () => new SpendingLimitViolatesExactQuantityConstraintError()
-)
+);
 
 /**
  * SpendingLimitViolatesMaxPerUseConstraint: 'Amount violates max per use constraint'
@@ -2122,15 +2139,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitViolatesMaxPerUseConstraintError extends Error {
-  readonly code: number = 0x17c5
-  readonly name: string = 'SpendingLimitViolatesMaxPerUseConstraint'
+  readonly code: number = 0x17c5;
+  readonly name: string = "SpendingLimitViolatesMaxPerUseConstraint";
   constructor() {
-    super('Amount violates max per use constraint')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Amount violates max per use constraint");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitViolatesMaxPerUseConstraintError
-      )
+      );
     }
   }
 }
@@ -2138,11 +2155,11 @@ export class SpendingLimitViolatesMaxPerUseConstraintError extends Error {
 createErrorFromCodeLookup.set(
   0x17c5,
   () => new SpendingLimitViolatesMaxPerUseConstraintError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitViolatesMaxPerUseConstraint',
+  "SpendingLimitViolatesMaxPerUseConstraint",
   () => new SpendingLimitViolatesMaxPerUseConstraintError()
-)
+);
 
 /**
  * SpendingLimitInsufficientRemainingAmount: 'Spending limit is insufficient'
@@ -2151,15 +2168,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInsufficientRemainingAmountError extends Error {
-  readonly code: number = 0x17c6
-  readonly name: string = 'SpendingLimitInsufficientRemainingAmount'
+  readonly code: number = 0x17c6;
+  readonly name: string = "SpendingLimitInsufficientRemainingAmount";
   constructor() {
-    super('Spending limit is insufficient')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Spending limit is insufficient");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInsufficientRemainingAmountError
-      )
+      );
     }
   }
 }
@@ -2167,11 +2184,11 @@ export class SpendingLimitInsufficientRemainingAmountError extends Error {
 createErrorFromCodeLookup.set(
   0x17c6,
   () => new SpendingLimitInsufficientRemainingAmountError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInsufficientRemainingAmount',
+  "SpendingLimitInsufficientRemainingAmount",
   () => new SpendingLimitInsufficientRemainingAmountError()
-)
+);
 
 /**
  * SpendingLimitInvariantMaxPerPeriodZero: 'Spending limit invariant violation: max per period must be non-zero'
@@ -2180,12 +2197,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantMaxPerPeriodZeroError extends Error {
-  readonly code: number = 0x17c7
-  readonly name: string = 'SpendingLimitInvariantMaxPerPeriodZero'
+  readonly code: number = 0x17c7;
+  readonly name: string = "SpendingLimitInvariantMaxPerPeriodZero";
   constructor() {
-    super('Spending limit invariant violation: max per period must be non-zero')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SpendingLimitInvariantMaxPerPeriodZeroError)
+    super(
+      "Spending limit invariant violation: max per period must be non-zero"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(
+        this,
+        SpendingLimitInvariantMaxPerPeriodZeroError
+      );
     }
   }
 }
@@ -2193,11 +2215,11 @@ export class SpendingLimitInvariantMaxPerPeriodZeroError extends Error {
 createErrorFromCodeLookup.set(
   0x17c7,
   () => new SpendingLimitInvariantMaxPerPeriodZeroError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantMaxPerPeriodZero',
+  "SpendingLimitInvariantMaxPerPeriodZero",
   () => new SpendingLimitInvariantMaxPerPeriodZeroError()
-)
+);
 
 /**
  * SpendingLimitInvariantStartTimePositive: 'Spending limit invariant violation: start time must be positive'
@@ -2206,15 +2228,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantStartTimePositiveError extends Error {
-  readonly code: number = 0x17c8
-  readonly name: string = 'SpendingLimitInvariantStartTimePositive'
+  readonly code: number = 0x17c8;
+  readonly name: string = "SpendingLimitInvariantStartTimePositive";
   constructor() {
-    super('Spending limit invariant violation: start time must be positive')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Spending limit invariant violation: start time must be positive");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantStartTimePositiveError
-      )
+      );
     }
   }
 }
@@ -2222,11 +2244,11 @@ export class SpendingLimitInvariantStartTimePositiveError extends Error {
 createErrorFromCodeLookup.set(
   0x17c8,
   () => new SpendingLimitInvariantStartTimePositiveError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantStartTimePositive',
+  "SpendingLimitInvariantStartTimePositive",
   () => new SpendingLimitInvariantStartTimePositiveError()
-)
+);
 
 /**
  * SpendingLimitInvariantExpirationSmallerThanStart: 'Spending limit invariant violation: expiration must be greater than start'
@@ -2235,17 +2257,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantExpirationSmallerThanStartError extends Error {
-  readonly code: number = 0x17c9
-  readonly name: string = 'SpendingLimitInvariantExpirationSmallerThanStart'
+  readonly code: number = 0x17c9;
+  readonly name: string = "SpendingLimitInvariantExpirationSmallerThanStart";
   constructor() {
     super(
-      'Spending limit invariant violation: expiration must be greater than start'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: expiration must be greater than start"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantExpirationSmallerThanStartError
-      )
+      );
     }
   }
 }
@@ -2253,11 +2275,11 @@ export class SpendingLimitInvariantExpirationSmallerThanStartError extends Error
 createErrorFromCodeLookup.set(
   0x17c9,
   () => new SpendingLimitInvariantExpirationSmallerThanStartError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantExpirationSmallerThanStart',
+  "SpendingLimitInvariantExpirationSmallerThanStart",
   () => new SpendingLimitInvariantExpirationSmallerThanStartError()
-)
+);
 
 /**
  * SpendingLimitInvariantOverflowEnabledMustHaveExpiration: 'Spending limit invariant violation: overflow enabled must have expiration'
@@ -2266,18 +2288,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantOverflowEnabledMustHaveExpirationError extends Error {
-  readonly code: number = 0x17ca
+  readonly code: number = 0x17ca;
   readonly name: string =
-    'SpendingLimitInvariantOverflowEnabledMustHaveExpiration'
+    "SpendingLimitInvariantOverflowEnabledMustHaveExpiration";
   constructor() {
     super(
-      'Spending limit invariant violation: overflow enabled must have expiration'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: overflow enabled must have expiration"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantOverflowEnabledMustHaveExpirationError
-      )
+      );
     }
   }
 }
@@ -2285,11 +2307,11 @@ export class SpendingLimitInvariantOverflowEnabledMustHaveExpirationError extend
 createErrorFromCodeLookup.set(
   0x17ca,
   () => new SpendingLimitInvariantOverflowEnabledMustHaveExpirationError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantOverflowEnabledMustHaveExpiration',
+  "SpendingLimitInvariantOverflowEnabledMustHaveExpiration",
   () => new SpendingLimitInvariantOverflowEnabledMustHaveExpirationError()
-)
+);
 
 /**
  * SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabled: 'Spending limit invariant violation: one time period cannot have overflow enabled'
@@ -2298,18 +2320,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabledError extends Error {
-  readonly code: number = 0x17cb
+  readonly code: number = 0x17cb;
   readonly name: string =
-    'SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabled'
+    "SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabled";
   constructor() {
     super(
-      'Spending limit invariant violation: one time period cannot have overflow enabled'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: one time period cannot have overflow enabled"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabledError
-      )
+      );
     }
   }
 }
@@ -2317,11 +2339,11 @@ export class SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabledError e
 createErrorFromCodeLookup.set(
   0x17cb,
   () => new SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabledError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabled',
+  "SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabled",
   () => new SpendingLimitInvariantOneTimePeriodCannotHaveOverflowEnabledError()
-)
+);
 
 /**
  * SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmount: 'Spending limit invariant violation: remaining amount must be less than max amount'
@@ -2330,18 +2352,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmountError extends Error {
-  readonly code: number = 0x17cc
+  readonly code: number = 0x17cc;
   readonly name: string =
-    'SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmount'
+    "SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmount";
   constructor() {
     super(
-      'Spending limit invariant violation: remaining amount must be less than max amount'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: remaining amount must be less than max amount"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmountError
-      )
+      );
     }
   }
 }
@@ -2350,12 +2372,12 @@ createErrorFromCodeLookup.set(
   0x17cc,
   () =>
     new SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmountError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmount',
+  "SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmount",
   () =>
     new SpendingLimitInvariantOverflowRemainingAmountGreaterThanMaxAmountError()
-)
+);
 
 /**
  * SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriod: 'Spending limit invariant violation: remaining amount must be less than or equal to max per period'
@@ -2364,18 +2386,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriodError extends Error {
-  readonly code: number = 0x17cd
+  readonly code: number = 0x17cd;
   readonly name: string =
-    'SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriod'
+    "SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriod";
   constructor() {
     super(
-      'Spending limit invariant violation: remaining amount must be less than or equal to max per period'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: remaining amount must be less than or equal to max per period"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriodError
-      )
+      );
     }
   }
 }
@@ -2383,11 +2405,11 @@ export class SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriodError e
 createErrorFromCodeLookup.set(
   0x17cd,
   () => new SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriodError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriod',
+  "SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriod",
   () => new SpendingLimitInvariantRemainingAmountGreaterThanMaxPerPeriodError()
-)
+);
 
 /**
  * SpendingLimitInvariantExactQuantityMaxPerUseZero: 'Spending limit invariant violation: exact quantity must have max per use non-zero'
@@ -2396,17 +2418,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantExactQuantityMaxPerUseZeroError extends Error {
-  readonly code: number = 0x17ce
-  readonly name: string = 'SpendingLimitInvariantExactQuantityMaxPerUseZero'
+  readonly code: number = 0x17ce;
+  readonly name: string = "SpendingLimitInvariantExactQuantityMaxPerUseZero";
   constructor() {
     super(
-      'Spending limit invariant violation: exact quantity must have max per use non-zero'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: exact quantity must have max per use non-zero"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantExactQuantityMaxPerUseZeroError
-      )
+      );
     }
   }
 }
@@ -2414,11 +2436,11 @@ export class SpendingLimitInvariantExactQuantityMaxPerUseZeroError extends Error
 createErrorFromCodeLookup.set(
   0x17ce,
   () => new SpendingLimitInvariantExactQuantityMaxPerUseZeroError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantExactQuantityMaxPerUseZero',
+  "SpendingLimitInvariantExactQuantityMaxPerUseZero",
   () => new SpendingLimitInvariantExactQuantityMaxPerUseZeroError()
-)
+);
 
 /**
  * SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriod: 'Spending limit invariant violation: max per use must be less than or equal to max per period'
@@ -2427,18 +2449,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriodError extends Error {
-  readonly code: number = 0x17cf
+  readonly code: number = 0x17cf;
   readonly name: string =
-    'SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriod'
+    "SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriod";
   constructor() {
     super(
-      'Spending limit invariant violation: max per use must be less than or equal to max per period'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: max per use must be less than or equal to max per period"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriodError
-      )
+      );
     }
   }
 }
@@ -2446,11 +2468,11 @@ export class SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriodError extends
 createErrorFromCodeLookup.set(
   0x17cf,
   () => new SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriodError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriod',
+  "SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriod",
   () => new SpendingLimitInvariantMaxPerUseGreaterThanMaxPerPeriodError()
-)
+);
 
 /**
  * SpendingLimitInvariantCustomPeriodNegative: 'Spending limit invariant violation: custom period must be positive'
@@ -2459,15 +2481,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantCustomPeriodNegativeError extends Error {
-  readonly code: number = 0x17d0
-  readonly name: string = 'SpendingLimitInvariantCustomPeriodNegative'
+  readonly code: number = 0x17d0;
+  readonly name: string = "SpendingLimitInvariantCustomPeriodNegative";
   constructor() {
-    super('Spending limit invariant violation: custom period must be positive')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Spending limit invariant violation: custom period must be positive");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantCustomPeriodNegativeError
-      )
+      );
     }
   }
 }
@@ -2475,11 +2497,11 @@ export class SpendingLimitInvariantCustomPeriodNegativeError extends Error {
 createErrorFromCodeLookup.set(
   0x17d0,
   () => new SpendingLimitInvariantCustomPeriodNegativeError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantCustomPeriodNegative',
+  "SpendingLimitInvariantCustomPeriodNegative",
   () => new SpendingLimitInvariantCustomPeriodNegativeError()
-)
+);
 
 /**
  * SpendingLimitPolicyInvariantDuplicateDestinations: 'Spending limit policy invariant violation: cannot have duplicate destinations for the same mint'
@@ -2488,17 +2510,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitPolicyInvariantDuplicateDestinationsError extends Error {
-  readonly code: number = 0x17d1
-  readonly name: string = 'SpendingLimitPolicyInvariantDuplicateDestinations'
+  readonly code: number = 0x17d1;
+  readonly name: string = "SpendingLimitPolicyInvariantDuplicateDestinations";
   constructor() {
     super(
-      'Spending limit policy invariant violation: cannot have duplicate destinations for the same mint'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit policy invariant violation: cannot have duplicate destinations for the same mint"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitPolicyInvariantDuplicateDestinationsError
-      )
+      );
     }
   }
 }
@@ -2506,11 +2528,11 @@ export class SpendingLimitPolicyInvariantDuplicateDestinationsError extends Erro
 createErrorFromCodeLookup.set(
   0x17d1,
   () => new SpendingLimitPolicyInvariantDuplicateDestinationsError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitPolicyInvariantDuplicateDestinations',
+  "SpendingLimitPolicyInvariantDuplicateDestinations",
   () => new SpendingLimitPolicyInvariantDuplicateDestinationsError()
-)
+);
 
 /**
  * SpendingLimitInvariantLastResetOutOfBounds: 'Spending limit invariant violation: last reset must be between start and expiration'
@@ -2519,17 +2541,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantLastResetOutOfBoundsError extends Error {
-  readonly code: number = 0x17d2
-  readonly name: string = 'SpendingLimitInvariantLastResetOutOfBounds'
+  readonly code: number = 0x17d2;
+  readonly name: string = "SpendingLimitInvariantLastResetOutOfBounds";
   constructor() {
     super(
-      'Spending limit invariant violation: last reset must be between start and expiration'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: last reset must be between start and expiration"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantLastResetOutOfBoundsError
-      )
+      );
     }
   }
 }
@@ -2537,11 +2559,11 @@ export class SpendingLimitInvariantLastResetOutOfBoundsError extends Error {
 createErrorFromCodeLookup.set(
   0x17d2,
   () => new SpendingLimitInvariantLastResetOutOfBoundsError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantLastResetOutOfBounds',
+  "SpendingLimitInvariantLastResetOutOfBounds",
   () => new SpendingLimitInvariantLastResetOutOfBoundsError()
-)
+);
 
 /**
  * SpendingLimitInvariantLastResetSmallerThanStart: 'Spending limit invariant violation: last reset must be greater than start'
@@ -2550,17 +2572,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SpendingLimitInvariantLastResetSmallerThanStartError extends Error {
-  readonly code: number = 0x17d3
-  readonly name: string = 'SpendingLimitInvariantLastResetSmallerThanStart'
+  readonly code: number = 0x17d3;
+  readonly name: string = "SpendingLimitInvariantLastResetSmallerThanStart";
   constructor() {
     super(
-      'Spending limit invariant violation: last reset must be greater than start'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Spending limit invariant violation: last reset must be greater than start"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SpendingLimitInvariantLastResetSmallerThanStartError
-      )
+      );
     }
   }
 }
@@ -2568,11 +2590,11 @@ export class SpendingLimitInvariantLastResetSmallerThanStartError extends Error 
 createErrorFromCodeLookup.set(
   0x17d3,
   () => new SpendingLimitInvariantLastResetSmallerThanStartError()
-)
+);
 createErrorFromNameLookup.set(
-  'SpendingLimitInvariantLastResetSmallerThanStart',
+  "SpendingLimitInvariantLastResetSmallerThanStart",
   () => new SpendingLimitInvariantLastResetSmallerThanStartError()
-)
+);
 
 /**
  * InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowed: 'Internal fund transfer policy invariant violation: source account index is not allowed'
@@ -2581,18 +2603,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowedError extends Error {
-  readonly code: number = 0x17d4
+  readonly code: number = 0x17d4;
   readonly name: string =
-    'InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowed'
+    "InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowed";
   constructor() {
     super(
-      'Internal fund transfer policy invariant violation: source account index is not allowed'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Internal fund transfer policy invariant violation: source account index is not allowed"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowedError
-      )
+      );
     }
   }
 }
@@ -2601,12 +2623,12 @@ createErrorFromCodeLookup.set(
   0x17d4,
   () =>
     new InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowedError()
-)
+);
 createErrorFromNameLookup.set(
-  'InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowed',
+  "InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowed",
   () =>
     new InternalFundTransferPolicyInvariantSourceAccountIndexNotAllowedError()
-)
+);
 
 /**
  * InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowed: 'Internal fund transfer policy invariant violation: destination account index is not allowed'
@@ -2615,18 +2637,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowedError extends Error {
-  readonly code: number = 0x17d5
+  readonly code: number = 0x17d5;
   readonly name: string =
-    'InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowed'
+    "InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowed";
   constructor() {
     super(
-      'Internal fund transfer policy invariant violation: destination account index is not allowed'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Internal fund transfer policy invariant violation: destination account index is not allowed"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowedError
-      )
+      );
     }
   }
 }
@@ -2635,12 +2657,12 @@ createErrorFromCodeLookup.set(
   0x17d5,
   () =>
     new InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowedError()
-)
+);
 createErrorFromNameLookup.set(
-  'InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowed',
+  "InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowed",
   () =>
     new InternalFundTransferPolicyInvariantDestinationAccountIndexNotAllowedError()
-)
+);
 
 /**
  * InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSame: 'Internal fund transfer policy invariant violation: source and destination cannot be the same'
@@ -2649,18 +2671,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSameError extends Error {
-  readonly code: number = 0x17d6
+  readonly code: number = 0x17d6;
   readonly name: string =
-    'InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSame'
+    "InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSame";
   constructor() {
     super(
-      'Internal fund transfer policy invariant violation: source and destination cannot be the same'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Internal fund transfer policy invariant violation: source and destination cannot be the same"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSameError
-      )
+      );
     }
   }
 }
@@ -2669,12 +2691,12 @@ createErrorFromCodeLookup.set(
   0x17d6,
   () =>
     new InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSameError()
-)
+);
 createErrorFromNameLookup.set(
-  'InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSame',
+  "InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSame",
   () =>
     new InternalFundTransferPolicyInvariantSourceAndDestinationCannotBeTheSameError()
-)
+);
 
 /**
  * InternalFundTransferPolicyInvariantMintNotAllowed: 'Internal fund transfer policy invariant violation: mint is not allowed'
@@ -2683,17 +2705,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InternalFundTransferPolicyInvariantMintNotAllowedError extends Error {
-  readonly code: number = 0x17d7
-  readonly name: string = 'InternalFundTransferPolicyInvariantMintNotAllowed'
+  readonly code: number = 0x17d7;
+  readonly name: string = "InternalFundTransferPolicyInvariantMintNotAllowed";
   constructor() {
     super(
-      'Internal fund transfer policy invariant violation: mint is not allowed'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Internal fund transfer policy invariant violation: mint is not allowed"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         InternalFundTransferPolicyInvariantMintNotAllowedError
-      )
+      );
     }
   }
 }
@@ -2701,11 +2723,11 @@ export class InternalFundTransferPolicyInvariantMintNotAllowedError extends Erro
 createErrorFromCodeLookup.set(
   0x17d7,
   () => new InternalFundTransferPolicyInvariantMintNotAllowedError()
-)
+);
 createErrorFromNameLookup.set(
-  'InternalFundTransferPolicyInvariantMintNotAllowed',
+  "InternalFundTransferPolicyInvariantMintNotAllowed",
   () => new InternalFundTransferPolicyInvariantMintNotAllowedError()
-)
+);
 
 /**
  * InternalFundTransferPolicyInvariantAmountZero: 'Internal fund transfer policy invariant violation: amount must be greater than 0'
@@ -2714,17 +2736,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InternalFundTransferPolicyInvariantAmountZeroError extends Error {
-  readonly code: number = 0x17d8
-  readonly name: string = 'InternalFundTransferPolicyInvariantAmountZero'
+  readonly code: number = 0x17d8;
+  readonly name: string = "InternalFundTransferPolicyInvariantAmountZero";
   constructor() {
     super(
-      'Internal fund transfer policy invariant violation: amount must be greater than 0'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Internal fund transfer policy invariant violation: amount must be greater than 0"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         InternalFundTransferPolicyInvariantAmountZeroError
-      )
+      );
     }
   }
 }
@@ -2732,11 +2754,11 @@ export class InternalFundTransferPolicyInvariantAmountZeroError extends Error {
 createErrorFromCodeLookup.set(
   0x17d8,
   () => new InternalFundTransferPolicyInvariantAmountZeroError()
-)
+);
 createErrorFromNameLookup.set(
-  'InternalFundTransferPolicyInvariantAmountZero',
+  "InternalFundTransferPolicyInvariantAmountZero",
   () => new InternalFundTransferPolicyInvariantAmountZeroError()
-)
+);
 
 /**
  * InternalFundTransferPolicyInvariantDuplicateMints: 'Internal fund transfer policy invariant violation: cannot have duplicate mints'
@@ -2745,17 +2767,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class InternalFundTransferPolicyInvariantDuplicateMintsError extends Error {
-  readonly code: number = 0x17d9
-  readonly name: string = 'InternalFundTransferPolicyInvariantDuplicateMints'
+  readonly code: number = 0x17d9;
+  readonly name: string = "InternalFundTransferPolicyInvariantDuplicateMints";
   constructor() {
     super(
-      'Internal fund transfer policy invariant violation: cannot have duplicate mints'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Internal fund transfer policy invariant violation: cannot have duplicate mints"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         InternalFundTransferPolicyInvariantDuplicateMintsError
-      )
+      );
     }
   }
 }
@@ -2763,11 +2785,11 @@ export class InternalFundTransferPolicyInvariantDuplicateMintsError extends Erro
 createErrorFromCodeLookup.set(
   0x17d9,
   () => new InternalFundTransferPolicyInvariantDuplicateMintsError()
-)
+);
 createErrorFromNameLookup.set(
-  'InternalFundTransferPolicyInvariantDuplicateMints',
+  "InternalFundTransferPolicyInvariantDuplicateMints",
   () => new InternalFundTransferPolicyInvariantDuplicateMintsError()
-)
+);
 
 /**
  * ConsensusAccountNotSettings: 'Consensus account is not a settings'
@@ -2776,12 +2798,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ConsensusAccountNotSettingsError extends Error {
-  readonly code: number = 0x17da
-  readonly name: string = 'ConsensusAccountNotSettings'
+  readonly code: number = 0x17da;
+  readonly name: string = "ConsensusAccountNotSettings";
   constructor() {
-    super('Consensus account is not a settings')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ConsensusAccountNotSettingsError)
+    super("Consensus account is not a settings");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ConsensusAccountNotSettingsError);
     }
   }
 }
@@ -2789,11 +2811,11 @@ export class ConsensusAccountNotSettingsError extends Error {
 createErrorFromCodeLookup.set(
   0x17da,
   () => new ConsensusAccountNotSettingsError()
-)
+);
 createErrorFromNameLookup.set(
-  'ConsensusAccountNotSettings',
+  "ConsensusAccountNotSettings",
   () => new ConsensusAccountNotSettingsError()
-)
+);
 
 /**
  * ConsensusAccountNotPolicy: 'Consensus account is not a policy'
@@ -2802,12 +2824,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class ConsensusAccountNotPolicyError extends Error {
-  readonly code: number = 0x17db
-  readonly name: string = 'ConsensusAccountNotPolicy'
+  readonly code: number = 0x17db;
+  readonly name: string = "ConsensusAccountNotPolicy";
   constructor() {
-    super('Consensus account is not a policy')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, ConsensusAccountNotPolicyError)
+    super("Consensus account is not a policy");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, ConsensusAccountNotPolicyError);
     }
   }
 }
@@ -2815,11 +2837,11 @@ export class ConsensusAccountNotPolicyError extends Error {
 createErrorFromCodeLookup.set(
   0x17db,
   () => new ConsensusAccountNotPolicyError()
-)
+);
 createErrorFromNameLookup.set(
-  'ConsensusAccountNotPolicy',
+  "ConsensusAccountNotPolicy",
   () => new ConsensusAccountNotPolicyError()
-)
+);
 
 /**
  * SettingsChangePolicyActionsMustBeNonZero: 'Settings change policy invariant violation: actions must be non-zero'
@@ -2828,17 +2850,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangePolicyActionsMustBeNonZeroError extends Error {
-  readonly code: number = 0x17dc
-  readonly name: string = 'SettingsChangePolicyActionsMustBeNonZero'
+  readonly code: number = 0x17dc;
+  readonly name: string = "SettingsChangePolicyActionsMustBeNonZero";
   constructor() {
     super(
-      'Settings change policy invariant violation: actions must be non-zero'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Settings change policy invariant violation: actions must be non-zero"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SettingsChangePolicyActionsMustBeNonZeroError
-      )
+      );
     }
   }
 }
@@ -2846,11 +2868,11 @@ export class SettingsChangePolicyActionsMustBeNonZeroError extends Error {
 createErrorFromCodeLookup.set(
   0x17dc,
   () => new SettingsChangePolicyActionsMustBeNonZeroError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangePolicyActionsMustBeNonZero',
+  "SettingsChangePolicyActionsMustBeNonZero",
   () => new SettingsChangePolicyActionsMustBeNonZeroError()
-)
+);
 
 /**
  * SettingsChangeInvalidSettingsKey: 'Settings change policy violation: submitted settings account must match policy settings key'
@@ -2859,14 +2881,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeInvalidSettingsKeyError extends Error {
-  readonly code: number = 0x17dd
-  readonly name: string = 'SettingsChangeInvalidSettingsKey'
+  readonly code: number = 0x17dd;
+  readonly name: string = "SettingsChangeInvalidSettingsKey";
   constructor() {
     super(
-      'Settings change policy violation: submitted settings account must match policy settings key'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeInvalidSettingsKeyError)
+      "Settings change policy violation: submitted settings account must match policy settings key"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeInvalidSettingsKeyError);
     }
   }
 }
@@ -2874,11 +2896,11 @@ export class SettingsChangeInvalidSettingsKeyError extends Error {
 createErrorFromCodeLookup.set(
   0x17dd,
   () => new SettingsChangeInvalidSettingsKeyError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeInvalidSettingsKey',
+  "SettingsChangeInvalidSettingsKey",
   () => new SettingsChangeInvalidSettingsKeyError()
-)
+);
 
 /**
  * SettingsChangeInvalidSettingsAccount: 'Settings change policy violation: submitted settings account must be writable'
@@ -2887,14 +2909,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeInvalidSettingsAccountError extends Error {
-  readonly code: number = 0x17de
-  readonly name: string = 'SettingsChangeInvalidSettingsAccount'
+  readonly code: number = 0x17de;
+  readonly name: string = "SettingsChangeInvalidSettingsAccount";
   constructor() {
     super(
-      'Settings change policy violation: submitted settings account must be writable'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeInvalidSettingsAccountError)
+      "Settings change policy violation: submitted settings account must be writable"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeInvalidSettingsAccountError);
     }
   }
 }
@@ -2902,11 +2924,11 @@ export class SettingsChangeInvalidSettingsAccountError extends Error {
 createErrorFromCodeLookup.set(
   0x17de,
   () => new SettingsChangeInvalidSettingsAccountError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeInvalidSettingsAccount',
+  "SettingsChangeInvalidSettingsAccount",
   () => new SettingsChangeInvalidSettingsAccountError()
-)
+);
 
 /**
  * SettingsChangeInvalidRentPayer: 'Settings change policy violation: rent payer must be writable and signer'
@@ -2915,14 +2937,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeInvalidRentPayerError extends Error {
-  readonly code: number = 0x17df
-  readonly name: string = 'SettingsChangeInvalidRentPayer'
+  readonly code: number = 0x17df;
+  readonly name: string = "SettingsChangeInvalidRentPayer";
   constructor() {
     super(
-      'Settings change policy violation: rent payer must be writable and signer'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeInvalidRentPayerError)
+      "Settings change policy violation: rent payer must be writable and signer"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeInvalidRentPayerError);
     }
   }
 }
@@ -2930,11 +2952,11 @@ export class SettingsChangeInvalidRentPayerError extends Error {
 createErrorFromCodeLookup.set(
   0x17df,
   () => new SettingsChangeInvalidRentPayerError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeInvalidRentPayer',
+  "SettingsChangeInvalidRentPayer",
   () => new SettingsChangeInvalidRentPayerError()
-)
+);
 
 /**
  * SettingsChangeInvalidSystemProgram: 'Settings change policy violation: system program must be the system program'
@@ -2943,14 +2965,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeInvalidSystemProgramError extends Error {
-  readonly code: number = 0x17e0
-  readonly name: string = 'SettingsChangeInvalidSystemProgram'
+  readonly code: number = 0x17e0;
+  readonly name: string = "SettingsChangeInvalidSystemProgram";
   constructor() {
     super(
-      'Settings change policy violation: system program must be the system program'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeInvalidSystemProgramError)
+      "Settings change policy violation: system program must be the system program"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeInvalidSystemProgramError);
     }
   }
 }
@@ -2958,11 +2980,11 @@ export class SettingsChangeInvalidSystemProgramError extends Error {
 createErrorFromCodeLookup.set(
   0x17e0,
   () => new SettingsChangeInvalidSystemProgramError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeInvalidSystemProgram',
+  "SettingsChangeInvalidSystemProgram",
   () => new SettingsChangeInvalidSystemProgramError()
-)
+);
 
 /**
  * SettingsChangeAddSignerViolation: 'Settings change policy violation: signer does not match allowed signer'
@@ -2971,14 +2993,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeAddSignerViolationError extends Error {
-  readonly code: number = 0x17e1
-  readonly name: string = 'SettingsChangeAddSignerViolation'
+  readonly code: number = 0x17e1;
+  readonly name: string = "SettingsChangeAddSignerViolation";
   constructor() {
     super(
-      'Settings change policy violation: signer does not match allowed signer'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeAddSignerViolationError)
+      "Settings change policy violation: signer does not match allowed signer"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeAddSignerViolationError);
     }
   }
 }
@@ -2986,11 +3008,11 @@ export class SettingsChangeAddSignerViolationError extends Error {
 createErrorFromCodeLookup.set(
   0x17e1,
   () => new SettingsChangeAddSignerViolationError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeAddSignerViolation',
+  "SettingsChangeAddSignerViolation",
   () => new SettingsChangeAddSignerViolationError()
-)
+);
 
 /**
  * SettingsChangeAddSignerPermissionsViolation: 'Settings change policy violation: signer permissions does not match allowed signer permissions'
@@ -2999,17 +3021,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeAddSignerPermissionsViolationError extends Error {
-  readonly code: number = 0x17e2
-  readonly name: string = 'SettingsChangeAddSignerPermissionsViolation'
+  readonly code: number = 0x17e2;
+  readonly name: string = "SettingsChangeAddSignerPermissionsViolation";
   constructor() {
     super(
-      'Settings change policy violation: signer permissions does not match allowed signer permissions'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Settings change policy violation: signer permissions does not match allowed signer permissions"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SettingsChangeAddSignerPermissionsViolationError
-      )
+      );
     }
   }
 }
@@ -3017,11 +3039,11 @@ export class SettingsChangeAddSignerPermissionsViolationError extends Error {
 createErrorFromCodeLookup.set(
   0x17e2,
   () => new SettingsChangeAddSignerPermissionsViolationError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeAddSignerPermissionsViolation',
+  "SettingsChangeAddSignerPermissionsViolation",
   () => new SettingsChangeAddSignerPermissionsViolationError()
-)
+);
 
 /**
  * SettingsChangeRemoveSignerViolation: 'Settings change policy violation: signer removal does not mach allowed signer removal'
@@ -3030,14 +3052,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeRemoveSignerViolationError extends Error {
-  readonly code: number = 0x17e3
-  readonly name: string = 'SettingsChangeRemoveSignerViolation'
+  readonly code: number = 0x17e3;
+  readonly name: string = "SettingsChangeRemoveSignerViolation";
   constructor() {
     super(
-      'Settings change policy violation: signer removal does not mach allowed signer removal'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeRemoveSignerViolationError)
+      "Settings change policy violation: signer removal does not mach allowed signer removal"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeRemoveSignerViolationError);
     }
   }
 }
@@ -3045,11 +3067,11 @@ export class SettingsChangeRemoveSignerViolationError extends Error {
 createErrorFromCodeLookup.set(
   0x17e3,
   () => new SettingsChangeRemoveSignerViolationError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeRemoveSignerViolation',
+  "SettingsChangeRemoveSignerViolation",
   () => new SettingsChangeRemoveSignerViolationError()
-)
+);
 
 /**
  * SettingsChangeChangeTimelockViolation: 'Settings change policy violation: time lock does not match allowed time lock'
@@ -3058,14 +3080,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeChangeTimelockViolationError extends Error {
-  readonly code: number = 0x17e4
-  readonly name: string = 'SettingsChangeChangeTimelockViolation'
+  readonly code: number = 0x17e4;
+  readonly name: string = "SettingsChangeChangeTimelockViolation";
   constructor() {
     super(
-      'Settings change policy violation: time lock does not match allowed time lock'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeChangeTimelockViolationError)
+      "Settings change policy violation: time lock does not match allowed time lock"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeChangeTimelockViolationError);
     }
   }
 }
@@ -3073,11 +3095,11 @@ export class SettingsChangeChangeTimelockViolationError extends Error {
 createErrorFromCodeLookup.set(
   0x17e4,
   () => new SettingsChangeChangeTimelockViolationError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeChangeTimelockViolation',
+  "SettingsChangeChangeTimelockViolation",
   () => new SettingsChangeChangeTimelockViolationError()
-)
+);
 
 /**
  * SettingsChangeActionMismatch: 'Settings change policy violation: action does not match allowed action'
@@ -3086,14 +3108,14 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangeActionMismatchError extends Error {
-  readonly code: number = 0x17e5
-  readonly name: string = 'SettingsChangeActionMismatch'
+  readonly code: number = 0x17e5;
+  readonly name: string = "SettingsChangeActionMismatch";
   constructor() {
     super(
-      'Settings change policy violation: action does not match allowed action'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, SettingsChangeActionMismatchError)
+      "Settings change policy violation: action does not match allowed action"
+    );
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, SettingsChangeActionMismatchError);
     }
   }
 }
@@ -3101,11 +3123,11 @@ export class SettingsChangeActionMismatchError extends Error {
 createErrorFromCodeLookup.set(
   0x17e5,
   () => new SettingsChangeActionMismatchError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangeActionMismatch',
+  "SettingsChangeActionMismatch",
   () => new SettingsChangeActionMismatchError()
-)
+);
 
 /**
  * SettingsChangePolicyInvariantDuplicateActions: 'Settings change policy invariant violation: cannot have duplicate actions'
@@ -3114,17 +3136,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangePolicyInvariantDuplicateActionsError extends Error {
-  readonly code: number = 0x17e6
-  readonly name: string = 'SettingsChangePolicyInvariantDuplicateActions'
+  readonly code: number = 0x17e6;
+  readonly name: string = "SettingsChangePolicyInvariantDuplicateActions";
   constructor() {
     super(
-      'Settings change policy invariant violation: cannot have duplicate actions'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Settings change policy invariant violation: cannot have duplicate actions"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SettingsChangePolicyInvariantDuplicateActionsError
-      )
+      );
     }
   }
 }
@@ -3132,11 +3154,11 @@ export class SettingsChangePolicyInvariantDuplicateActionsError extends Error {
 createErrorFromCodeLookup.set(
   0x17e6,
   () => new SettingsChangePolicyInvariantDuplicateActionsError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangePolicyInvariantDuplicateActions',
+  "SettingsChangePolicyInvariantDuplicateActions",
   () => new SettingsChangePolicyInvariantDuplicateActionsError()
-)
+);
 
 /**
  * SettingsChangePolicyInvariantActionIndicesActionsLengthMismatch: 'Settings change policy invariant violation: action indices must match actions length'
@@ -3145,18 +3167,18 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangePolicyInvariantActionIndicesActionsLengthMismatchError extends Error {
-  readonly code: number = 0x17e7
+  readonly code: number = 0x17e7;
   readonly name: string =
-    'SettingsChangePolicyInvariantActionIndicesActionsLengthMismatch'
+    "SettingsChangePolicyInvariantActionIndicesActionsLengthMismatch";
   constructor() {
     super(
-      'Settings change policy invariant violation: action indices must match actions length'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Settings change policy invariant violation: action indices must match actions length"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SettingsChangePolicyInvariantActionIndicesActionsLengthMismatchError
-      )
+      );
     }
   }
 }
@@ -3165,12 +3187,12 @@ createErrorFromCodeLookup.set(
   0x17e7,
   () =>
     new SettingsChangePolicyInvariantActionIndicesActionsLengthMismatchError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangePolicyInvariantActionIndicesActionsLengthMismatch',
+  "SettingsChangePolicyInvariantActionIndicesActionsLengthMismatch",
   () =>
     new SettingsChangePolicyInvariantActionIndicesActionsLengthMismatchError()
-)
+);
 
 /**
  * SettingsChangePolicyInvariantActionIndexOutOfBounds: 'Settings change policy invariant violation: action index out of bounds'
@@ -3179,17 +3201,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class SettingsChangePolicyInvariantActionIndexOutOfBoundsError extends Error {
-  readonly code: number = 0x17e8
-  readonly name: string = 'SettingsChangePolicyInvariantActionIndexOutOfBounds'
+  readonly code: number = 0x17e8;
+  readonly name: string = "SettingsChangePolicyInvariantActionIndexOutOfBounds";
   constructor() {
     super(
-      'Settings change policy invariant violation: action index out of bounds'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Settings change policy invariant violation: action index out of bounds"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         SettingsChangePolicyInvariantActionIndexOutOfBoundsError
-      )
+      );
     }
   }
 }
@@ -3197,11 +3219,11 @@ export class SettingsChangePolicyInvariantActionIndexOutOfBoundsError extends Er
 createErrorFromCodeLookup.set(
   0x17e8,
   () => new SettingsChangePolicyInvariantActionIndexOutOfBoundsError()
-)
+);
 createErrorFromNameLookup.set(
-  'SettingsChangePolicyInvariantActionIndexOutOfBounds',
+  "SettingsChangePolicyInvariantActionIndexOutOfBounds",
   () => new SettingsChangePolicyInvariantActionIndexOutOfBoundsError()
-)
+);
 
 /**
  * PolicyNotActiveYet: 'Policy is not active yet'
@@ -3210,21 +3232,21 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PolicyNotActiveYetError extends Error {
-  readonly code: number = 0x17e9
-  readonly name: string = 'PolicyNotActiveYet'
+  readonly code: number = 0x17e9;
+  readonly name: string = "PolicyNotActiveYet";
   constructor() {
-    super('Policy is not active yet')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, PolicyNotActiveYetError)
+    super("Policy is not active yet");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, PolicyNotActiveYetError);
     }
   }
 }
 
-createErrorFromCodeLookup.set(0x17e9, () => new PolicyNotActiveYetError())
+createErrorFromCodeLookup.set(0x17e9, () => new PolicyNotActiveYetError());
 createErrorFromNameLookup.set(
-  'PolicyNotActiveYet',
+  "PolicyNotActiveYet",
   () => new PolicyNotActiveYetError()
-)
+);
 
 /**
  * PolicyInvariantInvalidExpiration: 'Policy invariant violation: invalid policy expiration'
@@ -3233,12 +3255,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PolicyInvariantInvalidExpirationError extends Error {
-  readonly code: number = 0x17ea
-  readonly name: string = 'PolicyInvariantInvalidExpiration'
+  readonly code: number = 0x17ea;
+  readonly name: string = "PolicyInvariantInvalidExpiration";
   constructor() {
-    super('Policy invariant violation: invalid policy expiration')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, PolicyInvariantInvalidExpirationError)
+    super("Policy invariant violation: invalid policy expiration");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, PolicyInvariantInvalidExpirationError);
     }
   }
 }
@@ -3246,11 +3268,11 @@ export class PolicyInvariantInvalidExpirationError extends Error {
 createErrorFromCodeLookup.set(
   0x17ea,
   () => new PolicyInvariantInvalidExpirationError()
-)
+);
 createErrorFromNameLookup.set(
-  'PolicyInvariantInvalidExpiration',
+  "PolicyInvariantInvalidExpiration",
   () => new PolicyInvariantInvalidExpirationError()
-)
+);
 
 /**
  * PolicyExpirationViolationPolicySettingsKeyMismatch: 'Policy expiration violation: submitted settings key does not match policy settings key'
@@ -3259,17 +3281,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PolicyExpirationViolationPolicySettingsKeyMismatchError extends Error {
-  readonly code: number = 0x17eb
-  readonly name: string = 'PolicyExpirationViolationPolicySettingsKeyMismatch'
+  readonly code: number = 0x17eb;
+  readonly name: string = "PolicyExpirationViolationPolicySettingsKeyMismatch";
   constructor() {
     super(
-      'Policy expiration violation: submitted settings key does not match policy settings key'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Policy expiration violation: submitted settings key does not match policy settings key"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         PolicyExpirationViolationPolicySettingsKeyMismatchError
-      )
+      );
     }
   }
 }
@@ -3277,11 +3299,11 @@ export class PolicyExpirationViolationPolicySettingsKeyMismatchError extends Err
 createErrorFromCodeLookup.set(
   0x17eb,
   () => new PolicyExpirationViolationPolicySettingsKeyMismatchError()
-)
+);
 createErrorFromNameLookup.set(
-  'PolicyExpirationViolationPolicySettingsKeyMismatch',
+  "PolicyExpirationViolationPolicySettingsKeyMismatch",
   () => new PolicyExpirationViolationPolicySettingsKeyMismatchError()
-)
+);
 
 /**
  * PolicyExpirationViolationSettingsAccountNotPresent: 'Policy expiration violation: state expiration requires the settings to be submitted'
@@ -3290,17 +3312,17 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PolicyExpirationViolationSettingsAccountNotPresentError extends Error {
-  readonly code: number = 0x17ec
-  readonly name: string = 'PolicyExpirationViolationSettingsAccountNotPresent'
+  readonly code: number = 0x17ec;
+  readonly name: string = "PolicyExpirationViolationSettingsAccountNotPresent";
   constructor() {
     super(
-      'Policy expiration violation: state expiration requires the settings to be submitted'
-    )
-    if (typeof Error.captureStackTrace === 'function') {
+      "Policy expiration violation: state expiration requires the settings to be submitted"
+    );
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         PolicyExpirationViolationSettingsAccountNotPresentError
-      )
+      );
     }
   }
 }
@@ -3308,11 +3330,11 @@ export class PolicyExpirationViolationSettingsAccountNotPresentError extends Err
 createErrorFromCodeLookup.set(
   0x17ec,
   () => new PolicyExpirationViolationSettingsAccountNotPresentError()
-)
+);
 createErrorFromNameLookup.set(
-  'PolicyExpirationViolationSettingsAccountNotPresent',
+  "PolicyExpirationViolationSettingsAccountNotPresent",
   () => new PolicyExpirationViolationSettingsAccountNotPresentError()
-)
+);
 
 /**
  * PolicyExpirationViolationHashExpired: 'Policy expiration violation: state hash has expired'
@@ -3321,12 +3343,12 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PolicyExpirationViolationHashExpiredError extends Error {
-  readonly code: number = 0x17ed
-  readonly name: string = 'PolicyExpirationViolationHashExpired'
+  readonly code: number = 0x17ed;
+  readonly name: string = "PolicyExpirationViolationHashExpired";
   constructor() {
-    super('Policy expiration violation: state hash has expired')
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, PolicyExpirationViolationHashExpiredError)
+    super("Policy expiration violation: state hash has expired");
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, PolicyExpirationViolationHashExpiredError);
     }
   }
 }
@@ -3334,11 +3356,11 @@ export class PolicyExpirationViolationHashExpiredError extends Error {
 createErrorFromCodeLookup.set(
   0x17ed,
   () => new PolicyExpirationViolationHashExpiredError()
-)
+);
 createErrorFromNameLookup.set(
-  'PolicyExpirationViolationHashExpired',
+  "PolicyExpirationViolationHashExpired",
   () => new PolicyExpirationViolationHashExpiredError()
-)
+);
 
 /**
  * PolicyExpirationViolationTimestampExpired: 'Policy expiration violation: timestamp has expired'
@@ -3347,15 +3369,15 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export class PolicyExpirationViolationTimestampExpiredError extends Error {
-  readonly code: number = 0x17ee
-  readonly name: string = 'PolicyExpirationViolationTimestampExpired'
+  readonly code: number = 0x17ee;
+  readonly name: string = "PolicyExpirationViolationTimestampExpired";
   constructor() {
-    super('Policy expiration violation: timestamp has expired')
-    if (typeof Error.captureStackTrace === 'function') {
+    super("Policy expiration violation: timestamp has expired");
+    if (typeof Error.captureStackTrace === "function") {
       Error.captureStackTrace(
         this,
         PolicyExpirationViolationTimestampExpiredError
-      )
+      );
     }
   }
 }
@@ -3363,11 +3385,11 @@ export class PolicyExpirationViolationTimestampExpiredError extends Error {
 createErrorFromCodeLookup.set(
   0x17ee,
   () => new PolicyExpirationViolationTimestampExpiredError()
-)
+);
 createErrorFromNameLookup.set(
-  'PolicyExpirationViolationTimestampExpired',
+  "PolicyExpirationViolationTimestampExpired",
   () => new PolicyExpirationViolationTimestampExpiredError()
-)
+);
 
 /**
  * Attempts to resolve a custom program error from the provided error code.
@@ -3375,8 +3397,8 @@ createErrorFromNameLookup.set(
  * @category generated
  */
 export function errorFromCode(code: number): MaybeErrorWithCode {
-  const createError = createErrorFromCodeLookup.get(code)
-  return createError != null ? createError() : null
+  const createError = createErrorFromCodeLookup.get(code);
+  return createError != null ? createError() : null;
 }
 
 /**
@@ -3385,6 +3407,6 @@ export function errorFromCode(code: number): MaybeErrorWithCode {
  * @category generated
  */
 export function errorFromName(name: string): MaybeErrorWithCode {
-  const createError = createErrorFromNameLookup.get(name)
-  return createError != null ? createError() : null
+  const createError = createErrorFromNameLookup.get(name);
+  return createError != null ? createError() : null;
 }

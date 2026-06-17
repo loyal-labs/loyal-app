@@ -1,5 +1,5 @@
 export function normalizeOptionalValue(
-  value: string | undefined,
+  value: string | undefined
 ): string | undefined {
   if (typeof value !== "string") {
     return undefined;

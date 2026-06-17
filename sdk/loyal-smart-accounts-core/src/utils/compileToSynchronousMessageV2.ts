@@ -83,7 +83,6 @@ export function compileToSynchronousMessageAndAccountsV2({
 
     // Concatenate the serialized instruction to the buffer
     args_buffer = Buffer.concat([args_buffer, serialized_ix]);
-
   });
 
   // Add the members as signers after instruction indexes have been serialized.
@@ -183,7 +182,6 @@ export function compileToSynchronousMessageAndAccountsV2WithHooks({
 
     // Concatenate the serialized instruction to the buffer
     args_buffer = Buffer.concat([args_buffer, serialized_ix]);
-
   });
 
   // Add signing members and hook accounts after instruction indexes have been

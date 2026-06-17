@@ -52,7 +52,10 @@ async function withRetry<T>(
       lastError = error as Error;
 
       // Check for rate limiting
-      const apiError = error as { error_code?: number; parameters?: { retry_after?: number } };
+      const apiError = error as {
+        error_code?: number;
+        parameters?: { retry_after?: number };
+      };
       if (apiError.error_code === 429) {
         const waitTime = (apiError.parameters?.retry_after || 1) * 1000;
         console.warn(`Rate limited, waiting ${waitTime}ms before retry`);
@@ -119,7 +122,9 @@ export async function sendDraft(
  */
 export function generateDraftId(): number {
   // Use lower 31 bits of timestamp + random to stay in safe integer range
-  return ((Date.now() & 0x7fffffff) ^ Math.floor(Math.random() * 0x7fffffff)) || 1;
+  return (
+    (Date.now() & 0x7fffffff) ^ Math.floor(Math.random() * 0x7fffffff) || 1
+  );
 }
 
 /**

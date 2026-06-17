@@ -115,7 +115,9 @@ export async function POST(request: Request) {
           ...(policyResult?.setupPolicy
             ? {
                 setupPolicy: {
-                  account: new PublicKey(policyResult.setupPolicy.policyAccount),
+                  account: new PublicKey(
+                    policyResult.setupPolicy.policyAccount
+                  ),
                   seed: policyResult.setupPolicy.policySeed,
                 },
               }

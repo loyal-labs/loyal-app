@@ -126,8 +126,22 @@ export type EarnWithdrawDraft = {
   amountLabel: string;
   destination: EarnDepositSourceOption;
   mode: "partial" | "full";
+  source: EarnWithdrawSourceOption;
   symbol: "USDC";
   tokenDecimals: number;
+};
+
+export type EarnWithdrawSourceOption = {
+  amountRaw: string;
+  balance: number;
+  id: string;
+  label: string;
+  liquidityMint: string;
+  market: string | null;
+  reserve: string | null;
+  sourceId: string;
+  tokenAccount: string | null;
+  type: "reserve" | "idle";
 };
 
 export type EarnAutodepositDraft = {
@@ -691,41 +705,52 @@ function VaultIcon({ logo }: { logo: string }) {
 function DepositButton({
   dark = false,
   onClick,
+  tone,
   withIcon = false,
 }: {
   dark?: boolean;
   onClick?: () => void;
+  tone?: "black" | "red" | "subtle";
   withIcon?: boolean;
 }) {
+  const resolvedTone = tone ?? (dark ? "black" : "subtle");
+  const isFilled = resolvedTone === "black" || resolvedTone === "red";
+  const background =
+    resolvedTone === "red"
+      ? "#F9363C"
+      : resolvedTone === "black"
+      ? "#000"
+      : "rgba(0, 0, 0, 0.04)";
+  const hoverBackground =
+    resolvedTone === "red"
+      ? "#e72f34"
+      : resolvedTone === "black"
+      ? "#222"
+      : "rgba(0, 0, 0, 0.08)";
+
   return (
     <>
       <style jsx>{`
-        .earn-detail-deposit,
-        .earn-detail-deposit-dark {
+        .earn-detail-deposit {
           transition: background 0.15s ease, transform 0.15s ease;
         }
         .earn-detail-deposit:hover {
-          background: rgba(0, 0, 0, 0.08) !important;
+          background: ${hoverBackground} !important;
           transform: translateY(-1px);
         }
-        .earn-detail-deposit-dark:hover {
-          background: #222 !important;
-          transform: translateY(-1px);
-        }
-        .earn-detail-deposit:active,
-        .earn-detail-deposit-dark:active {
+        .earn-detail-deposit:active {
           transform: translateY(0);
         }
       `}</style>
       <button
-        className={dark ? "earn-detail-deposit-dark" : "earn-detail-deposit"}
+        className="earn-detail-deposit"
         onClick={onClick}
         style={{
           alignItems: "center",
-          background: dark ? "#000" : "rgba(0, 0, 0, 0.04)",
+          background,
           border: "none",
           borderRadius: "9999px",
-          color: dark ? "#fff" : "#000",
+          color: isFilled ? "#fff" : "#000",
           cursor: "pointer",
           display: "inline-flex",
           flexShrink: 0,
@@ -1816,6 +1841,63 @@ function formatRawUsdcAmount(rawAmount: string) {
   return formatForecastMoney(Number(BigInt(rawAmount)) / 1_000_000, true);
 }
 
+function createWithdrawSourceOptions(
+  holdings: ActiveEarnPositionHolding[] | undefined,
+  fallbackAmount: number
+): EarnWithdrawSourceOption[] {
+  const options =
+    holdings
+      ?.filter((holding) => {
+        try {
+          return BigInt(holding.amountRaw) > BigInt(0);
+        } catch {
+          return false;
+        }
+      })
+      .map((holding) => {
+        const tokenAccount =
+          typeof holding.provenance.tokenAccount === "string"
+            ? holding.provenance.tokenAccount
+            : null;
+        const sourceId =
+          holding.kind === "idle"
+            ? tokenAccount ?? holding.liquidityMint
+            : holding.reserve ?? holding.liquidityMint;
+        return {
+          amountRaw: holding.amountRaw,
+          balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
+          id: `${holding.kind}:${sourceId}`,
+          label:
+            holding.kind === "idle"
+              ? "Idle vault USDC"
+              : `${holding.marketName} reserve`,
+          liquidityMint: holding.liquidityMint,
+          market: holding.market,
+          reserve: holding.reserve,
+          sourceId,
+          tokenAccount,
+          type: holding.kind === "idle" ? "idle" : "reserve",
+        };
+      }) ?? [];
+
+  return options.length > 0
+    ? options
+    : [
+        {
+          amountRaw: Math.round(fallbackAmount * 1_000_000).toString(),
+          balance: fallbackAmount,
+          id: "reserve:fallback",
+          label: "Earn vault",
+          liquidityMint: "",
+          market: null,
+          reserve: null,
+          sourceId: "",
+          tokenAccount: null,
+          type: "reserve",
+        },
+      ];
+}
+
 function formatScheduledSweepTime(eligibleAfter: string): string {
   const date = new Date(eligibleAfter);
   if (Number.isNaN(date.getTime())) {
@@ -1852,6 +1934,7 @@ function getScheduledSweepSourceLabel(classification: string): string {
 function AutodepositCard({
   amountLabel,
   floorLabel,
+  hasCurrentPosition = false,
   isBalanceHidden = false,
   isConfigured = false,
   scheduledSweeps = [],
@@ -1861,6 +1944,7 @@ function AutodepositCard({
 }: {
   amountLabel?: string;
   floorLabel?: string;
+  hasCurrentPosition?: boolean;
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
@@ -2111,7 +2195,7 @@ function AutodepositCard({
           transition: background 0.15s ease, transform 0.15s ease;
         }
         .earn-autodeposit-btn:hover {
-          background: #1a1a1a !important;
+          background: #e72f34 !important;
           transform: translateY(-1px);
         }
         .earn-autodeposit-btn:active {
@@ -2186,37 +2270,39 @@ function AutodepositCard({
               Start earning the moment your money arrives
             </span>
           </div>
-          <div
-            style={{
-              alignItems: "center",
-              display: "flex",
-              height: "52px",
-              justifyContent: "flex-end",
-              paddingLeft: "12px",
-            }}
-          >
-            <button
-              className="earn-autodeposit-btn"
-              onClick={onSetUp}
+          {hasCurrentPosition ? (
+            <div
               style={{
-                background: "#000",
-                border: "none",
-                borderRadius: "9999px",
-                color: "#fff",
-                cursor: "pointer",
-                flexShrink: 0,
-                fontFamily: font,
-                fontSize: "14px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                padding: "6px 16px",
-                whiteSpace: "nowrap",
+                alignItems: "center",
+                display: "flex",
+                height: "52px",
+                justifyContent: "flex-end",
+                paddingLeft: "12px",
               }}
-              type="button"
             >
-              Set up
-            </button>
-          </div>
+              <button
+                className="earn-autodeposit-btn"
+                onClick={onSetUp}
+                style={{
+                  background: "#F9363C",
+                  border: "none",
+                  borderRadius: "9999px",
+                  color: "#fff",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  padding: "6px 16px",
+                  whiteSpace: "nowrap",
+                }}
+                type="button"
+              >
+                Set up
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
     </>
@@ -2337,6 +2423,8 @@ export function EarnDetailView({
     earningsCacheScope?.solanaEnv && earningsCacheScope?.walletAddress
       ? `${earningsCacheScope.solanaEnv}:${earningsCacheScope.walletAddress}`
       : null;
+  const depositButtonTone =
+    !hasCurrentPosition || isAutodepositConfigured ? "red" : "black";
 
   return (
     <div
@@ -2416,14 +2504,14 @@ export function EarnDetailView({
               onClick={onWithdraw}
             />
             <PositionHeaderButton
-              dark
               icon="deposit"
               label="Deposit"
               onClick={onDeposit}
+              tone={depositButtonTone}
             />
           </div>
         ) : (
-          <DepositButton dark onClick={onDeposit} withIcon />
+          <DepositButton onClick={onDeposit} tone={depositButtonTone} withIcon />
         )}
       </div>
 
@@ -2537,6 +2625,7 @@ export function EarnDetailView({
       <AutodepositCard
         amountLabel={autodepositAmountLabel}
         floorLabel={autodepositFloorLabel}
+        hasCurrentPosition={hasCurrentPosition}
         isBalanceHidden={isBalanceHidden}
         isConfigured={isAutodepositConfigured}
         scheduledSweeps={autodepositScheduledSweeps}
@@ -2655,13 +2744,30 @@ function PositionHeaderButton({
   iconColor,
   label,
   onClick,
+  tone,
 }: {
   dark?: boolean;
   icon: "deposit" | "withdraw";
   iconColor?: string;
   label: string;
   onClick?: () => void;
+  tone?: "black" | "red" | "subtle";
 }) {
+  const resolvedTone = tone ?? (dark ? "black" : "subtle");
+  const isFilled = resolvedTone === "black" || resolvedTone === "red";
+  const background =
+    resolvedTone === "red"
+      ? "#F9363C"
+      : resolvedTone === "black"
+      ? "#000"
+      : "rgba(0, 0, 0, 0.04)";
+  const hoverBackground =
+    resolvedTone === "red"
+      ? "#e72f34"
+      : resolvedTone === "black"
+      ? "#222"
+      : "rgba(0, 0, 0, 0.08)";
+
   return (
     <>
       <style jsx>{`
@@ -2669,6 +2775,7 @@ function PositionHeaderButton({
           transition: background 0.15s ease, transform 0.15s ease;
         }
         .earn-position-action:hover {
+          background: ${hoverBackground} !important;
           transform: translateY(-1px);
         }
         .earn-position-action:active {
@@ -2680,10 +2787,10 @@ function PositionHeaderButton({
         onClick={onClick}
         style={{
           alignItems: "center",
-          background: dark ? "#000" : "rgba(0, 0, 0, 0.04)",
+          background,
           border: "none",
           borderRadius: "9999px",
-          color: dark ? "#fff" : "#000",
+          color: isFilled ? "#fff" : "#000",
           cursor: "pointer",
           display: "inline-flex",
           flexShrink: 0,
@@ -2963,6 +3070,7 @@ function BucksAmountInput({
 }
 
 export function EarnWithdrawView({
+  currentPositionHoldings,
   isSubmitting = false,
   maxWithdrawAmount = 1280,
   onClose,
@@ -2972,6 +3080,7 @@ export function EarnWithdrawView({
   destinations = FALLBACK_EARN_DEPOSIT_SOURCES,
   submitError = null,
 }: {
+  currentPositionHoldings?: ActiveEarnPositionHolding[];
   isSubmitting?: boolean;
   maxWithdrawAmount?: number;
   onClose?: () => void;
@@ -2988,6 +3097,20 @@ export function EarnWithdrawView({
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const destinationOptions =
     destinations.length > 0 ? destinations : FALLBACK_EARN_DEPOSIT_SOURCES;
+  const sourceOptions = useMemo(
+    () => createWithdrawSourceOptions(currentPositionHoldings, maxWithdrawAmount),
+    [currentPositionHoldings, maxWithdrawAmount]
+  );
+  const [selectedSourceId, setSelectedSourceId] = useState(
+    sourceOptions[0]?.id ?? "reserve:fallback"
+  );
+  const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
+  const selectedSource =
+    sourceOptions.find((source) => source.id === selectedSourceId) ??
+    sourceOptions[0];
+  const alternateSourceOptions = sourceOptions.filter(
+    (source) => source.id !== selectedSource?.id
+  );
   const [selectedDestinationId, setSelectedDestinationId] = useState(
     destinationOptions[0]?.id ?? FALLBACK_EARN_DEPOSIT_SOURCES[0].id
   );
@@ -2997,24 +3120,25 @@ export function EarnWithdrawView({
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
   const numericWithdrawAmount = Number(withdrawAmount.replace(/,/g, ""));
+  const selectedSourceMaxAmount = selectedSource?.balance ?? maxWithdrawAmount;
   const effectiveWithdrawAmount = hasWithdrawAmount
     ? numericWithdrawAmount
-    : maxWithdrawAmount;
+    : selectedSourceMaxAmount;
   const effectiveWithdrawAmountLabel = hasWithdrawAmount
     ? withdrawAmount
-    : formatDepositAmount(maxWithdrawAmount);
+    : formatDepositAmount(selectedSourceMaxAmount);
   const isFullWithdraw =
     !hasWithdrawAmount ||
     (Number.isFinite(effectiveWithdrawAmount) &&
       deriveEarnWithdrawMode({
         amount: effectiveWithdrawAmount,
-        maxWithdrawAmount,
+        maxWithdrawAmount: selectedSourceMaxAmount,
       }) === "full");
   const withdrawAmountError =
     !Number.isFinite(effectiveWithdrawAmount) ||
     effectiveWithdrawAmount <= 0
       ? "Enter an amount"
-      : hasWithdrawAmount && numericWithdrawAmount > maxWithdrawAmount
+      : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
       ? "Insufficient balance"
       : null;
   const isWithdrawButtonDisabled = isSubmitting || withdrawAmountError !== null;
@@ -3027,9 +3151,20 @@ export function EarnWithdrawView({
     amountLabel: effectiveWithdrawAmountLabel,
     destination: selectedDestination,
     mode: isFullWithdraw ? "full" : "partial",
+    source: selectedSource,
     symbol: "USDC",
     tokenDecimals: 6,
   });
+
+  useEffect(() => {
+    if (
+      selectedSourceId &&
+      !sourceOptions.some((source) => source.id === selectedSourceId)
+    ) {
+      setSelectedSourceId(sourceOptions[0]?.id ?? "reserve:fallback");
+      setIsSourceDropdownOpen(false);
+    }
+  }, [selectedSourceId, sourceOptions]);
 
   useEffect(() => {
     if (!destinationOptions.some((dest) => dest.id === selectedDestinationId)) {
@@ -3041,7 +3176,7 @@ export function EarnWithdrawView({
 
   useEffect(() => {
     onDraftChange?.(null);
-  }, [onDraftChange, selectedDestination, withdrawAmount]);
+  }, [onDraftChange, selectedDestination, selectedSource, withdrawAmount]);
 
   useEffect(() => () => onDraftChange?.(null), [onDraftChange]);
 
@@ -3139,8 +3274,8 @@ export function EarnWithdrawView({
                 // withdrawable amount, which also flips the draft to "full".
                 const numericValue = Number(sanitizedValue.replace(/,/g, ""));
                 setWithdrawAmount(
-                  numericValue > maxWithdrawAmount
-                    ? formatBucksAmount(maxWithdrawAmount)
+                  numericValue > selectedSourceMaxAmount
+                    ? formatBucksAmount(selectedSourceMaxAmount)
                     : sanitizedValue
                 );
               }}
@@ -3172,14 +3307,48 @@ export function EarnWithdrawView({
             </p>
           </div>
           <WithdrawRouteRow
-            amount={maxWithdrawAmount.toLocaleString("en-US", {
+            amount={selectedSourceMaxAmount.toLocaleString("en-US", {
               maximumFractionDigits: 2,
               minimumFractionDigits: 2,
             })}
             icon={TOP_EARN_VAULT.logo}
+            isDropdown={sourceOptions.length > 1}
+            isOpen={isSourceDropdownOpen}
             isPosition
-            subtitle={TOP_EARN_VAULT.label}
+            onClick={
+              sourceOptions.length > 1
+                ? () => setIsSourceDropdownOpen((open) => !open)
+                : undefined
+            }
+            subtitle={selectedSource?.label ?? TOP_EARN_VAULT.label}
           />
+          {alternateSourceOptions.length > 0 && isSourceDropdownOpen ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+                padding: "4px 0 0",
+              }}
+            >
+              {alternateSourceOptions.map((source) => (
+                <WithdrawRouteRow
+                  amount={source.balance.toLocaleString("en-US", {
+                    maximumFractionDigits: 2,
+                    minimumFractionDigits: 2,
+                  })}
+                  icon={TOP_EARN_VAULT.logo}
+                  isPosition
+                  key={source.id}
+                  onClick={() => {
+                    setSelectedSourceId(source.id);
+                    setIsSourceDropdownOpen(false);
+                  }}
+                  subtitle={source.label}
+                />
+              ))}
+            </div>
+          ) : null}
           <div style={{ padding: "3px 12px 1px" }}>
             <p
               style={{

@@ -77,7 +77,7 @@ export function track(event: string, properties?: AnalyticsProperties): void {
 
 export function identifyWallet(
   publicKey: string,
-  source: "created" | "imported" | "vault",
+  source: "created" | "imported" | "vault"
 ): void {
   const distinctId = `mob:${publicKey}`;
   identifyDatadogUser({
@@ -136,7 +136,7 @@ export function setUserProfileOnce(properties: AnalyticsProperties): void {
 }
 
 export function unionUserProfile(
-  properties: AnalyticsProfileUnionProperties,
+  properties: AnalyticsProfileUnionProperties
 ): void {
   if (!canTrack()) return;
   void (async () => {

@@ -5,21 +5,21 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   SmartAccountSigner,
   smartAccountSignerBeet,
-} from './SmartAccountSigner'
+} from "./SmartAccountSigner";
 export type CreateSmartAccountArgs = {
-  settingsAuthority: beet.COption<web3.PublicKey>
-  threshold: number
-  signers: SmartAccountSigner[]
-  timeLock: number
-  rentCollector: beet.COption<web3.PublicKey>
-  memo: beet.COption<string>
-}
+  settingsAuthority: beet.COption<web3.PublicKey>;
+  threshold: number;
+  signers: SmartAccountSigner[];
+  timeLock: number;
+  rentCollector: beet.COption<web3.PublicKey>;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -28,12 +28,12 @@ export type CreateSmartAccountArgs = {
 export const createSmartAccountArgsBeet =
   new beet.FixableBeetArgsStruct<CreateSmartAccountArgs>(
     [
-      ['settingsAuthority', beet.coption(beetSolana.publicKey)],
-      ['threshold', beet.u16],
-      ['signers', beet.array(smartAccountSignerBeet)],
-      ['timeLock', beet.u32],
-      ['rentCollector', beet.coption(beetSolana.publicKey)],
-      ['memo', beet.coption(beet.utf8String)],
+      ["settingsAuthority", beet.coption(beetSolana.publicKey)],
+      ["threshold", beet.u16],
+      ["signers", beet.array(smartAccountSignerBeet)],
+      ["timeLock", beet.u32],
+      ["rentCollector", beet.coption(beetSolana.publicKey)],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'CreateSmartAccountArgs'
-  )
+    "CreateSmartAccountArgs"
+  );

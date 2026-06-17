@@ -1,6 +1,6 @@
 export function getFlagValue(
   evaluatedFlags: Record<string, boolean>,
-  key: string,
+  key: string
 ): boolean {
   return evaluatedFlags[key] ?? false;
 }

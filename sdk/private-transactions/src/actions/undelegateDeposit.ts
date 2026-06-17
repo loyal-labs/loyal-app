@@ -77,7 +77,7 @@ export async function sendPlannedUndelegateDepositTransaction(params: {
   } catch (err) {
     console.warn(
       `[${transaction.label}] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-      err,
+      err
     );
   }
 

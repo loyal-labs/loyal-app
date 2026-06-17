@@ -11,8 +11,7 @@ import {
   parseAuthCookieParentDomains,
 } from "@/lib/core/config/shared";
 
-const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME =
-  "AUTH_SESSION_RS256_PUBLIC_KEY";
+const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME = "AUTH_SESSION_RS256_PUBLIC_KEY";
 const AUTH_SESSION_RS256_PRIVATE_KEY_ENV_NAME =
   "AUTH_SESSION_RS256_PRIVATE_KEY";
 const AUTH_JWT_SECRET_ENV_NAME = "AUTH_JWT_SECRET";
@@ -36,7 +35,9 @@ function parsePositiveInteger(
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${AUTH_JWT_TTL_SECONDS_ENV_NAME} must be a positive integer`);
+    throw new Error(
+      `${AUTH_JWT_TTL_SECONDS_ENV_NAME} must be a positive integer`
+    );
   }
 
   return parsed;
@@ -45,7 +46,8 @@ function parsePositiveInteger(
 function getLogoutCookieConfig() {
   return {
     authCookieAllowLocalhost: isStrictTrue(
-      getOptionalEnv(process.env, AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME) ?? "true"
+      getOptionalEnv(process.env, AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME) ??
+        "true"
     ),
     authCookieParentDomains: parseAuthCookieParentDomains(
       getOptionalEnv(process.env, AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME)

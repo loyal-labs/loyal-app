@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, "..");
 const repoRoot = resolve(packageRoot, "../..");
-const schemaPath = resolve(repoRoot, "crates/loyal-hub-abi/schema/loyal_hub_abi.schema");
+const schemaPath = resolve(
+  repoRoot,
+  "crates/loyal-hub-abi/schema/loyal_hub_abi.schema"
+);
 const outputPath = resolve(packageRoot, "src/generated/loyal-hub-abi.ts");
 
 type Field = { name: string; kind: string };
@@ -13,12 +16,12 @@ type Field = { name: string; kind: string };
 if (!existsSync(schemaPath)) {
   if (existsSync(outputPath)) {
     console.warn(
-      `Skipping Loyal Hub ABI generation because ${schemaPath} does not exist.`,
+      `Skipping Loyal Hub ABI generation because ${schemaPath} does not exist.`
     );
     process.exit(0);
   }
   throw new Error(
-    `Missing Loyal Hub ABI schema at ${schemaPath} and no generated output exists.`,
+    `Missing Loyal Hub ABI schema at ${schemaPath} and no generated output exists.`
   );
 }
 
@@ -52,7 +55,8 @@ for (const rawLine of source.split("\n")) {
   }
   if (kind === "account") {
     const [, instruction, name, index] = parts;
-    const byInstruction = accounts.get(instruction) ?? new Map<string, number>();
+    const byInstruction =
+      accounts.get(instruction) ?? new Map<string, number>();
     byInstruction.set(name, Number(index));
     accounts.set(instruction, byInstruction);
     continue;
@@ -63,7 +67,9 @@ for (const rawLine of source.split("\n")) {
     continue;
   }
   if (kind === "field" && currentRecord) {
-    records.get(currentRecord)?.push({ name: parts[1] ?? "", kind: parts[2] ?? "" });
+    records
+      .get(currentRecord)
+      ?.push({ name: parts[1] ?? "", kind: parts[2] ?? "" });
     continue;
   }
   if (kind === "end") {
@@ -89,17 +95,25 @@ if (!swapAccounts) {
 const generated = `// Generated from crates/loyal-hub-abi/schema/loyal_hub_abi.schema.
 // Run \`bun run generate:abi\` in packages/loyal-actions after schema changes.
 
-export const CONFIG_SEED = new Uint8Array([${bytesLiteral(seed("CONFIG_SEED"))}]);
-export const HUB_AUTHORITY_SEED = new Uint8Array([${bytesLiteral(seed("HUB_AUTHORITY_SEED"))}]);
+export const CONFIG_SEED = new Uint8Array([${bytesLiteral(
+  seed("CONFIG_SEED")
+)}]);
+export const HUB_AUTHORITY_SEED = new Uint8Array([${bytesLiteral(
+  seed("HUB_AUTHORITY_SEED")
+)}]);
 export const MAX_ALLOWED_MINTS = ${limit("MAX_ALLOWED_MINTS")};
 export const MAX_REBALANCE_TRANSFERS = ${limit("MAX_REBALANCE_TRANSFERS")};
 export const MAX_FEE_BPS = ${limit("MAX_FEE_BPS")};
 export const SWAP_EXACT_IN = ${instruction("SWAP_EXACT_IN")};
 export const SWAP_EXACT_IN_TAG_OFFSET = 0;
-export const SWAP_EXACT_IN_MAX_FEE_BPS_DATA_OFFSET = ${1 + offset("MAX_FEE_BPS")};
+export const SWAP_EXACT_IN_MAX_FEE_BPS_DATA_OFFSET = ${
+  1 + offset("MAX_FEE_BPS")
+};
 
 export const swapExactInAccounts = {
-${[...swapAccounts.entries()].map(([name, index]) => `  ${name}: ${index},`).join("\n")}
+${[...swapAccounts.entries()]
+  .map(([name, index]) => `  ${name}: ${index},`)
+  .join("\n")}
 } as const;
 `;
 

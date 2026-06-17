@@ -1,6 +1,9 @@
 "use client";
 
-import { LoyalCluster, resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import {
+  LoyalCluster,
+  resolveLoyalClusterForSolanaEnv,
+} from "@loyal-labs/actions";
 import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
@@ -378,6 +381,7 @@ export type EarnWithdrawRequest = {
   autodepositCloseAlreadyCompleted?: boolean;
   mode: "partial" | "full";
   preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw;
+  stepIndex?: number;
 };
 
 export type EarnWithdrawResult = {
@@ -565,6 +569,7 @@ export type SmartAccountSidebarData = {
   earnAutodeposit: EarnStateResponse["autodeposit"];
   earnPolicy: EarnStateResponse["policy"];
   earnStateLoadErrors: EarnStateResponse["loadErrors"];
+  hasEarnStateResolved: boolean;
   isLoading: boolean;
   isEarnStateLoading: boolean;
   isBaseLoading: boolean;
@@ -1311,6 +1316,16 @@ export async function prepareEarnDepositOnServer(args: {
 export async function prepareEarnWithdrawOnServer(args: {
   amountRaw: bigint;
   mode: "partial" | "full";
+  source?: {
+    amountRaw?: string;
+    id: string;
+    liquidityMint?: string;
+    market?: string | null;
+    mint?: string;
+    reserve?: string | null;
+    tokenAccount?: string | null;
+    type: "reserve" | "idle";
+  };
   fetchImpl?: typeof fetch;
 }): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
   const fetchImpl = args.fetchImpl ?? fetch;
@@ -1320,6 +1335,7 @@ export async function prepareEarnWithdrawOnServer(args: {
       body: JSON.stringify({
         amountRaw: args.amountRaw.toString(),
         mode: args.mode,
+        source: args.source,
       }),
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -1465,6 +1481,7 @@ async function postConfirmedEarnWithdraw(args: {
   autodepositCloseConfirmedSlot?: string;
   autodepositCloseSignature?: string;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
+  preparedStep?: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
@@ -2390,6 +2407,7 @@ export function useSmartAccountSidebarData(
   const [bestApyReservesByStablecoin, setBestApyReservesByStablecoin] =
     useState<CurrentBestApyReserveByStablecoinCache | null>(null);
   const [earnState, setEarnState] = useState<EarnStateResponse | null>(null);
+  const [hasEarnStateResolved, setHasEarnStateResolved] = useState(false);
   const [isEarnStateLoading, setIsEarnStateLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scopedErrors, setScopedErrors] = useState<{
@@ -2450,6 +2468,7 @@ export function useSmartAccountSidebarData(
         });
         setBestApyReservesByStablecoin(null);
         setEarnState(null);
+        setHasEarnStateResolved(false);
         setIsEarnStateLoading(false);
         return;
       }
@@ -2555,6 +2574,7 @@ export function useSmartAccountSidebarData(
         if (!cachedOverview) {
           setOverview(null);
         }
+        setHasEarnStateResolved(true);
         setIsEarnStateLoading(false);
         return;
       } finally {
@@ -2562,6 +2582,7 @@ export function useSmartAccountSidebarData(
       }
 
       if (!baseOverview) {
+        setHasEarnStateResolved(true);
         setIsEarnStateLoading(false);
         return;
       }
@@ -2580,6 +2601,7 @@ export function useSmartAccountSidebarData(
               : current
           );
         } finally {
+          setHasEarnStateResolved(true);
           setIsEarnStateLoading(false);
         }
       };
@@ -2823,6 +2845,11 @@ export function useSmartAccountSidebarData(
     },
     [solanaEnv, user?.settingsPda]
   );
+
+  useEffect(() => {
+    setHasEarnStateResolved(false);
+    setEarnState(null);
+  }, [solanaEnv, user?.settingsPda]);
 
   useEffect(() => {
     void refresh();
@@ -4380,9 +4407,7 @@ export function useSmartAccountSidebarData(
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation:
-            request.stage === "policy"
-              ? "policy setup"
-              : "setup policy setup",
+            request.stage === "policy" ? "policy setup" : "setup policy setup",
           preparedCluster: request.preparedDeposit.persistence.cluster,
           send: () =>
             sendPreparedWithWallet({
@@ -4412,8 +4437,8 @@ export function useSmartAccountSidebarData(
           err instanceof Error
             ? err.message
             : request.stage === "policy"
-              ? "Earn policy setup failed."
-              : "Earn policy finalization failed.";
+            ? "Earn policy setup failed."
+            : "Earn policy finalization failed.";
         console.error("[executeEarnDepositPolicyStage] failed", err);
         return { success: false, error };
       } finally {
@@ -4658,6 +4683,16 @@ export function useSmartAccountSidebarData(
             amountRaw: request.amountRaw,
             mode: request.mode,
           }));
+        const selectedStepIndex = request.stepIndex ?? 0;
+        const preparedStep =
+          preparedWithdraw.withdrawSteps[selectedStepIndex] ??
+          preparedWithdraw.withdrawSteps[0];
+        if (!preparedStep) {
+          return {
+            success: false,
+            error: "Prepared Earn withdrawal is missing withdraw steps.",
+          };
+        }
 
         const autodepositClosePrepared =
           preparedWithdraw.autodepositClosePrepared ?? null;
@@ -4725,12 +4760,12 @@ export function useSmartAccountSidebarData(
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "withdrawal",
-          preparedCluster: preparedWithdraw.persistence.cluster,
+          preparedCluster: preparedStep.persistence.cluster,
           send: () =>
             sendPreparedWithWallet({
               connection,
               wallet: walletBridge,
-              prepared: preparedWithdraw.prepared,
+              prepared: preparedStep.prepared,
               confirm: true,
             }),
         });
@@ -4748,6 +4783,7 @@ export function useSmartAccountSidebarData(
             autodepositCloseConfirmedSlot,
             autodepositCloseSignature,
             preparedWithdraw,
+            preparedStep,
             signature,
             confirmedSlot,
             smartAccountAddress: overview.canonicalVaultAddress,
@@ -4782,8 +4818,8 @@ export function useSmartAccountSidebarData(
           signature,
           confirmedSlot,
           status: "executed",
-          mode: request.mode,
-          amountRaw: request.amountRaw.toString(),
+          mode: preparedStep.mode,
+          amountRaw: preparedStep.amountRaw.toString(),
         };
       } catch (err) {
         const error = getDetailedWalletErrorMessage(
@@ -5178,6 +5214,7 @@ export function useSmartAccountSidebarData(
     earnAutodeposit: earnState?.autodeposit ?? null,
     earnPolicy: earnState?.policy ?? null,
     earnStateLoadErrors: earnState?.loadErrors ?? {},
+    hasEarnStateResolved,
     isLoading,
     isEarnStateLoading,
     isBaseLoading,

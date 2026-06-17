@@ -38,10 +38,12 @@ function toSwapToken(t: JupiterSearchResult): SwapToken {
 }
 
 async function searchJupiterToken(
-  query: string,
+  query: string
 ): Promise<JupiterSearchResult[]> {
   const res = await fetch(
-    `${JUPITER_SEARCH_URL}?query=${encodeURIComponent(query)}&tags=verified&limit=10`,
+    `${JUPITER_SEARCH_URL}?query=${encodeURIComponent(
+      query
+    )}&tags=verified&limit=10`
   );
   if (!res.ok) return [];
   return res.json();
@@ -58,14 +60,15 @@ async function fetchPopularTokens(): Promise<SwapToken[]> {
         const tokens = await searchJupiterToken(symbol);
         const exact = tokens
           .filter(
-            (t) => t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified,
+            (t) =>
+              t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified
           )
           .sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0));
         return exact[0] ? toSwapToken(exact[0]) : null;
       } catch {
         return null;
       }
-    }),
+    })
   );
 
   popularCache = results.filter((t): t is SwapToken => t !== null);
@@ -90,18 +93,15 @@ export function usePopularTokens() {
     };
   }, []);
 
-  const search = useCallback(
-    async (query: string): Promise<SwapToken[]> => {
-      if (!query || query.length < 2) return [];
-      try {
-        const results = await searchJupiterToken(query);
-        return results.filter((t) => t.isVerified).map(toSwapToken);
-      } catch {
-        return [];
-      }
-    },
-    [],
-  );
+  const search = useCallback(async (query: string): Promise<SwapToken[]> => {
+    if (!query || query.length < 2) return [];
+    try {
+      const results = await searchJupiterToken(query);
+      return results.filter((t) => t.isVerified).map(toSwapToken);
+    } catch {
+      return [];
+    }
+  }, []);
 
   return { tokens, isLoading, search };
 }

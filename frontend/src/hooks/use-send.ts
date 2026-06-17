@@ -1,9 +1,6 @@
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
-import {
-  useConnection,
-  useWallet,
-} from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -37,7 +34,6 @@ export type SendResult = {
   error?: string;
 };
 
-
 /**
  * Convert token symbol to mint address
  * @param symbol - Token symbol (e.g., "SOL", "USDC")
@@ -50,7 +46,11 @@ const getTokenMint = (symbol: string): string | undefined => {
 
 export function useSend() {
   const { connection } = useConnection();
-  const { publicKey: walletPublicKey, connected: isConnected, sendTransaction } = useWallet();
+  const {
+    publicKey: walletPublicKey,
+    connected: isConnected,
+    sendTransaction,
+  } = useWallet();
   const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -284,13 +284,7 @@ export function useSend() {
         return { success: false, error: errorMessage };
       }
     },
-    [
-      isConnected,
-      walletPublicKey,
-      sendTransaction,
-      connection,
-      publicEnv,
-    ]
+    [isConnected, walletPublicKey, sendTransaction, connection, publicEnv]
   );
 
   return {

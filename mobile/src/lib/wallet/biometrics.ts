@@ -11,7 +11,9 @@ export async function isBiometricAvailable(): Promise<boolean> {
   return enrolled;
 }
 
-export async function getBiometricType(): Promise<"faceid" | "fingerprint" | "none"> {
+export async function getBiometricType(): Promise<
+  "faceid" | "fingerprint" | "none"
+> {
   const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
   if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION))
     return "faceid";

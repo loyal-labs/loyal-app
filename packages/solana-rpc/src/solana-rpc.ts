@@ -67,7 +67,7 @@ const trimOptionalValue = (value: string | undefined): string | undefined => {
 
 export const resolveSolanaEnv = (
   value?: string,
-  defaultEnv: SolanaEnv = DEFAULT_SOLANA_ENV,
+  defaultEnv: SolanaEnv = DEFAULT_SOLANA_ENV
 ): SolanaEnv => {
   const normalizedValue = trimOptionalValue(value);
   if (!normalizedValue) {

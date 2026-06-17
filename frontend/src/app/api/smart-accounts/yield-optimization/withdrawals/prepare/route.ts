@@ -19,7 +19,11 @@ import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-a
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
+  findCurrentNonzeroYieldVaultReservePositions,
+  findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
+  type CurrentYieldVaultIdleTokenBalanceRecord,
+  type CurrentYieldVaultReservePositionRecord,
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -57,6 +61,87 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
+type EarnWithdrawSourceRequest = ReturnType<
+  typeof parseEarnWithdrawPrepareRequestBody
+>["source"];
+
+type SelectedEarnWithdrawSource =
+  | {
+      amountRaw: bigint;
+      id: string;
+      liquidityMint: string;
+      market: string;
+      reserve: string;
+      type: "reserve";
+    }
+  | {
+      amountRaw: bigint;
+      id: string;
+      mint: string;
+      tokenAccount: string;
+      type: "idle";
+    };
+
+function selectEarnWithdrawSource(args: {
+  amountRaw: bigint;
+  idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
+  mode: "partial" | "full";
+  request: EarnWithdrawSourceRequest;
+  reserveRows: CurrentYieldVaultReservePositionRecord[];
+}): SelectedEarnWithdrawSource {
+  const reserveSources = args.reserveRows
+    .filter((row) => row.amountRaw > BigInt(0) && row.hasValue)
+    .map((row) => {
+      if (!row.market) {
+        throw new Error("Reconciled Earn reserve row is missing a market.");
+      }
+      return {
+        amountRaw: row.amountRaw,
+        id: row.reserve,
+        liquidityMint: row.liquidityMint,
+        market: row.market,
+        reserve: row.reserve,
+        type: "reserve" as const,
+      };
+    });
+  const idleSources = args.idleRows
+    .filter((row) => row.amountRaw > BigInt(0))
+    .map((row) => ({
+      amountRaw: row.amountRaw,
+      id: row.tokenAccount,
+      mint: row.mint,
+      tokenAccount: row.tokenAccount,
+      type: "idle" as const,
+    }));
+  const sources = [...reserveSources, ...idleSources];
+
+  if (sources.length === 0) {
+    throw new Error("No active Earn withdrawal source was found.");
+  }
+
+  const selected = args.request
+    ? sources.find(
+        (source) =>
+          source.type === args.request?.type &&
+          (source.id === args.request.id ||
+            ("reserve" in source && source.reserve === args.request.reserve) ||
+            ("tokenAccount" in source &&
+              source.tokenAccount === args.request.tokenAccount))
+      )
+    : sources.length === 1
+    ? sources[0]
+    : null;
+
+  if (!selected) {
+    throw new Error("Select an Earn source before withdrawing.");
+  }
+  if (args.mode === "partial" && args.amountRaw > selected.amountRaw) {
+    throw new Error("Withdrawal exceeds the selected Earn source amount.");
+  }
+
+  return selected;
+}
+
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
@@ -66,10 +151,15 @@ export async function POST(request: Request) {
 
   let amountRaw: bigint;
   let mode: "partial" | "full";
+  let selectedSourceRequest: ReturnType<
+    typeof parseEarnWithdrawPrepareRequestBody
+  >["source"];
   try {
-    ({ amountRaw, mode } = parseEarnWithdrawPrepareRequestBody(
-      await request.json()
-    ));
+    ({
+      amountRaw,
+      mode,
+      source: selectedSourceRequest,
+    } = parseEarnWithdrawPrepareRequestBody(await request.json()));
   } catch (error) {
     return jsonError(
       400,
@@ -92,25 +182,37 @@ export async function POST(request: Request) {
       programId,
       settingsPda,
     });
-    const [policyResult, position] = await Promise.all([
-      findActiveYieldRoutePolicyPair({
-        authority: principal.walletAddress,
-        cluster,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        vaultPubkey: earnVaultPda.toBase58(),
-      }),
-      findReconciledActiveYieldPositionForVault({
-        cluster,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        walletAddress: principal.walletAddress,
-      }),
-    ]);
+    const [policyResult, position, currentReserveRows, currentIdleRows] =
+      await Promise.all([
+        findActiveYieldRoutePolicyPair({
+          authority: principal.walletAddress,
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+        }),
+        findReconciledActiveYieldPositionForVault({
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          walletAddress: principal.walletAddress,
+        }),
+        findCurrentNonzeroYieldVaultReservePositions({
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+          walletAddress: principal.walletAddress,
+        }),
+        findCurrentYieldVaultIdleTokenBalances({
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+          walletAddress: principal.walletAddress,
+        }),
+      ]);
     policy = policyResult?.routePolicy ?? null;
-    effectiveAmountRaw =
-      mode === "full" ? position?.principalAmountRaw ?? null : amountRaw;
-
     if (!policy) {
       console.warn("[earn-withdraw-prepare] missing active Earn policy", {
         cluster,
@@ -125,7 +227,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!position || effectiveAmountRaw === null) {
+    if (!position) {
       console.warn("[earn-withdraw-prepare] missing active Earn position", {
         cluster,
         settings: principal.settingsPda,
@@ -138,6 +240,35 @@ export async function POST(request: Request) {
         "No active Earn position was found for this full withdrawal."
       );
     }
+
+    const selectedSource = selectEarnWithdrawSource({
+      amountRaw,
+      idleRows: currentIdleRows,
+      mode,
+      request: selectedSourceRequest,
+      reserveRows: currentReserveRows,
+    });
+    effectiveAmountRaw = mode === "full" ? selectedSource.amountRaw : amountRaw;
+    const remainingSourceAmountRaw =
+      currentReserveRows.reduce(
+        (total, row) =>
+          total +
+          (selectedSource.type === "reserve" &&
+          row.reserve === selectedSource.reserve
+            ? row.amountRaw - effectiveAmountRaw!
+            : row.amountRaw),
+        BigInt(0)
+      ) +
+      currentIdleRows.reduce(
+        (total, row) =>
+          total +
+          (selectedSource.type === "idle" &&
+          row.tokenAccount === selectedSource.tokenAccount
+            ? row.amountRaw - effectiveAmountRaw!
+            : row.amountRaw),
+        BigInt(0)
+      );
+    const isFinalExit = remainingSourceAmountRaw <= BigInt(0);
 
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
@@ -157,7 +288,7 @@ export async function POST(request: Request) {
         : {}),
     };
     const autodepositState =
-      mode === "full"
+      mode === "full" && isFinalExit
         ? await findCurrentEarnAutodepositState({
             settings: principal.settingsPda,
             vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
@@ -175,7 +306,12 @@ export async function POST(request: Request) {
           }
         : undefined;
 
-    if (mode === "full" && autodepositState && !autodepositClose) {
+    if (
+      mode === "full" &&
+      isFinalExit &&
+      autodepositState &&
+      !autodepositClose
+    ) {
       console.warn(
         "[earn-withdraw-prepare] active autodeposit state is missing close metadata",
         {
@@ -197,6 +333,48 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       target: earnReserveTargetFromActivePosition(position),
+      ...(mode === "full" && currentReserveRows.length > 1
+        ? {
+            fullWithdrawalTargets: currentReserveRows
+              .filter((row) =>
+                selectedSource.type === "reserve"
+                  ? row.reserve === selectedSource.reserve
+                  : false
+              )
+              .map((row) => {
+                if (!row.market) {
+                  throw new Error(
+                    "Reconciled Earn reserve row is missing a Kamino market."
+                  );
+                }
+                return {
+                  amountRaw: row.amountRaw,
+                  liquidityMint: new PublicKey(row.liquidityMint),
+                  market: new PublicKey(row.market),
+                  reserve: new PublicKey(row.reserve),
+                  supplyApyBps: row.supplyApyBps ?? null,
+                };
+              }),
+          }
+        : {}),
+      closePoliciesOnFullWithdrawal: isFinalExit,
+      source:
+        selectedSource.type === "idle"
+          ? {
+              amountRaw: selectedSource.amountRaw,
+              id: selectedSource.id,
+              mint: new PublicKey(selectedSource.mint),
+              tokenAccount: new PublicKey(selectedSource.tokenAccount),
+              type: "idle" as const,
+            }
+          : {
+              amountRaw: selectedSource.amountRaw,
+              id: selectedSource.id,
+              liquidityMint: new PublicKey(selectedSource.liquidityMint),
+              market: new PublicKey(selectedSource.market),
+              reserve: new PublicKey(selectedSource.reserve),
+              type: "reserve" as const,
+            },
       walletAddress: new PublicKey(principal.walletAddress),
       yieldRoutingPolicy,
     };

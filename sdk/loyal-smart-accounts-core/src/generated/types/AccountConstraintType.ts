@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { DataConstraint, dataConstraintBeet } from './DataConstraint'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { DataConstraint, dataConstraintBeet } from "./DataConstraint";
 /**
  * This type is used to derive the {@link AccountConstraintType} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link AccountConstraintType} type instead.
@@ -19,9 +19,9 @@ import { DataConstraint, dataConstraintBeet } from './DataConstraint'
  * @private
  */
 export type AccountConstraintTypeRecord = {
-  Pubkey: { fields: [web3.PublicKey[]] }
-  AccountData: { fields: [DataConstraint[]] }
-}
+  Pubkey: { fields: [web3.PublicKey[]] };
+  AccountData: { fields: [DataConstraint[]] };
+};
 
 /**
  * Union type respresenting the AccountConstraintType data enum defined in Rust.
@@ -35,15 +35,15 @@ export type AccountConstraintTypeRecord = {
  * @category generated
  */
 export type AccountConstraintType =
-  beet.DataEnumKeyAsKind<AccountConstraintTypeRecord>
+  beet.DataEnumKeyAsKind<AccountConstraintTypeRecord>;
 
 export const isAccountConstraintTypePubkey = (
   x: AccountConstraintType
-): x is AccountConstraintType & { __kind: 'Pubkey' } => x.__kind === 'Pubkey'
+): x is AccountConstraintType & { __kind: "Pubkey" } => x.__kind === "Pubkey";
 export const isAccountConstraintTypeAccountData = (
   x: AccountConstraintType
-): x is AccountConstraintType & { __kind: 'AccountData' } =>
-  x.__kind === 'AccountData'
+): x is AccountConstraintType & { __kind: "AccountData" } =>
+  x.__kind === "AccountData";
 
 /**
  * @category userTypes
@@ -52,19 +52,19 @@ export const isAccountConstraintTypeAccountData = (
 export const accountConstraintTypeBeet =
   beet.dataEnum<AccountConstraintTypeRecord>([
     [
-      'Pubkey',
-      new beet.FixableBeetArgsStruct<AccountConstraintTypeRecord['Pubkey']>(
-        [['fields', beet.tuple([beet.array(beetSolana.publicKey)])]],
+      "Pubkey",
+      new beet.FixableBeetArgsStruct<AccountConstraintTypeRecord["Pubkey"]>(
+        [["fields", beet.tuple([beet.array(beetSolana.publicKey)])]],
         'AccountConstraintTypeRecord["Pubkey"]'
       ),
     ],
     [
-      'AccountData',
+      "AccountData",
       new beet.FixableBeetArgsStruct<
-        AccountConstraintTypeRecord['AccountData']
+        AccountConstraintTypeRecord["AccountData"]
       >(
-        [['fields', beet.tuple([beet.array(dataConstraintBeet)])]],
+        [["fields", beet.tuple([beet.array(dataConstraintBeet)])]],
         'AccountConstraintTypeRecord["AccountData"]'
       ),
     ],
-  ]) as beet.FixableBeet<AccountConstraintType, AccountConstraintType>
+  ]) as beet.FixableBeet<AccountConstraintType, AccountConstraintType>;

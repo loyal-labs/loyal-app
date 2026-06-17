@@ -18,6 +18,16 @@ import {
 export type EarnWithdrawPrepareRequestBody = {
   amountRaw: string;
   mode: "partial" | "full";
+  source?: {
+    amountRaw?: string;
+    id: string;
+    liquidityMint?: string;
+    market?: string | null;
+    mint?: string;
+    reserve?: string;
+    tokenAccount?: string;
+    type: "reserve" | "idle";
+  } | null;
 };
 
 export type WireSmartAccountPreparedEarnUsdcWithdraw = {
@@ -38,6 +48,27 @@ export type WireSmartAccountPreparedEarnUsdcWithdraw = {
     seed: string;
   };
   prepared: WirePreparedLoyalSmartAccountsOperation;
+  withdrawSteps?: Array<{
+    accountingReserve: {
+      liquidityMint: string;
+      market: string;
+      obligation: string;
+      reserve: string;
+    };
+    amountRaw: string;
+    collateralAta: string;
+    executionReserve: {
+      liquidityMint: string;
+      market: string;
+      reserve: string;
+    };
+    mode: "partial" | "full";
+    persistence: SmartAccountEarnUsdcWithdrawMetadata;
+    prepared: WirePreparedLoyalSmartAccountsOperation;
+    reserveWithdrawals?: SmartAccountEarnUsdcWithdrawMetadata["reserveWithdrawals"];
+    stepCount: number;
+    stepIndex: number;
+  }>;
   targetReserve: {
     liquidityMint: string;
     market: string;
@@ -92,6 +123,7 @@ function readWithdrawMode(body: EarnWithdrawPrepareRecord) {
 export function parseEarnWithdrawPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
   mode: "partial" | "full";
+  source: EarnWithdrawPrepareRequestBody["source"];
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
@@ -103,6 +135,54 @@ export function parseEarnWithdrawPrepareRequestBody(body: unknown): {
   return {
     amountRaw,
     mode: readWithdrawMode(record),
+    source: readOptionalWithdrawSource(record),
+  };
+}
+
+function readOptionalWithdrawSource(
+  body: EarnWithdrawPrepareRecord
+): EarnWithdrawPrepareRequestBody["source"] {
+  const value = body.source;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!value || typeof value !== "object") {
+    throw new Error("source must be an object when provided.");
+  }
+  const source = value as EarnWithdrawPrepareRecord;
+  const type = source.type;
+  if (type !== "reserve" && type !== "idle") {
+    throw new Error("source.type must be reserve or idle.");
+  }
+  const id = source.id;
+  if (typeof id !== "string" || id.trim().length === 0) {
+    throw new Error("source.id must be a non-empty string.");
+  }
+
+  return {
+    amountRaw:
+      typeof source.amountRaw === "string" && /^\d+$/.test(source.amountRaw)
+        ? source.amountRaw
+        : undefined,
+    id: id.trim(),
+    liquidityMint:
+      typeof source.liquidityMint === "string"
+        ? source.liquidityMint.trim()
+        : undefined,
+    market:
+      typeof source.market === "string"
+        ? source.market.trim()
+        : source.market === null
+        ? null
+        : undefined,
+    mint: typeof source.mint === "string" ? source.mint.trim() : undefined,
+    reserve:
+      typeof source.reserve === "string" ? source.reserve.trim() : undefined,
+    tokenAccount:
+      typeof source.tokenAccount === "string"
+        ? source.tokenAccount.trim()
+        : undefined,
+    type,
   };
 }
 
@@ -137,6 +217,27 @@ export function serializePreparedEarnUsdcWithdraw(
         }
       : {}),
     prepared: serializePreparedOperation(preparedWithdraw.prepared),
+    withdrawSteps: preparedWithdraw.withdrawSteps.map((step) => ({
+      accountingReserve: {
+        liquidityMint: step.accountingReserve.liquidityMint.toBase58(),
+        market: step.accountingReserve.market.toBase58(),
+        obligation: step.accountingReserve.obligation.toBase58(),
+        reserve: step.accountingReserve.reserve.toBase58(),
+      },
+      amountRaw: step.amountRaw.toString(),
+      collateralAta: step.collateralAta.toBase58(),
+      executionReserve: {
+        liquidityMint: step.executionReserve.liquidityMint.toBase58(),
+        market: step.executionReserve.market.toBase58(),
+        reserve: step.executionReserve.reserve.toBase58(),
+      },
+      mode: step.mode,
+      persistence: step.persistence,
+      prepared: serializePreparedOperation(step.prepared),
+      reserveWithdrawals: step.reserveWithdrawals,
+      stepCount: step.stepCount,
+      stepIndex: step.stepIndex,
+    })),
     targetReserve: {
       liquidityMint: preparedWithdraw.targetReserve.liquidityMint.toBase58(),
       market: preparedWithdraw.targetReserve.market.toBase58(),
@@ -155,6 +256,28 @@ export function serializePreparedEarnUsdcWithdraw(
 export function hydratePreparedEarnUsdcWithdraw(
   wire: WireSmartAccountPreparedEarnUsdcWithdraw
 ): SmartAccountPreparedEarnUsdcWithdraw {
+  const fallbackStep = {
+    accountingReserve: {
+      liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
+      market: new PublicKey(wire.targetReserve.market),
+      obligation: new PublicKey(wire.targetReserve.obligation),
+      reserve: new PublicKey(wire.targetReserve.reserve),
+    },
+    amountRaw: BigInt(wire.amountRaw),
+    collateralAta: new PublicKey(wire.vault.collateralAta),
+    executionReserve: {
+      liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
+      market: new PublicKey(wire.targetReserve.market),
+      reserve: new PublicKey(wire.targetReserve.reserve),
+    },
+    mode: wire.mode,
+    persistence: wire.persistence,
+    prepared: hydratePreparedOperation(wire.prepared),
+    reserveWithdrawals: wire.persistence.reserveWithdrawals ?? [],
+    stepCount: 1,
+    stepIndex: 0,
+  };
+
   return {
     amountRaw: BigInt(wire.amountRaw),
     autodepositClosePrepared: wire.autodepositClosePrepared
@@ -181,6 +304,28 @@ export function hydratePreparedEarnUsdcWithdraw(
         }
       : {}),
     prepared: hydratePreparedOperation(wire.prepared),
+    withdrawSteps: wire.withdrawSteps?.map((step) => ({
+      accountingReserve: {
+        liquidityMint: new PublicKey(step.accountingReserve.liquidityMint),
+        market: new PublicKey(step.accountingReserve.market),
+        obligation: new PublicKey(step.accountingReserve.obligation),
+        reserve: new PublicKey(step.accountingReserve.reserve),
+      },
+      amountRaw: BigInt(step.amountRaw),
+      collateralAta: new PublicKey(step.collateralAta),
+      executionReserve: {
+        liquidityMint: new PublicKey(step.executionReserve.liquidityMint),
+        market: new PublicKey(step.executionReserve.market),
+        reserve: new PublicKey(step.executionReserve.reserve),
+      },
+      mode: step.mode,
+      persistence: step.persistence,
+      prepared: hydratePreparedOperation(step.prepared),
+      reserveWithdrawals:
+        step.reserveWithdrawals ?? step.persistence.reserveWithdrawals ?? [],
+      stepCount: step.stepCount,
+      stepIndex: step.stepIndex,
+    })) ?? [fallbackStep],
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
       market: new PublicKey(wire.targetReserve.market),

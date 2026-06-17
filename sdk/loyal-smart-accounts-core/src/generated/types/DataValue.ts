@@ -5,7 +5,7 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 /**
  * This type is used to derive the {@link DataValue} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link DataValue} type instead.
@@ -16,13 +16,13 @@ import * as beet from '@metaplex-foundation/beet'
  * @private
  */
 export type DataValueRecord = {
-  U8: { fields: [number] }
-  U16Le: { fields: [number] }
-  U32Le: { fields: [number] }
-  U64Le: { fields: [beet.bignum] }
-  U128Le: { fields: [beet.bignum] }
-  U8Slice: { fields: [Uint8Array] }
-}
+  U8: { fields: [number] };
+  U16Le: { fields: [number] };
+  U32Le: { fields: [number] };
+  U64Le: { fields: [beet.bignum] };
+  U128Le: { fields: [beet.bignum] };
+  U8Slice: { fields: [Uint8Array] };
+};
 
 /**
  * Union type respresenting the DataValue data enum defined in Rust.
@@ -35,26 +35,26 @@ export type DataValueRecord = {
  * @category enums
  * @category generated
  */
-export type DataValue = beet.DataEnumKeyAsKind<DataValueRecord>
+export type DataValue = beet.DataEnumKeyAsKind<DataValueRecord>;
 
 export const isDataValueU8 = (
   x: DataValue
-): x is DataValue & { __kind: 'U8' } => x.__kind === 'U8'
+): x is DataValue & { __kind: "U8" } => x.__kind === "U8";
 export const isDataValueU16Le = (
   x: DataValue
-): x is DataValue & { __kind: 'U16Le' } => x.__kind === 'U16Le'
+): x is DataValue & { __kind: "U16Le" } => x.__kind === "U16Le";
 export const isDataValueU32Le = (
   x: DataValue
-): x is DataValue & { __kind: 'U32Le' } => x.__kind === 'U32Le'
+): x is DataValue & { __kind: "U32Le" } => x.__kind === "U32Le";
 export const isDataValueU64Le = (
   x: DataValue
-): x is DataValue & { __kind: 'U64Le' } => x.__kind === 'U64Le'
+): x is DataValue & { __kind: "U64Le" } => x.__kind === "U64Le";
 export const isDataValueU128Le = (
   x: DataValue
-): x is DataValue & { __kind: 'U128Le' } => x.__kind === 'U128Le'
+): x is DataValue & { __kind: "U128Le" } => x.__kind === "U128Le";
 export const isDataValueU8Slice = (
   x: DataValue
-): x is DataValue & { __kind: 'U8Slice' } => x.__kind === 'U8Slice'
+): x is DataValue & { __kind: "U8Slice" } => x.__kind === "U8Slice";
 
 /**
  * @category userTypes
@@ -62,45 +62,45 @@ export const isDataValueU8Slice = (
  */
 export const dataValueBeet = beet.dataEnum<DataValueRecord>([
   [
-    'U8',
-    new beet.BeetArgsStruct<DataValueRecord['U8']>(
-      [['fields', beet.fixedSizeTuple([beet.u8])]],
+    "U8",
+    new beet.BeetArgsStruct<DataValueRecord["U8"]>(
+      [["fields", beet.fixedSizeTuple([beet.u8])]],
       'DataValueRecord["U8"]'
     ),
   ],
   [
-    'U16Le',
-    new beet.BeetArgsStruct<DataValueRecord['U16Le']>(
-      [['fields', beet.fixedSizeTuple([beet.u16])]],
+    "U16Le",
+    new beet.BeetArgsStruct<DataValueRecord["U16Le"]>(
+      [["fields", beet.fixedSizeTuple([beet.u16])]],
       'DataValueRecord["U16Le"]'
     ),
   ],
   [
-    'U32Le',
-    new beet.BeetArgsStruct<DataValueRecord['U32Le']>(
-      [['fields', beet.fixedSizeTuple([beet.u32])]],
+    "U32Le",
+    new beet.BeetArgsStruct<DataValueRecord["U32Le"]>(
+      [["fields", beet.fixedSizeTuple([beet.u32])]],
       'DataValueRecord["U32Le"]'
     ),
   ],
   [
-    'U64Le',
-    new beet.BeetArgsStruct<DataValueRecord['U64Le']>(
-      [['fields', beet.fixedSizeTuple([beet.u64])]],
+    "U64Le",
+    new beet.BeetArgsStruct<DataValueRecord["U64Le"]>(
+      [["fields", beet.fixedSizeTuple([beet.u64])]],
       'DataValueRecord["U64Le"]'
     ),
   ],
   [
-    'U128Le',
-    new beet.BeetArgsStruct<DataValueRecord['U128Le']>(
-      [['fields', beet.fixedSizeTuple([beet.u128])]],
+    "U128Le",
+    new beet.BeetArgsStruct<DataValueRecord["U128Le"]>(
+      [["fields", beet.fixedSizeTuple([beet.u128])]],
       'DataValueRecord["U128Le"]'
     ),
   ],
   [
-    'U8Slice',
-    new beet.FixableBeetArgsStruct<DataValueRecord['U8Slice']>(
-      [['fields', beet.tuple([beet.bytes])]],
+    "U8Slice",
+    new beet.FixableBeetArgsStruct<DataValueRecord["U8Slice"]>(
+      [["fields", beet.tuple([beet.bytes])]],
       'DataValueRecord["U8Slice"]'
     ),
   ],
-]) as beet.FixableBeet<DataValue, DataValue>
+]) as beet.FixableBeet<DataValue, DataValue>;

@@ -421,7 +421,7 @@ export async function shieldTokens(params: {
   } catch (err) {
     console.warn(
       `[shieldTokens] delegation watcher did not observe owner change (signature=${signature}); continuing`,
-      err,
+      err
     );
   }
 

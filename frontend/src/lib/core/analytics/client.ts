@@ -90,7 +90,9 @@ function getAnalyticsClient(publicEnv: PublicEnv): AnalyticsClient {
   return analyticsClient;
 }
 
-function buildFrontendProfileProperties(user: AuthSessionUser): AnalyticsProperties {
+function buildFrontendProfileProperties(
+  user: AuthSessionUser
+): AnalyticsProperties {
   const profileProperties: AnalyticsProperties = {
     auth_method: user.authMethod,
   };

@@ -28,14 +28,19 @@ function getTrimmedString(formData: FormData, key: string): string {
   return value.trim();
 }
 
-function getOptionalTrimmedString(formData: FormData, key: string): string | null {
+function getOptionalTrimmedString(
+  formData: FormData,
+  key: string
+): string | null {
   const value = getTrimmedString(formData, key);
   return value.length > 0 ? value : null;
 }
 
 function parseAudience(formData: FormData): FlagAudience | null {
   const value = getTrimmedString(formData, "audience");
-  return AUDIENCE_VALUES.includes(value as FlagAudience) ? (value as FlagAudience) : null;
+  return AUDIENCE_VALUES.includes(value as FlagAudience)
+    ? (value as FlagAudience)
+    : null;
 }
 
 function parseEnvironments(formData: FormData): FlagTargetEnvironment[] {
@@ -43,7 +48,7 @@ function parseEnvironments(formData: FormData): FlagTargetEnvironment[] {
   const environments = values
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .filter((value): value is FlagTargetEnvironment =>
-      ENVIRONMENT_VALUES.includes(value as FlagTargetEnvironment),
+      ENVIRONMENT_VALUES.includes(value as FlagTargetEnvironment)
     );
 
   return Array.from(new Set(environments));
@@ -116,7 +121,9 @@ export async function updateRuntimeFlag(id: string, formData: FormData) {
         enabled,
         audience,
         targetEnvironments:
-          targetEnvironments.length > 0 ? targetEnvironments : ENVIRONMENT_VALUES,
+          targetEnvironments.length > 0
+            ? targetEnvironments
+            : ENVIRONMENT_VALUES,
         notes,
         updatedAt: new Date(),
       })
@@ -169,7 +176,7 @@ export async function linkFlagToFeature(formData: FormData) {
   const existingLink = await db.query.featureFlagLinks.findFirst({
     where: and(
       eq(featureFlagLinks.flagId, flagId),
-      eq(featureFlagLinks.featureId, featureId),
+      eq(featureFlagLinks.featureId, featureId)
     ),
   });
 

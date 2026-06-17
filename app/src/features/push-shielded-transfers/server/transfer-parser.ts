@@ -32,7 +32,7 @@ const DESTINATION_DEPOSIT_OFFSET_FROM_END = 3;
 const TOKEN_MINT_OFFSET_FROM_END = 2;
 
 function isPartiallyDecodedInstruction(
-  instruction: unknown,
+  instruction: unknown
 ): instruction is PartiallyDecodedInstruction {
   return (
     instruction !== null &&
@@ -45,7 +45,7 @@ function isPartiallyDecodedInstruction(
 
 export function parseTransferDepositInstructions(
   tx: ParsedTransactionWithMeta,
-  signature: string,
+  signature: string
 ): TransferDepositEvent[] {
   if (tx.meta?.err) return [];
   if (!tx.blockTime) return [];
@@ -54,53 +54,59 @@ export function parseTransferDepositInstructions(
   const slot = BigInt(tx.slot);
   const events: TransferDepositEvent[] = [];
 
-  tx.transaction.message.instructions.forEach((instruction, instructionIndex) => {
-    if (!isPartiallyDecodedInstruction(instruction)) return;
-    if (
-      instruction.programId.toBase58() !==
-      PRIVATE_TRANSFER_PROGRAM_ID.toBase58()
-    ) {
-      return;
+  tx.transaction.message.instructions.forEach(
+    (instruction, instructionIndex) => {
+      if (!isPartiallyDecodedInstruction(instruction)) return;
+      if (
+        instruction.programId.toBase58() !==
+        PRIVATE_TRANSFER_PROGRAM_ID.toBase58()
+      ) {
+        return;
+      }
+
+      const decoded = decodeTelegramPrivateTransferInstruction(
+        instruction.data
+      );
+      if (!decoded || decoded.name !== "transfer_deposit") return;
+
+      const args = (decoded.data as { args?: ParsedTransferDepositArgs } | null)
+        ?.args;
+      if (!args?.amount) return;
+
+      const accounts = instruction.accounts.map((account) =>
+        account.toString()
+      );
+      if (accounts.length < ACCOUNTS_MIN_LENGTH) return;
+
+      const senderAddress = accounts[0];
+      const sourceDepositAddress =
+        accounts[accounts.length - SOURCE_DEPOSIT_OFFSET_FROM_END];
+      const destinationDepositAddress =
+        accounts[accounts.length - DESTINATION_DEPOSIT_OFFSET_FROM_END];
+      const tokenMint = accounts[accounts.length - TOKEN_MINT_OFFSET_FROM_END];
+
+      if (
+        !senderAddress ||
+        !sourceDepositAddress ||
+        !destinationDepositAddress ||
+        !tokenMint
+      ) {
+        return;
+      }
+
+      events.push({
+        amountRaw: BigInt(args.amount.toString()),
+        destinationDepositAddress,
+        instructionIndex,
+        occurredAt,
+        senderAddress,
+        signature,
+        slot,
+        sourceDepositAddress,
+        tokenMint,
+      });
     }
-
-    const decoded = decodeTelegramPrivateTransferInstruction(instruction.data);
-    if (!decoded || decoded.name !== "transfer_deposit") return;
-
-    const args = (decoded.data as { args?: ParsedTransferDepositArgs } | null)
-      ?.args;
-    if (!args?.amount) return;
-
-    const accounts = instruction.accounts.map((account) => account.toString());
-    if (accounts.length < ACCOUNTS_MIN_LENGTH) return;
-
-    const senderAddress = accounts[0];
-    const sourceDepositAddress =
-      accounts[accounts.length - SOURCE_DEPOSIT_OFFSET_FROM_END];
-    const destinationDepositAddress =
-      accounts[accounts.length - DESTINATION_DEPOSIT_OFFSET_FROM_END];
-    const tokenMint = accounts[accounts.length - TOKEN_MINT_OFFSET_FROM_END];
-
-    if (
-      !senderAddress ||
-      !sourceDepositAddress ||
-      !destinationDepositAddress ||
-      !tokenMint
-    ) {
-      return;
-    }
-
-    events.push({
-      amountRaw: BigInt(args.amount.toString()),
-      destinationDepositAddress,
-      instructionIndex,
-      occurredAt,
-      senderAddress,
-      signature,
-      slot,
-      sourceDepositAddress,
-      tokenMint,
-    });
-  });
+  );
 
   return events;
 }

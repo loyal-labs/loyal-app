@@ -70,10 +70,12 @@ export async function fetchSummaries(): Promise<ChatSummary[]> {
  * Fetch summaries for a specific group chat.
  */
 export async function fetchSummariesByGroup(
-  groupChatId: string,
+  groupChatId: string
 ): Promise<ChatSummary[]> {
   const response = await fetch(
-    `${env.apiBaseUrl}/api/summaries?groupChatId=${encodeURIComponent(groupChatId)}`,
+    `${env.apiBaseUrl}/api/summaries?groupChatId=${encodeURIComponent(
+      groupChatId
+    )}`
   );
   if (!response.ok) {
     throw new Error(`Failed to fetch summaries: ${response.status}`);
@@ -83,10 +85,10 @@ export async function fetchSummariesByGroup(
 }
 
 export async function fetchTokenDetailMarket(
-  mint: string,
+  mint: string
 ): Promise<MobileTokenDetailResponse> {
   const response = await fetch(
-    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}`,
+    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}`
   );
 
   if (!response.ok) {
@@ -159,7 +161,7 @@ export async function fetchLibrary(): Promise<LibraryResponse> {
  * Keeps the most recent summary per group (input assumed sorted newest-first from API).
  */
 export function transformSummariesToGroups(
-  summaries: ChatSummary[],
+  summaries: ChatSummary[]
 ): GroupChat[] {
   const groupMap = new Map<string, GroupChat>();
 

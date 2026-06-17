@@ -5,15 +5,7 @@ import {
   type Summary,
   type Topic,
 } from "@loyal-labs/db-core/schema";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gte,
-  lte,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { type Bot } from "grammy";
 
 import { getDatabase } from "@/lib/core/database";
@@ -23,7 +15,10 @@ import {
 } from "@/lib/telegram/bot-api/summary-generation";
 
 import { buildSummaryMessageWithPreview } from "./build-summary-og-url";
-import { buildSummaryVoteKeyboard, getSummaryVoteTotals } from "./summary-votes";
+import {
+  buildSummaryVoteKeyboard,
+  getSummaryVoteTotals,
+} from "./summary-votes";
 import type {
   SendLatestSummaryOptions,
   SendSummaryResult,
@@ -88,7 +83,10 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
     run: SummaryRunContext;
   }): Promise<GenerateOrGetSummaryForRunResult> {
     const triggerKey = buildDailySummaryTriggerKey(input.run.dayStartUtc);
-    const messageCount = await countMessagesInWindow(input.communityId, input.run);
+    const messageCount = await countMessagesInWindow(
+      input.communityId,
+      input.run
+    );
 
     if (messageCount < MIN_MESSAGES_FOR_SUMMARY) {
       return { status: "not_enough_messages", messageCount };
@@ -119,21 +117,28 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
     });
 
     if (recentMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
-      return { status: "not_enough_messages", messageCount: recentMessages.length };
+      return {
+        status: "not_enough_messages",
+        messageCount: recentMessages.length,
+      };
     }
 
     const formattedMessages = buildSummaryInput(recentMessages);
     if (!formattedMessages) {
-      return { status: "not_enough_messages", messageCount: recentMessages.length };
+      return {
+        status: "not_enough_messages",
+        messageCount: recentMessages.length,
+      };
     }
 
-    const generatedSummary = await getOrCreateSummaryGenerationService().generate({
-      chatTitle: input.chatTitle,
-      dayKeyUtc: toUtcDayKey(input.run.dayStartUtc),
-      modelKey: summaryModelResolver(),
-      participants: recentMessages.map((message) => message.user.displayName),
-      transcript: formattedMessages,
-    });
+    const generatedSummary =
+      await getOrCreateSummaryGenerationService().generate({
+        chatTitle: input.chatTitle,
+        dayKeyUtc: toUtcDayKey(input.run.dayStartUtc),
+        modelKey: summaryModelResolver(),
+        participants: recentMessages.map((message) => message.user.displayName),
+        transcript: formattedMessages,
+      });
 
     const insertedSummary = await getDb()
       .insert(summaries)
@@ -143,7 +148,8 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
         fromMessageId: recentMessages[0].telegramMessageId,
         messageCount,
         oneliner: generatedSummary.oneliner,
-        toMessageId: recentMessages[recentMessages.length - 1].telegramMessageId,
+        toMessageId:
+          recentMessages[recentMessages.length - 1].telegramMessageId,
         topics: generatedSummary.topics as Topic[],
         triggerKey,
         triggerType: DAILY_SUMMARY_TRIGGER_TYPE,
@@ -159,7 +165,10 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
       };
     }
 
-    const conflictedSummary = await findSummaryByTriggerKey(input.communityId, triggerKey);
+    const conflictedSummary = await findSummaryByTriggerKey(
+      input.communityId,
+      triggerKey
+    );
     if (!conflictedSummary) {
       throw new Error("Failed to create summary");
     }
@@ -180,7 +189,10 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
     const replyToMessageId = options?.replyToMessageId;
 
     const community = await getDb().query.communities.findFirst({
-      where: and(eq(communities.chatId, sourceChatId), eq(communities.isActive, true)),
+      where: and(
+        eq(communities.chatId, sourceChatId),
+        eq(communities.isActive, true)
+      ),
     });
 
     if (!community) {
@@ -245,7 +257,8 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
         topics: summary.topics,
       },
       {
-        destinationChatId: options?.destinationChatId ?? summary.community.chatId,
+        destinationChatId:
+          options?.destinationChatId ?? summary.community.chatId,
         replyToMessageId: options?.replyToMessageId,
         sourceCommunityChatId: summary.community.chatId,
       }
@@ -278,7 +291,10 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
   ): Promise<Summary | null> {
     return (
       (await getDb().query.summaries.findFirst({
-        where: and(eq(summaries.communityId, communityId), eq(summaries.triggerKey, triggerKey)),
+        where: and(
+          eq(summaries.communityId, communityId),
+          eq(summaries.triggerKey, triggerKey)
+        ),
         orderBy: [desc(summaries.createdAt)],
       })) ?? null
     );
@@ -378,7 +394,10 @@ export function createSummariesService(deps?: CreateSummariesServiceDeps) {
           }
         );
       } catch (error) {
-        logger.log("Failed to send summary as reply, sending without reply", error);
+        logger.log(
+          "Failed to send summary as reply, sending without reply",
+          error
+        );
       }
     }
 
@@ -431,7 +450,8 @@ function buildSummaryInput(
 
   for (const message of recentMessages) {
     const line = `${message.user.displayName}: ${message.content}`;
-    const nextLength = output.length === 0 ? line.length : output.length + 1 + line.length;
+    const nextLength =
+      output.length === 0 ? line.length : output.length + 1 + line.length;
 
     if (nextLength > MAX_SUMMARY_INPUT_CHARS) {
       if (!output) {
@@ -450,7 +470,9 @@ export async function buildSummaryMessagePayload(
   summary: Pick<Summary, "createdAt" | "id" | "oneliner" | "topics">,
   sourceCommunityChatId: bigint
 ): Promise<SummaryMessagePayload> {
-  const { firstBulletContent, messageBody } = buildSummaryMessageBody(summary.topics);
+  const { firstBulletContent, messageBody } = buildSummaryMessageBody(
+    summary.topics
+  );
   const ogText = buildSummaryOgText(summary.oneliner, firstBulletContent);
 
   const messageWithPreview = buildSummaryMessageWithPreview(
@@ -513,7 +535,10 @@ function buildSummaryMessageBody(topics: Topic[]): {
   };
 }
 
-function buildSummaryOgText(oneliner: string, firstBulletContent: string): string {
+function buildSummaryOgText(
+  oneliner: string,
+  firstBulletContent: string
+): string {
   const normalizedOneliner = normalizeWhitespace(oneliner);
   if (normalizedOneliner.length > 0) {
     return normalizedOneliner.slice(0, MAX_SUMMARY_OG_TEXT_CHARS);

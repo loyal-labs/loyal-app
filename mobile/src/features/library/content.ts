@@ -65,7 +65,11 @@ function setStoreState(next: Partial<StoreState>) {
   emit();
 }
 
-async function loadLibrary({ isRefresh }: { isRefresh: boolean }): Promise<void> {
+async function loadLibrary({
+  isRefresh,
+}: {
+  isRefresh: boolean;
+}): Promise<void> {
   if (inflight) return inflight;
 
   setStoreState({
@@ -148,11 +152,11 @@ export type LibrarySiblingArticles = {
  */
 export function findLibrarySiblings(
   content: LibraryContent,
-  id: string,
+  id: string
 ): LibrarySiblingArticles {
   const section =
     content.sections.find((candidate) =>
-      candidate.articles.some((article) => article.id === id),
+      candidate.articles.some((article) => article.id === id)
     ) ?? null;
 
   if (!section) {

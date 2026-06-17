@@ -26,7 +26,9 @@ export function isGroupChat(chatType: string): boolean {
  * Checks if a chat type is a community chat (group, supergroup, or channel).
  */
 export function isCommunityChat(chatType: string): boolean {
-  return chatType === "group" || chatType === "supergroup" || chatType === "channel";
+  return (
+    chatType === "group" || chatType === "supergroup" || chatType === "channel"
+  );
 }
 
 /**

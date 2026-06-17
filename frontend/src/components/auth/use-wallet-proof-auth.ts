@@ -4,7 +4,10 @@ import type { WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
-import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
+import {
+  useAuthApiClient,
+  useAuthSession,
+} from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { AuthApiClientError } from "@/lib/auth/client";
 import {

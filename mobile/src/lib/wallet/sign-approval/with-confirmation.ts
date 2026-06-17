@@ -13,9 +13,13 @@ export type ConfirmLabels = {
   subtitle?: string;
 };
 
-export type ConfirmLabelsSource = ConfirmLabels | (() => ConfirmLabels | undefined);
+export type ConfirmLabelsSource =
+  | ConfirmLabels
+  | (() => ConfirmLabels | undefined);
 
-function resolveLabels(source?: ConfirmLabelsSource): ConfirmLabels | undefined {
+function resolveLabels(
+  source?: ConfirmLabelsSource
+): ConfirmLabels | undefined {
   if (!source) return undefined;
   return typeof source === "function" ? source() : source;
 }
@@ -34,7 +38,7 @@ function resolveLabels(source?: ConfirmLabelsSource): ConfirmLabels | undefined 
 export function withConfirmation(
   signer: Signer,
   ctx: SignApprovalContextValue,
-  labels?: ConfirmLabelsSource,
+  labels?: ConfirmLabelsSource
 ): Signer {
   const { requestApproval } = ctx;
 

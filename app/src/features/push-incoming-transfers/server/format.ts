@@ -36,7 +36,7 @@ export function truncateAddress(address: string): string {
 
 export function formatIncomingTransferPush(
   event: IncomingTransferEvent,
-  metadata: MintMetadata | null,
+  metadata: MintMetadata | null
 ): WalletPushPayload {
   const symbol = metadata?.symbol ?? truncateAddress(event.mint);
   const decimals = metadata?.decimals ?? UNKNOWN_DECIMALS;

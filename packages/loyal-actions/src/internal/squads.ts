@@ -59,7 +59,7 @@ export type SquadsContext = {
 export function deriveActionAccount(
   config: LoyalClusterConfig,
   settings: PublicKey,
-  policySeed: PolicySeed,
+  policySeed: PolicySeed
 ): PublicKey {
   const normalizedSeed = normalizeU64(policySeed, "policySeed");
   const seedBytes = new Uint8Array(8);
@@ -74,10 +74,14 @@ export function createProgramInteractionPolicyInstruction(
   config: LoyalClusterConfig,
   context: SquadsContext,
   constraints: readonly InstructionConstraint[],
-  policySeed: PolicySeed,
+  policySeed: PolicySeed
 ): TransactionInstruction {
   const normalizedSeed = normalizeU64(policySeed, "policySeed");
-  const actionAccount = deriveActionAccount(config, context.settings, normalizedSeed);
+  const actionAccount = deriveActionAccount(
+    config,
+    context.settings,
+    normalizedSeed
+  );
   const data = serializeSettingsActions(
     context.delegatedSigner,
     normalizedSeed,

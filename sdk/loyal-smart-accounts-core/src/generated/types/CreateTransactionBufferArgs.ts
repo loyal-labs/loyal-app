@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type CreateTransactionBufferArgs = {
-  bufferIndex: number
-  accountIndex: number
-  finalBufferHash: number[] /* size: 32 */
-  finalBufferSize: number
-  buffer: Uint8Array
-}
+  bufferIndex: number;
+  accountIndex: number;
+  finalBufferHash: number[] /* size: 32 */;
+  finalBufferSize: number;
+  buffer: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -21,11 +21,11 @@ export type CreateTransactionBufferArgs = {
 export const createTransactionBufferArgsBeet =
   new beet.FixableBeetArgsStruct<CreateTransactionBufferArgs>(
     [
-      ['bufferIndex', beet.u8],
-      ['accountIndex', beet.u8],
-      ['finalBufferHash', beet.uniformFixedSizeArray(beet.u8, 32)],
-      ['finalBufferSize', beet.u16],
-      ['buffer', beet.bytes],
+      ["bufferIndex", beet.u8],
+      ["accountIndex", beet.u8],
+      ["finalBufferHash", beet.uniformFixedSizeArray(beet.u8, 32)],
+      ["finalBufferSize", beet.u16],
+      ["buffer", beet.bytes],
     ],
-    'CreateTransactionBufferArgs'
-  )
+    "CreateTransactionBufferArgs"
+  );

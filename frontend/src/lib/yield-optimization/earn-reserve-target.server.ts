@@ -103,7 +103,9 @@ export function assertSafeUsdcEarnReserveMetadata(args: {
   const safeMarkets = getSafeMarkets(args.cluster);
 
   if (args.liquidityMint !== expectedUsdcMint) {
-    throw new Error("Earn reserve liquidity mint must be the cluster USDC mint.");
+    throw new Error(
+      "Earn reserve liquidity mint must be the cluster USDC mint."
+    );
   }
   if (!args.market || !safeMarkets.has(args.market)) {
     throw new Error("Earn reserve market is not in the Safe USDC universe.");

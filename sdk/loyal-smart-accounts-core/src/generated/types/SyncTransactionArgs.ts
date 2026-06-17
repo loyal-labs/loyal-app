@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import { SyncPayload, syncPayloadBeet } from './SyncPayload'
+import * as beet from "@metaplex-foundation/beet";
+import { SyncPayload, syncPayloadBeet } from "./SyncPayload";
 export type SyncTransactionArgs = {
-  accountIndex: number
-  numSigners: number
-  payload: SyncPayload
-}
+  accountIndex: number;
+  numSigners: number;
+  payload: SyncPayload;
+};
 
 /**
  * @category userTypes
@@ -20,9 +20,9 @@ export type SyncTransactionArgs = {
 export const syncTransactionArgsBeet =
   new beet.FixableBeetArgsStruct<SyncTransactionArgs>(
     [
-      ['accountIndex', beet.u8],
-      ['numSigners', beet.u8],
-      ['payload', syncPayloadBeet],
+      ["accountIndex", beet.u8],
+      ["numSigners", beet.u8],
+      ["payload", syncPayloadBeet],
     ],
-    'SyncTransactionArgs'
-  )
+    "SyncTransactionArgs"
+  );

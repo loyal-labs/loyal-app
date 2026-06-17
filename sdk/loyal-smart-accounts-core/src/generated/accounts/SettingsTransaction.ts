@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { SettingsAction, settingsActionBeet } from '../types/SettingsAction'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { SettingsAction, settingsActionBeet } from "../types/SettingsAction";
 
 /**
  * Arguments used to create {@link SettingsTransaction}
@@ -16,17 +16,17 @@ import { SettingsAction, settingsActionBeet } from '../types/SettingsAction'
  * @category generated
  */
 export type SettingsTransactionArgs = {
-  settings: web3.PublicKey
-  creator: web3.PublicKey
-  rentCollector: web3.PublicKey
-  index: beet.bignum
-  bump: number
-  actions: SettingsAction[]
-}
+  settings: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentCollector: web3.PublicKey;
+  index: beet.bignum;
+  bump: number;
+  actions: SettingsAction[];
+};
 
 export const settingsTransactionDiscriminator = [
   199, 151, 72, 87, 77, 124, 16, 0,
-]
+];
 /**
  * Holds the data for the {@link SettingsTransaction} Account and provides de/serialization
  * functionality for that data
@@ -55,7 +55,7 @@ export class SettingsTransaction implements SettingsTransactionArgs {
       args.index,
       args.bump,
       args.actions
-    )
+    );
   }
 
   /**
@@ -66,7 +66,7 @@ export class SettingsTransaction implements SettingsTransactionArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [SettingsTransaction, number] {
-    return SettingsTransaction.deserialize(accountInfo.data, offset)
+    return SettingsTransaction.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -83,13 +83,13 @@ export class SettingsTransaction implements SettingsTransactionArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
       throw new Error(
         `Unable to find SettingsTransaction account at ${address}`
-      )
+      );
     }
-    return SettingsTransaction.fromAccountInfo(accountInfo, 0)[0]
+    return SettingsTransaction.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -100,10 +100,10 @@ export class SettingsTransaction implements SettingsTransactionArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, settingsTransactionBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, settingsTransactionBeet);
   }
 
   /**
@@ -111,7 +111,7 @@ export class SettingsTransaction implements SettingsTransactionArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [SettingsTransaction, number] {
-    return settingsTransactionBeet.deserialize(buf, offset)
+    return settingsTransactionBeet.deserialize(buf, offset);
   }
 
   /**
@@ -122,7 +122,7 @@ export class SettingsTransaction implements SettingsTransactionArgs {
     return settingsTransactionBeet.serialize({
       accountDiscriminator: settingsTransactionDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -133,11 +133,11 @@ export class SettingsTransaction implements SettingsTransactionArgs {
    * depends on them
    */
   static byteSize(args: SettingsTransactionArgs) {
-    const instance = SettingsTransaction.fromArgs(args)
+    const instance = SettingsTransaction.fromArgs(args);
     return settingsTransactionBeet.toFixedFromValue({
       accountDiscriminator: settingsTransactionDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -156,7 +156,7 @@ export class SettingsTransaction implements SettingsTransactionArgs {
     return connection.getMinimumBalanceForRentExemption(
       SettingsTransaction.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -169,19 +169,19 @@ export class SettingsTransaction implements SettingsTransactionArgs {
       creator: this.creator.toBase58(),
       rentCollector: this.rentCollector.toBase58(),
       index: (() => {
-        const x = <{ toNumber: () => number }>this.index
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.index;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       bump: this.bump,
       actions: this.actions,
-    }
+    };
   }
 }
 
@@ -192,18 +192,18 @@ export class SettingsTransaction implements SettingsTransactionArgs {
 export const settingsTransactionBeet = new beet.FixableBeetStruct<
   SettingsTransaction,
   SettingsTransactionArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['settings', beetSolana.publicKey],
-    ['creator', beetSolana.publicKey],
-    ['rentCollector', beetSolana.publicKey],
-    ['index', beet.u64],
-    ['bump', beet.u8],
-    ['actions', beet.array(settingsActionBeet)],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["settings", beetSolana.publicKey],
+    ["creator", beetSolana.publicKey],
+    ["rentCollector", beetSolana.publicKey],
+    ["index", beet.u64],
+    ["bump", beet.u8],
+    ["actions", beet.array(settingsActionBeet)],
   ],
   SettingsTransaction.fromArgs,
-  'SettingsTransaction'
-)
+  "SettingsTransaction"
+);

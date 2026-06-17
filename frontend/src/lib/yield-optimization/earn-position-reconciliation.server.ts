@@ -7,10 +7,7 @@ import {
   resolveEarnUsdcVaultTokenAccounts,
   type SmartAccountEarnUsdcReserveTargetInput,
 } from "@loyal-labs/smart-account-vaults";
-import {
-  AccountLayout,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import type { AccountInfo, Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 
@@ -159,7 +156,9 @@ function deriveCollateralAta(args: {
 
 function buildReserveCandidates(args: {
   currentRows: CurrentYieldVaultReservePositionRecord[];
-  position: Awaited<ReturnType<typeof findReconciledActiveYieldPositionForVault>>;
+  position: Awaited<
+    ReturnType<typeof findReconciledActiveYieldPositionForVault>
+  >;
   cluster: ReconcileEarnVaultPositionInput["cluster"];
   vaultPda: PublicKey;
 }): ReserveCandidate[] {
@@ -299,7 +298,9 @@ export async function reconcileEarnVaultPosition(
     vaultPda,
   });
   const accountKeys = [
-    ...reconcilableCandidates.map((candidate) => new PublicKey(candidate.reserve)),
+    ...reconcilableCandidates.map(
+      (candidate) => new PublicKey(candidate.reserve)
+    ),
     ...reconcilableCandidates.map((candidate) => candidate.collateralAta),
     canonicalAccounts.usdcAta,
   ];
@@ -316,7 +317,9 @@ export async function reconcileEarnVaultPosition(
   const positions = reconcilableCandidates.map((candidate, index) => {
     const reserveAccount = value[reserveAccountOffset + index];
     if (!reserveAccount) {
-      throw new Error(`Kamino reserve account ${candidate.reserve} was not found.`);
+      throw new Error(
+        `Kamino reserve account ${candidate.reserve} was not found.`
+      );
     }
     const collateralAccount = value[collateralAccountOffset + index] ?? null;
     const collateralAmountRaw = decodeTokenAccountAmount({

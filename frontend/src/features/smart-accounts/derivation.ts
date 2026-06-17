@@ -22,8 +22,7 @@ export function deriveCanonicalSmartAccountAddress(args: {
 }): string {
   const [smartAccountPda] = pda.getSmartAccountPda({
     settingsPda: new PublicKey(args.settingsPda),
-    accountIndex:
-      args.accountIndex ?? DEFAULT_CANONICAL_SMART_ACCOUNT_INDEX,
+    accountIndex: args.accountIndex ?? DEFAULT_CANONICAL_SMART_ACCOUNT_INDEX,
     programId: new PublicKey(args.programId),
   });
 

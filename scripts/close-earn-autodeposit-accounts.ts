@@ -141,7 +141,9 @@ function parseArgs(argv = process.argv.slice(2)): ParsedArgs {
         index += 1;
         break;
       case "--recurring-delegation":
-        recurringDelegations.push(new PublicKey(readFlagValue(argv, index, arg)));
+        recurringDelegations.push(
+          new PublicKey(readFlagValue(argv, index, arg))
+        );
         index += 1;
         break;
       case "--rpc-url":
@@ -711,7 +713,9 @@ async function executeCleanup(args: {
   const delegationPubkeys = args.delegations.map(
     (delegation) => new PublicKey(delegation.address)
   );
-  const policyPubkeys = args.policies.map((policy) => new PublicKey(policy.address));
+  const policyPubkeys = args.policies.map(
+    (policy) => new PublicKey(policy.address)
+  );
   const closePolicyPrepared =
     policyPubkeys.length === 0
       ? null
@@ -790,7 +794,9 @@ async function executeCleanup(args: {
     cleanupAccounts,
     "confirmed"
   );
-  const stillOpen = cleanupAccounts.filter((_, index) => remainingAccounts[index]);
+  const stillOpen = cleanupAccounts.filter(
+    (_, index) => remainingAccounts[index]
+  );
   if (stillOpen.length > 0) {
     throw new Error(
       `Cleanup transaction confirmed, but account(s) still exist: ${stillOpen
@@ -972,7 +978,9 @@ async function main() {
   );
 
   if (delegations.length === 0 && policies.length === 0) {
-    console.log("No Earn autodeposit delegation or balance-sweep policy found.");
+    console.log(
+      "No Earn autodeposit delegation or balance-sweep policy found."
+    );
     return;
   }
 

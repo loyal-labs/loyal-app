@@ -9,7 +9,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { createUseSpendingLimitInstruction, PROGRAM_ID } from "../generated";
-import {  getSmartAccountPda } from "../pda";
+import { getSmartAccountPda } from "../pda";
 
 export function useSpendingLimit({
   settingsPda,
@@ -37,7 +37,11 @@ export function useSpendingLimit({
   memo?: string;
   programId?: PublicKey;
 }): TransactionInstruction {
-  const [smartAccountPda] = getSmartAccountPda({ settingsPda, accountIndex, programId });
+  const [smartAccountPda] = getSmartAccountPda({
+    settingsPda,
+    accountIndex,
+    programId,
+  });
 
   const smartAccountTokenAccount =
     mint &&

@@ -20,8 +20,7 @@ export type { AppEnvironment } from "./shared";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const LOYAL_SMART_ACCOUNTS_PROGRAM_ID_ENV_NAME =
   "LOYAL_SMART_ACCOUNTS_PROGRAM_ID";
-const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME =
-  "AUTH_SESSION_RS256_PUBLIC_KEY";
+const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME = "AUTH_SESSION_RS256_PUBLIC_KEY";
 const AUTH_SESSION_RS256_PRIVATE_KEY_ENV_NAME =
   "AUTH_SESSION_RS256_PRIVATE_KEY";
 const AUTH_JWT_SECRET_ENV_NAME = "AUTH_JWT_SECRET";
@@ -83,7 +82,9 @@ function parsePositiveInteger(
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${AUTH_JWT_TTL_SECONDS_ENV_NAME} must be a positive integer`);
+    throw new Error(
+      `${AUTH_JWT_TTL_SECONDS_ENV_NAME} must be a positive integer`
+    );
   }
 
   return parsed;

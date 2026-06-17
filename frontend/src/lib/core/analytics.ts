@@ -42,9 +42,13 @@ export function trackAuthSignInPressed(
   publicEnv: PublicEnv,
   source: AuthSignInPressedSource
 ): void {
-  trackFrontendAnalyticsEvent(publicEnv, FRONTEND_ANALYTICS_EVENTS.authSignInPressed, {
-    source,
-  });
+  trackFrontendAnalyticsEvent(
+    publicEnv,
+    FRONTEND_ANALYTICS_EVENTS.authSignInPressed,
+    {
+      source,
+    }
+  );
 }
 
 export function trackAuthSignInSucceeded(

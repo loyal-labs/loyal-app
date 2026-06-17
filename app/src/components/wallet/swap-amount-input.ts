@@ -43,16 +43,16 @@ function expandScientificNotation(value: string): string {
     return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`;
   }
 
-  return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`;
+  return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(
+    decimalIndex
+  )}`;
 }
 
 function truncateAmountString(value: string, maxDecimals: number): string {
   const normalized = expandScientificNotation(value);
   const [whole, fraction = ""] = normalized.split(".");
   const truncatedFraction = fraction.slice(0, maxDecimals);
-  return (
-    truncatedFraction.length > 0 ? `${whole}.${truncatedFraction}` : whole
-  );
+  return truncatedFraction.length > 0 ? `${whole}.${truncatedFraction}` : whole;
 }
 
 export function formatAmountInputValue(
@@ -63,8 +63,10 @@ export function formatAmountInputValue(
 
   const safeMaxDecimals = getAmountInputMaxDecimals(maxDecimals);
   return (
-    truncateAmountString(value.toString(), safeMaxDecimals).replace(/\.?0+$/, "") ||
-    "0"
+    truncateAmountString(value.toString(), safeMaxDecimals).replace(
+      /\.?0+$/,
+      ""
+    ) || "0"
   );
 }
 

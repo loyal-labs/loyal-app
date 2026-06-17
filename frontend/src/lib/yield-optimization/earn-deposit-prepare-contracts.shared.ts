@@ -76,9 +76,9 @@ function readUnsignedIntegerString(
   return value.trim();
 }
 
-export function parseEarnDepositPrepareRequestBody(
-  body: unknown
-): { amountRaw: bigint } {
+export function parseEarnDepositPrepareRequestBody(body: unknown): {
+  amountRaw: bigint;
+} {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
 

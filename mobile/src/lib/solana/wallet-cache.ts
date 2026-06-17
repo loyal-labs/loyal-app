@@ -37,7 +37,7 @@ export const setCachedWalletAddress = (address: string | null): void => {
 const balanceKey = (addr: string) => `walletBalance:${addr}`;
 
 export const getCachedWalletBalance = (
-  walletAddress: string | null,
+  walletAddress: string | null
 ): number | null => {
   if (!walletAddress) return null;
   const cached = mmkv.getNumber(balanceKey(walletAddress));
@@ -46,7 +46,7 @@ export const getCachedWalletBalance = (
 
 export const setCachedWalletBalance = (
   walletAddress: string | null,
-  lamports: number,
+  lamports: number
 ): void => {
   if (!walletAddress) return;
   mmkv.setNumber(balanceKey(walletAddress), lamports);
@@ -83,7 +83,7 @@ export const setCachedSolPrice = (price: number): void => {
 // --- Balance subscription ---
 
 export const ensureWalletBalanceSubscription = async (
-  walletAddress: string,
+  walletAddress: string
 ) => {
   if (walletBalanceSubscriptionPromise) {
     return walletBalanceSubscriptionPromise;
@@ -121,7 +121,7 @@ export const getCachedDisplayCurrency = (): "USD" | "SOL" | null => {
 };
 
 export const setCachedDisplayCurrency = (
-  currency: "USD" | "SOL" | null,
+  currency: "USD" | "SOL" | null
 ): void => {
   if (currency) {
     mmkv.setString(DISPLAY_CURRENCY_KEY, currency);

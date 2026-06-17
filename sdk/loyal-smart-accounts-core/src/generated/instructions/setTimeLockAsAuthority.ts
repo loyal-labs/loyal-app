@@ -5,9 +5,9 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
-import { SetTimeLockArgs, setTimeLockArgsBeet } from '../types/SetTimeLockArgs'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
+import { SetTimeLockArgs, setTimeLockArgsBeet } from "../types/SetTimeLockArgs";
 
 /**
  * @category Instructions
@@ -15,8 +15,8 @@ import { SetTimeLockArgs, setTimeLockArgsBeet } from '../types/SetTimeLockArgs'
  * @category generated
  */
 export type SetTimeLockAsAuthorityInstructionArgs = {
-  args: SetTimeLockArgs
-}
+  args: SetTimeLockArgs;
+};
 /**
  * @category Instructions
  * @category SetTimeLockAsAuthority
@@ -24,15 +24,15 @@ export type SetTimeLockAsAuthorityInstructionArgs = {
  */
 export const setTimeLockAsAuthorityStruct = new beet.FixableBeetArgsStruct<
   SetTimeLockAsAuthorityInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', setTimeLockArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", setTimeLockArgsBeet],
   ],
-  'SetTimeLockAsAuthorityInstructionArgs'
-)
+  "SetTimeLockAsAuthorityInstructionArgs"
+);
 /**
  * Accounts required by the _setTimeLockAsAuthority_ instruction
  *
@@ -45,17 +45,17 @@ export const setTimeLockAsAuthorityStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type SetTimeLockAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const setTimeLockAsAuthorityInstructionDiscriminator = [
   2, 234, 93, 93, 40, 92, 31, 234,
-]
+];
 
 /**
  * Creates a _SetTimeLockAsAuthority_ instruction.
@@ -73,12 +73,12 @@ export const setTimeLockAsAuthorityInstructionDiscriminator = [
 export function createSetTimeLockAsAuthorityInstruction(
   accounts: SetTimeLockAsAuthorityInstructionAccounts,
   args: SetTimeLockAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = setTimeLockAsAuthorityStruct.serialize({
     instructionDiscriminator: setTimeLockAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -105,11 +105,11 @@ export function createSetTimeLockAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -117,6 +117,6 @@ export function createSetTimeLockAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

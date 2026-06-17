@@ -190,15 +190,16 @@ function mockKaminoDepositInstruction() {
 }
 
 function mockKaminoWithdrawInstruction(
-  overrides: { vaultUsdcAta?: PublicKey } = {}
+  overrides: {
+    duplicateWithdrawInstruction?: boolean;
+    executionReserve?: PublicKey;
+    vaultUsdcAta?: PublicKey;
+  } = {}
 ) {
   const fetchMock = mock(async (_url: unknown, init: RequestInit) => {
     const amountRaw = decimalAmountToRaw(
       JSON.parse((init.body as string) ?? "{}").amount
     );
-    const instructionData = Buffer.alloc(16);
-    Buffer.from([235, 52, 119, 152, 149, 197, 20, 7]).copy(instructionData, 0);
-    instructionData.writeBigUInt64LE(amountRaw, 8);
     const reserveCollateralMint = kaminoReserveCollateralMint;
     const vaultCollateralAta = getAssociatedTokenAddressSync(
       reserveCollateralMint,
@@ -206,45 +207,60 @@ function mockKaminoWithdrawInstruction(
       true,
       TOKEN_PROGRAM_ID
     );
-    return new Response(
-      JSON.stringify({
-        instructions: [
+    const createInstruction = (rawAmount: bigint) => {
+      const instructionData = Buffer.alloc(16);
+      Buffer.from([235, 52, 119, 152, 149, 197, 20, 7]).copy(
+        instructionData,
+        0
+      );
+      instructionData.writeBigUInt64LE(rawAmount, 8);
+      return {
+        accounts: [
+          { address: deriveVault().toBase58(), role: "WRITABLE_SIGNER" },
+          { address: kaminoMarket.toBase58(), role: "READONLY" },
           {
-            accounts: [
-              { address: deriveVault().toBase58(), role: "WRITABLE_SIGNER" },
-              { address: kaminoMarket.toBase58(), role: "READONLY" },
-              { address: kaminoReserve.toBase58(), role: "WRITABLE" },
-              { address: "11111111111111111111111111111111", role: "READONLY" },
-              {
-                address: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
-                role: "READONLY",
-              },
-              {
-                address: reserveCollateralMint.toBase58(),
-                role: "WRITABLE",
-              },
-              {
-                address: kaminoReserveLiquiditySupply.toBase58(),
-                role: "WRITABLE",
-              },
-              { address: vaultCollateralAta.toBase58(), role: "WRITABLE" },
-              {
-                address: (
-                  overrides.vaultUsdcAta ?? deriveVaultUsdcAta()
-                ).toBase58(),
-                role: "WRITABLE",
-              },
-              { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
-              { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
-              {
-                address: "Sysvar1nstructions1111111111111111111111111",
-                role: "READONLY",
-              },
-            ],
-            data: instructionData.toString("base64"),
-            programAddress: kaminoProgram.toBase58(),
+            address: (overrides.executionReserve ?? kaminoReserve).toBase58(),
+            role: "WRITABLE",
+          },
+          { address: "11111111111111111111111111111111", role: "READONLY" },
+          {
+            address: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
+            role: "READONLY",
+          },
+          {
+            address: reserveCollateralMint.toBase58(),
+            role: "WRITABLE",
+          },
+          {
+            address: kaminoReserveLiquiditySupply.toBase58(),
+            role: "WRITABLE",
+          },
+          { address: vaultCollateralAta.toBase58(), role: "WRITABLE" },
+          {
+            address: (
+              overrides.vaultUsdcAta ?? deriveVaultUsdcAta()
+            ).toBase58(),
+            role: "WRITABLE",
+          },
+          { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
+          { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
+          {
+            address: "Sysvar1nstructions1111111111111111111111111",
+            role: "READONLY",
           },
         ],
+        data: instructionData.toString("base64"),
+        programAddress: kaminoProgram.toBase58(),
+      };
+    };
+    return new Response(
+      JSON.stringify({
+        instructions: overrides.duplicateWithdrawInstruction
+          ? [
+              createInstruction(amountRaw / BigInt(2)),
+              createInstruction(amountRaw / BigInt(2)),
+            ]
+          : [createInstruction(amountRaw)],
       }),
       { status: 200 }
     );
@@ -929,8 +945,6 @@ describe("prepareEarnUsdcDeposit", () => {
       },
     });
 
-    expect(getBalance).toHaveBeenCalledWith(deriveVault(), "confirmed");
-    expect(getBalance).toHaveBeenCalledWith(feePayer, "confirmed");
     expect(result.prepared.instructions).toHaveLength(5);
     const transfer = SystemInstruction.decodeTransfer(
       result.prepared.instructions[2]!
@@ -1077,16 +1091,14 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions).toHaveLength(2);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
     );
     expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
       programId.toBase58()
     );
-    expect(result.prepared.instructions[2]?.programId.toBase58()).toBe(
-      programId.toBase58()
-    );
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
     expect(result.policy.withdrawInstructionConstraintIndex).toBe(0);
     expect("policyUpdatePrepared" in result).toBe(false);
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
@@ -1099,6 +1111,142 @@ describe("prepareEarnUsdcWithdraw", () => {
       policySeed: "7",
       withdrawnAmountRaw: "1000000",
       vaultIndex: 1,
+    });
+  });
+
+  test("accepts Kamino execution reserve drift inside the Earn envelope", async () => {
+    const executionReserve = new PublicKey(
+      "So11111111111111111111111111111111111111112"
+    );
+    mockKaminoWithdrawInstruction({ executionReserve });
+    const client = createSmartAccountVaultsClient({
+      connection: {} as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      mode: "partial",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(result.withdrawSteps).toHaveLength(1);
+    expect(result.withdrawSteps[0]?.accountingReserve.reserve.toBase58()).toBe(
+      kaminoReserve.toBase58()
+    );
+    expect(result.withdrawSteps[0]?.executionReserve.reserve.toBase58()).toBe(
+      executionReserve.toBase58()
+    );
+    expect(result.withdrawSteps[0]?.persistence).toMatchObject({
+      accountingReserve: kaminoReserve.toBase58(),
+      executionReserve: executionReserve.toBase58(),
+      targetReserve: kaminoReserve.toBase58(),
+    });
+  });
+
+  test("batches multiple Kamino withdraw instructions into one approval when they fit", async () => {
+    mockKaminoWithdrawInstruction({ duplicateWithdrawInstruction: true });
+    const vaultCollateralAta = getAssociatedTokenAddressSync(
+      kaminoReserveCollateralMint,
+      deriveVault(),
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const getTokenAccountBalance = mock(async (account: PublicKey) => {
+      if (account.equals(vaultCollateralAta)) {
+        return {
+          context: { slot: 1 },
+          value: {
+            amount: "200",
+            decimals: 6,
+            uiAmount: 0.0002,
+            uiAmountString: "0.0002",
+          },
+        };
+      }
+      return {
+        context: { slot: 1 },
+        value: {
+          amount: "1",
+          decimals: 6,
+          uiAmount: 0.000001,
+          uiAmountString: "0.000001",
+        },
+      };
+    });
+    const getAccountInfo = mock(async (account: PublicKey) => {
+      if (account.equals(kaminoReserve)) {
+        return createSerializedKaminoReserveAccount({
+          collateralSupplyRaw: BigInt(100),
+          liquidityAvailableAmountRaw: BigInt(500_001),
+        });
+      }
+      if (account.equals(vaultCollateralAta)) {
+        return {
+          data: createTokenAccountData({
+            amountRaw: BigInt(0),
+            mint: kaminoReserveCollateralMint,
+            owner: deriveVault(),
+          }),
+          executable: false,
+          lamports: 1,
+          owner: TOKEN_PROGRAM_ID,
+          rentEpoch: 0,
+        };
+      }
+      return createSerializedEarnPolicyAccount();
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getLatestBlockhash: mock(async () => ({
+          blockhash: "11111111111111111111111111111111",
+          lastValidBlockHeight: 1,
+        })),
+        getTokenAccountBalance,
+        simulateTransaction: mock(async () => ({
+          value: {
+            accounts: [
+              {
+                data: [
+                  createSimulatedTokenAccountData(BigInt(1_000_002)),
+                  "base64",
+                ],
+              },
+            ],
+            err: null,
+            logs: [],
+          },
+        })),
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      mode: "full",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(result.withdrawSteps).toHaveLength(1);
+    expect(result.withdrawSteps[0]?.reserveWithdrawals).toHaveLength(2);
+    expect(result.withdrawSteps[0]?.persistence).toMatchObject({
+      isFinalStep: true,
+      vaultCollateralCleanupIncluded: true,
     });
   });
 
@@ -1195,7 +1343,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       },
     });
 
-    expect(result.prepared.instructions).toHaveLength(5);
+    expect(result.prepared.instructions).toHaveLength(3);
     const simulateOptions = (
       simulateTransaction.mock.calls[0] as unknown[]
     )?.[1];
@@ -1221,41 +1369,34 @@ describe("prepareEarnUsdcWithdraw", () => {
       result.prepared.instructions
         .slice(1)
         .map((instruction) => instruction.programId.toBase58())
-    ).toEqual([
-      programId.toBase58(),
-      programId.toBase58(),
-      programId.toBase58(),
-      programId.toBase58(),
-    ]);
+    ).toEqual([programId.toBase58(), programId.toBase58()]);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[2]);
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
     expectInstructionAccountMeta(
-      result.prepared.instructions[3],
+      result.prepared.instructions[1],
       vaultCollateralAta,
       { isWritable: true }
     );
     expectInstructionAccountMeta(
-      result.prepared.instructions[3],
+      result.prepared.instructions[1],
       deriveVaultUsdcAta(),
       { isWritable: true }
     );
     expectInstructionAccountMeta(
-      result.prepared.instructions[3],
+      result.prepared.instructions[1],
       walletAddress,
       {
         isWritable: true,
       }
     );
     expectInstructionAccountMeta(
-      result.prepared.instructions[3],
+      result.prepared.instructions[1],
       deriveVault(),
       {
         isWritable: true,
       }
     );
     expectInstructionAccountMeta(
-      result.prepared.instructions[4],
+      result.prepared.instructions[2],
       result.policy.account,
       { isWritable: true }
     );
@@ -1503,7 +1644,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       { isWritable: true }
     );
     expect("policyUpdatePrepared" in result).toBe(false);
-    expect(result.prepared.instructions).toHaveLength(5);
+    expect(result.prepared.instructions).toHaveLength(3);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
     );
@@ -1514,17 +1655,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       result.prepared.instructions
         .slice(1)
         .map((instruction) => instruction.programId.toBase58())
-    ).toEqual([
-      programId.toBase58(),
-      programId.toBase58(),
-      programId.toBase58(),
-      programId.toBase58(),
-    ]);
+    ).toEqual([programId.toBase58(), programId.toBase58()]);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[2]);
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
     expectInstructionAccountMeta(
-      result.prepared.instructions[4],
+      result.prepared.instructions[2],
       result.policy.account,
       { isWritable: true }
     );
@@ -1639,19 +1773,9 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
 
     expect("policyUpdatePrepared" in result).toBe(false);
-    expect(result.prepared.instructions).toHaveLength(5);
-    expect(
-      result.prepared.instructions[3]?.keys.some((key) =>
-        key.pubkey.equals(vaultCollateralAta)
-      )
-    ).toBe(false);
+    expect(result.prepared.instructions).toHaveLength(3);
     expectInstructionAccountMeta(
-      result.prepared.instructions[3],
-      deriveVaultUsdcAta(),
-      { isWritable: true }
-    );
-    expectInstructionAccountMeta(
-      result.prepared.instructions[4],
+      result.prepared.instructions[2],
       result.policy.account,
       { isWritable: true }
     );

@@ -29,9 +29,7 @@ type NativeModule = {
    * still remembers). Used to recover orphaned authorizations across app
    * reinstalls or after a failed authorize flow.
    */
-  listAuthorizedSeeds(
-    derivationPath: string,
-  ): Promise<NativeVaultAccount[]>;
+  listAuthorizedSeeds(derivationPath: string): Promise<NativeVaultAccount[]>;
   createNewSeed(derivationPath: string): Promise<NativeVaultAccount>;
   importSeed(derivationPath: string): Promise<NativeVaultAccount>;
   deauthorize(authToken: number): Promise<void>;
@@ -39,13 +37,13 @@ type NativeModule = {
   signTransaction(
     authToken: number,
     derivationPath: string,
-    txBase64: string,
+    txBase64: string
   ): Promise<string>;
   /** Returns base64 (no wrap) signature bytes. */
   signMessage(
     authToken: number,
     derivationPath: string,
-    messageBase64: string,
+    messageBase64: string
   ): Promise<string>;
   /** Returns base64 (no wrap) 32-byte public key. */
   getPublicKey(authToken: number, derivationPath: string): Promise<string>;

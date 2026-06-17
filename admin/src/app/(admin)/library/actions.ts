@@ -211,7 +211,9 @@ export async function toggleLibraryArticleActive(
     .set({
       isActive,
       publishedAt:
-        isActive && !existing?.publishedAt ? new Date() : existing?.publishedAt ?? null,
+        isActive && !existing?.publishedAt
+          ? new Date()
+          : existing?.publishedAt ?? null,
       updatedAt: new Date(),
     })
     .where(eq(libraryArticles.id, id));
@@ -230,7 +232,10 @@ export async function uploadLibraryCover(
     return { error: "No file provided" };
   }
 
-  const endpoint = `${serverEnv.appApiBaseUrl.replace(/\/$/, "")}/api/admin/library/upload`;
+  const endpoint = `${serverEnv.appApiBaseUrl.replace(
+    /\/$/,
+    ""
+  )}/api/admin/library/upload`;
   const proxyBody = new FormData();
   proxyBody.set("file", file);
 

@@ -96,7 +96,10 @@ const apyCache = new Map<string, ApyCacheEntry>();
 const apyInflight = new Map<string, Promise<number | null>>();
 
 const quoteCache = new Map<string, QuoteCacheEntry>();
-const quoteInflight = new Map<string, Promise<KaminoShieldedBalanceQuote | null>>();
+const quoteInflight = new Map<
+  string,
+  Promise<KaminoShieldedBalanceQuote | null>
+>();
 
 function cacheKey(solanaEnv: SolanaEnv, mint: string): string {
   return `${solanaEnv}:${mint}`;

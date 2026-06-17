@@ -65,7 +65,10 @@ type TokenDetailCacheEntry = {
 };
 
 const tokenDetailCache = new Map<string, TokenDetailCacheEntry>();
-const tokenDetailInflight = new Map<string, Promise<MobileTokenDetailResponse>>();
+const tokenDetailInflight = new Map<
+  string,
+  Promise<MobileTokenDetailResponse>
+>();
 
 async function getSettledValue<T>(promise: Promise<T>): Promise<T | null> {
   try {
@@ -130,9 +133,10 @@ function derivePriceChange24hPercent(
   return ((last - first) / first) * 100;
 }
 
-async function loadChartFor(
-  token: CoinGeckoTokenData
-): Promise<{ chart: MobileTokenDetailChartPoint[]; volumeOverride: number | null }> {
+async function loadChartFor(token: CoinGeckoTokenData): Promise<{
+  chart: MobileTokenDetailChartPoint[];
+  volumeOverride: number | null;
+}> {
   if (token.coingeckoCoinId) {
     const result = await getSettledValue(
       fetchCoinGeckoCoinChart(token.coingeckoCoinId)

@@ -28,14 +28,12 @@ type UseTokenHoldingsOptions = {
 
 export function useTokenHoldings(
   walletAddress: string | null,
-  { onAtaBalanceChange }: UseTokenHoldingsOptions = {},
+  { onAtaBalanceChange }: UseTokenHoldingsOptions = {}
 ) {
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [isHoldingsLoading, setIsHoldingsLoading] = useState(false);
   const fetchIdRef = useRef(0);
-  const ataRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const ataRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onAtaBalanceChangeRef = useRef(onAtaBalanceChange);
   onAtaBalanceChangeRef.current = onAtaBalanceChange;
 
@@ -57,7 +55,7 @@ export function useTokenHoldings(
         }
       }
     },
-    [walletAddress],
+    [walletAddress]
   );
 
   useEffect(() => {
@@ -121,7 +119,7 @@ export function useTokenHoldings(
                 mintPk,
                 owner,
                 false,
-                programId,
+                programId
               );
               const key = ata.toBase58();
               if (!ataSet.has(key)) {

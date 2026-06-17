@@ -22,10 +22,7 @@ export async function wrapSolToWSol(opts: {
 }): Promise<{ wsolAta: PublicKey; createdAta: boolean }> {
   const { connection, payer, lamports } = opts;
 
-  const wsolAta = await getAssociatedTokenAddress(
-    NATIVE_MINT,
-    payer.publicKey
-  );
+  const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, payer.publicKey);
 
   const instructions: TransactionInstruction[] = [];
   let createdAta = false;

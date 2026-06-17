@@ -225,9 +225,7 @@ export const KAMINO_INIT_OBLIGATION_DISCRIMINATOR = [
 ] as const;
 export const KAMINO_VANILLA_OBLIGATION_TAG = 0;
 export const KAMINO_VANILLA_OBLIGATION_ID = 0;
-export const KAMINO_USER_METADATA_SEED = new TextEncoder().encode(
-  "user_meta"
-);
+export const KAMINO_USER_METADATA_SEED = new TextEncoder().encode("user_meta");
 
 export const JUPITER_SWAP_DISCRIMINATOR = [
   187, 100, 250, 204, 49, 196, 175, 20,

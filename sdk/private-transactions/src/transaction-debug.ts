@@ -270,7 +270,7 @@ const COMMITMENT_ORDER: Record<string, number> = {
 
 function meetsCommitment(
   observed: string | null | undefined,
-  required: Commitment,
+  required: Commitment
 ): boolean {
   if (!observed) return false;
   const o = COMMITMENT_ORDER[observed];
@@ -289,7 +289,7 @@ async function pollForLanding(
   connection: Connection,
   signature: string,
   lastValidBlockHeight: number,
-  commitment: Commitment,
+  commitment: Commitment
 ): Promise<string> {
   const pollIntervalMs = 1_500;
   const maxWallClockMs = 90_000;
@@ -310,7 +310,7 @@ async function pollForLanding(
 
     if (status?.err) {
       throw new Error(
-        `Transaction failed on-chain: ${JSON.stringify(status.err)}`,
+        `Transaction failed on-chain: ${JSON.stringify(status.err)}`
       );
     }
     if (meetsCommitment(status?.confirmationStatus, commitment)) {
@@ -324,7 +324,7 @@ async function pollForLanding(
       const currentHeight = await connection.getBlockHeight(commitment);
       if (currentHeight > lastValidBlockHeight && !status) {
         throw new Error(
-          `Transaction dropped: ${signature} (blockhash expired without landing)`,
+          `Transaction dropped: ${signature} (blockhash expired without landing)`
         );
       }
     } catch {
@@ -334,9 +334,7 @@ async function pollForLanding(
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
-  throw new Error(
-    `Transaction confirmation timed out after 90s: ${signature}`,
-  );
+  throw new Error(`Transaction confirmation timed out after 90s: ${signature}`);
 }
 
 /**
@@ -387,7 +385,9 @@ export async function sendAndConfirmWithDiagnostics(params: {
 
   // Stamp blockhash + feePayer ourselves so we control what gets
   // signed and what `lastValidBlockHeight` the poller uses.
-  const blockhashInfo = await connection.getLatestBlockhash(preflightCommitment);
+  const blockhashInfo = await connection.getLatestBlockhash(
+    preflightCommitment
+  );
   if (!tx.feePayer) tx.feePayer = wallet.publicKey;
   tx.recentBlockhash = blockhashInfo.blockhash;
   tx.lastValidBlockHeight = blockhashInfo.lastValidBlockHeight;
@@ -434,7 +434,7 @@ export async function sendAndConfirmWithDiagnostics(params: {
       connection,
       signature,
       blockhashInfo.lastValidBlockHeight,
-      confirmCommitment,
+      confirmCommitment
     );
   } catch (error) {
     await logFailedTransactionDiagnostics({

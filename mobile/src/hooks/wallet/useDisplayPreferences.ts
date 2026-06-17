@@ -14,7 +14,7 @@ export function useDisplayPreferences(): {
   handleBgSelect: (bg: string | null) => void;
 } {
   const [displayCurrency, setDisplayCurrency] = useState<"USD" | "SOL">(
-    () => getCachedDisplayCurrency() ?? "USD",
+    () => getCachedDisplayCurrency() ?? "USD"
   );
   const [balanceBg, setBalanceBg] = useState<string | null>(() => {
     const cached = getCachedBalanceBg();
@@ -29,16 +29,13 @@ export function useDisplayPreferences(): {
   // Persist currency changes to MMKV synchronously
   const setDisplayCurrencyWrapped: React.Dispatch<
     React.SetStateAction<"USD" | "SOL">
-  > = useCallback(
-    (action) => {
-      setDisplayCurrency((prev) => {
-        const next = typeof action === "function" ? action(prev) : action;
-        setCachedDisplayCurrency(next);
-        return next;
-      });
-    },
-    [],
-  );
+  > = useCallback((action) => {
+    setDisplayCurrency((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      setCachedDisplayCurrency(next);
+      return next;
+    });
+  }, []);
 
   return {
     displayCurrency,

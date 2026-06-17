@@ -16,9 +16,7 @@ import {
   LoyalCluster,
   getKaminoUsdcEarnTargetForCluster,
 } from "../packages/loyal-actions/src/index.ts";
-import {
-  sendPreparedWithWallet,
-} from "../packages/smart-account-vaults/src/index.ts";
+import { sendPreparedWithWallet } from "../packages/smart-account-vaults/src/index.ts";
 import { compilePreparedOperation } from "../sdk/loyal-smart-accounts-core/src/index.ts";
 import { PROGRAM_ADDRESS, pda } from "../sdk/loyal-smart-accounts/src/index.ts";
 import {
@@ -141,7 +139,9 @@ function loadTestingKeypair(): Keypair {
 
   if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
     return Keypair.fromSecretKey(
-      Uint8Array.from(trimmed.match(/../g)!.map((byte) => Number.parseInt(byte, 16)))
+      Uint8Array.from(
+        trimmed.match(/../g)!.map((byte) => Number.parseInt(byte, 16))
+      )
     );
   }
 
@@ -156,7 +156,11 @@ function assertDevnet() {
   }
 }
 
-async function postJson<T>(path: string, body: unknown, cookie?: string): Promise<{
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  cookie?: string
+): Promise<{
   body: T;
   setCookie: string | null;
 }> {
@@ -226,13 +230,10 @@ async function authenticate(wallet: Keypair): Promise<string> {
       wallet.secretKey
     )
   );
-  const complete = await postJson(
-    "/api/auth/wallet/complete",
-    {
-      challengeToken: challenge.body.challengeToken,
-      signature,
-    }
-  );
+  const complete = await postJson("/api/auth/wallet/complete", {
+    challengeToken: challenge.body.challengeToken,
+    signature,
+  });
 
   return toCookieHeader(complete.setCookie);
 }
@@ -288,7 +289,9 @@ async function fetchPosition(cookie: string) {
 async function assertWalletHasUsdc(connection: Connection, wallet: PublicKey) {
   const usdcMint = EARN_TARGET.liquidityMint;
   const ata = getAssociatedTokenAddressSync(usdcMint, wallet);
-  const balance = await connection.getTokenAccountBalance(ata).catch(() => null);
+  const balance = await connection
+    .getTokenAccountBalance(ata)
+    .catch(() => null);
   const required = FIRST_DEPOSIT_RAW + TOP_UP_DEPOSIT_RAW;
   const amount = balance ? BigInt(balance.value.amount) : 0n;
 
@@ -335,8 +338,7 @@ async function ensureDevnetVaultCollateralAta(args: {
       TOKEN_PROGRAM_ID
     )
   );
-  const latestBlockhash =
-    await args.connection.getLatestBlockhash("confirmed");
+  const latestBlockhash = await args.connection.getLatestBlockhash("confirmed");
   transaction.feePayer = args.wallet.publicKey;
   transaction.recentBlockhash = latestBlockhash.blockhash;
   transaction.sign(args.wallet);
@@ -490,25 +492,25 @@ async function main() {
   let overview = await fetchOverview(cookie);
   const policies = await fetchPolicies(cookie);
   overview = { ...overview, policies };
-	  const settingsPda = new PublicKey(overview.settingsPda);
-	  const earnVaultPda = pda.getSmartAccountPda({
-	    programId: PROGRAM_ID,
-	    settingsPda,
-	    accountIndex: 1,
-	  })[0];
-	
-	  console.log(`settings: ${overview.settingsPda}`);
-	  console.log(`smart account: ${overview.canonicalVaultAddress}`);
-	
-	  await ensureDevnetVaultCollateralAta({
-	    connection,
-	    wallet,
-	    vaultPda: earnVaultPda,
-	  });
-	  const firstDeposit = await prepareDeposit({
-	    amountRaw: FIRST_DEPOSIT_RAW,
-	    cookie,
-	  });
+  const settingsPda = new PublicKey(overview.settingsPda);
+  const earnVaultPda = pda.getSmartAccountPda({
+    programId: PROGRAM_ID,
+    settingsPda,
+    accountIndex: 1,
+  })[0];
+
+  console.log(`settings: ${overview.settingsPda}`);
+  console.log(`smart account: ${overview.canonicalVaultAddress}`);
+
+  await ensureDevnetVaultCollateralAta({
+    connection,
+    wallet,
+    vaultPda: earnVaultPda,
+  });
+  const firstDeposit = await prepareDeposit({
+    amountRaw: FIRST_DEPOSIT_RAW,
+    cookie,
+  });
   let firstPolicySignature = RESUME_FIRST_POLICY_SIGNATURE;
   let firstPolicyConfirmedSlot = RESUME_FIRST_POLICY_SLOT;
   let firstSetupPolicySignature = RESUME_FIRST_SETUP_POLICY_SIGNATURE;
@@ -540,30 +542,30 @@ async function main() {
       firstSetupPolicyConfirmedSlot = setupPolicyTx.confirmedSlot;
     }
   }
-	  const firstDepositTx = RESUME_FIRST_DEPOSIT_SIGNATURE
-	    ? {
-	        signature: RESUME_FIRST_DEPOSIT_SIGNATURE,
-	        confirmedSlot:
-	          RESUME_FIRST_DEPOSIT_SLOT ??
-	          (await resolveConfirmedSignatureSlot({
-	            connection,
-	            signature: RESUME_FIRST_DEPOSIT_SIGNATURE,
-	          })),
-	      }
-	    : await executePrepared({
-	        label: "first deposit",
-	        connection,
-	        wallet,
-	        prepared: firstDeposit.prepared,
-	      });
-	  if (RESUME_FIRST_DEPOSIT_SIGNATURE) {
-	    console.log(
-	      `first deposit resume: ${firstDepositTx.signature} @ slot ${firstDepositTx.confirmedSlot}`
-	    );
-	  }
-	  await confirmDeposit({
-	    cookie,
-	    preparedDeposit: firstDeposit,
+  const firstDepositTx = RESUME_FIRST_DEPOSIT_SIGNATURE
+    ? {
+        signature: RESUME_FIRST_DEPOSIT_SIGNATURE,
+        confirmedSlot:
+          RESUME_FIRST_DEPOSIT_SLOT ??
+          (await resolveConfirmedSignatureSlot({
+            connection,
+            signature: RESUME_FIRST_DEPOSIT_SIGNATURE,
+          })),
+      }
+    : await executePrepared({
+        label: "first deposit",
+        connection,
+        wallet,
+        prepared: firstDeposit.prepared,
+      });
+  if (RESUME_FIRST_DEPOSIT_SIGNATURE) {
+    console.log(
+      `first deposit resume: ${firstDepositTx.signature} @ slot ${firstDepositTx.confirmedSlot}`
+    );
+  }
+  await confirmDeposit({
+    cookie,
+    preparedDeposit: firstDeposit,
     policyConfirmedSlot: firstPolicyConfirmedSlot ?? undefined,
     policySignature: firstPolicySignature ?? undefined,
     setupPolicyConfirmedSlot: firstSetupPolicyConfirmedSlot ?? undefined,
@@ -578,67 +580,67 @@ async function main() {
     policies: await fetchPolicies(cookie),
   };
 
-	  const topUpDeposit = await prepareDeposit({
-	    amountRaw: TOP_UP_DEPOSIT_RAW,
-	    cookie,
-	  });
-	  const topUpTx = RESUME_TOP_UP_DEPOSIT_SIGNATURE
-	    ? {
-	        signature: RESUME_TOP_UP_DEPOSIT_SIGNATURE,
-	        confirmedSlot:
-	          RESUME_TOP_UP_DEPOSIT_SLOT ??
-	          (await resolveConfirmedSignatureSlot({
-	            connection,
-	            signature: RESUME_TOP_UP_DEPOSIT_SIGNATURE,
-	          })),
-	      }
-	    : await executePrepared({
-	        label: "top-up deposit",
-	        connection,
-	        wallet,
-	        prepared: topUpDeposit.prepared,
-	      });
-	  if (RESUME_TOP_UP_DEPOSIT_SIGNATURE) {
-	    console.log(
-	      `top-up deposit resume: ${topUpTx.signature} @ slot ${topUpTx.confirmedSlot}`
-	    );
-	  }
-	  await confirmDeposit({
-	    cookie,
-	    preparedDeposit: topUpDeposit,
+  const topUpDeposit = await prepareDeposit({
+    amountRaw: TOP_UP_DEPOSIT_RAW,
+    cookie,
+  });
+  const topUpTx = RESUME_TOP_UP_DEPOSIT_SIGNATURE
+    ? {
+        signature: RESUME_TOP_UP_DEPOSIT_SIGNATURE,
+        confirmedSlot:
+          RESUME_TOP_UP_DEPOSIT_SLOT ??
+          (await resolveConfirmedSignatureSlot({
+            connection,
+            signature: RESUME_TOP_UP_DEPOSIT_SIGNATURE,
+          })),
+      }
+    : await executePrepared({
+        label: "top-up deposit",
+        connection,
+        wallet,
+        prepared: topUpDeposit.prepared,
+      });
+  if (RESUME_TOP_UP_DEPOSIT_SIGNATURE) {
+    console.log(
+      `top-up deposit resume: ${topUpTx.signature} @ slot ${topUpTx.confirmedSlot}`
+    );
+  }
+  await confirmDeposit({
+    cookie,
+    preparedDeposit: topUpDeposit,
     signature: topUpTx.signature,
     confirmedSlot: topUpTx.confirmedSlot,
     smartAccountAddress: overview.canonicalVaultAddress,
   });
 
-	  const partialWithdraw = await prepareWithdrawal({
-	    amountRaw: PARTIAL_WITHDRAW_RAW,
-	    cookie,
-	    mode: "partial",
-	  });
-	  const partialWithdrawTx = RESUME_PARTIAL_WITHDRAW_SIGNATURE
-	    ? {
-	        signature: RESUME_PARTIAL_WITHDRAW_SIGNATURE,
-	        confirmedSlot:
-	          RESUME_PARTIAL_WITHDRAW_SLOT ??
-	          (await resolveConfirmedSignatureSlot({
-	            connection,
-	            signature: RESUME_PARTIAL_WITHDRAW_SIGNATURE,
-	          })),
-	      }
-	    : await executePrepared({
-	        label: "partial withdrawal",
-	        connection,
-	        wallet,
-	        prepared: partialWithdraw.prepared,
-	      });
-	  if (RESUME_PARTIAL_WITHDRAW_SIGNATURE) {
-	    console.log(
-	      `partial withdrawal resume: ${partialWithdrawTx.signature} @ slot ${partialWithdrawTx.confirmedSlot}`
-	    );
-	  }
-	  await confirmWithdrawal({
-	    cookie,
+  const partialWithdraw = await prepareWithdrawal({
+    amountRaw: PARTIAL_WITHDRAW_RAW,
+    cookie,
+    mode: "partial",
+  });
+  const partialWithdrawTx = RESUME_PARTIAL_WITHDRAW_SIGNATURE
+    ? {
+        signature: RESUME_PARTIAL_WITHDRAW_SIGNATURE,
+        confirmedSlot:
+          RESUME_PARTIAL_WITHDRAW_SLOT ??
+          (await resolveConfirmedSignatureSlot({
+            connection,
+            signature: RESUME_PARTIAL_WITHDRAW_SIGNATURE,
+          })),
+      }
+    : await executePrepared({
+        label: "partial withdrawal",
+        connection,
+        wallet,
+        prepared: partialWithdraw.prepared,
+      });
+  if (RESUME_PARTIAL_WITHDRAW_SIGNATURE) {
+    console.log(
+      `partial withdrawal resume: ${partialWithdrawTx.signature} @ slot ${partialWithdrawTx.confirmedSlot}`
+    );
+  }
+  await confirmWithdrawal({
+    cookie,
     preparedWithdraw: partialWithdraw,
     signature: partialWithdrawTx.signature,
     confirmedSlot: partialWithdrawTx.confirmedSlot,
@@ -647,34 +649,34 @@ async function main() {
 
   const remainingRaw =
     FIRST_DEPOSIT_RAW + TOP_UP_DEPOSIT_RAW - PARTIAL_WITHDRAW_RAW;
-	  const fullWithdraw = await prepareWithdrawal({
-	    amountRaw: remainingRaw,
-	    cookie,
-	    mode: "full",
-	  });
-	  const fullWithdrawTx = RESUME_FULL_WITHDRAW_SIGNATURE
-	    ? {
-	        signature: RESUME_FULL_WITHDRAW_SIGNATURE,
-	        confirmedSlot:
-	          RESUME_FULL_WITHDRAW_SLOT ??
-	          (await resolveConfirmedSignatureSlot({
-	            connection,
-	            signature: RESUME_FULL_WITHDRAW_SIGNATURE,
-	          })),
-	      }
-	    : await executePrepared({
-	        label: "full withdrawal",
-	        connection,
-	        wallet,
-	        prepared: fullWithdraw.prepared,
-	      });
-	  if (RESUME_FULL_WITHDRAW_SIGNATURE) {
-	    console.log(
-	      `full withdrawal resume: ${fullWithdrawTx.signature} @ slot ${fullWithdrawTx.confirmedSlot}`
-	    );
-	  }
-	  await confirmWithdrawal({
-	    cookie,
+  const fullWithdraw = await prepareWithdrawal({
+    amountRaw: remainingRaw,
+    cookie,
+    mode: "full",
+  });
+  const fullWithdrawTx = RESUME_FULL_WITHDRAW_SIGNATURE
+    ? {
+        signature: RESUME_FULL_WITHDRAW_SIGNATURE,
+        confirmedSlot:
+          RESUME_FULL_WITHDRAW_SLOT ??
+          (await resolveConfirmedSignatureSlot({
+            connection,
+            signature: RESUME_FULL_WITHDRAW_SIGNATURE,
+          })),
+      }
+    : await executePrepared({
+        label: "full withdrawal",
+        connection,
+        wallet,
+        prepared: fullWithdraw.prepared,
+      });
+  if (RESUME_FULL_WITHDRAW_SIGNATURE) {
+    console.log(
+      `full withdrawal resume: ${fullWithdrawTx.signature} @ slot ${fullWithdrawTx.confirmedSlot}`
+    );
+  }
+  await confirmWithdrawal({
+    cookie,
     preparedWithdraw: fullWithdraw,
     signature: fullWithdrawTx.signature,
     confirmedSlot: fullWithdrawTx.confirmedSlot,
@@ -691,6 +693,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? (error.stack ?? error.message) : error);
+  console.error(error instanceof Error ? error.stack ?? error.message : error);
   process.exit(1);
 });

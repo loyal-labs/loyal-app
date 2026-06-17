@@ -22,7 +22,10 @@ const TOKEN_MARKETS_CACHE_SCOPE = "global";
 const TOKEN_MARKETS_TTL_MS = 15 * 60 * 1000;
 const TOKEN_MARKETS_PERSIST_TTL_MS = 24 * 60 * 60 * 1000;
 
-let cache = new Map<string, { expiresAt: number; value: TokenMarketsResponse }>();
+let cache = new Map<
+  string,
+  { expiresAt: number; value: TokenMarketsResponse }
+>();
 let inflight = new Map<string, Promise<TokenMarketsResponse>>();
 
 function getTokenMarketsPersistKey(key: string) {

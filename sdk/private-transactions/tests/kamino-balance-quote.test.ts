@@ -36,7 +36,9 @@ function buildReserveAccountData(args: {
   collateralMintSupplyRaw: bigint;
   liquidityDecimals: bigint;
 }): Buffer {
-  const accountData = Buffer.alloc(8 + OFFSET_AFTER_DISCRIMINATOR.collateralMintTotalSupply + 8);
+  const accountData = Buffer.alloc(
+    8 + OFFSET_AFTER_DISCRIMINATOR.collateralMintTotalSupply + 8
+  );
   KAMINO_RESERVE_DISCRIMINATOR.copy(accountData, 0);
 
   const view = accountData.subarray(8);
@@ -45,11 +47,7 @@ function buildReserveAccountData(args: {
     OFFSET_AFTER_DISCRIMINATOR.liquidityAvailableAmount,
     args.liquidityAvailableAmountRaw
   );
-  writeU128LE(
-    view,
-    OFFSET_AFTER_DISCRIMINATOR.liquidityBorrowedAmountSf,
-    0n
-  );
+  writeU128LE(view, OFFSET_AFTER_DISCRIMINATOR.liquidityBorrowedAmountSf, 0n);
   writeU64LE(
     view,
     OFFSET_AFTER_DISCRIMINATOR.liquidityMintDecimals,

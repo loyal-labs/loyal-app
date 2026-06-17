@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type SetTimeLockArgs = {
-  timeLock: number
-  memo: beet.COption<string>
-}
+  timeLock: number;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -18,8 +18,8 @@ export type SetTimeLockArgs = {
 export const setTimeLockArgsBeet =
   new beet.FixableBeetArgsStruct<SetTimeLockArgs>(
     [
-      ['timeLock', beet.u32],
-      ['memo', beet.coption(beet.utf8String)],
+      ["timeLock", beet.u32],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'SetTimeLockArgs'
-  )
+    "SetTimeLockArgs"
+  );

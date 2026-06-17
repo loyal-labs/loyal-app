@@ -79,9 +79,7 @@ function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
     lifetimeEarnedUsd: Math.max(
       0,
       ...ranges.map((range) =>
-        Number.isFinite(range.lifetimeEarnedUsd)
-          ? range.lifetimeEarnedUsd
-          : 0
+        Number.isFinite(range.lifetimeEarnedUsd) ? range.lifetimeEarnedUsd : 0
       )
     ),
     principalAmountRaws: Array.from(
@@ -151,12 +149,9 @@ function isEqualRecordedEarningsWithNewerTimestamp(args: {
 }
 
 function getPersistentEarnEarningsCacheKey(cacheKey: string): string {
-  return [
-    "loyal",
-    "earn-earnings",
-    EARN_EARNINGS_CACHE_VERSION,
-    cacheKey,
-  ].join(":");
+  return ["loyal", "earn-earnings", EARN_EARNINGS_CACHE_VERSION, cacheKey].join(
+    ":"
+  );
 }
 
 function readPersistentEarnEarningsCache(
@@ -262,8 +257,7 @@ export async function fetchEarnEarningsRangeSet(
             scope.expectedPrincipalAmountRaw
           )
         ) {
-          const stale =
-            cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
+          const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
           if (stale) {
             return stale;
           }

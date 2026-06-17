@@ -63,7 +63,7 @@ async function getSplToken() {
 async function waitForAccount(
   connection: Connection,
   pda: PublicKey,
-  maxAttempts = 30,
+  maxAttempts = 30
 ): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
     const info = await connection.getAccountInfo(pda);
@@ -74,7 +74,7 @@ async function waitForAccount(
 
 async function getPerAuthToken(
   signer: Signer,
-  perRpcEndpoint: string,
+  perRpcEndpoint: string
 ): Promise<PerAuthToken> {
   if (cachedAuthToken && cachedAuthToken.expiresAt > Date.now() + 60_000) {
     return cachedAuthToken;
@@ -121,7 +121,11 @@ async function getPerAuthToken(
     error?: unknown;
   };
 
-  if (!loginResponse.ok || typeof loginData.token !== "string" || !loginData.token) {
+  if (
+    !loginResponse.ok ||
+    typeof loginData.token !== "string" ||
+    !loginData.token
+  ) {
     const reason =
       typeof loginData.error === "string" && loginData.error
         ? loginData.error
@@ -141,7 +145,7 @@ async function getPerAuthToken(
 }
 
 async function getPrivateTransactionsClient(
-  signer: Signer,
+  signer: Signer
 ): Promise<LoyalPrivateTransactionsClientType> {
   const walletAddress = signer.publicKey.toBase58();
   if (cachedClient && cachedClientOwner === walletAddress) {
@@ -155,10 +159,9 @@ async function getPrivateTransactionsClient(
   const solanaEnv = getSolanaEnv();
   const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
   const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
-  const authToken =
-    perRpcEndpoint.includes("tee")
-      ? await getPerAuthToken(signer, perRpcEndpoint)
-      : undefined;
+  const authToken = perRpcEndpoint.includes("tee")
+    ? await getPerAuthToken(signer, perRpcEndpoint)
+    : undefined;
 
   const client = await LoyalPrivateTransactionsClient.fromConfig({
     signer,
@@ -267,7 +270,7 @@ export async function sendPrivateTransferToTelegramUsername(params: {
       tokenMint,
       user,
       false,
-      TOKEN_PROGRAM_ID,
+      TOKEN_PROGRAM_ID
     );
 
     await client.modifyBalance({
@@ -310,9 +313,11 @@ export async function sendPrivateTransferToTelegramUsername(params: {
 
   const [usernameDepositPda] = await findUsernameDepositPda(
     normalizedUsername,
-    tokenMint,
+    tokenMint
   );
-  const usernameDepositInfo = await connection.getAccountInfo(usernameDepositPda);
+  const usernameDepositInfo = await connection.getAccountInfo(
+    usernameDepositPda
+  );
   console.log("[sendPrivate] usernameDepositInfo", {
     pda: usernameDepositPda.toBase58(),
     exists: !!usernameDepositInfo,
@@ -435,7 +440,7 @@ export async function sendPrivateTransferToWallet(params: {
       tokenMint,
       user,
       false,
-      TOKEN_PROGRAM_ID,
+      TOKEN_PROGRAM_ID
     );
 
     await client.modifyBalance({
@@ -479,7 +484,7 @@ export async function sendPrivateTransferToWallet(params: {
   // Ensure recipient's deposit exists & is delegated so transferDeposit lands.
   const existingRecipientDeposit = await client.getBaseDeposit(
     destination,
-    tokenMint,
+    tokenMint
   );
   if (!existingRecipientDeposit) {
     await client.initializeDeposit({

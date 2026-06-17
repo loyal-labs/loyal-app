@@ -33,7 +33,10 @@ function toBase64(bytes: Uint8Array): string {
 type ApprovalVariant =
   | { type: "connect" }
   | { type: "signMessage"; messageBase64: string }
-  | { type: "signTransaction" | "signAndSendTransaction"; transactionBase64: string };
+  | {
+      type: "signTransaction" | "signAndSendTransaction";
+      transactionBase64: string;
+    };
 
 function buildApproval(variant: ApprovalVariant): PendingApproval {
   const base = {
@@ -71,7 +74,7 @@ describe("executeApprovedRequest", () => {
     mockGetWalletSigner.mockResolvedValue(signer);
 
     await expect(
-      executeApprovedRequest(buildApproval({ type: "connect" })),
+      executeApprovedRequest(buildApproval({ type: "connect" }))
     ).resolves.toEqual({
       publicKey: signer.publicKey.toBase58(),
     });
@@ -79,41 +82,49 @@ describe("executeApprovedRequest", () => {
 
   it("signs base64-encoded messages and returns a base64 signature", async () => {
     const signerKeypair = Keypair.generate();
-    mockGetWalletSigner.mockResolvedValue(new LocalKeypairSigner(signerKeypair));
+    mockGetWalletSigner.mockResolvedValue(
+      new LocalKeypairSigner(signerKeypair)
+    );
     const message = new TextEncoder().encode("hello from loyal");
 
     const result = await executeApprovedRequest(
       buildApproval({
         type: "signMessage",
         messageBase64: toBase64(message),
-      }),
+      })
     );
 
     expect(result).toHaveProperty("signature");
     const signature = Buffer.from(
       (result as { signature: string }).signature,
-      "base64",
+      "base64"
     );
 
     expect(
-      nacl.sign.detached.verify(message, signature, signerKeypair.publicKey.toBytes()),
+      nacl.sign.detached.verify(
+        message,
+        signature,
+        signerKeypair.publicKey.toBytes()
+      )
     ).toBe(true);
   });
 
   it("signs legacy transactions and returns the signed transaction as base64", async () => {
     const signerKeypair = Keypair.generate();
-    mockGetWalletSigner.mockResolvedValue(new LocalKeypairSigner(signerKeypair));
+    mockGetWalletSigner.mockResolvedValue(
+      new LocalKeypairSigner(signerKeypair)
+    );
 
     const transaction = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: signerKeypair.publicKey,
         toPubkey: Keypair.generate().publicKey,
         lamports: 1,
-      }),
+      })
     );
     transaction.feePayer = signerKeypair.publicKey;
     transaction.recentBlockhash = new PublicKey(
-      "11111111111111111111111111111112",
+      "11111111111111111111111111111112"
     ).toBase58();
 
     const result = await executeApprovedRequest(
@@ -125,32 +136,34 @@ describe("executeApprovedRequest", () => {
             verifySignatures: false,
           })
           .toString("base64"),
-      }),
+      })
     );
 
     const signedTransaction = Transaction.from(
       Buffer.from(
         (result as { signedTransaction: string }).signedTransaction,
-        "base64",
-      ),
+        "base64"
+      )
     );
 
     expect(signedTransaction.verifySignatures()).toBe(true);
     expect(signedTransaction.signatures[0].publicKey.toBase58()).toBe(
-      signerKeypair.publicKey.toBase58(),
+      signerKeypair.publicKey.toBase58()
     );
   });
 
   it("signs and sends versioned transactions through the shared RPC connection", async () => {
     const signerKeypair = Keypair.generate();
-    mockGetWalletSigner.mockResolvedValue(new LocalKeypairSigner(signerKeypair));
+    mockGetWalletSigner.mockResolvedValue(
+      new LocalKeypairSigner(signerKeypair)
+    );
     mockSendRawTransaction.mockResolvedValue("sent-signature");
 
     const versionedTransaction = new VersionedTransaction(
       new TransactionMessage({
         payerKey: signerKeypair.publicKey,
         recentBlockhash: new PublicKey(
-          "11111111111111111111111111111112",
+          "11111111111111111111111111111112"
         ).toBase58(),
         instructions: [
           SystemProgram.transfer({
@@ -159,7 +172,7 @@ describe("executeApprovedRequest", () => {
             lamports: 1,
           }),
         ],
-      }).compileToV0Message(),
+      }).compileToV0Message()
     );
 
     await expect(
@@ -167,17 +180,18 @@ describe("executeApprovedRequest", () => {
         buildApproval({
           type: "signAndSendTransaction",
           transactionBase64: toBase64(versionedTransaction.serialize()),
-        }),
-      ),
+        })
+      )
     ).resolves.toEqual({
       signature: "sent-signature",
     });
 
     expect(mockSendRawTransaction).toHaveBeenCalledTimes(1);
-    const rawTransaction = mockSendRawTransaction.mock.calls[0][0] as Uint8Array;
+    const rawTransaction = mockSendRawTransaction.mock
+      .calls[0][0] as Uint8Array;
     const signedTransaction = VersionedTransaction.deserialize(rawTransaction);
     expect(Array.from(signedTransaction.signatures[0])).not.toEqual(
-      Array(64).fill(0),
+      Array(64).fill(0)
     );
   });
 });

@@ -1171,6 +1171,7 @@ export function PortfolioContent({
   earnBalance = 0,
   enableMockBackupSignerFlow = true,
   hasEarnStateLoadError = false,
+  hasEarnStateResolved = false,
   hasEarnPosition = false,
   isAutodepositConfigured = false,
   isEarnStateLoading = false,
@@ -1221,6 +1222,7 @@ export function PortfolioContent({
   earnBalance?: number;
   enableMockBackupSignerFlow?: boolean;
   hasEarnStateLoadError?: boolean;
+  hasEarnStateResolved?: boolean;
   hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
@@ -1240,7 +1242,10 @@ export function PortfolioContent({
     () => new Set()
   );
   const shouldShowAutodepositSkeleton =
-    isEarnStateLoading && !hasEarnStateLoadError && !isAutodepositConfigured;
+    isEarnStateLoading &&
+    !hasEarnStateResolved &&
+    !hasEarnStateLoadError &&
+    !isAutodepositConfigured;
   const sortedVaultEntries = useMemo(
     () =>
       [...vaultEntries].sort(

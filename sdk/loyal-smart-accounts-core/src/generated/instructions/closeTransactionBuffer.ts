@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const closeTransactionBufferStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'CloseTransactionBufferInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "CloseTransactionBufferInstructionArgs"
+);
 /**
  * Accounts required by the _closeTransactionBuffer_ instruction
  *
@@ -30,15 +30,15 @@ export const closeTransactionBufferStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type CloseTransactionBufferInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  transactionBuffer: web3.PublicKey
-  creator: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  transactionBuffer: web3.PublicKey;
+  creator: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const closeTransactionBufferInstructionDiscriminator = [
   224, 221, 123, 213, 0, 204, 5, 191,
-]
+];
 
 /**
  * Creates a _CloseTransactionBuffer_ instruction.
@@ -50,11 +50,11 @@ export const closeTransactionBufferInstructionDiscriminator = [
  */
 export function createCloseTransactionBufferInstruction(
   accounts: CloseTransactionBufferInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = closeTransactionBufferStruct.serialize({
     instructionDiscriminator: closeTransactionBufferInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -71,11 +71,11 @@ export function createCloseTransactionBufferInstruction(
       isWritable: false,
       isSigner: true,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -83,6 +83,6 @@ export function createCloseTransactionBufferInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

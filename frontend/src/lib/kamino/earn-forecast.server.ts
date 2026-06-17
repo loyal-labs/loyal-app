@@ -595,11 +595,13 @@ export async function getMediumFeeAwareEarnForecastFromClient(
 
     return withEarnForecastSeries({
       forecast,
-      mainUsdcReserveSamples:
-        timescaleReserveApySamplesToEarnHistorySamples(mainUsdcReserveRows, {
+      mainUsdcReserveSamples: timescaleReserveApySamplesToEarnHistorySamples(
+        mainUsdcReserveRows,
+        {
           windowEndedAt: now,
           windowStartedAt,
-        }),
+        }
+      ),
     });
   } catch (error) {
     console.warn("[earn-forecast] failed to load Timescale forecast", error);
@@ -624,7 +626,10 @@ async function getPersistedMediumFeeAwareEarnForecast(): Promise<MediumFeeAwareE
         return hourly;
       }
     } catch (error) {
-      console.warn("[earn-forecast] failed to load hourly persisted snapshot", error);
+      console.warn(
+        "[earn-forecast] failed to load hourly persisted snapshot",
+        error
+      );
     }
 
     const snapshot = await getLatestEarnForecastSnapshot({
@@ -650,8 +655,7 @@ async function persistMediumFeeAwareEarnForecast(
   const hasLoyalSamples = forecast.history.samples.length > 0;
   const hasMainUsdcReserveSamples =
     forecast.history.series?.some(
-      (series) =>
-        series.key === "mainUsdcReserve" && series.samples.length > 0
+      (series) => series.key === "mainUsdcReserve" && series.samples.length > 0
     ) ?? false;
   if (!hasLoyalSamples || !hasMainUsdcReserveSamples) {
     return;

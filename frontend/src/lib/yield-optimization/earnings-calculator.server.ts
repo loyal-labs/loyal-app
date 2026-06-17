@@ -378,9 +378,8 @@ export function calculateEarnEarnings(args: {
   const firstDepositAt =
     events.find((event) => event.type === "deposit")?.confirmedAt ?? null;
   const lastDepositAt =
-    [...events]
-      .reverse()
-      .find((event) => event.type === "deposit")?.confirmedAt ?? null;
+    [...events].reverse().find((event) => event.type === "deposit")
+      ?.confirmedAt ?? null;
   const buckets = createEarningsBuckets({
     firstDepositAt,
     now: args.now,

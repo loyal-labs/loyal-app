@@ -544,7 +544,29 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
+  closePoliciesOnFullWithdrawal?: boolean;
+  source?:
+    | {
+        type: "reserve";
+        id: string;
+        amountRaw: bigint;
+        liquidityMint: PublicKey;
+        market: PublicKey;
+        reserve: PublicKey;
+      }
+    | {
+        type: "idle";
+        id: string;
+        amountRaw: bigint;
+        mint: PublicKey;
+        tokenAccount: PublicKey;
+      };
   target?: SmartAccountEarnUsdcReserveTargetInput;
+  fullWithdrawalTargets?: Array<
+    SmartAccountEarnUsdcReserveTargetInput & {
+      amountRaw?: bigint;
+    }
+  >;
   yieldRoutingPolicy?: {
     account: PublicKey;
     seed: bigint;
@@ -589,16 +611,63 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   liquidityMint: string;
   withdrawnAmountRaw: string;
   mode: "partial" | "full";
+  sourceType?: "reserve" | "idle";
+  sourceId?: string;
+  sourceAmountRaw?: string;
+  sourceTokenAccount?: string;
+  sourceMint?: string;
+  sourceMetadata?: Record<string, unknown>;
   kaminoWithdrawAmountRaw?: string;
   vaultCollateralCleanupIncluded?: boolean;
   vaultUsdcRemainderRaw?: string;
   walletTransferAmountRaw?: string;
   autodepositClose?: SmartAccountEarnUsdcAutodepositCloseMetadata | null;
+  accountingReserve?: string;
+  executionReserve?: string;
+  reserveWithdrawals?: SmartAccountEarnUsdcReserveWithdrawalMetadata[];
+  stepIndex?: number;
+  stepCount?: number;
+  isFinalStep?: boolean;
+};
+
+export type SmartAccountEarnUsdcReserveWithdrawalMetadata = {
+  accountingReserve: string;
+  collateralAta: string;
+  executionMarket: string;
+  executionReserve: string;
+  kaminoWithdrawAmountRaw: string;
+  liquidityMint: string;
+  market: string | null;
+  reserve: string;
+  withdrawnAmountRaw: string;
+};
+
+export type SmartAccountPreparedEarnUsdcWithdrawStep = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  stepIndex: number;
+  stepCount: number;
+  amountRaw: bigint;
+  mode: "partial" | "full";
+  collateralAta: PublicKey;
+  accountingReserve: {
+    reserve: PublicKey;
+    market: PublicKey;
+    liquidityMint: PublicKey;
+    obligation: PublicKey;
+  };
+  executionReserve: {
+    reserve: PublicKey;
+    market: PublicKey;
+    liquidityMint: PublicKey;
+  };
+  reserveWithdrawals: SmartAccountEarnUsdcReserveWithdrawalMetadata[];
+  persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };
 
 export type SmartAccountPreparedEarnUsdcWithdraw = {
   autodepositClosePrepared?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
+  withdrawSteps: SmartAccountPreparedEarnUsdcWithdrawStep[];
   mode: "partial" | "full";
   amountRaw: bigint;
   policy: {

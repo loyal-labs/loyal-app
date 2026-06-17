@@ -18,19 +18,23 @@ import {
 const MAINNET_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 const store = new Map<string, string>();
-jest.mock("expo-secure-store", () => ({
-  getItemAsync: jest.fn((key: string) =>
-    Promise.resolve(store.get(key) ?? null),
-  ),
-  setItemAsync: jest.fn((key: string, value: string) => {
-    store.set(key, value);
-    return Promise.resolve();
+jest.mock(
+  "expo-secure-store",
+  () => ({
+    getItemAsync: jest.fn((key: string) =>
+      Promise.resolve(store.get(key) ?? null)
+    ),
+    setItemAsync: jest.fn((key: string, value: string) => {
+      store.set(key, value);
+      return Promise.resolve();
+    }),
+    deleteItemAsync: jest.fn((key: string) => {
+      store.delete(key);
+      return Promise.resolve();
+    }),
   }),
-  deleteItemAsync: jest.fn((key: string) => {
-    store.delete(key);
-    return Promise.resolve();
-  }),
-}));
+  { virtual: true }
+);
 
 beforeEach(() => store.clear());
 
@@ -85,13 +89,12 @@ describe("kamino-usdc-position math", () => {
       updatedAt: 0,
     };
 
-    const principalLiquidityAmountRaw = resolveKaminoPrincipalLiquidityAmountRaw(
-      {
+    const principalLiquidityAmountRaw =
+      resolveKaminoPrincipalLiquidityAmountRaw({
         trackedPosition,
         actualCollateralSharesAmountRaw: 49_000_000n,
         currentLiquidityAmountRaw: 50_500_000n,
-      },
-    );
+      });
 
     expect(principalLiquidityAmountRaw).toBe(50_000_000n);
   });
@@ -106,13 +109,12 @@ describe("kamino-usdc-position math", () => {
       updatedAt: 0,
     };
 
-    const principalLiquidityAmountRaw = resolveKaminoPrincipalLiquidityAmountRaw(
-      {
+    const principalLiquidityAmountRaw =
+      resolveKaminoPrincipalLiquidityAmountRaw({
         trackedPosition,
         actualCollateralSharesAmountRaw: 147_000_000n,
         currentLiquidityAmountRaw: 151_000_000n,
-      },
-    );
+      });
 
     expect(principalLiquidityAmountRaw).toBe(150_333_334n);
   });
@@ -191,7 +193,7 @@ describe("kamino-usdc-position storage", () => {
     });
     await clearKaminoUsdcPosition({ publicKey, solanaEnv: "mainnet" });
     expect(
-      await loadKaminoUsdcTrackedPosition({ publicKey, solanaEnv: "mainnet" }),
+      await loadKaminoUsdcTrackedPosition({ publicKey, solanaEnv: "mainnet" })
     ).toBeNull();
   });
 
@@ -207,7 +209,7 @@ describe("kamino-usdc-position storage", () => {
       await loadKaminoUsdcTrackedPosition({
         publicKey,
         solanaEnv: "localnet",
-      }),
+      })
     ).toBeNull();
   });
 });

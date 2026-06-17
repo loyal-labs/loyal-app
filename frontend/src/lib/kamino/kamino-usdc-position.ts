@@ -225,7 +225,9 @@ function applyKaminoUnshieldToTrackedPosition(args: {
     return args.trackedPosition;
   }
 
-  const trackedPrincipal = BigInt(args.trackedPosition.principalLiquidityAmountRaw);
+  const trackedPrincipal = BigInt(
+    args.trackedPosition.principalLiquidityAmountRaw
+  );
   const trackedShares = BigInt(args.trackedPosition.collateralSharesAmountRaw);
   if (
     trackedShares <= BigInt(0) ||

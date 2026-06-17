@@ -6,10 +6,7 @@ export {
   SOL_DUST_THRESHOLD_LAMPORTS,
   TOKEN_DUST_NORMALIZED_THRESHOLD,
 } from "./domain/dust-filter";
-export type {
-  SolDustInput,
-  TokenDustInput,
-} from "./domain/dust-filter";
+export type { SolDustInput, TokenDustInput } from "./domain/dust-filter";
 export {
   buildPortfolioSnapshot,
   computePortfolioTotals,

@@ -94,23 +94,47 @@ anchor test --provider.cluster localnet --skip-local-validator --skip-build --sk
 
 ## Test Design Guardrails
 
-Prefer tests that protect behavior and invariants over tests that mirror
-implementation shape. Keep coverage for money movement, auth/session
-boundaries, confirmed-chain writes, generated SDK parity, public API contracts,
-webhook retry behavior, config parsing, and pure calculations.
+Default to no new TypeScript unit tests. Prefer typecheck, lint, focused
+verifier scripts, manual smoke checks, or live read-only probes over `bun:test`,
+Jest, Vitest, `*.test.ts(x)`, `*.spec.ts(x)`, or `__tests__/` coverage.
 
-Route tests should assert status codes, branch discriminants, fields consumed by
-callers, and side effects. Do not snapshot full JSON response bodies unless the
-entire shape is a public contract.
+Keep or add a TypeScript test only when it protects an external contract or
+invariant that would still compile while broken: money movement,
+auth/session boundaries, confirmed-chain writes, generated SDK or wire-format
+parity, public API discriminants, webhook retry behavior, DB
+ownership/idempotency/conflict behavior, signer/secret/storage boundaries,
+config parsing, or dangerous pure calculations.
 
-Repository tests should assert persistence rules, conflict/idempotency behavior,
-ownership boundaries, and state transitions. Do not assert every `.values()`
-field just because a column exists.
+Implement the core logic requested first. Only add or update tests after the
+behavior exists, and only when the test still passes this rubric:
 
-Schema and column-name tests are allowed only for migrations, ownership
-boundaries, unique constraints, conflict behavior, or cross-database routing.
-User-visible copy tests are allowed only when the copy is a product or ops
-contract.
+A test earns `+1` when it protects an external contract or invariant static
+checks can miss, `+1` when it asserts an observable side effect or invariant,
+and `+1` when TypeScript, lint, or a manual smoke check would not catch the
+failure. Observable checks include write/no-write behavior, ordering, rejection
+before mutation, retry/backoff, persisted state transitions, balance or amount
+calculation, and instruction/account ordering.
+
+Subtract `1` when the test mostly mirrors fields, defaults, copy, route
+strings, source strings, `Object.keys(...)`, `typeof ...`, or third-party
+library behavior. Subtract `1` when it mainly asserts mocked JSON, Drizzle call
+order, every `.values()` field, a full response body, or that a mocked
+dependency received the same mock data.
+
+Keep only tests scoring at least `2`. For mixed files, delete or compress the
+low-scoring blocks and keep only the contract/invariant checks.
+
+Delete or compress tests that restate implementation shape. Do not keep tests
+whose main value is asserting every mocked JSON field, every Drizzle `.values()`
+field, object defaults, route-string builders, source substrings, copy that is
+not a product or ops contract, `typeof ... === "function"`, `Object.keys(...)`
+mirrors, or third-party library behavior.
+
+Route tests should assert status codes, branch discriminants, caller-consumed
+fields, and side effects only. Repository tests should assert persistence rules,
+conflict/idempotency behavior, ownership boundaries, and state transitions.
+Schema tests are allowed only for migrations, ownership boundaries, unique
+constraints, conflict behavior, or cross-database routing.
 
 Live RPC/devnet tests must be opt-in smoke tests with explicit environment
 requirements and no checked-in key material. They must not run in default

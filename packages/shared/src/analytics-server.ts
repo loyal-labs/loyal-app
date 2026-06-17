@@ -23,10 +23,7 @@ type ServerAnalyticsConfig = {
 };
 
 export type ServerAnalyticsClient = {
-  track: (
-    eventName: string,
-    properties?: ServerAnalyticsProperties
-  ) => void;
+  track: (eventName: string, properties?: ServerAnalyticsProperties) => void;
   setUserProfile: (
     distinctId: string,
     properties: AnalyticsProfileProperties
@@ -55,7 +52,11 @@ function getServerClient(token: string): ReturnType<typeof Mixpanel.init> {
   return nextClient;
 }
 
-function logMixpanelError(action: string, target: string, error: unknown): void {
+function logMixpanelError(
+  action: string,
+  target: string,
+  error: unknown
+): void {
   console.error(`Failed to ${action} Mixpanel ${target}`, error);
 }
 

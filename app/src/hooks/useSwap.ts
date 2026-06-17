@@ -30,10 +30,7 @@ type ExecuteApiResponse = {
 
 type SwapState = "idle" | "quoting" | "signing" | "confirming";
 
-function signTransaction(
-  base64Transaction: string,
-  keypair: Keypair
-): string {
+function signTransaction(base64Transaction: string, keypair: Keypair): string {
   const buffer = Buffer.from(base64Transaction, "base64");
   const transaction = VersionedTransaction.deserialize(buffer);
   transaction.sign([keypair]);

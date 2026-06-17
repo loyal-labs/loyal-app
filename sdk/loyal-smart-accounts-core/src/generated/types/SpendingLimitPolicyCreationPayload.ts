@@ -5,23 +5,23 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { TimeConstraints, timeConstraintsBeet } from './TimeConstraints'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { TimeConstraints, timeConstraintsBeet } from "./TimeConstraints";
 import {
   QuantityConstraints,
   quantityConstraintsBeet,
-} from './QuantityConstraints'
-import { UsageState, usageStateBeet } from './UsageState'
+} from "./QuantityConstraints";
+import { UsageState, usageStateBeet } from "./UsageState";
 export type SpendingLimitPolicyCreationPayload = {
-  mint: web3.PublicKey
-  sourceAccountIndex: number
-  timeConstraints: TimeConstraints
-  quantityConstraints: QuantityConstraints
-  usageState: beet.COption<UsageState>
-  destinations: web3.PublicKey[]
-}
+  mint: web3.PublicKey;
+  sourceAccountIndex: number;
+  timeConstraints: TimeConstraints;
+  quantityConstraints: QuantityConstraints;
+  usageState: beet.COption<UsageState>;
+  destinations: web3.PublicKey[];
+};
 
 /**
  * @category userTypes
@@ -30,12 +30,12 @@ export type SpendingLimitPolicyCreationPayload = {
 export const spendingLimitPolicyCreationPayloadBeet =
   new beet.FixableBeetArgsStruct<SpendingLimitPolicyCreationPayload>(
     [
-      ['mint', beetSolana.publicKey],
-      ['sourceAccountIndex', beet.u8],
-      ['timeConstraints', timeConstraintsBeet],
-      ['quantityConstraints', quantityConstraintsBeet],
-      ['usageState', beet.coption(usageStateBeet)],
-      ['destinations', beet.array(beetSolana.publicKey)],
+      ["mint", beetSolana.publicKey],
+      ["sourceAccountIndex", beet.u8],
+      ["timeConstraints", timeConstraintsBeet],
+      ["quantityConstraints", quantityConstraintsBeet],
+      ["usageState", beet.coption(usageStateBeet)],
+      ["destinations", beet.array(beetSolana.publicKey)],
     ],
-    'SpendingLimitPolicyCreationPayload'
-  )
+    "SpendingLimitPolicyCreationPayload"
+  );

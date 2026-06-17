@@ -96,9 +96,7 @@ function serializePosition(
   };
 }
 
-function serializeKaminoHolding(
-  row: CurrentYieldVaultReservePositionRecord
-) {
+function serializeKaminoHolding(row: CurrentYieldVaultReservePositionRecord) {
   const display = resolveEarnPositionDisplay({
     liquidityMint: row.liquidityMint,
     market: row.market,
@@ -143,7 +141,9 @@ function serializeIdleHolding(row: CurrentYieldVaultIdleTokenBalanceRecord) {
   };
 }
 
-function serializePositionCurrentHoldingAsKamino(position: UserYieldPositionRecord) {
+function serializePositionCurrentHoldingAsKamino(
+  position: UserYieldPositionRecord
+) {
   const display = resolveEarnPositionDisplay({
     liquidityMint: position.currentLiquidityMint,
     market: position.currentMarket,
@@ -176,8 +176,8 @@ function serializeHoldings(args: {
     args.reserveRows.length > 0
       ? args.reserveRows.map(serializeKaminoHolding)
       : args.position.currentAmountRaw > BigInt(0)
-        ? [serializePositionCurrentHoldingAsKamino(args.position)]
-        : [];
+      ? [serializePositionCurrentHoldingAsKamino(args.position)]
+      : [];
   const idleHoldings = args.idleRows
     .filter((row) => row.amountRaw > BigInt(0))
     .map(serializeIdleHolding);

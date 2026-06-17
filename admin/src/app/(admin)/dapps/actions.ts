@@ -72,15 +72,20 @@ function readForm(formData: FormData): {
     name: ((formData.get("name") as string | null) ?? "").trim(),
     startUrl: normalizeStartUrl(rawStartUrl || rawOrigin),
     category: normalizeCategory(formData.get("category") as string | null),
-    displayOrder: parseDisplayOrder(formData.get("displayOrder") as string | null),
+    displayOrder: parseDisplayOrder(
+      formData.get("displayOrder") as string | null
+    ),
     isActive: formData.get("isActive") === "on",
   };
 }
 
-export async function addTrustedDapp(formData: FormData): Promise<ActionResult> {
+export async function addTrustedDapp(
+  formData: FormData
+): Promise<ActionResult> {
   const fields = readForm(formData);
   if (!fields.origin) return { error: "Origin must be a valid http(s) URL" };
-  if (!fields.startUrl) return { error: "Start URL must be a valid http(s) URL" };
+  if (!fields.startUrl)
+    return { error: "Start URL must be a valid http(s) URL" };
   if (!fields.name) return { error: "Name is required" };
 
   const db = getDatabase();
@@ -110,7 +115,8 @@ export async function updateTrustedDapp(
 ): Promise<ActionResult> {
   const fields = readForm(formData);
   if (!fields.origin) return { error: "Origin must be a valid http(s) URL" };
-  if (!fields.startUrl) return { error: "Start URL must be a valid http(s) URL" };
+  if (!fields.startUrl)
+    return { error: "Start URL must be a valid http(s) URL" };
   if (!fields.name) return { error: "Name is required" };
 
   const db = getDatabase();

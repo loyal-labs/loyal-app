@@ -19,8 +19,9 @@ export async function POST(req: Request) {
     }
 
     const bodyString = new TextDecoder().decode(body);
-    const { signedTransaction, requestId } =
-      JSON.parse(bodyString) as ExecuteRequestBody;
+    const { signedTransaction, requestId } = JSON.parse(
+      bodyString
+    ) as ExecuteRequestBody;
 
     if (!signedTransaction || !requestId) {
       return NextResponse.json(

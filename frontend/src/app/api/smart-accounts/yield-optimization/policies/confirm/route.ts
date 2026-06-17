@@ -129,9 +129,7 @@ function createCanonicalPolicyInput(
     requestInput.setupPolicyConfirmedSlot === null ||
     requestInput.setupPolicyConfirmedSlot === undefined
   ) {
-    throw new Error(
-      "setupPolicyConfirmedSlot is required for policy setup."
-    );
+    throw new Error("setupPolicyConfirmedSlot is required for policy setup.");
   }
   assertCanonicalField(
     requestInput.setupPolicyAccount ?? null,

@@ -29,7 +29,7 @@ type FetchTransfersPage = (
     before?: string;
     until?: string;
     onlySystemTransfers: boolean;
-  },
+  }
 ) => Promise<{ transfers: WalletTransfer[]; nextCursor?: string }>;
 
 export async function fetchWalletTransfersWithPagination(
@@ -39,14 +39,15 @@ export async function fetchWalletTransfersWithPagination(
     until?: string;
     maxPages?: number;
     targetTransfers?: number;
-  } = {},
+  } = {}
 ): Promise<WalletTransfer[]> {
   const collected: WalletTransfer[] = [];
   const seenSignatures = new Set<string>();
 
   let before: string | undefined;
   const maxPages = options.maxPages ?? TX_HISTORY_MAX_PAGES;
-  const targetTransfers = options.targetTransfers ?? TX_HISTORY_TARGET_TRANSFERS;
+  const targetTransfers =
+    options.targetTransfers ?? TX_HISTORY_TARGET_TRANSFERS;
 
   for (let page = 0; page < maxPages; page++) {
     const { transfers, nextCursor } = await fetchPage(publicKey, {
@@ -87,10 +88,10 @@ function getLatestSignature(transactions: Transaction[]): string | undefined {
 
 function mergeTransactions(
   currentTransactions: Transaction[],
-  incomingTransactions: Transaction[],
+  incomingTransactions: Transaction[]
 ): Transaction[] {
   const pending = currentTransactions.filter(
-    (tx) => tx.type === "pending" && !tx.signature,
+    (tx) => tx.type === "pending" && !tx.signature
   );
   const bySignature = new Map<string, Transaction>();
 
@@ -115,7 +116,7 @@ function mergeTransactions(
   }
 
   return [...pending, ...bySignature.values()].sort(
-    (a, b) => b.timestamp - a.timestamp,
+    (a, b) => b.timestamp - a.timestamp
   );
 }
 
@@ -133,14 +134,14 @@ type UseWalletTransactionsOptions = {
 
 export function useWalletTransactions(
   walletAddress: string | null,
-  { onWsTransaction }: UseWalletTransactionsOptions = {},
+  { onWsTransaction }: UseWalletTransactionsOptions = {}
 ) {
   const [walletTransactions, setWalletTransactions] = useState<Transaction[]>(
     () =>
       walletAddress
-        ? (walletTransactionsCache.get(getTransactionsCacheKey(walletAddress)) ??
-          [])
-        : [],
+        ? walletTransactionsCache.get(getTransactionsCacheKey(walletAddress)) ??
+          []
+        : []
   );
   const [isFetchingTransactions, setIsFetchingTransactions] = useState(false);
   const onWsTransactionRef = useRef(onWsTransaction);
@@ -179,7 +180,7 @@ export function useWalletTransactions(
 
       return base;
     },
-    [],
+    []
   );
 
   const loadWalletTransactions = useCallback(
@@ -216,16 +217,16 @@ export function useWalletTransactions(
         const transfers = await fetchWalletTransfersWithPagination(
           new PublicKey(walletAddress),
           getAccountTransactionHistory,
-          latestSignature ? { until: latestSignature } : {},
+          latestSignature ? { until: latestSignature } : {}
         );
 
         const mappedTransactions: Transaction[] = transfers.map(
-          mapTransferToTransaction,
+          mapTransferToTransaction
         );
 
         const mergedTransactions = mergeTransactions(
           walletTransactionsCache.get(cacheKey) ?? [],
-          mappedTransactions,
+          mappedTransactions
         );
         walletTransactionsCache.set(cacheKey, mergedTransactions);
         walletTransactionsCacheMeta.set(cacheKey, { fetchedAt: Date.now() });
@@ -245,7 +246,7 @@ export function useWalletTransactions(
         setIsFetchingTransactions(false);
       }
     },
-    [mapTransferToTransaction, walletAddress],
+    [mapTransferToTransaction, walletAddress]
   );
 
   // Initial transaction load
@@ -296,7 +297,7 @@ export function useWalletTransactions(
             });
             onWsTransactionRef.current?.();
           },
-          { onlySystemTransfers: false },
+          { onlySystemTransfers: false }
         );
       } catch (error) {
         console.error("Failed to subscribe to transaction updates", error);

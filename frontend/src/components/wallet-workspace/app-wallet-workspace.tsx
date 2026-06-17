@@ -5584,6 +5584,7 @@ export function AppWalletWorkspace({
                 hasEarnStateLoadError={Boolean(
                   smartAccountData.earnStateLoadErrors.autodeposit
                 )}
+                hasEarnStateResolved={smartAccountData.hasEarnStateResolved}
                 isEarnStateLoading={smartAccountData.isEarnStateLoading}
                 onOpenVault={handleOpenVault}
                 onSmartAccountRetry={() => {

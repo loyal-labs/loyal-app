@@ -26,7 +26,7 @@ function readDepositAmount(data: Buffer): bigint {
 
 export function useExtensionWalletDataClient(
   solanaEnv: SolanaEnv,
-  walletPublicKey: PublicKeyType | null,
+  walletPublicKey: PublicKeyType | null
 ): SolanaWalletDataClient {
   return useMemo(() => {
     const { rpcEndpoint } = getSolanaEndpoints(solanaEnv);
@@ -43,7 +43,9 @@ export function useExtensionWalletDataClient(
         }
 
         const mintEntries = Array.from(uniqueMints.entries());
-        const pdas = mintEntries.map(([, mint]) => findDepositPda(owner, mint)[0]);
+        const pdas = mintEntries.map(
+          ([, mint]) => findDepositPda(owner, mint)[0]
+        );
         const accountInfos = await baseConnection.getMultipleAccountsInfo(pdas);
 
         const rawDeposits = new Map<string, bigint>();

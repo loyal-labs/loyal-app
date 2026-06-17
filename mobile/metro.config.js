@@ -10,32 +10,29 @@ const config = getDefaultConfig(__dirname);
 // Resolve monorepo packages outside /mobile
 const sharedRoot = path.resolve(__dirname, "../packages/shared");
 const solanaRpcRoot = path.resolve(__dirname, "../packages/solana-rpc/src");
-const privateTransactionsRoot = path.resolve(__dirname, "../sdk/private-transactions");
+const privateTransactionsRoot = path.resolve(
+  __dirname,
+  "../sdk/private-transactions"
+);
 const privateTransactionsEntryCandidates = [
   path.resolve(
     __dirname,
-    "node_modules/@loyal-labs/private-transactions/dist/index.js",
+    "node_modules/@loyal-labs/private-transactions/dist/index.js"
   ),
+  path.resolve(__dirname, "../sdk/private-transactions/dist/index.js"),
   path.resolve(
     __dirname,
-    "../sdk/private-transactions/dist/index.js",
+    "node_modules/@loyal-labs/private-transactions/index.ts"
   ),
-  path.resolve(
-    __dirname,
-    "node_modules/@loyal-labs/private-transactions/index.ts",
-  ),
-  path.resolve(
-    __dirname,
-    "../sdk/private-transactions/index.ts",
-  ),
+  path.resolve(__dirname, "../sdk/private-transactions/index.ts"),
 ];
-const privateTransactionsEntry = privateTransactionsEntryCandidates.find((candidate) =>
-  fs.existsSync(candidate),
+const privateTransactionsEntry = privateTransactionsEntryCandidates.find(
+  (candidate) => fs.existsSync(candidate)
 );
 
 if (!privateTransactionsEntry) {
   throw new Error(
-    "Unable to resolve @loyal-labs/private-transactions entry file from Metro config.",
+    "Unable to resolve @loyal-labs/private-transactions entry file from Metro config."
   );
 }
 config.watchFolders = [sharedRoot, solanaRpcRoot, privateTransactionsRoot];
@@ -49,10 +46,10 @@ config.resolver.extraNodeModules = {
 
 // SVG transformer
 config.transformer.babelTransformerPath = require.resolve(
-  "react-native-svg-transformer",
+  "react-native-svg-transformer"
 );
 config.resolver.assetExts = config.resolver.assetExts.filter(
-  (ext) => ext !== "svg",
+  (ext) => ext !== "svg"
 );
 config.resolver.sourceExts = [...config.resolver.sourceExts, "svg"];
 

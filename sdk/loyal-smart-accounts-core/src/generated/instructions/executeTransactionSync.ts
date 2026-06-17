@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   LegacySyncTransactionArgs,
   legacySyncTransactionArgsBeet,
-} from '../types/LegacySyncTransactionArgs'
+} from "../types/LegacySyncTransactionArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type ExecuteTransactionSyncInstructionArgs = {
-  args: LegacySyncTransactionArgs
-}
+  args: LegacySyncTransactionArgs;
+};
 /**
  * @category Instructions
  * @category ExecuteTransactionSync
@@ -27,15 +27,15 @@ export type ExecuteTransactionSyncInstructionArgs = {
  */
 export const executeTransactionSyncStruct = new beet.FixableBeetArgsStruct<
   ExecuteTransactionSyncInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', legacySyncTransactionArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", legacySyncTransactionArgsBeet],
   ],
-  'ExecuteTransactionSyncInstructionArgs'
-)
+  "ExecuteTransactionSyncInstructionArgs"
+);
 /**
  * Accounts required by the _executeTransactionSync_ instruction
  *
@@ -46,14 +46,14 @@ export const executeTransactionSyncStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type ExecuteTransactionSyncInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const executeTransactionSyncInstructionDiscriminator = [
   43, 102, 248, 89, 231, 97, 104, 134,
-]
+];
 
 /**
  * Creates a _ExecuteTransactionSync_ instruction.
@@ -68,12 +68,12 @@ export const executeTransactionSyncInstructionDiscriminator = [
 export function createExecuteTransactionSyncInstruction(
   accounts: ExecuteTransactionSyncInstructionAccounts,
   args: ExecuteTransactionSyncInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = executeTransactionSyncStruct.serialize({
     instructionDiscriminator: executeTransactionSyncInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -85,11 +85,11 @@ export function createExecuteTransactionSyncInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -97,6 +97,6 @@ export function createExecuteTransactionSyncInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

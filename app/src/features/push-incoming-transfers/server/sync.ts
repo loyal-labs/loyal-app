@@ -15,10 +15,10 @@ import { eq, inArray, isNotNull } from "drizzle-orm";
 // transfer — only SOL transfers and outgoing SPLs (where wallet is a
 // signer) are visible.
 const TOKEN_PROGRAM_ID = new PublicKey(
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
 const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 
 import {
@@ -55,7 +55,7 @@ async function listRegisteredWallets(): Promise<string[]> {
 }
 
 async function getOrCreateSyncState(
-  walletPublicKey: string,
+  walletPublicKey: string
 ): Promise<typeof walletPushSyncState.$inferSelect> {
   const db = getDatabase();
   const existing = await db
@@ -74,7 +74,7 @@ async function getOrCreateSyncState(
     .where(eq(walletPushSyncState.walletPublicKey, walletPublicKey));
   if (!created[0]) {
     throw new Error(
-      `Failed to initialize wallet_push_sync_state for ${walletPublicKey}`,
+      `Failed to initialize wallet_push_sync_state for ${walletPublicKey}`
     );
   }
   return created[0];
@@ -82,7 +82,7 @@ async function getOrCreateSyncState(
 
 async function updateSyncState(
   walletPublicKey: string,
-  values: Partial<typeof walletPushSyncState.$inferInsert>,
+  values: Partial<typeof walletPushSyncState.$inferInsert>
 ): Promise<void> {
   const db = getDatabase();
   await db
@@ -98,9 +98,7 @@ async function updateSyncState(
 const ATA_CACHE_TTL_MS = 30 * 60 * 1000;
 const ataCache = new Map<string, { addresses: string[]; cachedAt: number }>();
 
-async function listOwnedAtaAddresses(
-  walletPk: PublicKey,
-): Promise<string[]> {
+async function listOwnedAtaAddresses(walletPk: PublicKey): Promise<string[]> {
   const key = walletPk.toBase58();
   const cached = ataCache.get(key);
   const now = Date.now();
@@ -132,8 +130,11 @@ type SignatureEntry = {
 
 async function fetchNewEventsForWallet(
   walletPublicKey: string,
-  lastSignature: string | null,
-): Promise<{ events: IncomingTransferEvent[]; latestSignature: string | null }> {
+  lastSignature: string | null
+): Promise<{
+  events: IncomingTransferEvent[];
+  latestSignature: string | null;
+}> {
   const connection = getIncomingTransferConnection();
   const pk = new PublicKey(walletPublicKey);
 
@@ -148,8 +149,8 @@ async function fetchNewEventsForWallet(
       connection.getSignaturesForAddress(target, {
         limit: SIGNATURES_PAGE_LIMIT,
         until: lastSignature ?? undefined,
-      }),
-    ),
+      })
+    )
   );
 
   const bySignature = new Map<string, SignatureEntry>();
@@ -172,7 +173,7 @@ async function fetchNewEventsForWallet(
   // Sort newest-first by slot (blockTime is sometimes null for just-
   // finalized blocks; slot is monotonic and always present).
   const uniqueSignatures = Array.from(bySignature.values()).sort(
-    (a, b) => b.slot - a.slot,
+    (a, b) => b.slot - a.slot
   );
   const latestSignature = uniqueSignatures[0]?.signature ?? lastSignature;
 
@@ -197,7 +198,7 @@ async function fetchNewEventsForWallet(
     const signature = signatureList[i];
     if (!signature) continue;
     events.push(
-      ...parseIncomingTransfersForWallet(tx, signature, walletPublicKey),
+      ...parseIncomingTransfersForWallet(tx, signature, walletPublicKey)
     );
   }
 
@@ -205,7 +206,7 @@ async function fetchNewEventsForWallet(
 }
 
 async function resolveMintMetadata(
-  mints: Iterable<string>,
+  mints: Iterable<string>
 ): Promise<Map<string, MintMetadata>> {
   const uniqueMints = Array.from(new Set(Array.from(mints).filter(Boolean)));
   if (uniqueMints.length === 0) return new Map();
@@ -245,13 +246,13 @@ async function resolveMintMetadata(
 
 async function processWallet(
   walletPublicKey: string,
-  stats: IncomingTransferPushStats,
+  stats: IncomingTransferPushStats
 ): Promise<IncomingTransferEvent[]> {
   try {
     const state = await getOrCreateSyncState(walletPublicKey);
     const { events, latestSignature } = await fetchNewEventsForWallet(
       walletPublicKey,
-      state.lastSignature,
+      state.lastSignature
     );
 
     await updateSyncState(walletPublicKey, {
@@ -266,10 +267,10 @@ async function processWallet(
     const message = error instanceof Error ? error.message : String(error);
     console.error(
       `[push-incoming-transfers] wallet ${walletPublicKey} errored`,
-      message,
+      message
     );
     await updateSyncState(walletPublicKey, { lastError: message }).catch(
-      () => undefined,
+      () => undefined
     );
     return [];
   }
@@ -302,23 +303,22 @@ export async function runPushIncomingTransfersCron(): Promise<IncomingTransferPu
     }
   }
   await Promise.all(
-    Array.from(
-      { length: Math.min(WALLET_CONCURRENCY, wallets.length) },
-      () => worker(),
-    ),
+    Array.from({ length: Math.min(WALLET_CONCURRENCY, wallets.length) }, () =>
+      worker()
+    )
   );
 
   stats.eventsDetected = allEvents.length;
   if (allEvents.length === 0) return stats;
 
   const metadataByMint = await resolveMintMetadata(
-    allEvents.map((event) => event.mint),
+    allEvents.map((event) => event.mint)
   );
 
   for (const event of allEvents) {
     const payload = formatIncomingTransferPush(
       event,
-      metadataByMint.get(event.mint) ?? null,
+      metadataByMint.get(event.mint) ?? null
     );
     const result = await sendPushToWallet(event.recipient, payload);
     stats.notificationsSent += result.sentTo;

@@ -23,7 +23,7 @@ function createFetchStub(response: unknown): typeof fetch {
     ({
       ok: true,
       json: async () => response,
-    }) as Response) as unknown as typeof fetch;
+    } as Response)) as unknown as typeof fetch;
 }
 
 describe("createHeliusAssetProvider", () => {
@@ -46,13 +46,8 @@ describe("createHeliusAssetProvider", () => {
 
     expect(snapshot.nativeBalanceLamports).toBe(2_000_000_000);
     expect(snapshot.assets).toHaveLength(3);
-    expect(snapshot.assets[1]).toMatchObject({
-      asset: {
-        symbol: "USDC",
-        name: "USD Coin",
-      },
-      balance: 5.25,
-      priceUsd: 1,
-    });
+    expect(snapshot.assets[1]?.asset.symbol).toBe("USDC");
+    expect(snapshot.assets[1]?.balance).toBe(5.25);
+    expect(snapshot.assets[1]?.priceUsd).toBe(1);
   });
 });

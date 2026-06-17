@@ -103,14 +103,18 @@ describe("message handlers", () => {
                 throw new Error("message insert failed once");
               }
 
-              const messageKey = `${String(values.communityId)}:${String(values.userId)}:${String(values.telegramMessageId)}`;
+              const messageKey = `${String(values.communityId)}:${String(
+                values.userId
+              )}:${String(values.telegramMessageId)}`;
               if (!messagePersistedKeys.has(messageKey)) {
                 messagePersistedKeys.add(messageKey);
               }
               return;
             }
 
-            const membershipKey = `${String(values.communityId)}:${String(values.userId)}`;
+            const membershipKey = `${String(values.communityId)}:${String(
+              values.userId
+            )}`;
             if (!membershipPersistedKeys.has(membershipKey)) {
               membershipPersistedKeys.add(membershipKey);
             }
@@ -142,7 +146,9 @@ describe("message handlers", () => {
     }
 
     expect(consoleErrorCalls).toHaveLength(1);
-    expect(consoleErrorCalls[0]?.[0]).toBe("Failed to handle community message");
+    expect(consoleErrorCalls[0]?.[0]).toBe(
+      "Failed to handle community message"
+    );
     expect(consoleErrorCalls[0]?.[1]).toMatchObject({
       chatId: "-1001234567890",
       errorMessage: "findFirst failed",

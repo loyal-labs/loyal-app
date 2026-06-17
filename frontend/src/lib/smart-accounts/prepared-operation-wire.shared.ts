@@ -74,9 +74,7 @@ export function serializePreparedOperation(
     lookupTableAccounts: prepared.lookupTableAccounts.map((account) => ({
       key: account.key.toBase58(),
       state: {
-        addresses: account.state.addresses.map((address) =>
-          address.toBase58()
-        ),
+        addresses: account.state.addresses.map((address) => address.toBase58()),
         authority: account.state.authority?.toBase58() ?? null,
         deactivationSlot: account.state.deactivationSlot.toString(),
         lastExtendedSlot: account.state.lastExtendedSlot,

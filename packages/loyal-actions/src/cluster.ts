@@ -13,12 +13,22 @@ export type LoyalClusterConfig = {
 };
 
 const sharedConfig: LoyalClusterConfig = {
-  squadsSmartAccountProgramId: new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"),
-  jupiterV6ProgramId: new PublicKey("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
-  loyalHubSwapProgramId: new PublicKey("3qbR1eZRqXUWroWKKYhbDmR3FfqTHfqSU8zZSxtANzYh"),
-  loyalHubAuthorizer: new PublicKey("3uWi9x2SRpmjztkpkr2WWeBoVq3exjXG2YfDWLvm8KsQ"),
+  squadsSmartAccountProgramId: new PublicKey(
+    "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
+  ),
+  jupiterV6ProgramId: new PublicKey(
+    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+  ),
+  loyalHubSwapProgramId: new PublicKey(
+    "3qbR1eZRqXUWroWKKYhbDmR3FfqTHfqSU8zZSxtANzYh"
+  ),
+  loyalHubAuthorizer: new PublicKey(
+    "3uWi9x2SRpmjztkpkr2WWeBoVq3exjXG2YfDWLvm8KsQ"
+  ),
   tokenProgramId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-  associatedTokenProgramId: new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
+  associatedTokenProgramId: new PublicKey(
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+  ),
 };
 
 export const LOYAL_CLUSTER_CONFIGS: Record<LoyalCluster, LoyalClusterConfig> = {

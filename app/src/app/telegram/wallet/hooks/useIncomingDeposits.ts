@@ -326,12 +326,12 @@ export function useIncomingDeposits(params: {
 
     // Find the first transaction that hasn't already failed auto-claim
     const claimableTransaction = incomingTransactions.find(
-      (tx) => !failedAutoClaimIds.current.has(tx.id),
+      (tx) => !failedAutoClaimIds.current.has(tx.id)
     );
     if (claimableTransaction) {
       void handleApproveTransaction(
         claimableTransaction.id,
-        CLAIM_SOURCES.auto,
+        CLAIM_SOURCES.auto
       );
     }
   }, [incomingTransactions, isClaimingTransaction, handleApproveTransaction]);
@@ -348,7 +348,7 @@ export function useIncomingDeposits(params: {
         return next;
       });
     },
-    [],
+    []
   );
 
   return {

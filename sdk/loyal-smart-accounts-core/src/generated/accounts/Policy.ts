@@ -5,18 +5,18 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   SmartAccountSigner,
   smartAccountSignerBeet,
-} from '../types/SmartAccountSigner'
-import { PolicyState, policyStateBeet } from '../types/PolicyState'
+} from "../types/SmartAccountSigner";
+import { PolicyState, policyStateBeet } from "../types/PolicyState";
 import {
   PolicyExpiration,
   policyExpirationBeet,
-} from '../types/PolicyExpiration'
+} from "../types/PolicyExpiration";
 
 /**
  * Arguments used to create {@link Policy}
@@ -24,21 +24,21 @@ import {
  * @category generated
  */
 export type PolicyArgs = {
-  settings: web3.PublicKey
-  seed: beet.bignum
-  bump: number
-  transactionIndex: beet.bignum
-  staleTransactionIndex: beet.bignum
-  signers: SmartAccountSigner[]
-  threshold: number
-  timeLock: number
-  policyState: PolicyState
-  start: beet.bignum
-  expiration: beet.COption<PolicyExpiration>
-  rentCollector: web3.PublicKey
-}
+  settings: web3.PublicKey;
+  seed: beet.bignum;
+  bump: number;
+  transactionIndex: beet.bignum;
+  staleTransactionIndex: beet.bignum;
+  signers: SmartAccountSigner[];
+  threshold: number;
+  timeLock: number;
+  policyState: PolicyState;
+  start: beet.bignum;
+  expiration: beet.COption<PolicyExpiration>;
+  rentCollector: web3.PublicKey;
+};
 
-export const policyDiscriminator = [222, 135, 7, 163, 235, 177, 33, 68]
+export const policyDiscriminator = [222, 135, 7, 163, 235, 177, 33, 68];
 /**
  * Holds the data for the {@link Policy} Account and provides de/serialization
  * functionality for that data
@@ -79,7 +79,7 @@ export class Policy implements PolicyArgs {
       args.start,
       args.expiration,
       args.rentCollector
-    )
+    );
   }
 
   /**
@@ -90,7 +90,7 @@ export class Policy implements PolicyArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [Policy, number] {
-    return Policy.deserialize(accountInfo.data, offset)
+    return Policy.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -107,11 +107,11 @@ export class Policy implements PolicyArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find Policy account at ${address}`)
+      throw new Error(`Unable to find Policy account at ${address}`);
     }
-    return Policy.fromAccountInfo(accountInfo, 0)[0]
+    return Policy.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -122,10 +122,10 @@ export class Policy implements PolicyArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, policyBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, policyBeet);
   }
 
   /**
@@ -133,7 +133,7 @@ export class Policy implements PolicyArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [Policy, number] {
-    return policyBeet.deserialize(buf, offset)
+    return policyBeet.deserialize(buf, offset);
   }
 
   /**
@@ -144,7 +144,7 @@ export class Policy implements PolicyArgs {
     return policyBeet.serialize({
       accountDiscriminator: policyDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -155,11 +155,11 @@ export class Policy implements PolicyArgs {
    * depends on them
    */
   static byteSize(args: PolicyArgs) {
-    const instance = Policy.fromArgs(args)
+    const instance = Policy.fromArgs(args);
     return policyBeet.toFixedFromValue({
       accountDiscriminator: policyDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -178,7 +178,7 @@ export class Policy implements PolicyArgs {
     return connection.getMinimumBalanceForRentExemption(
       Policy.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -189,57 +189,57 @@ export class Policy implements PolicyArgs {
     return {
       settings: this.settings.toBase58(),
       seed: (() => {
-        const x = <{ toNumber: () => number }>this.seed
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.seed;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       bump: this.bump,
       transactionIndex: (() => {
-        const x = <{ toNumber: () => number }>this.transactionIndex
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.transactionIndex;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       staleTransactionIndex: (() => {
-        const x = <{ toNumber: () => number }>this.staleTransactionIndex
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.staleTransactionIndex;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       signers: this.signers,
       threshold: this.threshold,
       timeLock: this.timeLock,
       policyState: this.policyState.__kind,
       start: (() => {
-        const x = <{ toNumber: () => number }>this.start
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.start;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       expiration: this.expiration,
       rentCollector: this.rentCollector.toBase58(),
-    }
+    };
   }
 }
 
@@ -250,24 +250,24 @@ export class Policy implements PolicyArgs {
 export const policyBeet = new beet.FixableBeetStruct<
   Policy,
   PolicyArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['settings', beetSolana.publicKey],
-    ['seed', beet.u64],
-    ['bump', beet.u8],
-    ['transactionIndex', beet.u64],
-    ['staleTransactionIndex', beet.u64],
-    ['signers', beet.array(smartAccountSignerBeet)],
-    ['threshold', beet.u16],
-    ['timeLock', beet.u32],
-    ['policyState', policyStateBeet],
-    ['start', beet.i64],
-    ['expiration', beet.coption(policyExpirationBeet)],
-    ['rentCollector', beetSolana.publicKey],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["settings", beetSolana.publicKey],
+    ["seed", beet.u64],
+    ["bump", beet.u8],
+    ["transactionIndex", beet.u64],
+    ["staleTransactionIndex", beet.u64],
+    ["signers", beet.array(smartAccountSignerBeet)],
+    ["threshold", beet.u16],
+    ["timeLock", beet.u32],
+    ["policyState", policyStateBeet],
+    ["start", beet.i64],
+    ["expiration", beet.coption(policyExpirationBeet)],
+    ["rentCollector", beetSolana.publicKey],
   ],
   Policy.fromArgs,
-  'Policy'
-)
+  "Policy"
+);

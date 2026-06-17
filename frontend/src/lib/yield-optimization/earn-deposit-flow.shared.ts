@@ -84,7 +84,9 @@ export function resolveEarnDepositConfirmPolicySignature(args: {
   const providedSetup = args.setupPolicySignature?.trim();
   const providedSetupConfirmedSlot = args.setupPolicyConfirmedSlot?.trim();
   if (provided) {
-    const requiresPolicySetup = Boolean(args.preparedDeposit.policySetupPrepared);
+    const requiresPolicySetup = Boolean(
+      args.preparedDeposit.policySetupPrepared
+    );
     const requiresSetupPolicySetup = Boolean(
       args.preparedDeposit.policyFinalizePrepared
     );

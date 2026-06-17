@@ -1,8 +1,4 @@
-import {
-  communityMembers,
-  messages,
-  users,
-} from "@loyal-labs/db-core/schema";
+import { communityMembers, messages, users } from "@loyal-labs/db-core/schema";
 import { eq } from "drizzle-orm";
 
 import type { UserbotDb } from "../database";

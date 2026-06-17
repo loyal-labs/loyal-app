@@ -56,10 +56,12 @@ function toSwapToken(t: JupiterSearchResult): SwapToken {
 }
 
 async function searchJupiterToken(
-  query: string,
+  query: string
 ): Promise<JupiterSearchResult[]> {
   const res = await fetch(
-    `${JUPITER_SEARCH_URL}?query=${encodeURIComponent(query)}&tags=verified&limit=10`,
+    `${JUPITER_SEARCH_URL}?query=${encodeURIComponent(
+      query
+    )}&tags=verified&limit=10`
   );
   if (!res.ok) return [];
   return res.json();
@@ -76,7 +78,7 @@ function isSwapTokenArray(data: unknown): data is SwapToken[] {
         typeof (t as SwapToken).symbol === "string" &&
         typeof (t as SwapToken).icon === "string" &&
         typeof (t as SwapToken).price === "number" &&
-        typeof (t as SwapToken).balance === "number",
+        typeof (t as SwapToken).balance === "number"
     )
   );
 }
@@ -103,14 +105,15 @@ function loadPopularTokensFromNetwork(): Promise<SwapToken[]> {
         // Pick exact symbol match with highest mcap
         const exact = tokens
           .filter(
-            (t) => t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified,
+            (t) =>
+              t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified
           )
           .sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0));
         return exact[0] ? toSwapToken(exact[0]) : null;
       } catch {
         return null;
       }
-    }),
+    })
   )
     .then((results) => {
       popularCache = results.filter((t): t is SwapToken => t !== null);
@@ -182,18 +185,15 @@ export function usePopularTokens(options: { enabled?: boolean } = {}) {
     };
   }, [enabled]);
 
-  const search = useCallback(
-    async (query: string): Promise<SwapToken[]> => {
-      if (!query || query.length < 2) return [];
-      try {
-        const results = await searchJupiterToken(query);
-        return results.filter((t) => t.isVerified).map(toSwapToken);
-      } catch {
-        return [];
-      }
-    },
-    [],
-  );
+  const search = useCallback(async (query: string): Promise<SwapToken[]> => {
+    if (!query || query.length < 2) return [];
+    try {
+      const results = await searchJupiterToken(query);
+      return results.filter((t) => t.isVerified).map(toSwapToken);
+    } catch {
+      return [];
+    }
+  }, []);
 
   return { tokens, isLoading, search };
 }

@@ -5,15 +5,15 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   LimitedSettingsAction,
   limitedSettingsActionBeet,
-} from './LimitedSettingsAction'
+} from "./LimitedSettingsAction";
 export type SettingsChangePayload = {
-  actionIndex: Uint8Array
-  actions: LimitedSettingsAction[]
-}
+  actionIndex: Uint8Array;
+  actions: LimitedSettingsAction[];
+};
 
 /**
  * @category userTypes
@@ -22,8 +22,8 @@ export type SettingsChangePayload = {
 export const settingsChangePayloadBeet =
   new beet.FixableBeetArgsStruct<SettingsChangePayload>(
     [
-      ['actionIndex', beet.bytes],
-      ['actions', beet.array(limitedSettingsActionBeet)],
+      ["actionIndex", beet.bytes],
+      ["actions", beet.array(limitedSettingsActionBeet)],
     ],
-    'SettingsChangePayload'
-  )
+    "SettingsChangePayload"
+  );

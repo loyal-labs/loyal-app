@@ -75,7 +75,7 @@ export class CompiledKeys {
    * Compiles instructions without a payer.
    */
   static compileWithoutPayer(
-    instructions: Array<TransactionInstruction>,
+    instructions: Array<TransactionInstruction>
   ): CompiledKeys {
     const keyMetaMap: KeyMetaMap = new Map();
     const getOrInsertDefault = (pubkey: PublicKey): CompiledKeyMeta => {
@@ -105,7 +105,6 @@ export class CompiledKeys {
 
     return new CompiledKeys(undefined, keyMetaMap);
   }
-
 
   getMessageComponents(): [MessageHeader, Array<PublicKey>] {
     const mapEntries = [...this.keyMetaMap.entries()];

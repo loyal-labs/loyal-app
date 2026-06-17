@@ -8,9 +8,7 @@ import {
   resetEarnForecastSummaryCacheForTests,
   toForecastApy,
 } from "@/lib/kamino/earn-forecast.client";
-import {
-  type EarnForecastApy,
-} from "@/lib/kamino/earn-forecast.shared";
+import { type EarnForecastApy } from "@/lib/kamino/earn-forecast.shared";
 
 export async function fetchEarnForecastApy(): Promise<EarnForecastApy> {
   const summary = await fetchEarnForecastSummary();
@@ -22,8 +20,7 @@ export function resetEarnForecastApyCacheForTests() {
 }
 
 export function useEarnForecastApy(): EarnForecastApy {
-  const [forecast, setForecast] =
-    useState<EarnForecastApy>(FALLBACK_EARN_APY);
+  const [forecast, setForecast] = useState<EarnForecastApy>(FALLBACK_EARN_APY);
 
   useEffect(() => {
     let isMounted = true;

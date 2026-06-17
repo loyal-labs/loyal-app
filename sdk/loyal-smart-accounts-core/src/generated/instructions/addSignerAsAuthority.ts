@@ -5,9 +5,9 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
-import { AddSignerArgs, addSignerArgsBeet } from '../types/AddSignerArgs'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
+import { AddSignerArgs, addSignerArgsBeet } from "../types/AddSignerArgs";
 
 /**
  * @category Instructions
@@ -15,8 +15,8 @@ import { AddSignerArgs, addSignerArgsBeet } from '../types/AddSignerArgs'
  * @category generated
  */
 export type AddSignerAsAuthorityInstructionArgs = {
-  args: AddSignerArgs
-}
+  args: AddSignerArgs;
+};
 /**
  * @category Instructions
  * @category AddSignerAsAuthority
@@ -24,15 +24,15 @@ export type AddSignerAsAuthorityInstructionArgs = {
  */
 export const addSignerAsAuthorityStruct = new beet.FixableBeetArgsStruct<
   AddSignerAsAuthorityInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', addSignerArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", addSignerArgsBeet],
   ],
-  'AddSignerAsAuthorityInstructionArgs'
-)
+  "AddSignerAsAuthorityInstructionArgs"
+);
 /**
  * Accounts required by the _addSignerAsAuthority_ instruction
  *
@@ -45,17 +45,17 @@ export const addSignerAsAuthorityStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type AddSignerAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const addSignerAsAuthorityInstructionDiscriminator = [
   80, 198, 228, 154, 7, 234, 99, 56,
-]
+];
 
 /**
  * Creates a _AddSignerAsAuthority_ instruction.
@@ -73,12 +73,12 @@ export const addSignerAsAuthorityInstructionDiscriminator = [
 export function createAddSignerAsAuthorityInstruction(
   accounts: AddSignerAsAuthorityInstructionAccounts,
   args: AddSignerAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = addSignerAsAuthorityStruct.serialize({
     instructionDiscriminator: addSignerAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -105,11 +105,11 @@ export function createAddSignerAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -117,6 +117,6 @@ export function createAddSignerAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

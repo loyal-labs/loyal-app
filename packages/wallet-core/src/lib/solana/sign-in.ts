@@ -33,7 +33,7 @@ const generateNonce = (): string => {
     cryptoObj.getRandomValues(bytes);
     return Array.from(
       bytes,
-      (byte) => NONCE_CHARSET[byte % NONCE_CHARSET.length],
+      (byte) => NONCE_CHARSET[byte % NONCE_CHARSET.length]
     ).join("");
   }
   let nonce = "";
@@ -64,7 +64,7 @@ export const createSignInData = async (): Promise<SolanaSignInInput> => {
 
 export function verifySIWS(
   input: SolanaSignInInput,
-  output: SerializedSolanaSignInOutput,
+  output: SerializedSolanaSignInOutput
 ): boolean {
   if (input.domain !== DOMAIN_NAME) {
     return false;
@@ -125,7 +125,7 @@ export function verifySIWS(
   let derivedAddress: string;
   try {
     derivedAddress = new PublicKey(
-      deserializedOutput.account.publicKey,
+      deserializedOutput.account.publicKey
     ).toBase58();
   } catch (error) {
     console.error("Invalid public key in Solana sign-in output", error);

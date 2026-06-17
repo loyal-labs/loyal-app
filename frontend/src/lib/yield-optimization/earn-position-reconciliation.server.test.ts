@@ -176,22 +176,26 @@ describe("earn position reconciliation", () => {
     findReconciledActiveYieldPositionForVault.mockImplementation(async () =>
       createPosition()
     );
-    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(async () => [
-      {
-        amountRaw: BigInt(1),
-        borrowApyBps: null,
-        hasValue: true,
-        liquidityMint: usdcMint.toBase58(),
-        market: market.toBase58(),
-        observedAt: now,
-        observedSlot: BigInt(1),
-        planningMetadata: { reserveCollateralMint: collateralMint.toBase58() },
-        reserve: reserve.toBase58(),
-        snapshotId: BigInt(1),
-        supplyApyBps: null,
-        vaultId: BigInt(22),
-      },
-    ]);
+    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(
+      async () => [
+        {
+          amountRaw: BigInt(1),
+          borrowApyBps: null,
+          hasValue: true,
+          liquidityMint: usdcMint.toBase58(),
+          market: market.toBase58(),
+          observedAt: now,
+          observedSlot: BigInt(1),
+          planningMetadata: {
+            reserveCollateralMint: collateralMint.toBase58(),
+          },
+          reserve: reserve.toBase58(),
+          snapshotId: BigInt(1),
+          supplyApyBps: null,
+          vaultId: BigInt(22),
+        },
+      ]
+    );
 
     const result = await reconcileEarnVaultPosition(
       {
@@ -222,7 +226,9 @@ describe("earn position reconciliation", () => {
     findReconciledActiveYieldPositionForVault.mockImplementation(async () =>
       createPosition()
     );
-    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(async () => []);
+    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(
+      async () => []
+    );
 
     const result = await reconcileEarnVaultPosition(
       {

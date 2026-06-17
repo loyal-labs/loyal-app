@@ -102,16 +102,15 @@ function loadTestConfig(): TestConfig {
 
   const baseWsEndpoint =
     process.env.WS_ENDPOINT ??
-    (baseRpcEndpoint.includes("localhost") || baseRpcEndpoint.includes("127.0.0.1")
+    (baseRpcEndpoint.includes("localhost") ||
+    baseRpcEndpoint.includes("127.0.0.1")
       ? "ws://127.0.0.1:8900"
       : deriveWsEndpoint(baseRpcEndpoint));
 
   // Ephemeral rollup endpoints
   const erRpcEndpoint =
     process.env.EPHEMERAL_PROVIDER_ENDPOINT ??
-    (isDevnet
-      ? "https://devnet.magicblock.app"
-      : "http://127.0.0.1:7799");
+    (isDevnet ? "https://devnet.magicblock.app" : "http://127.0.0.1:7799");
 
   const erWsEndpoint =
     process.env.EPHEMERAL_WS_ENDPOINT ??
@@ -122,12 +121,13 @@ function loadTestConfig(): TestConfig {
   // Validator identity
   const erValidator = new PublicKey(
     process.env.ER_VALIDATOR ??
-    process.env.MAGICBLOCK_VALIDATOR ??
-    "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
+      process.env.MAGICBLOCK_VALIDATOR ??
+      "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
   );
 
   // Commitment level
-  const commitment = (process.env.PROVIDER_COMMITMENT ?? "confirmed") as Commitment;
+  const commitment = (process.env.PROVIDER_COMMITMENT ??
+    "confirmed") as Commitment;
 
   // Existing token mint for devnet (optional)
   const existingTokenMintStr = process.env.TOKEN_MINT;
@@ -161,11 +161,16 @@ function loadTestConfig(): TestConfig {
     transferAmount: Number(process.env.TRANSFER_AMOUNT ?? "100000"),
 
     // Airdrop configuration
-    airdropAmount: Number(process.env.AIRDROP_AMOUNT ?? String(LAMPORTS_PER_SOL)),
-    minBalance: Number(process.env.MIN_BALANCE ?? String(0.2 * LAMPORTS_PER_SOL)),
+    airdropAmount: Number(
+      process.env.AIRDROP_AMOUNT ?? String(LAMPORTS_PER_SOL)
+    ),
+    minBalance: Number(
+      process.env.MIN_BALANCE ?? String(0.2 * LAMPORTS_PER_SOL)
+    ),
 
     // Skip telegram verification on devnet (requires valid signature)
-    skipTelegramVerification: process.env.SKIP_TELEGRAM_VERIFICATION === "true" || isDevnet,
+    skipTelegramVerification:
+      process.env.SKIP_TELEGRAM_VERIFICATION === "true" || isDevnet,
 
     existingTokenMint,
   };
@@ -177,39 +182,41 @@ function loadTestConfig(): TestConfig {
 
 // Telegram verification test data (valid signature for username "dig133713337")
 const VALIDATION_BYTES: Uint8Array = new Uint8Array([
-  56, 48, 54, 53, 49, 52, 48, 52, 57, 57, 58, 87, 101, 98, 65, 112, 112, 68,
-  97, 116, 97, 10, 97, 117, 116, 104, 95, 100, 97, 116, 101, 61, 49, 55, 54,
-  51, 53, 57, 56, 51, 55, 53, 10, 99, 104, 97, 116, 95, 105, 110, 115, 116,
-  97, 110, 99, 101, 61, 45, 52, 53, 57, 55, 56, 48, 55, 53, 56, 53, 54, 55,
-  51, 56, 52, 53, 53, 55, 49, 10, 99, 104, 97, 116, 95, 116, 121, 112, 101,
-  61, 115, 101, 110, 100, 101, 114, 10, 117, 115, 101, 114, 61, 123, 34,
-  105, 100, 34, 58, 56, 49, 51, 56, 55, 57, 55, 55, 54, 55, 44, 34, 102,
-  105, 114, 115, 116, 95, 110, 97, 109, 101, 34, 58, 34, 84, 114, 97, 118,
-  105, 115, 34, 44, 34, 108, 97, 115, 116, 95, 110, 97, 109, 101, 34, 58,
-  34, 34, 44, 34, 117, 115, 101, 114, 110, 97, 109, 101, 34, 58, 34, 100,
-  105, 103, 49, 51, 51, 55, 49, 51, 51, 51, 55, 34, 44, 34, 108, 97, 110,
-  103, 117, 97, 103, 101, 95, 99, 111, 100, 101, 34, 58, 34, 101, 110, 34,
-  44, 34, 97, 108, 108, 111, 119, 115, 95, 119, 114, 105, 116, 101, 95, 116,
-  111, 95, 112, 109, 34, 58, 116, 114, 117, 101, 44, 34, 112, 104, 111, 116,
-  111, 95, 117, 114, 108, 34, 58, 34, 104, 116, 116, 112, 115, 58, 92, 47,
-  92, 47, 116, 46, 109, 101, 92, 47, 105, 92, 47, 117, 115, 101, 114, 112,
-  105, 99, 92, 47, 51, 50, 48, 92, 47, 120, 99, 90, 85, 85, 85, 87, 51, 117,
-  74, 50, 99, 79, 80, 86, 73, 81, 85, 111, 99, 104, 105, 119, 72, 99, 56,
-  113, 118, 114, 56, 106, 114, 108, 66, 56, 74, 45, 72, 88, 120, 105, 112,
-  98, 83, 74, 76, 122, 122, 118, 120, 73, 99, 79, 106, 55, 103, 55, 70, 49,
-  69, 78, 116, 72, 71, 46, 115, 118, 103, 34, 125,
+  56, 48, 54, 53, 49, 52, 48, 52, 57, 57, 58, 87, 101, 98, 65, 112, 112, 68, 97,
+  116, 97, 10, 97, 117, 116, 104, 95, 100, 97, 116, 101, 61, 49, 55, 54, 51, 53,
+  57, 56, 51, 55, 53, 10, 99, 104, 97, 116, 95, 105, 110, 115, 116, 97, 110, 99,
+  101, 61, 45, 52, 53, 57, 55, 56, 48, 55, 53, 56, 53, 54, 55, 51, 56, 52, 53,
+  53, 55, 49, 10, 99, 104, 97, 116, 95, 116, 121, 112, 101, 61, 115, 101, 110,
+  100, 101, 114, 10, 117, 115, 101, 114, 61, 123, 34, 105, 100, 34, 58, 56, 49,
+  51, 56, 55, 57, 55, 55, 54, 55, 44, 34, 102, 105, 114, 115, 116, 95, 110, 97,
+  109, 101, 34, 58, 34, 84, 114, 97, 118, 105, 115, 34, 44, 34, 108, 97, 115,
+  116, 95, 110, 97, 109, 101, 34, 58, 34, 34, 44, 34, 117, 115, 101, 114, 110,
+  97, 109, 101, 34, 58, 34, 100, 105, 103, 49, 51, 51, 55, 49, 51, 51, 51, 55,
+  34, 44, 34, 108, 97, 110, 103, 117, 97, 103, 101, 95, 99, 111, 100, 101, 34,
+  58, 34, 101, 110, 34, 44, 34, 97, 108, 108, 111, 119, 115, 95, 119, 114, 105,
+  116, 101, 95, 116, 111, 95, 112, 109, 34, 58, 116, 114, 117, 101, 44, 34, 112,
+  104, 111, 116, 111, 95, 117, 114, 108, 34, 58, 34, 104, 116, 116, 112, 115,
+  58, 92, 47, 92, 47, 116, 46, 109, 101, 92, 47, 105, 92, 47, 117, 115, 101,
+  114, 112, 105, 99, 92, 47, 51, 50, 48, 92, 47, 120, 99, 90, 85, 85, 85, 87,
+  51, 117, 74, 50, 99, 79, 80, 86, 73, 81, 85, 111, 99, 104, 105, 119, 72, 99,
+  56, 113, 118, 114, 56, 106, 114, 108, 66, 56, 74, 45, 72, 88, 120, 105, 112,
+  98, 83, 74, 76, 122, 122, 118, 120, 73, 99, 79, 106, 55, 103, 55, 70, 49, 69,
+  78, 116, 72, 71, 46, 115, 118, 103, 34, 125,
 ]);
 
 const VALIDATION_SIGNATURE_BYTES: Uint8Array = new Uint8Array([
-  139, 171, 57, 233, 145, 1, 218, 227, 29, 106, 55, 30, 237, 207, 28, 229,
-  22, 234, 202, 160, 221, 31, 219, 251, 151, 181, 118, 207, 216, 254, 57, 79,
-  209, 9, 176, 4, 81, 224, 69, 253, 250, 110, 16, 143, 73, 60, 35, 61, 66,
-  177, 139, 178, 153, 248, 2, 121, 161, 49, 224, 103, 190, 108, 234, 4,
+  139, 171, 57, 233, 145, 1, 218, 227, 29, 106, 55, 30, 237, 207, 28, 229, 22,
+  234, 202, 160, 221, 31, 219, 251, 151, 181, 118, 207, 216, 254, 57, 79, 209,
+  9, 176, 4, 81, 224, 69, 253, 250, 110, 16, 143, 73, 60, 35, 61, 66, 177, 139,
+  178, 153, 248, 2, 121, 161, 49, 224, 103, 190, 108, 234, 4,
 ]);
 
 const VALIDATION_USERNAME = "dig133713337";
 const TELEGRAM_ED25519_PUBKEY = new Uint8Array(
-  Buffer.from("e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d", "hex")
+  Buffer.from(
+    "e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d",
+    "hex"
+  )
 );
 
 // =============================================================================
@@ -340,8 +347,14 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
     logStep("Creating SDK clients...");
 
     // Create base layer clients
-    baseClientUser = LoyalPrivateTransactionsClient.from(baseConnection, userKp);
-    baseClientOther = LoyalPrivateTransactionsClient.from(baseConnection, otherUserKp);
+    baseClientUser = LoyalPrivateTransactionsClient.from(
+      baseConnection,
+      userKp
+    );
+    baseClientOther = LoyalPrivateTransactionsClient.from(
+      baseConnection,
+      otherUserKp
+    );
 
     // Create ephemeral rollup clients
     erClientUser = await LoyalPrivateTransactionsClient.fromEphemeral({
@@ -364,7 +377,10 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
     // Fund test wallets
     logStep("Funding test wallets...");
     for (const kp of [userKp, otherUserKp]) {
-      const balance = await baseConnection.getBalance(kp.publicKey, "confirmed");
+      const balance = await baseConnection.getBalance(
+        kp.publicKey,
+        "confirmed"
+      );
       if (balance < config.minBalance) {
         try {
           const sig = await baseConnection.requestAirdrop(
@@ -372,13 +388,23 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
             config.airdropAmount
           );
           await baseConnection.confirmTransaction(sig, "confirmed");
-          console.log(`  Airdropped ${config.airdropAmount / LAMPORTS_PER_SOL} SOL to ${kp.publicKey.toBase58().slice(0, 8)}...`);
+          console.log(
+            `  Airdropped ${
+              config.airdropAmount / LAMPORTS_PER_SOL
+            } SOL to ${kp.publicKey.toBase58().slice(0, 8)}...`
+          );
         } catch (err) {
           // Airdrop may fail on devnet due to rate limits
-          console.warn(`  Airdrop failed for ${kp.publicKey.toBase58().slice(0, 8)}...: ${(err as Error).message}`);
+          console.warn(
+            `  Airdrop failed for ${kp.publicKey.toBase58().slice(0, 8)}...: ${
+              (err as Error).message
+            }`
+          );
         }
       } else {
-        console.log(`  ${kp.publicKey.toBase58().slice(0, 8)}... has sufficient balance`);
+        console.log(
+          `  ${kp.publicKey.toBase58().slice(0, 8)}... has sufficient balance`
+        );
       }
     }
 
@@ -438,7 +464,11 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
         undefined,
         TOKEN_PROGRAM_ID
       );
-      console.log(`  Minted ${(config.initialAmount + config.depositAmount) / 1e6} tokens to user`);
+      console.log(
+        `  Minted ${
+          (config.initialAmount + config.depositAmount) / 1e6
+        } tokens to user`
+      );
     }
 
     // Setup telegram verification program (if not skipping)
@@ -452,7 +482,10 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
         const verificationProvider = new anchor.AnchorProvider(
           baseConnection,
           new anchor.Wallet(otherUserKp),
-          { commitment: config.commitment, preflightCommitment: config.commitment }
+          {
+            commitment: config.commitment,
+            preflightCommitment: config.commitment,
+          }
         );
 
         verificationProgram = new Program<TelegramVerification>(
@@ -465,10 +498,14 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
           verificationProgram.programId
         );
 
-        console.log(`  Verification program: ${verificationProgram.programId.toBase58()}`);
+        console.log(
+          `  Verification program: ${verificationProgram.programId.toBase58()}`
+        );
         console.log(`  Session PDA: ${sessionPda.toBase58()}`);
       } catch (err) {
-        console.warn(`  Could not load verification program: ${(err as Error).message}`);
+        console.warn(
+          `  Could not load verification program: ${(err as Error).message}`
+        );
         console.warn(`  Telegram verification tests will be skipped`);
       }
     }
@@ -482,13 +519,19 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
   describe("Factory Methods", () => {
     it("creates client from Connection and Keypair", () => {
-      const client = LoyalPrivateTransactionsClient.from(baseConnection, userKp);
+      const client = LoyalPrivateTransactionsClient.from(
+        baseConnection,
+        userKp
+      );
       expect(client.publicKey.equals(user)).toBe(true);
       expect(client.getProgramId().equals(PROGRAM_ID)).toBe(true);
     });
 
     it("creates client from Keypair using fromKeypair", () => {
-      const client = LoyalPrivateTransactionsClient.fromKeypair(baseConnection, userKp);
+      const client = LoyalPrivateTransactionsClient.fromKeypair(
+        baseConnection,
+        userKp
+      );
       expect(client.publicKey.equals(user)).toBe(true);
     });
 
@@ -500,7 +543,9 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
         commitment: config.commitment,
       });
       expect(client.publicKey.equals(user)).toBe(true);
-      expect(client.getProgram().provider.connection.rpcEndpoint).toBe(config.erRpcEndpoint);
+      expect(client.getProgram().provider.connection.rpcEndpoint).toBe(
+        config.erRpcEndpoint
+      );
     });
   });
 
@@ -514,12 +559,13 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
       const sig = await withRetries(
         "initializeDeposit",
-        () => baseClientUser.initializeDeposit({
-          user,
-          tokenMint,
-          payer: user,
-          rpcOptions,
-        }),
+        () =>
+          baseClientUser.initializeDeposit({
+            user,
+            tokenMint,
+            payer: user,
+            rpcOptions,
+          }),
         config.retryAttempts,
         config.retryDelayMs
       );
@@ -541,14 +587,15 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
       const result = await withRetries(
         "modifyBalance",
-        () => baseClientUser.modifyBalance({
-          user,
-          tokenMint,
-          amount: config.initialAmount,
-          increase: true,
-          payer: user,
-          rpcOptions,
-        }),
+        () =>
+          baseClientUser.modifyBalance({
+            user,
+            tokenMint,
+            amount: config.initialAmount,
+            increase: true,
+            payer: user,
+            rpcOptions,
+          }),
         config.retryAttempts,
         config.retryDelayMs
       );
@@ -565,7 +612,10 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
       // Mint additional tokens if needed
       if (!config.existingTokenMint) {
         try {
-          const accountInfo = await getAccount(baseConnection, userTokenAccount);
+          const accountInfo = await getAccount(
+            baseConnection,
+            userTokenAccount
+          );
           if (Number(accountInfo.amount) < config.depositAmount) {
             await mintToChecked(
               baseConnection,
@@ -587,15 +637,16 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
       const sig = await withRetries(
         "depositForUsername",
-        () => baseClientUser.depositForUsername({
-          username: VALIDATION_USERNAME,
-          tokenMint,
-          amount: config.depositAmount,
-          depositor: user,
-          payer: user,
-          depositorTokenAccount: userTokenAccount,
-          rpcOptions,
-        }),
+        () =>
+          baseClientUser.depositForUsername({
+            username: VALIDATION_USERNAME,
+            tokenMint,
+            amount: config.depositAmount,
+            depositor: user,
+            payer: user,
+            depositorTokenAccount: userTokenAccount,
+            rpcOptions,
+          }),
         config.retryAttempts,
         config.retryDelayMs
       );
@@ -604,7 +655,10 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
       console.log(`  Signature: ${sig}`);
 
       // Verify username deposit
-      const deposit = await baseClientUser.getUsernameDeposit(VALIDATION_USERNAME, tokenMint);
+      const deposit = await baseClientUser.getUsernameDeposit(
+        VALIDATION_USERNAME,
+        tokenMint
+      );
       expect(deposit).not.toBeNull();
       expect(deposit?.username).toBe(VALIDATION_USERNAME);
       expect(deposit?.amount).toBe(config.depositAmount);
@@ -622,12 +676,13 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
       const sig = await withRetries(
         "createPermission",
-        () => baseClientUser.createPermission({
-          user,
-          tokenMint,
-          payer: user,
-          rpcOptions,
-        }),
+        () =>
+          baseClientUser.createPermission({
+            user,
+            tokenMint,
+            payer: user,
+            rpcOptions,
+          }),
         config.retryAttempts,
         config.retryDelayMs
       );
@@ -641,13 +696,14 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
       const sig = await withRetries(
         "delegateDeposit",
-        () => baseClientUser.delegateDeposit({
-          user,
-          tokenMint,
-          payer: user,
-          validator: config.erValidator,
-          rpcOptions,
-        }),
+        () =>
+          baseClientUser.delegateDeposit({
+            user,
+            tokenMint,
+            payer: user,
+            validator: config.erValidator,
+            rpcOptions,
+          }),
         config.retryAttempts,
         config.retryDelayMs
       );
@@ -674,16 +730,17 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
         await withRetries(
           "storeTelegramSession",
-          () => verificationProgram!.methods
-            .store(Buffer.from(VALIDATION_BYTES))
-            .accounts({
-              payer: otherUser,
-              user: otherUser,
-              session: sessionPda,
-              systemProgram: SystemProgram.programId,
-            })
-            .signers([otherUserKp])
-            .rpc({ commitment: config.commitment }),
+          () =>
+            verificationProgram!.methods
+              .store(Buffer.from(VALIDATION_BYTES))
+              .accounts({
+                payer: otherUser,
+                user: otherUser,
+                session: sessionPda,
+                systemProgram: SystemProgram.programId,
+              })
+              .signers([otherUserKp])
+              .rpc({ commitment: config.commitment }),
           config.retryAttempts,
           config.retryDelayMs
         );
@@ -727,32 +784,39 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
       async () => {
         logStep("Claiming username deposit...");
 
-        const balanceBefore = await baseConnection.getTokenAccountBalance(otherUserTokenAccount);
+        const balanceBefore = await baseConnection.getTokenAccountBalance(
+          otherUserTokenAccount
+        );
 
         const sig = await withRetries(
           "claimUsernameDeposit",
-          () => baseClientOther.claimUsernameDeposit({
-            username: VALIDATION_USERNAME,
-            tokenMint,
-            amount: config.claimAmount,
-            recipient: otherUser,
-            recipientTokenAccount: otherUserTokenAccount,
-            session: sessionPda,
-            rpcOptions,
-          }),
+          () =>
+            baseClientOther.claimUsernameDeposit({
+              username: VALIDATION_USERNAME,
+              tokenMint,
+              amount: config.claimAmount,
+              recipient: otherUser,
+              recipientTokenAccount: otherUserTokenAccount,
+              session: sessionPda,
+              rpcOptions,
+            }),
           config.retryAttempts,
           config.retryDelayMs
         );
 
         expect(sig).toBeDefined();
 
-        const balanceAfter = await baseConnection.getTokenAccountBalance(otherUserTokenAccount);
+        const balanceAfter = await baseConnection.getTokenAccountBalance(
+          otherUserTokenAccount
+        );
         expect(Number(balanceAfter.value.amount)).toBeGreaterThan(
           Number(balanceBefore.value.amount)
         );
 
         console.log(`  Claimed: ${config.claimAmount / 1e6} tokens`);
-        console.log(`  New balance: ${Number(balanceAfter.value.amount) / 1e6} tokens`);
+        console.log(
+          `  New balance: ${Number(balanceAfter.value.amount) / 1e6} tokens`
+        );
       }
     );
   });
@@ -769,14 +833,15 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
         await withRetries(
           "createUsernamePermission",
-          () => baseClientOther.createUsernamePermission({
-            username: VALIDATION_USERNAME,
-            tokenMint,
-            session: sessionPda,
-            authority: otherUser,
-            payer: otherUser,
-            rpcOptions,
-          }),
+          () =>
+            baseClientOther.createUsernamePermission({
+              username: VALIDATION_USERNAME,
+              tokenMint,
+              session: sessionPda,
+              authority: otherUser,
+              payer: otherUser,
+              rpcOptions,
+            }),
           config.retryAttempts,
           config.retryDelayMs
         );
@@ -785,14 +850,15 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
         await withRetries(
           "delegateUsernameDeposit",
-          () => baseClientOther.delegateUsernameDeposit({
-            username: VALIDATION_USERNAME,
-            tokenMint,
-            session: sessionPda,
-            payer: otherUser,
-            validator: config.erValidator,
-            rpcOptions,
-          }),
+          () =>
+            baseClientOther.delegateUsernameDeposit({
+              username: VALIDATION_USERNAME,
+              tokenMint,
+              session: sessionPda,
+              payer: otherUser,
+              validator: config.erValidator,
+              rpcOptions,
+            }),
           config.retryAttempts,
           config.retryDelayMs
         );
@@ -808,7 +874,9 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
         for (let attempt = 1; attempt <= config.transferRetries; attempt++) {
           try {
             if (attempt > 1) {
-              console.log(`  [retry] transfer attempt ${attempt}/${config.transferRetries}`);
+              console.log(
+                `  [retry] transfer attempt ${attempt}/${config.transferRetries}`
+              );
             }
             transferSig = await erClientUser.transferToUsernameDeposit({
               username: VALIDATION_USERNAME,
@@ -833,19 +901,30 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
         // Confirm on ER
         if (transferSig) {
-          await erClientUser.getProgram().provider.connection.confirmTransaction(transferSig);
+          await erClientUser
+            .getProgram()
+            .provider.connection.confirmTransaction(transferSig);
         }
 
         // Verify on ER
-        let erDeposit = await erClientOther.getUsernameDeposit(VALIDATION_USERNAME, tokenMint);
+        let erDeposit = await erClientOther.getUsernameDeposit(
+          VALIDATION_USERNAME,
+          tokenMint
+        );
         for (let i = 0; i < 25 && !erDeposit; i++) {
           await sleep(200);
-          erDeposit = await erClientOther.getUsernameDeposit(VALIDATION_USERNAME, tokenMint);
+          erDeposit = await erClientOther.getUsernameDeposit(
+            VALIDATION_USERNAME,
+            tokenMint
+          );
         }
 
-        const expectedAmount = config.depositAmount - config.claimAmount + config.transferAmount;
+        const expectedAmount =
+          config.depositAmount - config.claimAmount + config.transferAmount;
         expect(erDeposit?.amount).toBe(expectedAmount);
-        console.log(`  ER username deposit balance: ${erDeposit?.amount / 1e6} tokens`);
+        console.log(
+          `  ER username deposit balance: ${erDeposit?.amount / 1e6} tokens`
+        );
       }
     );
 
@@ -856,55 +935,72 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
 
         const undelegateUsernameSig = await withRetries(
           "undelegateUsernameDeposit",
-          () => erClientOther.undelegateUsernameDeposit({
-            username: VALIDATION_USERNAME,
-            tokenMint,
-            session: sessionPda,
-            payer: otherUser,
-            magicProgram: MAGIC_PROGRAM_ID,
-            magicContext: MAGIC_CONTEXT_ID,
-            rpcOptions,
-          }),
+          () =>
+            erClientOther.undelegateUsernameDeposit({
+              username: VALIDATION_USERNAME,
+              tokenMint,
+              session: sessionPda,
+              payer: otherUser,
+              magicProgram: MAGIC_PROGRAM_ID,
+              magicContext: MAGIC_CONTEXT_ID,
+              rpcOptions,
+            }),
           config.retryAttempts,
           config.retryDelayMs
         );
 
-        await erClientOther.getProgram().provider.connection.confirmTransaction(undelegateUsernameSig);
-        console.log(`  Username undelegate signature: ${undelegateUsernameSig}`);
+        await erClientOther
+          .getProgram()
+          .provider.connection.confirmTransaction(undelegateUsernameSig);
+        console.log(
+          `  Username undelegate signature: ${undelegateUsernameSig}`
+        );
 
         logStep("Undelegating user deposit...");
 
         const undelegateSig = await withRetries(
           "undelegateDeposit",
-          () => erClientUser.undelegateDeposit({
-            user,
-            tokenMint,
-            payer: user,
-            magicProgram: MAGIC_PROGRAM_ID,
-            magicContext: MAGIC_CONTEXT_ID,
-            rpcOptions,
-          }),
+          () =>
+            erClientUser.undelegateDeposit({
+              user,
+              tokenMint,
+              payer: user,
+              magicProgram: MAGIC_PROGRAM_ID,
+              magicContext: MAGIC_CONTEXT_ID,
+              rpcOptions,
+            }),
           config.retryAttempts,
           config.retryDelayMs
         );
 
-        await erClientUser.getProgram().provider.connection.confirmTransaction(undelegateSig);
+        await erClientUser
+          .getProgram()
+          .provider.connection.confirmTransaction(undelegateSig);
         console.log(`  User undelegate signature: ${undelegateSig}`);
 
         logStep("Waiting for base layer commit...");
 
-        const expectedUsernameAmount = config.depositAmount - config.claimAmount + config.transferAmount;
+        const expectedUsernameAmount =
+          config.depositAmount - config.claimAmount + config.transferAmount;
         const expectedUserAmount = config.initialAmount - config.transferAmount;
 
         // Poll for username deposit commit
-        let baseUsernameDeposit = await baseClientUser.getUsernameDeposit(VALIDATION_USERNAME, tokenMint);
+        let baseUsernameDeposit = await baseClientUser.getUsernameDeposit(
+          VALIDATION_USERNAME,
+          tokenMint
+        );
         for (let i = 0; i < config.commitMaxPolls; i++) {
           if (baseUsernameDeposit?.amount === expectedUsernameAmount) break;
           await sleep(config.commitPollMs);
-          baseUsernameDeposit = await baseClientUser.getUsernameDeposit(VALIDATION_USERNAME, tokenMint);
+          baseUsernameDeposit = await baseClientUser.getUsernameDeposit(
+            VALIDATION_USERNAME,
+            tokenMint
+          );
         }
         expect(baseUsernameDeposit?.amount).toBe(expectedUsernameAmount);
-        console.log(`  Base username deposit: ${baseUsernameDeposit?.amount / 1e6} tokens`);
+        console.log(
+          `  Base username deposit: ${baseUsernameDeposit?.amount / 1e6} tokens`
+        );
 
         // Poll for user deposit commit
         let baseUserDeposit = await baseClientUser.getDeposit(user, tokenMint);
@@ -914,7 +1010,9 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
           baseUserDeposit = await baseClientUser.getDeposit(user, tokenMint);
         }
         expect(baseUserDeposit?.amount).toBe(expectedUserAmount);
-        console.log(`  Base user deposit: ${baseUserDeposit?.amount / 1e6} tokens`);
+        console.log(
+          `  Base user deposit: ${baseUserDeposit?.amount / 1e6} tokens`
+        );
       }
     );
   });
@@ -932,7 +1030,10 @@ describe("LoyalPrivateTransactionsClient SDK", () => {
     });
 
     it("fetches username deposit account data", async () => {
-      const deposit = await baseClientUser.getUsernameDeposit(VALIDATION_USERNAME, tokenMint);
+      const deposit = await baseClientUser.getUsernameDeposit(
+        VALIDATION_USERNAME,
+        tokenMint
+      );
       expect(deposit).not.toBeNull();
       expect(deposit?.username).toBe(VALIDATION_USERNAME);
       expect(deposit?.tokenMint.equals(tokenMint)).toBe(true);

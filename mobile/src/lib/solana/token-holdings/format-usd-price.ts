@@ -3,8 +3,7 @@ export function formatUsdSpotPrice(value: number | null): string {
     return "—";
   }
 
-  const maximumFractionDigits =
-    value >= 1 ? 2 : value >= 0.01 ? 4 : 6;
+  const maximumFractionDigits = value >= 1 ? 2 : value >= 0.01 ? 4 : 6;
 
   return new Intl.NumberFormat("en-US", {
     style: "currency",

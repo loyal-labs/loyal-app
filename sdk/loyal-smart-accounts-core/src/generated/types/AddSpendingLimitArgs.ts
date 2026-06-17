@@ -5,21 +5,21 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { Period, periodBeet } from './Period'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { Period, periodBeet } from "./Period";
 export type AddSpendingLimitArgs = {
-  seed: web3.PublicKey
-  accountIndex: number
-  mint: web3.PublicKey
-  amount: beet.bignum
-  period: Period
-  signers: web3.PublicKey[]
-  destinations: web3.PublicKey[]
-  expiration: beet.bignum
-  memo: beet.COption<string>
-}
+  seed: web3.PublicKey;
+  accountIndex: number;
+  mint: web3.PublicKey;
+  amount: beet.bignum;
+  period: Period;
+  signers: web3.PublicKey[];
+  destinations: web3.PublicKey[];
+  expiration: beet.bignum;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -28,15 +28,15 @@ export type AddSpendingLimitArgs = {
 export const addSpendingLimitArgsBeet =
   new beet.FixableBeetArgsStruct<AddSpendingLimitArgs>(
     [
-      ['seed', beetSolana.publicKey],
-      ['accountIndex', beet.u8],
-      ['mint', beetSolana.publicKey],
-      ['amount', beet.u64],
-      ['period', periodBeet],
-      ['signers', beet.array(beetSolana.publicKey)],
-      ['destinations', beet.array(beetSolana.publicKey)],
-      ['expiration', beet.i64],
-      ['memo', beet.coption(beet.utf8String)],
+      ["seed", beetSolana.publicKey],
+      ["accountIndex", beet.u8],
+      ["mint", beetSolana.publicKey],
+      ["amount", beet.u64],
+      ["period", periodBeet],
+      ["signers", beet.array(beetSolana.publicKey)],
+      ["destinations", beet.array(beetSolana.publicKey)],
+      ["expiration", beet.i64],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'AddSpendingLimitArgs'
-  )
+    "AddSpendingLimitArgs"
+  );

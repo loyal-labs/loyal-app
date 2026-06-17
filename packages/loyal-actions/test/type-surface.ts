@@ -75,7 +75,8 @@ const routingPolicy = routingSdk.initYieldRoutingPolicy({
   vaultIndex: 0,
 });
 
-const routingJupiterIndexes = routingPolicy.routes.jupiter.instructionConstraintIndexes;
+const routingJupiterIndexes =
+  routingPolicy.routes.jupiter.instructionConstraintIndexes;
 const routingVault = routingPolicy.metadata.vault;
 void routingJupiterIndexes;
 void routingVault;

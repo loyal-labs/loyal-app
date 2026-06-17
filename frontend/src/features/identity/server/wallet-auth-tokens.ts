@@ -2,7 +2,12 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { errors as joseErrors, jwtVerify, SignJWT, type JWTPayload } from "jose";
+import {
+  errors as joseErrors,
+  jwtVerify,
+  SignJWT,
+  type JWTPayload,
+} from "jose";
 import {
   WALLET_AUTH_CHALLENGE_TOKEN_TYPE,
   walletChallengeTokenClaimsSchema,

@@ -217,9 +217,7 @@ type LegacyAuditRow = {
   bestEffortDecodedData: string;
 };
 
-type KnownUnderlyingRow =
-  | DepositAuditRow
-  | UsernameDepositAuditRow;
+type KnownUnderlyingRow = DepositAuditRow | UsernameDepositAuditRow;
 
 type PermissionUnderlyingInfo = {
   address: PublicKey;
@@ -294,17 +292,27 @@ async function main() {
           sourceOwner: account.sourceOwner,
           status: "failed",
           bestEffortSeedMatch: "deposit (decode failed)",
-          bestEffortDecodedData: `owner=${account.owner.toBase58()} len=${account.data.length}`,
+          bestEffortDecodedData: `owner=${account.owner.toBase58()} len=${
+            account.data.length
+          }`,
         });
         continue;
       }
 
       const currentAddress = findProgramAddress(
-        [CURRENT_DEPOSIT_SEED, decoded.user.toBuffer(), decoded.tokenMint.toBuffer()],
+        [
+          CURRENT_DEPOSIT_SEED,
+          decoded.user.toBuffer(),
+          decoded.tokenMint.toBuffer(),
+        ],
         PRIVATE_TRANSFER_PROGRAM_ID
       );
       const legacyAddress = findProgramAddress(
-        [LEGACY_DEPOSIT_SEED, decoded.user.toBuffer(), decoded.tokenMint.toBuffer()],
+        [
+          LEGACY_DEPOSIT_SEED,
+          decoded.user.toBuffer(),
+          decoded.tokenMint.toBuffer(),
+        ],
         PRIVATE_TRANSFER_PROGRAM_ID
       );
 
@@ -340,7 +348,9 @@ async function main() {
           sourceOwner: account.sourceOwner,
           status: "partial",
           bestEffortSeedMatch: "deposit",
-          bestEffortDecodedData: `Deposit { user=${decoded.user.toBase58()}, token=${decoded.tokenMint.toBase58()}, amountBase=${decoded.amount.toString()}, delegated=${String(account.sourceOwner === "delegation_program")} }`,
+          bestEffortDecodedData: `Deposit { user=${decoded.user.toBase58()}, token=${decoded.tokenMint.toBase58()}, amountBase=${decoded.amount.toString()}, delegated=${String(
+            account.sourceOwner === "delegation_program"
+          )} }`,
         });
       }
 
@@ -403,7 +413,11 @@ async function main() {
             sourceOwner: account.sourceOwner,
             status: "partial",
             bestEffortSeedMatch: "username_deposit",
-            bestEffortDecodedData: `UsernameDeposit { username=${legacyDecoded.username}, token=${legacyDecoded.tokenMint.toBase58()}, amountBase=${legacyDecoded.amount.toString()}, delegated=${String(account.sourceOwner === "delegation_program")} }`,
+            bestEffortDecodedData: `UsernameDeposit { username=${
+              legacyDecoded.username
+            }, token=${legacyDecoded.tokenMint.toBase58()}, amountBase=${legacyDecoded.amount.toString()}, delegated=${String(
+              account.sourceOwner === "delegation_program"
+            )} }`,
           });
           continue;
         }
@@ -416,7 +430,9 @@ async function main() {
         sourceOwner: account.sourceOwner,
         status: "failed",
         bestEffortSeedMatch: "username_deposit (?)",
-        bestEffortDecodedData: `owner=${account.owner.toBase58()} len=${account.data.length} disc=${account.data.subarray(0, 8).toString("hex")}`,
+        bestEffortDecodedData: `owner=${account.owner.toBase58()} len=${
+          account.data.length
+        } disc=${account.data.subarray(0, 8).toString("hex")}`,
       });
       continue;
     }
@@ -467,7 +483,13 @@ async function main() {
             sourceOwner: account.sourceOwner,
             status: "partial",
             bestEffortSeedMatch: "tg_session",
-            bestEffortDecodedData: `TelegramSession { user=${legacyDecoded.user.toBase58()}, username=${legacyDecoded.username}, verified=${String(legacyDecoded.verified)}, authAt=${legacyDecoded.authAt.toString()}, verifiedAt=${legacyDecoded.verifiedAt?.toString() ?? "null"}, validationBytes=${legacyDecoded.validationBytes.length} bytes }`,
+            bestEffortDecodedData: `TelegramSession { user=${legacyDecoded.user.toBase58()}, username=${
+              legacyDecoded.username
+            }, verified=${String(
+              legacyDecoded.verified
+            )}, authAt=${legacyDecoded.authAt.toString()}, verifiedAt=${
+              legacyDecoded.verifiedAt?.toString() ?? "null"
+            }, validationBytes=${legacyDecoded.validationBytes.length} bytes }`,
           });
           continue;
         }
@@ -484,13 +506,19 @@ async function main() {
           ? "unmatched session-like PDA"
           : "session decode failed",
         bestEffortDecodedData: fallbackCurrentUser
-          ? `candidateUser=${fallbackCurrentUser.toBase58()} len=${account.data.length}`
-          : `disc=${account.data.subarray(0, 8).toString("hex")} len=${account.data.length}`,
+          ? `candidateUser=${fallbackCurrentUser.toBase58()} len=${
+              account.data.length
+            }`
+          : `disc=${account.data.subarray(0, 8).toString("hex")} len=${
+              account.data.length
+            }`,
       });
       continue;
     }
 
-    const anchorIdlAddress = await findAnchorIdlAddress(VERIFICATION_PROGRAM_ID);
+    const anchorIdlAddress = await findAnchorIdlAddress(
+      VERIFICATION_PROGRAM_ID
+    );
     if (anchorIdlAddress.equals(account.address)) {
       const idlDecoded = tryParseAnchorIdlAccount(account.data);
       legacyRows.push({
@@ -501,8 +529,12 @@ async function main() {
         status: idlDecoded ? "partial" : "failed",
         bestEffortSeedMatch: "anchor:idl",
         bestEffortDecodedData: idlDecoded
-          ? `Anchor IDL { authority=${idlDecoded.authority.toBase58()}, compressedBytes=${idlDecoded.compressedLength}, preview=${idlDecoded.jsonPreview} }`
-          : `disc=${account.data.subarray(0, 8).toString("hex")} len=${account.data.length}`,
+          ? `Anchor IDL { authority=${idlDecoded.authority.toBase58()}, compressedBytes=${
+              idlDecoded.compressedLength
+            }, preview=${idlDecoded.jsonPreview} }`
+          : `disc=${account.data.subarray(0, 8).toString("hex")} len=${
+              account.data.length
+            }`,
       });
       continue;
     }
@@ -514,7 +546,9 @@ async function main() {
       sourceOwner: account.sourceOwner,
       status: "failed",
       bestEffortSeedMatch: "unknown verification PDA",
-      bestEffortDecodedData: `disc=${account.data.subarray(0, 8).toString("hex")} len=${account.data.length}`,
+      bestEffortDecodedData: `disc=${account.data
+        .subarray(0, 8)
+        .toString("hex")} len=${account.data.length}`,
     });
   }
 
@@ -526,7 +560,9 @@ async function main() {
     knownUnderlyingRows.map((row) => [row.address.toBase58(), row] as const)
   );
   const permissionUnderlyingByAddress = new Map(
-    permissionUnderlyingRows.map((row) => [row.address.toBase58(), row] as const)
+    permissionUnderlyingRows.map(
+      (row) => [row.address.toBase58(), row] as const
+    )
   );
 
   const permissionProgramAccounts = await fetchProgramAccounts(
@@ -747,8 +783,14 @@ function parseArgs(argv: string[]): Args {
     }
 
     if (arg === "--commitment" && next) {
-      if (next !== "processed" && next !== "confirmed" && next !== "finalized") {
-        throw new Error("--commitment must be processed, confirmed, or finalized");
+      if (
+        next !== "processed" &&
+        next !== "confirmed" &&
+        next !== "finalized"
+      ) {
+        throw new Error(
+          "--commitment must be processed, confirmed, or finalized"
+        );
       }
       commitment = next;
       index += 1;
@@ -773,14 +815,14 @@ Options:
 }
 
 function accountDiscriminator(name: string): Buffer {
-  return createHash("sha256")
-    .update(`account:${name}`)
-    .digest()
-    .subarray(0, 8);
+  return createHash("sha256").update(`account:${name}`).digest().subarray(0, 8);
 }
 
 function startsWith(data: Buffer, prefix: Buffer) {
-  return data.length >= prefix.length && data.subarray(0, prefix.length).equals(prefix);
+  return (
+    data.length >= prefix.length &&
+    data.subarray(0, prefix.length).equals(prefix)
+  );
 }
 
 function readU32LE(data: Buffer, offset: number): number {
@@ -898,7 +940,9 @@ function tryParseDeposit(data: Buffer): DepositDecoded | null {
   }
 }
 
-function tryParseCurrentUsernameDeposit(data: Buffer): UsernameDepositDecoded | null {
+function tryParseCurrentUsernameDeposit(
+  data: Buffer
+): UsernameDepositDecoded | null {
   try {
     if (data.length < 80) {
       return null;
@@ -915,7 +959,9 @@ function tryParseCurrentUsernameDeposit(data: Buffer): UsernameDepositDecoded | 
   }
 }
 
-function tryParseLegacyUsernameDeposit(data: Buffer): UsernameDepositDecoded | null {
+function tryParseLegacyUsernameDeposit(
+  data: Buffer
+): UsernameDepositDecoded | null {
   try {
     if (data.length < 57) {
       return null;
@@ -937,7 +983,9 @@ function tryParseLegacyUsernameDeposit(data: Buffer): UsernameDepositDecoded | n
       return null;
     }
 
-    const tokenMint = new PublicKey(data.subarray(usernameEnd, usernameEnd + 32));
+    const tokenMint = new PublicKey(
+      data.subarray(usernameEnd, usernameEnd + 32)
+    );
     const amount = readU64LE(data, usernameEnd + 32);
 
     return {
@@ -966,7 +1014,9 @@ function tryParseCurrentSession(data: Buffer): SessionDecoded | null {
       return null;
     }
 
-    const validationBytes = Buffer.from(data.subarray(offset, offset + validationLength));
+    const validationBytes = Buffer.from(
+      data.subarray(offset, offset + validationLength)
+    );
     offset += validationLength;
 
     const verifiedByte = data[offset];
@@ -1017,7 +1067,9 @@ function tryParseLegacySession(data: Buffer): SessionDecoded | null {
       return null;
     }
 
-    const username = data.subarray(offset, offset + usernameLength).toString("utf8");
+    const username = data
+      .subarray(offset, offset + usernameLength)
+      .toString("utf8");
     if (!username || /[\u0000-\u001f]/.test(username)) {
       return null;
     }
@@ -1029,7 +1081,9 @@ function tryParseLegacySession(data: Buffer): SessionDecoded | null {
       return null;
     }
 
-    const validationBytes = Buffer.from(data.subarray(offset, offset + validationLength));
+    const validationBytes = Buffer.from(
+      data.subarray(offset, offset + validationLength)
+    );
     offset += validationLength;
 
     const verifiedByte = data[offset];
@@ -1112,7 +1166,10 @@ function tryParseAnchorIdlAccount(data: Buffer): IdlDecoded | null {
 
     const compressed = data.subarray(44, compressedEnd);
     const inflated = inflateSync(compressed);
-    const preview = inflated.toString("utf8").slice(0, 160).replace(/\s+/g, " ");
+    const preview = inflated
+      .toString("utf8")
+      .slice(0, 160)
+      .replace(/\s+/g, " ");
 
     return {
       authority,
@@ -1157,7 +1214,10 @@ async function buildVaultRows(
     let tokenMint: PublicKey | null = null;
 
     for (const mint of candidateMints) {
-      const expected = findProgramAddress([VAULT_SEED, mint.toBuffer()], PRIVATE_TRANSFER_PROGRAM_ID);
+      const expected = findProgramAddress(
+        [VAULT_SEED, mint.toBuffer()],
+        PRIVATE_TRANSFER_PROGRAM_ID
+      );
       if (expected.equals(account.address)) {
         tokenMint = mint;
         break;
@@ -1170,8 +1230,14 @@ async function buildVaultRows(
     let status: DecodeStatus = tokenMint ? "full" : "partial";
 
     if (tokenMint) {
-      vaultAta = getAssociatedTokenAddressSync(tokenMint, account.address, true);
-      const tokenAccountInfo = await withRetry(() => connection.getAccountInfo(vaultAta));
+      vaultAta = getAssociatedTokenAddressSync(
+        tokenMint,
+        account.address,
+        true
+      );
+      const tokenAccountInfo = await withRetry(() =>
+        connection.getAccountInfo(vaultAta)
+      );
       if (tokenAccountInfo && tokenAccountInfo.data.length >= 72) {
         amountRaw = readU64LE(Buffer.from(tokenAccountInfo.data), 64);
         amountUi = formatUiAmount(
@@ -1204,27 +1270,31 @@ async function fetchUpdatedAtMap(
   targets: Array<[string, PublicKey[]]>,
   concurrency: number
 ): Promise<Map<string, number | null>> {
-  const results = await mapWithConcurrency(targets, concurrency, async ([key, addresses]) => {
-    let latest: number | null = null;
-    for (const address of addresses) {
-      const signatures = await withRetry(() =>
-        connection.getSignaturesForAddress(address, { limit: 1 })
-      );
-      const blockTime = signatures[0]?.blockTime ?? null;
-      if (blockTime !== null && (latest === null || blockTime > latest)) {
-        latest = blockTime;
+  const results = await mapWithConcurrency(
+    targets,
+    concurrency,
+    async ([key, addresses]) => {
+      let latest: number | null = null;
+      for (const address of addresses) {
+        const signatures = await withRetry(() =>
+          connection.getSignaturesForAddress(address, { limit: 1 })
+        );
+        const blockTime = signatures[0]?.blockTime ?? null;
+        if (blockTime !== null && (latest === null || blockTime > latest)) {
+          latest = blockTime;
+        }
       }
-    }
 
-    return [key, latest] as const;
-  });
+      return [key, latest] as const;
+    }
+  );
 
   return new Map(results);
 }
 
-function sortByUpdatedAt<T extends { updatedAt: number | null; address: PublicKey }>(
-  rows: T[]
-) {
+function sortByUpdatedAt<
+  T extends { updatedAt: number | null; address: PublicKey }
+>(rows: T[]) {
   rows.sort((left, right) => {
     const leftTime = left.updatedAt ?? -1;
     const rightTime = right.updatedAt ?? -1;
@@ -1265,7 +1335,10 @@ function formatUiAmount(amount: bigint | null, decimals: number | null) {
     return `${negative ? "-" : ""}${whole.toString()}`;
   }
 
-  const fractionText = fraction.toString().padStart(decimals, "0").replace(/0+$/, "");
+  const fractionText = fraction
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/, "");
   return `${negative ? "-" : ""}${whole.toString()}.${fractionText}`;
 }
 
@@ -1312,7 +1385,9 @@ function escapeHtml(value: string) {
 function renderAddressCell(address: PublicKey) {
   const base58 = address.toBase58();
   const link = explorerUrl(base58);
-  return `<a class="mono" href="${escapeHtml(link)}" target="_blank" rel="noreferrer">${escapeHtml(
+  return `<a class="mono" href="${escapeHtml(
+    link
+  )}" target="_blank" rel="noreferrer">${escapeHtml(
     shortAddress(base58, 6, 6)
   )}</a>`;
 }
@@ -1410,19 +1485,15 @@ function renderHtml(params: {
 
   const depositPermissionTable = renderTable(
     "Deposit Permissions",
-    [
-      "Updated At",
-      "Authority",
-      "Is Delegated",
-      "Rent SOL",
-      "Address",
-    ],
+    ["Updated At", "Authority", "Is Delegated", "Rent SOL", "Address"],
     depositPermissionRows.map(
       (row) => `<tr class="${statusClass(row.status)}">
         <td>${renderTimestampCell(row.updatedAt, row.status)}</td>
         <td>${
           row.authorityMembers.length > 0
-            ? row.authorityMembers.map((authority) => renderLinkedAddress(authority)).join("<br>")
+            ? row.authorityMembers
+                .map((authority) => renderLinkedAddress(authority))
+                .join("<br>")
             : `<span class="muted">Unknown</span>`
         }</td>
         <td>${renderBoolBadge(row.isDelegated)}</td>
@@ -1446,7 +1517,11 @@ function renderHtml(params: {
     usernameDepositRows.map(
       (row) => `<tr class="${statusClass(row.status)}">
         <td>${renderTimestampCell(row.updatedAt, row.status)}</td>
-        <td class="mono">${row.usernameHash ? escapeHtml(row.usernameHash.toString("hex")) : "Unknown"}</td>
+        <td class="mono">${
+          row.usernameHash
+            ? escapeHtml(row.usernameHash.toString("hex"))
+            : "Unknown"
+        }</td>
         <td>${renderLinkedAddress(row.tokenMint)}</td>
         <td class="mono">${row.amountBase?.toString() ?? "Unknown"}</td>
         <td>${renderBoolBadge(row.isDelegated)}</td>
@@ -1458,19 +1533,15 @@ function renderHtml(params: {
 
   const usernamePermissionTable = renderTable(
     "Username Deposit Permissions",
-    [
-      "Updated At",
-      "Authority",
-      "Is Delegated",
-      "Rent SOL",
-      "Address",
-    ],
+    ["Updated At", "Authority", "Is Delegated", "Rent SOL", "Address"],
     usernamePermissionRows.map(
       (row) => `<tr class="${statusClass(row.status)}">
         <td>${renderTimestampCell(row.updatedAt, row.status)}</td>
         <td>${
           row.authorityMembers.length > 0
-            ? row.authorityMembers.map((authority) => renderLinkedAddress(authority)).join("<br>")
+            ? row.authorityMembers
+                .map((authority) => renderLinkedAddress(authority))
+                .join("<br>")
             : `<span class="muted">Unknown</span>`
         }</td>
         <td>${renderBoolBadge(row.isDelegated)}</td>
@@ -1489,7 +1560,9 @@ function renderHtml(params: {
         <td>${renderLinkedAddress(row.tokenMint)}</td>
         <td class="mono">${
           row.amountUi && row.amountRaw !== null
-            ? `${escapeHtml(row.amountUi)} (${escapeHtml(row.amountRaw.toString())} base)`
+            ? `${escapeHtml(row.amountUi)} (${escapeHtml(
+                row.amountRaw.toString()
+              )} base)`
             : "Unknown"
         }</td>
         <td>${renderLinkedAddress(row.vaultAta)}</td>
@@ -1516,8 +1589,16 @@ function renderHtml(params: {
       (row) => `<tr class="${statusClass(row.status)}">
         <td>${renderTimestampCell(row.updatedAt, row.status)}</td>
         <td>${renderLinkedAddress(row.user)}</td>
-        <td class="mono">${row.usernameHash ? escapeHtml(row.usernameHash.toString("hex")) : "Unknown"}</td>
-        <td>${row.verified === null ? `<span class="muted">Unknown</span>` : renderBoolBadge(row.verified)}</td>
+        <td class="mono">${
+          row.usernameHash
+            ? escapeHtml(row.usernameHash.toString("hex"))
+            : "Unknown"
+        }</td>
+        <td>${
+          row.verified === null
+            ? `<span class="muted">Unknown</span>`
+            : renderBoolBadge(row.verified)
+        }</td>
         <td class="mono">${formatMaybeBigintTimestamp(row.authAt)}</td>
         <td class="mono">${formatMaybeBigintTimestamp(row.verifiedAt)}</td>
         <td>${renderBytesPreview(row.validationBytes)}</td>
@@ -1540,7 +1621,10 @@ function renderHtml(params: {
       (row) => `<tr class="${statusClass(row.status)}">
         <td>${renderTimestampCell(row.updatedAt, row.status)}</td>
         <td>${escapeHtml(row.bestEffortSeedMatch)}</td>
-        <td>${renderTextDetails(statusLabel(row.status), row.bestEffortDecodedData)}</td>
+        <td>${renderTextDetails(
+          statusLabel(row.status),
+          row.bestEffortDecodedData
+        )}</td>
         <td class="mono">${formatRentSol(row.lamports)}</td>
         <td>${renderAddressCell(row.address)}</td>
       </tr>`
@@ -1780,13 +1864,27 @@ function renderHtml(params: {
           </p>
         </div>
         <div class="hero-grid">
-          <div class="hero-card"><span class="label">Deposits</span><span class="value">${depositRows.length}</span></div>
-          <div class="hero-card"><span class="label">Deposit Permissions</span><span class="value">${depositPermissionRows.length}</span></div>
-          <div class="hero-card"><span class="label">Username Deposits</span><span class="value">${usernameDepositRows.length}</span></div>
-          <div class="hero-card"><span class="label">Username Permissions</span><span class="value">${usernamePermissionRows.length}</span></div>
-          <div class="hero-card"><span class="label">Vaults</span><span class="value">${vaultRows.length}</span></div>
-          <div class="hero-card"><span class="label">TelegramSessions</span><span class="value">${sessionRows.length}</span></div>
-          <div class="hero-card"><span class="label">Legacy / Other</span><span class="value">${legacyRows.length}</span></div>
+          <div class="hero-card"><span class="label">Deposits</span><span class="value">${
+            depositRows.length
+          }</span></div>
+          <div class="hero-card"><span class="label">Deposit Permissions</span><span class="value">${
+            depositPermissionRows.length
+          }</span></div>
+          <div class="hero-card"><span class="label">Username Deposits</span><span class="value">${
+            usernameDepositRows.length
+          }</span></div>
+          <div class="hero-card"><span class="label">Username Permissions</span><span class="value">${
+            usernamePermissionRows.length
+          }</span></div>
+          <div class="hero-card"><span class="label">Vaults</span><span class="value">${
+            vaultRows.length
+          }</span></div>
+          <div class="hero-card"><span class="label">TelegramSessions</span><span class="value">${
+            sessionRows.length
+          }</span></div>
+          <div class="hero-card"><span class="label">Legacy / Other</span><span class="value">${
+            legacyRows.length
+          }</span></div>
         </div>
         <div class="legend">
           <span class="legend-item"><span class="badge badge-ok">Decoded</span> Current layout decoded cleanly</span>
@@ -1794,9 +1892,9 @@ function renderHtml(params: {
           <span class="legend-item"><span class="badge badge-failed">Failed</span> Address kept, decode incomplete</span>
         </div>
         <p class="lede">
-          Generated at ${escapeHtml(generatedAt.toISOString())} using ${escapeHtml(
-            rpcUrl
-          )}.
+          Generated at ${escapeHtml(
+            generatedAt.toISOString()
+          )} using ${escapeHtml(rpcUrl)}.
         </p>
       </section>
       <section class="section">${depositTable}</section>
@@ -1816,10 +1914,16 @@ function renderTable(title: string, headings: string[], rows: string[]) {
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>${headings.map((heading) => `<th>${escapeHtml(heading)}</th>`).join("")}</tr>
+        <tr>${headings
+          .map((heading) => `<th>${escapeHtml(heading)}</th>`)
+          .join("")}</tr>
       </thead>
       <tbody>
-        ${rows.length > 0 ? rows.join("\n") : `<tr><td colspan="${headings.length}" class="muted">No rows</td></tr>`}
+        ${
+          rows.length > 0
+            ? rows.join("\n")
+            : `<tr><td colspan="${headings.length}" class="muted">No rows</td></tr>`
+        }
       </tbody>
     </table>
   </div>`;
@@ -1836,8 +1940,8 @@ function renderTimestampCell(updatedAt: number | null, status: DecodeStatus) {
     status === "full"
       ? "badge-ok"
       : status === "partial"
-        ? "badge-partial"
-        : "badge-failed"
+      ? "badge-partial"
+      : "badge-failed"
   }">${statusLabel(status)}</span>`;
 }
 

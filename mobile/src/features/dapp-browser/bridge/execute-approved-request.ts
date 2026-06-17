@@ -29,7 +29,7 @@ function deserializeTransaction(encodedTransaction: string) {
 }
 
 function serializeSignedTransaction(
-  transaction: Transaction | VersionedTransaction,
+  transaction: Transaction | VersionedTransaction
 ): Uint8Array {
   if (transaction instanceof Transaction) {
     return transaction.serialize({
@@ -42,7 +42,7 @@ function serializeSignedTransaction(
 }
 
 export async function executeApprovedRequest(
-  approval: PendingApproval,
+  approval: PendingApproval
 ): Promise<ApprovedRequestResult> {
   const signer = await getWalletSigner();
 
@@ -59,7 +59,7 @@ export async function executeApprovedRequest(
       const signedTransaction = await signer.signTransaction(transaction);
       return {
         signedTransaction: encodeBase64(
-          serializeSignedTransaction(signedTransaction),
+          serializeSignedTransaction(signedTransaction)
         ),
       };
     }
@@ -69,7 +69,7 @@ export async function executeApprovedRequest(
       const serializedTransaction =
         serializeSignedTransaction(signedTransaction);
       const signature = await getConnection().sendRawTransaction(
-        serializedTransaction,
+        serializedTransaction
       );
       return { signature };
     }

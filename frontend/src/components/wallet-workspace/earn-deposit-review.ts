@@ -42,7 +42,7 @@ export type EarnAutodepositSetupReviewStage =
   | "authority"
   | "delegation"
   | "policy";
-export type EarnWithdrawReviewStage = "autodeposit" | "withdraw";
+export type EarnWithdrawReviewStage = "autodeposit" | `withdraw-${number}`;
 
 export type EarnDepositReviewState = {
   draft: EarnDepositDraft | null;
@@ -119,11 +119,65 @@ function getDepositTargetRows(
 }
 
 function getWithdrawTargetRows(
-  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw | null | undefined
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw | null | undefined,
+  stepIndex = 0
 ): ApprovalReviewDisplaySection["rows"] {
-  const market = preparedWithdraw?.targetReserve.market.toBase58();
-  const reserve = preparedWithdraw?.targetReserve.reserve.toBase58();
-  const liquidityMint = preparedWithdraw?.targetReserve.liquidityMint.toBase58();
+  const step = preparedWithdraw?.withdrawSteps[stepIndex];
+  const reserveWithdrawals = step?.reserveWithdrawals ?? [];
+  if (reserveWithdrawals.length > 0) {
+    return [
+      {
+        label: "Route",
+        value: "Withdraw same-mint USDC from Kamino Safe",
+      },
+      ...reserveWithdrawals.flatMap((withdrawal, index) => [
+        {
+          label:
+            reserveWithdrawals.length > 1 ? `Reserve ${index + 1}` : "Reserve",
+          value: shortenAddress(withdrawal.accountingReserve),
+        },
+        ...(withdrawal.market
+          ? [
+              {
+                label:
+                  reserveWithdrawals.length > 1
+                    ? `Market ${index + 1}`
+                    : "Market",
+                value: formatKaminoMarketLabel(withdrawal.market),
+              },
+            ]
+          : []),
+        ...(withdrawal.executionReserve !== withdrawal.accountingReserve
+          ? [
+              {
+                label:
+                  reserveWithdrawals.length > 1
+                    ? `Kamino execution reserve ${index + 1}`
+                    : "Kamino execution reserve",
+                value: shortenAddress(withdrawal.executionReserve),
+              },
+            ]
+          : []),
+        {
+          label:
+            reserveWithdrawals.length > 1
+              ? `Withdraw amount ${index + 1}`
+              : "Withdraw amount",
+          value: `${Number(BigInt(withdrawal.withdrawnAmountRaw)) / 1_000_000}`,
+        },
+      ]),
+    ];
+  }
+  const market =
+    step?.accountingReserve.market.toBase58() ??
+    preparedWithdraw?.targetReserve.market.toBase58();
+  const reserve =
+    step?.accountingReserve.reserve.toBase58() ??
+    preparedWithdraw?.targetReserve.reserve.toBase58();
+  const executionReserve = step?.executionReserve.reserve.toBase58();
+  const liquidityMint =
+    step?.accountingReserve.liquidityMint.toBase58() ??
+    preparedWithdraw?.targetReserve.liquidityMint.toBase58();
 
   return [
     {
@@ -134,10 +188,55 @@ function getWithdrawTargetRows(
       ? [{ label: "Market", value: formatKaminoMarketLabel(market) }]
       : []),
     ...(reserve ? [{ label: "Reserve", value: shortenAddress(reserve) }] : []),
+    ...(executionReserve && executionReserve !== reserve
+      ? [
+          {
+            label: "Kamino execution reserve",
+            value: shortenAddress(executionReserve),
+          },
+        ]
+      : []),
     ...(liquidityMint
       ? [{ label: "Liquidity mint", value: shortenAddress(liquidityMint) }]
       : []),
   ];
+}
+
+function getWithdrawStageIndex(stage: EarnWithdrawReviewStage): number {
+  if (stage === "autodeposit") {
+    return 0;
+  }
+  const match = /^withdraw-(\d+)$/.exec(stage);
+  return match ? Number(match[1]) : 0;
+}
+
+export function getEarnWithdrawReviewStages(args: {
+  hasAutodepositTeardown?: boolean;
+  preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw | null;
+}): EarnWithdrawReviewStage[] {
+  const withdrawStepCount = Math.max(
+    1,
+    args.preparedWithdraw?.withdrawSteps.length ?? 1
+  );
+  return [
+    ...(args.hasAutodepositTeardown ? (["autodeposit"] as const) : []),
+    ...Array.from(
+      { length: withdrawStepCount },
+      (_, index) => `withdraw-${index}` as const
+    ),
+  ];
+}
+
+export function getNextEarnWithdrawReviewStage(args: {
+  currentStage: EarnWithdrawReviewStage;
+  hasAutodepositTeardown?: boolean;
+  preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw | null;
+}): EarnWithdrawReviewStage | null {
+  const stages = getEarnWithdrawReviewStages(args);
+  const currentIndex = stages.indexOf(args.currentStage);
+  return currentIndex >= 0
+    ? stages[currentIndex + 1] ?? null
+    : stages[0] ?? null;
 }
 
 function formatStablecoinMintLabels(): string {
@@ -258,8 +357,8 @@ export function buildEarnDepositReviewItem(args: {
         stages.length > 1
           ? `Approval #${itemIndex + 1}`
           : item === "deposit"
-            ? "Transaction #1"
-            : "Approval #1";
+          ? "Transaction #1"
+          : "Approval #1";
 
       if (item === "policy") {
         return {
@@ -314,8 +413,8 @@ export function buildEarnDepositReviewItem(args: {
     approvalCount > 1
       ? `Approval ${stageIndex} of ${approvalCount}`
       : stage === "deposit"
-        ? "Deposit"
-        : "Approval";
+      ? "Deposit"
+      : "Approval";
 
   const policyPage: ApprovalReviewPage = {
     title: approvalTitle,
@@ -415,8 +514,8 @@ export function buildEarnDepositReviewItem(args: {
     stage === "policy"
       ? [policyPage]
       : stage === "policy-finalize"
-        ? [finalizePage]
-        : [depositPage];
+      ? [finalizePage]
+      : [depositPage];
 
   return {
     actionMode: "vote",
@@ -434,7 +533,7 @@ export function buildEarnDepositReviewItem(args: {
       stage === "policy"
         ? "Set up Safe Earn routing"
         : stage === "policy-finalize"
-          ? "Set up Earn obligation"
+        ? "Set up Earn obligation"
         : `Deposit into ${EARN_VAULT_LABEL}`,
     symbol: args.draft.symbol,
     title: "Deposit",
@@ -447,89 +546,161 @@ export function buildEarnWithdrawReviewItem(args: {
   preparedWithdraw?: SmartAccountPreparedEarnUsdcWithdraw | null;
   stage?: EarnWithdrawReviewStage;
 }): ApprovalReviewDisplayItem {
+  const source = args.draft.source ?? {
+    amountRaw: "0",
+    balance: 0,
+    id: "reserve:fallback",
+    label: EARN_VAULT_LABEL,
+    liquidityMint: "",
+    market: null,
+    reserve: null,
+    sourceId: "",
+    tokenAccount: null,
+    type: "reserve" as const,
+  };
   const actionLabel = args.draft.mode === "full" ? "Withdraw all" : "Withdraw";
   const hasAutodepositTeardown =
     args.draft.mode === "full" && Boolean(args.hasAutodepositTeardown);
-  const stage = args.stage ?? "withdraw";
-  const targetRows = getWithdrawTargetRows(args.preparedWithdraw);
+  const stages = getEarnWithdrawReviewStages({
+    hasAutodepositTeardown,
+    preparedWithdraw: args.preparedWithdraw,
+  });
+  const stage = args.stage ?? stages[0] ?? "withdraw-0";
+  const currentStepIndex = getWithdrawStageIndex(stage);
+  const targetRows = getWithdrawTargetRows(
+    args.preparedWithdraw,
+    currentStepIndex
+  );
+  const step = args.preparedWithdraw?.withdrawSteps[currentStepIndex];
+  const idleVaultUsdcRaw = step?.persistence.vaultUsdcRemainderRaw
+    ? BigInt(step.persistence.vaultUsdcRemainderRaw)
+    : BigInt(0);
+  const approvalNumber = Math.max(1, stages.indexOf(stage) + 1);
+  const approvalCount = stages.length;
+  const isFinalWithdrawStep =
+    currentStepIndex ===
+    Math.max(0, (args.preparedWithdraw?.withdrawSteps.length ?? 1) - 1);
   const finalWithdrawRows: ApprovalReviewDisplaySection["rows"] = [
     {
       label: "Withdraw",
       value: `${actionLabel} $${args.draft.amountLabel} ${args.draft.symbol} from ${EARN_VAULT_LABEL}`,
     },
     {
+      label: "Source",
+      value: source.label,
+    },
+    {
       label: "Destination",
       value: `${args.draft.destination.label} (${args.draft.destination.addressLabel})`,
     },
     ...targetRows,
-    ...(args.draft.mode === "full"
+    ...(args.draft.mode === "full" && isFinalWithdrawStep
       ? [
+          ...(idleVaultUsdcRaw > BigInt(0)
+            ? [
+                {
+                  label: "Idle vault USDC",
+                  value: `${Number(idleVaultUsdcRaw) / 1_000_000} ${
+                    args.draft.symbol
+                  }`,
+                },
+              ]
+            : []),
           {
-            label: "Cleanup",
+            label: "Final cleanup",
             value:
               "Close vault-owned token accounts when safe and remove the Earn policy",
+          },
+        ]
+      : args.draft.mode === "full"
+      ? [
+          {
+            label: "Source cleanup",
+            value: "Mark only the selected Earn source as withdrawn",
           },
         ]
       : []),
   ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
-    ...(hasAutodepositTeardown
-      ? [
-          {
-            title: "Approval #1",
+    ...stages.map((reviewStage, index) =>
+      reviewStage === "autodeposit"
+        ? {
+            title: `Approval #${index + 1}`,
             rows: [
               {
                 label: "Autodeposit",
                 value: "Close recurring allowance and refund rent",
               },
             ],
-          },
-        ]
-      : []),
-    {
-      title: hasAutodepositTeardown ? "Approval #2" : "Transaction #1",
-      rows: finalWithdrawRows,
-    },
+          }
+        : {
+            title:
+              approvalCount > 1 ? `Approval #${index + 1}` : "Transaction #1",
+            rows:
+              reviewStage === stage
+                ? finalWithdrawRows
+                : [
+                    {
+                      label: "Withdraw",
+                      value: `${actionLabel} from ${EARN_VAULT_LABEL}`,
+                    },
+                  ],
+          }
+    ),
   ];
 
   return {
     actionMode: "vote",
     amount: args.draft.amountLabel,
     destinationLabel: args.draft.destination.label,
-    pages: hasAutodepositTeardown
-      ? [
-          stage === "autodeposit"
-            ? {
-                title: "Approval 1 of 2",
-                heading: "Remove Autodeposit",
-                mascotNote:
-                  "First, close the recurring allowance before withdrawing everything.",
-                rows: [
-                  {
-                    label: "Autodeposit",
-                    value: "Close recurring allowance and refund rent",
-                  },
-                ],
-              }
-            : {
-                title: "Approval 2 of 2",
-                amount: `$${args.draft.amountLabel}`,
-                heading: "Withdraw from Earn vault",
-                hideAmountHeading: true,
-                mascotNote:
-                  "Now withdraw from Kamino, transfer USDC back to your wallet, and clean up Earn.",
-                rows: finalWithdrawRows,
+    pages: [
+      stage === "autodeposit"
+        ? {
+            title: `Approval ${approvalNumber} of ${approvalCount}`,
+            heading: "Remove Autodeposit",
+            mascotNote:
+              "First, close the recurring allowance before withdrawing everything.",
+            rows: [
+              {
+                label: "Autodeposit",
+                value: "Close recurring allowance and refund rent",
               },
-        ]
-      : undefined,
-    primaryActionLabel: hasAutodepositTeardown
-      ? stage === "autodeposit"
+            ],
+          }
+        : {
+            title: `Approval ${approvalNumber} of ${approvalCount}`,
+            amount: `$${args.draft.amountLabel}`,
+            heading: isFinalWithdrawStep
+              ? "Withdraw from Earn vault"
+              : "Withdraw reserve step",
+            hideAmountHeading: true,
+            mascotNote: isFinalWithdrawStep
+              ? "Withdraw the selected source and transfer USDC back to your wallet."
+              : "Withdraw this source step before continuing.",
+            rows: [
+              ...(step
+                ? [
+                    {
+                      label: "Step amount",
+                      value: `${Number(step.amountRaw) / 1_000_000} ${
+                        args.draft.symbol
+                      }`,
+                    },
+                  ]
+                : []),
+              ...finalWithdrawRows,
+            ],
+          },
+    ],
+    primaryActionLabel:
+      stage === "autodeposit"
         ? "Remove Autodeposit"
-        : "Withdraw"
-      : "Withdraw",
+        : isFinalWithdrawStep
+        ? "Withdraw"
+        : "Approve step",
     reviewSections,
     secondaryActionLabel: "Cancel",
-    sourceLabel: EARN_VAULT_LABEL,
+    sourceLabel: source.label,
     status: "draft",
     statusLabel: "Ready to review",
     summaryLabel: "Withdraw from Earn vault",

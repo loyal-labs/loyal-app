@@ -52,13 +52,13 @@ export const START_CAROUSEL_SLIDES: StartCarouselSlide[] = [
 
 export function encodeStartCarouselCallbackData(
   action: StartCarouselAction,
-  currentIndex: number,
+  currentIndex: number
 ): string {
   return `${START_CAROUSEL_CALLBACK_PREFIX}:${action}:${currentIndex}`;
 }
 
 export function parseStartCarouselCallbackData(
-  data: string,
+  data: string
 ): ParsedStartCarouselCallback | null {
   const matches = START_CAROUSEL_CALLBACK_DATA_REGEX.exec(data);
   if (!matches) {
@@ -89,7 +89,7 @@ export function parseStartCarouselCallbackData(
 
 export function calculateNextCarouselIndex(
   currentIndex: number,
-  action: StartCarouselAction,
+  action: StartCarouselAction
 ): number {
   const slideCount = START_CAROUSEL_SLIDES.length;
   if (action === "prev") {
@@ -99,7 +99,7 @@ export function calculateNextCarouselIndex(
 }
 
 export function buildStartCarouselKeyboard(
-  currentIndex: number,
+  currentIndex: number
 ): InlineKeyboard {
   return new InlineKeyboard()
     .text("⬅️", encodeStartCarouselCallbackData("prev", currentIndex))
@@ -114,7 +114,7 @@ function getSlideImageUrl(index: number): string {
 
 export async function sendStartCarousel(
   ctx: CommandContext<Context>,
-  bot: Bot,
+  bot: Bot
 ): Promise<void> {
   const chatId = ctx.chat?.id ?? ctx.from?.id;
   const messageThreadId = ctx.message?.message_thread_id;
@@ -134,7 +134,7 @@ export async function sendStartCarousel(
 }
 
 export async function handleStartCarouselCallback(
-  ctx: CallbackQueryContext<Context>,
+  ctx: CallbackQueryContext<Context>
 ): Promise<void> {
   const callbackData = ctx.callbackQuery.data;
   const parsedCallback = parseStartCarouselCallbackData(callbackData);
@@ -153,7 +153,7 @@ export async function handleStartCarouselCallback(
 
   const nextIndex = calculateNextCarouselIndex(
     parsedCallback.currentIndex,
-    parsedCallback.action,
+    parsedCallback.action
   );
   const nextSlide = START_CAROUSEL_SLIDES[nextIndex];
 
@@ -168,7 +168,7 @@ export async function handleStartCarouselCallback(
       },
       {
         reply_markup: buildStartCarouselKeyboard(nextIndex),
-      },
+      }
     );
     await ctx.answerCallbackQuery();
   } catch (error) {

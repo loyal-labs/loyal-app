@@ -23,13 +23,13 @@ const I64_MAX = (BigInt(1) << BigInt(63)) - BigInt(1);
 
 export function deriveSubscriptionAuthority(
   user: PublicKey,
-  mint: PublicKey,
+  mint: PublicKey
 ): PublicKey {
   requirePublicKey(user, "user");
   requirePublicKey(mint, "mint");
   return PublicKey.findProgramAddressSync(
     [SUBSCRIPTION_AUTHORITY_SEED, user.toBytes(), mint.toBytes()],
-    SUBSCRIPTIONS_PROGRAM_ID,
+    SUBSCRIPTIONS_PROGRAM_ID
   )[0];
 }
 
@@ -37,7 +37,7 @@ export function deriveRecurringDelegation(
   subscriptionAuthority: PublicKey,
   delegator: PublicKey,
   delegatee: PublicKey,
-  nonce: U64Amount,
+  nonce: U64Amount
 ): PublicKey {
   requirePublicKey(subscriptionAuthority, "subscriptionAuthority");
   requirePublicKey(delegator, "delegator");
@@ -51,14 +51,14 @@ export function deriveRecurringDelegation(
       delegatee.toBytes(),
       nonceBytes,
     ],
-    SUBSCRIPTIONS_PROGRAM_ID,
+    SUBSCRIPTIONS_PROGRAM_ID
   )[0];
 }
 
 export function deriveSubscriptionEventAuthority(): PublicKey {
   return PublicKey.findProgramAddressSync(
     [SUBSCRIPTION_EVENT_AUTHORITY_SEED],
-    SUBSCRIPTIONS_PROGRAM_ID,
+    SUBSCRIPTIONS_PROGRAM_ID
   )[0];
 }
 
@@ -67,30 +67,28 @@ export function subscriptionInitAuthorityData(): Uint8Array {
 }
 
 export function subscriptionCreateRecurringDelegationData(
-  input: SubscriptionCreateRecurringDelegationDataInput,
+  input: SubscriptionCreateRecurringDelegationDataInput
 ): Uint8Array {
   const encoder = new BytesEncoder();
   encoder.pushU8(SUBSCRIPTIONS_CREATE_RECURRING_DELEGATION);
   encoder.pushU64(normalizeU64(input.nonce, "nonce"));
+  encoder.pushU64(normalizeU64(input.amountPerPeriodRaw, "amountPerPeriodRaw"));
   encoder.pushU64(
-    normalizeU64(input.amountPerPeriodRaw, "amountPerPeriodRaw"),
-  );
-  encoder.pushU64(
-    normalizeU64(input.periodLengthSeconds, "periodLengthSeconds"),
+    normalizeU64(input.periodLengthSeconds, "periodLengthSeconds")
   );
   encoder.pushI64(normalizeI64(input.startTimestamp, "startTimestamp"));
   encoder.pushI64(normalizeI64(input.expiryTimestamp, "expiryTimestamp"));
   encoder.pushI64(
     normalizeI64(
       input.expectedSubscriptionAuthorityInitId,
-      "expectedSubscriptionAuthorityInitId",
-    ),
+      "expectedSubscriptionAuthorityInitId"
+    )
   );
   return encoder.finish();
 }
 
 export function subscriptionTransferRecurringData(
-  input: SubscriptionTransferRecurringDataInput,
+  input: SubscriptionTransferRecurringDataInput
 ): Uint8Array {
   requirePublicKey(input.delegator, "delegator");
   requirePublicKey(input.mint, "mint");
@@ -139,7 +137,10 @@ function u64ToLeBytes(value: U64Amount, name: string): Uint8Array {
   return bytes;
 }
 
-function requirePublicKey(value: unknown, name: string): asserts value is PublicKey {
+function requirePublicKey(
+  value: unknown,
+  name: string
+): asserts value is PublicKey {
   if (!(value instanceof PublicKey)) {
     throw new Error(`${name} must be a PublicKey`);
   }

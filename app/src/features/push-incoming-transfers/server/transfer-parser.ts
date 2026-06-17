@@ -21,7 +21,7 @@ const ZERO = BigInt(0);
 export function parseIncomingTransfersForWallet(
   tx: ParsedTransactionWithMeta,
   signature: string,
-  walletPublicKey: string,
+  walletPublicKey: string
 ): IncomingTransferEvent[] {
   const meta = tx.meta;
   if (!meta || meta.err) return [];
@@ -33,7 +33,7 @@ export function parseIncomingTransfersForWallet(
   // Native SOL: walk account keys, find the wallet's position, compare
   // preBalances[i] vs postBalances[i]. Lamport delta > 0 = incoming.
   const accountKeys = tx.transaction.message.accountKeys.map((key) =>
-    typeof key === "string" ? key : key.pubkey.toBase58(),
+    typeof key === "string" ? key : key.pubkey.toBase58()
   );
   const walletIndex = accountKeys.indexOf(walletPublicKey);
 
@@ -46,7 +46,7 @@ export function parseIncomingTransfersForWallet(
         accountKeys,
         meta.preBalances,
         meta.postBalances,
-        walletIndex,
+        walletIndex
       );
       events.push({
         kind: "sol",
@@ -102,7 +102,7 @@ export function parseIncomingTransfersForWallet(
       meta.preTokenBalances ?? [],
       meta.postTokenBalances ?? [],
       mint,
-      walletPublicKey,
+      walletPublicKey
     );
     events.push({
       kind: "spl",
@@ -122,7 +122,7 @@ function inferLargestSolDecrease(
   accountKeys: string[],
   preBalances: number[],
   postBalances: number[],
-  recipientIndex: number,
+  recipientIndex: number
 ): string | null {
   let biggestDecreaseIdx = -1;
   let biggestDecrease = ZERO;
@@ -138,15 +138,23 @@ function inferLargestSolDecrease(
   }
 
   return biggestDecreaseIdx >= 0
-    ? (accountKeys[biggestDecreaseIdx] ?? null)
+    ? accountKeys[biggestDecreaseIdx] ?? null
     : null;
 }
 
 function inferLargestTokenDecrease(
-  preTokenBalances: NonNullable<ParsedTransactionWithMeta["meta"]>["preTokenBalances"] extends infer T ? T : never,
-  postTokenBalances: NonNullable<ParsedTransactionWithMeta["meta"]>["postTokenBalances"] extends infer T ? T : never,
+  preTokenBalances: NonNullable<
+    ParsedTransactionWithMeta["meta"]
+  >["preTokenBalances"] extends infer T
+    ? T
+    : never,
+  postTokenBalances: NonNullable<
+    ParsedTransactionWithMeta["meta"]
+  >["postTokenBalances"] extends infer T
+    ? T
+    : never,
   mint: string,
-  recipientOwner: string,
+  recipientOwner: string
 ): string | null {
   const byOwner = new Map<string, { preRaw: bigint; postRaw: bigint }>();
 

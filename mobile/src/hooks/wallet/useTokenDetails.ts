@@ -15,7 +15,7 @@ export type TokenDetailsByMint = Record<
 async function fetchTokenDetailWithRetry(
   mint: string,
   maxAttempts = 3,
-  retryDelayMs = 250,
+  retryDelayMs = 250
 ): Promise<MobileTokenDetailResponse> {
   let lastDetail: MobileTokenDetailResponse | null = null;
   let lastError: unknown = null;
@@ -48,11 +48,11 @@ async function fetchTokenDetailWithRetry(
 // Helius-supplied holding data or the KNOWN_TOKEN_* last-resort maps.
 export function useTokenDetails(
   mints: string[],
-  resetKey: number = 0,
+  resetKey: number = 0
 ): TokenDetailsByMint {
   const mintsKey = useMemo(
     () => Array.from(new Set(mints)).sort().join("|"),
-    [mints],
+    [mints]
   );
 
   const [detailsByMint, setDetailsByMint] = useState<TokenDetailsByMint>({});
@@ -86,7 +86,7 @@ export function useTokenDetails(
 
     const uniqueMints = mintsKey.split("|");
     const missing = uniqueMints.filter(
-      (mint) => !attemptedRef.current.has(mint),
+      (mint) => !attemptedRef.current.has(mint)
     );
     if (missing.length === 0) return;
 
@@ -105,13 +105,13 @@ export function useTokenDetails(
           });
           return { mint, ok: false as const };
         }
-      }),
+      })
     ).then((results) => {
       if (cancelled) return;
       const successes = results.flatMap((r) =>
         r.status === "fulfilled" && r.value.ok
           ? [[r.value.mint, r.value.detail] as const]
-          : [],
+          : []
       );
       if (successes.length === 0) return;
       setDetailsByMint((current) => {

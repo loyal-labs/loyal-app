@@ -24,7 +24,9 @@ const envChangeListeners = new Set<(env: SolanaEnv) => void>();
 
 export const onSolanaEnvChange = (cb: (env: SolanaEnv) => void) => {
   envChangeListeners.add(cb);
-  return () => { envChangeListeners.delete(cb); };
+  return () => {
+    envChangeListeners.delete(cb);
+  };
 };
 
 function resolveEnv(raw: string | undefined): SolanaEnv {

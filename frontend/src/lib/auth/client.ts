@@ -132,13 +132,16 @@ function assertSuccessfulResponse<T>(
 export function createAuthApiClient(): AuthApiClient {
   return {
     async challengeWalletAuth(payload) {
-      const outcome = await callLocalAuthEndpoint("/api/auth/wallet/challenge", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      const outcome = await callLocalAuthEndpoint(
+        "/api/auth/wallet/challenge",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       return assertSuccessfulResponse(outcome, walletChallengeResponseSchema, {
         invalidResponseMessage:

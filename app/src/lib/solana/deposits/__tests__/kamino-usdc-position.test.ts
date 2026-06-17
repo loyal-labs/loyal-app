@@ -66,11 +66,12 @@ describe("kamino-usdc-position", () => {
       updatedAt: 0,
     };
 
-    const principalLiquidityAmountRaw = resolveKaminoPrincipalLiquidityAmountRaw({
-      trackedPosition,
-      actualCollateralSharesAmountRaw: BigInt(49_000_000),
-      currentLiquidityAmountRaw: BigInt(50_500_000),
-    });
+    const principalLiquidityAmountRaw =
+      resolveKaminoPrincipalLiquidityAmountRaw({
+        trackedPosition,
+        actualCollateralSharesAmountRaw: BigInt(49_000_000),
+        currentLiquidityAmountRaw: BigInt(50_500_000),
+      });
 
     expect(principalLiquidityAmountRaw).toBe(BigInt(50_000_000));
   });
@@ -86,11 +87,12 @@ describe("kamino-usdc-position", () => {
       updatedAt: 0,
     };
 
-    const principalLiquidityAmountRaw = resolveKaminoPrincipalLiquidityAmountRaw({
-      trackedPosition,
-      actualCollateralSharesAmountRaw: BigInt(147_000_000),
-      currentLiquidityAmountRaw: BigInt(151_000_000),
-    });
+    const principalLiquidityAmountRaw =
+      resolveKaminoPrincipalLiquidityAmountRaw({
+        trackedPosition,
+        actualCollateralSharesAmountRaw: BigInt(147_000_000),
+        currentLiquidityAmountRaw: BigInt(151_000_000),
+      });
 
     expect(principalLiquidityAmountRaw).toBe(BigInt(150_333_334));
   });
@@ -122,9 +124,9 @@ describe("kamino-usdc-position", () => {
     expect(result.nextTrackedPosition?.collateralSharesAmountRaw).toBe(
       "50000000"
     );
-    expect(
-      result.nextTrackedPosition?.cumulativeEarnedLiquidityAmountRaw
-    ).toBe("1000000");
+    expect(result.nextTrackedPosition?.cumulativeEarnedLiquidityAmountRaw).toBe(
+      "1000000"
+    );
     expect(
       resolveKaminoTotalEarnedLiquidityAmountRaw({
         trackedPosition: result.nextTrackedPosition ?? null,
@@ -160,8 +162,10 @@ describe("kamino-usdc-position", () => {
     expect(result.nextTrackedPosition?.collateralSharesAmountRaw).toBe(
       "100000000"
     );
-    expect(resolveKaminoCumulativeEarnedLiquidityAmountRaw(result.nextTrackedPosition)).toBe(
-      BigInt(2_000_000)
-    );
+    expect(
+      resolveKaminoCumulativeEarnedLiquidityAmountRaw(
+        result.nextTrackedPosition
+      )
+    ).toBe(BigInt(2_000_000));
   });
 });

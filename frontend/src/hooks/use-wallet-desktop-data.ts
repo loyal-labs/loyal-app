@@ -96,8 +96,7 @@ export function createTokenMarketMintsSignature(
   const mints = positions
     .filter(
       (position) =>
-        typeof position.totalValueUsd === "number" &&
-        position.totalValueUsd > 0
+        typeof position.totalValueUsd === "number" && position.totalValueUsd > 0
     )
     .map((position) => position.asset.mint);
   mints.push(LOYL_MINT);
@@ -917,7 +916,8 @@ export function useWalletDesktopData(): WalletDesktopData {
                   ...activity,
                 };
                 return nextActivities.sort(
-                  (left, right) => (right.timestamp ?? 0) - (left.timestamp ?? 0)
+                  (left, right) =>
+                    (right.timestamp ?? 0) - (left.timestamp ?? 0)
                 );
               }
 
@@ -1106,7 +1106,10 @@ export function useWalletDesktopData(): WalletDesktopData {
       const earnings = earningsByMint.get(position.asset.mint);
       if (position.publicBalance > 0) {
         rows.push(
-          attachPriceChange(mapPositionToTokenRow(position), position.asset.mint)
+          attachPriceChange(
+            mapPositionToTokenRow(position),
+            position.asset.mint
+          )
         );
       }
       // Add secured row right after the public one. Skip dust amounts that

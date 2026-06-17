@@ -81,22 +81,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   const retryAfter = new Date(now.getTime() + RETRY_DELAY_MS);
 
   for (const item of dueMessages) {
-    const claimed = await claimDueCleanupItem(
-      item.id,
-      now,
-      claimLeaseUntil
-    );
+    const claimed = await claimDueCleanupItem(item.id, now, claimLeaseUntil);
     if (!claimed) {
       stats.skippedAlreadyClaimed += 1;
       continue;
     }
     stats.claimed += 1;
 
-    const deleteOutcome = await deleteTelegramHelperMessage(
-      bot,
-      item,
-      stats
-    );
+    const deleteOutcome = await deleteTelegramHelperMessage(bot, item, stats);
 
     if (deleteOutcome === "success" || deleteOutcome === "terminal") {
       queueIdsToDelete.push(item.id);
@@ -183,7 +175,10 @@ async function claimDueCleanupItem(
   return claimed.length > 0;
 }
 
-async function rescheduleCleanupItem(itemId: string, retryAfter: Date): Promise<void> {
+async function rescheduleCleanupItem(
+  itemId: string,
+  retryAfter: Date
+): Promise<void> {
   const db = getDatabase();
   await db
     .update(telegramHelperMessageCleanup)

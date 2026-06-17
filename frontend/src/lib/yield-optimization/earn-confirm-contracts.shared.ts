@@ -91,6 +91,18 @@ export type EarnWithdrawalConfirmRequestBody = {
   walletAddress: string;
   withdrawalSignature: string;
   withdrawnAmountRaw: string;
+  sourceAmountRaw?: string | null;
+  sourceId?: string | null;
+  sourceMetadata?: Record<string, unknown> | null;
+  sourceMint?: string | null;
+  sourceTokenAccount?: string | null;
+  sourceType?: "reserve" | "idle" | null;
+  accountingReserve?: string | null;
+  executionReserve?: string | null;
+  isFinalStep?: boolean | null;
+  reserveWithdrawals?: ConfirmedYieldWithdrawalInput["reserveWithdrawals"];
+  stepCount?: number | null;
+  stepIndex?: number | null;
 };
 
 type EarnConfirmRequestRecord = Record<string, unknown>;
@@ -182,6 +194,96 @@ function readMode(body: EarnConfirmRequestRecord): "partial" | "full" {
   return mode;
 }
 
+function readOptionalBoolean(
+  body: EarnConfirmRequestRecord,
+  key: string
+): boolean | null {
+  const value = body[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`${key} must be a boolean when provided.`);
+  }
+  return value;
+}
+
+function readOptionalNonNegativeInteger(
+  body: EarnConfirmRequestRecord,
+  key: string
+): number | null {
+  const value = body[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer when provided.`);
+  }
+  return value;
+}
+
+function readOptionalReserveWithdrawals(
+  body: EarnConfirmRequestRecord
+): ConfirmedYieldWithdrawalInput["reserveWithdrawals"] {
+  const value = body.reserveWithdrawals;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("reserveWithdrawals must be an array when provided.");
+  }
+
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`reserveWithdrawals[${index}] must be an object.`);
+    }
+    const record = entry as EarnConfirmRequestRecord;
+    return {
+      accountingReserve: readRequiredString(record, "accountingReserve"),
+      collateralAta: readRequiredString(record, "collateralAta"),
+      executionMarket: readRequiredString(record, "executionMarket"),
+      executionReserve: readRequiredString(record, "executionReserve"),
+      kaminoWithdrawAmountRaw: readBigIntString(
+        record,
+        "kaminoWithdrawAmountRaw"
+      ).toString(),
+      liquidityMint: readRequiredString(record, "liquidityMint"),
+      market: readOptionalString(record, "market"),
+      reserve: readRequiredString(record, "reserve"),
+      withdrawnAmountRaw: readBigIntString(
+        record,
+        "withdrawnAmountRaw"
+      ).toString(),
+    };
+  });
+}
+
+function readOptionalSourceType(
+  body: EarnConfirmRequestRecord
+): "reserve" | "idle" | null {
+  const value = readOptionalString(body, "sourceType");
+  if (value === null) {
+    return null;
+  }
+  if (value !== "reserve" && value !== "idle") {
+    throw new Error("sourceType must be reserve or idle when provided.");
+  }
+  return value;
+}
+
+function readOptionalSourceMetadata(
+  body: EarnConfirmRequestRecord
+): Record<string, unknown> | null {
+  const value = body.sourceMetadata;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("sourceMetadata must be an object when provided.");
+  }
+  return value as Record<string, unknown>;
+}
+
 function readOptionalAutodepositClose(
   body: EarnConfirmRequestRecord
 ): NonNullable<ConfirmedYieldWithdrawalInput["autodepositClose"]> | null {
@@ -261,17 +363,20 @@ export function buildEarnWithdrawalConfirmRequestBody({
   autodepositCloseSignature,
   confirmedSlot,
   preparedWithdraw,
+  preparedStep,
   signature,
   smartAccountAddress,
 }: {
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
+  preparedStep?: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
   autodepositCloseSignature?: string;
   autodepositCloseConfirmedSlot?: string;
 }): EarnWithdrawalConfirmRequestBody {
-  const { autodepositClose, ...persistence } = preparedWithdraw.persistence;
+  const source = preparedStep ?? preparedWithdraw;
+  const { autodepositClose, ...persistence } = source.persistence;
 
   return {
     ...persistence,
@@ -334,7 +439,10 @@ export function parseEarnDepositConfirmRequestBody(
     market: readOptionalString(record, "market"),
     policyAccount: readRequiredString(record, "policyAccount"),
     policyId: readBigIntString(record, "policyId"),
-    policyConfirmedSlot: readOptionalBigIntString(record, "policyConfirmedSlot"),
+    policyConfirmedSlot: readOptionalBigIntString(
+      record,
+      "policyConfirmedSlot"
+    ),
     policyInitialization: readPolicyInitialization(record),
     policySeed: readBigIntString(record, "policySeed"),
     policySignature: readRequiredString(record, "policySignature"),
@@ -378,6 +486,18 @@ export function parseEarnWithdrawalConfirmRequestBody(
     setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
     settings: readRequiredString(record, "settings"),
     smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
+    accountingReserve: readOptionalString(record, "accountingReserve"),
+    executionReserve: readOptionalString(record, "executionReserve"),
+    isFinalStep: readOptionalBoolean(record, "isFinalStep"),
+    reserveWithdrawals: readOptionalReserveWithdrawals(record),
+    sourceAmountRaw: readOptionalBigIntString(record, "sourceAmountRaw"),
+    sourceId: readOptionalString(record, "sourceId"),
+    sourceMetadata: readOptionalSourceMetadata(record),
+    sourceMint: readOptionalString(record, "sourceMint"),
+    sourceTokenAccount: readOptionalString(record, "sourceTokenAccount"),
+    sourceType: readOptionalSourceType(record),
+    stepCount: readOptionalNonNegativeInteger(record, "stepCount"),
+    stepIndex: readOptionalNonNegativeInteger(record, "stepIndex"),
     targetReserve: readRequiredString(record, "targetReserve"),
     vaultIndex: readVaultIndex(record),
     vaultPubkey: readRequiredString(record, "vaultPubkey"),

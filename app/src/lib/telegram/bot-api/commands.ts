@@ -1,4 +1,9 @@
-import { admins, communities, type Community, userSettings } from "@loyal-labs/db-core/schema";
+import {
+  admins,
+  communities,
+  type Community,
+  userSettings,
+} from "@loyal-labs/db-core/schema";
 import { eq } from "drizzle-orm";
 import type { CommandContext, Context } from "grammy";
 import { Bot } from "grammy";
@@ -131,7 +136,10 @@ function mergeCommunitySettings(
     ...nextSettings,
   };
 
-  if (typeof nextSettings.photoUrl === "string" && nextSettings.photoUrl.length > 0) {
+  if (
+    typeof nextSettings.photoUrl === "string" &&
+    nextSettings.photoUrl.length > 0
+  ) {
     delete mergedSettings.photoBase64;
     delete mergedSettings.photoMimeType;
   }
@@ -328,7 +336,12 @@ export async function handleActivateCommunityCommand(
       settings,
     });
   } catch (error) {
-    suppressCommunityFailure("/activate_community", "internal_error", ctx, error);
+    suppressCommunityFailure(
+      "/activate_community",
+      "internal_error",
+      ctx,
+      error
+    );
   }
 }
 

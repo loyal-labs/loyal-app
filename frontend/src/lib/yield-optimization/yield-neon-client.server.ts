@@ -297,6 +297,12 @@ export const userYieldPositionWithdrawals = loyalYieldSchema.table(
     withdrawnAmountRaw: bigint("withdrawn_amount_raw", {
       mode: "bigint",
     }).notNull(),
+    sourceType: text("source_type"),
+    sourceId: text("source_id"),
+    sourceMetadata: jsonb("source_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     reserveWithdrawals: jsonb("reserve_withdrawals")
       .$type<YieldWithdrawalReserveMetadata[]>()
       .notNull()
@@ -589,9 +595,8 @@ export const balanceSweepSurplusLots = loyalYieldSchema.table(
     remainingAmountRaw: bigint("remaining_amount_raw", {
       mode: "bigint",
     }).notNull(),
-    classification: balanceSweepSurplusClassification(
-      "classification"
-    ).notNull(),
+    classification:
+      balanceSweepSurplusClassification("classification").notNull(),
     eligibleAfter: timestamp("eligible_after", {
       withTimezone: true,
     }).notNull(),

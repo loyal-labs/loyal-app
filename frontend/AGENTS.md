@@ -88,30 +88,39 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 ### Framework-Specific Guidance
 
 **Next.js:**
+
 - Use Next.js `<Image>` component for images
 - Use `next/head` or App Router metadata API for head elements
 - Use Server Components for async data fetching instead of async Client Components
 
 **React 19+:**
+
 - Use ref as a prop instead of `React.forwardRef`
 
 **Solid/Svelte/Vue/Qwik:**
+
 - Use `class` and `for` attributes (not `className` or `htmlFor`)
 
 ---
 
 ## Testing
 
-**Do NOT write unit tests. Do NOT create `*.test.ts`, `*.test.tsx`, `__tests__/`
-directories, or any `bun:test` / Vitest / Jest suite in this project.**
+Default to no new unit tests. Do not create `*.test.ts`, `*.test.tsx`,
+`__tests__/`, or any `bun:test` / Vitest / Jest suite unless the maintainer has
+explicitly approved a narrow contract-test exception.
 
-This is a hard rule. The unit-test suite was deliberately removed because it was
-not earning its keep. Do not reintroduce it — not "just one small test", not a
-regression test for a bug you fixed, not a helper test alongside a refactor. If
-you believe a change genuinely requires automated coverage, stop and ask the
-maintainer first; do not add tests on your own initiative.
+Approved exceptions must protect an external contract or invariant that would
+still compile while broken: auth/session boundaries, confirmed-chain writes,
+money movement ordering, SDK/wire compatibility, public route discriminants,
+DB idempotency/conflict behavior, signer or storage boundaries, or dangerous
+pure calculations.
 
-Verify your work instead with:
+Delete or avoid tests that mainly assert mocked JSON bodies, every field in a
+Drizzle `.values()` call, object defaults, route-string builders, copy that is
+not a product or ops contract, `Object.keys(...)` mirrors, `typeof ... ===
+"function"`, or third-party library behavior.
+
+Verify ordinary work instead with:
 
 - `next lint` and `tsc --noEmit` for static correctness
 - a manual smoke check of the affected flow in the running app

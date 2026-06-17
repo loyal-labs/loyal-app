@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   SmartAccountSigner,
   smartAccountSignerBeet,
-} from '../types/SmartAccountSigner'
+} from "../types/SmartAccountSigner";
 
 /**
  * Arguments used to create {@link Settings}
@@ -19,22 +19,22 @@ import {
  * @category generated
  */
 export type SettingsArgs = {
-  seed: beet.bignum
-  settingsAuthority: web3.PublicKey
-  threshold: number
-  timeLock: number
-  transactionIndex: beet.bignum
-  staleTransactionIndex: beet.bignum
-  archivalAuthority: beet.COption<web3.PublicKey>
-  archivableAfter: beet.bignum
-  bump: number
-  signers: SmartAccountSigner[]
-  accountUtilization: number
-  policySeed: beet.COption<beet.bignum>
-  reserved2: number
-}
+  seed: beet.bignum;
+  settingsAuthority: web3.PublicKey;
+  threshold: number;
+  timeLock: number;
+  transactionIndex: beet.bignum;
+  staleTransactionIndex: beet.bignum;
+  archivalAuthority: beet.COption<web3.PublicKey>;
+  archivableAfter: beet.bignum;
+  bump: number;
+  signers: SmartAccountSigner[];
+  accountUtilization: number;
+  policySeed: beet.COption<beet.bignum>;
+  reserved2: number;
+};
 
-export const settingsDiscriminator = [223, 179, 163, 190, 177, 224, 67, 173]
+export const settingsDiscriminator = [223, 179, 163, 190, 177, 224, 67, 173];
 /**
  * Holds the data for the {@link Settings} Account and provides de/serialization
  * functionality for that data
@@ -77,7 +77,7 @@ export class Settings implements SettingsArgs {
       args.accountUtilization,
       args.policySeed,
       args.reserved2
-    )
+    );
   }
 
   /**
@@ -88,7 +88,7 @@ export class Settings implements SettingsArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [Settings, number] {
-    return Settings.deserialize(accountInfo.data, offset)
+    return Settings.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -105,11 +105,11 @@ export class Settings implements SettingsArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find Settings account at ${address}`)
+      throw new Error(`Unable to find Settings account at ${address}`);
     }
-    return Settings.fromAccountInfo(accountInfo, 0)[0]
+    return Settings.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -120,10 +120,10 @@ export class Settings implements SettingsArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, settingsBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, settingsBeet);
   }
 
   /**
@@ -131,7 +131,7 @@ export class Settings implements SettingsArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [Settings, number] {
-    return settingsBeet.deserialize(buf, offset)
+    return settingsBeet.deserialize(buf, offset);
   }
 
   /**
@@ -142,7 +142,7 @@ export class Settings implements SettingsArgs {
     return settingsBeet.serialize({
       accountDiscriminator: settingsDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -153,11 +153,11 @@ export class Settings implements SettingsArgs {
    * depends on them
    */
   static byteSize(args: SettingsArgs) {
-    const instance = Settings.fromArgs(args)
+    const instance = Settings.fromArgs(args);
     return settingsBeet.toFixedFromValue({
       accountDiscriminator: settingsDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -176,7 +176,7 @@ export class Settings implements SettingsArgs {
     return connection.getMinimumBalanceForRentExemption(
       Settings.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -186,59 +186,59 @@ export class Settings implements SettingsArgs {
   pretty() {
     return {
       seed: (() => {
-        const x = <{ toNumber: () => number }>this.seed
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.seed;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       settingsAuthority: this.settingsAuthority.toBase58(),
       threshold: this.threshold,
       timeLock: this.timeLock,
       transactionIndex: (() => {
-        const x = <{ toNumber: () => number }>this.transactionIndex
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.transactionIndex;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       staleTransactionIndex: (() => {
-        const x = <{ toNumber: () => number }>this.staleTransactionIndex
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.staleTransactionIndex;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       archivalAuthority: this.archivalAuthority,
       archivableAfter: (() => {
-        const x = <{ toNumber: () => number }>this.archivableAfter
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.archivableAfter;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       bump: this.bump,
       signers: this.signers,
       accountUtilization: this.accountUtilization,
       policySeed: this.policySeed,
       reserved2: this.reserved2,
-    }
+    };
   }
 }
 
@@ -249,25 +249,25 @@ export class Settings implements SettingsArgs {
 export const settingsBeet = new beet.FixableBeetStruct<
   Settings,
   SettingsArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['seed', beet.u128],
-    ['settingsAuthority', beetSolana.publicKey],
-    ['threshold', beet.u16],
-    ['timeLock', beet.u32],
-    ['transactionIndex', beet.u64],
-    ['staleTransactionIndex', beet.u64],
-    ['archivalAuthority', beet.coption(beetSolana.publicKey)],
-    ['archivableAfter', beet.u64],
-    ['bump', beet.u8],
-    ['signers', beet.array(smartAccountSignerBeet)],
-    ['accountUtilization', beet.u8],
-    ['policySeed', beet.coption(beet.u64)],
-    ['reserved2', beet.u8],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["seed", beet.u128],
+    ["settingsAuthority", beetSolana.publicKey],
+    ["threshold", beet.u16],
+    ["timeLock", beet.u32],
+    ["transactionIndex", beet.u64],
+    ["staleTransactionIndex", beet.u64],
+    ["archivalAuthority", beet.coption(beetSolana.publicKey)],
+    ["archivableAfter", beet.u64],
+    ["bump", beet.u8],
+    ["signers", beet.array(smartAccountSignerBeet)],
+    ["accountUtilization", beet.u8],
+    ["policySeed", beet.coption(beet.u64)],
+    ["reserved2", beet.u8],
   ],
   Settings.fromArgs,
-  'Settings'
-)
+  "Settings"
+);

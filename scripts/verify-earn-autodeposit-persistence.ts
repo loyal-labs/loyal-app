@@ -127,7 +127,9 @@ async function main() {
     smartAccountClient.indexOf('stage: "initialize_subscription_authority"') <
       smartAccountClient.indexOf('stage: "create_policy"') &&
       smartAccountClient.indexOf('stage: "create_policy"') <
-      smartAccountClient.lastIndexOf('stage: "create_recurring_delegation"') &&
+        smartAccountClient.lastIndexOf(
+          'stage: "create_recurring_delegation"'
+        ) &&
       includesAll(smartAccountClient, [
         "createSubscriptionInitAuthorityInstruction",
         'operation: "earnUsdcAutodepositCreatePolicy"',
@@ -438,7 +440,7 @@ async function main() {
       "balanceSweepTargets.lifecycleStatus",
       "lifecycle_status, active",
       "CASE WHEN",
-      "target.active ? \"active\" : \"paused\"",
+      'target.active ? "active" : "paused"',
     ]),
     "Code and indexes preserve policy-active plus target-active plus active-lifecycle as the monitorability boundary."
   );

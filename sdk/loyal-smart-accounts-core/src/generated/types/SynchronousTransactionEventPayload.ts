@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   SmartAccountCompiledInstruction,
   smartAccountCompiledInstructionBeet,
-} from './SmartAccountCompiledInstruction'
-import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
+} from "./SmartAccountCompiledInstruction";
+import { PolicyPayload, policyPayloadBeet } from "./PolicyPayload";
 /**
  * This type is used to derive the {@link SynchronousTransactionEventPayload} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link SynchronousTransactionEventPayload} type instead.
@@ -22,11 +22,11 @@ import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
  */
 export type SynchronousTransactionEventPayloadRecord = {
   TransactionPayload: {
-    accountIndex: number
-    instructions: SmartAccountCompiledInstruction[]
-  }
-  PolicyPayload: { policyPayload: PolicyPayload }
-}
+    accountIndex: number;
+    instructions: SmartAccountCompiledInstruction[];
+  };
+  PolicyPayload: { policyPayload: PolicyPayload };
+};
 
 /**
  * Union type respresenting the SynchronousTransactionEventPayload data enum defined in Rust.
@@ -40,16 +40,16 @@ export type SynchronousTransactionEventPayloadRecord = {
  * @category generated
  */
 export type SynchronousTransactionEventPayload =
-  beet.DataEnumKeyAsKind<SynchronousTransactionEventPayloadRecord>
+  beet.DataEnumKeyAsKind<SynchronousTransactionEventPayloadRecord>;
 
 export const isSynchronousTransactionEventPayloadTransactionPayload = (
   x: SynchronousTransactionEventPayload
-): x is SynchronousTransactionEventPayload & { __kind: 'TransactionPayload' } =>
-  x.__kind === 'TransactionPayload'
+): x is SynchronousTransactionEventPayload & { __kind: "TransactionPayload" } =>
+  x.__kind === "TransactionPayload";
 export const isSynchronousTransactionEventPayloadPolicyPayload = (
   x: SynchronousTransactionEventPayload
-): x is SynchronousTransactionEventPayload & { __kind: 'PolicyPayload' } =>
-  x.__kind === 'PolicyPayload'
+): x is SynchronousTransactionEventPayload & { __kind: "PolicyPayload" } =>
+  x.__kind === "PolicyPayload";
 
 /**
  * @category userTypes
@@ -58,28 +58,28 @@ export const isSynchronousTransactionEventPayloadPolicyPayload = (
 export const synchronousTransactionEventPayloadBeet =
   beet.dataEnum<SynchronousTransactionEventPayloadRecord>([
     [
-      'TransactionPayload',
+      "TransactionPayload",
       new beet.FixableBeetArgsStruct<
-        SynchronousTransactionEventPayloadRecord['TransactionPayload']
+        SynchronousTransactionEventPayloadRecord["TransactionPayload"]
       >(
         [
-          ['accountIndex', beet.u8],
-          ['instructions', beet.array(smartAccountCompiledInstructionBeet)],
+          ["accountIndex", beet.u8],
+          ["instructions", beet.array(smartAccountCompiledInstructionBeet)],
         ],
         'SynchronousTransactionEventPayloadRecord["TransactionPayload"]'
       ),
     ],
 
     [
-      'PolicyPayload',
+      "PolicyPayload",
       new beet.FixableBeetArgsStruct<
-        SynchronousTransactionEventPayloadRecord['PolicyPayload']
+        SynchronousTransactionEventPayloadRecord["PolicyPayload"]
       >(
-        [['policyPayload', policyPayloadBeet]],
+        [["policyPayload", policyPayloadBeet]],
         'SynchronousTransactionEventPayloadRecord["PolicyPayload"]'
       ),
     ],
   ]) as beet.FixableBeet<
     SynchronousTransactionEventPayload,
     SynchronousTransactionEventPayload
-  >
+  >;

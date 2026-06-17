@@ -18,7 +18,7 @@ export function useKeyboardHeight() {
       if (current !== previous) {
         runOnJS(setHeight)(current);
       }
-    },
+    }
   );
 
   return height;

@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 export type SetNewSettingsAuthorityArgs = {
-  newSettingsAuthority: web3.PublicKey
-  memo: beet.COption<string>
-}
+  newSettingsAuthority: web3.PublicKey;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -20,8 +20,8 @@ export type SetNewSettingsAuthorityArgs = {
 export const setNewSettingsAuthorityArgsBeet =
   new beet.FixableBeetArgsStruct<SetNewSettingsAuthorityArgs>(
     [
-      ['newSettingsAuthority', beetSolana.publicKey],
-      ['memo', beet.coption(beet.utf8String)],
+      ["newSettingsAuthority", beetSolana.publicKey],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'SetNewSettingsAuthorityArgs'
-  )
+    "SetNewSettingsAuthorityArgs"
+  );

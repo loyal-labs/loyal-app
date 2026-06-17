@@ -23,8 +23,7 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
   },
   {
     title: "Gasless Private Transactions",
-    description:
-      "Zero fees and sub-10ms latency for any private transfers.",
+    description: "Zero fees and sub-10ms latency for any private transfers.",
     image: require("../../../assets/images/onboarding/on2.png"),
   },
   {
@@ -36,7 +35,7 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
 ];
 
 export function buildWalletSetupActions(
-  seedVaultAvailable: boolean,
+  seedVaultAvailable: boolean
 ): WalletSetupAction[] {
   return [
     {

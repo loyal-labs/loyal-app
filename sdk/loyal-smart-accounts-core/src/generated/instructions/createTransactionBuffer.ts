@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   CreateTransactionBufferArgs,
   createTransactionBufferArgsBeet,
-} from '../types/CreateTransactionBufferArgs'
+} from "../types/CreateTransactionBufferArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type CreateTransactionBufferInstructionArgs = {
-  args: CreateTransactionBufferArgs
-}
+  args: CreateTransactionBufferArgs;
+};
 /**
  * @category Instructions
  * @category CreateTransactionBuffer
@@ -27,15 +27,15 @@ export type CreateTransactionBufferInstructionArgs = {
  */
 export const createTransactionBufferStruct = new beet.FixableBeetArgsStruct<
   CreateTransactionBufferInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', createTransactionBufferArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", createTransactionBufferArgsBeet],
   ],
-  'CreateTransactionBufferInstructionArgs'
-)
+  "CreateTransactionBufferInstructionArgs"
+);
 /**
  * Accounts required by the _createTransactionBuffer_ instruction
  *
@@ -48,17 +48,17 @@ export const createTransactionBufferStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type CreateTransactionBufferInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  transactionBuffer: web3.PublicKey
-  creator: web3.PublicKey
-  rentPayer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  transactionBuffer: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentPayer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const createTransactionBufferInstructionDiscriminator = [
   57, 97, 250, 156, 59, 211, 32, 208,
-]
+];
 
 /**
  * Creates a _CreateTransactionBuffer_ instruction.
@@ -73,12 +73,12 @@ export const createTransactionBufferInstructionDiscriminator = [
 export function createCreateTransactionBufferInstruction(
   accounts: CreateTransactionBufferInstructionAccounts,
   args: CreateTransactionBufferInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = createTransactionBufferStruct.serialize({
     instructionDiscriminator: createTransactionBufferInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -105,11 +105,11 @@ export function createCreateTransactionBufferInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -117,6 +117,6 @@ export function createCreateTransactionBufferInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

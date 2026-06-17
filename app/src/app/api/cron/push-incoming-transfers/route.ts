@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         error: error instanceof Error ? error.message : String(error),
         ok: false,
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

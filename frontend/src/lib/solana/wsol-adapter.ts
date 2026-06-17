@@ -6,10 +6,7 @@ import {
   NATIVE_MINT,
 } from "@solana/spl-token";
 import type { Connection, PublicKey } from "@solana/web3.js";
-import {
-  SystemProgram,
-  Transaction,
-} from "@solana/web3.js";
+import { SystemProgram, Transaction } from "@solana/web3.js";
 
 type WalletSigner = {
   publicKey: PublicKey;
@@ -30,7 +27,7 @@ export async function wrapSolToWSol(opts: {
 
   const wsolAta = await getAssociatedTokenAddress(
     NATIVE_MINT,
-    wallet.publicKey,
+    wallet.publicKey
   );
 
   const tx = new Transaction();
@@ -44,8 +41,8 @@ export async function wrapSolToWSol(opts: {
         wallet.publicKey,
         wsolAta,
         wallet.publicKey,
-        NATIVE_MINT,
-      ),
+        NATIVE_MINT
+      )
     );
   }
 
@@ -54,18 +51,22 @@ export async function wrapSolToWSol(opts: {
       fromPubkey: wallet.publicKey,
       toPubkey: wsolAta,
       lamports,
-    }),
+    })
   );
 
   tx.add(createSyncNativeInstruction(wsolAta));
 
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
   tx.recentBlockhash = blockhash;
   tx.feePayer = wallet.publicKey;
 
   const signed = await wallet.signTransaction(tx);
   const signature = await connection.sendRawTransaction(signed.serialize());
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  await connection.confirmTransaction(
+    { signature, blockhash, lastValidBlockHeight },
+    "confirmed"
+  );
 
   return { wsolAta, createdAta };
 }
@@ -82,16 +83,20 @@ export async function closeWsolAta(opts: {
 
   try {
     const tx = new Transaction().add(
-      createCloseAccountInstruction(wsolAta, wallet.publicKey, wallet.publicKey),
+      createCloseAccountInstruction(wsolAta, wallet.publicKey, wallet.publicKey)
     );
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } =
+      await connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
     tx.feePayer = wallet.publicKey;
 
     const signed = await wallet.signTransaction(tx);
     const signature = await connection.sendRawTransaction(signed.serialize());
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+    await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      "confirmed"
+    );
   } catch (error) {
     console.error("Failed to close wSOL ATA", error);
   }

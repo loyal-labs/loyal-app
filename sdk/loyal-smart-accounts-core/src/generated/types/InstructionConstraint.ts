@@ -5,16 +5,16 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
-import { AccountConstraint, accountConstraintBeet } from './AccountConstraint'
-import { DataConstraint, dataConstraintBeet } from './DataConstraint'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
+import { AccountConstraint, accountConstraintBeet } from "./AccountConstraint";
+import { DataConstraint, dataConstraintBeet } from "./DataConstraint";
 export type InstructionConstraint = {
-  programId: web3.PublicKey
-  accountConstraints: AccountConstraint[]
-  dataConstraints: DataConstraint[]
-}
+  programId: web3.PublicKey;
+  accountConstraints: AccountConstraint[];
+  dataConstraints: DataConstraint[];
+};
 
 /**
  * @category userTypes
@@ -23,9 +23,9 @@ export type InstructionConstraint = {
 export const instructionConstraintBeet =
   new beet.FixableBeetArgsStruct<InstructionConstraint>(
     [
-      ['programId', beetSolana.publicKey],
-      ['accountConstraints', beet.array(accountConstraintBeet)],
-      ['dataConstraints', beet.array(dataConstraintBeet)],
+      ["programId", beetSolana.publicKey],
+      ["accountConstraints", beet.array(accountConstraintBeet)],
+      ["dataConstraints", beet.array(dataConstraintBeet)],
     ],
-    'InstructionConstraint'
-  )
+    "InstructionConstraint"
+  );

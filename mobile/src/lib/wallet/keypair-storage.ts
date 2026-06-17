@@ -48,7 +48,7 @@ async function recordFailedAttempt(): Promise<void> {
   if (duration > 0) {
     await SecureStore.setItemAsync(
       LOCKED_UNTIL_KEY,
-      String(Date.now() + duration),
+      String(Date.now() + duration)
     );
   }
 }
@@ -60,7 +60,7 @@ async function resetAttempts(): Promise<void> {
 
 export async function storeKeypair(
   keypair: Keypair,
-  pin: string,
+  pin: string
 ): Promise<void> {
   if (!isValidWalletPin(pin)) {
     throw new Error("PIN must be 4 digits");
@@ -70,7 +70,7 @@ export async function storeKeypair(
   await SecureStore.setItemAsync(ENCRYPTED_KEYPAIR_KEY, encrypted);
   await SecureStore.setItemAsync(
     WALLET_PUBLIC_KEY,
-    keypair.publicKey.toBase58(),
+    keypair.publicKey.toBase58()
   );
 }
 
@@ -80,7 +80,7 @@ export function generateKeypairInMemory(): Keypair {
 
 export async function importKeypair(
   secretKey: Uint8Array,
-  pin: string,
+  pin: string
 ): Promise<Keypair> {
   const keypair = Keypair.fromSecretKey(secretKey);
   await storeKeypair(keypair, pin);
@@ -120,7 +120,7 @@ export async function clearStoredKeypair(): Promise<void> {
 
 export async function changePin(
   keypair: Keypair,
-  newPin: string,
+  newPin: string
 ): Promise<void> {
   await storeKeypair(keypair, newPin);
 }

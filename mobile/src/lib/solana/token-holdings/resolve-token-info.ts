@@ -70,7 +70,7 @@ export function resolveTokenName(source: TokenNameSource): string {
 
 export function resolveTokenInfo(
   mint: string,
-  holdings: TokenHolding[],
+  holdings: TokenHolding[]
 ): { symbol: string; icon: string } {
   const holding = holdings.find((h) => h.mint === mint);
   const symbol = resolveTokenSymbol({

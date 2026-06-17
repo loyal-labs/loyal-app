@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   AddSpendingLimitArgs,
   addSpendingLimitArgsBeet,
-} from '../types/AddSpendingLimitArgs'
+} from "../types/AddSpendingLimitArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type AddSpendingLimitAsAuthorityInstructionArgs = {
-  args: AddSpendingLimitArgs
-}
+  args: AddSpendingLimitArgs;
+};
 /**
  * @category Instructions
  * @category AddSpendingLimitAsAuthority
@@ -27,15 +27,15 @@ export type AddSpendingLimitAsAuthorityInstructionArgs = {
  */
 export const addSpendingLimitAsAuthorityStruct = new beet.FixableBeetArgsStruct<
   AddSpendingLimitAsAuthorityInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', addSpendingLimitArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", addSpendingLimitArgsBeet],
   ],
-  'AddSpendingLimitAsAuthorityInstructionArgs'
-)
+  "AddSpendingLimitAsAuthorityInstructionArgs"
+);
 /**
  * Accounts required by the _addSpendingLimitAsAuthority_ instruction
  *
@@ -49,18 +49,18 @@ export const addSpendingLimitAsAuthorityStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type AddSpendingLimitAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  spendingLimit: web3.PublicKey
-  rentPayer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  spendingLimit: web3.PublicKey;
+  rentPayer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const addSpendingLimitAsAuthorityInstructionDiscriminator = [
   169, 189, 84, 54, 30, 244, 223, 212,
-]
+];
 
 /**
  * Creates a _AddSpendingLimitAsAuthority_ instruction.
@@ -75,13 +75,13 @@ export const addSpendingLimitAsAuthorityInstructionDiscriminator = [
 export function createAddSpendingLimitAsAuthorityInstruction(
   accounts: AddSpendingLimitAsAuthorityInstructionAccounts,
   args: AddSpendingLimitAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = addSpendingLimitAsAuthorityStruct.serialize({
     instructionDiscriminator:
       addSpendingLimitAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -113,11 +113,11 @@ export function createAddSpendingLimitAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -125,6 +125,6 @@ export function createAddSpendingLimitAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

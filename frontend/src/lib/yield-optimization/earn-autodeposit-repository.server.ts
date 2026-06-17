@@ -1171,8 +1171,9 @@ export async function updateAutodepositWalletBalanceFloor(
     walletBalanceFloorRaw: bigint;
   },
   dependencies: Pick<EarnAutodepositRepositoryDependencies, "client"> &
-    Partial<Pick<EarnAutodepositRepositoryDependencies, "now">> =
-    createDependencies()
+    Partial<
+      Pick<EarnAutodepositRepositoryDependencies, "now">
+    > = createDependencies()
 ): Promise<EarnAutodepositWalletBalanceFloorUpdateResult> {
   if (input.walletBalanceFloorRaw < BigInt(0)) {
     throw new Error("Autodeposit wallet balance floor cannot be negative.");
@@ -1217,13 +1218,17 @@ export async function updateAutodepositWalletBalanceFloor(
         AND ${balanceSweepTargets.lifecycleStatus} <> 'closed'
         AND (
           ${balanceSweepTargets.recurringDelegation} IS NULL
-          OR ${balanceSweepTargets.recurringDelegation} = ${input.recurringDelegation}
+          OR ${balanceSweepTargets.recurringDelegation} = ${
+    input.recurringDelegation
+  }
         )
       FOR UPDATE
     ),
     updated_target AS (
       UPDATE ${balanceSweepTargets}
-      SET ${balanceSweepTargets.walletBalanceFloorRaw} = ${input.walletBalanceFloorRaw}
+      SET ${balanceSweepTargets.walletBalanceFloorRaw} = ${
+    input.walletBalanceFloorRaw
+  }
       WHERE ${balanceSweepTargets.id} IN (SELECT id FROM locked_target)
       RETURNING
         ${balanceSweepTargets.id},
@@ -1233,10 +1238,16 @@ export async function updateAutodepositWalletBalanceFloor(
     suppressed_lots AS (
       UPDATE ${balanceSweepSurplusLots}
       SET
-        ${balanceSweepSurplusLots.status} = 'suppressed'::loyal_yield.balance_sweep_surplus_lot_status,
+        ${
+          balanceSweepSurplusLots.status
+        } = 'suppressed'::loyal_yield.balance_sweep_surplus_lot_status,
         ${balanceSweepSurplusLots.updatedAt} = ${now}
-      WHERE ${balanceSweepSurplusLots.targetId} IN (SELECT id FROM updated_target)
-        AND ${balanceSweepSurplusLots.status} = 'open'::loyal_yield.balance_sweep_surplus_lot_status
+      WHERE ${
+        balanceSweepSurplusLots.targetId
+      } IN (SELECT id FROM updated_target)
+        AND ${
+          balanceSweepSurplusLots.status
+        } = 'open'::loyal_yield.balance_sweep_surplus_lot_status
         AND ${balanceSweepSurplusLots.remainingAmountRaw} > 0
       RETURNING ${balanceSweepSurplusLots.id}
     ),
@@ -1280,7 +1291,9 @@ export async function updateAutodepositWalletBalanceFloor(
         projection.account_data_hash,
         jsonb_build_object(
           'floorRebaseline', true,
-          'previousWalletBalanceFloorRaw', ${existing.walletBalanceFloorRaw?.toString() ?? null},
+          'previousWalletBalanceFloorRaw', ${
+            existing.walletBalanceFloorRaw?.toString() ?? null
+          },
           'walletBalanceFloorRaw', ${input.walletBalanceFloorRaw.toString()},
           'suppressedOpenLotCount', (SELECT COUNT(*) FROM suppressed_lots)
         ),
@@ -1341,7 +1354,9 @@ export async function updateAutodepositWalletBalanceFloor(
       inserted_lot."lotStatus",
       CASE
         WHEN projection.target_id IS NULL THEN 'wallet_balance_projection_missing'
-        WHEN projection.amount_raw <= ${input.walletBalanceFloorRaw} THEN 'wallet_balance_at_or_below_floor'
+        WHEN projection.amount_raw <= ${
+          input.walletBalanceFloorRaw
+        } THEN 'wallet_balance_at_or_below_floor'
         ELSE NULL
       END AS "skippedReason"
     FROM updated_target

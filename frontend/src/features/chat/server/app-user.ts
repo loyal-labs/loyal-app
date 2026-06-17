@@ -178,6 +178,10 @@ export async function getOrCreateCurrentUser(
   }
 
   await dependencies.updateUserMetadata(racedUser, principal, now);
-  await dependencies.upsertWalletForUser(racedUser.id, principal.walletAddress, now);
+  await dependencies.upsertWalletForUser(
+    racedUser.id,
+    principal.walletAddress,
+    now
+  );
   return mergeUserMetadata(racedUser);
 }

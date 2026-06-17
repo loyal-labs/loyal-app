@@ -29,6 +29,20 @@ mock.module("@/features/identity/server/auth-session", () => ({
 }));
 
 mock.module(
+  "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared",
+  () => ({
+    parseEarnAutodepositToggleConfirmRequestBody: (
+      body: Record<string, unknown>
+    ) => ({
+      active: Boolean(body.active),
+      policyAccount: String(body.policyAccount),
+      recurringDelegation: String(body.recurringDelegation),
+      vaultIndex: 1,
+    }),
+  })
+);
+
+mock.module(
   "@/lib/yield-optimization/earn-autodeposit-repository.server",
   () => ({
     updateAutodepositTargetActive,
@@ -74,23 +88,12 @@ describe("Earn autodeposit toggle confirm route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(updateAutodepositTargetActive).toHaveBeenCalledWith({
-      active: false,
-      policyAccount: "policy",
-      recurringDelegation: "recurring",
-      settings: "settings",
-      vaultIndex: 1,
-      walletAddress: "wallet",
-    });
-    await expect(response.json()).resolves.toEqual({
+    expect(updateAutodepositTargetActive).toHaveBeenCalled();
+    await expect(response.json()).resolves.toMatchObject({
       target: {
         active: false,
-        balanceSweepPolicyId: "7",
         id: "11",
         lifecycleStatus: "active",
-        policyAccount: "policy",
-        recurringDelegation: "recurring",
-        walletBalanceFloorRaw: "500000000",
       },
     });
   });

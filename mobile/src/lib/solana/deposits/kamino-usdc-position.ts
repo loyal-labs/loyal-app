@@ -60,7 +60,7 @@ function formatScaledBigInt(value: bigint, scale: number): string {
 
 function parseStoredPosition(
   value: string,
-  mint: string,
+  mint: string
 ): StoredKaminoUsdcPosition | null {
   try {
     const parsed = JSON.parse(value) as Partial<StoredKaminoUsdcPosition>;
@@ -100,7 +100,7 @@ function parseStoredPosition(
 
 function computeAverageEntryExchangeRate(
   collateralSharesAmountRaw: bigint,
-  principalLiquidityAmountRaw: bigint,
+  principalLiquidityAmountRaw: bigint
 ): string | null {
   if (
     collateralSharesAmountRaw <= BigInt(0) ||
@@ -128,14 +128,14 @@ function createStoredPosition(args: {
     collateralSharesAmountRaw: args.collateralSharesAmountRaw.toString(),
     averageEntryExchangeRate: computeAverageEntryExchangeRate(
       args.collateralSharesAmountRaw,
-      args.principalLiquidityAmountRaw,
+      args.principalLiquidityAmountRaw
     ),
     updatedAt: Date.now(),
   };
 }
 
 export function resolveTrackedKaminoUsdcMint(
-  solanaEnv: SolanaEnv,
+  solanaEnv: SolanaEnv
 ): string | null {
   if (solanaEnv === "mainnet") return SOLANA_USDC_MINT_MAINNET;
   if (solanaEnv === "devnet") return SOLANA_USDC_MINT_DEVNET;
@@ -151,7 +151,7 @@ export function resolveTrackedKaminoUsdcMint(
  */
 export function getKaminoUsdcPositionStorageKey(
   publicKey: string,
-  solanaEnv: SolanaEnv,
+  solanaEnv: SolanaEnv
 ): string | null {
   const mint = resolveTrackedKaminoUsdcMint(solanaEnv);
   if (!mint) return null;
@@ -200,7 +200,7 @@ export function applyKaminoUnshieldToTrackedPosition(args: {
   }
 
   const trackedPrincipal = BigInt(
-    args.trackedPosition.principalLiquidityAmountRaw,
+    args.trackedPosition.principalLiquidityAmountRaw
   );
   const trackedShares = BigInt(args.trackedPosition.collateralSharesAmountRaw);
   if (
@@ -213,7 +213,7 @@ export function applyKaminoUnshieldToTrackedPosition(args: {
   const remainingShares = trackedShares - args.burnedCollateralSharesAmountRaw;
   const remainingPrincipal = ceilDiv(
     trackedPrincipal * remainingShares,
-    trackedShares,
+    trackedShares
   );
 
   return createStoredPosition({
@@ -255,7 +255,7 @@ export function resolveKaminoPrincipalLiquidityAmountRaw(args: {
   if (actualCollateralSharesAmountRaw < trackedShares) {
     return ceilDiv(
       trackedPrincipal * actualCollateralSharesAmountRaw,
-      trackedShares,
+      trackedShares
     );
   }
 
@@ -275,7 +275,7 @@ export async function loadKaminoUsdcTrackedPosition(args: {
   const mint = resolveTrackedKaminoUsdcMint(args.solanaEnv);
   const storageKey = getKaminoUsdcPositionStorageKey(
     args.publicKey,
-    args.solanaEnv,
+    args.solanaEnv
   );
   if (!mint || !storageKey) return null;
 
@@ -293,7 +293,7 @@ export async function recordKaminoUsdcShield(args: {
   const mint = resolveTrackedKaminoUsdcMint(args.solanaEnv);
   const storageKey = getKaminoUsdcPositionStorageKey(
     args.publicKey,
-    args.solanaEnv,
+    args.solanaEnv
   );
   if (!mint || !storageKey) return false;
 
@@ -321,7 +321,7 @@ export async function recordKaminoUsdcUnshield(args: {
 }): Promise<boolean> {
   const storageKey = getKaminoUsdcPositionStorageKey(
     args.publicKey,
-    args.solanaEnv,
+    args.solanaEnv
   );
   if (!storageKey) return false;
 
@@ -349,7 +349,7 @@ export async function clearKaminoUsdcPosition(args: {
 }): Promise<void> {
   const storageKey = getKaminoUsdcPositionStorageKey(
     args.publicKey,
-    args.solanaEnv,
+    args.solanaEnv
   );
   if (!storageKey) return;
   await SecureStore.deleteItemAsync(storageKey);

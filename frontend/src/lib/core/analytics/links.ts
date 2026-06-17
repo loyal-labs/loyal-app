@@ -92,7 +92,11 @@ export function trackFrontendLinkClick(
     return;
   }
 
-  trackFrontendAnalyticsEvent(publicEnv, trackedLink.event, trackedLink.properties);
+  trackFrontendAnalyticsEvent(
+    publicEnv,
+    trackedLink.event,
+    trackedLink.properties
+  );
 }
 
 export function openTrackedLink(

@@ -116,7 +116,8 @@ export function snapshotRecordToEarnForecast(
     history: {
       feeBps: 1,
       generatedAt: snapshot.generatedAt.toISOString(),
-      riskProfile: snapshot.riskProfile as EarnForecastApyHistoryResponse["riskProfile"],
+      riskProfile:
+        snapshot.riskProfile as EarnForecastApyHistoryResponse["riskProfile"],
       samples: snapshot.samples,
       series,
       window: {
@@ -224,7 +225,8 @@ function hourlyRowsToEarnForecast(
     history: {
       feeBps: 1,
       generatedAt: latest.generatedAt.toISOString(),
-      riskProfile: latest.riskProfile as EarnForecastApyHistoryResponse["riskProfile"],
+      riskProfile:
+        latest.riskProfile as EarnForecastApyHistoryResponse["riskProfile"],
       samples: loyalSamples,
       series: [
         {

@@ -6,7 +6,7 @@ import { PublicKey } from "@solana/web3.js";
 // for native SOL transfers so the notification format can treat both
 // SOL and SPL uniformly.
 export const NATIVE_SOL_MINT = new PublicKey(
-  "So11111111111111111111111111111111111111112",
+  "So11111111111111111111111111111111111111112"
 );
 
 // Signature pages per wallet per run. New installs start with no cursor

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { Keypair } from "@solana/web3.js";
-import { pda, spec } from "../index";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { pda, PROGRAM_ID, spec } from "../index";
 
 describe("loyal-smart-accounts-core", () => {
   it("derives the same program config PDA deterministically", () => {
@@ -19,13 +19,28 @@ describe("loyal-smart-accounts-core", () => {
     });
   });
 
-  it("derives transaction buffer PDAs", () => {
-    const [bufferPda] = pda.getTransactionBufferPda({
-      consensusPda: Keypair.generate().publicKey,
-      creator: Keypair.generate().publicKey,
-      bufferIndex: 1,
-    });
+  it("derives transaction buffer PDAs from the canonical seed tuple", () => {
+    const consensusPda = Keypair.generate().publicKey;
+    const creator = Keypair.generate().publicKey;
+    const bufferIndex = 1;
 
-    expect(bufferPda.toBase58()).toBeTruthy();
+    const [bufferPda, bump] = pda.getTransactionBufferPda({
+      consensusPda,
+      creator,
+      bufferIndex,
+    });
+    const [manualPda, manualBump] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("smart_account"),
+        consensusPda.toBytes(),
+        Buffer.from("transaction_buffer"),
+        creator.toBytes(),
+        Uint8Array.from([bufferIndex]),
+      ],
+      PROGRAM_ID
+    );
+
+    expect(bufferPda.toBase58()).toBe(manualPda.toBase58());
+    expect(bump).toBe(manualBump);
   });
 });

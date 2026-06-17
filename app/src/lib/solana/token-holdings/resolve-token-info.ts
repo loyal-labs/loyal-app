@@ -9,9 +9,7 @@ type TokenIconSource = {
   imageUrl?: string | null;
 };
 
-export function resolveTokenIcon(
-  source: TokenIconSource
-): string {
+export function resolveTokenIcon(source: TokenIconSource): string {
   const imageUrl = source.imageUrl?.trim();
   return imageUrl || KNOWN_TOKEN_ICONS[source.mint] || DEFAULT_TOKEN_ICON;
 }

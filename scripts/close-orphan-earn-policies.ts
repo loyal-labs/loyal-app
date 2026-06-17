@@ -369,9 +369,7 @@ function filterOrphanEarnPolicies(args: {
       }
 
       if (args.includeStaleDbPolicies && !policy.matchesEarnYieldRouting) {
-        return [
-          { ...policy, expectedAction: "close-and-delete-db" as const },
-        ];
+        return [{ ...policy, expectedAction: "close-and-delete-db" as const }];
       }
     }
 

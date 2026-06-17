@@ -17,7 +17,7 @@ import { getWebsocketConnection } from "@/lib/solana/rpc/connection";
  */
 export async function subscribeToAtaChanges(
   atas: PublicKey[],
-  onChange: () => void,
+  onChange: () => void
 ): Promise<() => Promise<void>> {
   if (atas.length === 0) {
     return async () => {};
@@ -37,14 +37,11 @@ export async function subscribeToAtaChanges(
             console.error("[ws/ata] onChange handler threw", error);
           }
         },
-        "confirmed",
+        "confirmed"
       );
       subscriptionIds.push(id);
     } catch (error) {
-      console.error(
-        `[ws/ata] Failed to subscribe to ${ata.toBase58()}`,
-        error,
-      );
+      console.error(`[ws/ata] Failed to subscribe to ${ata.toBase58()}`, error);
     }
   }
 
@@ -56,7 +53,7 @@ export async function subscribeToAtaChanges(
         } catch (error) {
           console.error("[ws/ata] Failed to remove listener", error);
         }
-      }),
+      })
     );
   };
 }

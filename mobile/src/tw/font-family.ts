@@ -24,7 +24,7 @@ function normalizeClassName(className?: string): string | undefined {
 export function resolveTextFontProps(
   className?: string,
   explicitFontFamily?: string,
-  monoFontFamily = "monospace",
+  monoFontFamily = "monospace"
 ): ResolvedTextFontProps {
   const normalizedClassName = normalizeClassName(className);
 
@@ -39,18 +39,20 @@ export function resolveTextFontProps(
   if (FONT_MONO_CLASS_PATTERN.test(normalizedClassName)) {
     return {
       className: normalizeClassName(
-        normalizedClassName.replace(FONT_MONO_CLASS_PATTERN, " "),
+        normalizedClassName.replace(FONT_MONO_CLASS_PATTERN, " ")
       ),
       fontFamily: monoFontFamily,
     };
   }
 
-  const arbitraryFontMatch = normalizedClassName.match(ARBITRARY_FONT_CLASS_PATTERN);
+  const arbitraryFontMatch = normalizedClassName.match(
+    ARBITRARY_FONT_CLASS_PATTERN
+  );
 
   if (arbitraryFontMatch) {
     return {
       className: normalizeClassName(
-        normalizedClassName.replace(arbitraryFontMatch[0], " "),
+        normalizedClassName.replace(arbitraryFontMatch[0], " ")
       ),
       fontFamily: arbitraryFontMatch[1],
     };

@@ -57,7 +57,7 @@ let cachedClient: LoyalPrivateTransactionsClientType | null = null;
 let cachedClientOwner: string | null = null;
 
 async function getEarningsClient(
-  signer: Signer,
+  signer: Signer
 ): Promise<LoyalPrivateTransactionsClientType> {
   const owner = signer.publicKey.toBase58();
   if (cachedClient && cachedClientOwner === owner) return cachedClient;

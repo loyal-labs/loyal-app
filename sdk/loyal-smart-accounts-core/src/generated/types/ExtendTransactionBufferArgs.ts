@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type ExtendTransactionBufferArgs = {
-  buffer: Uint8Array
-}
+  buffer: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -16,6 +16,6 @@ export type ExtendTransactionBufferArgs = {
  */
 export const extendTransactionBufferArgsBeet =
   new beet.FixableBeetArgsStruct<ExtendTransactionBufferArgs>(
-    [['buffer', beet.bytes]],
-    'ExtendTransactionBufferArgs'
-  )
+    [["buffer", beet.bytes]],
+    "ExtendTransactionBufferArgs"
+  );

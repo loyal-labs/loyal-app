@@ -2,10 +2,7 @@ import { f } from "@ax-llm/ax";
 
 import examplesV1 from "./assets/examples/v1.json";
 import rulesV1 from "./assets/rules/v1.json";
-import type {
-  SummaryGenerationResponse,
-  SummaryProgramSpec,
-} from "./types";
+import type { SummaryGenerationResponse, SummaryProgramSpec } from "./types";
 import { validateSummaryOneliner, validateSummaryTopics } from "./validation";
 
 const topicExtractionSignature = f()
@@ -21,8 +18,14 @@ const topicExtractionSignature = f()
     "messageTranscript",
     f.string("Chat transcript in 'Name: message' lines ordered chronologically")
   )
-  .input("qualityRules", f.string("Quality rubric for topic and source selection"))
-  .output("topics", f.json("JSON array of 1-5 topics: [{title, content, sources[]}]"))
+  .input(
+    "qualityRules",
+    f.string("Quality rubric for topic and source selection")
+  )
+  .output(
+    "topics",
+    f.json("JSON array of 1-5 topics: [{title, content, sources[]}]")
+  )
   .description(
     "Generate a factual, concise daily summary of meaningful chat topics. Ignore greetings, spam, and repetitive chatter. Return 1-5 topics with contributor names in sources."
   )
@@ -31,8 +34,14 @@ const topicExtractionSignature = f()
 const onelinerSignature = f()
   .input("chatTitle", f.string("Telegram group chat title"))
   .input("dayKeyUtc", f.string("Target UTC day key in YYYY-MM-DD format"))
-  .input("topics", f.json("JSON array of structured topics: [{title, content, sources[]}]"))
-  .output("oneliner", f.string("Single plain sentence that captures the day, max 110 chars"))
+  .input(
+    "topics",
+    f.json("JSON array of structured topics: [{title, content, sources[]}]")
+  )
+  .output(
+    "oneliner",
+    f.string("Single plain sentence that captures the day, max 110 chars")
+  )
   .description(
     "Write one concise non-hype sentence that captures the day across the provided topics."
   )

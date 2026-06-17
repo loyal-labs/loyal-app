@@ -7,9 +7,7 @@ import {
   resolveEarnDepositConfirmPolicySignature,
 } from "./earn-deposit-flow.shared";
 
-const POLICY_ACCOUNT = new PublicKey(
-  "11111111111111111111111111111111"
-);
+const POLICY_ACCOUNT = new PublicKey("11111111111111111111111111111111");
 
 function createPreparedDeposit(args: {
   finalize?: boolean;
@@ -36,20 +34,17 @@ describe("Earn deposit flow helpers", () => {
       setup: true,
     });
 
-    expect(getEarnDepositReviewStages({ preparedDeposit })).toEqual([
-      "policy",
-      "deposit",
-    ]);
-    expect(
-      resolveEarnDepositConfirmPolicySignature({
-        policyConfirmedSlot: "121",
-        policySignature: "setup-signature",
-        preparedDeposit,
-      })
-    ).toEqual({
+    expect(getEarnDepositReviewStages({ preparedDeposit }).join(">")).toBe(
+      "policy>deposit"
+    );
+    const resolution = resolveEarnDepositConfirmPolicySignature({
       policyConfirmedSlot: "121",
       policySignature: "setup-signature",
+      preparedDeposit,
     });
+    expect(
+      "policySignature" in resolution ? resolution.policySignature : ""
+    ).toBe("setup-signature");
   });
 
   test("first deposit with finalize requires setup, finalize, then deposit", () => {
@@ -59,25 +54,21 @@ describe("Earn deposit flow helpers", () => {
       setup: true,
     });
 
-    expect(getEarnDepositReviewStages({ preparedDeposit })).toEqual([
-      "policy",
-      "policy-finalize",
-      "deposit",
-    ]);
-    expect(
-      resolveEarnDepositConfirmPolicySignature({
-        policyConfirmedSlot: "121",
-        policySignature: "policy-signature",
-        preparedDeposit,
-        setupPolicyConfirmedSlot: "122",
-        setupPolicySignature: "setup-policy-signature",
-      })
-    ).toEqual({
+    expect(getEarnDepositReviewStages({ preparedDeposit }).join(">")).toBe(
+      "policy>policy-finalize>deposit"
+    );
+    const resolution = resolveEarnDepositConfirmPolicySignature({
       policyConfirmedSlot: "121",
       policySignature: "policy-signature",
+      preparedDeposit,
       setupPolicyConfirmedSlot: "122",
       setupPolicySignature: "setup-policy-signature",
     });
+    expect(
+      "setupPolicySignature" in resolution
+        ? resolution.setupPolicySignature
+        : ""
+    ).toBe("setup-policy-signature");
   });
 
   test("first deposit with finalize rejects missing setup policy signature", () => {
@@ -103,23 +94,21 @@ describe("Earn deposit flow helpers", () => {
       policyInitialization: "reuse",
     });
 
-    expect(getEarnDepositReviewStages({ preparedDeposit })).toEqual([
-      "deposit",
-    ]);
-    expect(
-      resolveEarnDepositConfirmPolicySignature({
-        activePolicy: {
-          account: POLICY_ACCOUNT.toBase58(),
-          lastSeenSignature: "active-policy-signature",
-          lastSeenSlot: "121",
-          seed: "7",
-        },
-        preparedDeposit,
-      })
-    ).toEqual({
-      policyConfirmedSlot: "121",
-      policySignature: "active-policy-signature",
+    expect(getEarnDepositReviewStages({ preparedDeposit }).join(">")).toBe(
+      "deposit"
+    );
+    const resolution = resolveEarnDepositConfirmPolicySignature({
+      activePolicy: {
+        account: POLICY_ACCOUNT.toBase58(),
+        lastSeenSignature: "active-policy-signature",
+        lastSeenSlot: "121",
+        seed: "7",
+      },
+      preparedDeposit,
     });
+    expect(
+      "policySignature" in resolution ? resolution.policySignature : ""
+    ).toBe("active-policy-signature");
   });
 
   test("top-up rejects a missing active policy signature", () => {

@@ -120,6 +120,7 @@ import type {
   SmartAccountPreparedEarnUsdcAutodepositPull,
   SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdrawStep,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   SmartAccountPreparedEarnUsdcWithdraw,
   SmartAccountPreparedSettingsChange,
@@ -267,6 +268,7 @@ type EarnPolicyUniverse = {
 type KaminoInstructionBundle = {
   instruction: TransactionInstruction;
   instructions: TransactionInstruction[];
+  matchingInstructions: TransactionInstruction[];
 };
 
 export type KaminoReserveSnapshot = {
@@ -1221,13 +1223,17 @@ function readKaminoInstructionBundle(
   label = "deposit"
 ): KaminoInstructionBundle {
   const expectedProgram = lendProgramId.toBase58();
-  const instructionIndex =
-    payload.instructions?.findIndex(
-      (entry) =>
+  const matchingInstructionIndexes =
+    payload.instructions
+      ?.map((entry, index) =>
         entry.programAddress === expectedProgram &&
         instructionDataStartsWith(entry.data, discriminator) &&
         Array.isArray(entry.accounts)
-    ) ?? -1;
+          ? index
+          : -1
+      )
+      .filter((index) => index >= 0) ?? [];
+  const instructionIndex = matchingInstructionIndexes[0] ?? -1;
   const instruction =
     instructionIndex >= 0 ? payload.instructions?.[instructionIndex] : null;
 
@@ -1260,6 +1266,9 @@ function readKaminoInstructionBundle(
     throw new Error(`Kamino did not return a ${label} instruction.`);
   }
 
+  const matchingInstructions = matchingInstructionIndexes.map((index) =>
+    toKaminoTransactionInstruction(payload.instructions![index]!, label)
+  );
   const instructions =
     payload.instructions
       ?.slice(0, instructionIndex + 1)
@@ -1269,6 +1278,7 @@ function readKaminoInstructionBundle(
   return {
     instruction: toKaminoTransactionInstruction(instruction, label),
     instructions,
+    matchingInstructions,
   };
 }
 
@@ -1387,13 +1397,28 @@ function assertKaminoAccountEquals(args: {
 function validateKaminoWithdrawInstruction(args: {
   instruction: TransactionInstruction;
   lendProgramId: PublicKey;
+  withdrawDiscriminator: readonly number[];
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;
   market: PublicKey;
-  reserve: PublicKey;
   liquidityMint: PublicKey;
-}): { vaultCollateralAta: PublicKey; reserveCollateralMint: PublicKey } {
+  safeMarkets: Set<string>;
+}): {
+  executionMarket: PublicKey;
+  executionReserve: PublicKey;
+  vaultCollateralAta: PublicKey;
+  reserveCollateralMint: PublicKey;
+} {
   const { instruction } = args;
+  if (
+    !instruction.data
+      .subarray(0, args.withdrawDiscriminator.length)
+      .equals(Buffer.from(args.withdrawDiscriminator))
+  ) {
+    throw new Error(
+      "Kamino withdraw instruction has an unexpected withdraw discriminator."
+    );
+  }
   assertKaminoAccountEquals({
     actual: instruction.programId,
     expected: args.lendProgramId,
@@ -1422,11 +1447,19 @@ function validateKaminoWithdrawInstruction(args: {
     expected: args.market,
     label: "market",
   });
-  assertKaminoAccountEquals({
-    actual: requireKaminoAccount(instruction, reserveIndex, "reserve"),
-    expected: args.reserve,
-    label: "reserve",
-  });
+  const executionMarket = requireKaminoAccount(
+    instruction,
+    marketIndex,
+    "market"
+  );
+  if (!args.safeMarkets.has(executionMarket.toBase58())) {
+    throw new Error("Kamino withdraw instruction has an unsafe market.");
+  }
+  const executionReserve = requireKaminoAccount(
+    instruction,
+    reserveIndex,
+    "reserve"
+  );
   assertKaminoAccountEquals({
     actual: requireKaminoAccount(
       instruction,
@@ -1464,7 +1497,12 @@ function validateKaminoWithdrawInstruction(args: {
     expected: TOKEN_PROGRAM_ID,
     label: "liquidity token program",
   });
-  return { reserveCollateralMint, vaultCollateralAta };
+  return {
+    executionMarket,
+    executionReserve,
+    reserveCollateralMint,
+    vaultCollateralAta,
+  };
 }
 
 function inferKaminoDepositCollateralAccounts(args: {
@@ -1518,17 +1556,17 @@ function makeSignerWritable(
 }
 
 function createEarnFullWithdrawCleanupInstructions(args: {
-  vaultCollateralAta?: PublicKey | null;
+  vaultCollateralAtas?: PublicKey[];
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;
   walletAddress: PublicKey;
 }): TransactionInstruction[] {
   const instructions: TransactionInstruction[] = [];
-  if (args.vaultCollateralAta) {
+  for (const vaultCollateralAta of args.vaultCollateralAtas ?? []) {
     instructions.push(
       makeSignerWritable(
         createCloseAccountInstruction(
-          args.vaultCollateralAta,
+          vaultCollateralAta,
           args.walletAddress,
           args.vaultPda,
           [],
@@ -1607,18 +1645,13 @@ async function resolveEarnFullWithdrawAmounts(args: {
   requestedWithdrawAmountRaw: bigint;
   reserve: PublicKey;
   vaultCollateralAta: PublicKey;
-  vaultUsdcAta: PublicKey;
 }): Promise<{
   kaminoWithdrawAmountRaw: bigint;
-  vaultUsdcRemainderRaw: bigint;
-  walletTransferAmountRaw: bigint;
 }> {
-  const [vaultCollateralAmountRaw, vaultUsdcRemainderRaw, reserveAccount] =
-    await Promise.all([
-      getTokenAccountAmountOrZero(args.connection, args.vaultCollateralAta),
-      getTokenAccountAmountOrZero(args.connection, args.vaultUsdcAta),
-      args.connection.getAccountInfo(args.reserve, "confirmed"),
-    ]);
+  const [vaultCollateralAmountRaw, reserveAccount] = await Promise.all([
+    getTokenAccountAmountOrZero(args.connection, args.vaultCollateralAta),
+    args.connection.getAccountInfo(args.reserve, "confirmed"),
+  ]);
 
   if (!reserveAccount) {
     throw new Error("Kamino reserve account was not found.");
@@ -1640,8 +1673,6 @@ async function resolveEarnFullWithdrawAmounts(args: {
 
   return {
     kaminoWithdrawAmountRaw,
-    vaultUsdcRemainderRaw,
-    walletTransferAmountRaw: kaminoWithdrawAmountRaw,
   };
 }
 
@@ -5320,14 +5351,6 @@ export function createSmartAccountVaultsClient(
       false,
       TOKEN_PROGRAM_ID
     );
-    const localVaultCollateralAta = earnTarget.reserveCollateralMint
-      ? getAssociatedTokenAddressSync(
-          earnTarget.reserveCollateralMint,
-          vaultPda,
-          true,
-          TOKEN_PROGRAM_ID
-        )
-      : null;
     const earnPolicy = args.yieldRoutingPolicy
       ? {
           account: args.yieldRoutingPolicy.account,
@@ -5341,206 +5364,481 @@ export function createSmartAccountVaultsClient(
     const policyAccount = earnPolicy.account;
     const setupPolicyAccount = earnPolicy.setupAccount ?? null;
     const setupPolicySeed = earnPolicy.setupSeed ?? null;
-    let kaminoWithdrawAmountRaw = args.amountRaw;
-    let vaultCollateralAta = localVaultCollateralAta;
-    let kaminoWithdrawBundle =
-      cluster === LoyalCluster.Devnet
-        ? (() => {
-            if (!vaultCollateralAta) {
-              throw new Error(
-                "Kamino vault collateral token account is unavailable."
-              );
-            }
-            const instruction = createLocalKaminoWithdrawInstruction({
-              amountRaw: kaminoWithdrawAmountRaw,
-              target: earnTarget,
-              vaultPda,
-              vaultUsdcAta,
-              vaultCollateralAta,
-            });
-            return { instruction, instructions: [instruction] };
-          })()
-        : await fetchKaminoWithdrawInstruction({
-            amountRaw: kaminoWithdrawAmountRaw,
-            lendProgramId: earnTarget.lendProgramId,
-            market: earnTarget.market,
-            reserve: earnTarget.reserve,
-            withdrawDiscriminator: earnTarget.withdrawDiscriminator,
-            wallet: vaultPda,
-          });
-    let validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
-      instruction: kaminoWithdrawBundle.instruction,
-      lendProgramId: earnTarget.lendProgramId,
-      vaultPda,
-      vaultUsdcAta,
-      market: earnTarget.market,
-      reserve: earnTarget.reserve,
-      liquidityMint: usdcMint,
-    });
-    vaultCollateralAta = validatedWithdrawAccounts.vaultCollateralAta;
-    if (earnTarget.reserveCollateralMint) {
-      assertKaminoAccountEquals({
-        actual: validatedWithdrawAccounts.reserveCollateralMint,
-        expected: earnTarget.reserveCollateralMint,
-        label: "reserve collateral mint",
-      });
-    }
-
-    const fullWithdrawAmounts = await (async () => {
-      if (args.mode !== "full") {
-        return {
-          kaminoWithdrawAmountRaw,
-          vaultUsdcRemainderRaw: BigInt(0),
-          walletTransferAmountRaw: args.amountRaw,
-        };
-      }
-
-      return resolveEarnFullWithdrawAmounts({
-        connection: config.connection,
-        requestedWithdrawAmountRaw: args.amountRaw,
-        reserve: earnTarget.reserve,
-        vaultCollateralAta,
-        vaultUsdcAta,
-      });
-    })();
-
-    if (args.mode === "full") {
-      kaminoWithdrawAmountRaw = fullWithdrawAmounts.kaminoWithdrawAmountRaw;
-      if (
-        kaminoWithdrawAmountRaw !== args.amountRaw &&
-        cluster !== LoyalCluster.Devnet
-      ) {
-        kaminoWithdrawBundle = await fetchKaminoWithdrawInstruction({
-          amountRaw: kaminoWithdrawAmountRaw,
-          lendProgramId: earnTarget.lendProgramId,
-          market: earnTarget.market,
-          reserve: earnTarget.reserve,
-          withdrawDiscriminator: earnTarget.withdrawDiscriminator,
-          wallet: vaultPda,
-        });
-        validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
-          instruction: kaminoWithdrawBundle.instruction,
-          lendProgramId: earnTarget.lendProgramId,
-          vaultPda,
-          vaultUsdcAta,
-          market: earnTarget.market,
-          reserve: earnTarget.reserve,
-          liquidityMint: usdcMint,
-        });
-        assertKaminoAccountEquals({
-          actual: validatedWithdrawAccounts.vaultCollateralAta,
-          expected: vaultCollateralAta,
-          label: "vault collateral account",
-        });
-        if (earnTarget.reserveCollateralMint) {
-          assertKaminoAccountEquals({
-            actual: validatedWithdrawAccounts.reserveCollateralMint,
-            expected: earnTarget.reserveCollateralMint,
-            label: "reserve collateral mint",
-          });
+    const isFinalExit =
+      args.mode === "full" && args.closePoliciesOnFullWithdrawal !== false;
+    const sourceMetadata = args.source
+      ? {
+          sourceAmountRaw: args.source.amountRaw.toString(),
+          sourceId: args.source.id,
+          sourceMetadata: {
+            ...(args.source.type === "idle"
+              ? {
+                  mint: args.source.mint.toBase58(),
+                  tokenAccount: args.source.tokenAccount.toBase58(),
+                }
+              : {
+                  liquidityMint: args.source.liquidityMint.toBase58(),
+                  market: args.source.market.toBase58(),
+                  reserve: args.source.reserve.toBase58(),
+                }),
+          },
+          sourceMint:
+            args.source.type === "idle"
+              ? args.source.mint.toBase58()
+              : args.source.liquidityMint.toBase58(),
+          sourceTokenAccount:
+            args.source.type === "idle"
+              ? args.source.tokenAccount.toBase58()
+              : undefined,
+          sourceType: args.source.type,
         }
-      }
-    }
+      : undefined;
 
-    if (!vaultCollateralAta) {
-      throw new Error("Kamino vault collateral token account is unavailable.");
-    }
-    const resolvedVaultCollateralAta = vaultCollateralAta;
-
-    const fullWithdrawVaultUsdcRemainderRaw =
-      fullWithdrawAmounts.vaultUsdcRemainderRaw;
-    const compiledKaminoPayload = instructionsToSynchronousTransactionDetailsV2(
-      {
-        vaultPda,
-        members: [args.walletAddress],
-        transaction_instructions: kaminoWithdrawBundle.instructions,
-      }
-    );
-    const withdrawExecution =
-      await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
-        {
-          feePayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
-          numSigners: 1,
-          instructions: compiledKaminoPayload.instructions,
-          instruction_accounts: compiledKaminoPayload.accounts,
-          memo: args.memo,
-        } as never
-      );
-    const simulatedVaultUsdcAmountRaw =
-      args.mode === "full"
-        ? await simulatePreparedTokenAccountAmount({
-            connection: config.connection,
-            prepared: freezePreparedOperation({
-              operation: "earnUsdcWithdrawPrefixSimulation",
-              payer: args.feePayer,
-              programId: smartAccountsClient.programId,
-              requiresConfirmation: false,
-              instructions: [
-                createAssociatedTokenAccountIdempotentInstruction(
-                  args.feePayer,
-                  walletUsdcAta,
-                  args.walletAddress,
-                  usdcMint,
-                  TOKEN_PROGRAM_ID
-                ),
-                ...withdrawExecution.instructions,
-              ],
-              lookupTableAccounts: dedupeLookupTableAccounts(
-                withdrawExecution.lookupTableAccounts ?? []
-              ),
-            }),
-            tokenAccount: vaultUsdcAta,
-          })
-        : args.amountRaw;
-    const expectedFullWithdrawTransferAmountRaw =
-      kaminoWithdrawAmountRaw + fullWithdrawVaultUsdcRemainderRaw;
-    const walletTransferAmountRaw =
-      args.mode === "full" &&
-      expectedFullWithdrawTransferAmountRaw > simulatedVaultUsdcAmountRaw
-        ? expectedFullWithdrawTransferAmountRaw
-        : simulatedVaultUsdcAmountRaw;
-    if (args.mode === "full") {
-      kaminoWithdrawAmountRaw =
-        walletTransferAmountRaw > fullWithdrawVaultUsdcRemainderRaw
-          ? walletTransferAmountRaw - fullWithdrawVaultUsdcRemainderRaw
-          : walletTransferAmountRaw;
-    }
-    const vaultInstructions: TransactionInstruction[] = [
-      makeSignerWritable(
+    if (args.source?.type === "idle") {
+      const transferAmountRaw = args.amountRaw;
+      const transferInstruction = makeSignerWritable(
         createTransferCheckedInstruction(
           vaultUsdcAta,
           usdcMint,
           walletUsdcAta,
           vaultPda,
-          walletTransferAmountRaw,
+          transferAmountRaw,
           EARN_DEPOSIT_USDC_DECIMALS,
           [],
           TOKEN_PROGRAM_ID
         ),
         vaultPda
-      ),
-    ];
-
-    const compiledVaultPayload = instructionsToSynchronousTransactionDetailsV2({
-      vaultPda,
-      members: [args.walletAddress],
-      transaction_instructions: vaultInstructions,
-    });
-    const vaultTransfer =
-      await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
-        {
-          feePayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
-          numSigners: 1,
-          instructions: compiledVaultPayload.instructions,
-          instruction_accounts: compiledVaultPayload.accounts,
-        } as never
       );
+      const cleanupInstructions = isFinalExit
+        ? createEarnFullWithdrawCleanupInstructions({
+            vaultPda,
+            vaultUsdcAta,
+            walletAddress: args.walletAddress,
+          })
+        : [];
+      const compiledPackedPayload =
+        instructionsToSynchronousTransactionDetailsV2({
+          vaultPda,
+          members: [args.walletAddress],
+          transaction_instructions: [
+            transferInstruction,
+            ...cleanupInstructions,
+          ],
+        });
+      const packedExecution =
+        await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+          {
+            feePayer: args.feePayer,
+            settingsPda: args.settingsPda,
+            accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+            numSigners: 1,
+            instructions: compiledPackedPayload.instructions,
+            instruction_accounts: compiledPackedPayload.accounts,
+            memo: args.memo,
+          } as never
+        );
+      const policyCloseOperation = isFinalExit
+        ? await prepareCloseYieldRoutingPoliciesSync({
+            settingsPda: args.settingsPda,
+            feePayer: args.feePayer,
+            signers: [args.walletAddress],
+            policies: [
+              policyAccount,
+              ...(setupPolicyAccount ? [setupPolicyAccount] : []),
+            ],
+            memo: args.memo,
+          })
+        : null;
+      const operations = [
+        packedExecution,
+        ...(policyCloseOperation ? [policyCloseOperation] : []),
+      ];
+      const prepared = freezePreparedOperation({
+        operation: "earnUsdcWithdraw",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions: [
+          createAssociatedTokenAccountIdempotentInstruction(
+            args.feePayer,
+            walletUsdcAta,
+            args.walletAddress,
+            usdcMint,
+            TOKEN_PROGRAM_ID
+          ),
+          ...operations.flatMap((operation) => operation.instructions),
+        ],
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          operations.flatMap((operation) => operation.lookupTableAccounts ?? [])
+        ),
+      });
+      const persistence = {
+        cluster,
+        walletAddress: args.walletAddress.toBase58(),
+        delegatedSigner: args.policySigner.toBase58(),
+        settings: args.settingsPda.toBase58(),
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: vaultPda.toBase58(),
+        policyId: earnPolicy.seed.toString(),
+        policyAccount: policyAccount.toBase58(),
+        policySeed: earnPolicy.seed.toString(),
+        ...(setupPolicyAccount && setupPolicySeed
+          ? {
+              setupPolicyId: setupPolicySeed.toString(),
+              setupPolicyAccount: setupPolicyAccount.toBase58(),
+              setupPolicySeed: setupPolicySeed.toString(),
+            }
+          : {}),
+        targetReserve: earnTarget.reserve.toBase58(),
+        market: earnTarget.market.toBase58(),
+        liquidityMint: usdcMint.toBase58(),
+        withdrawnAmountRaw: transferAmountRaw.toString(),
+        mode: args.mode,
+        walletTransferAmountRaw: transferAmountRaw.toString(),
+        vaultUsdcRemainderRaw: "0",
+        vaultCollateralCleanupIncluded: false,
+        ...(sourceMetadata ?? {}),
+      };
+      const withdrawStep = {
+        accountingReserve: {
+          liquidityMint: usdcMint,
+          market: earnTarget.market,
+          obligation: targetObligation,
+          reserve: earnTarget.reserve,
+        },
+        amountRaw: transferAmountRaw,
+        collateralAta: getAssociatedTokenAddressSync(
+          earnTarget.reserveCollateralMint ?? usdcMint,
+          vaultPda,
+          true,
+          TOKEN_PROGRAM_ID
+        ),
+        executionReserve: {
+          liquidityMint: usdcMint,
+          market: earnTarget.market,
+          reserve: earnTarget.reserve,
+        },
+        mode: args.mode,
+        prepared,
+        reserveWithdrawals: [],
+        stepCount: 1,
+        stepIndex: 0,
+        persistence: {
+          ...persistence,
+          autodepositClose: null,
+          isFinalStep: true,
+          stepCount: 1,
+          stepIndex: 0,
+        },
+      };
+
+      return {
+        autodepositClosePrepared: null,
+        prepared,
+        withdrawSteps: [withdrawStep],
+        mode: args.mode,
+        amountRaw: args.amountRaw,
+        policy: {
+          account: policyAccount,
+          id: earnPolicy.seed,
+          seed: earnPolicy.seed,
+          withdrawInstructionConstraintIndex: 0,
+          sameMintInstructionConstraintIndexes:
+            EARN_SAME_MINT_INSTRUCTION_CONSTRAINT_INDEXES,
+        },
+        ...(setupPolicyAccount && setupPolicySeed
+          ? {
+              setupPolicy: {
+                account: setupPolicyAccount,
+                id: setupPolicySeed,
+                seed: setupPolicySeed,
+              },
+            }
+          : {}),
+        vault: {
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          pubkey: vaultPda,
+          usdcAta: vaultUsdcAta,
+          collateralAta: withdrawStep.collateralAta,
+        },
+        targetReserve: {
+          reserve: earnTarget.reserve,
+          market: earnTarget.market,
+          liquidityMint: usdcMint,
+          obligation: targetObligation,
+        },
+        persistence,
+      };
+    }
+    const safeMarkets = new Set(
+      getRiskBasketMarketsForCluster(cluster, EARN_RISK_PROFILE).map((market) =>
+        market.toBase58()
+      )
+    );
+    const requestedTargets =
+      args.mode === "full" && args.fullWithdrawalTargets?.length
+        ? args.fullWithdrawalTargets
+        : args.source?.type === "reserve"
+        ? [
+            {
+              liquidityMint: args.source.liquidityMint,
+              market: args.source.market,
+              reserve: args.source.reserve,
+              amountRaw: args.amountRaw,
+            },
+          ]
+        : [
+            {
+              liquidityMint: earnTarget.liquidityMint,
+              market: earnTarget.market,
+              reserve: earnTarget.reserve,
+              reserveCollateralMint: earnTarget.reserveCollateralMint,
+              reserveLiquiditySupply: earnTarget.reserveLiquiditySupply,
+              supplyApyBps: earnTarget.supplyApyBps,
+              amountRaw: args.amountRaw,
+            },
+          ];
+    const withdrawPlans = requestedTargets.map((targetInput) => {
+      const target = resolveKaminoEarnTarget(cluster, targetInput);
+      const localCollateralAta = target.reserveCollateralMint
+        ? getAssociatedTokenAddressSync(
+            target.reserveCollateralMint,
+            vaultPda,
+            true,
+            TOKEN_PROGRAM_ID
+          )
+        : null;
+
+      assertKaminoAccountEquals({
+        actual: target.liquidityMint,
+        expected: usdcMint,
+        label: "liquidity mint",
+      });
+
+      return {
+        amountRaw: targetInput.amountRaw ?? args.amountRaw,
+        localCollateralAta,
+        obligation: deriveKaminoVanillaObligation(
+          vaultPda,
+          target.market,
+          target.lendProgramId
+        ),
+        target,
+      };
+    });
+
+    const MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL = 2;
+
+    type ProvisionalReserveWithdrawal = {
+      accountingReserve: SmartAccountPreparedEarnUsdcWithdrawStep["accountingReserve"];
+      amountRaw: bigint;
+      collateralAta: PublicKey;
+      executionReserve: SmartAccountPreparedEarnUsdcWithdrawStep["executionReserve"];
+      instruction: TransactionInstruction;
+      kaminoWithdrawAmountRaw: bigint;
+    };
+
+    type ProvisionalWithdrawBatch = Omit<
+      SmartAccountPreparedEarnUsdcWithdrawStep,
+      "stepCount" | "stepIndex"
+    > & {
+      vaultCollateralCleanupIncluded: boolean;
+      vaultUsdcRemainderRaw: bigint;
+      walletTransferAmountRaw: bigint;
+    };
+
+    const readWithdrawInstructionAmountRaw = (
+      instruction: TransactionInstruction,
+      fallback: bigint
+    ) =>
+      instruction.data.length >= 16
+        ? Buffer.from(instruction.data).readBigUInt64LE(8)
+        : fallback;
+
+    const chunkReserveWithdrawals = (
+      withdrawals: ProvisionalReserveWithdrawal[]
+    ): ProvisionalReserveWithdrawal[][] => {
+      const batches: ProvisionalReserveWithdrawal[][] = [];
+      for (
+        let index = 0;
+        index < withdrawals.length;
+        index += MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL
+      ) {
+        batches.push(
+          withdrawals.slice(
+            index,
+            index + MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL
+          )
+        );
+      }
+      return batches;
+    };
+
+    const collectReserveWithdrawalsForPlan = async (plan: {
+      amountRaw: bigint;
+      localCollateralAta: PublicKey | null;
+      obligation: PublicKey;
+      target: KaminoEarnTarget;
+    }): Promise<ProvisionalReserveWithdrawal[]> => {
+      let kaminoWithdrawAmountRaw = plan.amountRaw;
+      let vaultCollateralAta = plan.localCollateralAta;
+      let kaminoWithdrawBundle =
+        cluster === LoyalCluster.Devnet
+          ? (() => {
+              if (!vaultCollateralAta) {
+                throw new Error(
+                  "Kamino vault collateral token account is unavailable."
+                );
+              }
+              const instruction = createLocalKaminoWithdrawInstruction({
+                amountRaw: kaminoWithdrawAmountRaw,
+                target: plan.target,
+                vaultPda,
+                vaultUsdcAta,
+                vaultCollateralAta,
+              });
+              return {
+                instruction,
+                instructions: [instruction],
+                matchingInstructions: [instruction],
+              };
+            })()
+          : await fetchKaminoWithdrawInstruction({
+              amountRaw: kaminoWithdrawAmountRaw,
+              lendProgramId: plan.target.lendProgramId,
+              market: plan.target.market,
+              reserve: plan.target.reserve,
+              withdrawDiscriminator: plan.target.withdrawDiscriminator,
+              wallet: vaultPda,
+            });
+      let validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
+        instruction: kaminoWithdrawBundle.instruction,
+        lendProgramId: plan.target.lendProgramId,
+        liquidityMint: usdcMint,
+        market: plan.target.market,
+        safeMarkets,
+        vaultPda,
+        vaultUsdcAta,
+        withdrawDiscriminator: plan.target.withdrawDiscriminator,
+      });
+      vaultCollateralAta = validatedWithdrawAccounts.vaultCollateralAta;
+      if (plan.target.reserveCollateralMint) {
+        assertKaminoAccountEquals({
+          actual: validatedWithdrawAccounts.reserveCollateralMint,
+          expected: plan.target.reserveCollateralMint,
+          label: "reserve collateral mint",
+        });
+      }
+
+      const fullWithdrawAmounts = await (async () => {
+        if (args.mode !== "full") {
+          return {
+            kaminoWithdrawAmountRaw,
+          };
+        }
+
+        return resolveEarnFullWithdrawAmounts({
+          connection: config.connection,
+          requestedWithdrawAmountRaw: plan.amountRaw,
+          reserve: plan.target.reserve,
+          vaultCollateralAta,
+        });
+      })();
+
+      if (args.mode === "full") {
+        kaminoWithdrawAmountRaw = fullWithdrawAmounts.kaminoWithdrawAmountRaw;
+        if (
+          kaminoWithdrawAmountRaw !== plan.amountRaw &&
+          cluster !== LoyalCluster.Devnet
+        ) {
+          kaminoWithdrawBundle = await fetchKaminoWithdrawInstruction({
+            amountRaw: kaminoWithdrawAmountRaw,
+            lendProgramId: plan.target.lendProgramId,
+            market: plan.target.market,
+            reserve: plan.target.reserve,
+            withdrawDiscriminator: plan.target.withdrawDiscriminator,
+            wallet: vaultPda,
+          });
+          validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
+            instruction: kaminoWithdrawBundle.instruction,
+            lendProgramId: plan.target.lendProgramId,
+            liquidityMint: usdcMint,
+            market: plan.target.market,
+            safeMarkets,
+            vaultPda,
+            vaultUsdcAta,
+            withdrawDiscriminator: plan.target.withdrawDiscriminator,
+          });
+          assertKaminoAccountEquals({
+            actual: validatedWithdrawAccounts.vaultCollateralAta,
+            expected: vaultCollateralAta,
+            label: "vault collateral account",
+          });
+          if (plan.target.reserveCollateralMint) {
+            assertKaminoAccountEquals({
+              actual: validatedWithdrawAccounts.reserveCollateralMint,
+              expected: plan.target.reserveCollateralMint,
+              label: "reserve collateral mint",
+            });
+          }
+        }
+      }
+
+      if (!vaultCollateralAta) {
+        throw new Error(
+          "Kamino vault collateral token account is unavailable."
+        );
+      }
+      const matchingWithdrawInstructions =
+        kaminoWithdrawBundle.matchingInstructions.length > 0
+          ? kaminoWithdrawBundle.matchingInstructions
+          : [kaminoWithdrawBundle.instruction];
+      const reserveWithdrawals: ProvisionalReserveWithdrawal[] = [];
+
+      for (const withdrawInstruction of matchingWithdrawInstructions) {
+        const instructionValidation = validateKaminoWithdrawInstruction({
+          instruction: withdrawInstruction,
+          lendProgramId: plan.target.lendProgramId,
+          liquidityMint: usdcMint,
+          market: plan.target.market,
+          safeMarkets,
+          vaultPda,
+          vaultUsdcAta,
+          withdrawDiscriminator: plan.target.withdrawDiscriminator,
+        });
+        const stepKaminoWithdrawAmountRaw = readWithdrawInstructionAmountRaw(
+          withdrawInstruction,
+          kaminoWithdrawAmountRaw
+        );
+
+        reserveWithdrawals.push({
+          accountingReserve: {
+            liquidityMint: usdcMint,
+            market: plan.target.market,
+            obligation: plan.obligation,
+            reserve: plan.target.reserve,
+          },
+          amountRaw: plan.amountRaw,
+          collateralAta: instructionValidation.vaultCollateralAta,
+          executionReserve: {
+            liquidityMint: usdcMint,
+            market: instructionValidation.executionMarket,
+            reserve: instructionValidation.executionReserve,
+          },
+          instruction: withdrawInstruction,
+          kaminoWithdrawAmountRaw: stepKaminoWithdrawAmountRaw,
+        });
+      }
+
+      return reserveWithdrawals;
+    };
+
+    const fullWithdrawVaultUsdcRemainderRaw = isFinalExit
+      ? await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
+      : BigInt(0);
+
     const autodepositCloseOperation =
-      args.mode === "full" && args.autodepositClose
+      isFinalExit && args.autodepositClose
         ? await prepareEarnUsdcAutodepositClose({
             cluster,
             feePayer: args.feePayer,
@@ -5553,85 +5851,307 @@ export function createSmartAccountVaultsClient(
             walletAddress: args.walletAddress,
           })
         : null;
-    const operations: PreparedLoyalSmartAccountsOperation<string>[] = [
-      withdrawExecution,
-      vaultTransfer,
-    ];
-    const shouldCloseVaultCollateralAta =
-      args.mode === "full"
-        ? await isTokenAccountOwnedBy({
-            account: resolvedVaultCollateralAta,
-            connection: config.connection,
-            owner: vaultPda,
-          })
-        : false;
+    const reserveWithdrawals = (
+      await Promise.all(
+        withdrawPlans.map((plan) => collectReserveWithdrawalsForPlan(plan))
+      )
+    ).flat();
+    if (reserveWithdrawals.length === 0) {
+      throw new Error("Kamino did not return any Earn withdraw steps.");
+    }
 
-    if (args.mode === "full") {
-      const cleanupInstructions = createEarnFullWithdrawCleanupInstructions({
-        vaultCollateralAta: shouldCloseVaultCollateralAta
-          ? resolvedVaultCollateralAta
-          : null,
-        vaultPda,
-        vaultUsdcAta,
-        walletAddress: args.walletAddress,
-      });
-      const compiledCleanupPayload =
+    const reserveWithdrawalBatches =
+      chunkReserveWithdrawals(reserveWithdrawals);
+    const finalBatchIndex = reserveWithdrawalBatches.length - 1;
+
+    const buildWithdrawBatch = async (
+      batch: ProvisionalReserveWithdrawal[],
+      batchIndex: number
+    ): Promise<ProvisionalWithdrawBatch> => {
+      const firstWithdrawal = batch[0]!;
+      const isFinalBatch = batchIndex === finalBatchIndex;
+      const batchAmountRaw = batch.reduce(
+        (total, withdrawal) => total + withdrawal.amountRaw,
+        BigInt(0)
+      );
+      const batchKaminoWithdrawAmountRaw = batch.reduce(
+        (total, withdrawal) => total + withdrawal.kaminoWithdrawAmountRaw,
+        BigInt(0)
+      );
+      const batchVaultUsdcRemainderRaw =
+        isFinalExit && isFinalBatch
+          ? fullWithdrawVaultUsdcRemainderRaw
+          : BigInt(0);
+      const compiledWithdrawPrefix =
         instructionsToSynchronousTransactionDetailsV2({
           vaultPda,
           members: [args.walletAddress],
-          transaction_instructions: cleanupInstructions,
+          transaction_instructions: batch.map(
+            (withdrawal) => withdrawal.instruction
+          ),
         });
-      const cleanupExecution =
+      const withdrawPrefixExecution =
         await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
           {
             feePayer: args.feePayer,
             settingsPda: args.settingsPda,
             accountIndex: EARN_DEPOSIT_VAULT_INDEX,
             numSigners: 1,
-            instructions: compiledCleanupPayload.instructions,
-            instruction_accounts: compiledCleanupPayload.accounts,
+            instructions: compiledWithdrawPrefix.instructions,
+            instruction_accounts: compiledWithdrawPrefix.accounts,
             memo: args.memo,
           } as never
         );
-
-      operations.push(cleanupExecution);
-      operations.push(
-        await prepareCloseYieldRoutingPoliciesSync({
-          settingsPda: args.settingsPda,
-          feePayer: args.feePayer,
-          signers: [args.walletAddress],
-          policies: [
-            policyAccount,
-            ...(setupPolicyAccount ? [setupPolicyAccount] : []),
-          ],
-          memo: args.memo,
-        })
+      const simulatedVaultUsdcAmountRaw =
+        args.mode === "full"
+          ? await simulatePreparedTokenAccountAmount({
+              connection: config.connection,
+              prepared: freezePreparedOperation({
+                operation: "earnUsdcWithdrawPrefixSimulation",
+                payer: args.feePayer,
+                programId: smartAccountsClient.programId,
+                requiresConfirmation: false,
+                instructions: [
+                  createAssociatedTokenAccountIdempotentInstruction(
+                    args.feePayer,
+                    walletUsdcAta,
+                    args.walletAddress,
+                    usdcMint,
+                    TOKEN_PROGRAM_ID
+                  ),
+                  ...withdrawPrefixExecution.instructions,
+                ],
+                lookupTableAccounts: dedupeLookupTableAccounts(
+                  withdrawPrefixExecution.lookupTableAccounts ?? []
+                ),
+              }),
+              tokenAccount: vaultUsdcAta,
+            })
+          : batchAmountRaw;
+      const expectedFullWithdrawTransferAmountRaw =
+        batchKaminoWithdrawAmountRaw + batchVaultUsdcRemainderRaw;
+      const simulatedRedeemedOnlyAmountRaw =
+        simulatedVaultUsdcAmountRaw > fullWithdrawVaultUsdcRemainderRaw
+          ? simulatedVaultUsdcAmountRaw - fullWithdrawVaultUsdcRemainderRaw
+          : BigInt(0);
+      const walletTransferAmountRaw =
+        args.mode !== "full"
+          ? simulatedVaultUsdcAmountRaw
+          : isFinalBatch
+          ? expectedFullWithdrawTransferAmountRaw > simulatedVaultUsdcAmountRaw
+            ? expectedFullWithdrawTransferAmountRaw
+            : simulatedVaultUsdcAmountRaw
+          : batchKaminoWithdrawAmountRaw > simulatedRedeemedOnlyAmountRaw
+          ? batchKaminoWithdrawAmountRaw
+          : simulatedRedeemedOnlyAmountRaw;
+      const closeableCollateralAtas =
+        isFinalExit && isFinalBatch
+          ? (
+              await Promise.all(
+                reserveWithdrawals.map(async (withdrawal) =>
+                  (await isTokenAccountOwnedBy({
+                    account: withdrawal.collateralAta,
+                    connection: config.connection,
+                    owner: vaultPda,
+                  }))
+                    ? withdrawal.collateralAta
+                    : null
+                )
+              )
+            ).filter((account): account is PublicKey => account !== null)
+          : [];
+      const uniqueCloseableCollateralAtas = Array.from(
+        new Map(
+          closeableCollateralAtas.map((account) => [
+            account.toBase58(),
+            account,
+          ])
+        ).values()
       );
-    }
-
-    const prepared = freezePreparedOperation({
-      operation: "earnUsdcWithdraw",
-      payer: args.feePayer,
-      programId: smartAccountsClient.programId,
-      requiresConfirmation: true,
-      instructions: [
-        createAssociatedTokenAccountIdempotentInstruction(
-          args.feePayer,
-          walletUsdcAta,
-          args.walletAddress,
+      const transferInstruction = makeSignerWritable(
+        createTransferCheckedInstruction(
+          vaultUsdcAta,
           usdcMint,
+          walletUsdcAta,
+          vaultPda,
+          walletTransferAmountRaw,
+          EARN_DEPOSIT_USDC_DECIMALS,
+          [],
           TOKEN_PROGRAM_ID
         ),
-        ...operations.flatMap((operation) => operation.instructions),
-      ],
-      lookupTableAccounts: dedupeLookupTableAccounts(
-        operations.flatMap((operation) => operation.lookupTableAccounts ?? [])
-      ),
+        vaultPda
+      );
+      const cleanupInstructions =
+        isFinalExit && isFinalBatch
+          ? createEarnFullWithdrawCleanupInstructions({
+              vaultCollateralAtas: uniqueCloseableCollateralAtas,
+              vaultPda,
+              vaultUsdcAta,
+              walletAddress: args.walletAddress,
+            })
+          : [];
+      const compiledPackedPayload =
+        instructionsToSynchronousTransactionDetailsV2({
+          vaultPda,
+          members: [args.walletAddress],
+          transaction_instructions: [
+            ...batch.map((withdrawal) => withdrawal.instruction),
+            transferInstruction,
+            ...cleanupInstructions,
+          ],
+        });
+      const packedExecution =
+        await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+          {
+            feePayer: args.feePayer,
+            settingsPda: args.settingsPda,
+            accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+            numSigners: 1,
+            instructions: compiledPackedPayload.instructions,
+            instruction_accounts: compiledPackedPayload.accounts,
+            memo: args.memo,
+          } as never
+        );
+      const policyCloseOperation =
+        isFinalExit && isFinalBatch
+          ? await prepareCloseYieldRoutingPoliciesSync({
+              settingsPda: args.settingsPda,
+              feePayer: args.feePayer,
+              signers: [args.walletAddress],
+              policies: [
+                policyAccount,
+                ...(setupPolicyAccount ? [setupPolicyAccount] : []),
+              ],
+              memo: args.memo,
+            })
+          : null;
+      const operations = [
+        packedExecution,
+        ...(policyCloseOperation ? [policyCloseOperation] : []),
+      ];
+      const prepared = freezePreparedOperation({
+        operation: "earnUsdcWithdraw",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions: [
+          createAssociatedTokenAccountIdempotentInstruction(
+            args.feePayer,
+            walletUsdcAta,
+            args.walletAddress,
+            usdcMint,
+            TOKEN_PROGRAM_ID
+          ),
+          ...operations.flatMap((operation) => operation.instructions),
+        ],
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          operations.flatMap((operation) => operation.lookupTableAccounts ?? [])
+        ),
+      });
+      const reserveWithdrawalMetadata = batch.map((withdrawal) => ({
+        accountingReserve: withdrawal.accountingReserve.reserve.toBase58(),
+        collateralAta: withdrawal.collateralAta.toBase58(),
+        executionMarket: withdrawal.executionReserve.market.toBase58(),
+        executionReserve: withdrawal.executionReserve.reserve.toBase58(),
+        kaminoWithdrawAmountRaw: withdrawal.kaminoWithdrawAmountRaw.toString(),
+        liquidityMint: withdrawal.accountingReserve.liquidityMint.toBase58(),
+        market: withdrawal.accountingReserve.market.toBase58(),
+        reserve: withdrawal.accountingReserve.reserve.toBase58(),
+        withdrawnAmountRaw: withdrawal.amountRaw.toString(),
+      }));
+      const mode = args.mode === "full" && isFinalBatch ? "full" : "partial";
+
+      return {
+        accountingReserve: firstWithdrawal.accountingReserve,
+        amountRaw: batchAmountRaw,
+        collateralAta: firstWithdrawal.collateralAta,
+        executionReserve: firstWithdrawal.executionReserve,
+        mode,
+        persistence: {
+          cluster,
+          walletAddress: args.walletAddress.toBase58(),
+          delegatedSigner: args.policySigner.toBase58(),
+          settings: args.settingsPda.toBase58(),
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: vaultPda.toBase58(),
+          policyId: earnPolicy.seed.toString(),
+          policyAccount: policyAccount.toBase58(),
+          policySeed: earnPolicy.seed.toString(),
+          ...(setupPolicyAccount && setupPolicySeed
+            ? {
+                setupPolicyId: setupPolicySeed.toString(),
+                setupPolicyAccount: setupPolicyAccount.toBase58(),
+                setupPolicySeed: setupPolicySeed.toString(),
+              }
+            : {}),
+          accountingReserve:
+            firstWithdrawal.accountingReserve.reserve.toBase58(),
+          executionReserve: firstWithdrawal.executionReserve.reserve.toBase58(),
+          targetReserve: firstWithdrawal.accountingReserve.reserve.toBase58(),
+          market: firstWithdrawal.accountingReserve.market.toBase58(),
+          liquidityMint:
+            firstWithdrawal.accountingReserve.liquidityMint.toBase58(),
+          withdrawnAmountRaw: batchAmountRaw.toString(),
+          mode,
+          ...(sourceMetadata ?? {}),
+          kaminoWithdrawAmountRaw: batchKaminoWithdrawAmountRaw.toString(),
+          reserveWithdrawals: reserveWithdrawalMetadata,
+          vaultCollateralCleanupIncluded:
+            args.mode === "full" &&
+            isFinalBatch &&
+            uniqueCloseableCollateralAtas.length > 0,
+          vaultUsdcRemainderRaw: batchVaultUsdcRemainderRaw.toString(),
+          walletTransferAmountRaw: walletTransferAmountRaw.toString(),
+        },
+        prepared,
+        reserveWithdrawals: reserveWithdrawalMetadata,
+        vaultCollateralCleanupIncluded:
+          args.mode === "full" &&
+          isFinalBatch &&
+          uniqueCloseableCollateralAtas.length > 0,
+        vaultUsdcRemainderRaw: batchVaultUsdcRemainderRaw,
+        walletTransferAmountRaw,
+      };
+    };
+
+    const provisionalBatches = await Promise.all(
+      reserveWithdrawalBatches.map((batch, index) =>
+        buildWithdrawBatch(batch, index)
+      )
+    );
+    const withdrawSteps = provisionalBatches.map((step, index) => {
+      const isFinalStep = index === provisionalBatches.length - 1;
+      return {
+        accountingReserve: step.accountingReserve,
+        amountRaw: step.amountRaw,
+        collateralAta: step.collateralAta,
+        executionReserve: step.executionReserve,
+        mode: step.mode,
+        prepared: step.prepared,
+        reserveWithdrawals: step.reserveWithdrawals,
+        stepCount: provisionalBatches.length,
+        stepIndex: index,
+        persistence: {
+          ...step.persistence,
+          autodepositClose: isFinalStep
+            ? autodepositCloseOperation?.persistence ?? null
+            : null,
+          isFinalStep,
+          mode: step.mode,
+          stepCount: provisionalBatches.length,
+          stepIndex: index,
+        },
+      };
     });
+    const firstWithdrawStep = withdrawSteps[0]!;
+    const finalWithdrawStep = withdrawSteps[withdrawSteps.length - 1]!;
+    const resolvedVaultCollateralAta = firstWithdrawStep.collateralAta;
+    const prepared = firstWithdrawStep.prepared;
 
     return {
       autodepositClosePrepared: autodepositCloseOperation,
       prepared,
+      withdrawSteps,
       mode: args.mode,
       amountRaw: args.amountRaw,
       policy: {
@@ -5685,13 +6205,20 @@ export function createSmartAccountVaultsClient(
         liquidityMint: usdcMint.toBase58(),
         withdrawnAmountRaw: args.amountRaw.toString(),
         mode: args.mode,
+        stepCount: withdrawSteps.length,
+        ...(sourceMetadata ?? {}),
         ...(args.mode === "full"
           ? {
-              kaminoWithdrawAmountRaw: kaminoWithdrawAmountRaw.toString(),
-              vaultCollateralCleanupIncluded: shouldCloseVaultCollateralAta,
+              kaminoWithdrawAmountRaw:
+                finalWithdrawStep.persistence.kaminoWithdrawAmountRaw,
+              reserveWithdrawals:
+                finalWithdrawStep.persistence.reserveWithdrawals,
+              vaultCollateralCleanupIncluded:
+                finalWithdrawStep.persistence.vaultCollateralCleanupIncluded,
               vaultUsdcRemainderRaw:
-                fullWithdrawVaultUsdcRemainderRaw.toString(),
-              walletTransferAmountRaw: walletTransferAmountRaw.toString(),
+                finalWithdrawStep.persistence.vaultUsdcRemainderRaw,
+              walletTransferAmountRaw:
+                finalWithdrawStep.persistence.walletTransferAmountRaw,
               autodepositClose: autodepositCloseOperation?.persistence ?? null,
             }
           : {}),
@@ -5906,15 +6433,17 @@ export function createSmartAccountVaultsClient(
                 __kind: "PolicyCreate",
                 seed: toBn(policySeed),
                 policyCreationPayload:
-                  createSubscriptionSweepProgramInteractionPolicyCreationPayload({
-                    delegator: args.walletAddress,
-                    maxAmountPerPeriodRaw: amountPerPeriodRaw,
-                    minimumDelegatorBalanceRaw,
-                    mint: usdcMint,
-                    vaultPda,
-                    vaultUsdcAta,
-                    walletUsdcAta,
-                  }),
+                  createSubscriptionSweepProgramInteractionPolicyCreationPayload(
+                    {
+                      delegator: args.walletAddress,
+                      maxAmountPerPeriodRaw: amountPerPeriodRaw,
+                      minimumDelegatorBalanceRaw,
+                      mint: usdcMint,
+                      vaultPda,
+                      vaultUsdcAta,
+                      walletUsdcAta,
+                    }
+                  ),
                 signers: [createPolicySigner(args.policySigner)],
                 threshold: 1,
                 timeLock: 0,

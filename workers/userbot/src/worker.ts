@@ -73,7 +73,8 @@ function getIdentityLabel(user: unknown): string {
       : undefined;
 
   const username =
-    typeof candidate.username === "string" && candidate.username.trim().length > 0
+    typeof candidate.username === "string" &&
+    candidate.username.trim().length > 0
       ? candidate.username.trim()
       : undefined;
 
@@ -107,7 +108,10 @@ export function createUserbotWorker(overrides: Partial<WorkerDeps> = {}) {
     try {
       await bundle.client.destroy();
     } catch (error) {
-      deps.logger.error(`[userbot] Failed to destroy client (${context})`, error);
+      deps.logger.error(
+        `[userbot] Failed to destroy client (${context})`,
+        error
+      );
     }
   }
 
@@ -139,7 +143,9 @@ export function createUserbotWorker(overrides: Partial<WorkerDeps> = {}) {
       startupBundle = bundle;
 
       try {
-        const user = await bundle.client.start(createNonInteractiveStartParams(config));
+        const user = await bundle.client.start(
+          createNonInteractiveStartParams(config)
+        );
 
         bundle.client.onRawUpdate.add(() => {
           // Intentionally noop in foundation PR.
