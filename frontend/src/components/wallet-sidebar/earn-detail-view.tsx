@@ -2523,6 +2523,7 @@ export function EarnDetailView({
         style={{
           alignItems: "center",
           display: "flex",
+          flexShrink: 0,
           justifyContent: "space-between",
           padding: "10px 20px 0",
         }}
@@ -2570,6 +2571,7 @@ export function EarnDetailView({
           alignItems: "center",
           borderRadius: "20px",
           display: "flex",
+          flexShrink: 0,
           gap: "12px",
           overflow: "hidden",
           padding: "2px 20px 4px",
