@@ -1,6 +1,6 @@
 {
   "name": "@loyal-labs/actions",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Unsigned Loyal yield-route action instruction builders.",
   "main": "./dist/index.js",
