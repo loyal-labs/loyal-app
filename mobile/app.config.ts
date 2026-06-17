@@ -2,6 +2,12 @@ import type { ExpoConfig } from "expo/config";
 
 const IS_DEV = process.env.APP_VARIANT === "development";
 const IS_DAPP_STORE = process.env.DAPP_STORE_BUILD === "true";
+const IS_PLAY_STORE = process.env.PLAY_STORE_BUILD === "true";
+// EAS sets EAS_BUILD_PLATFORM per-platform during builds. Used to keep the
+// Firebase (Play Store / Android) plugin out of iOS production builds, since
+// production currently ships both iOS App Store and Android Play Store.
+const FIREBASE_ENABLED =
+  IS_PLAY_STORE && process.env.EAS_BUILD_PLATFORM !== "ios";
 
 const config: ExpoConfig = {
   name: IS_DEV ? "Loyal (Dev)" : "Loyal",
@@ -26,11 +32,18 @@ const config: ExpoConfig = {
       monochromeImage: "./assets/images/android-icon-monochrome.png",
       backgroundColor: "#F9363C",
     },
-    package: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
-    // google-services.json is only registered for `com.loyal.app` (prod).
-    // Dev/simulator builds don't need FCM, so skip the file there —
-    // supplying it with a non-matching package name would fail prebuild.
-    ...(IS_DEV ? {} : { googleServicesFile: "./google-services.json" }),
+    package: IS_DEV
+      ? "com.loyal.app.dev"
+      : IS_PLAY_STORE
+        ? "com.askloyal.app"
+        : "com.loyal.app",
+    // google-services.json registers both `com.askloyal.app` (Play Store) and
+    // `com.loyal.app` (dApp Store). Only Play Store builds consume Firebase
+    // (Analytics), so we register the file only for that target — keeps the
+    // Google Services Gradle plugin off dApp Store builds.
+    ...(FIREBASE_ENABLED
+      ? { googleServicesFile: "./google-services.json" }
+      : {}),
     edgeToEdgeEnabled: true,
     softwareKeyboardLayoutMode: "resize",
   },
@@ -79,6 +92,12 @@ const config: ExpoConfig = {
           ] satisfies [string, Record<string, unknown>],
         ]
       : []),
+    // Firebase (GA) is enabled only for the Play Store build (Android only).
+    // iOS production builds use the same `production` EAS profile but lack a
+    // Firebase iOS plist, so the plugin is gated on EAS_BUILD_PLATFORM too.
+    // Only `@react-native-firebase/app` exposes a config plugin; the
+    // `analytics` module is autolinked natively from the dependency alone.
+    ...(FIREBASE_ENABLED ? ["@react-native-firebase/app"] : []),
   ],
   experiments: {
     typedRoutes: true,

@@ -177,7 +177,6 @@ interface UndelegateDepositParams {
   user: PublicKey;
   tokenMint: PublicKey;
   payer: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram: PublicKey;  // MAGIC_PROGRAM_ID
   magicContext: PublicKey;  // MAGIC_CONTEXT_ID
   rpcOptions?: RpcOptions;
@@ -215,7 +214,6 @@ interface TransferDepositParams {
   destinationUser: PublicKey;
   amount: number | bigint;
   payer: PublicKey;
-  sessionToken?: PublicKey | null;
   rpcOptions?: RpcOptions;
 }
 ```
@@ -231,7 +229,6 @@ interface TransferToUsernameDepositParams {
   amount: number | bigint;
   user: PublicKey;
   payer: PublicKey;
-  sessionToken?: PublicKey | null;
   rpcOptions?: RpcOptions;
 }
 ```
@@ -394,7 +391,7 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
   signer,
   baseRpcEndpoint: "https://api.devnet.solana.com",
   // Mainnet: https://mainnet-tee.magicblock.app
-  // Devnet: https://tee.magicblock.app
+  // Devnet: https://devnet-tee.magicblock.app
   ephemeralRpcEndpoint: "https://mainnet-tee.magicblock.app",
   ephemeralWsEndpoint: "wss://mainnet-tee.magicblock.app",
 });
@@ -406,9 +403,9 @@ await client.createPermission({ user: signer.publicKey, tokenMint, payer: signer
 await client.delegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, validator: ER_VALIDATOR });
 
 // Private transfer
-await client.transferToUsernameDeposit({ username: "alice_user", tokenMint, amount: 100_000, user: signer.publicKey, payer: signer.publicKey, sessionToken: null });
+await client.transferToUsernameDeposit({ username: "alice_user", tokenMint, amount: 100_000, user: signer.publicKey, payer: signer.publicKey });
 
 // Unshield
-await client.undelegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, sessionToken: null, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT_ID });
+await client.undelegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT_ID });
 await client.modifyBalance({ user: signer.publicKey, tokenMint, payer: signer.publicKey, amount: 1_000_000, increase: false });
 ```

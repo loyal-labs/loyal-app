@@ -6,32 +6,40 @@ import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { X_PIXEL_EVENTS, xPixelEvent } from "@/lib/core/x-pixel";
 
 type Segment = "Extension" | "Mobile" | "Web";
 
 const chromeWebStoreUrl =
-  "https://chromewebstore.google.com/detail/loyal-%E2%80%94-private-solana-wa/cdienfadefhlaknmedckgifkjdbioack?authuser=1&hl=en";
+  "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack";
 const telegramMiniAppUrl =
   "https://t.me/askloyal_tgbot/app?startapp=askloyalcom";
 const seekerDappStoreUrl = "solanadappstore://details?id=com.loyal.app";
+
+function fireInstallExtensionConversion(browser: string) {
+  xPixelEvent(X_PIXEL_EVENTS.installExtension, { browser });
+}
 
 const browserCards = [
   {
     href: chromeWebStoreUrl,
     icon: "/landing/figma/get-started-chrome.svg",
     label: "Chrome",
+    onClick: () => fireInstallExtensionConversion("Chrome"),
     shape: "rounded-[24px]",
   },
   {
     href: chromeWebStoreUrl,
     icon: "/landing/figma/get-started-brave.svg",
     label: "Brave",
+    onClick: () => fireInstallExtensionConversion("Brave"),
     shape: "rounded-[400px]",
   },
   {
     href: chromeWebStoreUrl,
     icon: "/landing/figma/get-started-edge.svg",
     label: "Edge",
+    onClick: () => fireInstallExtensionConversion("Edge"),
     shape: "rounded-[400px]",
   },
   {
@@ -431,6 +439,7 @@ function PlatformCard({
     icon: string;
     label: string;
     note?: string;
+    onClick?: () => void;
     shape: string;
   };
   preserveAspect?: boolean;
@@ -492,6 +501,7 @@ function PlatformCard({
       data-reveal="scale"
       data-reveal-delay={dataRevealDelay}
       href={platform.href ?? appUrl}
+      onClick={platform.onClick}
     >
       {content}
     </Link>

@@ -2,16 +2,21 @@
 
 import { useState } from "react";
 
-const faqs = [
+export type FaqItem = {
+  question: string;
+  answer: string;
+};
+
+export const LANDING_FAQS: FaqItem[] = [
   {
     question: "What is Loyal?",
     answer:
-      "Every wallet address is a Smart Account with its own policies and spending caps so your agents can never spend more or send funds somewhere you didn't approve.",
+      "Loyal is a self-custody Solana wallet with on-chain guardrails. Every wallet address is a Smart Account with its own policies and spending caps, so your agents can never spend more or send funds somewhere you didn't approve.",
   },
   {
     question: "How can I use Loyal?",
     answer:
-      "Start with the browser extension or web app, create a shielded wallet, and approve only the permissions each app or agent needs.",
+      "Start with the browser extension, web app, or mobile app, create a shielded wallet, and approve only the permissions each app or agent needs.",
   },
   {
     question: "Can I create more than one wallet?",
@@ -42,18 +47,37 @@ const faqs = [
   {
     question: "Can I use Loyal across devices and platforms?",
     answer:
-      "Yes. Loyal is being built for browser, web, and mobile so the same account model can follow you across devices.",
+      "Yes. Loyal runs in your browser, on the web, and on mobile, so the same account model follows you across devices.",
   },
 ];
 
-export function LandingFaq() {
+export function LandingFaq({ items = LANDING_FAQS }: { items?: FaqItem[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const faqs = items;
+
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer,
+      },
+    })),
+  };
 
   return (
     <section
       className="flex w-full justify-center bg-white px-4 py-12 lg:px-6 lg:py-24"
       id="faq"
     >
+      {/* FAQPage JSON-LD, generated from the same items rendered below so the
+          two can never drift. Rendered as script children (not
+          dangerouslySetInnerHTML): React escapes <, >, & — preventing script
+          breakout — and the browser decodes them back via textContent. */}
+      <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>
       <div className="grid w-full max-w-[560px] gap-10 lg:max-w-[1560px] lg:grid-cols-2 lg:gap-6">
         <div className="pb-12 lg:pb-0" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">

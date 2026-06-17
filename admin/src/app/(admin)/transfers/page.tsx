@@ -1,3 +1,4 @@
+import { AddressLink } from "@/components/blockchain/address-link";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import {
@@ -25,10 +26,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function truncateMint(mint: string) {
-  return `${mint.slice(0, 4)}...${mint.slice(-4)}`;
-}
-
 function formatUsd(value: number) {
   return value.toLocaleString("en-US", {
     style: "currency",
@@ -44,13 +41,7 @@ function formatOptionalUsd(value: number | null) {
 
 export default async function TransfersPage() {
   const [
-    {
-      assets,
-      shieldPoints,
-      totalShielded,
-      totalUnshielded,
-      tvl,
-    },
+    { assets, shieldPoints, totalShielded, totalUnshielded, tvl },
     { points: gaslessPoints, totalSpent },
     faucetBalance,
   ] = await Promise.all([
@@ -134,8 +125,11 @@ export default async function TransfersPage() {
                     <TableCell className="font-medium">
                       {asset.symbol}
                     </TableCell>
-                    <TableCell className="font-mono text-muted-foreground">
-                      {truncateMint(asset.tokenMint)}
+                    <TableCell className="text-muted-foreground">
+                      <AddressLink
+                        address={asset.tokenMint}
+                        solanaEnv="mainnet"
+                      />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {asset.userCount}

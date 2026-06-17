@@ -3,18 +3,11 @@ import type { Transaction } from "@/types/wallet";
 import { mmkv } from "@/lib/storage";
 
 import { BALANCE_BG_KEY, DISPLAY_CURRENCY_KEY } from "./constants";
-import { subscribeToWalletBalance } from "./wallet/wallet-details";
 
 // --- In-memory caches (not persisted) ---
 
 export const walletTransactionsCache = new Map<string, Transaction[]>();
 export const walletBalanceListeners = new Set<(lamports: number) => void>();
-
-export let walletBalanceSubscriptionPromise: Promise<
-  () => Promise<void>
-> | null = null;
-
-export const HOLDINGS_REFRESH_DEBOUNCE_MS = 750;
 
 // --- Wallet address (MMKV-backed) ---
 
@@ -37,7 +30,7 @@ export const setCachedWalletAddress = (address: string | null): void => {
 const balanceKey = (addr: string) => `walletBalance:${addr}`;
 
 export const getCachedWalletBalance = (
-  walletAddress: string | null
+  walletAddress: string | null,
 ): number | null => {
   if (!walletAddress) return null;
   const cached = mmkv.getNumber(balanceKey(walletAddress));
@@ -46,7 +39,7 @@ export const getCachedWalletBalance = (
 
 export const setCachedWalletBalance = (
   walletAddress: string | null,
-  lamports: number
+  lamports: number,
 ): void => {
   if (!walletAddress) return;
   mmkv.setNumber(balanceKey(walletAddress), lamports);
@@ -80,38 +73,6 @@ export const setCachedSolPrice = (price: number): void => {
   mmkv.setNumber(SOL_PRICE_TS_KEY, Date.now());
 };
 
-// --- Balance subscription ---
-
-export const ensureWalletBalanceSubscription = async (
-  walletAddress: string
-) => {
-  if (walletBalanceSubscriptionPromise) {
-    return walletBalanceSubscriptionPromise;
-  }
-
-  walletBalanceSubscriptionPromise = subscribeToWalletBalance((lamports) => {
-    setCachedWalletBalance(walletAddress, lamports);
-    walletBalanceListeners.forEach((listener) => listener(lamports));
-  }).catch((error) => {
-    walletBalanceSubscriptionPromise = null;
-    throw error;
-  });
-
-  return walletBalanceSubscriptionPromise;
-};
-
-/** Tear down the current balance websocket so it reconnects on the new network. */
-export const resetWalletBalanceSubscription = async (): Promise<void> => {
-  if (!walletBalanceSubscriptionPromise) return;
-  try {
-    const unsub = await walletBalanceSubscriptionPromise;
-    await unsub();
-  } catch {
-    // already dead — ignore
-  }
-  walletBalanceSubscriptionPromise = null;
-};
-
 // --- Display currency preference (MMKV-backed) ---
 
 export const getCachedDisplayCurrency = (): "USD" | "SOL" | null => {
@@ -121,7 +82,7 @@ export const getCachedDisplayCurrency = (): "USD" | "SOL" | null => {
 };
 
 export const setCachedDisplayCurrency = (
-  currency: "USD" | "SOL" | null
+  currency: "USD" | "SOL" | null,
 ): void => {
   if (currency) {
     mmkv.setString(DISPLAY_CURRENCY_KEY, currency);

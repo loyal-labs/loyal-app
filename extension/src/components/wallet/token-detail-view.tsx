@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  AlertTriangle,
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
@@ -21,7 +22,11 @@ import {
 
 import type { TokenRow } from "@loyal-labs/wallet-core/types";
 import { SubViewHeader } from "./shared";
-import { fetchTokenDetail, type TokenDetailData } from "~/src/lib/coingecko";
+import {
+  CoinGeckoNotFoundError,
+  fetchTokenDetail,
+  type TokenDetailData,
+} from "~/src/lib/coingecko";
 
 // ---------------------------------------------------------------------------
 // Format helpers
@@ -144,6 +149,7 @@ export function TokenDetailView({
   const [detail, setDetail] = useState<TokenDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   const mint = token.id?.replace(/-secured$/, "") ?? null;
 
@@ -155,11 +161,19 @@ export function TokenDetailView({
     }
     setLoading(true);
     setError(null);
+    setNotFound(false);
     try {
       const data = await fetchTokenDetail(mint);
       setDetail(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load token data");
+      // CoinGecko doesn't list this token: degrade to the on-chain metadata
+      // already carried in `token` and mark it unverified. Any other failure
+      // stays a retryable error so we don't mislabel a legitimate token.
+      if (e instanceof CoinGeckoNotFoundError) {
+        setNotFound(true);
+      } else {
+        setError(e instanceof Error ? e.message : "Failed to load token data");
+      }
     } finally {
       setLoading(false);
     }
@@ -252,6 +266,97 @@ export function TokenDetailView({
         </div>
       )}
 
+      {/* Unverified fallback: CoinGecko has no record of this token, so render
+          the on-chain metadata we already have (name/symbol/icon/price) and
+          clearly mark it as unverified instead of failing the whole page. */}
+      {notFound && !loading && (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            overflowX: "hidden",
+            padding: "0 12px 20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+          }}
+        >
+          {/* Price hero */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "4px",
+              padding: "12px 0 4px",
+            }}
+          >
+            <img
+              src={token.icon}
+              alt={token.symbol}
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "9999px",
+                objectFit: "cover",
+              }}
+            />
+            <span
+              style={{
+                fontFamily: FONT,
+                fontSize: "14px",
+                fontWeight: 500,
+                lineHeight: "20px",
+                color: COLOR_SECONDARY,
+                marginTop: "4px",
+              }}
+            >
+              {token.name ?? token.symbol}
+            </span>
+            <span
+              style={{
+                fontFamily: FONT,
+                fontSize: "28px",
+                fontWeight: 600,
+                lineHeight: "32px",
+                color: COLOR_PRIMARY,
+              }}
+            >
+              {token.price}
+            </span>
+            <div style={{ marginTop: "8px" }}>
+              <NotVerifiedBadge />
+            </div>
+            <span
+              style={{
+                fontFamily: FONT,
+                fontSize: "12px",
+                lineHeight: "16px",
+                color: COLOR_SECONDARY,
+                textAlign: "center",
+                marginTop: "4px",
+              }}
+            >
+              This token isn't listed on CoinGecko, so market data is
+              unavailable.
+            </span>
+          </div>
+
+          {/* Action buttons */}
+          <ActionButtons
+            token={token}
+            onSend={onSend}
+            onReceive={onReceive}
+            onSwap={onSwap}
+            onShield={onShield}
+          />
+
+          {/* Position card */}
+          <BalanceCard token={token} />
+        </div>
+      )}
+
       {/* Content */}
       {detail && !loading && (
         <div
@@ -325,84 +430,13 @@ export function TokenDetailView({
           </div>
 
           {/* Action buttons */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "0 4px",
-            }}
-          >
-            {(
-              [
-                onSend && { label: "Send", Icon: ArrowUpRight, action: onSend },
-                onReceive && { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
-                onSwap && { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
-                onShield && { label: token.isSecured ? "Unshield" : "Shield", Icon: Shield, action: onShield },
-              ].filter(Boolean) as { label: string; Icon: typeof ArrowUpRight; action: () => void }[]
-            ).map(({ label, Icon, action }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={action}
-                onMouseEnter={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.22)";
-                }}
-                onMouseLeave={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.background = "rgba(249, 54, 60, 0.14)";
-                }}
-                onMouseDown={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.transform = "scale(0.93)";
-                }}
-                onMouseUp={(e) => {
-                  const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
-                  if (circle) circle.style.transform = "scale(1)";
-                }}
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "6px",
-                  minWidth: 0,
-                  overflow: "hidden",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-              >
-                <div
-                  data-action-circle
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "9999px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "rgba(249, 54, 60, 0.14)",
-                    transition: "background 0.15s ease, transform 0.15s ease",
-                  }}
-                >
-                  <Icon size={24} strokeWidth={1.5} style={{ color: "#000" }} />
-                </div>
-                <span
-                  style={{
-                    fontFamily: FONT,
-                    fontSize: "13px",
-                    lineHeight: "16px",
-                    color: COLOR_SECONDARY,
-                  }}
-                >
-                  {label}
-                </span>
-              </button>
-            ))}
-          </div>
+          <ActionButtons
+            token={token}
+            onSend={onSend}
+            onReceive={onReceive}
+            onSwap={onSwap}
+            onShield={onShield}
+          />
 
           {/* Chart */}
           {detail.chart.length >= 2 && (
@@ -450,51 +484,7 @@ export function TokenDetailView({
           )}
 
           {/* Position card */}
-          {parseFloat(token.amount) > 0 && (
-            <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: "8px" }}>
-              <span style={labelStyle}>Your balance</span>
-              <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-                <span style={{ ...valueStyle, fontSize: "18px", fontWeight: 600 }}>
-                  {token.amount} {token.symbol}
-                </span>
-                {token.isSecured && (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "3px",
-                      fontFamily: FONT,
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      color: COLOR_GREEN,
-                      background: "rgba(52, 199, 89, 0.1)",
-                      borderRadius: "6px",
-                      padding: "2px 6px",
-                    }}
-                  >
-                    <Shield size={10} />
-                    Shielded
-                  </span>
-                )}
-              </div>
-              <span style={{ ...labelStyle, fontSize: "14px" }}>{token.value}</span>
-              {typeof token.apyBps === "number" && token.apyBps > 0 && (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "3px",
-                    fontFamily: FONT,
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    color: COLOR_GREEN,
-                  }}
-                >
-                  Earning {(token.apyBps / 100).toFixed(2)}% APY
-                </span>
-              )}
-            </div>
-          )}
+          <BalanceCard token={token} />
 
           {/* Market stats */}
           <div style={cardStyle}>
@@ -681,6 +671,177 @@ export function TokenDetailView({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function ActionButtons({
+  token,
+  onSend,
+  onReceive,
+  onSwap,
+  onShield,
+}: {
+  token: TokenRow;
+  onSend?: () => void;
+  onReceive?: () => void;
+  onSwap?: () => void;
+  onShield?: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "0 4px",
+      }}
+    >
+      {(
+        [
+          onSend && { label: "Send", Icon: ArrowUpRight, action: onSend },
+          onReceive && { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
+          onSwap && { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
+          onShield && { label: token.isSecured ? "Unshield" : "Shield", Icon: Shield, action: onShield },
+        ].filter(Boolean) as { label: string; Icon: typeof ArrowUpRight; action: () => void }[]
+      ).map(({ label, Icon, action }) => (
+        <button
+          key={label}
+          type="button"
+          onClick={action}
+          onMouseEnter={(e) => {
+            const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+            if (circle) circle.style.background = "rgba(249, 54, 60, 0.22)";
+          }}
+          onMouseLeave={(e) => {
+            const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+            if (circle) circle.style.background = "rgba(249, 54, 60, 0.14)";
+          }}
+          onMouseDown={(e) => {
+            const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+            if (circle) circle.style.transform = "scale(0.93)";
+          }}
+          onMouseUp={(e) => {
+            const circle = e.currentTarget.querySelector("[data-action-circle]") as HTMLElement;
+            if (circle) circle.style.transform = "scale(1)";
+          }}
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            minWidth: 0,
+            overflow: "hidden",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          <div
+            data-action-circle
+            style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "9999px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(249, 54, 60, 0.14)",
+              transition: "background 0.15s ease, transform 0.15s ease",
+            }}
+          >
+            <Icon size={24} strokeWidth={1.5} style={{ color: "#000" }} />
+          </div>
+          <span
+            style={{
+              fontFamily: FONT,
+              fontSize: "13px",
+              lineHeight: "16px",
+              color: COLOR_SECONDARY,
+            }}
+          >
+            {label}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BalanceCard({ token }: { token: TokenRow }) {
+  if (!(parseFloat(token.amount) > 0)) return null;
+  return (
+    <div style={{ ...cardStyle, display: "flex", flexDirection: "column", gap: "8px" }}>
+      <span style={labelStyle}>Your balance</span>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+        <span style={{ ...valueStyle, fontSize: "18px", fontWeight: 600 }}>
+          {token.amount} {token.symbol}
+        </span>
+        {token.isSecured && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "3px",
+              fontFamily: FONT,
+              fontSize: "11px",
+              fontWeight: 500,
+              color: COLOR_GREEN,
+              background: "rgba(52, 199, 89, 0.1)",
+              borderRadius: "6px",
+              padding: "2px 6px",
+            }}
+          >
+            <Shield size={10} />
+            Shielded
+          </span>
+        )}
+      </div>
+      <span style={{ ...labelStyle, fontSize: "14px" }}>{token.value}</span>
+      {typeof token.apyBps === "number" && token.apyBps > 0 && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "3px",
+            fontFamily: FONT,
+            fontSize: "12px",
+            fontWeight: 500,
+            color: COLOR_GREEN,
+          }}
+        >
+          Earning {(token.apyBps / 100).toFixed(2)}% APY
+        </span>
+      )}
+    </div>
+  );
+}
+
+function NotVerifiedBadge() {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        background: "rgba(255, 149, 0, 0.12)",
+        borderRadius: "9999px",
+        padding: "5px 12px",
+      }}
+    >
+      <AlertTriangle size={13} style={{ color: COLOR_ORANGE }} />
+      <span
+        style={{
+          fontFamily: FONT,
+          fontSize: "12px",
+          fontWeight: 600,
+          color: COLOR_ORANGE,
+        }}
+      >
+        Not Verified
+      </span>
+    </div>
+  );
+}
 
 function StatItem({ label, value }: { label: string; value: string }) {
   return (

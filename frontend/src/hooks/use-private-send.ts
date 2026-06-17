@@ -4,17 +4,22 @@ import {
   findUsernameDepositPda,
   getErValidatorForSolanaEnv,
   LoyalPrivateTransactionsClient,
+  USDC_MINT_DEVNET,
+  USDC_MINT_MAINNET,
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
-import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { trackWalletSendCompleted } from "@/lib/core/analytics";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import {
+  getFrontendPrivateClient,
+  invalidateFrontendPrivateClientForError,
+  type FrontendPrivateClientSigner,
+} from "@/lib/solana/private-client-cache";
 
 export type PrivateSendResult = {
   signature?: string;
@@ -34,18 +39,49 @@ async function waitForAccount(
   }
 }
 
+function isKaminoUsdcMint(tokenMint: PublicKey, solanaEnv: string): boolean {
+  const trackedMint =
+    solanaEnv === "mainnet"
+      ? USDC_MINT_MAINNET
+      : solanaEnv === "devnet"
+      ? USDC_MINT_DEVNET
+      : null;
+  return trackedMint ? tokenMint.equals(trackedMint) : false;
+}
+
+async function getTransferDepositAmount(args: {
+  client: LoyalPrivateTransactionsClient;
+  tokenMint: PublicKey;
+  liquidityAmountRaw: number;
+  solanaEnv: string;
+}): Promise<bigint> {
+  const liquidityAmountRaw = BigInt(args.liquidityAmountRaw);
+  if (!isKaminoUsdcMint(args.tokenMint, args.solanaEnv)) {
+    return liquidityAmountRaw;
+  }
+
+  const collateralSharesAmountRaw =
+    await args.client.getKaminoCollateralSharesForLiquidityAmount({
+      tokenMint: args.tokenMint,
+      liquidityAmountRaw,
+    });
+  if (collateralSharesAmountRaw === null) {
+    throw new Error(
+      "Could not quote the current USDC shielded exchange rate. Please retry."
+    );
+  }
+  return collateralSharesAmountRaw;
+}
+
 export function usePrivateSend() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<LoyalPrivateTransactionsClient | null>(null);
 
   const getClient =
     useCallback(async (): Promise<LoyalPrivateTransactionsClient> => {
-      if (clientRef.current) return clientRef.current;
-
       if (
         !wallet.publicKey ||
         !wallet.signTransaction ||
@@ -57,13 +93,6 @@ export function usePrivateSend() {
         );
       }
 
-      const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
-        publicEnv.solanaEnv
-      );
-      const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(
-        publicEnv.solanaEnv
-      );
-
       // The SDK internally checks for signMessage on the signer at runtime
       // for TEE auth, even though WalletLike type doesn't declare it
       const signer = {
@@ -71,18 +100,12 @@ export function usePrivateSend() {
         signTransaction: wallet.signTransaction,
         signAllTransactions: wallet.signAllTransactions,
         signMessage: wallet.signMessage,
-      } as unknown as import("@loyal-labs/private-transactions").WalletLike;
+      } as FrontendPrivateClientSigner;
 
-      const client = await LoyalPrivateTransactionsClient.fromConfig({
+      return getFrontendPrivateClient({
         signer,
-        baseRpcEndpoint: rpcEndpoint,
-        baseWsEndpoint: websocketEndpoint,
-        ephemeralRpcEndpoint: perRpcEndpoint,
-        ephemeralWsEndpoint: perWsEndpoint,
+        solanaEnv: publicEnv.solanaEnv,
       });
-
-      clientRef.current = client;
-      return client;
     }, [
       wallet.publicKey,
       wallet.signTransaction,
@@ -90,13 +113,6 @@ export function usePrivateSend() {
       wallet.signMessage,
       publicEnv.solanaEnv,
     ]);
-
-  // Reset client when wallet changes
-  const prevPubkey = useRef(wallet.publicKey?.toBase58());
-  if (wallet.publicKey?.toBase58() !== prevPubkey.current) {
-    clientRef.current = null;
-    prevPubkey.current = wallet.publicKey?.toBase58();
-  }
 
   const executePrivateSend = useCallback(
     async (params: {
@@ -129,6 +145,12 @@ export function usePrivateSend() {
         const rawAmount = Math.floor(params.amount * 10 ** decimals);
         const user = wallet.publicKey;
         const validator = getErValidatorForSolanaEnv(publicEnv.solanaEnv);
+        const transferAmount = await getTransferDepositAmount({
+          client,
+          tokenMint,
+          liquidityAmountRaw: rawAmount,
+          solanaEnv: publicEnv.solanaEnv,
+        });
 
         // 1. Check ephemeral balance — skip shield if sufficient
         const existingDeposit = await client.getEphemeralDeposit(
@@ -136,7 +158,7 @@ export function usePrivateSend() {
           tokenMint
         );
         const existingBalance = existingDeposit?.amount ?? BigInt(0);
-        const needsShield = existingBalance < BigInt(rawAmount);
+        const needsShield = existingBalance < transferAmount;
 
         if (needsShield) {
           const shieldPlan = await client.buildShieldTokensTransactionPlan({
@@ -189,7 +211,7 @@ export function usePrivateSend() {
             username,
             user,
             tokenMint,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         } else {
@@ -225,7 +247,7 @@ export function usePrivateSend() {
             user,
             tokenMint,
             destinationUser: destination,
-            amount: rawAmount,
+            amount: transferAmount,
             payer: user,
           });
         }
@@ -239,6 +261,13 @@ export function usePrivateSend() {
         }
         return { signature, success: true };
       } catch (err) {
+        if (wallet.publicKey) {
+          invalidateFrontendPrivateClientForError({
+            publicKey: wallet.publicKey.toBase58(),
+            solanaEnv: publicEnv.solanaEnv,
+            error: err,
+          });
+        }
         let errorMessage = "Private send failed";
         if (err instanceof Error) {
           if (err.message.includes("User rejected")) {

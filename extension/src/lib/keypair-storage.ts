@@ -3,35 +3,27 @@ import { Keypair } from "@solana/web3.js";
 import { failedPinAttempts, pinLockedUntil } from "./storage";
 
 // Store encrypted keypair in chrome.storage.local
-const encryptedKeypair = storage.defineItem<string | null>(
-  "local:encryptedKeypair",
-  {
-    fallback: null,
-  }
-);
+const encryptedKeypair = storage.defineItem<string | null>("local:encryptedKeypair", {
+  fallback: null,
+});
 
-const walletPublicKey = storage.defineItem<string | null>(
-  "local:walletPublicKey",
-  {
-    fallback: null,
-  }
-);
+const walletPublicKey = storage.defineItem<string | null>("local:walletPublicKey", {
+  fallback: null,
+});
 
-// Lockout durations in ms, indexed by (failedAttempts - 4).
-// Attempts 1–3 have no lockout. 4 → 30s, 5 → 1m, 6 → 5m, ...
+// Lockout durations in ms, indexed by (failedAttempts - 6).
+// Attempts 1–5 have no lockout. 6 → 15s, 7 → 30s, 8 → 1m, 9 → 5m, 10+ → 15m.
 const LOCKOUT_DURATIONS_MS = [
-  30_000, // 4th failure  → 30 s
-  60_000, // 5th failure  → 1 min
-  300_000, // 6th failure  → 5 min
-  900_000, // 7th failure  → 15 min
-  3_600_000, // 8th failure  → 1 hour
-  14_400_000, // 9th failure  → 4 hours
-  86_400_000, // 10th+ failure → 24 hours
+  15_000,   // 6th failure   → 15 s
+  30_000,   // 7th failure   → 30 s
+  60_000,   // 8th failure   → 1 min
+  300_000,  // 9th failure   → 5 min
+  900_000,  // 10th+ failure → 15 min
 ];
 
 function getLockoutDuration(attempts: number): number {
-  if (attempts < 4) return 0;
-  const index = Math.min(attempts - 4, LOCKOUT_DURATIONS_MS.length - 1);
+  if (attempts < 6) return 0;
+  const index = Math.min(attempts - 6, LOCKOUT_DURATIONS_MS.length - 1);
   return LOCKOUT_DURATIONS_MS[index];
 }
 
@@ -61,10 +53,7 @@ export async function generateKeypair(pin: string): Promise<Keypair> {
   return keypair;
 }
 
-export async function importKeypair(
-  secretKey: Uint8Array,
-  pin: string
-): Promise<Keypair> {
+export async function importKeypair(secretKey: Uint8Array, pin: string): Promise<Keypair> {
   const keypair = Keypair.fromSecretKey(secretKey);
   await storeKeypair(keypair, pin);
   return keypair;
@@ -109,10 +98,7 @@ export async function clearStoredKeypair(): Promise<void> {
   await walletPublicKey.setValue(null);
 }
 
-export async function changePassword(
-  keypair: Keypair,
-  newPassword: string
-): Promise<void> {
+export async function changePassword(keypair: Keypair, newPassword: string): Promise<void> {
   await storeKeypair(keypair, newPassword);
 }
 
@@ -130,14 +116,14 @@ async function deriveKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
     new TextEncoder().encode(pin),
     "PBKDF2",
     false,
-    ["deriveKey"]
+    ["deriveKey"],
   );
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt, iterations: 600_000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
     false,
-    ["encrypt", "decrypt"]
+    ["encrypt", "decrypt"],
   );
 }
 
@@ -148,7 +134,7 @@ async function encrypt(plaintext: string, pin: string): Promise<string> {
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    new TextEncoder().encode(plaintext)
+    new TextEncoder().encode(plaintext),
   );
   return JSON.stringify({
     salt: Array.from(salt),
@@ -157,17 +143,14 @@ async function encrypt(plaintext: string, pin: string): Promise<string> {
   });
 }
 
-async function decrypt(
-  ciphertext: string,
-  pin: string
-): Promise<string | null> {
+async function decrypt(ciphertext: string, pin: string): Promise<string | null> {
   try {
     const { salt, iv, data } = JSON.parse(ciphertext);
     const key = await deriveKey(pin, new Uint8Array(salt));
     const decrypted = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: new Uint8Array(iv) },
       key,
-      new Uint8Array(data)
+      new Uint8Array(data),
     );
     return new TextDecoder().decode(decrypted);
   } catch {

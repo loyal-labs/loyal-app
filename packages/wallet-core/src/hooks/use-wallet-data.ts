@@ -1,4 +1,5 @@
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { computePortfolioTotals } from "@loyal-labs/solana-wallet";
 import type {
   PortfolioPosition,
   PortfolioSnapshot,
@@ -8,7 +9,10 @@ import type {
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getCachedKaminoLendingApyBps } from "../lib/kamino-apy";
+import {
+  getCachedKaminoLendingApyBps,
+  getCachedKaminoShieldedBalanceQuote,
+} from "../lib/kamino-apy";
 import { getTokenIconUrl } from "../lib/token-icon";
 import type { ActivityRow, TokenRow, TransactionDetail } from "../types/wallet";
 
@@ -36,16 +40,12 @@ export type WalletDesktopData = {
 };
 
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
-const SOL_MINT = "So11111111111111111111111111111111111111112";
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDC_MINT_DEVNET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const LOYL_ICON_URL =
   "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
-const SOL_ICON_URL =
-  "https://coin-images.coingecko.com/coins/images/21629/large/solana.jpg";
-const USDC_ICON_URL =
-  "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png";
 
 // In-memory local activity store (no localStorage dependency)
 const localActivityStore = new Map<
@@ -350,6 +350,96 @@ function mapPositionToSecuredTokenRow(position: PortfolioPosition): TokenRow {
   };
 }
 
+function resolveTrackedKaminoUsdcMint(solanaEnv: SolanaEnv): string | null {
+  if (solanaEnv === "mainnet") return USDC_MINT;
+  if (solanaEnv === "devnet") return USDC_MINT_DEVNET;
+  return null;
+}
+
+function removeUnquotedKaminoShieldedLiquidity(
+  snapshot: PortfolioSnapshot,
+  trackedMint: string
+): PortfolioSnapshot {
+  const position = snapshot.positions.find(
+    (candidate) => candidate.asset.mint === trackedMint
+  );
+  if (!position || position.securedBalance <= 0) return snapshot;
+
+  const nextPosition: PortfolioPosition = {
+    ...position,
+    securedBalance: 0,
+    totalBalance: position.publicBalance,
+    securedValueUsd: null,
+    totalValueUsd: position.publicValueUsd,
+  };
+  const nextPositions = snapshot.positions.map((candidate) =>
+    candidate.asset.mint === trackedMint ? nextPosition : candidate
+  );
+
+  return {
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  };
+}
+
+async function enrichKaminoShieldedLiquidity(
+  snapshot: PortfolioSnapshot,
+  solanaEnv: SolanaEnv
+): Promise<PortfolioSnapshot> {
+  const trackedMint = resolveTrackedKaminoUsdcMint(solanaEnv);
+  if (!trackedMint) return snapshot;
+
+  const position = snapshot.positions.find(
+    (candidate) => candidate.asset.mint === trackedMint
+  );
+  if (!position || position.securedBalance <= 0) return snapshot;
+
+  const scale = Math.pow(10, position.asset.decimals);
+  const collateralSharesAmountRaw = BigInt(
+    Math.round(position.securedBalance * scale)
+  );
+  if (collateralSharesAmountRaw <= BigInt(0)) return snapshot;
+
+  const quote = await getCachedKaminoShieldedBalanceQuote({
+    solanaEnv,
+    mint: trackedMint,
+    collateralSharesAmountRaw,
+  });
+  if (!quote) {
+    return removeUnquotedKaminoShieldedLiquidity(snapshot, trackedMint);
+  }
+
+  const liquidityBalance = Number(quote.redeemableLiquidityAmountRaw) / scale;
+  const securedValueUsd =
+    position.priceUsd === null ? null : liquidityBalance * position.priceUsd;
+  const nextPosition: PortfolioPosition = {
+    ...position,
+    securedBalance: liquidityBalance,
+    totalBalance: position.publicBalance + liquidityBalance,
+    securedValueUsd,
+    totalValueUsd:
+      position.publicValueUsd === null || securedValueUsd === null
+        ? position.publicValueUsd ?? securedValueUsd
+        : position.publicValueUsd + securedValueUsd,
+  };
+  const nextPositions = snapshot.positions.map((candidate) =>
+    candidate.asset.mint === trackedMint ? nextPosition : candidate
+  );
+
+  return {
+    ...snapshot,
+    positions: nextPositions,
+    totals: computePortfolioTotals(
+      nextPositions,
+      snapshot.totals.effectiveSolPriceUsd
+    ),
+  };
+}
+
 const ENV_LABELS: Record<string, string> = {
   mainnet: "Mainnet",
   devnet: "Devnet",
@@ -422,9 +512,13 @@ export function useWalletData(params: {
       client.getPortfolio(publicKey),
       client.getActivity(publicKey, { limit: 25 }),
     ])
-      .then(([nextPortfolio, history]) => {
+      .then(async ([nextPortfolio, history]) => {
+        const enrichedPortfolio = await enrichKaminoShieldedLiquidity(
+          nextPortfolio,
+          solanaEnv
+        );
         if (cancelled) return;
-        setPortfolioSnapshot(nextPortfolio);
+        setPortfolioSnapshot(enrichedPortfolio);
         setActivities(history.activities);
         setIsLoading(false);
       })
@@ -436,7 +530,7 @@ export function useWalletData(params: {
     return () => {
       cancelled = true;
     };
-  }, [client, connected, publicKey]);
+  }, [client, connected, publicKey, solanaEnv]);
 
   useEffect(() => {
     if (!(connected && publicKey)) return;
@@ -449,7 +543,11 @@ export function useWalletData(params: {
       .subscribePortfolio(
         publicKey,
         (snapshot) => {
-          if (!closed) setPortfolioSnapshot(snapshot);
+          void enrichKaminoShieldedLiquidity(snapshot, solanaEnv).then(
+            (enrichedSnapshot) => {
+              if (!closed) setPortfolioSnapshot(enrichedSnapshot);
+            }
+          );
         },
         { emitInitial: false }
       )
@@ -499,7 +597,7 @@ export function useWalletData(params: {
       if (unsubscribePortfolio) void unsubscribePortfolio();
       if (unsubscribeActivity) void unsubscribeActivity();
     };
-  }, [client, connected, publicKey]);
+  }, [client, connected, publicKey, solanaEnv]);
 
   // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
@@ -539,68 +637,54 @@ export function useWalletData(params: {
       }
     }
 
-    // Ensure SOL, LOYAL, USDC are always present (in that order at the top)
-    const defaults: {
-      mint: string;
-      symbol: string;
-      name: string;
-      icon: string;
-      price: number | null;
-    }[] = [
-      {
-        mint: SOL_MINT,
-        symbol: "SOL",
-        name: "Solana",
-        icon: SOL_ICON_URL,
-        price: null,
-      },
-      {
-        mint: LOYL_MINT,
-        symbol: "LOYAL",
-        name: "Loyal",
-        icon: LOYL_ICON_URL,
-        price: loylPriceUsd,
-      },
-      {
-        mint: USDC_MINT,
-        symbol: "USDC",
-        name: "USD Coin",
-        icon: USDC_ICON_URL,
-        price: 1,
-      },
-    ];
+    // Only LOYAL is pinned regardless of balance (3rd position / index 2);
+    // every other token appears solely when it has a non-zero balance, so real
+    // holdings fill the top instead of zero SOL/USDC placeholders. Never splice
+    // between a public/secured pair of the same mint.
+    const findPairSafeInsertion = (desiredIndex: number): number => {
+      let index = Math.min(Math.max(desiredIndex, 0), rows.length);
+      while (
+        index > 0 &&
+        index < rows.length &&
+        rows[index - 1].isSecured !== true &&
+        rows[index].isSecured === true &&
+        rows[index].id?.replace(/-secured$/, "") === rows[index - 1].id
+      ) {
+        index += 1;
+      }
+      return index;
+    };
 
-    for (let i = defaults.length - 1; i >= 0; i--) {
-      const { mint, symbol, name, icon, price } = defaults[i];
-      const existingIndex = rows.findIndex((r) => r.id === mint);
-      if (existingIndex >= 0) {
-        // Move to correct position if not already there
-        if (existingIndex !== i) {
-          const [row] = rows.splice(existingIndex, 1);
-          rows.splice(Math.min(i, rows.length), 0, row);
-        }
-      } else {
-        const pos = positions.find((p) => p.asset.mint === mint);
-        if (
-          mint === LOYL_MINT &&
-          pos &&
-          pos.publicBalance === 0 &&
-          pos.securedBalance > 0
-        ) {
-          continue;
-        }
-        const row: TokenRow = pos
-          ? mapPositionToTokenRow(pos)
+    const existingLoylIndex = rows.findIndex((r) => r.id === LOYL_MINT);
+    if (existingLoylIndex >= 0) {
+      // Already present (has a public balance) — move it to a pair-safe slot
+      // near index 2.
+      const targetIndex = findPairSafeInsertion(2);
+      if (existingLoylIndex !== targetIndex) {
+        const [loylRow] = rows.splice(existingLoylIndex, 1);
+        rows.splice(findPairSafeInsertion(2), 0, loylRow);
+      }
+    } else {
+      const loylPosition = positions.find((p) => p.asset.mint === LOYL_MINT);
+      // If LOYAL is held only as shielded, the secured row already represents
+      // it — don't add an empty public placeholder.
+      const loylHasOnlyShielded =
+        loylPosition !== undefined &&
+        loylPosition.publicBalance === 0 &&
+        loylPosition.securedBalance > 0;
+      if (!loylHasOnlyShielded) {
+        const loylRow: TokenRow = loylPosition
+          ? mapPositionToTokenRow(loylPosition)
           : {
-              id: mint,
-              symbol,
-              name,
-              price: price !== null ? formatUsd(price) : "$0.00",
+              id: LOYL_MINT,
+              symbol: "LOYAL",
+              name: "Loyal",
+              price: formatUsd(loylPriceUsd),
               amount: "0",
               value: "$0.00",
-              icon,
+              icon: LOYL_ICON_URL,
             };
-        rows.splice(Math.min(i, rows.length), 0, row);
+        rows.splice(findPairSafeInsertion(2), 0, loylRow);
       }
     }
 

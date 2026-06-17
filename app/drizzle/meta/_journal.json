@@ -166,8 +166,15 @@
     {
       "idx": 23,
       "version": "7",
+      "when": 1779439869361,
+      "tag": "0023_nappy_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
       "when": 1781568000000,
-      "tag": "0023_smart_account_root_signer_onboarding",
+      "tag": "0024_smart_account_root_signer_onboarding",
       "breakpoints": true
     }
   ]

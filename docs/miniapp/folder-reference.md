@@ -367,7 +367,7 @@ MagicBlock integration for live SOL/USD price via Pyth Lazer oracle.
 
 | Constant | Source | Value |
 |----------|--------|-------|
-| `MAGICBLOCK_DEVNET_RPC_URL` | Hardcoded | `https://devnet.magicblock.app` |
+| `MAGICBLOCK_DEVNET_RPC_URL` | Hardcoded | `https://devnet-tee.magicblock.app` |
 | `PRICE_PROGRAM_ID` | Hardcoded | Pyth price program address |
 | `SOLANA_PYTH_LAZER_ID` | Hardcoded | `6` (SOL/USD feed) |
 

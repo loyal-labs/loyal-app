@@ -18,12 +18,8 @@ import {
   decodeTelegramTransferInstruction,
   decodeTelegramVerificationInstruction,
 } from "../solana-helpers";
-import { getConnection, getWebsocketConnection } from "./connection";
+import { getConnection } from "./connection";
 import { GetAccountTransactionHistoryOptions, WalletTransfer } from "./types";
-
-type ListenForAccountTransactionsOptions = {
-  onlySystemTransfers?: boolean;
-};
 
 type TokenBalanceEntry = {
   accountIndex: number;
@@ -45,7 +41,7 @@ export type TokenChange = {
 };
 
 const accountKeyToString = (
-  key: ParsedMessage["accountKeys"][number] | PublicKey | string
+  key: ParsedMessage["accountKeys"][number] | PublicKey | string,
 ): string => {
   if (typeof key === "string") return key;
   if ("pubkey" in (key as ParsedMessage["accountKeys"][number])) {
@@ -57,13 +53,13 @@ const accountKeyToString = (
 };
 
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
 );
 const TOKEN_PROGRAM_ID = new PublicKey(
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
 );
 const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 );
 
 const absBigInt = (n: bigint): bigint => (n < BigInt(0) ? BigInt(0) - n : n);
@@ -77,7 +73,7 @@ const getAtaAddress = (args: {
   const mint = new PublicKey(args.mint);
   const [ata] = PublicKey.findProgramAddressSync(
     [wallet.toBuffer(), args.tokenProgramId.toBuffer(), mint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID
+    ASSOCIATED_TOKEN_PROGRAM_ID,
   );
   return ata.toBase58();
 };
@@ -114,7 +110,7 @@ const addToMintSum = (
   map: Map<string, { raw: bigint; decimals: number }>,
   mint: string,
   raw: bigint,
-  decimals: number
+  decimals: number,
 ) => {
   const existing = map.get(mint);
   if (!existing) {
@@ -163,7 +159,7 @@ const formatTokenAmountFromRaw = (args: {
 const findAllTokenBalanceChanges = (
   message: ParsedMessage,
   meta: NonNullable<ParsedTransactionWithMeta["meta"]>,
-  walletAddress: string
+  walletAddress: string,
 ): TokenChange[] => {
   const preList = (meta.preTokenBalances ?? []) as TokenBalanceEntry[];
   const postList = (meta.postTokenBalances ?? []) as TokenBalanceEntry[];
@@ -325,7 +321,7 @@ const findSplTokenTransferCounterparty = (args: {
 const findSystemTransfer = (
   message: ParsedMessage,
   innerInstructions: ParsedInnerInstruction[] | null | undefined,
-  walletAddress: string
+  walletAddress: string,
 ): ParsedInstruction | undefined => {
   const topLevel = (message.instructions ?? []) as ParsedInstruction[];
   const innerList: ParsedInnerInstruction[] = innerInstructions ?? [];
@@ -382,7 +378,7 @@ export function classifySwap(params: {
   }
 
   const tokenChanges = params.allTokenChanges.filter(
-    (change) => change.mint !== NATIVE_SOL_MINT
+    (change) => change.mint !== NATIVE_SOL_MINT,
   );
 
   const canClassify =
@@ -394,7 +390,8 @@ export function classifySwap(params: {
 
   const tokenIn = tokenChanges.find((change) => change.direction === "in");
   const tokenOut = tokenChanges.find((change) => change.direction === "out");
-  const solOut = params.netChangeLamports < -SOL_DUST_THRESHOLD_LAMPORTS;
+  const solOut =
+    params.netChangeLamports < -SOL_DUST_THRESHOLD_LAMPORTS;
   const solIn = params.netChangeLamports > SOL_DUST_THRESHOLD_LAMPORTS;
 
   if (tokenIn && tokenOut) {
@@ -470,7 +467,7 @@ const mapTransactionToTransfer = (
   tx: ParsedTransactionWithMeta,
   signature: string,
   walletAddress: string,
-  onlySystemTransfers: boolean
+  onlySystemTransfers: boolean,
 ): WalletTransfer | null => {
   const meta = tx.meta;
   if (!meta || !tx.transaction) return null;
@@ -483,7 +480,7 @@ const mapTransactionToTransfer = (
     | undefined;
 
   const accountIndex = message.accountKeys.findIndex(
-    (key) => accountKeyToString(key) === walletAddress
+    (key) => accountKeyToString(key) === walletAddress,
   );
 
   const isSigner =
@@ -493,7 +490,7 @@ const mapTransactionToTransfer = (
   const systemTransfer = findSystemTransfer(
     message,
     innerInstructions,
-    walletAddress
+    walletAddress,
   );
   if (onlySystemTransfers && !systemTransfer) return null;
 
@@ -502,7 +499,9 @@ const mapTransactionToTransfer = (
     : findAllTokenBalanceChanges(message, safeMeta, walletAddress);
   const tokenChange =
     allTokenChanges.length > 0
-      ? allTokenChanges.reduce((best, c) => (c.absRaw > best.absRaw ? c : best))
+      ? allTokenChanges.reduce((best, c) =>
+          c.absRaw > best.absRaw ? c : best,
+        )
       : null;
 
   if (accountIndex === -1 && !tokenChange) return null;
@@ -565,12 +564,12 @@ const mapTransactionToTransfer = (
         (ix.instructions ?? []) as (
           | ParsedInstruction
           | PartiallyDecodedInstruction
-        )[]
+        )[],
     ),
   ].filter(
     (ix): ix is PartiallyDecodedInstruction =>
       "data" in ix &&
-      typeof (ix as PartiallyDecodedInstruction).data === "string"
+      typeof (ix as PartiallyDecodedInstruction).data === "string",
   );
 
   const knownInstructionTypes: WalletTransfer["type"][] = [
@@ -612,7 +611,7 @@ const mapTransactionToTransfer = (
   const decodedInstructions = allInstructionsWithData
     .map((ix) => decodeInstructionData(ix.data))
     .filter(
-      (decoded): decoded is NonNullable<typeof decoded> => decoded !== null
+      (decoded): decoded is NonNullable<typeof decoded> => decoded !== null,
     );
 
   // First shield for a given mint bundles initialize_deposit +
@@ -659,11 +658,11 @@ const mapTransactionToTransfer = (
           (ix.instructions ?? []) as (
             | ParsedInstruction
             | PartiallyDecodedInstruction
-          )[]
+          )[],
       ),
     ].some(
       (ix) =>
-        "programId" in ix && ix.programId?.toBase58?.() === JUPITER_PROGRAM_ID
+        "programId" in ix && ix.programId?.toBase58?.() === JUPITER_PROGRAM_ID,
     );
 
   const classification = classifySwap({
@@ -680,14 +679,14 @@ const mapTransactionToTransfer = (
     type === "swap"
       ? "out"
       : isTokenTransfer || isSecureWithToken
-      ? tokenChange!.direction
-      : solDirection;
+        ? tokenChange!.direction
+        : solDirection;
   const amountLamports =
     type === "swap"
       ? solAmountLamports
       : isTokenTransfer || isSecureWithToken
-      ? 0
-      : solAmountLamports;
+        ? 0
+        : solAmountLamports;
 
   if (isTokenTransfer && type !== "swap") {
     const tokenCounterparty = findSplTokenTransferCounterparty({
@@ -733,7 +732,7 @@ const mapTransactionToTransfer = (
 
 export const getAccountTransactionHistory = async (
   publicKey: PublicKey,
-  options: GetAccountTransactionHistoryOptions = {}
+  options: GetAccountTransactionHistoryOptions = {},
 ): Promise<{ transfers: WalletTransfer[]; nextCursor?: string }> => {
   const connection = getConnection();
 
@@ -752,7 +751,7 @@ export const getAccountTransactionHistory = async (
     signatureList,
     {
       maxSupportedTransactionVersion: 0,
-    }
+    },
   );
 
   const transfers: WalletTransfer[] = [];
@@ -766,7 +765,7 @@ export const getAccountTransactionHistory = async (
       tx,
       signature,
       publicKey.toString(),
-      options.onlySystemTransfers ?? false
+      options.onlySystemTransfers ?? false,
     );
 
     if (transfer) {
@@ -777,65 +776,4 @@ export const getAccountTransactionHistory = async (
   const nextCursor = signatures[signatures.length - 1]?.signature;
 
   return { transfers, nextCursor };
-};
-
-export const listenForAccountTransactions = async (
-  publicKey: PublicKey,
-  onTransfer: (transfer: WalletTransfer) => void,
-  options: ListenForAccountTransactionsOptions = {}
-): Promise<() => Promise<void>> => {
-  const connection = getWebsocketConnection();
-  const walletAddress = publicKey.toBase58();
-  const processedSignatures = new Set<string>();
-  const rememberSignature = (sig: string) => {
-    processedSignatures.add(sig);
-    if (processedSignatures.size > 100) {
-      const [first] = processedSignatures;
-      processedSignatures.delete(first);
-    }
-  };
-
-  let subscriptionId: number;
-  try {
-    subscriptionId = await connection.onLogs(
-      publicKey,
-      async (logInfo) => {
-        try {
-          const signature = logInfo.signature;
-          if (!signature) return;
-          if (processedSignatures.has(signature)) return;
-          rememberSignature(signature);
-
-          const parsedTx = await connection.getParsedTransaction(signature, {
-            maxSupportedTransactionVersion: 0,
-          });
-          if (!parsedTx) return;
-
-          const transfer = mapTransactionToTransfer(
-            parsedTx,
-            signature,
-            walletAddress,
-            options.onlySystemTransfers ?? false
-          );
-          if (transfer) {
-            onTransfer(transfer);
-          }
-        } catch (err) {
-          console.error("[ws/txs] Error handling websocket transaction", err);
-        }
-      },
-      "confirmed"
-    );
-  } catch (error) {
-    console.error("[ws/txs] onLogs subscription setup failed", error);
-    throw error;
-  }
-
-  return async () => {
-    try {
-      await connection.removeOnLogsListener(subscriptionId);
-    } catch (error) {
-      console.error("[ws/txs] Failed to remove onLogs listener", error);
-    }
-  };
 };

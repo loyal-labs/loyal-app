@@ -2,16 +2,24 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import {
+  MARKETING_PAGES,
+  type MarketingPage,
+} from "@/features/marketing/registry";
 
-const navLinks = [
-  { href: "#features", label: "Features" },
-  { href: "#developers", label: "Developers" },
-  { href: "#roadmap", label: "Roadmap" },
-  { href: "#blog", label: "Blog" },
-  { href: "#footer", label: "Links" },
+type FeaturesNavItem = { kind: "dropdown"; label: "Features" };
+type AnchorNavItem = { kind: "anchor"; label: string; href: string };
+type NavItem = FeaturesNavItem | AnchorNavItem;
+
+const navLinks: NavItem[] = [
+  { kind: "dropdown", label: "Features" },
+  { kind: "anchor", href: "/#developers", label: "Developers" },
+  { kind: "anchor", href: "/#roadmap", label: "Roadmap" },
+  { kind: "anchor", href: "/#blog", label: "Blog" },
+  { kind: "anchor", href: "/#footer", label: "Links" },
 ];
 
 const neutralPupilOffset = 49 - 61.3298;
@@ -230,16 +238,27 @@ function HeaderContent({
           className="hidden max-w-[800px] items-end p-1 lg:flex"
         >
           <div className="flex items-center">
-            {navLinks.map((link) => (
-              <Link
-                className="flex items-center justify-center rounded-full px-4 py-2 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-white hover:text-[#f9363c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-                href={link.href}
-                key={link.label}
-                tabIndex={linkTabIndex}
-              >
-                {link.label}
-              </Link>
-            ))}
+            {navLinks.map((link) => {
+              if (link.kind === "dropdown") {
+                return (
+                  <FeaturesDesktopMenu
+                    interactive={interactive}
+                    key={link.label}
+                    pages={MARKETING_PAGES}
+                  />
+                );
+              }
+              return (
+                <Link
+                  className="flex items-center justify-center rounded-full px-4 py-2 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-white hover:text-[#f9363c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+                  href={link.href}
+                  key={link.label}
+                  tabIndex={linkTabIndex}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </div>
         </nav>
       </div>
@@ -253,7 +272,6 @@ function HeaderContent({
         width="98"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <title>Loyal eye</title>
         <g
           className="transition duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{
@@ -310,7 +328,7 @@ function HeaderContent({
       <div className="flex shrink-0 items-center gap-2 lg:hidden">
         <Link
           className="flex h-11 shrink-0 items-center justify-center rounded-full bg-black px-4 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-          href="#get-started-mobile"
+          href="/#get-started-mobile"
           onClick={closeMenu}
           tabIndex={linkTabIndex}
         >
@@ -348,19 +366,196 @@ function HeaderContent({
         id={menuId}
       >
         <nav aria-label="Mobile navigation" className="grid p-2">
-          {navLinks.map((link) => (
-            <Link
-              className="flex items-center justify-between rounded-[18px] px-4 py-3 text-[20px] font-normal leading-6 transition duration-150 ease-out hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              href={link.href}
-              key={link.label}
-              onClick={closeMenu}
-              tabIndex={isMenuOpen && interactive ? undefined : -1}
-            >
-              {link.label}
-            </Link>
-          ))}
+          {navLinks.map((link) => {
+            if (link.kind === "dropdown") {
+              return (
+                <FeaturesMobileMenu
+                  closeMenu={closeMenu}
+                  isMenuOpen={isMenuOpen && interactive}
+                  key={link.label}
+                  pages={MARKETING_PAGES}
+                />
+              );
+            }
+            return (
+              <Link
+                className="flex items-center justify-between rounded-[18px] px-4 py-3 text-[20px] font-normal leading-6 transition duration-150 ease-out hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                href={link.href}
+                key={link.label}
+                onClick={closeMenu}
+                tabIndex={isMenuOpen && interactive ? undefined : -1}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </nav>
       </div>
+    </div>
+  );
+}
+
+function FeaturesDesktopMenu({
+  interactive,
+  pages,
+}: {
+  interactive: boolean;
+  pages: readonly MarketingPage[];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const open = () => {
+    clearCloseTimer();
+    setIsOpen(true);
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => setIsOpen(false), 140);
+  };
+
+  useEffect(() => () => clearCloseTimer(), []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [isOpen]);
+
+  const hasPages = pages.length > 0;
+
+  return (
+    <div
+      className="relative"
+      onBlur={(e) => {
+        if (!containerRef.current?.contains(e.relatedTarget as Node | null)) {
+          scheduleClose();
+        }
+      }}
+      onFocus={open}
+      onMouseEnter={open}
+      onMouseLeave={scheduleClose}
+      ref={containerRef}
+    >
+      <button
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        className="flex items-center justify-center rounded-full px-4 py-2 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-white hover:text-[#f9363c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+        tabIndex={interactive ? undefined : -1}
+        type="button"
+      >
+        Features
+      </button>
+      <div
+        className={`absolute left-0 top-full z-50 mt-2 w-[320px] overflow-hidden rounded-3xl bg-white p-2 text-black shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition duration-150 ease-out ${
+          isOpen && interactive
+            ? "translate-y-0 opacity-100"
+            : "pointer-events-none -translate-y-2 opacity-0"
+        }`}
+        role="menu"
+      >
+        {hasPages ? (
+          pages.map((page) => (
+            <Link
+              className="flex flex-col gap-1 rounded-[18px] px-4 py-3 transition duration-150 ease-out hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f9363c]"
+              href={`/${page.slug}`}
+              key={page.slug}
+              onClick={() => setIsOpen(false)}
+              role="menuitem"
+              tabIndex={isOpen && interactive ? undefined : -1}
+            >
+              <span className="text-[16px] font-medium leading-5">
+                {page.title}
+              </span>
+              {page.description ? (
+                <span className="text-[14px] leading-[1.3] text-black/60">
+                  {page.description}
+                </span>
+              ) : null}
+            </Link>
+          ))
+        ) : (
+          <p className="px-4 py-3 text-[14px] leading-[1.3] text-black/60">
+            No marketing pages yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FeaturesMobileMenu({
+  isMenuOpen,
+  closeMenu,
+  pages,
+}: {
+  isMenuOpen: boolean;
+  closeMenu: () => void;
+  pages: readonly MarketingPage[];
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const hasPages = pages.length > 0;
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      setIsExpanded(false);
+    }
+  }, [isMenuOpen]);
+
+  return (
+    <div>
+      <button
+        aria-expanded={isExpanded}
+        className="flex w-full items-center justify-between rounded-[18px] px-4 py-3 text-left text-[20px] font-normal leading-6 text-white transition duration-150 ease-out hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        disabled={!hasPages}
+        onClick={() => setIsExpanded((prev) => !prev)}
+        tabIndex={isMenuOpen ? undefined : -1}
+        type="button"
+      >
+        <span>Features</span>
+        <span
+          aria-hidden="true"
+          className={`text-[20px] leading-none transition-transform duration-150 ${isExpanded ? "rotate-45" : "rotate-0"}`}
+        >
+          +
+        </span>
+      </button>
+      {hasPages && isExpanded ? (
+        <div className="ml-2 grid gap-1 border-l border-white/20 pl-3">
+          {pages.map((page) => (
+            <Link
+              className="flex flex-col gap-1 rounded-[14px] px-3 py-2 text-[16px] font-normal leading-5 transition duration-150 ease-out hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              href={`/${page.slug}`}
+              key={page.slug}
+              onClick={closeMenu}
+              tabIndex={isMenuOpen ? undefined : -1}
+            >
+              <span>{page.title}</span>
+              {page.description ? (
+                <span className="text-[14px] leading-[1.3] text-white/60">
+                  {page.description}
+                </span>
+              ) : null}
+            </Link>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

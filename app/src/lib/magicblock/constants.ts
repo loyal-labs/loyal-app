@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import type { Feed } from "./types";
 
-export const MAGICBLOCK_DEVNET_RPC_URL = "https://devnet.magicblock.app";
+export const MAGICBLOCK_DEVNET_RPC_URL = "https://devnet-tee.magicblock.app";
 
 export const PRICE_PROGRAM_ID = new PublicKey(
   "PriCems5tHihc6UDXDjzjeawomAwBduWMGAi8ZUjppd"

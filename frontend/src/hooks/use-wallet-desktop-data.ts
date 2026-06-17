@@ -145,6 +145,10 @@ function formatTokenBalance(balance: number): string {
   });
 }
 
+export function hasDisplayableTokenBalance(balance: number): boolean {
+  return Number.parseFloat(formatTokenBalance(balance).replace(/,/g, "")) > 0;
+}
+
 function formatSolAmount(lamports: number): string {
   return (lamports / 1_000_000_000).toLocaleString("en-US", {
     minimumFractionDigits: 0,
@@ -400,15 +404,6 @@ function formatSignedUsd(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-}
-
-// Values below 1 cent are treated as dust and hidden from the token list to
-// avoid duplicate-looking rows after a Max-unshield leaves a few residual
-// lamports in the vault. When USD value is unknown we err on the side of
-// showing the row.
-const DUST_VALUE_USD_THRESHOLD = 0.01;
-function isDustValueUsd(valueUsd: number | null | undefined): boolean {
-  return typeof valueUsd === "number" && valueUsd < DUST_VALUE_USD_THRESHOLD;
 }
 
 function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
@@ -1112,14 +1107,10 @@ export function useWalletDesktopData(): WalletDesktopData {
           )
         );
       }
-      // Add secured row right after the public one. Skip dust amounts that
-      // can linger in the vault after a Max-unshield (a few lamports of
-      // rounding or residual rent-reserve), since they render as a confusing
-      // near-empty duplicate row.
-      if (
-        position.securedBalance > 0 &&
-        !isDustValueUsd(position.securedValueUsd)
-      ) {
+      // Add secured row right after the public one. Only skip amounts that
+      // round to zero at this UI's token precision; sub-cent balances can
+      // still be real displayable positions, especially for SOL.
+      if (hasDisplayableTokenBalance(position.securedBalance)) {
         rows.push(
           attachPriceChange(
             mapPositionToSecuredTokenRow(
@@ -1159,14 +1150,12 @@ export function useWalletDesktopData(): WalletDesktopData {
     } else {
       const loylPosition = positions.find((p) => p.asset.mint === LOYL_MINT);
       // If LOYAL is held only as shielded, the secured row already
-      // represents it — don't add an empty public placeholder row. Treat a
-      // dust-only shielded position as if it didn't exist (matches the
-      // dust filter applied when building secured rows above).
+      // represents it — don't add an empty public placeholder row. Treat
+      // a display-zero shielded position as if it didn't exist.
       const loylHasOnlyShielded =
         loylPosition !== undefined &&
         loylPosition.publicBalance === 0 &&
-        loylPosition.securedBalance > 0 &&
-        !isDustValueUsd(loylPosition.securedValueUsd);
+        hasDisplayableTokenBalance(loylPosition.securedBalance);
       if (!loylHasOnlyShielded) {
         // Not in rows — create placeholder with Jupiter price
         const loylRow: TokenRow = loylPosition

@@ -9,7 +9,6 @@ use ephemeral_rollups_sdk::access_control::structs::{
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::commit_and_undelegate_accounts;
-use session_keys::{session_auth_or, Session, SessionError, SessionToken};
 use solana_hash::HASH_BYTES;
 use telegram_verification::TelegramSession;
 
@@ -295,10 +294,6 @@ pub mod telegram_private_transfer {
     /// Transfers a specified amount from one user's deposit account to another's for the same token mint.
     ///
     /// Only updates the internal accounting; does not move actual tokens.
-    #[session_auth_or(
-        ctx.accounts.user.key() == ctx.accounts.source_deposit.user,
-        ErrorCode::Unauthorized
-    )]
     pub fn transfer_deposit(ctx: Context<TransferDeposit>, amount: u64) -> Result<()> {
         let source_deposit = &mut ctx.accounts.source_deposit;
         let destination_deposit = &mut ctx.accounts.destination_deposit;
@@ -318,10 +313,6 @@ pub mod telegram_private_transfer {
     /// Transfers a specified amount from a user's deposit account to a username-based deposit.
     ///
     /// Only updates the internal accounting; does not move actual tokens.
-    #[session_auth_or(
-        ctx.accounts.user.key() == ctx.accounts.source_deposit.user,
-        ErrorCode::Unauthorized
-    )]
     pub fn transfer_to_username_deposit(
         ctx: Context<TransferToUsernameDeposit>,
         amount: u64,
@@ -485,10 +476,6 @@ pub mod telegram_private_transfer {
     /// Commits and undelegates the deposit account from the ephemeral rollups program.
     ///
     /// Uses the ephemeral rollups SDK to commit and undelegate the deposit account.
-    #[session_auth_or(
-        ctx.accounts.user.key() == ctx.accounts.deposit.user,
-        ErrorCode::Unauthorized
-    )]
     pub fn undelegate(ctx: Context<UndelegateDeposit>) -> Result<()> {
         commit_and_undelegate_accounts(
             &ctx.accounts.payer,
@@ -697,17 +684,11 @@ pub struct ClaimUsernameDepositToDeposit<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-#[derive(Accounts, Session)]
+#[derive(Accounts)]
 pub struct TransferDeposit<'info> {
-    /// CHECK: Matched against the deposit account
-    pub user: AccountInfo<'info>,
+    pub user: Signer<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[session(
-        signer = payer,
-        authority = user.key()
-    )]
-    pub session_token: Option<Account<'info, SessionToken>>,
     #[account(
         mut,
         seeds = [
@@ -736,17 +717,11 @@ pub struct TransferDeposit<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts, Session)]
+#[derive(Accounts)]
 pub struct TransferToUsernameDeposit<'info> {
-    /// CHECK: Matched against the deposit account
-    pub user: AccountInfo<'info>,
+    pub user: Signer<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[session(
-        signer = payer,
-        authority = user.key()
-    )]
-    pub session_token: Option<Account<'info, SessionToken>>,
     #[account(
         mut,
         seeds = [
@@ -864,17 +839,11 @@ pub struct DelegateUsernameDeposit<'info> {
 }
 
 #[commit]
-#[derive(Accounts, Session)]
+#[derive(Accounts)]
 pub struct UndelegateDeposit<'info> {
-    /// CHECK: Matched against the deposit account
-    pub user: AccountInfo<'info>,
+    pub user: Signer<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[session(
-        signer = payer,
-        authority = user.key()
-    )]
-    pub session_token: Option<Account<'info, SessionToken>>,
     #[account(
         mut,
         seeds = [DEPOSIT_PDA_SEED, user.key().as_ref(), deposit.token_mint.as_ref()],

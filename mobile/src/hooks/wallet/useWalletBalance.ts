@@ -4,7 +4,6 @@ import { getWalletBalance } from "@/lib/solana/wallet/wallet-details";
 
 import {
   cachedWalletAddress,
-  ensureWalletBalanceSubscription,
   getCachedWalletBalance,
   setCachedWalletBalance,
   walletBalanceListeners,
@@ -51,10 +50,6 @@ export function useWalletBalance(walletAddress: string | null): {
     }
 
     walletBalanceListeners.add(handleBalanceUpdate);
-
-    void ensureWalletBalanceSubscription(walletAddress).catch((error) => {
-      console.error("Failed to subscribe to wallet balance", error);
-    });
 
     return () => {
       isCancelled = true;

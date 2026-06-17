@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
 import { SignInModal } from "@/components/auth/sign-in-modal";
 import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
+import { PrivateClientPreloader } from "@/components/solana/private-client-preloader";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
 import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
@@ -53,6 +54,7 @@ export default function AppLayout({
         <FeatureFlagsProvider>
           <SignInModalProvider>
             <WalletAutoReauth />
+            <PrivateClientPreloader />
             <AnalyticsBootstrap />
             {/* Header/main nav is hidden for the wallet workspace redesign. */}
             <AppWorkspaceShell />

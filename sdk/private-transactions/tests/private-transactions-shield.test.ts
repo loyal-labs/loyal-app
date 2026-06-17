@@ -135,11 +135,8 @@ const TELEGRAM_ED25519_PUBKEY = Buffer.from(
   "hex"
 );
 
-const PER_RPC_ENDPOINT = "https://tee.magicblock.app";
-const PER_WS_ENDPOINT = "wss://tee.magicblock.app";
-
-// const PER_RPC_ENDPOINT = "https://devnet-as.magicblock.app";
-// const PER_WS_ENDPOINT = "wss://devnet-as.magicblock.app";
+const PER_RPC_ENDPOINT = "https://devnet-tee.magicblock.app";
+const PER_WS_ENDPOINT = "wss://devnet-tee.magicblock.app";
 
 export const SECURE_DEVNET_RPC_URL =
   "https://karlotta-a6micy-fast-devnet.helius-rpc.com";

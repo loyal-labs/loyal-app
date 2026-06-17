@@ -6,6 +6,8 @@ import {
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  USDC_MINT_DEVNET,
+  USDC_MINT_MAINNET,
 } from "@loyal-labs/private-transactions";
 import type { LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType } from "@loyal-labs/private-transactions";
 import type { Connection } from "@solana/web3.js";
@@ -19,6 +21,7 @@ import {
   getPerEndpoints,
   getSolanaEnv,
 } from "../rpc/connection";
+import type { SolanaEnv } from "../rpc/types";
 import { closeWsolAta, wrapSolToWSol } from "../wsol-adapter";
 import { getWalletSigner } from "./wallet-details";
 
@@ -70,6 +73,40 @@ async function waitForAccount(
     if (info) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
+}
+
+function isKaminoUsdcMint(tokenMint: PublicKey, solanaEnv: SolanaEnv): boolean {
+  const trackedMint =
+    solanaEnv === "mainnet"
+      ? USDC_MINT_MAINNET
+      : solanaEnv === "devnet"
+      ? USDC_MINT_DEVNET
+      : null;
+  return trackedMint ? tokenMint.equals(trackedMint) : false;
+}
+
+async function getTransferDepositAmount(args: {
+  client: LoyalPrivateTransactionsClientType;
+  tokenMint: PublicKey;
+  liquidityAmountRaw: number;
+  solanaEnv: SolanaEnv;
+}): Promise<bigint> {
+  const liquidityAmountRaw = BigInt(args.liquidityAmountRaw);
+  if (!isKaminoUsdcMint(args.tokenMint, args.solanaEnv)) {
+    return liquidityAmountRaw;
+  }
+
+  const collateralSharesAmountRaw =
+    await args.client.getKaminoCollateralSharesForLiquidityAmount({
+      tokenMint: args.tokenMint,
+      liquidityAmountRaw,
+    });
+  if (collateralSharesAmountRaw === null) {
+    throw new Error(
+      "Could not quote the current USDC shielded exchange rate. Please retry."
+    );
+  }
+  return collateralSharesAmountRaw;
 }
 
 async function getPerAuthToken(
@@ -208,11 +245,17 @@ export async function sendPrivateTransferToTelegramUsername(params: {
   const connection = getConnection();
   const client = await getPrivateTransactionsClient(signer);
   const tokenMint = new PublicKey(params.tokenMint);
-  const validator = getErValidatorForSolanaEnv(getSolanaEnv());
+  const solanaEnv = getSolanaEnv();
+  const validator = getErValidatorForSolanaEnv(solanaEnv);
   const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
     await getSplToken();
 
-  const requiredAmount = BigInt(rawAmount);
+  const requiredAmount = await getTransferDepositAmount({
+    client,
+    tokenMint,
+    liquidityAmountRaw: rawAmount,
+    solanaEnv,
+  });
   const existingDeposit = await client.getEphemeralDeposit(user, tokenMint);
   const existingBalance = existingDeposit?.amount ?? BigInt(0);
   const requiresShield = existingBalance < requiredAmount;
@@ -355,7 +398,7 @@ export async function sendPrivateTransferToTelegramUsername(params: {
     username: normalizedUsername,
     user,
     tokenMint,
-    amount: rawAmount,
+    amount: requiredAmount,
     payer: user,
   });
 
@@ -395,11 +438,17 @@ export async function sendPrivateTransferToWallet(params: {
   const connection = getConnection();
   const client = await getPrivateTransactionsClient(signer);
   const tokenMint = new PublicKey(params.tokenMint);
-  const validator = getErValidatorForSolanaEnv(getSolanaEnv());
+  const solanaEnv = getSolanaEnv();
+  const validator = getErValidatorForSolanaEnv(solanaEnv);
   const { getAssociatedTokenAddressSync, NATIVE_MINT, TOKEN_PROGRAM_ID } =
     await getSplToken();
 
-  const requiredAmount = BigInt(rawAmount);
+  const requiredAmount = await getTransferDepositAmount({
+    client,
+    tokenMint,
+    liquidityAmountRaw: rawAmount,
+    solanaEnv,
+  });
   const existingDeposit = await client.getEphemeralDeposit(user, tokenMint);
   const existingBalance = existingDeposit?.amount ?? BigInt(0);
   const requiresShield = existingBalance < requiredAmount;
@@ -511,7 +560,7 @@ export async function sendPrivateTransferToWallet(params: {
     user,
     tokenMint,
     destinationUser: destination,
-    amount: rawAmount,
+    amount: requiredAmount,
     payer: user,
   });
 

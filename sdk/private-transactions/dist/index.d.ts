@@ -27,14 +27,20 @@
  *
  * await client.createPermission({ user: signer.publicKey, tokenMint, payer: signer.publicKey });
  * await client.delegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, validator: ER_VALIDATOR_MAINNET });
- * await client.transferToUsernameDeposit({ username: "alice_user", tokenMint, amount: 100_000, user: signer.publicKey, payer: signer.publicKey, sessionToken: null });
- * await client.undelegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, sessionToken: null, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT_ID });
+ * await client.transferToUsernameDeposit({ username: "alice_user", tokenMint, amount: 100_000, user: signer.publicKey, payer: signer.publicKey });
+ * await client.undelegateDeposit({ user: signer.publicKey, tokenMint, payer: signer.publicKey, magicProgram: MAGIC_PROGRAM_ID, magicContext: MAGIC_CONTEXT_ID });
  */
 export { LoyalPrivateTransactionsClient, waitForAccountOwnerChange, } from "./src/LoyalPrivateTransactionsClient";
 export { shieldTokens } from "./src/actions/shieldTokens";
 export { unshieldTokens } from "./src/actions/unshieldTokens";
 export { enumerateDepositsByUser } from "./src/enumerate-deposits";
-export type { WalletSigner, WalletLike, RpcOptions, ClientConfig, DepositData, UsernameDepositData, InitializeDepositParams, CloseDepositParams, CloseUsernameDepositParams, ClosePermissionParams, ModifyBalanceParams, ModifyBalanceResult, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, ExecuteShieldFlowTransactionPlanParams, ExecuteShieldTokensTransactionPlanParams, ExecuteUnshieldTokensTransactionPlanParams, ShieldFlowKind, FeeEstimateCluster, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowInstructionPlan, ShieldFlowOwnerChangeWait, ShieldFlowTransactionPlan, ShieldFlowPlan, InstructionCostEstimate, ShieldFlowTransactionFeeEstimate, ShieldFlowFeeEstimate, ShieldFlowTransactionExecutionResult, ShieldFlowExecutionResult, ShieldTokensClientParams, UnshieldTokensClientParams, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoTrackedBalanceCostBasis, KaminoPositionYieldInfo, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, DelegationRecord, DelegationStatusResult, DelegationStatusResponse, } from "./src/types";
+export { delegateDepositIx } from "./src/instructions/delegateDeposit";
+export { delegateUsernameDepositIx } from "./src/instructions/delegateUsernameDeposit";
+export { initializeDepositIx } from "./src/instructions/initializeDeposit";
+export { initializeUsernameDepositIx } from "./src/instructions/initializeUsernameDeposit";
+export { transferDepositIx } from "./src/instructions/transferDeposit";
+export { transferToUsernameDepositIx } from "./src/instructions/transferToUsernameDeposit";
+export type { WalletSigner, WalletLike, RpcOptions, ClientConfig, DepositData, UsernameDepositData, CheckedTransactionInstruction, InstructionCheck, InitializeDepositParams, CloseDepositParams, CloseUsernameDepositParams, ClosePermissionParams, ModifyBalanceParams, ModifyBalanceResult, BuildShieldFlowTransactionPlanParams, BuildShieldTokensTransactionPlanParams, BuildUnshieldTokensTransactionPlanParams, ExecuteShieldFlowTransactionPlanParams, ExecuteShieldTokensTransactionPlanParams, ExecuteUnshieldTokensTransactionPlanParams, ShieldFlowKind, FeeEstimateCluster, EstimateShieldFlowFeeParams, EstimateShieldTokensFeeParams, EstimateUnshieldTokensFeeParams, ShieldFlowInstructionPlan, ShieldFlowOwnerChangeWait, ShieldFlowTransactionPlan, ShieldFlowPlan, InstructionCostEstimate, ShieldFlowTransactionFeeEstimate, ShieldFlowFeeEstimate, ShieldFlowTransactionExecutionResult, ShieldFlowExecutionResult, ShieldTokensClientParams, UnshieldTokensClientParams, GetKaminoShieldedBalanceQuoteParams, GetKaminoCollateralSharesForLiquidityAmountParams, KaminoReserveSnapshot, KaminoTrackedBalanceCostBasis, KaminoPositionYieldInfo, KaminoShieldedBalanceQuote, CreatePermissionParams, CreateUsernamePermissionParams, DelegateDepositParams, DelegateUsernameDepositParams, UndelegateDepositParams, UndelegateUsernameDepositParams, TransferDepositParams, TransferToUsernameDepositParams, DelegationRecord, DelegationStatusResult, DelegationStatusResponse, } from "./src/types";
 export { isKeypair, isAnchorProvider, isWalletLike } from "./src/types";
 export { ER_VALIDATOR, ER_VALIDATOR_DEVNET, ER_VALIDATOR_MAINNET, getErValidatorForSolanaEnv, getErValidatorForRpcEndpoint, getKaminoModifyBalanceAccountsForTokenMint, isKaminoMainnetModifyBalanceAccounts, KLEND_PROGRAM_ID, PROGRAM_ID, USDC_MINT_DEVNET, USDC_MINT_MAINNET, DELEGATION_PROGRAM_ID, PERMISSION_PROGRAM_ID, MAGIC_PROGRAM_ID, MAGIC_CONTEXT_ID, DEPOSIT_SEED, DEPOSIT_SEED_BYTES, USERNAME_DEPOSIT_SEED, USERNAME_DEPOSIT_SEED_BYTES, VAULT_SEED, VAULT_SEED_BYTES, PERMISSION_SEED, PERMISSION_SEED_BYTES, LAMPORTS_PER_SOL, solToLamports, lamportsToSol, } from "./src/constants";
 export { calculateKaminoCollateralExchangeRateSfFromAmounts, calculateKaminoCollateralValuation, calculateKaminoRedeemableLiquidityAmountRaw, calculateKaminoShareAmountForLiquidityAmountRaw, fetchKaminoReserveSnapshot, parseKaminoReserveSnapshotFromAccountData, } from "./src/kamino";
@@ -464,10 +470,9 @@ export declare const IDL: {
         discriminator: number[];
         accounts: ({
             name: string;
+            signer: boolean;
             relations: string[];
             writable?: undefined;
-            signer?: undefined;
-            optional?: undefined;
             pda?: undefined;
             address?: undefined;
         } | {
@@ -475,15 +480,6 @@ export declare const IDL: {
             writable: boolean;
             signer: boolean;
             relations?: undefined;
-            optional?: undefined;
-            pda?: undefined;
-            address?: undefined;
-        } | {
-            name: string;
-            optional: boolean;
-            relations?: undefined;
-            writable?: undefined;
-            signer?: undefined;
             pda?: undefined;
             address?: undefined;
         } | {
@@ -502,25 +498,29 @@ export declare const IDL: {
                     value?: undefined;
                 })[];
             };
-            relations?: undefined;
             signer?: undefined;
-            optional?: undefined;
+            relations?: undefined;
             address?: undefined;
         } | {
             name: string;
             writable: boolean;
-            relations?: undefined;
             signer?: undefined;
-            optional?: undefined;
+            relations?: undefined;
+            pda?: undefined;
+            address?: undefined;
+        } | {
+            name: string;
+            relations: string[];
+            signer?: undefined;
+            writable?: undefined;
             pda?: undefined;
             address?: undefined;
         } | {
             name: string;
             address: string;
+            signer?: undefined;
             relations?: undefined;
             writable?: undefined;
-            signer?: undefined;
-            optional?: undefined;
             pda?: undefined;
         })[];
         args: {
@@ -533,23 +533,14 @@ export declare const IDL: {
         discriminator: number[];
         accounts: ({
             name: string;
+            signer: boolean;
             writable?: undefined;
-            signer?: undefined;
-            optional?: undefined;
             pda?: undefined;
             address?: undefined;
         } | {
             name: string;
             writable: boolean;
             signer: boolean;
-            optional?: undefined;
-            pda?: undefined;
-            address?: undefined;
-        } | {
-            name: string;
-            optional: boolean;
-            writable?: undefined;
-            signer?: undefined;
             pda?: undefined;
             address?: undefined;
         } | {
@@ -574,21 +565,18 @@ export declare const IDL: {
                 })[];
             };
             signer?: undefined;
-            optional?: undefined;
             address?: undefined;
         } | {
             name: string;
             address: string;
-            writable?: undefined;
             signer?: undefined;
-            optional?: undefined;
+            writable?: undefined;
             pda?: undefined;
         } | {
             name: string;
             writable: boolean;
             address: string;
             signer?: undefined;
-            optional?: undefined;
             pda?: undefined;
         })[];
         args: never[];

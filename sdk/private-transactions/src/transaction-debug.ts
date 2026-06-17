@@ -270,7 +270,7 @@ const COMMITMENT_ORDER: Record<string, number> = {
 
 function meetsCommitment(
   observed: string | null | undefined,
-  required: Commitment
+  required: Commitment,
 ): boolean {
   if (!observed) return false;
   const o = COMMITMENT_ORDER[observed];
@@ -289,16 +289,16 @@ async function pollForLanding(
   connection: Connection,
   signature: string,
   lastValidBlockHeight: number,
-  commitment: Commitment
+  commitment: Commitment,
 ): Promise<string> {
   const pollIntervalMs = 1_500;
   const maxWallClockMs = 90_000;
   const start = Date.now();
 
   while (Date.now() - start < maxWallClockMs) {
-    let status: Awaited<
-      ReturnType<Connection["getSignatureStatuses"]>
-    >["value"][number] = null;
+    let status:
+      | Awaited<ReturnType<Connection["getSignatureStatuses"]>>["value"][number]
+      | undefined = null;
     try {
       const res = await connection.getSignatureStatuses([signature], {
         searchTransactionHistory: true,
@@ -310,7 +310,7 @@ async function pollForLanding(
 
     if (status?.err) {
       throw new Error(
-        `Transaction failed on-chain: ${JSON.stringify(status.err)}`
+        `Transaction failed on-chain: ${JSON.stringify(status.err)}`,
       );
     }
     if (meetsCommitment(status?.confirmationStatus, commitment)) {
@@ -320,21 +320,28 @@ async function pollForLanding(
     // If the blockhash is past its validity window AND no status has
     // ever been recorded for the signature, the tx is definitively
     // dropped. Bail early so callers can surface a real error.
+    let currentHeight: number | null = null;
     try {
-      const currentHeight = await connection.getBlockHeight(commitment);
-      if (currentHeight > lastValidBlockHeight && !status) {
-        throw new Error(
-          `Transaction dropped: ${signature} (blockhash expired without landing)`
-        );
-      }
+      currentHeight = await connection.getBlockHeight(commitment);
     } catch {
       // ignore height-check errors; fall through to next poll
+    }
+    if (
+      currentHeight !== null &&
+      currentHeight > lastValidBlockHeight &&
+      !status
+    ) {
+      throw new Error(
+        `Transaction dropped: ${signature} (blockhash expired without landing)`
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 
-  throw new Error(`Transaction confirmation timed out after 90s: ${signature}`);
+  throw new Error(
+    `Transaction confirmation timed out after 90s: ${signature}`,
+  );
 }
 
 /**
@@ -385,9 +392,7 @@ export async function sendAndConfirmWithDiagnostics(params: {
 
   // Stamp blockhash + feePayer ourselves so we control what gets
   // signed and what `lastValidBlockHeight` the poller uses.
-  const blockhashInfo = await connection.getLatestBlockhash(
-    preflightCommitment
-  );
+  const blockhashInfo = await connection.getLatestBlockhash(preflightCommitment);
   if (!tx.feePayer) tx.feePayer = wallet.publicKey;
   tx.recentBlockhash = blockhashInfo.blockhash;
   tx.lastValidBlockHeight = blockhashInfo.lastValidBlockHeight;
@@ -407,11 +412,17 @@ export async function sendAndConfirmWithDiagnostics(params: {
 
   let signature: string;
   try {
-    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    const sendOptions: Parameters<Connection["sendRawTransaction"]>[1] = {
       skipPreflight: rpcOptions?.skipPreflight ?? false,
       preflightCommitment,
-      maxRetries: rpcOptions?.maxRetries ?? 3,
-    });
+    };
+    if (rpcOptions?.maxRetries !== undefined) {
+      sendOptions.maxRetries = rpcOptions.maxRetries;
+    }
+    signature = await connection.sendRawTransaction(
+      signedTx.serialize(),
+      sendOptions
+    );
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
@@ -434,7 +445,7 @@ export async function sendAndConfirmWithDiagnostics(params: {
       connection,
       signature,
       blockhashInfo.lastValidBlockHeight,
-      confirmCommitment
+      confirmCommitment,
     );
   } catch (error) {
     await logFailedTransactionDiagnostics({

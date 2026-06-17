@@ -54,7 +54,11 @@ import { useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
 import { fetchPriceChanges } from "~/src/lib/coingecko";
-import { pendingDappApproval, onboardingCompleted, confettiShown } from "~/src/lib/storage";
+import {
+  pendingDappApproval,
+  onboardingCompleted,
+  confettiShown,
+} from "~/src/lib/storage";
 import { OnboardingScreen } from "./onboarding-screen";
 import {
   flushInstallEvent,
@@ -91,6 +95,15 @@ const TABS = [
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+function getBaseTokenId(id?: string | null): string | null {
+  return id ? id.replace(/-secured$/, "") : null;
+}
+
+// Identity comparison for swap tokens — prefer mint, fall back to symbol.
+function isSameSwapToken(a: SwapToken, b: SwapToken): boolean {
+  return a.mint && b.mint ? a.mint === b.mint : a.symbol === b.symbol;
+}
 
 // ---------------------------------------------------------------------------
 // 3-layer sliding navigation
@@ -1019,10 +1032,7 @@ function UnlockScreen() {
             maxWidth: "320px",
           }}
         >
-          <TriangleAlert
-            size={48}
-            style={{ color: "rgba(60, 60, 67, 0.3)" }}
-          />
+          <TriangleAlert size={48} style={{ color: "rgba(60, 60, 67, 0.3)" }} />
           <h2
             style={{
               fontFamily: "var(--font-geist-sans), sans-serif",
@@ -1143,10 +1153,7 @@ function WalletInterface() {
     useWalletContext();
   const solanaEnv = network as import("@loyal-labs/solana-rpc").SolanaEnv;
   const walletPubkey = signer?.publicKey ?? null;
-  const walletDataClient = useExtensionWalletDataClient(
-    solanaEnv,
-    walletPubkey
-  );
+  const walletDataClient = useExtensionWalletDataClient(solanaEnv, signer);
   const walletData = useWalletData({
     publicKey: walletPubkey,
     connected: !!signer,
@@ -1303,13 +1310,17 @@ function WalletInterface() {
   // Enrich token rows with 24h price change from CoinGecko
   const [priceChanges, setPriceChanges] = useState<Record<string, number>>({});
   useEffect(() => {
-    const mints = allTokenRows.map((t) => t.id).filter((id): id is string => !!id);
+    const mints = allTokenRows
+      .map((t) => t.id)
+      .filter((id): id is string => !!id);
     if (mints.length === 0) return;
     let cancelled = false;
     void fetchPriceChanges(mints).then((changes) => {
       if (!cancelled) setPriceChanges(changes);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [allTokenRows]);
 
   const enrichedTokenRows = useMemo(() => {
@@ -1364,6 +1375,24 @@ function WalletInterface() {
     [positions]
   );
 
+  useEffect(() => {
+    if (shieldTokens.length === 0) return;
+
+    setShieldToken((current) => {
+      const exactMatch = shieldTokens.find(
+        (token) =>
+          token.mint === current.mint &&
+          Boolean(token.isSecured) === Boolean(current.isSecured)
+      );
+      if (exactMatch) return exactMatch;
+
+      const sameMint = current.mint
+        ? shieldTokens.find((token) => token.mint === current.mint)
+        : undefined;
+      return sameMint ?? shieldTokens[0]!;
+    });
+  }, [shieldTokens]);
+
   // Merge user's held tokens with popular tokens for swap target selection
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
@@ -1371,19 +1400,31 @@ function WalletInterface() {
     const extras = popularTokens.filter(
       (t) => t.mint && !heldMints.has(t.mint)
     );
-    return [...swapTokens, ...extras];
+    const combined = [...swapTokens, ...extras];
+
+    // LOYAL must always sit at the very top of the receive list — pin it,
+    // reusing the held entry (real price/balance) when available.
+    const loyal =
+      combined.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN;
+    return [loyal, ...combined.filter((t) => t.mint !== LOYL_TOKEN.mint)];
   }, [swapTokens, popularTokens]);
 
   // Sync token state when real positions load
   useEffect(() => {
     if (swapTokens.length > 0 && swapTokens[0].mint) {
-      setFromToken(swapTokens[0]);
-      setSendToken(swapTokens[0]);
+      const nextFrom = swapTokens[0];
+      setFromToken(nextFrom);
+      setSendToken(nextFrom);
       if (shieldTokens.length > 0) {
         setShieldToken(shieldTokens[0]);
       }
+      const loyalTarget =
+        swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN;
+      // Never default to a self-swap when the top holding is already LOYAL.
       setToToken(
-        swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
+        isSameSwapToken(loyalTarget, nextFrom)
+          ? swapTokens.find((t) => !isSameSwapToken(t, nextFrom)) ?? SOL_TOKEN
+          : loyalTarget
       );
     }
   }, [positions.length]);
@@ -1392,10 +1433,12 @@ function WalletInterface() {
     (token: TokenRow): TokenRowActions | undefined => {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
       const isSecured = token.isSecured === true;
+      const tokenMint = getBaseTokenId(token.id);
 
       const pickShieldTokenVariant = (wantSecured: boolean) => {
+        if (!tokenMint) return;
         const match = shieldTokens.find(
-          (t) => t.mint === token.id && t.isSecured === wantSecured
+          (t) => t.mint === tokenMint && t.isSecured === wantSecured
         );
         if (match) setShieldToken(match);
       };
@@ -1469,7 +1512,9 @@ function WalletInterface() {
             walletAddress={walletAddress}
             walletLabel={walletLabel}
             getTokenActions={getTokenActions}
-            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "portfolio" })}
+            onTokenDetail={(token) =>
+              handleNavigate({ type: "tokenDetail", token, from: "portfolio" })
+            }
             onShieldUsdc={() => {
               const usdc = shieldTokens.find(
                 (t) => t.symbol === "USDC" && !t.isSecured
@@ -1537,7 +1582,9 @@ function WalletInterface() {
             onBack={goBack}
             onClose={handleClose}
             getTokenActions={getTokenActions}
-            onTokenDetail={(token) => handleNavigate({ type: "tokenDetail", token, from: "allTokens" })}
+            onTokenDetail={(token) =>
+              handleNavigate({ type: "tokenDetail", token, from: "allTokens" })
+            }
           />
         );
       }
@@ -1559,7 +1606,9 @@ function WalletInterface() {
     if (subView.type === "tokenDetail") {
       const t = subView.token;
       const actions = getTokenActions(t);
-      const asSwapToken: SwapToken = swapTokens.find((s) => s.mint === t.id) ?? {
+      const asSwapToken: SwapToken = swapTokens.find(
+        (s) => s.mint === t.id
+      ) ?? {
         mint: t.id,
         symbol: t.symbol,
         icon: t.icon,
@@ -1582,15 +1631,23 @@ function WalletInterface() {
             setSubView(null);
           }}
           onSwap={() => {
+            // Don't land on a self-swap when swapping from the receive token.
+            if (isSameSwapToken(asSwapToken, toToken)) {
+              setToToken(fromToken);
+            }
             setFromToken(asSwapToken);
             setSwapMode("swap");
             handleTabChange("swap");
             setSubView(null);
           }}
-          onShield={(actions?.onShield || actions?.onUnshield) ? () => {
-            actions.onShield?.(t) ?? actions.onUnshield?.(t);
-            setSubView(null);
-          } : undefined}
+          onShield={
+            actions?.onShield || actions?.onUnshield
+              ? () => {
+                  actions.onShield?.(t) ?? actions.onUnshield?.(t);
+                  setSubView(null);
+                }
+              : undefined
+          }
         />
       );
     }
@@ -1602,8 +1659,16 @@ function WalletInterface() {
           currentToken={subView.field === "from" ? fromToken : toToken}
           onSelect={(token) => {
             if (subView.field === "from") {
+              // Avoid from === to by flipping the receive side to the old from.
+              if (isSameSwapToken(token, toToken)) {
+                setToToken(fromToken);
+              }
               setFromToken(token);
             } else {
+              // Avoid to === from by flipping the pay side to the old to.
+              if (isSameSwapToken(token, fromToken)) {
+                setFromToken(toToken);
+              }
               setToToken(token);
             }
             setSubView(null);

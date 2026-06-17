@@ -43,6 +43,7 @@ async function fetchSecureHoldings(args: {
       mintBase58 === trackedKaminoMint &&
       secureAmountRaw > BigInt(0)
     ) {
+      let quoteLoaded = false;
       try {
         const quote = await privateClient.getKaminoShieldedBalanceQuote({
           tokenMint: deposit.tokenMint,
@@ -50,12 +51,16 @@ async function fetchSecureHoldings(args: {
         });
         if (quote) {
           secureAmountRaw = quote.redeemableLiquidityAmountRaw;
+          quoteLoaded = true;
         }
       } catch (error) {
         console.warn(
           "[wallet-data] Failed to convert Kamino USDC collateral shares to liquidity",
           error
         );
+      }
+      if (!quoteLoaded) {
+        continue;
       }
     }
 

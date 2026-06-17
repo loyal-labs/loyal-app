@@ -45,7 +45,7 @@ const BASE_DEVNET_WS =
   process.env.BASE_DEVNET_WS ??
   BASE_DEVNET_RPC.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
 const PER_RPC_ENDPOINT =
-  process.env.PER_RPC_ENDPOINT ?? "https://tee.magicblock.app";
+  process.env.PER_RPC_ENDPOINT ?? "https://devnet-tee.magicblock.app";
 const PER_WS_ENDPOINT =
   process.env.PER_WS_ENDPOINT ??
   PER_RPC_ENDPOINT.replace(/^http:/, "ws:").replace(/^https:/, "wss:");

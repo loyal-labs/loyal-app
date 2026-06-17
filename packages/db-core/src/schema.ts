@@ -8,6 +8,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -720,10 +721,11 @@ export const pushNotificationTickets = pgTable(
 );
 
 /**
- * Per-wallet cursor for the incoming-transfer push cron. We store the
- * newest transaction signature we've already notified on so the next
- * run can ask `getSignaturesForAddress(..., { until: lastSignature })`
- * for only the new tail instead of re-scanning every run.
+ * @deprecated 2026-05-22 — superseded by Helius enhanced webhooks
+ * (see `heliusWebhooks` / `heliusWebhookAddresses` / `heliusWebhookDeliveries`).
+ * The old per-wallet polling cron that populated this cursor has been
+ * removed; the table is kept for one release window to preserve a
+ * rollback path, then dropped in a follow-up migration.
  */
 export const walletPushSyncState = pgTable("wallet_push_sync_state", {
   walletPublicKey: text("wallet_public_key").primaryKey(),
@@ -739,6 +741,64 @@ export const walletPushSyncState = pgTable("wallet_push_sync_state", {
     .defaultNow()
     .notNull(),
 });
+
+export const heliusWebhooks = pgTable(
+  "helius_webhooks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    heliusWebhookId: text("helius_webhook_id").notNull(),
+    webhookUrl: text("webhook_url").notNull(),
+    // Increment when we need to invalidate all existing addresses
+    // (e.g. authHeader rotation, environment migration).
+    generation: integer("generation").default(0).notNull(),
+    addressCount: integer("address_count").default(0).notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("helius_webhooks_helius_id_unique").on(table.heliusWebhookId),
+  ],
+);
+
+export const heliusWebhookAddresses = pgTable(
+  "helius_webhook_addresses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    webhookId: uuid("webhook_id")
+      .notNull()
+      .references(() => heliusWebhooks.id, { onDelete: "cascade" }),
+    address: text("address").notNull(),
+    walletPublicKey: text("wallet_public_key").notNull(),
+    kind: text("kind").$type<"wallet" | "ata">().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("helius_webhook_addresses_address_unique").on(table.address),
+    index("helius_webhook_addresses_wallet_idx").on(table.walletPublicKey),
+    index("helius_webhook_addresses_webhook_idx").on(table.webhookId),
+  ],
+);
+
+export const heliusWebhookDeliveries = pgTable(
+  "helius_webhook_deliveries",
+  {
+    signature: text("signature").notNull(),
+    walletPublicKey: text("wallet_public_key").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.signature, table.walletPublicKey] }),
+  ],
+);
 
 /**
  * Wallet-first users for the Loyal web frontend.
@@ -1908,6 +1968,15 @@ export type InsertPushNotificationTicket =
 
 export type WalletPushSyncState = typeof walletPushSyncState.$inferSelect;
 export type InsertWalletPushSyncState = typeof walletPushSyncState.$inferInsert;
+
+export type HeliusWebhook = typeof heliusWebhooks.$inferSelect;
+export type InsertHeliusWebhook = typeof heliusWebhooks.$inferInsert;
+export type HeliusWebhookAddress = typeof heliusWebhookAddresses.$inferSelect;
+export type InsertHeliusWebhookAddress =
+  typeof heliusWebhookAddresses.$inferInsert;
+export type HeliusWebhookDelivery = typeof heliusWebhookDeliveries.$inferSelect;
+export type InsertHeliusWebhookDelivery =
+  typeof heliusWebhookDeliveries.$inferInsert;
 
 export type AppUser = typeof appUsers.$inferSelect;
 export type InsertAppUser = typeof appUsers.$inferInsert;

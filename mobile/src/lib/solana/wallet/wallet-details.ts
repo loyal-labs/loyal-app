@@ -1,6 +1,5 @@
 import { AnchorProvider } from "@coral-xyz/anchor";
 import {
-  type Connection,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -8,7 +7,7 @@ import {
 
 import type { Signer } from "@/lib/wallet/signer";
 
-import { getConnection, getWebsocketConnection } from "../rpc/connection";
+import { getConnection } from "../rpc/connection";
 import { SimpleWallet } from "./wallet-implementation";
 
 // Lazy-loaded to avoid top-level Buffer usage in React Native runtime
@@ -36,14 +35,6 @@ export const getWalletProvider = async (): Promise<AnchorProvider> => {
   const connection = getConnection();
   const wallet = new SimpleWallet(signer);
 
-  return new AnchorProvider(connection, wallet);
-};
-
-export const getCustomWalletProvider = async (
-  signer: Signer
-): Promise<AnchorProvider> => {
-  const connection = getWebsocketConnection();
-  const wallet = new SimpleWallet(signer);
   return new AnchorProvider(connection, wallet);
 };
 
@@ -90,7 +81,7 @@ const isRetryableBalanceError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return RETRYABLE_BALANCE_ERROR_PATTERNS.some((pattern) =>
-    message.includes(pattern)
+    message.includes(pattern),
   );
 };
 
@@ -115,11 +106,7 @@ export const getWalletBalance = async (
     const signer = await getWalletSigner();
     let lastError: unknown = null;
 
-    for (
-      let attempt = 0;
-      attempt <= BALANCE_RETRY_DELAYS_MS.length;
-      attempt++
-    ) {
+    for (let attempt = 0; attempt <= BALANCE_RETRY_DELAYS_MS.length; attempt++) {
       try {
         const lamports = await connection.getBalance(
           signer.publicKey,
@@ -161,52 +148,10 @@ const invalidateBalanceCache = () => {
   balancePromise = null;
 };
 
-export const subscribeToWalletBalance = async (
-  onChange: (lamports: number) => void
-): Promise<() => Promise<void>> => {
-  let connection: Connection;
-  let signer: Signer;
-  try {
-    connection = getWebsocketConnection();
-    signer = await getWalletSigner();
-  } catch (error) {
-    // Loud so Datadog's trackErrors picks it up — a silent throw here
-    // meant the balance card stopped updating without any observable
-    // signal in logs.
-    console.error("[ws/balance] Subscription setup failed", error);
-    throw error;
-  }
-
-  let lastLamports = balanceCache?.lamports;
-
-  const subscriptionId = connection.onAccountChange(
-    signer.publicKey,
-    (accountInfo) => {
-      const lamports = accountInfo.lamports;
-      if (typeof lastLamports === "number" && lamports === lastLamports) {
-        return;
-      }
-
-      lastLamports = lamports;
-      setCachedBalance(lamports);
-      onChange(lamports);
-    },
-    "confirmed"
-  );
-
-  return async () => {
-    try {
-      await connection.removeAccountChangeListener(subscriptionId);
-    } catch (error) {
-      console.error("[ws/balance] Failed to remove subscription", error);
-    }
-  };
-};
-
 export const sendSolTransaction = async (
   destination: string | PublicKey,
   lamports: number,
-  signerOverride?: Signer
+  signerOverride?: Signer,
 ): Promise<string> => {
   if (lamports <= 0) {
     throw new Error("Lamports must be greater than zero");
@@ -234,7 +179,7 @@ export const sendSolTransaction = async (
   await signer.signTransaction(transaction);
   const signature = await connection.sendRawTransaction(
     transaction.serialize(),
-    { skipPreflight: false }
+    { skipPreflight: false },
   );
 
   console.log("Transaction sent:", signature);
@@ -260,7 +205,7 @@ export const sendSplTokenTransaction = async (
   tokenMint: string | PublicKey,
   rawAmount: bigint,
   decimals: number,
-  signerOverride?: Signer
+  signerOverride?: Signer,
 ): Promise<string> => {
   if (rawAmount <= 0n) {
     throw new Error("Token amount must be greater than zero");
@@ -287,13 +232,13 @@ export const sendSplTokenTransaction = async (
     mintPubkey,
     owner,
     false,
-    TOKEN_PROGRAM_ID
+    TOKEN_PROGRAM_ID,
   );
   const recipientAta = getAssociatedTokenAddressSync(
     mintPubkey,
     toPubkey,
     false,
-    TOKEN_PROGRAM_ID
+    TOKEN_PROGRAM_ID,
   );
 
   const transaction = new Transaction();
@@ -305,8 +250,8 @@ export const sendSplTokenTransaction = async (
         recipientAta,
         toPubkey,
         mintPubkey,
-        TOKEN_PROGRAM_ID
-      )
+        TOKEN_PROGRAM_ID,
+      ),
     );
   }
 
@@ -319,8 +264,8 @@ export const sendSplTokenTransaction = async (
       rawAmount,
       decimals,
       [],
-      TOKEN_PROGRAM_ID
-    )
+      TOKEN_PROGRAM_ID,
+    ),
   );
 
   transaction.feePayer = owner;
@@ -332,7 +277,7 @@ export const sendSplTokenTransaction = async (
   await signer.signTransaction(transaction);
   const signature = await connection.sendRawTransaction(
     transaction.serialize(),
-    { skipPreflight: false }
+    { skipPreflight: false },
   );
 
   console.log("Token transaction sent:", signature);

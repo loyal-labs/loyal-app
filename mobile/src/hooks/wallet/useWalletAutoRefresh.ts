@@ -11,8 +11,6 @@ export type WalletRefreshReason =
   | "screen-focus"
   | "push-received"
   | "interval"
-  | "ws-transaction"
-  | "ws-ata"
   | "mutation"
   | "network-switch"
   | "manual";
@@ -47,9 +45,10 @@ const BYPASS_THROTTLE_REASONS: ReadonlySet<WalletRefreshReason> = new Set([
 
 /**
  * Coordinates wallet data refresh from multiple ambient triggers:
- * AppState foreground, screen focus, push-notification arrival, and a
- * periodic safety-net poll. Callers combine it with ws-subscription
- * triggers and manual pull-to-refresh — all funnel into the same
+ * AppState foreground, screen focus, push-notification arrival (the
+ * backend pushes Helius-derived transfer notifications via Expo
+ * push), and a periodic safety-net poll. Callers funnel manual
+ * pull-to-refresh and post-mutation refreshes into the same
  * `refresh(reason)` callback, which the coordinator de-dupes.
  */
 export function useWalletAutoRefresh({

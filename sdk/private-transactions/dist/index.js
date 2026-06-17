@@ -1276,6 +1276,7 @@ var telegram_private_transfer_default = {
       accounts: [
         {
           name: "user",
+          signer: true,
           relations: [
             "source_deposit"
           ]
@@ -1284,10 +1285,6 @@ var telegram_private_transfer_default = {
           name: "payer",
           writable: true,
           signer: true
-        },
-        {
-          name: "session_token",
-          optional: true
         },
         {
           name: "source_deposit",
@@ -1394,6 +1391,7 @@ var telegram_private_transfer_default = {
       accounts: [
         {
           name: "user",
+          signer: true,
           relations: [
             "source_deposit"
           ]
@@ -1402,10 +1400,6 @@ var telegram_private_transfer_default = {
           name: "payer",
           writable: true,
           signer: true
-        },
-        {
-          name: "session_token",
-          optional: true
         },
         {
           name: "source_deposit",
@@ -1482,16 +1476,13 @@ var telegram_private_transfer_default = {
       ],
       accounts: [
         {
-          name: "user"
+          name: "user",
+          signer: true
         },
         {
           name: "payer",
           writable: true,
           signer: true
-        },
-        {
-          name: "session_token",
-          optional: true
         },
         {
           name: "deposit",
@@ -1640,19 +1631,6 @@ var telegram_private_transfer_default = {
         173,
         21,
         227
-      ]
-    },
-    {
-      name: "SessionToken",
-      discriminator: [
-        233,
-        4,
-        115,
-        14,
-        46,
-        21,
-        1,
-        15
       ]
     },
     {
@@ -1812,30 +1790,6 @@ var telegram_private_transfer_default = {
           {
             name: "increase",
             type: "bool"
-          }
-        ]
-      }
-    },
-    {
-      name: "SessionToken",
-      type: {
-        kind: "struct",
-        fields: [
-          {
-            name: "authority",
-            type: "pubkey"
-          },
-          {
-            name: "target_program",
-            type: "pubkey"
-          },
-          {
-            name: "session_signer",
-            type: "pubkey"
-          },
-          {
-            name: "valid_until",
-            type: "i64"
           }
         ]
       }
@@ -2805,7 +2759,7 @@ async function getDelegationStatus(perRpcEndpoint, account) {
   };
   const expectedValidator = getErValidatorForRpcEndpoint(perRpcEndpoint);
   const isMainnet = perRpcEndpoint.includes("mainnet-tee");
-  const teeBaseUrl = isMainnet ? "https://mainnet-tee.magicblock.app/" : "https://tee.magicblock.app/";
+  const teeBaseUrl = isMainnet ? "https://mainnet-tee.magicblock.app/" : "https://devnet-tee.magicblock.app/";
   try {
     const teeRes = await fetch(teeBaseUrl, options);
     const teeData = await teeRes.json();
@@ -3063,12 +3017,13 @@ async function pollForLanding(connection, signature, lastValidBlockHeight, commi
     if (meetsCommitment(status?.confirmationStatus, commitment)) {
       return signature;
     }
+    let currentHeight = null;
     try {
-      const currentHeight = await connection.getBlockHeight(commitment);
-      if (currentHeight > lastValidBlockHeight && !status) {
-        throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
-      }
+      currentHeight = await connection.getBlockHeight(commitment);
     } catch {}
+    if (currentHeight !== null && currentHeight > lastValidBlockHeight && !status) {
+      throw new Error(`Transaction dropped: ${signature} (blockhash expired without landing)`);
+    }
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
   throw new Error(`Transaction confirmation timed out after 90s: ${signature}`);
@@ -3098,11 +3053,14 @@ async function sendAndConfirmWithDiagnostics(params) {
   }
   let signature;
   try {
-    signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    const sendOptions = {
       skipPreflight: rpcOptions?.skipPreflight ?? false,
-      preflightCommitment,
-      maxRetries: rpcOptions?.maxRetries ?? 3
-    });
+      preflightCommitment
+    };
+    if (rpcOptions?.maxRetries !== undefined) {
+      sendOptions.maxRetries = rpcOptions.maxRetries;
+    }
+    signature = await connection.sendRawTransaction(signedTx.serialize(), sendOptions);
   } catch (error) {
     await logFailedTransactionDiagnostics({
       label,
@@ -3311,7 +3269,7 @@ async function delegateDepositIx(program, params) {
 
 // src/instructions/undelegateDeposit.ts
 async function undelegateDepositIx(perProgram, params) {
-  const { user, tokenMint, payer, sessionToken, magicProgram, magicContext } = params;
+  const { user, tokenMint, payer, magicProgram, magicContext } = params;
   const [depositPda] = findDepositPda(user, tokenMint);
   const accounts = {
     user,
@@ -3320,7 +3278,6 @@ async function undelegateDepositIx(perProgram, params) {
     magicProgram,
     magicContext
   };
-  accounts.sessionToken = sessionToken ?? null;
   const ix = await perProgram.methods.undelegate().accountsPartial(accounts).instruction();
   return {
     ix,
@@ -3539,7 +3496,6 @@ async function buildShieldTokensTransactionPlan(params) {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
@@ -3587,7 +3543,6 @@ async function shieldTokens(params) {
     baseProgram,
     perProgram,
     validator: params.validator,
-    sessionToken: params.sessionToken,
     magicProgram: params.magicProgram,
     magicContext: params.magicContext
   });
@@ -3677,7 +3632,7 @@ async function closeDepositIx(program, params) {
 import {
   createClosePermissionInstruction
 } from "@magicblock-labs/ephemeral-rollups-sdk";
-async function closePermissionIx(params) {
+function closePermissionIx(params) {
   const { user, tokenMint } = params;
   const [depositPda] = findDepositPda(user, tokenMint);
   const [permissionPda] = findPermissionPda(depositPda);
@@ -3780,13 +3735,15 @@ async function buildUnshieldTokensInstructionPlan(params) {
     });
     checks.push(...delegateDepositIxs.ensure);
   } else {
-    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
-    instructions.push({
-      label: "closePermission",
-      ix: closePermissionIxs.ix,
-      rentLamports: closePermissionRentLamports
-    });
-    checks.push(...closePermissionIxs.ensure);
+    if (permissionAccountInfo && permissionAccountInfo.lamports > 0 && permissionAccountInfo.data.length > 0) {
+      const closePermissionIxs = closePermissionIx({ user, tokenMint });
+      instructions.push({
+        label: "closePermission",
+        ix: closePermissionIxs.ix,
+        rentLamports: closePermissionRentLamports
+      });
+      checks.push(...closePermissionIxs.ensure);
+    }
     const closeDepositIxs = await closeDepositIx(baseProgram, {
       user,
       tokenMint
@@ -3825,7 +3782,6 @@ async function buildUnshieldTokensTransactionPlan(params) {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID
     });
@@ -3872,7 +3828,6 @@ async function unshieldTokens(params) {
     baseProgram,
     perProgram,
     validator: params.validator,
-    sessionToken: params.sessionToken,
     magicProgram: params.magicProgram,
     magicContext: params.magicContext
   });
@@ -4243,7 +4198,6 @@ class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions
@@ -4259,7 +4213,6 @@ class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions
@@ -4281,7 +4234,6 @@ class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext
       });
@@ -4312,7 +4264,6 @@ class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext
       });
@@ -4667,8 +4618,12 @@ class LoyalPrivateTransactionsClient {
     }
   }
   async delegateDeposit(params) {
-    const { user, tokenMint } = params;
-    const { ix, ensure } = await delegateDepositIx(this.baseProgram, params);
+    const delegateParams = {
+      ...params,
+      validator: params.validator ?? this.getExpectedErValidator()
+    };
+    const { user, tokenMint } = delegateParams;
+    const { ix, ensure } = await delegateDepositIx(this.baseProgram, delegateParams);
     await processEnsureChecks(this.baseProgram.provider.connection, this.ephemeralProgram.provider.connection, ensure);
     const [depositPda] = findDepositPda(user, tokenMint);
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
@@ -4703,9 +4658,9 @@ class LoyalPrivateTransactionsClient {
       username,
       tokenMint,
       payer,
-      validator,
       rpcOptions
     } = params;
+    const validator = params.validator ?? this.getExpectedErValidator();
     validateUsername(username);
     const [depositPda] = await findUsernameDepositPda(username, tokenMint);
     const [bufferPda] = findBufferPda(depositPda);
@@ -4723,7 +4678,7 @@ class LoyalPrivateTransactionsClient {
       delegationProgram: DELEGATION_PROGRAM_ID,
       systemProgram: SystemProgram5.programId
     };
-    accounts.validator = validator ?? null;
+    accounts.validator = validator;
     const delegationWatcher = waitForAccountOwnerChange2(this.baseProgram.provider.connection, depositPda, DELEGATION_PROGRAM_ID);
     let signature;
     try {
@@ -4775,7 +4730,6 @@ class LoyalPrivateTransactionsClient {
       destinationUser,
       amount,
       payer,
-      sessionToken,
       rpcOptions
     } = params;
     const [sourceDepositPda] = findDepositPda(user, tokenMint);
@@ -4790,7 +4744,6 @@ class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram5.programId
     };
-    accounts.sessionToken = sessionToken ?? null;
     console.log("transferDeposit Accounts:");
     Object.entries(accounts).forEach(([key, value]) => {
       console.log(key, value && value.toString());
@@ -4806,7 +4759,6 @@ class LoyalPrivateTransactionsClient {
       amount,
       user,
       payer,
-      sessionToken,
       rpcOptions
     } = params;
     validateUsername(username);
@@ -4822,7 +4774,6 @@ class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram5.programId
     };
-    accounts.sessionToken = sessionToken ?? null;
     const signature = await this.ephemeralProgram.methods.transferToUsernameDeposit(new BN2(amount.toString())).accountsPartial(accounts).rpc(rpcOptions);
     return signature;
   }
@@ -5044,7 +4995,7 @@ class LoyalPrivateTransactionsClient {
     };
     const expectedValidator = this.getExpectedErValidator();
     const ephemeralUrl = this.ephemeralProgram.provider.connection.rpcEndpoint;
-    const teeBaseUrl = ephemeralUrl.includes("mainnet-tee") ? "https://mainnet-tee.magicblock.app/" : "https://tee.magicblock.app/";
+    const teeBaseUrl = ephemeralUrl.includes("mainnet-tee") ? "https://mainnet-tee.magicblock.app/" : "https://devnet-tee.magicblock.app/";
     try {
       const teeRes = await fetch(teeBaseUrl, options);
       const teeData = await teeRes.json();
@@ -5079,11 +5030,116 @@ class LoyalPrivateTransactionsClient {
     return routerData;
   }
 }
+// src/instructions/delegateUsernameDeposit.ts
+import { SystemProgram as SystemProgram6 } from "@solana/web3.js";
+async function delegateUsernameDepositIx(program, params) {
+  const { username, tokenMint, payer, validator, passNotExist } = params;
+  validateUsername(username);
+  const [depositPda] = await findUsernameDepositPda(username, tokenMint);
+  const [bufferPda] = findBufferPda(depositPda);
+  const [delegationRecordPda] = findDelegationRecordPda(depositPda);
+  const [delegationMetadataPda] = findDelegationMetadataPda(depositPda);
+  const usernameHash = await sha256hash(username);
+  const accounts = {
+    payer,
+    bufferDeposit: bufferPda,
+    delegationRecordDeposit: delegationRecordPda,
+    delegationMetadataDeposit: delegationMetadataPda,
+    deposit: depositPda,
+    validator,
+    ownerProgram: PROGRAM_ID,
+    delegationProgram: DELEGATION_PROGRAM_ID,
+    systemProgram: SystemProgram6.programId
+  };
+  const ix = await program.methods.delegateUsernameDeposit(usernameHash, tokenMint).accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: depositPda,
+        delegated: false,
+        passNotExist: passNotExist === undefined ? false : passNotExist,
+        label: "delegateUsernameDeposit-depositPda"
+      }
+    ]
+  };
+}
+// src/instructions/transferDeposit.ts
+import { BN as BN3 } from "@coral-xyz/anchor";
+import { SystemProgram as SystemProgram7 } from "@solana/web3.js";
+async function transferDepositIx(program, params) {
+  const { user, tokenMint, destinationUser, amount, payer } = params;
+  const [sourceDepositPda] = findDepositPda(user, tokenMint);
+  const [destinationDepositPda] = findDepositPda(destinationUser, tokenMint);
+  const accounts = {
+    user,
+    payer,
+    sourceDeposit: sourceDepositPda,
+    destinationDeposit: destinationDepositPda,
+    tokenMint,
+    systemProgram: SystemProgram7.programId
+  };
+  const ix = await program.methods.transferDeposit(new BN3(amount.toString())).accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: sourceDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferDeposit-sourceDepositPda"
+      },
+      {
+        address: destinationDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferDeposit-destinationDepositPda"
+      }
+    ]
+  };
+}
+// src/instructions/transferToUsernameDeposit.ts
+import { BN as BN4 } from "@coral-xyz/anchor";
+import { SystemProgram as SystemProgram8 } from "@solana/web3.js";
+async function transferToUsernameDepositIx(program, params) {
+  const { username, tokenMint, amount, user, payer } = params;
+  validateUsername(username);
+  const [sourceDepositPda] = findDepositPda(user, tokenMint);
+  const [destinationDepositPda] = await findUsernameDepositPda(username, tokenMint);
+  const accounts = {
+    user,
+    payer,
+    sourceDeposit: sourceDepositPda,
+    destinationDeposit: destinationDepositPda,
+    tokenMint,
+    systemProgram: SystemProgram8.programId
+  };
+  const ix = await program.methods.transferToUsernameDeposit(new BN4(amount.toString())).accountsPartial(accounts).instruction();
+  return {
+    ix,
+    ensure: [
+      {
+        address: sourceDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferToUsernameDeposit-sourceDepositPda"
+      },
+      {
+        address: destinationDepositPda,
+        delegated: true,
+        passNotExist: false,
+        label: "transferToUsernameDeposit-destinationDepositPda"
+      }
+    ]
+  };
+}
 // index.ts
 var IDL = telegram_private_transfer_default;
 export {
   waitForAccountOwnerChange2 as waitForAccountOwnerChange,
   unshieldTokens,
+  transferToUsernameDepositIx,
+  transferDepositIx,
   solToLamports,
   shieldTokens,
   parseKaminoReserveSnapshotFromAccountData,
@@ -5092,6 +5148,8 @@ export {
   isKeypair,
   isKaminoMainnetModifyBalanceAccounts,
   isAnchorProvider,
+  initializeUsernameDepositIx,
+  initializeDepositIx,
   getKaminoModifyBalanceAccountsForTokenMint,
   getErValidatorForSolanaEnv,
   getErValidatorForRpcEndpoint,
@@ -5104,6 +5162,8 @@ export {
   findBufferPda,
   fetchKaminoReserveSnapshot,
   enumerateDepositsByUser,
+  delegateUsernameDepositIx,
+  delegateDepositIx,
   calculateKaminoShareAmountForLiquidityAmountRaw,
   calculateKaminoRedeemableLiquidityAmountRaw,
   calculateKaminoCollateralValuation,

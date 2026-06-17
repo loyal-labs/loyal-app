@@ -9,7 +9,7 @@ const DELEGATION_PROGRAM_ID = new PublicKey(
   "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
 );
 const PER_MAINNET = "https://mainnet-tee.magicblock.app";
-const PER_DEVNET = "https://tee.magicblock.app";
+const PER_DEVNET = "https://devnet-tee.magicblock.app";
 const ROUTER_MAINNET = "https://router.magicblock.app";
 const ROUTER_DEVNET = "https://devnet-router.magicblock.app";
 const ER_VALIDATOR_MAINNET = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";

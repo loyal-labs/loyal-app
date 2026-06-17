@@ -6,6 +6,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, "SFMono-Regular", "Menlo", monospace;
   --font-family-manrope:
     var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
@@ -937,8 +941,8 @@
     line-height: 22px !important;
   }
 
-  /* Blockquote */
-  blockquote {
+  /* Blockquote (scoped to streamdown chat markdown; the blog renders its own) */
+  [data-streamdown] blockquote {
     border-left: 3px solid rgba(0, 0, 0, 0.2) !important;
     color: rgba(0, 0, 0, 0.7) !important;
   }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { runPushIncomingTransfersCron } from "@/features/push-incoming-transfers";
+import { runHeliusWebhookResync } from "@/features/push-incoming-transfers/server/resync";
 
 import { validateCronAuthHeader } from "../_shared/auth";
 
@@ -17,10 +17,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const stats = await runPushIncomingTransfersCron();
+    const stats = await runHeliusWebhookResync();
     return NextResponse.json({ ok: true, stats });
   } catch (error) {
-    console.error("[cron/push-incoming-transfers] Run failed", error);
+    console.error("[cron/helius-webhook-resync] Run failed", error);
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : String(error),

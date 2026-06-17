@@ -185,7 +185,7 @@ describeIfEnabled("private-transactions SDK (PER)", () => {
     (process.env.PROVIDER_COMMITMENT as anchor.web3.Commitment) ?? "confirmed";
 
   const devnetErHostname = "devnet-router.magicblock.app";
-  const devnetPerHostname = "tee.magicblock.app";
+  const devnetPerHostname = "devnet-tee.magicblock.app";
 
   const endpoint = `https://${devnetErHostname}`;
   const wsEndpoint = deriveWsEndpoint(endpoint);
@@ -592,7 +592,6 @@ describeIfEnabled("private-transactions SDK (PER)", () => {
             amount: transferAmount,
             user,
             payer: user,
-            sessionToken: null,
             rpcOptions,
           });
         transferSig = transferResult.signature;

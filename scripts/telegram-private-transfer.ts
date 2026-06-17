@@ -72,11 +72,8 @@ const TELEGRAM_ED25519_PUBKEY = Buffer.from(
   "e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d",
   "hex"
 );
-const ER_VALIDATOR = new PublicKey(
-  process.env.ER_VALIDATOR ??
-    process.env.MAGICBLOCK_VALIDATOR ??
-    "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
-);
+const TEE_VALIDATOR = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
+const LOCAL_ER_VALIDATOR = "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev";
 
 const DEFAULT_DECIMALS = Number(process.env.DECIMALS ?? "6");
 const DEFAULT_AMOUNT = BigInt(process.env.DEFAULT_AMOUNT ?? "1000000");
@@ -98,7 +95,7 @@ Env:
   EPHEMERAL_PROVIDER_ENDPOINT              ER RPC endpoint (default http://127.0.0.1:7799)
   EPHEMERAL_WS_ENDPOINT                    ER WS endpoint (default ws://127.0.0.1:7800)
   EPHEMERAL_AUTH                           if true, fetch MagicBlock auth token
-  ER_VALIDATOR                             ER validator pubkey (default mAGicPQY...)
+  ER_VALIDATOR                             ER validator pubkey (default local validator on localhost, TEE validator otherwise)
   COMMITMENT                               processed|confirmed|finalized (default confirmed)
   SENDER_KEYPAIR                           sender keypair path (default ~/.config/solana/id.json)
   CLAIMER_KEYPAIR                          claimer keypair path (default ~/.config/solana/id.json)
@@ -188,6 +185,18 @@ const getEphemeralConnection = () => {
     }),
   };
 };
+
+const getDefaultErValidator = (rpcEndpoint: string) =>
+  rpcEndpoint.includes("127.0.0.1") || rpcEndpoint.includes("localhost")
+    ? LOCAL_ER_VALIDATOR
+    : TEE_VALIDATOR;
+
+const getErValidator = (rpcEndpoint: string) =>
+  new PublicKey(
+    process.env.ER_VALIDATOR ??
+      process.env.MAGICBLOCK_VALIDATOR ??
+      getDefaultErValidator(rpcEndpoint)
+  );
 
 const maybeAirdrop = async (connection: Connection, pubkey: PublicKey) => {
   const allowAirdrop =
@@ -454,6 +463,7 @@ const main = async () => {
   const state = readState();
   const base = getBaseConnection();
   const er = getEphemeralConnection();
+  const erValidator = getErValidator(er.rpcEndpoint);
 
   if (command === "delegate") {
     const sender = loadKeypair(
@@ -595,7 +605,7 @@ const main = async () => {
       .accountsPartial({
         payer: sender.publicKey,
         deposit: depositPda,
-        validator: ER_VALIDATOR,
+        validator: erValidator,
       })
       .signers([sender])
       .rpc({ skipPreflight: true });
@@ -624,7 +634,7 @@ const main = async () => {
       .accountsPartial({
         payer: claimer.publicKey,
         deposit: usernameDepositPda,
-        validator: ER_VALIDATOR,
+        validator: erValidator,
         session: sessionPda,
       })
       .signers([claimer])
@@ -665,7 +675,6 @@ const main = async () => {
         payer: sender.publicKey,
         sourceDeposit: depositPda,
         destinationDeposit: usernameDepositPda,
-        sessionToken: null,
         tokenMint: mint,
       })
       .signers([sender])
@@ -865,7 +874,6 @@ const main = async () => {
         user: sender.publicKey,
         payer: sender.publicKey,
         deposit: depositPda,
-        sessionToken: null,
         magicProgram: MAGIC_PROGRAM_ID,
         magicContext: MAGIC_CONTEXT_ID,
       })

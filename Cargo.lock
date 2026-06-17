@@ -3844,37 +3844,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "session-keys"
-version = "3.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43de45b52b327391f1aff1e1a64271b7faa40df7b9dc956e51f238b945275f54"
-dependencies = [
- "anchor-lang",
- "session-keys-macros",
- "solana-security-txt",
-]
-
-[[package]]
-name = "session-keys-macros"
-version = "3.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a78ed5da4ba3f4005729d15ec9a2e7e6c56aae2e14dabc5522899c562fd769fa"
-dependencies = [
- "session-keys-macros-attribute",
-]
-
-[[package]]
-name = "session-keys-macros-attribute"
-version = "3.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16ddb4649eab5806b2b1a1d9e0a364dd3e736ba9dff5f0edd968e76259e6ad4b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7167,7 +7136,6 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "ephemeral-rollups-sdk",
- "session-keys",
  "solana-hash 2.3.0",
  "solana-sha256-hasher 2.3.0",
  "telegram-verification",

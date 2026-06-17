@@ -1262,6 +1262,7 @@
       "accounts": [
         {
           "name": "user",
+          "signer": true,
           "relations": [
             "source_deposit"
           ]
@@ -1270,10 +1271,6 @@
           "name": "payer",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "session_token",
-          "optional": true
         },
         {
           "name": "source_deposit",
@@ -1380,6 +1377,7 @@
       "accounts": [
         {
           "name": "user",
+          "signer": true,
           "relations": [
             "source_deposit"
           ]
@@ -1388,10 +1386,6 @@
           "name": "payer",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "session_token",
-          "optional": true
         },
         {
           "name": "source_deposit",
@@ -1468,16 +1462,13 @@
       ],
       "accounts": [
         {
-          "name": "user"
+          "name": "user",
+          "signer": true
         },
         {
           "name": "payer",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "session_token",
-          "optional": true
         },
         {
           "name": "deposit",
@@ -1626,19 +1617,6 @@
         173,
         21,
         227
-      ]
-    },
-    {
-      "name": "SessionToken",
-      "discriminator": [
-        233,
-        4,
-        115,
-        14,
-        46,
-        21,
-        1,
-        15
       ]
     },
     {
@@ -1798,30 +1776,6 @@
           {
             "name": "increase",
             "type": "bool"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SessionToken",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "target_program",
-            "type": "pubkey"
-          },
-          {
-            "name": "session_signer",
-            "type": "pubkey"
-          },
-          {
-            "name": "valid_until",
-            "type": "i64"
           }
         ]
       }

@@ -31,7 +31,6 @@ import {
   type LabeledTransactionPlan,
 } from "./shieldTokens";
 import { sendPlannedUndelegateDepositTransaction } from "./undelegateDeposit";
-import { undelegatePermissionIx } from "../instructions/undelegatePermission";
 
 export type UnshieldTokensInstructionPlan = {
   instructions: LabeledTransactionInstruction[];
@@ -171,14 +170,20 @@ export async function buildUnshieldTokensInstructionPlan(params: {
   } else {
     // Unshield of full amount - do cleanup
 
-    // Close permissions
-    const closePermissionIxs = await closePermissionIx({ user, tokenMint });
-    instructions.push({
-      label: "closePermission",
-      ix: closePermissionIxs.ix,
-      rentLamports: closePermissionRentLamports,
-    });
-    checks.push(...closePermissionIxs.ensure);
+    if (
+      permissionAccountInfo &&
+      permissionAccountInfo.lamports > 0 &&
+      permissionAccountInfo.data.length > 0
+    ) {
+      // Close permissions
+      const closePermissionIxs = closePermissionIx({ user, tokenMint });
+      instructions.push({
+        label: "closePermission",
+        ix: closePermissionIxs.ix,
+        rentLamports: closePermissionRentLamports,
+      });
+      checks.push(...closePermissionIxs.ensure);
+    }
 
     const closeDepositIxs = await closeDepositIx(baseProgram, {
       user,
@@ -214,7 +219,6 @@ export async function buildUnshieldTokensTransactionPlan(params: {
   baseProgram: Program<TelegramPrivateTransfer>;
   perProgram: Program<TelegramPrivateTransfer>;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
 }): Promise<UnshieldTokensTransactionPlan> {
@@ -246,7 +250,6 @@ export async function buildUnshieldTokensTransactionPlan(params: {
       user: params.user,
       payer: params.payer,
       tokenMint: params.tokenMint,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram ?? MAGIC_PROGRAM_ID,
       magicContext: params.magicContext ?? MAGIC_CONTEXT_ID,
     });
@@ -289,7 +292,6 @@ export async function unshieldTokens(params: {
   baseProgram: Program<TelegramPrivateTransfer>;
   perProgram: Program<TelegramPrivateTransfer>;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
   rpcOptions?: RpcOptions;
@@ -314,7 +316,6 @@ export async function unshieldTokens(params: {
     baseProgram,
     perProgram,
     validator: params.validator,
-    sessionToken: params.sessionToken,
     magicProgram: params.magicProgram,
     magicContext: params.magicContext,
   });
