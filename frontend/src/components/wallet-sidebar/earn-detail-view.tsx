@@ -1854,7 +1854,7 @@ function createWithdrawSourceOptions(
           return false;
         }
       })
-      .map((holding) => {
+      .map((holding): EarnWithdrawSourceOption => {
         const tokenAccount =
           typeof holding.provenance.tokenAccount === "string"
             ? holding.provenance.tokenAccount

@@ -211,7 +211,7 @@ describe("earn position reconciliation", () => {
     expect(result.status).toBe("refreshed");
     expect(recordReconciledYieldVaultSnapshot).toHaveBeenCalled();
     const [input] = (recordReconciledYieldVaultSnapshot.mock.calls.at(-1) ??
-      []) as [RecordedSnapshotInput];
+      []) as unknown as [RecordedSnapshotInput];
     expect(input.positions[0].amountRaw).toBe(BigInt(10));
     expect(input.idleTokenBalance.amountRaw).toBe(BigInt(7));
     expect(input.observedSlot).toBe(BigInt(123));
@@ -243,7 +243,7 @@ describe("earn position reconciliation", () => {
 
     expect(result.status).toBe("refreshed");
     const [input] = (recordReconciledYieldVaultSnapshot.mock.calls.at(-1) ??
-      []) as [RecordedSnapshotInput];
+      []) as unknown as [RecordedSnapshotInput];
     expect(input.idleTokenBalance.amountRaw).toBe(BigInt(0));
   });
 });

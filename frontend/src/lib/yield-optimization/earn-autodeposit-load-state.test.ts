@@ -936,7 +936,10 @@ describe("Earn autodeposit load state", () => {
     );
 
     expect(result.status).toBe("scheduled");
-    expect(result.sweep?.originalAmountRaw).toBe(BigInt(500_000_000));
+    if (result.status !== "scheduled") {
+      throw new Error("expected bootstrap sweep to be scheduled");
+    }
+    expect(result.sweep.originalAmountRaw).toBe(BigInt(500_000_000));
     const [, eventValues, lotValues] = getInsertValues();
     expect(eventValues).toMatchObject({
       amountRaw: BigInt(1_000_000_000),

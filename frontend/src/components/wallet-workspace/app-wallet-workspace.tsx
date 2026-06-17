@@ -492,11 +492,19 @@ function getEarnAutodepositConfigCacheKey(args: {
 function toCachedEarnAutodepositConfig(
   config: EarnAutodepositConfig | null
 ): LoadedEarnAutodepositConfig | null {
-  if (config?.state !== "created" && config?.state !== "paused") {
+  if (!config) {
     return null;
   }
 
-  return config;
+  if (
+    config.state === "created" ||
+    config.state === "creating" ||
+    config.state === "paused"
+  ) {
+    return { ...config, state: config.state };
+  }
+
+  return null;
 }
 
 function readCachedEarnAutodepositConfig(args: {
