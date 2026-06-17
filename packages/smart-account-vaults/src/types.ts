@@ -672,7 +672,10 @@ export type SmartAccountEarnUsdcAutodepositSetupMetadata = {
 
 export type SmartAccountPreparedEarnUsdcAutodepositSetup = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
-  stage: "initialize_subscription_authority" | "create_recurring_delegation";
+  stage:
+    | "initialize_subscription_authority"
+    | "create_policy"
+    | "create_recurring_delegation";
   authorityInitializationRequired: boolean;
   policy: {
     account: PublicKey | null;

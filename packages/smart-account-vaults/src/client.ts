@@ -5883,17 +5883,57 @@ export function createSmartAccountVaultsClient(
             ],
           } as never
         );
+    if (policyCreation) {
+      const prepared = freezePreparedOperation({
+        operation: "earnUsdcAutodepositCreatePolicy",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions: [...policyCreation.instructions],
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          policyCreation.lookupTableAccounts ?? []
+        ),
+      });
+
+      return {
+        prepared,
+        stage: "create_policy",
+        authorityInitializationRequired: false,
+        policy: {
+          account: policyAccount,
+          id: policySeed,
+          seed: policySeed,
+        },
+        vault: {
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          pubkey: vaultPda,
+          usdcAta: vaultUsdcAta,
+        },
+        subscription: {
+          authority: subscriptionAuthority,
+          recurringDelegation,
+          amountPerPeriodRaw,
+          periodLengthSeconds,
+          nonce,
+          startTimestamp,
+          expiryTimestamp,
+        },
+        persistence: {
+          ...basePersistence,
+          policyId: policySeed.toString(),
+          policyAccount: policyAccount.toBase58(),
+          policySeed: policySeed.toString(),
+          subscriptionAuthorityInitialization: "exists",
+        },
+      };
+    }
+
     const prepared = freezePreparedOperation({
-      operation: policyCreation
-        ? "earnUsdcAutodepositCreatePolicyAndRecurringDelegation"
-        : "earnUsdcAutodepositCreateRecurringDelegation",
+      operation: "earnUsdcAutodepositCreateRecurringDelegation",
       payer: args.feePayer,
-      programId: policyCreation
-        ? smartAccountsClient.programId
-        : SUBSCRIPTIONS_PROGRAM_ID,
+      programId: SUBSCRIPTIONS_PROGRAM_ID,
       requiresConfirmation: true,
       instructions: [
-        ...(policyCreation?.instructions ?? []),
         createAssociatedTokenAccountIdempotentInstruction(
           args.feePayer,
           vaultUsdcAta,
@@ -5903,9 +5943,7 @@ export function createSmartAccountVaultsClient(
         ),
         createDelegationInstruction,
       ],
-      lookupTableAccounts: policyCreation
-        ? dedupeLookupTableAccounts(policyCreation.lookupTableAccounts ?? [])
-        : [],
+      lookupTableAccounts: [],
     });
 
     return {

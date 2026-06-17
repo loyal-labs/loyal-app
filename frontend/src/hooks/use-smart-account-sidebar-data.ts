@@ -76,6 +76,7 @@ import {
   type EarnAutodepositSetupPrepareResponse,
   type EarnAutodepositToggleConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
+import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
   hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareResponse,
@@ -401,11 +402,14 @@ export type EarnAutodepositSetupResult = {
   success: boolean;
   signature?: string;
   authorityInitializationSignature?: string;
+  policySignature?: string;
   recurringDelegationSignature?: string;
   confirmedSlot?: string;
   status?: "confirmation_record_failed" | "executed";
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup;
   nextPreparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+  bootstrapSweep?: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   error?: string;
 };
 
@@ -4883,8 +4887,9 @@ export function useSmartAccountSidebarData(
           connection,
           signature: setupSend.signature,
         });
+        let confirmResponse: EarnAutodepositSetupConfirmResponse;
         try {
-          await postConfirmedEarnAutodepositSetup({
+          confirmResponse = await postConfirmedEarnAutodepositSetup({
             preparedSetup,
             signature: setupSend.signature,
             confirmedSlot,
@@ -4896,6 +4901,8 @@ export function useSmartAccountSidebarData(
             signature: setupSend.signature,
             ...(preparedSetup.stage === "initialize_subscription_authority"
               ? { authorityInitializationSignature: setupSend.signature }
+              : preparedSetup.stage === "create_policy"
+              ? { policySignature: setupSend.signature }
               : { recurringDelegationSignature: setupSend.signature }),
             confirmedSlot,
             status: "confirmation_record_failed",
@@ -4920,6 +4927,13 @@ export function useSmartAccountSidebarData(
         if (nextEarnState) {
           setEarnState(nextEarnState);
         }
+        const scheduledSweeps =
+          confirmResponse.bootstrapSweep?.sweep &&
+          preparedSetup.stage === "create_recurring_delegation"
+            ? [confirmResponse.bootstrapSweep.sweep]
+            : preparedSetup.stage === "create_recurring_delegation"
+            ? nextEarnState?.autodeposit?.scheduledSweeps ?? []
+            : undefined;
 
         void refreshAfterTx({
           accountIndex: preparedSetup.vault.accountIndex,
@@ -4936,11 +4950,15 @@ export function useSmartAccountSidebarData(
           signature: setupSend.signature,
           ...(preparedSetup.stage === "initialize_subscription_authority"
             ? { authorityInitializationSignature: setupSend.signature }
+            : preparedSetup.stage === "create_policy"
+            ? { policySignature: setupSend.signature }
             : { recurringDelegationSignature: setupSend.signature }),
           confirmedSlot,
           status: "executed",
           preparedSetup,
           nextPreparedSetup,
+          bootstrapSweep: confirmResponse.bootstrapSweep,
+          scheduledSweeps,
         };
       } catch (err) {
         const error =

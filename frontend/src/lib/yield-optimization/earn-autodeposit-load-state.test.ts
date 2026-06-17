@@ -145,6 +145,62 @@ function createMutationClient({
   };
 }
 
+function createBootstrapClient({
+  existingProjection = [],
+  insertedLot,
+}: {
+  existingProjection?: unknown[];
+  insertedLot?: unknown;
+}) {
+  const insertValues: Record<string, unknown>[] = [];
+  const selectQuery = {
+    from() {
+      return selectQuery;
+    },
+    limit() {
+      return existingProjection;
+    },
+    where() {
+      return selectQuery;
+    },
+  };
+  const insertQuery = {
+    onConflictDoNothing() {
+      return insertQuery;
+    },
+    onConflictDoUpdate() {
+      return insertQuery;
+    },
+    returning() {
+      if (insertValues.length === 1) {
+        return [insertValues[0]];
+      }
+      if (insertValues.length === 3 && insertedLot) {
+        return [insertedLot];
+      }
+      return [];
+    },
+    values(values: Record<string, unknown>) {
+      insertValues.push(values);
+      return insertQuery;
+    },
+  };
+
+  return {
+    client: {
+      db: {
+        insert() {
+          return insertQuery;
+        },
+        select() {
+          return selectQuery;
+        },
+      },
+    },
+    getInsertValues: () => insertValues,
+  };
+}
+
 function createSetupInput(overrides: Record<string, unknown> = {}) {
   return {
     amountPerPeriodRaw: BigInt(100_000_000),
@@ -866,6 +922,119 @@ describe("Earn autodeposit load state", () => {
       "select.limit",
       "execute",
     ]);
+  });
+
+  test("bootstrap setup scheduling inserts an initial surplus lot one hour after observation", async () => {
+    const { scheduleBootstrapEarnAutodepositSweep } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const observedAt = new Date("2026-06-16T00:00:00.000Z");
+    const lot = {
+      classification: "initial_surplus" as const,
+      confidence: "confirmed_snapshot",
+      eligibleAfter: new Date("2026-06-16T01:00:00.000Z"),
+      id: BigInt(41),
+      originalAmountRaw: BigInt(500_000_000),
+      reason: "initial Autodeposit surplus detected at setup confirmation",
+      remainingAmountRaw: BigInt(500_000_000),
+      status: "open" as const,
+    };
+    const { client, getInsertValues } = createBootstrapClient({
+      existingProjection: [
+        {
+          amountRaw: BigInt(700_000_000),
+        },
+      ],
+      insertedLot: lot,
+    });
+
+    const result = await scheduleBootstrapEarnAutodepositSweep(
+      {
+        snapshot: {
+          accountDataHash: "hash",
+          amountRaw: BigInt(1_000_000_000),
+          mint: "mint",
+          observedAt,
+          observedSlot: BigInt(500),
+          owner: "wallet",
+          rawEvidence: { bootstrap: true },
+          source: "app_autodeposit_setup_confirm",
+          sourceCommitment: "confirmed",
+        },
+        target: createRecord({
+          id: BigInt(11),
+          lastSeenSignature: "setup-signature",
+          walletBalanceFloorRaw: BigInt(500_000_000),
+        }) as never,
+      },
+      {
+        client,
+        now: () => new Date("2026-06-16T00:05:00.000Z"),
+      } as never
+    );
+
+    expect(result).toEqual({ status: "scheduled", sweep: lot });
+    const [, eventValues, lotValues] = getInsertValues();
+    expect(eventValues).toMatchObject({
+      amountRaw: BigInt(1_000_000_000),
+      deltaAmountRaw: BigInt(300_000_000),
+      eventId: BigInt(-11),
+      observedAt,
+      observedSlot: BigInt(500),
+      previousAmountRaw: BigInt(700_000_000),
+      source: "app_autodeposit_setup_confirm",
+      sourceCommitment: "confirmed",
+      targetId: BigInt(11),
+    });
+    expect(lotValues).toMatchObject({
+      classification: "initial_surplus",
+      eligibleAfter: new Date("2026-06-16T01:00:00.000Z"),
+      originalAmountRaw: BigInt(500_000_000),
+      remainingAmountRaw: BigInt(500_000_000),
+      sourceEventId: BigInt(-11),
+      status: "open",
+      targetId: BigInt(11),
+    });
+  });
+
+  test("bootstrap setup scheduling skips at-or-below-floor balances after projection upsert", async () => {
+    const { scheduleBootstrapEarnAutodepositSweep } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const { client, getInsertValues } = createBootstrapClient({});
+
+    const result = await scheduleBootstrapEarnAutodepositSweep(
+      {
+        snapshot: {
+          accountDataHash: "hash",
+          amountRaw: BigInt(500_000_000),
+          mint: "mint",
+          observedAt: new Date("2026-06-16T00:00:00.000Z"),
+          observedSlot: BigInt(500),
+          owner: "wallet",
+          source: "app_autodeposit_setup_confirm",
+          sourceCommitment: "confirmed",
+        },
+        target: createRecord({
+          id: BigInt(11),
+          walletBalanceFloorRaw: BigInt(500_000_000),
+        }) as never,
+      },
+      {
+        client,
+        now: () => new Date("2026-06-16T00:05:00.000Z"),
+      } as never
+    );
+
+    expect(result).toEqual({
+      reason: "wallet_balance_at_or_below_floor",
+      status: "skipped",
+    });
+    expect(getInsertValues()).toHaveLength(1);
+    expect(getInsertValues()[0]).toMatchObject({
+      amountRaw: BigInt(500_000_000),
+      targetId: BigInt(11),
+    });
   });
 
   test("scheduled cancellation is scoped through observed source slots", async () => {

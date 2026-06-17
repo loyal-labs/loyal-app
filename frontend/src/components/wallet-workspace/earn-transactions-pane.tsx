@@ -638,6 +638,13 @@ export function shouldShowScheduledSweepsSection(
   return scheduledSweeps.length > 0 || Boolean(pendingScheduledSweep);
 }
 
+export function resolveVisiblePendingScheduledSweep(
+  scheduledSweeps: readonly LoadedEarnAutodepositScheduledSweep[],
+  pendingScheduledSweep?: PendingScheduledSweepPreview | null
+): PendingScheduledSweepPreview | null {
+  return scheduledSweeps.length > 0 ? null : pendingScheduledSweep ?? null;
+}
+
 function ScheduledTransactionRow({
   displayTimeZone,
   isExecuting = false,
@@ -1098,9 +1105,13 @@ export function EarnTransactionsPane({
 
   const displayTimeZone = resolveEarnTransactionDisplayTimeZone();
   const groups = groupEarnTransactions(transactions, displayTimeZone);
-  const showScheduledSweeps = shouldShowScheduledSweepsSection(
+  const visiblePendingScheduledSweep = resolveVisiblePendingScheduledSweep(
     scheduledSweeps,
     pendingScheduledSweep
+  );
+  const showScheduledSweeps = shouldShowScheduledSweepsSection(
+    scheduledSweeps,
+    visiblePendingScheduledSweep
   );
 
   const handleSelect = (item: EarnTransactionItem) => {
@@ -1207,12 +1218,12 @@ export function EarnTransactionsPane({
                 }}
               >
                 <TransactionsSectionHeader label="Scheduled" />
-                {pendingScheduledSweep ? (
+                {visiblePendingScheduledSweep ? (
                   <ScheduledTransactionRow
                     displayTimeZone={displayTimeZone}
                     isBalanceHidden={isBalanceHidden}
                     isPending
-                    sweep={pendingScheduledSweep}
+                    sweep={visiblePendingScheduledSweep}
                   />
                 ) : null}
                 {scheduledSweeps.map((sweep) => (

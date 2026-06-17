@@ -232,7 +232,7 @@ describe("Earn Autodeposit review", () => {
       stage: "policy",
     });
 
-    expect(item.pages?.[0]?.title).toBe("Approval 1 of 2");
+    expect(item.pages?.[0]?.title).toBe("Approval 1 of 3");
     expect(item.pages?.[0]?.heading).toBe("Initialize allowance authority");
     expect(textOf(item.pages?.[0])).not.toContain("policy");
     expect(textOf(item.reviewSections?.[0])).toContain(
@@ -240,7 +240,20 @@ describe("Earn Autodeposit review", () => {
     );
   });
 
-  test("final approval creates policy and recurring allowance", () => {
+  test("middle approval creates the policy by itself", () => {
+    const item = buildEarnAutodepositSetupReviewItem({
+      draft: autodepositDraft,
+      preparedSetup: createPreparedAutodepositSetup("create_policy"),
+      stage: "policy",
+    });
+
+    expect(item.pages?.[0]?.title).toBe("Approval 2 of 3");
+    expect(item.pages?.[0]?.heading).toBe("Create policy");
+    expect(textOf(item.pages?.[0])).toContain("Create Autodeposit policy");
+    expect(item.primaryActionLabel).toBe("Create policy");
+  });
+
+  test("final approval creates recurring allowance", () => {
     const item = buildEarnAutodepositSetupReviewItem({
       draft: autodepositDraft,
       preparedSetup: createPreparedAutodepositSetup(
@@ -249,13 +262,9 @@ describe("Earn Autodeposit review", () => {
       stage: "delegation",
     });
 
-    expect(item.pages?.[0]?.title).toBe("Approval 2 of 2");
-    expect(item.pages?.[0]?.heading).toBe(
-      "Create policy and recurring allowance"
-    );
-    expect(textOf(item.pages?.[0])).toContain(
-      "Create the Autodeposit policy"
-    );
-    expect(item.primaryActionLabel).toBe("Create policy and allowance");
+    expect(item.pages?.[0]?.title).toBe("Approval 3 of 3");
+    expect(item.pages?.[0]?.heading).toBe("Create recurring allowance");
+    expect(textOf(item.pages?.[0])).toContain("Create recurring allowance");
+    expect(item.primaryActionLabel).toBe("Create allowance");
   });
 });

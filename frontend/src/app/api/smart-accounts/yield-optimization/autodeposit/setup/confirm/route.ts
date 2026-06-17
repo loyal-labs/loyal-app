@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { NextResponse } from "next/server";
 import {
   deriveRecurringDelegation,
@@ -11,6 +13,7 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
+  unpackAccount,
 } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -26,12 +29,17 @@ import {
 import {
   recordConfirmedAutodepositDelegation,
   recordPendingAutodepositSetup,
+  scheduleBootstrapEarnAutodepositSweep,
   type BalanceSweepTargetRecord,
   type ConfirmedEarnAutodepositSetupInput,
+  type EarnAutodepositBootstrapWalletBalanceSnapshot,
+  type PendingEarnAutodepositScheduledSweepRecord,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
 const MONTH_PERIOD_SECONDS = BigInt(30 * 24 * 60 * 60);
+const BOOTSTRAP_BALANCE_SOURCE = "app_autodeposit_setup_confirm";
+const BOOTSTRAP_BALANCE_SOURCE_COMMITMENT = "confirmed";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -264,6 +272,104 @@ function serializeTarget(
   };
 }
 
+function serializeScheduledSweep(
+  sweep: PendingEarnAutodepositScheduledSweepRecord
+): {
+  classification: string;
+  confidence: string;
+  eligibleAfter: string;
+  id: string;
+  originalAmountRaw: string;
+  reason: string;
+  remainingAmountRaw: string;
+  status: string;
+} {
+  return {
+    classification: sweep.classification,
+    confidence: sweep.confidence,
+    eligibleAfter: sweep.eligibleAfter.toISOString(),
+    id: sweep.id.toString(),
+    originalAmountRaw: sweep.originalAmountRaw.toString(),
+    reason: sweep.reason,
+    remainingAmountRaw: sweep.remainingAmountRaw.toString(),
+    status: sweep.status,
+  };
+}
+
+async function readBootstrapWalletBalanceSnapshot(args: {
+  connection: Connection;
+  input: ConfirmedEarnAutodepositSetupInput;
+}): Promise<
+  | {
+      snapshot: EarnAutodepositBootstrapWalletBalanceSnapshot;
+      status: "ok";
+    }
+  | {
+      reason: string;
+      status: "skipped";
+    }
+> {
+  const walletUsdcAta = new PublicKey(args.input.walletUsdcAta);
+  const account = await args.connection.getAccountInfoAndContext(
+    walletUsdcAta,
+    BOOTSTRAP_BALANCE_SOURCE_COMMITMENT
+  );
+
+  if (!account.value) {
+    return { reason: "wallet_usdc_ata_missing", status: "skipped" };
+  }
+
+  if (!account.value.owner.equals(TOKEN_PROGRAM_ID)) {
+    return { reason: "wallet_usdc_ata_invalid_owner", status: "skipped" };
+  }
+
+  let tokenAccount: ReturnType<typeof unpackAccount>;
+  try {
+    tokenAccount = unpackAccount(
+      walletUsdcAta,
+      account.value,
+      TOKEN_PROGRAM_ID
+    );
+  } catch {
+    return { reason: "wallet_usdc_ata_invalid_data", status: "skipped" };
+  }
+
+  const tokenMint = tokenAccount.mint.toBase58();
+  if (tokenMint !== args.input.liquidityMint) {
+    return { reason: "wallet_usdc_ata_non_usdc", status: "skipped" };
+  }
+
+  const tokenOwner = tokenAccount.owner.toBase58();
+  if (tokenOwner !== args.input.walletAddress) {
+    return { reason: "wallet_usdc_ata_wallet_mismatch", status: "skipped" };
+  }
+
+  const accountDataHash = createHash("sha256")
+    .update(account.value.data)
+    .digest("hex");
+  const observedAt = new Date();
+
+  return {
+    snapshot: {
+      accountDataHash,
+      amountRaw: tokenAccount.amount,
+      mint: tokenMint,
+      observedAt,
+      observedSlot: BigInt(account.context.slot),
+      owner: tokenOwner,
+      rawEvidence: {
+        accountLamports: account.value.lamports.toString(),
+        accountOwner: account.value.owner.toBase58(),
+        bootstrap: true,
+        setupSignature: args.input.setupSignature,
+      },
+      source: BOOTSTRAP_BALANCE_SOURCE,
+      sourceCommitment: BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
+    },
+    status: "ok",
+  };
+}
+
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
@@ -343,6 +449,49 @@ export async function POST(request: Request) {
     input.setupStage === "create_recurring_delegation"
       ? await recordConfirmedAutodepositDelegation(input)
       : await recordPendingAutodepositSetup(input);
+  let bootstrapSweep: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
+  if (input.setupStage === "create_recurring_delegation") {
+    try {
+      const snapshotResult = await readBootstrapWalletBalanceSnapshot({
+        connection: getConnection(solanaEnv),
+        input,
+      });
+      if (snapshotResult.status === "skipped") {
+        bootstrapSweep = snapshotResult;
+      } else {
+        const result = await scheduleBootstrapEarnAutodepositSweep({
+          snapshot: snapshotResult.snapshot,
+          target,
+        });
+        if (result.status === "skipped") {
+          bootstrapSweep = result;
+        } else {
+          bootstrapSweep = {
+            status: result.status,
+            sweep: serializeScheduledSweep(result.sweep),
+          };
+        }
+      }
+    } catch (error) {
+      console.warn("[autodeposit setup] bootstrap scheduling failed", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown bootstrap error.",
+        policyAccount: input.policyAccount,
+        setupSignature: input.setupSignature,
+        walletAddress: input.walletAddress,
+      });
+      bootstrapSweep = {
+        reason:
+          error instanceof Error
+            ? error.message
+            : "Bootstrap scheduling failed.",
+        status: "failed",
+      };
+    }
+  }
 
-  return NextResponse.json({ target: serializeTarget(target) });
+  return NextResponse.json({
+    ...(bootstrapSweep ? { bootstrapSweep } : {}),
+    target: serializeTarget(target),
+  });
 }

@@ -121,14 +121,19 @@ async function main() {
     checks,
     "setup order",
     smartAccountClient.indexOf('stage: "initialize_subscription_authority"') <
-      smartAccountClient.indexOf('stage: "create_recurring_delegation"') &&
+      smartAccountClient.indexOf('stage: "create_policy"') &&
+      smartAccountClient.indexOf('stage: "create_policy"') <
+      smartAccountClient.lastIndexOf('stage: "create_recurring_delegation"') &&
       includesAll(smartAccountClient, [
         "createSubscriptionInitAuthorityInstruction",
-        "...policyCreation.instructions",
+        'operation: "earnUsdcAutodepositCreatePolicy"',
+        'stage: "create_policy"',
+        "instructions: [...policyCreation.instructions]",
         "readSubscriptionAuthorityInitId(authorityAccount)",
         "createSubscriptionCreateRecurringDelegationInstruction",
+        'operation: "earnUsdcAutodepositCreateRecurringDelegation"',
       ]),
-    "Txn A initializes subscription authority plus policy; Txn B reads init_id before delegation."
+    "Txn A initializes subscription authority; Txn B creates policy; Txn C reads init_id before creating recurring delegation."
   );
 
   record(
@@ -189,6 +194,10 @@ async function main() {
       "resolveConfirmedSignatureSlot",
       "recordPendingAutodepositSetup",
       "recordConfirmedAutodepositDelegation",
+      "readBootstrapWalletBalanceSnapshot",
+      "scheduleBootstrapEarnAutodepositSweep",
+      "bootstrapSweep",
+      'status: "failed"',
       "upsertBalanceSweepPolicyFromSetup",
       "deriveSubscriptionAuthority",
       "deriveRecurringDelegation",
@@ -199,6 +208,32 @@ async function main() {
       "active: true",
     ]),
     "Setup confirm route validates chain status/canonical PDAs; repository only activates on delegation stage."
+  );
+
+  record(
+    checks,
+    "bootstrap scheduled sweep persistence",
+    includesAll(repository + setupRoute + contracts, [
+      "EarnAutodepositBootstrapWalletBalanceSnapshot",
+      "createBootstrapWalletBalanceEventId",
+      "upsertBalanceSweepWalletBalanceCurrent",
+      "balanceSweepWalletBalanceEvents",
+      "balanceSweepSurplusLots",
+      "sourceEventId",
+      "initial_surplus",
+      "confirmed_snapshot",
+      "eligibleAfter: addOneHour(snapshot.observedAt)",
+      "originalAmountRaw: surplusRaw",
+      "remainingAmountRaw: surplusRaw",
+      "onConflictDoNothing",
+      "wallet_balance_at_or_below_floor",
+      "wallet_usdc_ata_missing",
+      "wallet_usdc_ata_invalid_data",
+      "wallet_usdc_ata_non_usdc",
+      "EarnAutodepositSetupConfirmResponse",
+      "bootstrapSweep?:",
+    ]),
+    "Final setup can schedule exactly one initial-surplus lot from a confirmed wallet USDC ATA snapshot while reporting skip/failure status."
   );
 
   record(
@@ -285,6 +320,21 @@ async function main() {
 
   record(
     checks,
+    "scheduled sweep UI handoff",
+    includesAll(hook + workspace + loadStateMapper, [
+      "confirmResponse.bootstrapSweep?.sweep",
+      "scheduledSweeps: result.scheduledSweeps ?? []",
+      "isEarnAutodepositSetupConfirming",
+      "!isEarnAutodepositSetupConfirming",
+      "pendingScheduledSweepPreview",
+      "(autodepositConfig.scheduledSweeps?.length ?? 0) > 0",
+      "nextEarnState?.autodeposit?.scheduledSweeps ?? []",
+    ]),
+    "The workspace shows the pending scheduling preview only during setup confirmation and replaces it with returned/refreshed scheduledSweeps."
+  );
+
+  record(
+    checks,
     "earn-state fail-soft metadata",
     includesAll(earnStateRoute + hook, [
       "loadErrors",
@@ -308,7 +358,9 @@ async function main() {
       "AutodepositStatusCard",
       "Start earning the moment your money arrives",
       "Couldn’t load Autodeposit settings",
-      "isLoading={isEarnStateLoading}",
+      "isLoading={shouldShowAutodepositSkeleton}",
+      "shouldShowAutodepositSkeleton",
+      "isEarnStateLoading && !hasEarnStateLoadError",
       "isError={hasEarnStateLoadError}",
       "onRetry={onSmartAccountRetry}",
       "hasEarnStateLoadError={Boolean(",

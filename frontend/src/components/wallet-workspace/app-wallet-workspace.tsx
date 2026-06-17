@@ -1122,6 +1122,10 @@ export function AppWalletWorkspace({
     useState(false);
   const [autodepositConfig, setAutodepositConfig] =
     useState<EarnAutodepositConfig | null>(null);
+  const [
+    isEarnAutodepositSetupConfirming,
+    setIsEarnAutodepositSetupConfirming,
+  ] = useState(false);
   const [isExecutingScheduledSweep, setIsExecutingScheduledSweep] =
     useState(false);
   const [
@@ -1412,7 +1416,7 @@ export function AppWalletWorkspace({
     useMemo<PendingScheduledSweepPreview | null>(() => {
       if (
         !autodepositConfig ||
-        autodepositConfig.state !== "created" ||
+        !isEarnAutodepositSetupConfirming ||
         (autodepositConfig.scheduledSweeps?.length ?? 0) > 0
       ) {
         return null;
@@ -1453,7 +1457,11 @@ export function AppWalletWorkspace({
       } catch {
         return null;
       }
-    }, [autodepositConfig, earnDepositSources]);
+    }, [
+      autodepositConfig,
+      earnDepositSources,
+      isEarnAutodepositSetupConfirming,
+    ]);
   const earnWithdrawDestinations = useMemo<EarnDepositSourceOption[]>(() => {
     const mainDestination = earnDepositSources.find(
       (source) => source.id === "main"
@@ -3263,6 +3271,7 @@ export function AppWalletWorkspace({
         return;
       }
 
+      setIsEarnAutodepositSetupConfirming(true);
       const result = await smartAccountData.executeEarnAutodepositSetup({
         amountRaw,
         nonce: pendingEarnAutodepositDraft.nonce,
@@ -3272,6 +3281,7 @@ export function AppWalletWorkspace({
         preparedSetup: pendingEarnAutodepositSetupPrepared,
         walletBalanceFloorRaw,
       });
+      setIsEarnAutodepositSetupConfirming(false);
 
       if (!result.success || !result.preparedSetup) {
         throw new Error(result.error ?? "Autodeposit setup failed.");
@@ -3306,7 +3316,7 @@ export function AppWalletWorkspace({
         policyAccount,
         recurringDelegation:
           result.preparedSetup.persistence.recurringDelegation,
-        scheduledSweeps: autodepositConfig?.scheduledSweeps ?? [],
+        scheduledSweeps: result.scheduledSweeps ?? [],
         state: "created",
       });
       setPendingEarnAutodepositDraft(null);
@@ -3319,6 +3329,7 @@ export function AppWalletWorkspace({
       setDetailSelection("earn");
       setSelectedDetail("Earn");
     } catch (error) {
+      setIsEarnAutodepositSetupConfirming(false);
       setAutodepositConfig((current) =>
         current?.state === "creating" ? null : current
       );

@@ -60,6 +60,18 @@ export type BalanceSweepExecutionInput = {
   targetId: bigint;
 };
 
+export type EarnAutodepositBootstrapWalletBalanceSnapshot = {
+  accountDataHash: string;
+  amountRaw: bigint;
+  mint: string;
+  observedAt: Date;
+  observedSlot: bigint;
+  owner: string;
+  rawEvidence?: Record<string, unknown> | null;
+  source: string;
+  sourceCommitment: string;
+};
+
 export type BalanceSweepTargetRecord = typeof balanceSweepTargets.$inferSelect;
 export type BalanceSweepPolicyRecord = typeof balanceSweepPolicies.$inferSelect;
 export type BalanceSweepWalletBalanceCurrentRecord =
@@ -84,6 +96,16 @@ export type ImmediateEarnAutodepositScheduledSweepRequestResult = {
   eligibleAfter: Date;
   targetId: bigint;
 };
+
+export type EarnAutodepositBootstrapSweepResult =
+  | {
+      status: "scheduled" | "already_exists";
+      sweep: PendingEarnAutodepositScheduledSweepRecord;
+    }
+  | {
+      reason: string;
+      status: "skipped";
+    };
 
 export type CurrentEarnAutodepositState = {
   policy: BalanceSweepPolicyRecord;
@@ -149,6 +171,20 @@ async function findTargetByPolicy(args: {
     .limit(1);
 
   return target ?? null;
+}
+
+function createBootstrapWalletBalanceEventId(targetId: bigint): bigint {
+  return -targetId;
+}
+
+function addOneHour(date: Date): Date {
+  return new Date(date.getTime() + 60 * 60 * 1000);
+}
+
+function isOpenScheduledSweep(
+  sweep: PendingEarnAutodepositScheduledSweepRecord
+): boolean {
+  return sweep.status === "open" && sweep.remainingAmountRaw > BigInt(0);
 }
 
 export async function cancelScheduledAutodepositTransactionsForClose(args: {
@@ -445,6 +481,147 @@ export async function requestImmediateEarnAutodepositScheduledSweep(
     acceleratedLotCount: updatedLots.length,
     eligibleAfter,
     targetId: state.target.id,
+  };
+}
+
+export async function scheduleBootstrapEarnAutodepositSweep(
+  input: {
+    snapshot: EarnAutodepositBootstrapWalletBalanceSnapshot;
+    target: BalanceSweepTargetRecord;
+  },
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<EarnAutodepositBootstrapSweepResult> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const { snapshot, target } = input;
+  const existingProjection = await client.db
+    .select()
+    .from(balanceSweepWalletBalancesCurrent)
+    .where(eq(balanceSweepWalletBalancesCurrent.targetId, target.id))
+    .limit(1);
+
+  await upsertBalanceSweepWalletBalanceCurrent(
+    {
+      accountDataHash: snapshot.accountDataHash,
+      amountRaw: snapshot.amountRaw,
+      mint: snapshot.mint,
+      observedAt: snapshot.observedAt,
+      observedSlot: snapshot.observedSlot,
+      owner: snapshot.owner,
+      rawEvidence: snapshot.rawEvidence ?? null,
+      source: snapshot.source,
+      sourceCommitment: snapshot.sourceCommitment,
+      targetId: target.id,
+      wallet: target.wallet,
+      walletUsdcAta: target.walletUsdcAta,
+    },
+    dependencies
+  );
+
+  const floorRaw = target.walletBalanceFloorRaw ?? BigInt(0);
+  if (snapshot.amountRaw <= floorRaw) {
+    return {
+      reason: "wallet_balance_at_or_below_floor",
+      status: "skipped",
+    };
+  }
+
+  const sourceEventId = createBootstrapWalletBalanceEventId(target.id);
+  const previousAmountRaw = existingProjection[0]?.amountRaw ?? null;
+  const surplusRaw = snapshot.amountRaw - floorRaw;
+
+  await client.db
+    .insert(balanceSweepWalletBalanceEvents)
+    .values({
+      accountDataHash: snapshot.accountDataHash,
+      amountRaw: snapshot.amountRaw,
+      deltaAmountRaw:
+        previousAmountRaw === null
+          ? null
+          : snapshot.amountRaw - previousAmountRaw,
+      eventId: sourceEventId,
+      observedAt: snapshot.observedAt,
+      observedSlot: snapshot.observedSlot,
+      previousAmountRaw,
+      projectedAt: now,
+      rawEvidence: {
+        ...(snapshot.rawEvidence ?? {}),
+        bootstrap: true,
+        setupSignature: target.lastSeenSignature,
+      },
+      source: snapshot.source,
+      sourceCommitment: snapshot.sourceCommitment,
+      targetId: target.id,
+      txnSignature: null,
+      wallet: target.wallet,
+      walletUsdcAta: target.walletUsdcAta,
+    })
+    .onConflictDoNothing({
+      target: [balanceSweepWalletBalanceEvents.eventId],
+    });
+
+  const insertedLots = await client.db
+    .insert(balanceSweepSurplusLots)
+    .values({
+      classification: "initial_surplus",
+      confidence: "confirmed_snapshot",
+      createdAt: now,
+      eligibleAfter: addOneHour(snapshot.observedAt),
+      originalAmountRaw: surplusRaw,
+      reason: "initial Autodeposit surplus detected at setup confirmation",
+      remainingAmountRaw: surplusRaw,
+      sourceEventId,
+      sourceSignature: null,
+      status: "open",
+      targetId: target.id,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({
+      target: [balanceSweepSurplusLots.sourceEventId],
+    })
+    .returning({
+      classification: balanceSweepSurplusLots.classification,
+      confidence: balanceSweepSurplusLots.confidence,
+      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
+      id: balanceSweepSurplusLots.id,
+      originalAmountRaw: balanceSweepSurplusLots.originalAmountRaw,
+      reason: balanceSweepSurplusLots.reason,
+      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
+      status: balanceSweepSurplusLots.status,
+    });
+
+  if (insertedLots[0]) {
+    return {
+      status: "scheduled",
+      sweep: insertedLots[0],
+    };
+  }
+
+  const [existingLot] = await client.db
+    .select({
+      classification: balanceSweepSurplusLots.classification,
+      confidence: balanceSweepSurplusLots.confidence,
+      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
+      id: balanceSweepSurplusLots.id,
+      originalAmountRaw: balanceSweepSurplusLots.originalAmountRaw,
+      reason: balanceSweepSurplusLots.reason,
+      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
+      status: balanceSweepSurplusLots.status,
+    })
+    .from(balanceSweepSurplusLots)
+    .where(eq(balanceSweepSurplusLots.sourceEventId, sourceEventId))
+    .limit(1);
+
+  if (existingLot && isOpenScheduledSweep(existingLot)) {
+    return {
+      status: "already_exists",
+      sweep: existingLot,
+    };
+  }
+
+  return {
+    reason: "bootstrap_sweep_already_closed",
+    status: "skipped",
   };
 }
 

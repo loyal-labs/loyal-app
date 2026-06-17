@@ -12,6 +12,7 @@ import {
 } from "@loyal-labs/actions";
 import {
   generated,
+  compilePreparedOperation,
   Policy,
   Settings,
 } from "@loyal-labs/loyal-smart-accounts-core";
@@ -1719,6 +1720,12 @@ describe("prepareEarnUsdcAutodeposit", () => {
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       SUBSCRIPTIONS_PROGRAM_ID.toBase58()
     );
+    expect(() =>
+      compilePreparedOperation({
+        prepared: result.prepared,
+        blockhash: "11111111111111111111111111111111",
+      }).serialize()
+    ).not.toThrow();
     expect(result.persistence).toMatchObject({
       delegatedSigner: backendSigner.toBase58(),
       policyAccount: result.policy.account?.toBase58(),
@@ -1729,7 +1736,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
     });
   });
 
-  test("warm follow-up creates the policy and recurring delegation together", async () => {
+  test("warm follow-up creates the policy in a separate transaction", async () => {
     let nonSettingsLookupCount = 0;
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(settingsPda)) {
@@ -1756,18 +1763,18 @@ describe("prepareEarnUsdcAutodeposit", () => {
       nonce: BigInt(42),
     });
 
-    expect(result.stage).toBe("create_recurring_delegation");
-    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.stage).toBe("create_policy");
+    expect(result.prepared.instructions).toHaveLength(1);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       programId.toBase58()
     );
     expectPolicyCreateSigner(result.prepared.instructions[0], backendSigner);
-    expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
-      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
-    );
-    expect(result.prepared.instructions[2]?.programId.toBase58()).toBe(
-      SUBSCRIPTIONS_PROGRAM_ID.toBase58()
-    );
+    expect(() =>
+      compilePreparedOperation({
+        prepared: result.prepared,
+        blockhash: "11111111111111111111111111111111",
+      }).serialize()
+    ).not.toThrow();
     expect(result.persistence).toMatchObject({
       policyAccount: result.policy.account?.toBase58(),
       policySeed: "1",
@@ -1775,7 +1782,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
     });
   });
 
-  test("existing policy with missing delegation skips duplicate policy creation", async () => {
+  test("existing policy with missing delegation creates the recurring delegation", async () => {
     let nonSettingsLookupCount = 0;
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(settingsPda)) {
@@ -1813,6 +1820,12 @@ describe("prepareEarnUsdcAutodeposit", () => {
     expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
       SUBSCRIPTIONS_PROGRAM_ID.toBase58()
     );
+    expect(() =>
+      compilePreparedOperation({
+        prepared: result.prepared,
+        blockhash: "11111111111111111111111111111111",
+      }).serialize()
+    ).not.toThrow();
   });
 
   test("rejects setup when policy and recurring delegation already exist", async () => {

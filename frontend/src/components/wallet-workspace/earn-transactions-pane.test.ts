@@ -11,6 +11,7 @@ import {
   formatScheduledSweepTime,
   groupEarnTransactions,
   resolveEarnTransactionDisplayTimeZone,
+  resolveVisiblePendingScheduledSweep,
   shouldShowScheduledSweepsSection,
 } from "./earn-transactions-pane";
 
@@ -149,5 +150,14 @@ describe("Earn transactions scheduled sweeps", () => {
     expect(
       shouldShowScheduledSweepsSection([], { amountRaw: "16967897" })
     ).toBe(true);
+  });
+
+  test("hides the pending scheduling preview once real sweeps are loaded", () => {
+    const pending = { amountRaw: "16967897" };
+
+    expect(resolveVisiblePendingScheduledSweep([], pending)).toBe(pending);
+    expect(resolveVisiblePendingScheduledSweep([createSweep()], pending)).toBe(
+      null
+    );
   });
 });
