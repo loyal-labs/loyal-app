@@ -102,7 +102,9 @@ function amountToUsd(raw: string): number {
 type DepositSheetProps = {
   open: boolean;
   onClose: () => void;
-  onDeposit?: () => void;
+  // Called with the entered USD amount when the user taps Deposit (after the
+  // minimum/balance checks pass). The parent drives navigation from here.
+  onDeposit?: (amountUsd: number) => void;
   // The wallet's spendable USDC balance (token units ≈ dollars). `null` while
   // holdings are still loading or the wallet has no USDC.
   availableUsdc?: number | null;
@@ -177,8 +179,8 @@ export function DepositSheet({
     if (usd < MIN_DEPOSIT_USD || usd > available) return;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
-    onDeposit?.();
     sheetRef.current?.dismiss();
+    onDeposit?.(usd);
   }, [amount, available, onDeposit]);
 
   const renderBackdrop = useCallback(

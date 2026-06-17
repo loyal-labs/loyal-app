@@ -102,6 +102,10 @@ export default function RootLayout() {
                   options={{ headerShown: false }}
                 />
                 <Stack.Screen
+                  name="earn/deposit"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
                   name="browser/site"
                   options={{ headerShown: false }}
                 />

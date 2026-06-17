@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
-import { Redirect, useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { ArrowUp, Plus } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
   cancelAnimation,
@@ -16,17 +16,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DepositSheet } from "@/components/earn/DepositSheet";
 import { EarnChart } from "@/components/earn/EarnChart";
 import { EarnDog } from "@/components/earn/EarnDog";
+import { buildDepositProcessHref } from "@/components/earn/routes";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
+import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
+import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useAppReady } from "@/lib/app-ready";
+import {
+  SOLANA_USDC_MINT_DEVNET,
+  SOLANA_USDC_MINT_MAINNET,
+} from "@/lib/solana/constants";
+import { takePendingEarnDeposit } from "@/lib/solana/earn/result";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
+import AutodepositIcon from "../../assets/images/earn/autodeposit.svg";
 import EarnFlash from "../../assets/images/earn/flash.svg";
+import EarnQuestionmark from "../../assets/images/earn/questionmark.svg";
 
 const APY_LABEL = "8.46% APY";
-const DEPOSITED_BALANCE_WHOLE = "$6,165";
-const DEPOSITED_BALANCE_CENTS = ".662512";
 
 const COLOR_BADGE_GREEN = "#32B67C";
+const COLOR_AUTODEPOSIT_RED = "#F9363C";
 const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_BALANCE_DIM = "rgba(60, 60, 67, 0.4)";
 const COLOR_WITHDRAW_BG = "#F5F5F5";
@@ -61,24 +71,34 @@ const LINES_START_MS = 200;
 const BADGE_START_MS = 2050;
 const BADGE_MS = 500;
 
-// Earn hasn't been released yet — "/" lands on the wallet tab and EarnScreen
-// stays unreachable until this flips to true.
-const EARN_RELEASED = false;
-
-export default function EarnRoute() {
-  if (!EARN_RELEASED) {
-    return <Redirect href="/wallet" />;
-  }
-  return <EarnScreen />;
-}
-
-function EarnScreen() {
+export default function EarnScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const appReady = useAppReady();
+  const { publicKey, state } = useWallet();
+  // Read-only holdings (no signer) so the Deposit sheet can show the wallet's
+  // real USDC balance. Passing a signer here would trigger a Seed Vault
+  // hardware prompt on Seeker — balance display must stay passive.
+  const walletAddress = isWalletUnlocked(state) ? publicKey : null;
+  const { tokenHoldings } = useTokenHoldings(walletAddress);
+  const usdcAvailable = useMemo(() => {
+    const holding = tokenHoldings.find(
+      (h) =>
+        h.mint === SOLANA_USDC_MINT_MAINNET ||
+        h.mint === SOLANA_USDC_MINT_DEVNET,
+    );
+    return holding && Number.isFinite(holding.balance) ? holding.balance : null;
+  }, [tokenHoldings]);
+  // Real on-chain Earn position (read-only, no signing). Drives the funded
+  // state + balance once it loads; the optimistic just-deposited value below
+  // bridges the gap until the read-model catches up.
+  const { position, refreshEarnPosition } = useEarnPosition(walletAddress);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [hasDeposit, setHasDeposit] = useState(false);
+  // Principal just deposited, used as the funded Earn Balance until the real
+  // on-chain position is wired (see .context/earn-deposit-findings.md, step b).
+  const [depositedUsd, setDepositedUsd] = useState<number | null>(null);
   const [isFocused, setIsFocused] = useState(false);
   // Bumped to (re)play the reveal each time the tab becomes visible.
   const [runId, setRunId] = useState(0);
@@ -98,17 +118,38 @@ function EarnScreen() {
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
+      // Returning from a successful deposit → show the funded state immediately
+      // (optimistic), then pull the real read-model to reconcile the balance.
+      const deposited = takePendingEarnDeposit();
+      if (deposited != null) {
+        setDepositedUsd(deposited);
+        setHasDeposit(true);
+      }
+      refreshEarnPosition();
       return () => {
         setIsFocused(false);
-        setHasDeposit(false);
         riseY.value = width * DOG_SINK_RATIO;
         line0.value = 0;
         line1.value = 0;
         line2.value = 0;
         badge.value = 0;
       };
-    }, [width, riseY, line0, line1, line2, badge]),
+    }, [width, riseY, line0, line1, line2, badge, refreshEarnPosition]),
   );
+
+  // Real read-model is the source of truth: once a position with a balance
+  // loads, it sets the funded Earn Balance (overriding the optimistic value).
+  useEffect(() => {
+    if (!position) {
+      return;
+    }
+    const raw = Number(position.currentAmountRaw);
+    const usd = Number.isFinite(raw) ? raw / 1e6 : 0;
+    if (usd > 0) {
+      setDepositedUsd(usd);
+      setHasDeposit(true);
+    }
+  }, [position]);
 
   // Only (re)play once the tab is focused AND visible (splash/lock cleared), so
   // the reveal never runs hidden during boot.
@@ -194,8 +235,11 @@ function EarnScreen() {
     setDepositOpen(false);
   }, []);
 
-  const handleDepositConfirmed = useCallback(() => {
-    setHasDeposit(true);
+  const handleDepositConfirmed = useCallback((amountUsd: number) => {
+    // Run the real on-chain deposit in the process screen; it returns to this
+    // tab (funded) on success via takePendingEarnDeposit().
+    setDepositOpen(false);
+    router.push(buildDepositProcessHref(amountUsd));
   }, []);
 
   const handleOpenWithdraw = useCallback(() => {
@@ -209,7 +253,42 @@ function EarnScreen() {
 
   const handleWithdrawConfirmed = useCallback(() => {
     setHasDeposit(false);
+    setDepositedUsd(null);
   }, []);
+
+  const handleAutodepositSetup = useCallback(() => {
+    void Haptics.selectionAsync();
+    // TODO(autodeposit): launch the Autodeposit setup flow (separate feature).
+  }, []);
+
+  const handleAutodepositHelp = useCallback(() => {
+    void Haptics.selectionAsync();
+    // TODO(autodeposit): surface Autodeposit help.
+  }, []);
+
+  // Live position APY for the funded header badge; falls back to the marketing
+  // rate while the read-model is loading or Timescale has no APY data.
+  const apyLabel = useMemo(() => {
+    const bps = position?.currentSupplyApyBps;
+    if (bps != null) {
+      const pct = Number(bps) / 100;
+      if (Number.isFinite(pct) && pct > 0) {
+        return `${pct.toFixed(2)}% APY`;
+      }
+    }
+    return APY_LABEL;
+  }, [position]);
+
+  // Funded Earn Balance, split so the cents render dimmed (Figma 74:19926).
+  const balanceParts = useMemo(() => {
+    const usd = hasDeposit && depositedUsd != null ? depositedUsd : 0;
+    const whole = Math.trunc(usd);
+    const cents = Math.round((usd - whole) * 100);
+    return {
+      whole: `$${whole.toLocaleString("en-US")}`,
+      cents: `.${cents.toString().padStart(2, "0")}`,
+    };
+  }, [hasDeposit, depositedUsd]);
 
   return (
     <View style={styles.root}>
@@ -220,10 +299,45 @@ function EarnScreen() {
               <Text style={styles.title}>Earn</Text>
               <View style={styles.badge}>
                 <EarnFlash width={12} height={16} />
-                <Text style={styles.badgeText}>{APY_LABEL}</Text>
+                <Text style={styles.badgeText}>{apyLabel}</Text>
               </View>
             </View>
             <EarnChart />
+            <View style={styles.autodepositSection}>
+              <View style={styles.autodepositCell}>
+                <View style={styles.autodepositIcon}>
+                  <AutodepositIcon width={48} height={48} />
+                </View>
+                <View style={styles.autodepositMiddle}>
+                  <Text style={styles.autodepositTitle}>Autodeposit</Text>
+                </View>
+                <View style={styles.autodepositRight}>
+                  <Pressable
+                    onPress={handleAutodepositHelp}
+                    accessibilityRole="button"
+                    accessibilityLabel="Autodeposit help"
+                    hitSlop={8}
+                    style={({ pressed }) => [
+                      styles.autodepositHelp,
+                      { opacity: pressed ? 0.7 : 1 },
+                    ]}
+                  >
+                    <EarnQuestionmark width={24} height={24} />
+                  </Pressable>
+                  <Pressable
+                    onPress={handleAutodepositSetup}
+                    accessibilityRole="button"
+                    accessibilityLabel="Set up Autodeposit"
+                    style={({ pressed }) => [
+                      styles.setUpButton,
+                      { opacity: pressed ? 0.85 : 1 },
+                    ]}
+                  >
+                    <Text style={styles.setUpLabel}>Set up</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
           </>
         ) : (
           <>
@@ -284,21 +398,8 @@ function EarnScreen() {
         <View style={styles.balanceRow}>
           <Text style={styles.balanceLabel}>Earn Balance</Text>
           <Text style={styles.balanceValue}>
-            {hasDeposit ? (
-              <>
-                <Text style={styles.balanceValueStrong}>
-                  {DEPOSITED_BALANCE_WHOLE}
-                </Text>
-                <Text style={styles.balanceValueDim}>
-                  {DEPOSITED_BALANCE_CENTS}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text style={styles.balanceValueStrong}>$0</Text>
-                <Text style={styles.balanceValueDim}>.00</Text>
-              </>
-            )}
+            <Text style={styles.balanceValueStrong}>{balanceParts.whole}</Text>
+            <Text style={styles.balanceValueDim}>{balanceParts.cents}</Text>
           </Text>
         </View>
 
@@ -343,6 +444,7 @@ function EarnScreen() {
         open={depositOpen}
         onClose={handleCloseDeposit}
         onDeposit={handleDepositConfirmed}
+        availableUsdc={usdcAvailable}
       />
 
       <WithdrawSheet
@@ -444,6 +546,60 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: "#FFF",
     letterSpacing: 0.06,
+  },
+  // Autodeposit cell — sits in the dark area below the chart, above the white
+  // balance card (Figma 74:19891). EarnChart's flex:1 pins it to the bottom.
+  autodepositSection: {
+    width: "100%",
+    paddingVertical: 8,
+  },
+  autodepositCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 60,
+    paddingHorizontal: 16,
+  },
+  autodepositIcon: {
+    paddingRight: 12,
+    paddingVertical: 6,
+  },
+  autodepositMiddle: {
+    flex: 1,
+    paddingVertical: 9,
+  },
+  autodepositTitle: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.187,
+    color: "#FFF",
+  },
+  autodepositRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 12,
+  },
+  autodepositHelp: {
+    padding: 6,
+    borderRadius: 9999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  setUpButton: {
+    backgroundColor: COLOR_AUTODEPOSIT_RED,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  setUpLabel: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#FFF",
+    textAlign: "center",
   },
   bottomCard: {
     backgroundColor: "#FFF",
