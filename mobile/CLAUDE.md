@@ -60,7 +60,6 @@ mobile/
 - **Path alias**: `@/*` maps to `./src/*` (configured in `tsconfig.json` and `jest.config.js`)
 - **Shared packages**:
   - `@loyal-labs/shared` for generic shared types such as summaries
-  - `@loyal-labs/grid-core` for runtime-agnostic Grid auth/domain helpers
 - **API layer**: All API calls go through `src/services/api.ts`, which reads base URL from `src/config/env.ts`
 - **Styling**: NativeWind v5 (Tailwind CSS v4) — use `className` prop on components from `src/tw/` wrappers
 - **SVGs**: Imported as React components via `react-native-svg-transformer` (configured in `metro.config.js`)
@@ -73,19 +72,16 @@ Expo uses `EXPO_PUBLIC_` prefix for client-accessible env vars.
 **Local development** (`.env`, gitignored):
 ```env
 EXPO_PUBLIC_API_BASE_URL=https://your-app.vercel.app
-EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
 ```
 
 **EAS builds** (`eas.json` env blocks — source of truth for cloud builds):
 ```env
 EXPO_PUBLIC_API_BASE_URL=https://solana-telegram-transactions.vercel.app
-EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
 ```
 
 - `.env` files are NOT uploaded to EAS build servers — `eas.json` is the only way to set env vars for EAS builds
 - `src/config/env.ts` provides a hardcoded fallback if neither source sets the var
 - Non-public env vars (no `EXPO_PUBLIC_` prefix) are build-time only, not embedded in the JS bundle
-- Mobile should call the passkey auth domain via `EXPO_PUBLIC_GRID_AUTH_BASE_URL`; do not import browser/WebAuthn flow code from `passkey`
 
 ### Metro Configuration
 
@@ -117,8 +113,6 @@ EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
 - Keep API communication in `src/services/` — do not scatter fetch calls across components
 - Follow the shared package boundary:
   - generic shared types go in `@loyal-labs/shared`
-  - Grid runtime helpers go in `@loyal-labs/grid-core`
-  - WebAuthn/passkey browser flow logic stays in `passkey`
 
 ## graphify
 

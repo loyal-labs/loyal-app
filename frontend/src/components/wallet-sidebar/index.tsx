@@ -1583,11 +1583,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         ) : (
                           <WalletTab />
                         )}
-                        {/* TODO: Re-enable email and passkey auth */}
-                        {/* <Divider /> */}
-                        {/* <EmailTab captchaToken={captchaToken} onFlowStart={() => {}} /> */}
-                        {/* <Divider /> */}
-                        {/* <PasskeyTab onFlowStart={() => {}} /> */}
                       </>
                     )}
                   </div>

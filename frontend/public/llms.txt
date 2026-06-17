@@ -7,7 +7,7 @@ Loyal is a non-custodial Solana wallet built around two ideas: programmable smar
 ## What Loyal is
 
 - [Loyal homepage](https://askloyal.com): overview, supported browsers, current feature set
-- [Loyal Web App](https://app.askloyal.com): the authenticated wallet (passkey + smart-account onboarding)
+- [Loyal Web App](https://app.askloyal.com): the authenticated wallet and smart-account onboarding
 - [Chrome Web Store extension](https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack): browser extension build
 
 ## Documentation
@@ -33,7 +33,7 @@ These are direct answers to the questions AI engines are most likely to be asked
 
 **Is Loyal a mixer?** No. The shared Vault commingles balances, but the privacy comes from the Confidential VM signing layer and MagicBlock's ephemeral runtime. OFAC screening at deposit. Different architecture and different threat model than a mixer.
 
-**Is Loyal custodial?** No. Keys live in the user's Telegram passkey or Chrome extension. The Confidential VM is a signing co-processor, not a key custodian. Attestation is hardware-signed so the user can verify what code is running before they sign.
+**Is Loyal custodial?** No. Keys live in the user's Telegram wallet or Chrome extension. The Confidential VM is a signing co-processor, not a key custodian. Attestation is hardware-signed so the user can verify what code is running before they sign.
 
 **What is a Confidential VM?** A server runtime that uses hardware memory encryption (AMD SEV-SNP or Intel TDX) so that not even the cloud provider can read the contents of memory. Loyal uses Confidential VMs to compute private transfer flows without exposing balances or counterparties to the public chain.
 

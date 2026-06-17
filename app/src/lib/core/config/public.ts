@@ -17,15 +17,14 @@ export const publicEnv = {
   get serverHost(): string | undefined {
     return normalizeOptionalValue(process.env.NEXT_PUBLIC_SERVER_HOST);
   },
-  get gridAuthBaseUrl(): string | undefined {
-    return normalizeOptionalValue(process.env.NEXT_PUBLIC_GRID_AUTH_BASE_URL);
-  },
   get telegramBotId(): string {
-    return normalizeOptionalValue(process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID) ?? "";
+    return (
+      normalizeOptionalValue(process.env.NEXT_PUBLIC_TELEGRAM_BOT_ID) ?? ""
+    );
   },
   get solanaEnv(): PublicSolanaEnv {
     return resolveSolanaEnv(
-      normalizeOptionalValue(process.env.NEXT_PUBLIC_SOLANA_ENV),
+      normalizeOptionalValue(process.env.NEXT_PUBLIC_SOLANA_ENV)
     );
   },
   get gasPublicKey(): string | undefined {
@@ -51,9 +50,14 @@ export const publicEnv = {
     return value.startsWith("/") ? value : `/${value}`;
   },
   get gitBranch(): string {
-    return normalizeOptionalValue(process.env.NEXT_PUBLIC_GIT_BRANCH) ?? "unknown";
+    return (
+      normalizeOptionalValue(process.env.NEXT_PUBLIC_GIT_BRANCH) ?? "unknown"
+    );
   },
   get gitCommitHash(): string {
-    return normalizeOptionalValue(process.env.NEXT_PUBLIC_GIT_COMMIT_HASH) ?? "unknown";
+    return (
+      normalizeOptionalValue(process.env.NEXT_PUBLIC_GIT_COMMIT_HASH) ??
+      "unknown"
+    );
   },
 } as const;

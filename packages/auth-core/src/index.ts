@@ -9,17 +9,9 @@ export {
   authMethodSchema,
   authRoutePaths,
   authSessionUserSchema,
-  emailAuthModeSchema,
-  embeddedPasskeyErrorMessageSchema,
-  embeddedPasskeyMessageSchema,
-  embeddedPasskeyMessageTypeSchema,
-  embeddedPasskeySuccessMessageSchema,
   getAuthSessionResponseSchema,
-  sessionKeyBackendSchema,
-  sessionKeySchema,
   startEmailAuthRequestSchema,
   startEmailAuthResponseSchema,
-  startPasskeySessionResponseSchema,
   verifyEmailAuthRequestSchema,
   verifyEmailAuthResponseSchema,
   walletChallengeRequestSchema,
@@ -33,20 +25,13 @@ export {
   WALLET_AUTH_MESSAGE_VERSION,
   walletChallengeTokenClaimsSchema,
 } from "./wallet";
-export {
-  extractApiErrorMessage,
-  extractSessionUrl,
-  parseApiErrorDetails,
-} from "./errors";
+export { extractApiErrorMessage, parseApiErrorDetails } from "./errors";
 export type {
   AuthMethod,
   AuthSessionUser,
-  EmailAuthMode,
-  EmbeddedPasskeyMessage,
   GetAuthSessionResponse,
   StartEmailAuthRequest,
   StartEmailAuthResponse,
-  StartPasskeySessionResponse,
   VerifyEmailAuthRequest,
   VerifyEmailAuthResponse,
   WalletChallengeRequest,
@@ -64,6 +49,4 @@ export type {
   AuthClient,
   AuthRuntimeConfig,
   FetchLike,
-  StartPasskeyRegistrationInput,
-  StartPasskeySignInInput,
 } from "./types";

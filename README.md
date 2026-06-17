@@ -11,10 +11,9 @@ the Loyal web frontend, shared packages/SDKs, and worker services.
 | [`app/`](./app) | Next.js Telegram mini-app and API routes | [`app/README.md`](./app/README.md) |
 | [`frontend/`](./frontend) | Next.js Loyal web frontend | [`frontend/README.md`](./frontend/README.md) |
 | [`admin/`](./admin) | Internal Next.js admin dashboard | [`admin/README.md`](./admin/README.md) |
-| [`passkey/`](./passkey) | Next.js passkey proxy app for Squads Grid custom-domain WebAuthn flow | [`passkey/README.md`](./passkey/README.md) |
 | [`programs/`](./programs) | Anchor smart contracts (`telegram-verification`, `telegram-private-transfer`) | [`programs/`](./programs) |
 | [`tests/`](./tests) | Anchor integration tests | [`tests/`](./tests) |
-| [`packages/`](./packages) | Shared workspace libraries (`db-core`, `db-adapter-neon`, `grid-core`, `llm-core`, `llm-server`, `shared`) | [`packages/`](./packages) |
+| [`packages/`](./packages) | Shared workspace libraries (`db-core`, `db-adapter-neon`, `llm-core`, `llm-server`, `shared`) | [`packages/`](./packages) |
 | [`sdk/`](./sdk) | Publishable SDKs for deposits and private transfers | [`sdk/private-transactions/README.md`](./sdk/private-transactions/README.md) |
 | [`workers/`](./workers) | Background workers and service runtimes | [`workers/userbot/README.md`](./workers/userbot/README.md) |
 | [`docs/`](./docs) | Internal engineering and operations documentation | [`docs/README.md`](./docs/README.md) |
@@ -48,11 +47,11 @@ For Vercel monorepo deploys, use separate projects with Root Directory set to `a
 ```bash
 bun run lint
 bun run lint:fix
-bun run build:grid-packages
+bun run build:auth-packages
 bun run build:db-packages
 bun run build:shared-packages
 bun run build:llm-packages
-bun run typecheck:grid-packages
+bun run typecheck:auth-packages
 bun run typecheck:db-packages
 bun run typecheck:shared-packages
 bun run typecheck:llm-packages
@@ -65,9 +64,6 @@ bun run admin:build
 bun run frontend:dev
 bun run frontend:lint
 bun run frontend:build
-bun run passkey:dev
-bun run passkey:lint
-bun run passkey:build
 ```
 
 ### Telegram App (`/app`)
@@ -174,14 +170,3 @@ echo "feat(scope): short description" | bunx commitlint --verbose
 ```
 
 GitHub pull requests also enforce commit messages and PR titles with the same rules.
-
-## Grid Auth Domain
-
-Runtime-agnostic Grid helpers now live in [`packages/grid-core/`](./packages/grid-core).
-The `passkey` workspace remains the auth-domain app for passkey session/account
-flows and owns WebAuthn/browser flow orchestration. Other clients should point
-at it with:
-
-- `NEXT_PUBLIC_GRID_AUTH_BASE_URL` in web workspaces
-- `EXPO_PUBLIC_GRID_AUTH_BASE_URL` in mobile
-- `GRID_*` variables inside `passkey`

@@ -15,7 +15,6 @@ const LOCAL_TURNSTILE_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
 const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
-const GRID_AUTH_BASE_URL_ENV_NAME = "NEXT_PUBLIC_GRID_AUTH_BASE_URL";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
@@ -36,7 +35,6 @@ export type PublicEnv = {
   appEnvironment: AppEnvironment;
   loyalAppUrl: string;
   turnstile: TurnstileConfig;
-  gridAuthBaseUrl: string | undefined;
   flagsManifestUrl: string | undefined;
   solanaEnv: SolanaEnv;
   solanaRpcEndpoint: string;
@@ -114,7 +112,6 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
     appEnvironment,
     loyalAppUrl: resolveLoyalAppUrl(env, appEnvironment),
     turnstile: resolveTurnstileConfig(env, appEnvironment),
-    gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
     flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
     solanaEnv,
     solanaRpcEndpoint: getFrontendSolanaEndpoints(solanaEnv).rpcEndpoint,
@@ -137,7 +134,8 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
       USERCENTRICS_SETTINGS_ID_ENV_NAME
     ),
     gitBranch: getOptionalEnv(env, "NEXT_PUBLIC_GIT_BRANCH") ?? "unknown",
-    gitCommitHash: getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
+    gitCommitHash:
+      getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
   };
 }
 

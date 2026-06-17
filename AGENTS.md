@@ -121,9 +121,9 @@ requirements and no checked-in key material. They must not run in default
 ```bash
 bun run lint               # prettier --check
 bun run lint:fix           # prettier -w
-bun run build:grid-packages  # build Grid workspace packages
+bun run build:auth-packages  # build auth workspace packages
 bun run build:db-packages  # build shared DB workspace packages
-bun run typecheck:grid-packages  # typecheck Grid workspace packages
+bun run typecheck:auth-packages  # typecheck auth workspace packages
 bun run typecheck:db-packages  # typecheck shared DB workspace packages
 bun run guard:shared-boundaries  # ensure shared packages stay app-env agnostic
 bun run guard:admin-shared-schema  # prevent admin-local schema duplication
@@ -157,7 +157,7 @@ bun run frontend:build     # build loyal web frontend from repo root
 | `/frontend`                 | Next.js 15 Loyal web frontend.                                                                                                                                                    |
 | `/mobile`                   | Expo React Native mobile app.                                                                                                                                                     |
 | `/admin`                    | Next.js 15 internal admin dashboard.                                                                                                                                              |
-| `/packages`                 | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `grid-core`, and `shared`.                                                                               |
+| `/packages`                 | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `auth-core`, and `shared`.                                                                               |
 | `/sdk/private-transactions` | Publishable `@loyal-labs/private-transactions` NPM package.                                                                                                                       |
 | `/workers`                  | Runtime services/workers.                                                                                                                                                         |
 | `/tests`                    | Anchor test suite.                                                                                                                                                                |
@@ -236,8 +236,7 @@ These complement the command list above and mirror guidance in `mobile/CLAUDE.md
 Routes live in `mobile/app` through Expo Router. Reusable UI plus hook/service
 logic lives in `mobile/src`. Keep network calls centralized in
 `mobile/src/services/api.ts`, use the `@/` alias for imports under
-`mobile/src`, keep shared cross-app summary types in `@loyal-labs/shared`, and
-keep Grid runtime code in `@loyal-labs/grid-core`.
+`mobile/src`, and keep shared cross-app summary types in `@loyal-labs/shared`.
 
 Client-exposed mobile env vars must use the `EXPO_PUBLIC_` prefix. For cloud
 builds, `eas.json` is the source of truth; `.env` is local-only. Keep fallback
@@ -264,18 +263,6 @@ refactors.
 For Vercel monorepo deploys, the admin Root Directory is `admin` (see
 `admin/vercel.json`) and the Loyal web frontend Root Directory is `frontend`
 (see `frontend/vercel.json`).
-
-### Grid + Passkey Boundary
-
-- Keep runtime-agnostic Grid code in `packages/grid-core` only.
-- Keep `packages/shared` for generic shared types; do not move WebAuthn, passkey flow runners, or Grid browser/query helpers there.
-- `passkey` is the auth-domain app and should remain the only workspace that owns:
-  - WebAuthn ceremony code
-  - host/RP resolution
-  - auth flow orchestration and Grid redirect/query parsing
-  - `/api/passkeys/*` route handlers
-- Consumer apps should use `NEXT_PUBLIC_GRID_AUTH_BASE_URL` or `EXPO_PUBLIC_GRID_AUTH_BASE_URL` to point at the `passkey` domain.
-- Server-only Grid upstream settings stay in `passkey` under `GRID_*`; browser code must not read those values directly.
 
 ### Key Patterns
 
