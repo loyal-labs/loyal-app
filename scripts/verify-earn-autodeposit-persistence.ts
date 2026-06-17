@@ -75,6 +75,7 @@ async function main() {
     migration0005,
     migration0006,
     migration0007,
+    migration0009,
     smartAccountClient,
   ] = await Promise.all([
     read("frontend/src/lib/yield-optimization/yield-neon-client.server.ts"),
@@ -113,6 +114,9 @@ async function main() {
     ),
     read(
       "frontend/src/lib/yield-optimization/migrations/0007_add_balance_sweep_target_start_timestamp.sql"
+    ),
+    read(
+      "frontend/src/lib/yield-optimization/migrations/0009_add_floor_rebaseline_surplus_classification.sql"
     ),
     read("packages/smart-account-vaults/src/client.ts"),
   ]);
@@ -185,6 +189,19 @@ async function main() {
       "balance_sweep_targets_lifecycle_status_idx",
     ]),
     "Migration extends balance_sweep_targets additively."
+  );
+
+  record(
+    checks,
+    "floor rebaseline migration",
+    includesAll(migration0009 + client, [
+      "ADD VALUE IF NOT EXISTS 'floor_rebaseline'",
+      "balance_sweep_floor_rebaseline_event_id_seq",
+      "INCREMENT BY -1",
+      "MAXVALUE -1000000000000",
+      '"floor_rebaseline"',
+    ]),
+    "Migration adds a distinct negative synthetic-event sequence and typed floor-rebaseline classification."
   );
 
   record(
@@ -379,6 +396,10 @@ async function main() {
     includesAll(contracts + repository + floorRoute + hook + workspace, [
       "parseEarnAutodepositFloorUpdateConfirmRequestBody",
       "updateAutodepositWalletBalanceFloor",
+      "rebaselineSweep",
+      "floor_rebaseline",
+      "wallet_balance_projection_missing",
+      "wallet_balance_at_or_below_floor",
       "executeEarnAutodepositFloorUpdate",
       "requiresSignature: !autodepositConfig || amountChanged",
       "pendingEarnAutodepositDraft.requiresSignature === false",

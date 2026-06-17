@@ -57,6 +57,7 @@ export const balanceSweepSurplusClassification = loyalYieldSchema.enum(
     "unknown",
     "explicit_redeposit",
     "initial_surplus",
+    "floor_rebaseline",
   ]
 );
 

@@ -70,6 +70,13 @@ const scheduleBootstrapEarnAutodepositSweep = mock(async () => ({
     status: "open",
   },
 }));
+const updateAutodepositWalletBalanceFloor = mock(async () => ({
+  rebaselineSweep: {
+    reason: "wallet_balance_projection_missing",
+    status: "skipped",
+  },
+  target: createTarget(),
+}));
 
 Connection.prototype.getSignatureStatuses = getSignatureStatuses as never;
 Connection.prototype.getAccountInfoAndContext = getAccountInfoAndContext as never;
@@ -134,6 +141,14 @@ mock.module("@solana/spl-token", () => ({
 mock.module(
   "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared",
   () => ({
+    parseEarnAutodepositFloorUpdateConfirmRequestBody: (
+      body: Record<string, unknown>
+    ) => ({
+      policyAccount: String(body.policyAccount),
+      recurringDelegation: String(body.recurringDelegation),
+      vaultIndex: 1,
+      walletBalanceFloorRaw: BigInt(String(body.walletBalanceFloorRaw)),
+    }),
     parseEarnAutodepositSetupConfirmRequestBody: () => parsedInput,
   })
 );
@@ -144,6 +159,7 @@ mock.module(
     recordConfirmedAutodepositDelegation,
     recordPendingAutodepositSetup,
     scheduleBootstrapEarnAutodepositSweep,
+    updateAutodepositWalletBalanceFloor,
   })
 );
 

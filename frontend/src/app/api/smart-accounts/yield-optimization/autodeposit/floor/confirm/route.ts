@@ -8,6 +8,7 @@ import {
 import {
   updateAutodepositWalletBalanceFloor,
   type BalanceSweepTargetRecord,
+  type PendingEarnAutodepositScheduledSweepRecord,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 
 function jsonError(
@@ -29,6 +30,23 @@ function serializeTarget(
     policyAccount: target.policyAccount,
     recurringDelegation: target.recurringDelegation,
     walletBalanceFloorRaw: target.walletBalanceFloorRaw?.toString() ?? null,
+  };
+}
+
+function serializeScheduledSweep(
+  sweep: PendingEarnAutodepositScheduledSweepRecord
+): NonNullable<
+  EarnAutodepositSetupConfirmResponse["rebaselineSweep"]
+>["sweep"] {
+  return {
+    classification: sweep.classification,
+    confidence: sweep.confidence,
+    eligibleAfter: sweep.eligibleAfter.toISOString(),
+    id: sweep.id.toString(),
+    originalAmountRaw: sweep.originalAmountRaw.toString(),
+    reason: sweep.reason,
+    remainingAmountRaw: sweep.remainingAmountRaw.toString(),
+    status: sweep.status,
   };
 }
 
@@ -55,7 +73,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const target = await updateAutodepositWalletBalanceFloor({
+    const result = await updateAutodepositWalletBalanceFloor({
       policyAccount: input.policyAccount,
       recurringDelegation: input.recurringDelegation,
       settings: principal.settingsPda,
@@ -64,7 +82,16 @@ export async function POST(request: Request) {
       walletBalanceFloorRaw: input.walletBalanceFloorRaw,
     });
 
-    return NextResponse.json({ target: serializeTarget(target) });
+    return NextResponse.json({
+      rebaselineSweep:
+        result.rebaselineSweep.status === "scheduled"
+          ? {
+              status: result.rebaselineSweep.status,
+              sweep: serializeScheduledSweep(result.rebaselineSweep.sweep),
+            }
+          : result.rebaselineSweep,
+      target: serializeTarget(result.target),
+    });
   } catch (error) {
     return jsonError(
       400,

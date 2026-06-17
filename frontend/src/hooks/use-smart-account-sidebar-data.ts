@@ -435,6 +435,8 @@ export type EarnAutodepositFloorUpdateRequest = {
 
 export type EarnAutodepositFloorUpdateResult = {
   success: boolean;
+  rebaselineSweep?: EarnAutodepositSetupConfirmResponse["rebaselineSweep"];
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   target?: EarnAutodepositSetupConfirmResponse["target"];
   error?: string;
 };
@@ -1215,7 +1217,7 @@ async function postEarnAutodepositFloorUpdate(args: {
   policyAccount: string;
   recurringDelegation: string;
   walletBalanceFloorRaw: bigint;
-}): Promise<EarnAutodepositCloseConfirmResponse> {
+}): Promise<EarnAutodepositSetupConfirmResponse> {
   const body: EarnAutodepositFloorUpdateConfirmRequestBody = {
     policyAccount: args.policyAccount,
     recurringDelegation: args.recurringDelegation,
@@ -1242,7 +1244,7 @@ async function postEarnAutodepositFloorUpdate(args: {
     );
   }
 
-  return (await response.json()) as EarnAutodepositCloseConfirmResponse;
+  return (await response.json()) as EarnAutodepositSetupConfirmResponse;
 }
 
 async function postEarnAutodepositToggle(args: {
@@ -4997,8 +4999,18 @@ export function useSmartAccountSidebarData(
         if (nextEarnState) {
           setEarnState(nextEarnState);
         }
+        const scheduledSweeps =
+          nextEarnState?.autodeposit?.scheduledSweeps ??
+          (response.rebaselineSweep?.sweep
+            ? [response.rebaselineSweep.sweep]
+            : []);
 
-        return { success: true, target: response.target };
+        return {
+          success: true,
+          rebaselineSweep: response.rebaselineSweep,
+          scheduledSweeps,
+          target: response.target,
+        };
       } catch (err) {
         const error =
           err instanceof Error

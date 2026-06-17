@@ -107,6 +107,23 @@ export type EarnAutodepositBootstrapSweepResult =
       status: "skipped";
     };
 
+export type EarnAutodepositFloorRebaselineSweepResult =
+  | {
+      status: "scheduled";
+      sweep: PendingEarnAutodepositScheduledSweepRecord;
+    }
+  | {
+      reason:
+        | "wallet_balance_projection_missing"
+        | "wallet_balance_at_or_below_floor";
+      status: "skipped";
+    };
+
+export type EarnAutodepositWalletBalanceFloorUpdateResult = {
+  rebaselineSweep: EarnAutodepositFloorRebaselineSweepResult;
+  target: BalanceSweepTargetRecord;
+};
+
 export type CurrentEarnAutodepositState = {
   policy: BalanceSweepPolicyRecord;
   status: "active" | "paused" | "pending";
@@ -179,6 +196,43 @@ function createBootstrapWalletBalanceEventId(targetId: bigint): bigint {
 
 function addOneHour(date: Date): Date {
   return new Date(date.getTime() + 60 * 60 * 1000);
+}
+
+function toBigIntValue(value: unknown): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "string") {
+    return BigInt(value);
+  }
+  throw new Error("Expected bigint-compatible database value.");
+}
+
+function toDateValue(value: unknown): Date {
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    return new Date(value);
+  }
+  throw new Error("Expected date-compatible database value.");
+}
+
+function getExecuteRows(result: unknown): Record<string, unknown>[] {
+  if (
+    result &&
+    typeof result === "object" &&
+    "rows" in result &&
+    Array.isArray((result as { rows: unknown }).rows)
+  ) {
+    return (result as { rows: Record<string, unknown>[] }).rows;
+  }
+
+  if (Array.isArray(result)) {
+    return result as Record<string, unknown>[];
+  }
+
+  return [];
 }
 
 function isOpenScheduledSweep(
@@ -1116,16 +1170,16 @@ export async function updateAutodepositWalletBalanceFloor(
     walletAddress: string;
     walletBalanceFloorRaw: bigint;
   },
-  dependencies: Pick<
-    EarnAutodepositRepositoryDependencies,
-    "client"
-  > = createDependencies()
-): Promise<BalanceSweepTargetRecord> {
+  dependencies: Pick<EarnAutodepositRepositoryDependencies, "client"> &
+    Partial<Pick<EarnAutodepositRepositoryDependencies, "now">> =
+    createDependencies()
+): Promise<EarnAutodepositWalletBalanceFloorUpdateResult> {
   if (input.walletBalanceFloorRaw < BigInt(0)) {
     throw new Error("Autodeposit wallet balance floor cannot be negative.");
   }
 
   const { client } = dependencies;
+  const now = dependencies.now?.() ?? new Date();
   const existing = await findTargetByPolicy({
     client,
     policyAccount: input.policyAccount,
@@ -1151,19 +1205,195 @@ export async function updateAutodepositWalletBalanceFloor(
     throw new Error("Autodeposit recurring delegation does not match target.");
   }
 
-  const [target] = await client.db
-    .update(balanceSweepTargets)
-    .set({
-      walletBalanceFloorRaw: input.walletBalanceFloorRaw,
-    })
-    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
-    .returning();
+  const queryResult = await client.db.execute(sql`
+    WITH locked_target AS (
+      SELECT ${balanceSweepTargets.id}
+      FROM ${balanceSweepTargets}
+      WHERE ${balanceSweepTargets.id} = ${existing.id}
+        AND ${balanceSweepTargets.policyAccount} = ${input.policyAccount}
+        AND ${balanceSweepTargets.settings} = ${input.settings}
+        AND ${balanceSweepTargets.wallet} = ${input.walletAddress}
+        AND ${balanceSweepTargets.vaultIndex} = ${input.vaultIndex}
+        AND ${balanceSweepTargets.lifecycleStatus} <> 'closed'
+        AND (
+          ${balanceSweepTargets.recurringDelegation} IS NULL
+          OR ${balanceSweepTargets.recurringDelegation} = ${input.recurringDelegation}
+        )
+      FOR UPDATE
+    ),
+    updated_target AS (
+      UPDATE ${balanceSweepTargets}
+      SET ${balanceSweepTargets.walletBalanceFloorRaw} = ${input.walletBalanceFloorRaw}
+      WHERE ${balanceSweepTargets.id} IN (SELECT id FROM locked_target)
+      RETURNING
+        ${balanceSweepTargets.id},
+        ${balanceSweepTargets.wallet},
+        ${balanceSweepTargets.walletUsdcAta}
+    ),
+    suppressed_lots AS (
+      UPDATE ${balanceSweepSurplusLots}
+      SET
+        ${balanceSweepSurplusLots.status} = 'suppressed'::loyal_yield.balance_sweep_surplus_lot_status,
+        ${balanceSweepSurplusLots.updatedAt} = ${now}
+      WHERE ${balanceSweepSurplusLots.targetId} IN (SELECT id FROM updated_target)
+        AND ${balanceSweepSurplusLots.status} = 'open'::loyal_yield.balance_sweep_surplus_lot_status
+        AND ${balanceSweepSurplusLots.remainingAmountRaw} > 0
+      RETURNING ${balanceSweepSurplusLots.id}
+    ),
+    projection AS (
+      SELECT current_balance.*
+      FROM ${balanceSweepWalletBalancesCurrent} current_balance
+      INNER JOIN updated_target
+        ON updated_target.id = current_balance.target_id
+    ),
+    inserted_event AS (
+      INSERT INTO ${balanceSweepWalletBalanceEvents} (
+        event_id,
+        target_id,
+        wallet,
+        wallet_usdc_ata,
+        previous_amount_raw,
+        amount_raw,
+        delta_amount_raw,
+        observed_slot,
+        observed_at,
+        source,
+        source_commitment,
+        txn_signature,
+        account_data_hash,
+        raw_evidence,
+        projected_at
+      )
+      SELECT
+        nextval('loyal_yield.balance_sweep_floor_rebaseline_event_id_seq'::regclass)::bigint,
+        projection.target_id,
+        projection.wallet,
+        projection.wallet_usdc_ata,
+        projection.amount_raw,
+        projection.amount_raw,
+        0,
+        projection.observed_slot,
+        projection.observed_at,
+        'app_autodeposit_floor_rebaseline',
+        projection.source_commitment,
+        NULL,
+        projection.account_data_hash,
+        jsonb_build_object(
+          'floorRebaseline', true,
+          'previousWalletBalanceFloorRaw', ${existing.walletBalanceFloorRaw?.toString() ?? null},
+          'walletBalanceFloorRaw', ${input.walletBalanceFloorRaw.toString()},
+          'suppressedOpenLotCount', (SELECT COUNT(*) FROM suppressed_lots)
+        ),
+        ${now}
+      FROM projection
+      WHERE projection.amount_raw > ${input.walletBalanceFloorRaw}
+      RETURNING event_id
+    ),
+    inserted_lot AS (
+      INSERT INTO ${balanceSweepSurplusLots} (
+        target_id,
+        source_event_id,
+        source_signature,
+        original_amount_raw,
+        remaining_amount_raw,
+        classification,
+        eligible_after,
+        status,
+        confidence,
+        reason,
+        created_at,
+        updated_at
+      )
+      SELECT
+        projection.target_id,
+        inserted_event.event_id,
+        NULL,
+        projection.amount_raw - ${input.walletBalanceFloorRaw},
+        projection.amount_raw - ${input.walletBalanceFloorRaw},
+        'floor_rebaseline'::loyal_yield.balance_sweep_surplus_classification,
+        ${addOneHour(now)},
+        'open'::loyal_yield.balance_sweep_surplus_lot_status,
+        'confirmed_projection',
+        'Autodeposit floor update rebaseline',
+        ${now},
+        ${now}
+      FROM projection
+      CROSS JOIN inserted_event
+      RETURNING
+        classification::text AS "lotClassification",
+        confidence AS "lotConfidence",
+        eligible_after AS "lotEligibleAfter",
+        id AS "lotId",
+        original_amount_raw AS "lotOriginalAmountRaw",
+        reason AS "lotReason",
+        remaining_amount_raw AS "lotRemainingAmountRaw",
+        status::text AS "lotStatus"
+    )
+    SELECT
+      projection.amount_raw AS "projectionAmountRaw",
+      inserted_lot."lotClassification",
+      inserted_lot."lotConfidence",
+      inserted_lot."lotEligibleAfter",
+      inserted_lot."lotId",
+      inserted_lot."lotOriginalAmountRaw",
+      inserted_lot."lotReason",
+      inserted_lot."lotRemainingAmountRaw",
+      inserted_lot."lotStatus",
+      CASE
+        WHEN projection.target_id IS NULL THEN 'wallet_balance_projection_missing'
+        WHEN projection.amount_raw <= ${input.walletBalanceFloorRaw} THEN 'wallet_balance_at_or_below_floor'
+        ELSE NULL
+      END AS "skippedReason"
+    FROM updated_target
+    LEFT JOIN projection ON true
+    LEFT JOIN inserted_lot ON true
+  `);
+  const [row] = getExecuteRows(queryResult);
 
-  if (!target) {
+  if (!row) {
     throw new Error("Failed to update autodeposit wallet balance floor.");
   }
 
-  return target;
+  const target = {
+    ...existing,
+    walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+  };
+
+  if (row.lotId !== null && row.lotId !== undefined) {
+    return {
+      rebaselineSweep: {
+        status: "scheduled",
+        sweep: {
+          classification: String(
+            row.lotClassification
+          ) as PendingEarnAutodepositScheduledSweepRecord["classification"],
+          confidence: String(row.lotConfidence),
+          eligibleAfter: toDateValue(row.lotEligibleAfter),
+          id: toBigIntValue(row.lotId),
+          originalAmountRaw: toBigIntValue(row.lotOriginalAmountRaw),
+          reason: String(row.lotReason),
+          remainingAmountRaw: toBigIntValue(row.lotRemainingAmountRaw),
+          status: String(
+            row.lotStatus
+          ) as PendingEarnAutodepositScheduledSweepRecord["status"],
+        },
+      },
+      target,
+    };
+  }
+
+  const skippedReason =
+    row.skippedReason === "wallet_balance_at_or_below_floor"
+      ? "wallet_balance_at_or_below_floor"
+      : "wallet_balance_projection_missing";
+
+  return {
+    rebaselineSweep: {
+      reason: skippedReason,
+      status: "skipped",
+    },
+    target,
+  };
 }
 
 export async function updateAutodepositTargetActive(

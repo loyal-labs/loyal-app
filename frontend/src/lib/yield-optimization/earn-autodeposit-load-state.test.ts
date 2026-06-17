@@ -145,6 +145,50 @@ function createMutationClient({
   };
 }
 
+function createFloorUpdateClient({
+  existing,
+  row,
+}: {
+  existing: unknown | null;
+  row: Record<string, unknown>;
+}) {
+  const calls: string[] = [];
+  const dialect = new PgDialect();
+  const executeSql: string[] = [];
+  const selectQuery = {
+    from() {
+      calls.push("select.from");
+      return selectQuery;
+    },
+    limit() {
+      calls.push("select.limit");
+      return existing ? [existing] : [];
+    },
+    where() {
+      calls.push("select.where");
+      return selectQuery;
+    },
+  };
+
+  return {
+    calls,
+    client: {
+      db: {
+        execute(query: SQL) {
+          calls.push("execute");
+          executeSql.push(dialect.sqlToQuery(query).sql);
+          return { rows: [row] };
+        },
+        select() {
+          calls.push("select");
+          return selectQuery;
+        },
+      },
+    },
+    getExecuteSql: () => executeSql,
+  };
+}
+
 function createBootstrapClient({
   existingProjection = [],
   insertedLot,
@@ -226,6 +270,22 @@ function createSetupInput(overrides: Record<string, unknown> = {}) {
     walletAddress: "wallet",
     walletBalanceFloorRaw: BigInt(500_000_000),
     walletUsdcAta: "wallet-ata",
+    ...overrides,
+  };
+}
+
+function createFloorRebaselineRow(overrides: Record<string, unknown> = {}) {
+  return {
+    lotClassification: "floor_rebaseline",
+    lotConfidence: "confirmed_projection",
+    lotEligibleAfter: new Date("2026-06-16T01:00:00.000Z"),
+    lotId: BigInt(51),
+    lotOriginalAmountRaw: BigInt(600_000_000),
+    lotReason: "Autodeposit floor update rebaseline",
+    lotRemainingAmountRaw: BigInt(600_000_000),
+    lotStatus: "open",
+    projectionAmountRaw: BigInt(1_000_000_000),
+    skippedReason: null,
     ...overrides,
   };
 }
@@ -522,6 +582,88 @@ describe("Earn autodeposit load state", () => {
     });
   });
 
+  test("UI progress scale uses the next milestone at exact boundaries", async () => {
+    const { getEarnAutodepositProgressScale } = await import(
+      "./earn-autodeposit-loaded-state.shared"
+    );
+
+    const initial = getEarnAutodepositProgressScale("0");
+    expect(initial).toMatchObject({
+      goalAmount: 100,
+      goalLabel: "$100.00",
+    });
+    expect(initial.progress).toBe(0);
+
+    const smallDeposit = getEarnAutodepositProgressScale("3.97");
+    expect(smallDeposit).toMatchObject({
+      goalAmount: 100,
+      goalLabel: "$100.00",
+    });
+    expect(smallDeposit.progress).toBeCloseTo(0.0397);
+
+    const nearlyFirstGoal = getEarnAutodepositProgressScale("99.99");
+    expect(nearlyFirstGoal).toMatchObject({
+      goalAmount: 100,
+      goalLabel: "$100.00",
+    });
+    expect(nearlyFirstGoal.progress).toBeCloseTo(0.9999);
+
+    const firstBoundary = getEarnAutodepositProgressScale("100");
+    expect(firstBoundary).toMatchObject({
+      goalAmount: 500,
+      goalLabel: "$500.00",
+    });
+    expect(firstBoundary.progress).toBeCloseTo(0.2);
+
+    const secondBoundary = getEarnAutodepositProgressScale("500");
+    expect(secondBoundary).toMatchObject({
+      goalAmount: 1_000,
+      goalLabel: "$1,000.00",
+    });
+    expect(secondBoundary.progress).toBeCloseTo(0.5);
+
+    const thirdBoundary = getEarnAutodepositProgressScale("1,000");
+    expect(thirdBoundary).toMatchObject({
+      goalAmount: 5_000,
+      goalLabel: "$5,000.00",
+    });
+    expect(thirdBoundary.progress).toBeCloseTo(0.2);
+
+    const fourthBoundary = getEarnAutodepositProgressScale("5,000");
+    expect(fourthBoundary).toMatchObject({
+      goalAmount: 10_000,
+      goalLabel: "$10,000.00",
+    });
+    expect(fourthBoundary.progress).toBeCloseTo(0.5);
+
+    const fifthBoundary = getEarnAutodepositProgressScale("10,000");
+    expect(fifthBoundary).toMatchObject({
+      goalAmount: 15_000,
+      goalLabel: "$15,000.00",
+    });
+    expect(fifthBoundary.progress).toBeCloseTo(10_000 / 15_000);
+  });
+
+  test("UI progress scale continues in strict five thousand dollar steps", async () => {
+    const { getEarnAutodepositProgressScale } = await import(
+      "./earn-autodeposit-loaded-state.shared"
+    );
+
+    const aboveTenThousand = getEarnAutodepositProgressScale("12,345");
+    expect(aboveTenThousand).toMatchObject({
+      goalAmount: 15_000,
+      goalLabel: "$15,000.00",
+    });
+    expect(aboveTenThousand.progress).toBeCloseTo(12_345 / 15_000);
+
+    const fiveThousandBoundary = getEarnAutodepositProgressScale("15,000");
+    expect(fiveThousandBoundary).toMatchObject({
+      goalAmount: 20_000,
+      goalLabel: "$20,000.00",
+    });
+    expect(fiveThousandBoundary.progress).toBeCloseTo(0.75);
+  });
+
   test("paused UI config remains configured after reload", async () => {
     const { earnAutodepositConfigFromLoadedState } = await import(
       "./earn-autodeposit-loaded-state.shared"
@@ -635,6 +777,210 @@ describe("Earn autodeposit load state", () => {
         now,
       } as never)
     ).resolves.toBe(BigInt(0));
+  });
+
+  test("lower floor update suppresses open lots and schedules one rebaseline surplus", async () => {
+    const { updateAutodepositWalletBalanceFloor } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+      walletBalanceFloorRaw: BigInt(500_000_000),
+    });
+    const row = createFloorRebaselineRow({
+      lotOriginalAmountRaw: BigInt(600_000_000),
+      lotRemainingAmountRaw: BigInt(600_000_000),
+      projectionAmountRaw: BigInt(1_000_000_000),
+    });
+    const { calls, client, getExecuteSql } = createFloorUpdateClient({
+      existing,
+      row,
+    });
+
+    const result = await updateAutodepositWalletBalanceFloor(
+      {
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+        walletBalanceFloorRaw: BigInt(400_000_000),
+      },
+      {
+        client,
+        now: () => new Date("2026-06-16T00:00:00.000Z"),
+      } as never
+    );
+
+    expect(calls).toEqual([
+      "select",
+      "select.from",
+      "select.where",
+      "select.limit",
+      "execute",
+    ]);
+    expect(result.target.walletBalanceFloorRaw).toBe(BigInt(400_000_000));
+    expect(result.rebaselineSweep).toEqual({
+      status: "scheduled",
+      sweep: {
+        classification: "floor_rebaseline",
+        confidence: "confirmed_projection",
+        eligibleAfter: new Date("2026-06-16T01:00:00.000Z"),
+        id: BigInt(51),
+        originalAmountRaw: BigInt(600_000_000),
+        reason: "Autodeposit floor update rebaseline",
+        remainingAmountRaw: BigInt(600_000_000),
+        status: "open",
+      },
+    });
+    expect(getExecuteSql()[0]).toContain("FOR UPDATE");
+    expect(getExecuteSql()[0]).toContain("status\" = 'open'");
+    expect(getExecuteSql()[0]).toContain("classification");
+    expect(getExecuteSql()[0]).toContain("floor_rebaseline");
+  });
+
+  test("higher floor update schedules only surplus above the new floor", async () => {
+    const { updateAutodepositWalletBalanceFloor } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+      walletBalanceFloorRaw: BigInt(500_000_000),
+    });
+    const { client } = createFloorUpdateClient({
+      existing,
+      row: createFloorRebaselineRow({
+        lotOriginalAmountRaw: BigInt(200_000_000),
+        lotRemainingAmountRaw: BigInt(200_000_000),
+        projectionAmountRaw: BigInt(1_000_000_000),
+      }),
+    });
+
+    const result = await updateAutodepositWalletBalanceFloor(
+      {
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+        walletBalanceFloorRaw: BigInt(800_000_000),
+      },
+      {
+        client,
+        now: () => new Date("2026-06-16T00:00:00.000Z"),
+      } as never
+    );
+
+    expect(result.rebaselineSweep).toMatchObject({
+      status: "scheduled",
+      sweep: {
+        originalAmountRaw: BigInt(200_000_000),
+        remainingAmountRaw: BigInt(200_000_000),
+      },
+    });
+  });
+
+  test("floor update skips rebaseline when projection is at or below floor", async () => {
+    const { updateAutodepositWalletBalanceFloor } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const { client } = createFloorUpdateClient({
+      existing,
+      row: createFloorRebaselineRow({
+        lotId: null,
+        projectionAmountRaw: BigInt(500_000_000),
+        skippedReason: "wallet_balance_at_or_below_floor",
+      }),
+    });
+
+    const result = await updateAutodepositWalletBalanceFloor(
+      {
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+        walletBalanceFloorRaw: BigInt(500_000_000),
+      },
+      { client } as never
+    );
+
+    expect(result.rebaselineSweep).toEqual({
+      reason: "wallet_balance_at_or_below_floor",
+      status: "skipped",
+    });
+  });
+
+  test("floor update skips rebaseline when projection is missing", async () => {
+    const { updateAutodepositWalletBalanceFloor } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const { client } = createFloorUpdateClient({
+      existing,
+      row: createFloorRebaselineRow({
+        lotId: null,
+        projectionAmountRaw: null,
+        skippedReason: "wallet_balance_projection_missing",
+      }),
+    });
+
+    const result = await updateAutodepositWalletBalanceFloor(
+      {
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+        walletBalanceFloorRaw: BigInt(500_000_000),
+      },
+      { client } as never
+    );
+
+    expect(result.rebaselineSweep).toEqual({
+      reason: "wallet_balance_projection_missing",
+      status: "skipped",
+    });
+  });
+
+  test("floor rebaseline preserves selected claims already in execution", async () => {
+    const { updateAutodepositWalletBalanceFloor } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const { client, getExecuteSql } = createFloorUpdateClient({
+      existing,
+      row: createFloorRebaselineRow(),
+    });
+
+    await updateAutodepositWalletBalanceFloor(
+      {
+        policyAccount: "policy",
+        recurringDelegation: "recurring",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+        walletBalanceFloorRaw: BigInt(400_000_000),
+      },
+      { client } as never
+    );
+
+    const sqlText = getExecuteSql()[0] ?? "";
+    expect(sqlText).toContain("status\" = 'open'");
+    expect(sqlText).not.toContain("balance_sweep_lot_claims");
+    expect(sqlText).not.toContain("'released'");
   });
 
   test("pause updates only the target active flag", async () => {

@@ -1779,6 +1779,8 @@ function getScheduledSweepSourceLabel(classification: string): string {
   switch (classification) {
     case "initial_surplus":
       return "Initial surplus";
+    case "floor_rebaseline":
+      return "Balance update";
     case "simple_inbound":
       return "Incoming USDC";
     case "complex_defi":
@@ -2909,17 +2911,20 @@ export function EarnWithdrawView({
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
   const numericWithdrawAmount = Number(withdrawAmount.replace(/,/g, ""));
-  const effectiveWithdrawAmount = hasWithdrawAmount ? numericWithdrawAmount : 0;
-  const effectiveWithdrawAmountLabel = hasWithdrawAmount ? withdrawAmount : "";
+  const effectiveWithdrawAmount = hasWithdrawAmount
+    ? numericWithdrawAmount
+    : maxWithdrawAmount;
+  const effectiveWithdrawAmountLabel = hasWithdrawAmount
+    ? withdrawAmount
+    : formatDepositAmount(maxWithdrawAmount);
   const isFullWithdraw =
-    hasWithdrawAmount &&
-    Number.isFinite(effectiveWithdrawAmount) &&
-    deriveEarnWithdrawMode({
-      amount: effectiveWithdrawAmount,
-      maxWithdrawAmount,
-    }) === "full";
-  const withdrawAmountError =
     !hasWithdrawAmount ||
+    (Number.isFinite(effectiveWithdrawAmount) &&
+      deriveEarnWithdrawMode({
+        amount: effectiveWithdrawAmount,
+        maxWithdrawAmount,
+      }) === "full");
+  const withdrawAmountError =
     !Number.isFinite(effectiveWithdrawAmount) ||
     effectiveWithdrawAmount <= 0
       ? "Enter an amount"
@@ -2976,7 +2981,7 @@ export function EarnWithdrawView({
     >
       <style jsx>{`
         .earn-withdraw-submit:not(:disabled):hover {
-          background: #222 !important;
+          background: rgba(249, 54, 60, 0.2) !important;
         }
       `}</style>
       <div
@@ -3148,10 +3153,10 @@ export function EarnWithdrawView({
             alignItems: "center",
             background: isWithdrawButtonDisabled
               ? "rgba(0, 0, 0, 0.04)"
-              : "#000",
+              : "rgba(249, 54, 60, 0.14)",
             border: "none",
             borderRadius: "78px",
-            color: isWithdrawButtonDisabled ? secondary : "#fff",
+            color: isWithdrawButtonDisabled ? secondary : "#F9363C",
             cursor: isWithdrawButtonDisabled ? "default" : "pointer",
             display: "flex",
             fontFamily: font,
@@ -5058,6 +5063,7 @@ export function EarnDepositView({
   onClose,
   onDraftChange,
   onDraftSubmit,
+  showCloseButton = true,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
   submitError = null,
 }: {
@@ -5065,6 +5071,7 @@ export function EarnDepositView({
   onClose?: () => void;
   onDraftChange?: (draft: EarnDepositDraft | null) => void;
   onDraftSubmit?: (draft: EarnDepositDraft) => void | Promise<void>;
+  showCloseButton?: boolean;
   sources?: EarnDepositSourceOption[];
   submitError?: string | null;
 }) {
@@ -5263,7 +5270,7 @@ export function EarnDepositView({
         >
           Deposit
         </h2>
-        <CloseButton onClick={onClose} />
+        {showCloseButton ? <CloseButton onClick={onClose} /> : null}
       </div>
 
       <div

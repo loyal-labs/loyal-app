@@ -189,6 +189,20 @@ export type EarnAutodepositSetupConfirmResponse = {
       status: string;
     };
   };
+  rebaselineSweep?: {
+    reason?: string;
+    status: "failed" | "scheduled" | "skipped";
+    sweep?: {
+      classification: string;
+      confidence: string;
+      eligibleAfter: string;
+      id: string;
+      originalAmountRaw: string;
+      reason: string;
+      remainingAmountRaw: string;
+      status: string;
+    };
+  };
   target: {
     active: boolean;
     balanceSweepPolicyId: string | null;

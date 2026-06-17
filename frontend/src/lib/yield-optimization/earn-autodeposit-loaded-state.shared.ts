@@ -34,6 +34,59 @@ export type LoadedEarnAutodepositConfig = {
   state: "created" | "creating" | "paused";
 };
 
+export type EarnAutodepositProgressScale = {
+  goalAmount: number;
+  goalLabel: string;
+  progress: number;
+};
+
+const AUTODEPOSIT_PROGRESS_MILESTONES = [
+  100, 500, 1_000, 5_000, 10_000,
+] as const;
+const AUTODEPOSIT_PROGRESS_INCREMENT = 5_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isLoadedScheduledSweep(
+  value: unknown
+): value is LoadedEarnAutodepositScheduledSweep {
+  return (
+    isRecord(value) &&
+    typeof value.classification === "string" &&
+    typeof value.confidence === "string" &&
+    typeof value.eligibleAfter === "string" &&
+    typeof value.id === "string" &&
+    typeof value.originalAmountRaw === "string" &&
+    typeof value.reason === "string" &&
+    typeof value.remainingAmountRaw === "string" &&
+    typeof value.status === "string"
+  );
+}
+
+export function isLoadedEarnAutodepositConfig(
+  value: unknown
+): value is LoadedEarnAutodepositConfig {
+  return (
+    isRecord(value) &&
+    typeof value.amount === "string" &&
+    typeof value.depositedAmount === "string" &&
+    typeof value.keepAmount === "string" &&
+    (typeof value.nextPeriodLabel === "string" ||
+      value.nextPeriodLabel === null) &&
+    typeof value.policyAccount === "string" &&
+    typeof value.recurringDelegation === "string" &&
+    typeof value.nonce === "string" &&
+    (value.state === "created" ||
+      value.state === "creating" ||
+      value.state === "paused") &&
+    (value.scheduledSweeps === undefined ||
+      (Array.isArray(value.scheduledSweeps) &&
+        value.scheduledSweeps.every(isLoadedScheduledSweep)))
+  );
+}
+
 function rawTokenAmountToLabel(amountRaw: string | null | undefined): string {
   if (!amountRaw || !/^\d+$/.test(amountRaw)) {
     return "0";
@@ -84,6 +137,46 @@ function formatNextPeriodLabel(
     day: "2-digit",
     month: "short",
   });
+}
+
+function parseAmountLabelToNumber(amount: string | number | null | undefined) {
+  if (typeof amount === "number") {
+    return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  }
+
+  const normalized = (amount ?? "").replace(/,/g, "").trim();
+  if (!normalized || !/^\d+(\.\d+)?$/.test(normalized)) {
+    return 0;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function formatProgressGoalLabel(amount: number) {
+  return `$${amount.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
+export function getEarnAutodepositProgressScale(
+  depositedAmount: string | number | null | undefined
+): EarnAutodepositProgressScale {
+  const deposited = parseAmountLabelToNumber(depositedAmount);
+  const milestone = AUTODEPOSIT_PROGRESS_MILESTONES.find(
+    (goal) => deposited < goal
+  );
+  const goalAmount =
+    milestone ??
+    (Math.floor(deposited / AUTODEPOSIT_PROGRESS_INCREMENT) + 1) *
+      AUTODEPOSIT_PROGRESS_INCREMENT;
+
+  return {
+    goalAmount,
+    goalLabel: formatProgressGoalLabel(goalAmount),
+    progress: goalAmount > 0 ? Math.min(deposited / goalAmount, 1) : 0,
+  };
 }
 
 export function earnAutodepositConfigFromLoadedState(

@@ -117,12 +117,19 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
+import {
+  readClientCache,
+  removeClientCache,
+  writeClientCache,
+} from "@/lib/client-cache/client-cache";
 import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { formatEarnApyPercent } from "@/lib/kamino/earn-forecast.shared";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
   earnAutodepositConfigFromLoadedState,
+  getEarnAutodepositProgressScale,
+  isLoadedEarnAutodepositConfig,
   type LoadedEarnAutodepositConfig,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { AddSignerPane } from "./add-signer-pane";
@@ -448,6 +455,65 @@ function parseTokenAmountLabelToRaw(
 }
 
 const DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL = "10,000";
+const EARN_AUTODEPOSIT_CONFIG_CACHE_VERSION = 1;
+const EARN_AUTODEPOSIT_CONFIG_CACHE_PREFIX = "loyal.earnAutodepositConfig.v1";
+
+function getEarnAutodepositConfigCacheKey(args: {
+  settingsPda: string;
+  solanaEnv: string;
+  walletAddress: string;
+}) {
+  return `${EARN_AUTODEPOSIT_CONFIG_CACHE_PREFIX}:${args.solanaEnv}:${args.settingsPda}:${args.walletAddress}`;
+}
+
+function toCachedEarnAutodepositConfig(
+  config: EarnAutodepositConfig | null
+): LoadedEarnAutodepositConfig | null {
+  if (config?.state !== "created" && config?.state !== "paused") {
+    return null;
+  }
+
+  return config;
+}
+
+function readCachedEarnAutodepositConfig(args: {
+  settingsPda: string;
+  solanaEnv: string;
+  walletAddress: string;
+}): LoadedEarnAutodepositConfig | null {
+  return readClientCache<LoadedEarnAutodepositConfig>({
+    key: getEarnAutodepositConfigCacheKey(args),
+    version: EARN_AUTODEPOSIT_CONFIG_CACHE_VERSION,
+    solanaEnv: args.solanaEnv,
+    walletAddress: args.walletAddress,
+    settingsPda: args.settingsPda,
+    validate: isLoadedEarnAutodepositConfig,
+  });
+}
+
+function writeCachedEarnAutodepositConfig(args: {
+  config: LoadedEarnAutodepositConfig;
+  settingsPda: string;
+  solanaEnv: string;
+  walletAddress: string;
+}) {
+  writeClientCache<LoadedEarnAutodepositConfig>({
+    key: getEarnAutodepositConfigCacheKey(args),
+    version: EARN_AUTODEPOSIT_CONFIG_CACHE_VERSION,
+    solanaEnv: args.solanaEnv,
+    walletAddress: args.walletAddress,
+    settingsPda: args.settingsPda,
+    data: args.config,
+  });
+}
+
+function removeCachedEarnAutodepositConfig(args: {
+  settingsPda: string;
+  solanaEnv: string;
+  walletAddress: string;
+}) {
+  removeClientCache({ key: getEarnAutodepositConfigCacheKey(args) });
+}
 
 function rawTokenAmountToNumber(amountRaw: string, decimals: number): number {
   if (!/^\d+$/.test(amountRaw)) {
@@ -1132,6 +1198,37 @@ export function AppWalletWorkspace({
     scheduledSweepExecuteError,
     setScheduledSweepExecuteError,
   ] = useState<string | null>(null);
+  const autodepositCacheScope = useMemo(() => {
+    const settingsPda = smartAccountData.overview?.settingsPda;
+    const walletAddress = walletDesktopData.walletAddress;
+    if (!settingsPda || !walletAddress) {
+      return null;
+    }
+
+    return {
+      settingsPda,
+      solanaEnv: publicEnv.solanaEnv,
+      walletAddress,
+    };
+  }, [
+    publicEnv.solanaEnv,
+    smartAccountData.overview?.settingsPda,
+    walletDesktopData.walletAddress,
+  ]);
+  useEffect(() => {
+    if (!autodepositCacheScope || !smartAccountData.isEarnStateLoading) {
+      return;
+    }
+
+    const cachedConfig = readCachedEarnAutodepositConfig(
+      autodepositCacheScope
+    );
+    if (!cachedConfig) {
+      return;
+    }
+
+    setAutodepositConfig((current) => current ?? cachedConfig);
+  }, [autodepositCacheScope, smartAccountData.isEarnStateLoading]);
   useEffect(() => {
     const loadedConfig = earnAutodepositConfigFromLoadedState(
       smartAccountData.earnAutodeposit
@@ -1143,14 +1240,52 @@ export function AppWalletWorkspace({
       if (
         current?.state === "closing" ||
         current?.state === "pausing" ||
-        current?.state === "resuming"
+          current?.state === "resuming"
+      ) {
+        return current;
+      }
+      if (
+        !loadedConfig &&
+        smartAccountData.isEarnStateLoading &&
+        !smartAccountData.earnStateLoadErrors.autodeposit
       ) {
         return current;
       }
 
       return loadedConfig;
     });
-  }, [smartAccountData.earnAutodeposit]);
+  }, [
+    smartAccountData.earnAutodeposit,
+    smartAccountData.earnStateLoadErrors.autodeposit,
+    smartAccountData.isEarnStateLoading,
+  ]);
+  useEffect(() => {
+    if (!autodepositCacheScope) {
+      return;
+    }
+
+    const cachedConfig = toCachedEarnAutodepositConfig(autodepositConfig);
+    if (cachedConfig) {
+      writeCachedEarnAutodepositConfig({
+        ...autodepositCacheScope,
+        config: cachedConfig,
+      });
+      return;
+    }
+
+    if (
+      !autodepositConfig &&
+      !smartAccountData.isEarnStateLoading &&
+      !smartAccountData.earnStateLoadErrors.autodeposit
+    ) {
+      removeCachedEarnAutodepositConfig(autodepositCacheScope);
+    }
+  }, [
+    autodepositCacheScope,
+    autodepositConfig,
+    smartAccountData.earnStateLoadErrors.autodeposit,
+    smartAccountData.isEarnStateLoading,
+  ]);
   const autodepositAmountLabel = autodepositConfig
     ? `$${Number(autodepositConfig.amount || 0).toLocaleString("en-US")}.00`
     : undefined;
@@ -1163,16 +1298,12 @@ export function AppWalletWorkspace({
         { maximumFractionDigits: 2, minimumFractionDigits: 2 }
       )}`
     : undefined;
-  const autodepositGoalAmount = Number(autodepositConfig?.amount || 0);
-  const autodepositProgress = autodepositConfig
-    ? autodepositGoalAmount > 0
-      ? Math.min(
-          Number(autodepositConfig.depositedAmount || 0) /
-            autodepositGoalAmount,
-          1
-        )
-      : 0
-    : undefined;
+  const autodepositProgressScale = autodepositConfig
+    ? getEarnAutodepositProgressScale(autodepositConfig.depositedAmount)
+    : null;
+  const autodepositProgressGoalLabel =
+    autodepositProgressScale?.goalLabel ?? undefined;
+  const autodepositProgress = autodepositProgressScale?.progress;
   const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
     useState(false);
   const [spendingLimitDraftError, setSpendingLimitDraftError] = useState<
@@ -3257,6 +3388,7 @@ export function AppWalletWorkspace({
           ...autodepositConfig,
           amount: pendingEarnAutodepositDraft.amountLabel,
           keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
+          scheduledSweeps: result.scheduledSweeps ?? [],
           state: "created",
         });
         setPendingEarnAutodepositDraft(null);
@@ -4187,6 +4319,7 @@ export function AppWalletWorkspace({
           onDraftChange={handleEarnDepositFormDraftChange}
           onClose={handleOpenEarn}
           onDraftSubmit={handleSubmitEarnDepositDraft}
+          showCloseButton={hasEarnPosition}
           sources={earnDepositSources}
           submitError={earnDepositPrepareError}
         />
@@ -5064,7 +5197,7 @@ export function AppWalletWorkspace({
                   hasEarnPosition ? handleOpenEarn : handleOpenEarnDeposit
                 }
                 onOpenAutodeposit={handleOpenAutodeposit}
-                autodepositAmountLabel={autodepositAmountLabel}
+                autodepositAmountLabel={autodepositProgressGoalLabel}
                 autodepositDepositedLabel={autodepositDepositedLabel}
                 autodepositNextPeriodLabel={autodepositConfig?.nextPeriodLabel}
                 autodepositProgress={autodepositProgress}
