@@ -73,6 +73,7 @@ import {
   type EarnAutodepositDraft,
   type EarnDepositSourceOption,
   type EarnWithdrawDraft,
+  type EarnWithdrawSourceOption,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import type { PermissionChangeDraft } from "@/components/wallet-sidebar/permission-preview-content";
 import type { SpendingLimitDraft } from "@/components/wallet-sidebar/spending-limit-preview-content";
@@ -1160,6 +1161,29 @@ function resolveEarnAutodepositSetupReviewStage(
     return "authority";
   }
   return "policy";
+}
+
+function toEarnWithdrawPrepareSource(source: EarnWithdrawSourceOption) {
+  const sourceId =
+    source.sourceId ||
+    source.reserve ||
+    source.tokenAccount ||
+    source.liquidityMint;
+
+  if (!sourceId) {
+    return undefined;
+  }
+
+  return {
+    amountRaw: source.amountRaw,
+    id: sourceId,
+    liquidityMint: source.liquidityMint,
+    market: source.market,
+    mint: source.type === "idle" ? source.liquidityMint : undefined,
+    reserve: source.reserve,
+    tokenAccount: source.tokenAccount,
+    type: source.type,
+  };
 }
 
 export function AppWalletWorkspace({
@@ -3295,15 +3319,7 @@ export function AppWalletWorkspace({
         const preparedWithdraw = await prepareEarnWithdrawOnServer({
           amountRaw,
           mode: draft.mode,
-          source: {
-            amountRaw: draft.source.amountRaw,
-            id: draft.source.sourceId,
-            liquidityMint: draft.source.liquidityMint,
-            market: draft.source.market,
-            reserve: draft.source.reserve,
-            tokenAccount: draft.source.tokenAccount,
-            type: draft.source.type,
-          },
+          source: toEarnWithdrawPrepareSource(draft.source),
         });
         setPendingEarnWithdrawDraft(draft);
         setPendingEarnWithdrawPrepared(preparedWithdraw);
@@ -3531,15 +3547,7 @@ export function AppWalletWorkspace({
           const nextPreparedWithdraw = await prepareEarnWithdrawOnServer({
             amountRaw,
             mode: pendingEarnWithdrawDraft.mode,
-            source: {
-              amountRaw: pendingEarnWithdrawDraft.source.amountRaw,
-              id: pendingEarnWithdrawDraft.source.sourceId,
-              liquidityMint: pendingEarnWithdrawDraft.source.liquidityMint,
-              market: pendingEarnWithdrawDraft.source.market,
-              reserve: pendingEarnWithdrawDraft.source.reserve,
-              tokenAccount: pendingEarnWithdrawDraft.source.tokenAccount,
-              type: pendingEarnWithdrawDraft.source.type,
-            },
+            source: toEarnWithdrawPrepareSource(pendingEarnWithdrawDraft.source),
           });
           setIsEarnWithdrawPreparePending(false);
           if (nextPreparedWithdraw.autodepositClosePrepared) {

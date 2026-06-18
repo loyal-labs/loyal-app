@@ -25,6 +25,7 @@ import {
   type CurrentYieldVaultIdleTokenBalanceRecord,
   type CurrentYieldVaultReservePositionRecord,
   type RoutePolicyRecord,
+  type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
@@ -83,9 +84,13 @@ type SelectedEarnWithdrawSource =
     };
 
 function publicKeyFromMetadata(
-  metadata: Record<string, unknown>,
+  metadata: Record<string, unknown> | null | undefined,
   keys: string[]
 ): PublicKey | null {
+  if (!metadata) {
+    return null;
+  }
+
   for (const key of keys) {
     const value = metadata[key];
     if (typeof value !== "string" || value.trim().length === 0) {
@@ -101,10 +106,88 @@ function publicKeyFromMetadata(
   return null;
 }
 
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function sourceMatchesDirectIdentifier(
+  source: SelectedEarnWithdrawSource,
+  request: NonNullable<EarnWithdrawSourceRequest>
+): boolean {
+  if (source.type !== request.type) {
+    return false;
+  }
+
+  const identifiers = [
+    request.id,
+    request.reserve,
+    request.tokenAccount,
+  ].filter(isNonEmptyString);
+
+  if (identifiers.includes(source.id)) {
+    return true;
+  }
+
+  return source.type === "reserve"
+    ? identifiers.includes(source.reserve)
+    : identifiers.includes(source.tokenAccount);
+}
+
+function sourceMatchesStableMint(
+  source: SelectedEarnWithdrawSource,
+  request: NonNullable<EarnWithdrawSourceRequest>
+): boolean {
+  if (source.type !== request.type) {
+    return false;
+  }
+
+  const identifiers = [
+    request.id,
+    request.liquidityMint,
+    request.mint,
+  ].filter(isNonEmptyString);
+
+  return source.type === "reserve"
+    ? identifiers.includes(source.liquidityMint)
+    : identifiers.includes(source.mint);
+}
+
+function selectRequestedEarnWithdrawSource(
+  sources: SelectedEarnWithdrawSource[],
+  request: EarnWithdrawSourceRequest
+): SelectedEarnWithdrawSource | null {
+  if (!request) {
+    return sources.length === 1 ? sources[0] ?? null : null;
+  }
+
+  const directMatch = sources.find((source) =>
+    sourceMatchesDirectIdentifier(source, request)
+  );
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const stableMintMatches = sources.filter((source) =>
+    sourceMatchesStableMint(source, request)
+  );
+  if (stableMintMatches.length === 1) {
+    return stableMintMatches[0] ?? null;
+  }
+
+  const amountMatchedStableMintMatches = stableMintMatches.filter(
+    (source) => request.amountRaw === source.amountRaw.toString()
+  );
+
+  return amountMatchedStableMintMatches.length === 1
+    ? amountMatchedStableMintMatches[0] ?? null
+    : null;
+}
+
 function selectEarnWithdrawSource(args: {
   amountRaw: bigint;
   idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
   mode: "partial" | "full";
+  position: UserYieldPositionRecord;
   request: EarnWithdrawSourceRequest;
   reserveRows: CurrentYieldVaultReservePositionRecord[];
 }): SelectedEarnWithdrawSource {
@@ -132,24 +215,33 @@ function selectEarnWithdrawSource(args: {
       tokenAccount: row.tokenAccount,
       type: "idle" as const,
     }));
-  const sources = [...reserveSources, ...idleSources];
+  const positionFallbackSources =
+    reserveSources.length === 0 &&
+    idleSources.length === 0 &&
+    isNonEmptyString(args.position.currentMarket) &&
+    args.position.currentAmountRaw > BigInt(0)
+      ? [
+          {
+            amountRaw: args.position.currentAmountRaw,
+            id: args.position.currentReserve,
+            liquidityMint: args.position.currentLiquidityMint,
+            market: args.position.currentMarket,
+            reserve: args.position.currentReserve,
+            type: "reserve" as const,
+          },
+        ]
+      : [];
+  const sources = [
+    ...reserveSources,
+    ...idleSources,
+    ...positionFallbackSources,
+  ];
 
   if (sources.length === 0) {
     throw new Error("No active Earn withdrawal source was found.");
   }
 
-  const selected = args.request
-    ? sources.find(
-        (source) =>
-          source.type === args.request?.type &&
-          (source.id === args.request.id ||
-            ("reserve" in source && source.reserve === args.request.reserve) ||
-            ("tokenAccount" in source &&
-              source.tokenAccount === args.request.tokenAccount))
-      )
-    : sources.length === 1
-    ? sources[0]
-    : null;
+  const selected = selectRequestedEarnWithdrawSource(sources, args.request);
 
   if (!selected) {
     throw new Error("Select an Earn source before withdrawing.");
@@ -264,6 +356,7 @@ export async function POST(request: Request) {
       amountRaw,
       idleRows: currentIdleRows,
       mode,
+      position,
       request: selectedSourceRequest,
       reserveRows: currentReserveRows,
     });
