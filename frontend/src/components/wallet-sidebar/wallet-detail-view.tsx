@@ -2,6 +2,8 @@
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
 import {
+  ArrowDownLeft,
+  ArrowUpRight,
   Check,
   ChevronRight,
   Copy,
@@ -77,6 +79,8 @@ export function WalletDetailView({
   isBalanceHidden,
   cashTokenRows,
   investmentTokenRows,
+  onOpenReceive,
+  onOpenSend,
   onOpenSwap,
   onOpenShield,
   onRemoveSigner,
@@ -104,6 +108,8 @@ export function WalletDetailView({
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
   onNavigate: (view: Exclude<SubView, null>) => void;
+  onOpenReceive: () => void;
+  onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
   onRemoveSigner?: () => void;
@@ -405,11 +411,77 @@ export function WalletDetailView({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
             gap: "10px",
             padding: "8px 20px",
           }}
         >
+          <button
+            className="wallet-detail-action"
+            onClick={onOpenReceive}
+            style={{
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <ArrowDownLeft
+              size={22}
+              style={{ color: "rgba(0, 0, 0, 0.6)" }}
+            />
+            <span
+              className="wallet-detail-action-label"
+              style={{
+                fontFamily: font,
+                fontSize: "15px",
+                lineHeight: "20px",
+              }}
+            >
+              Receive
+            </span>
+          </button>
+          <button
+            className="wallet-detail-action"
+            onClick={onOpenSend}
+            style={{
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "10px 8px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <ArrowUpRight
+              size={22}
+              style={{ color: "rgba(0, 0, 0, 0.6)" }}
+            />
+            <span
+              className="wallet-detail-action-label"
+              style={{
+                fontFamily: font,
+                fontSize: "15px",
+                lineHeight: "20px",
+              }}
+            >
+              Send
+            </span>
+          </button>
           <button
             className="wallet-detail-action"
             onClick={onOpenSwap}

@@ -4815,6 +4815,12 @@ export function AppWalletWorkspace({
               "wallet"
             )
           }
+          onOpenReceive={() => {
+            openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
+          }}
+          onOpenSend={() => {
+            openActionView({ type: "sendPanel" }, "Send", "", "wallet");
+          }}
           onOpenShield={() => {
             setShieldDirection("shield");
             openActionView(
