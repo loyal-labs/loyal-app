@@ -102,6 +102,14 @@ export default function RootLayout() {
                   options={{ headerShown: false }}
                 />
                 <Stack.Screen
+                  name="wallet/stablecoins"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="wallet/crypto"
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
                   name="browser/site"
                   options={{ headerShown: false }}
                 />

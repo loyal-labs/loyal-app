@@ -1,5 +1,3 @@
-import { BottomSheetModal } from "@gorhom/bottom-sheet";
-import * as Haptics from "expo-haptics";
 import {
   ArrowDown,
   ArrowLeftRight,
@@ -7,7 +5,7 @@ import {
   Shield,
   ShieldOff,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
 import {
   useAnimatedScrollHandler,
@@ -17,9 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { DepositSheet } from "@/components/earn/DepositSheet";
 import { ActionButton } from "@/components/wallet/ActionButton";
-import { ActivityFeed } from "@/components/wallet/ActivityFeed";
-import { ActivitySheet } from "@/components/wallet/ActivitySheet";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { BannerCarousel } from "@/components/wallet/BannerCarousel";
@@ -27,15 +24,21 @@ import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
-import { TokensList } from "@/components/wallet/TokensList";
-import { TokensSheet } from "@/components/wallet/TokensSheet";
-import { TransactionDetailsSheet } from "@/components/wallet/TransactionDetailsSheet";
 import { shouldShowWalletTopUp } from "@/components/wallet/wallet-screen-helpers";
-import { buildTokenDetailHref } from "@/features/token-details/routes";
+import {
+  filterHoldingsByCategory,
+  sumHoldingsUsd,
+} from "@/features/wallet-categories/model/categorize";
+import {
+  buildCryptoHref,
+  buildEarnHref,
+  buildStablecoinsHref,
+} from "@/features/wallet-categories/routes";
+import { WalletCategorySummary } from "@/features/wallet-categories/ui/WalletCategorySummary";
 import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
+import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
-import { useTokenApy } from "@/hooks/wallet/useTokenApy";
 import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import {
@@ -44,7 +47,6 @@ import {
 } from "@/hooks/wallet/useWalletAutoRefresh";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
-import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
 import { track } from "@/lib/analytics/analytics";
 import { PORTFOLIO_EVENTS } from "@/lib/analytics/portfolio-events";
 import {
@@ -53,6 +55,7 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
+import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { getSolanaEnv, onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import {
@@ -64,8 +67,8 @@ import {
   DEFAULT_BALANCE_BACKGROUND_ID,
   findBalanceBackground,
 } from "@/lib/wallet/balance-backgrounds";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { AnimatedScrollView, ScrollView, Text, View } from "@/tw";
-import type { Transaction } from "@/types/wallet";
 
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
@@ -77,16 +80,13 @@ export default function WalletScreen() {
   const { solPriceUsd } = useSolPrice();
   const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
 
-  const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
+  const { tokenHoldings, refreshTokenHoldings } =
     useTokenHoldings(walletAddress);
-  const apyByMint = useTokenApy(tokenHoldings);
-  const {
-    walletTransactions,
-    isFetchingTransactions,
-    loadWalletTransactions,
-  } = useWalletTransactions(walletAddress);
   const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
     useKaminoEarnings();
+  const { position: earnPosition, refreshEarnPosition } =
+    useEarnPosition(walletAddress);
+  const { signer, state } = useWallet();
 
   const doFullRefresh = useCallback(
     async (reason: WalletRefreshReason) => {
@@ -98,10 +98,10 @@ export default function WalletScreen() {
       await Promise.allSettled([
         refreshBalance(forceOnChainState),
         refreshTokenHoldings(forceOnChainState),
-        loadWalletTransactions({ force: forceOnChainState }),
+        refreshEarnPosition(),
       ]);
     },
-    [refreshBalance, refreshTokenHoldings, loadWalletTransactions],
+    [refreshBalance, refreshTokenHoldings, refreshEarnPosition],
   );
 
   const { requestRefresh } = useWalletAutoRefresh({
@@ -115,15 +115,9 @@ export default function WalletScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tokenMarketRefreshKey, setTokenMarketRefreshKey] = useState(0);
 
-  // Shared cache of /api/mobile/tokens/:mint for every mint shown in the
-  // tokens list or activity feed — used for logos and symbols so we never
-  // render raw token-list SVGs or the "Token" symbol fallback.
-  //
-  // Always include the prefill mints (SOL/LOYAL/USDC) that TokensList shows
-  // at zero balance on fresh wallets. Helius's `getAssetsByOwner` only
-  // returns SOL + any SPL mints with an existing ATA, so zero-balance LOYAL
-  // and USDC otherwise slip past the detail fetch and render without price,
-  // change %, or (for USDC) the right logo.
+  // Shared cache of /api/mobile/tokens/:mint for the mints the send/swap/shield
+  // pickers can surface — the held tokens plus the SOL/LOYAL/USDC prefills so
+  // they never render raw token-list SVGs or the "Token" symbol fallback.
   const tokenDetailMints = useMemo(() => {
     const mints = new Set<string>();
     mints.add(NATIVE_SOL_MINT);
@@ -134,13 +128,8 @@ export default function WalletScreen() {
         : SOLANA_USDC_MINT_DEVNET,
     );
     for (const holding of tokenHoldings) mints.add(holding.mint);
-    for (const tx of walletTransactions) {
-      if (tx.tokenMint) mints.add(tx.tokenMint);
-      if (tx.swapFromMint) mints.add(tx.swapFromMint);
-      if (tx.swapToMint) mints.add(tx.swapToMint);
-    }
     return Array.from(mints);
-  }, [tokenHoldings, walletTransactions]);
+  }, [tokenHoldings]);
   const tokenDetailsByMint = useTokenDetails(
     tokenDetailMints,
     tokenMarketRefreshKey,
@@ -190,6 +179,34 @@ export default function WalletScreen() {
     return hasValuation ? total : null;
   }, [tokenHoldings]);
 
+  // Portfolio split into the three overview buckets (Figma 74:18033).
+  const stablecoinsUsd = useMemo(
+    () => sumHoldingsUsd(filterHoldingsByCategory(tokenHoldings, "stablecoins")),
+    [tokenHoldings],
+  );
+  const cryptoUsd = useMemo(
+    () => sumHoldingsUsd(filterHoldingsByCategory(tokenHoldings, "crypto")),
+    [tokenHoldings],
+  );
+  const earnUsd = useMemo(() => {
+    const raw = Number(earnPosition?.currentAmountRaw);
+    return Number.isFinite(raw) ? raw / 1e6 : 0;
+  }, [earnPosition]);
+  const earnApyBps = useMemo(() => {
+    const bps = Number(earnPosition?.currentSupplyApyBps);
+    return Number.isFinite(bps) && bps > 0 ? bps : null;
+  }, [earnPosition]);
+
+  // Wallet USDC balance feeds the Deposit sheet's available/insufficient state.
+  const usdcAvailable = useMemo(() => {
+    const holding = tokenHoldings.find(
+      (h) =>
+        h.mint === SOLANA_USDC_MINT_MAINNET ||
+        h.mint === SOLANA_USDC_MINT_DEVNET,
+    );
+    return holding && Number.isFinite(holding.balance) ? holding.balance : null;
+  }, [tokenHoldings]);
+
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
@@ -197,16 +214,11 @@ export default function WalletScreen() {
   const [shieldDirection, setShieldDirection] =
     useState<ShieldDirection>("shield");
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
+  const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [balanceBg, setBalanceBg] = useState<string | null>(() => {
     const cached = getCachedBalanceBg();
     return cached !== undefined ? cached : DEFAULT_BALANCE_BACKGROUND_ID;
   });
-  const [selectedTransaction, setSelectedTransaction] =
-    useState<Transaction | null>(null);
-
-  const tokensSheetRef = useRef<BottomSheetModal>(null);
-  const activitySheetRef = useRef<BottomSheetModal>(null);
-  const txDetailsSheetRef = useRef<BottomSheetModal>(null);
 
   const handleToggleCurrency = useCallback(() => {
     setDisplayCurrency((prev) => (prev === "USD" ? "SOL" : "USD"));
@@ -254,36 +266,23 @@ export default function WalletScreen() {
     void refreshKaminoEarnings();
   }, [requestRefresh, refreshKaminoEarnings]);
 
-  const handleTransactionPress = useCallback(
-    (transaction: Transaction) => {
-      setSelectedTransaction(transaction);
-      txDetailsSheetRef.current?.present();
-    },
-    [],
-  );
-
-  const handleShowAllTokens = useCallback(() => {
-    tokensSheetRef.current?.present();
-  }, []);
-
-  const handleTokenPress = useCallback(
-    (mint: string) => {
-      if (process.env.EXPO_OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      router.push(buildTokenDetailHref(mint));
-    },
-    [router],
-  );
-
-  const handleShowAllActivity = useCallback(() => {
-    activitySheetRef.current?.present();
-  }, []);
-
   const handleOpenShield = useCallback((direction: ShieldDirection) => {
     setShieldDirection(direction);
     setIsShieldOpen(true);
   }, []);
+
+  // Deposit straight into Earn from the overview's Earn row — runs inline while
+  // the sheet's button shows its loading state, so there's no jerky tab-hop.
+  const handleDepositConfirmed = useCallback(
+    async (amountUsd: number) => {
+      if (!signer || !isWalletUnlocked(state)) {
+        throw new Error("Unlock your wallet to deposit.");
+      }
+      await executeEarnDeposit({ signer, amountUsd });
+      void refreshEarnPosition();
+    },
+    [signer, state, refreshEarnPosition],
+  );
 
   const handleBgSelect = useCallback((bg: string | null) => {
     setBalanceBg(bg);
@@ -432,27 +431,17 @@ export default function WalletScreen() {
           />
         </View>
 
-        {/* Token holdings */}
+        {/* Portfolio overview — Earn / Stablecoins / Crypto */}
         <View style={{ marginTop: 16 }}>
-          <TokensList
-            holdings={networkLoading ? [] : tokenHoldings}
-            apyByMint={apyByMint}
-            tokenDetailsByMint={tokenDetailsByMint}
-            isLoading={isHoldingsLoading || networkLoading}
-            onSeeAll={handleShowAllTokens}
-            onTokenPress={handleTokenPress}
-          />
-        </View>
-
-        {/* Activity feed */}
-        <View style={{ marginTop: 16 }}>
-          <ActivityFeed
-            transactions={networkLoading ? [] : walletTransactions}
-            tokenHoldings={networkLoading ? [] : tokenHoldings}
-            tokenDetailsByMint={tokenDetailsByMint}
-            isLoading={isFetchingTransactions || networkLoading}
-            onTransactionPress={handleTransactionPress}
-            onShowAll={handleShowAllActivity}
+          <WalletCategorySummary
+            earnUsd={earnUsd}
+            earnApyBps={earnApyBps}
+            stablecoinsUsd={stablecoinsUsd}
+            cryptoUsd={cryptoUsd}
+            onPressEarn={() => router.navigate(buildEarnHref())}
+            onPressDeposit={() => setIsDepositOpen(true)}
+            onPressStablecoins={() => router.push(buildStablecoinsHref())}
+            onPressCrypto={() => router.push(buildCryptoHref())}
           />
         </View>
       </AnimatedScrollView>
@@ -499,27 +488,11 @@ export default function WalletScreen() {
         onSelect={handleBgSelect}
       />
 
-      <TokensSheet
-        ref={tokensSheetRef}
-        holdings={tokenHoldings}
-        apyByMint={apyByMint}
-        tokenDetailsByMint={tokenDetailsByMint}
-        onTokenPress={handleTokenPress}
-      />
-
-      <ActivitySheet
-        ref={activitySheetRef}
-        transactions={walletTransactions}
-        tokenHoldings={tokenHoldings}
-        tokenDetailsByMint={tokenDetailsByMint}
-        onTransactionPress={handleTransactionPress}
-      />
-
-      <TransactionDetailsSheet
-        ref={txDetailsSheetRef}
-        transaction={selectedTransaction}
-        tokenHoldings={tokenHoldings}
-        tokenDetailsByMint={tokenDetailsByMint}
+      <DepositSheet
+        open={isDepositOpen}
+        onClose={() => setIsDepositOpen(false)}
+        onDeposit={handleDepositConfirmed}
+        availableUsdc={usdcAvailable}
       />
     </View>
   );
