@@ -5,7 +5,17 @@ import type { Signer } from "@/lib/wallet/signer";
 
 import type { EarnAuthFields } from "./earn-api";
 
-export type EarnAuthPurpose = "earn-deposit-prepare" | "earn-deposit-confirm";
+export type EarnAuthPurpose =
+  | "earn-deposit-prepare"
+  | "earn-deposit-confirm"
+  | "earn-withdraw-prepare"
+  | "earn-withdraw-confirm"
+  | "earn-autodeposit-setup-prepare"
+  | "earn-autodeposit-setup-confirm"
+  | "earn-autodeposit-floor-confirm"
+  | "earn-autodeposit-toggle-confirm"
+  | "earn-autodeposit-close-prepare"
+  | "earn-autodeposit-close-confirm";
 
 // Must stay byte-for-byte in sync with the backend `buildMobileWalletAuthMessage`
 // (`frontend/src/features/identity/server/mobile-wallet-auth.ts`). The server

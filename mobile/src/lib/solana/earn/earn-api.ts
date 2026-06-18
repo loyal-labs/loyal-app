@@ -63,6 +63,97 @@ export async function prepareEarnDeposit(args: {
   return (await res.json()) as EarnDepositPrepareResponse;
 }
 
+// --- Withdraw -------------------------------------------------------------
+
+export type EarnWithdrawMode = "partial" | "full";
+
+// Which Earn source to withdraw from. Omitted/null lets the backend auto-select
+// when there's exactly one source (the common single-reserve case).
+export type EarnWithdrawSource = {
+  type: "reserve" | "idle";
+  id: string;
+  amountRaw?: string;
+  liquidityMint?: string;
+  market?: string | null;
+  mint?: string;
+  reserve?: string;
+  tokenAccount?: string;
+} | null;
+
+// Serialized prepared withdrawal. Only the fields mobile signs/sends are typed;
+// the whole object is echoed back to `confirm` opaquely (the backend rebuilds
+// the canonical confirm payload from it).
+export type WirePreparedEarnWithdrawStep = {
+  prepared: WirePreparedOperation;
+};
+
+export type WirePreparedEarnWithdraw = {
+  prepared: WirePreparedOperation;
+  withdrawSteps?: WirePreparedEarnWithdrawStep[];
+  autodepositClosePrepared?: unknown | null;
+};
+
+export type EarnWithdrawPrepareResponse = {
+  cluster: string;
+  programId: string;
+  settingsPda: string;
+  smartAccountAddress: string;
+  preparedWithdraw: WirePreparedEarnWithdraw;
+};
+
+export async function prepareEarnWithdraw(args: {
+  auth: EarnAuthFields;
+  amountRaw: string;
+  mode: EarnWithdrawMode;
+  source?: EarnWithdrawSource;
+}): Promise<EarnWithdrawPrepareResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/prepare`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({
+        ...args.auth,
+        amountRaw: args.amountRaw,
+        mode: args.mode,
+        source: args.source ?? null,
+      }),
+    },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to prepare Earn withdrawal.");
+  }
+  return (await res.json()) as EarnWithdrawPrepareResponse;
+}
+
+export type EarnWithdrawConfirmArgs = {
+  auth: EarnAuthFields;
+  preparedWithdraw: WirePreparedEarnWithdraw;
+  // Index into `withdrawSteps` for a multi-step withdrawal; omitted for single.
+  stepIndex?: number;
+  withdrawalSignature: string;
+  confirmedSlot: string;
+  autodepositCloseSignature?: string;
+  autodepositCloseConfirmedSlot?: string;
+};
+
+export async function confirmEarnWithdraw(
+  args: EarnWithdrawConfirmArgs,
+): Promise<void> {
+  const { auth, ...rest } = args;
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/confirm`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({ ...auth, ...rest }),
+    },
+  );
+  if (!res.ok) {
+    await throwEarnError(res, "Failed to confirm Earn withdrawal.");
+  }
+}
+
 // Current on-chain Earn position read-model (balance + live APY). All amounts
 // are USDC base units (6 decimals) as strings; APY is in basis points.
 export type EarnPosition = {

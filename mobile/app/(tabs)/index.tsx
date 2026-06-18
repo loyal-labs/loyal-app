@@ -27,6 +27,7 @@ import {
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
+import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
@@ -267,10 +268,27 @@ export default function EarnScreen() {
     setWithdrawOpen(false);
   }, []);
 
-  const handleWithdrawConfirmed = useCallback(() => {
-    setHasDeposit(false);
-    setDepositedUsd(null);
-  }, []);
+  const handleWithdrawConfirmed = useCallback(
+    async (amountUsd: number) => {
+      if (!signer || !isWalletUnlocked(state)) {
+        throw new Error("Unlock your wallet to withdraw.");
+      }
+      const available = depositedUsd ?? 0;
+      // "Withdraw the whole balance" is a full exit, so the backend uses the
+      // exact on-chain source amount rather than the rounded display value.
+      const mode: "full" | "partial" =
+        amountUsd >= available - 0.005 ? "full" : "partial";
+      await executeEarnWithdraw({ signer, amountUsd, mode });
+      // Optimistic: a full exit clears the funded state; a partial leaves it and
+      // the read-model refresh reconciles the exact remaining balance.
+      if (mode === "full") {
+        setHasDeposit(false);
+        setDepositedUsd(null);
+      }
+      refreshEarnPosition();
+    },
+    [signer, state, depositedUsd, refreshEarnPosition],
+  );
 
   const handleAutodepositSetup = useCallback(() => {
     void Haptics.selectionAsync();
