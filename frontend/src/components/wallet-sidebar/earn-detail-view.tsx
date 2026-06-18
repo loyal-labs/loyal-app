@@ -896,14 +896,12 @@ function writeEarnLastSeenBalance(
 }
 
 function EarnGrowingBalance({
-  apyBps,
   baseAmount,
   isEarningsReady = true,
   isHidden = false,
   principalAmount,
   storageScope = null,
 }: {
-  apyBps: number;
   baseAmount: number;
   isEarningsReady?: boolean;
   isHidden?: boolean;
@@ -932,7 +930,10 @@ function EarnGrowingBalance({
   });
   const [isCatchingUp, setIsCatchingUp] = useState(catchUpStartValue !== null);
   const [value, setValue] = useState(catchUpStartValue ?? baseAmount);
+  const latestBaseAmountRef = useRef(baseAmount);
   const lastSeenRef = useRef<EarnLastSeenBalance | null>(null);
+  const lastPersistedAtRef = useRef(0);
+  latestBaseAmountRef.current = baseAmount;
 
   useEffect(() => {
     if (!(isCatchingUp && isEarningsReady)) {
@@ -940,7 +941,9 @@ function EarnGrowingBalance({
     }
     // Hold the last-seen value for one painted frame, then run a single long
     // spin to the live amount; regular ticking starts once it lands.
-    const frame = window.requestAnimationFrame(() => setValue(baseAmount));
+    const frame = window.requestAnimationFrame(() =>
+      setValue(latestBaseAmountRef.current)
+    );
     const timeout = window.setTimeout(
       () => setIsCatchingUp(false),
       EARN_BALANCE_CATCH_UP_SPIN_MS
@@ -949,7 +952,7 @@ function EarnGrowingBalance({
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [baseAmount, isCatchingUp, isEarningsReady]);
+  }, [isCatchingUp, isEarningsReady]);
 
   useEffect(() => {
     if (isCatchingUp) {
@@ -957,27 +960,20 @@ function EarnGrowingBalance({
     }
     setValue(baseAmount);
     lastSeenRef.current = { principal: principalAmount, value: baseAmount };
-    const ratePerSecond = getEarningsRatePerSecond(apyBps, principalAmount);
-    const startedAt = performance.now();
-    let lastPersistedAt = 0;
-    const interval = window.setInterval(() => {
-      const now = performance.now();
-      const elapsedSeconds = (now - startedAt) / 1000;
-      const earned = ratePerSecond * elapsedSeconds;
-      const nextValue = Number(
-        (baseAmount + earned).toFixed(EARN_BALANCE_DECIMALS)
-      );
+  }, [baseAmount, isCatchingUp, principalAmount]);
 
-      setValue(nextValue);
-      lastSeenRef.current = { principal: principalAmount, value: nextValue };
-      if (now - lastPersistedAt >= EARN_LAST_SEEN_BALANCE_WRITE_MS) {
-        lastPersistedAt = now;
-        writeEarnLastSeenBalance(storageScope, lastSeenRef.current);
-      }
-    }, EARN_BALANCE_SAMPLE_MS);
+  useEffect(() => {
+    if (isCatchingUp) {
+      return;
+    }
 
-    return () => window.clearInterval(interval);
-  }, [apyBps, baseAmount, isCatchingUp, principalAmount, storageScope]);
+    lastSeenRef.current = { principal: principalAmount, value };
+    const now = Date.now();
+    if (now - lastPersistedAtRef.current >= EARN_LAST_SEEN_BALANCE_WRITE_MS) {
+      lastPersistedAtRef.current = now;
+      writeEarnLastSeenBalance(storageScope, lastSeenRef.current);
+    }
+  }, [isCatchingUp, principalAmount, storageScope, value]);
 
   // Persist the final value on unmount (pane switch) and on pagehide (tab or
   // app close) so the next visit resumes from it.
@@ -1159,12 +1155,14 @@ export function deriveEstimatedEarnBalanceAmount({
   earningsData,
   earningsError,
   generatedAt,
+  nowMs,
   principalAmount,
 }: {
   apyBps: number;
   earningsData: EarnEarningsResponse | null;
   earningsError: string | null;
   generatedAt: string | null;
+  nowMs?: number;
   principalAmount: number;
 }) {
   if (earningsError || !earningsData) {
@@ -1179,6 +1177,7 @@ export function deriveEstimatedEarnBalanceAmount({
   const liveEarnedUsd = deriveLiveEarnedUsd({
     apyBps,
     generatedAt,
+    nowMs,
     principalAmount,
   });
 
@@ -1192,15 +1191,17 @@ export function deriveEstimatedEarnBalanceAmount({
 function deriveLiveEarnedUsd({
   apyBps,
   generatedAt,
+  nowMs = Date.now(),
   principalAmount,
 }: {
   apyBps: number;
   generatedAt: string | null;
+  nowMs?: number;
   principalAmount: number;
 }) {
   const generatedAtMs = generatedAt ? Date.parse(generatedAt) : Number.NaN;
   const elapsedSeconds = Number.isFinite(generatedAtMs)
-    ? Math.max(0, (Date.now() - generatedAtMs) / 1000)
+    ? Math.max(0, (nowMs - generatedAtMs) / 1000)
     : 0;
 
   return getEarningsRatePerSecond(apyBps, principalAmount) * elapsedSeconds;
@@ -1211,12 +1212,14 @@ export function deriveEstimatedEarnedSummaryAmount({
   earningsData,
   earningsError,
   generatedAt,
+  nowMs,
   principalAmount,
 }: {
   apyBps: number;
   earningsData: EarnEarningsResponse | null;
   earningsError: string | null;
   generatedAt: string | null;
+  nowMs?: number;
   principalAmount: number;
 }) {
   if (earningsError || !earningsData) {
@@ -1235,6 +1238,7 @@ export function deriveEstimatedEarnedSummaryAmount({
       deriveLiveEarnedUsd({
         apyBps,
         generatedAt,
+        nowMs,
         principalAmount,
       })
     ).toFixed(EARN_BALANCE_DECIMALS)
@@ -2411,6 +2415,19 @@ export function EarnDetailView({
     solanaEnv: earningsCacheScope?.solanaEnv,
     walletAddress: earningsCacheScope?.walletAddress,
   });
+  const [earnLiveNowMs, setEarnLiveNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasCurrentPosition) {
+      return;
+    }
+
+    setEarnLiveNowMs(Date.now());
+    const interval = window.setInterval(
+      () => setEarnLiveNowMs(Date.now()),
+      EARN_BALANCE_SAMPLE_MS
+    );
+    return () => window.clearInterval(interval);
+  }, [hasCurrentPosition]);
   const earningsData =
     earningsRangeSet?.ranges[EARNINGS_MONTHLY_RANGE_ID] ?? null;
   const earningsDailyData =
@@ -2452,6 +2469,7 @@ export function EarnDetailView({
     earningsData,
     earningsError,
     generatedAt: earningsRangeSet?.generatedAt ?? null,
+    nowMs: earnLiveNowMs,
     principalAmount,
   });
   const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
@@ -2459,6 +2477,7 @@ export function EarnDetailView({
     earningsData,
     earningsError,
     generatedAt: earningsRangeSet?.generatedAt ?? null,
+    nowMs: earnLiveNowMs,
     principalAmount,
   });
   const earnedSummaryLabel = formatEarnedSummaryLabel(estimatedEarnedUsd);
@@ -2616,7 +2635,6 @@ export function EarnDetailView({
           >
             {hasCurrentPosition ? (
               <EarnGrowingBalance
-                apyBps={estimatedEarnedAmountApyBps}
                 baseAmount={displayBalanceAmount}
                 isEarningsReady={Boolean(earningsRangeSet || earningsError)}
                 isHidden={isBalanceHidden}
