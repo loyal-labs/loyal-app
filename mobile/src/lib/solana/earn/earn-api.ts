@@ -154,6 +154,57 @@ export async function confirmEarnWithdraw(
   }
 }
 
+// A withdrawable Earn source (a Kamino reserve position or idle vault USDC),
+// with both display fields and the identifiers `withdraw/prepare` needs.
+export type EarnWithdrawSourceInfo = {
+  type: "reserve" | "idle";
+  id: string;
+  label: string;
+  amountRaw: string;
+  liquidityMint: string;
+  market: string | null;
+  reserve: string | null;
+  tokenAccount: string | null;
+};
+
+export type EarnWithdrawSourcesResponse = {
+  sources: EarnWithdrawSourceInfo[];
+  settingsPda: string | null;
+  smartAccountAddress: string | null;
+};
+
+// Read-only list of withdrawal sources for the wallet (no signature).
+export async function fetchEarnWithdrawSources(
+  walletAddress: string,
+): Promise<EarnWithdrawSourcesResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/sources?walletAddress=${encodeURIComponent(
+      walletAddress,
+    )}`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to load Earn withdrawal sources.");
+  }
+  return (await res.json()) as EarnWithdrawSourcesResponse;
+}
+
+// Maps a source list entry to the `withdraw/prepare` source identifier shape.
+export function toWithdrawPrepareSource(
+  info: EarnWithdrawSourceInfo,
+): EarnWithdrawSource {
+  return {
+    type: info.type,
+    id: info.id,
+    amountRaw: info.amountRaw,
+    liquidityMint: info.liquidityMint,
+    market: info.market,
+    reserve: info.reserve ?? undefined,
+    tokenAccount: info.tokenAccount ?? undefined,
+    mint: info.type === "idle" ? info.liquidityMint : undefined,
+  };
+}
+
 // --- Autodeposit ----------------------------------------------------------
 
 export type EarnAutodepositSetupStage =

@@ -5,7 +5,7 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { X } from "lucide-react-native";
+import { Check, ChevronDown, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,11 +23,17 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import type { EarnWithdrawSourceInfo } from "@/lib/solana/earn/earn-api";
+
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
 // Withdraw shares Deposit's visual language (toolbar, "$" amount input with a
-// custom caret, balance cell + MAX, keyboard-riding CTA). The only differences
-// are the title/labels and the validation (cap = Earn balance, no $5 minimum).
+// custom caret, balance/source cell + MAX, keyboard-riding CTA). When the Earn
+// position spans multiple sources (reserves + idle vault USDC), the balance cell
+// becomes a source picker (adapted from the Deposit source selector, Figma
+// 74-18786): a tappable token pill with a chevron opens a source list, and the
+// amount/MAX/validation key off the selected source — one source per withdrawal,
+// matching the web flow.
 const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_CHIP_BG = "#F2F2F7";
 const COLOR_CHIP_SOFT = "rgba(0, 0, 0, 0.04)";
@@ -88,13 +94,26 @@ function amountToUsd(raw: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function sourceBalanceUsd(source: EarnWithdrawSourceInfo): number {
+  const raw = Number(source.amountRaw);
+  return Number.isFinite(raw) ? raw / 1_000_000 : 0;
+}
+
 type WithdrawSheetProps = {
   open: boolean;
   onClose: () => void;
   // May return a Promise — the button shows a loading spinner while pending.
-  onWithdraw?: (amountUsd: number) => void | Promise<void>;
-  // The user's withdrawable Earn balance (token units ≈ dollars).
+  // `source` is the selected withdrawal source (null when the position has a
+  // single implicit source / sources haven't loaded).
+  onWithdraw?: (
+    amountUsd: number,
+    source: EarnWithdrawSourceInfo | null,
+  ) => void | Promise<void>;
+  // The user's withdrawable Earn balance (token units ≈ dollars). Used as the
+  // cap when no per-source breakdown is available.
   availableUsdc?: number | null;
+  // Per-source breakdown; when more than one, the cell becomes a source picker.
+  sources?: EarnWithdrawSourceInfo[];
 };
 
 export function WithdrawSheet({
@@ -102,8 +121,10 @@ export function WithdrawSheet({
   onClose,
   onWithdraw,
   availableUsdc,
+  sources,
 }: WithdrawSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
+  const sourceSheetRef = useRef<BottomSheetModal>(null);
   const inputRef = useRef<{ focus: () => void } | null>(null);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
@@ -111,22 +132,46 @@ export function WithdrawSheet({
   const [caretOn, setCaretOn] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
   const snapPoints = useMemo(() => ["94%"], []);
-  const available = Number.isFinite(availableUsdc ?? NaN)
-    ? (availableUsdc as number)
-    : 0;
+  const sourceList = useMemo(() => sources ?? [], [sources]);
+  const hasPicker = sourceList.length > 0;
+  const isDropdown = sourceList.length > 1;
+  const selectedSource =
+    sourceList.find((source) => source.id === selectedSourceId) ?? null;
+  const available = selectedSource
+    ? sourceBalanceUsd(selectedSource)
+    : Number.isFinite(availableUsdc ?? NaN)
+      ? (availableUsdc as number)
+      : 0;
 
   useEffect(() => {
     if (open) {
       setAmount("");
       setSubmitError(null);
       setSubmitting(false);
+      setSelectedSourceId(null);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
     }
   }, [open]);
+
+  // Default the selection to the largest source once they load (or stay put if
+  // the user already picked one that's still present).
+  useEffect(() => {
+    if (!open || sourceList.length === 0) {
+      return;
+    }
+    if (sourceList.some((source) => source.id === selectedSourceId)) {
+      return;
+    }
+    const largest = [...sourceList].sort(
+      (a, b) => sourceBalanceUsd(b) - sourceBalanceUsd(a),
+    )[0];
+    setSelectedSourceId(largest?.id ?? null);
+  }, [open, sourceList, selectedSourceId]);
 
   useEffect(() => {
     if (!isFocused) {
@@ -157,6 +202,22 @@ export function WithdrawSheet({
     setAmount(available.toFixed(2));
   }, [available]);
 
+  const openSourceList = useCallback(() => {
+    if (!isDropdown) {
+      return;
+    }
+    void Haptics.selectionAsync();
+    Keyboard.dismiss();
+    sourceSheetRef.current?.present();
+  }, [isDropdown]);
+
+  const selectSource = useCallback((id: string) => {
+    void Haptics.selectionAsync();
+    setSelectedSourceId(id);
+    setAmount("");
+    sourceSheetRef.current?.dismiss();
+  }, []);
+
   const enteredUsd = amountToUsd(amount);
   const isEmpty = enteredUsd <= 0;
   const insufficientFunds = !isEmpty && enteredUsd > available;
@@ -171,7 +232,7 @@ export function WithdrawSheet({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
     setSubmitError(null);
-    const result = onWithdraw?.(enteredUsd);
+    const result = onWithdraw?.(enteredUsd, selectedSource);
     if (!(result instanceof Promise)) {
       sheetRef.current?.dismiss();
       return;
@@ -189,7 +250,7 @@ export function WithdrawSheet({
     } finally {
       setSubmitting(false);
     }
-  }, [disabled, enteredUsd, onWithdraw]);
+  }, [disabled, enteredUsd, onWithdraw, selectedSource]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -223,135 +284,223 @@ export function WithdrawSheet({
   }));
 
   return (
-    <BottomSheetModal
-      ref={sheetRef}
-      snapPoints={snapPoints}
-      enableDynamicSizing={false}
-      enablePanDownToClose
-      backdropComponent={renderBackdrop}
-      onDismiss={onClose}
-      onChange={handleSheetChange}
-      handleComponent={null}
-      backgroundStyle={styles.sheetBackground}
-      keyboardBehavior="extend"
-      keyboardBlurBehavior="restore"
-      android_keyboardInputMode="adjustResize"
-    >
-      <BottomSheetView style={styles.container}>
-        <View style={styles.toolbar}>
-          <Pressable
-            onPress={handleClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={({ pressed }) => [
-              styles.iconButton,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-            hitSlop={12}
-          >
-            <X size={24} color="#1C1C1E" strokeWidth={2} />
-          </Pressable>
-          <Text style={styles.toolbarTitle}>Withdraw</Text>
-          <View style={styles.iconButtonSpacer} />
-        </View>
+    <>
+      <BottomSheetModal
+        ref={sheetRef}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        onDismiss={onClose}
+        onChange={handleSheetChange}
+        handleComponent={null}
+        backgroundStyle={styles.sheetBackground}
+        keyboardBehavior="extend"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+      >
+        <BottomSheetView style={styles.container}>
+          <View style={styles.toolbar}>
+            <Pressable
+              onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              style={({ pressed }) => [
+                styles.iconButton,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+              hitSlop={12}
+            >
+              <X size={24} color="#1C1C1E" strokeWidth={2} />
+            </Pressable>
+            <Text style={styles.toolbarTitle}>Withdraw</Text>
+            <View style={styles.iconButtonSpacer} />
+          </View>
 
-        <View style={styles.body}>
-          <View style={styles.amountInputWrap}>
-            <View style={styles.amountRow}>
-              <View style={styles.amountVisual} pointerEvents="none">
-                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
-                  $
-                </Text>
-                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
-                  {displayValue || "0"}
-                </Text>
-                <View
-                  style={[
-                    styles.caret,
-                    { opacity: isFocused && caretOn ? 1 : 0 },
-                  ]}
+          <View style={styles.body}>
+            <View style={styles.amountInputWrap}>
+              <View style={styles.amountRow}>
+                <View style={styles.amountVisual} pointerEvents="none">
+                  <Text
+                    style={[styles.amountText, { fontSize: amountFontSize }]}
+                  >
+                    $
+                  </Text>
+                  <Text
+                    style={[styles.amountText, { fontSize: amountFontSize }]}
+                  >
+                    {displayValue || "0"}
+                  </Text>
+                  <View
+                    style={[
+                      styles.caret,
+                      { opacity: isFocused && caretOn ? 1 : 0 },
+                    ]}
+                  />
+                </View>
+                <BottomSheetTextInput
+                  ref={inputRef as unknown as React.Ref<never>}
+                  value={displayValue}
+                  onChangeText={handleAmountChange}
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  maxLength={15}
+                  caretHidden
+                  style={styles.overlayInput}
+                  accessibilityLabel="Withdraw amount"
                 />
               </View>
-              <BottomSheetTextInput
-                ref={inputRef as unknown as React.Ref<never>}
-                value={displayValue}
-                onChangeText={handleAmountChange}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                keyboardType="decimal-pad"
-                inputMode="decimal"
-                maxLength={15}
-                caretHidden
-                style={styles.overlayInput}
-                accessibilityLabel="Withdraw amount"
-              />
             </View>
           </View>
-        </View>
 
-        <Animated.View
-          style={[
-            styles.footerAbsolute,
-            { paddingBottom: insets.bottom + 12 },
-            animatedFooterStyle,
-          ]}
-        >
-          <View style={styles.balanceCell}>
-            <View style={styles.logoChip}>
-              <Image
-                source={usdcLogo}
-                style={styles.tokenLogo}
-                accessibilityLabel="USDC"
-              />
-            </View>
-            <View style={styles.balanceMiddle}>
-              <Text style={styles.balanceAmount}>
-                {BALANCE_FORMATTER.format(available)}
-              </Text>
-              <Text style={styles.balanceAvailable}>Available</Text>
-            </View>
-            <Pressable
-              onPress={handleMax}
-              accessibilityRole="button"
-              accessibilityLabel="Use maximum balance"
-              style={({ pressed }) => [
-                styles.maxBadge,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-              hitSlop={8}
-            >
-              <Text style={styles.maxBadgeText}>MAX</Text>
-            </Pressable>
-          </View>
-
-          {submitError ? (
-            <Text style={styles.submitError}>{submitError}</Text>
-          ) : null}
-
-          <Pressable
-            onPress={handleWithdraw}
-            accessibilityRole="button"
-            accessibilityLabel={ctaLabel}
-            disabled={disabled || submitting}
-            style={({ pressed }) => [
-              styles.cta,
-              hasError ? styles.ctaError : styles.ctaEnabled,
-              !disabled && !submitting && pressed && styles.ctaPressed,
+          <Animated.View
+            style={[
+              styles.footerAbsolute,
+              { paddingBottom: insets.bottom + 12 },
+              animatedFooterStyle,
             ]}
           >
-            {submitting ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text
-                style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
+            <View style={styles.balanceCell}>
+              {hasPicker ? (
+                <Pressable
+                  onPress={openSourceList}
+                  disabled={!isDropdown}
+                  accessibilityRole={isDropdown ? "button" : undefined}
+                  accessibilityLabel="Choose withdrawal source"
+                  style={({ pressed }) => [
+                    styles.selectorPill,
+                    { opacity: pressed && isDropdown ? 0.8 : 1 },
+                  ]}
+                  hitSlop={8}
+                >
+                  <Image
+                    source={usdcLogo}
+                    style={styles.tokenLogo}
+                    accessibilityLabel="USDC"
+                  />
+                  {isDropdown ? (
+                    <ChevronDown
+                      size={16}
+                      color={COLOR_LABEL_DIM}
+                      strokeWidth={2}
+                    />
+                  ) : null}
+                </Pressable>
+              ) : (
+                <View style={styles.logoChip}>
+                  <Image
+                    source={usdcLogo}
+                    style={styles.tokenLogo}
+                    accessibilityLabel="USDC"
+                  />
+                </View>
+              )}
+              <View style={styles.balanceMiddle}>
+                <Text style={styles.balanceAmount}>
+                  {BALANCE_FORMATTER.format(available)}
+                </Text>
+                <Text style={styles.balanceAvailable} numberOfLines={1}>
+                  {selectedSource ? selectedSource.label : "Available"}
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleMax}
+                accessibilityRole="button"
+                accessibilityLabel="Use maximum balance"
+                style={({ pressed }) => [
+                  styles.maxBadge,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+                hitSlop={8}
               >
-                {ctaLabel}
-              </Text>
-            )}
-          </Pressable>
-        </Animated.View>
-      </BottomSheetView>
-    </BottomSheetModal>
+                <Text style={styles.maxBadgeText}>MAX</Text>
+              </Pressable>
+            </View>
+
+            {submitError ? (
+              <Text style={styles.submitError}>{submitError}</Text>
+            ) : null}
+
+            <Pressable
+              onPress={handleWithdraw}
+              accessibilityRole="button"
+              accessibilityLabel={ctaLabel}
+              disabled={disabled || submitting}
+              style={({ pressed }) => [
+                styles.cta,
+                hasError ? styles.ctaError : styles.ctaEnabled,
+                !disabled && !submitting && pressed && styles.ctaPressed,
+              ]}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text
+                  style={
+                    hasError ? styles.ctaLabelError : styles.ctaLabelEnabled
+                  }
+                >
+                  {ctaLabel}
+                </Text>
+              )}
+            </Pressable>
+          </Animated.View>
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      <BottomSheetModal
+        ref={sourceSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.sourceHandle}
+      >
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 12,
+            paddingBottom: insets.bottom + 12,
+            paddingTop: 4,
+          }}
+        >
+          <Text style={styles.sourceListTitle}>Withdraw from</Text>
+          {sourceList.map((source) => {
+            const isSelected = source.id === selectedSourceId;
+            return (
+              <Pressable
+                key={source.id}
+                onPress={() => selectSource(source.id)}
+                accessibilityRole="button"
+                accessibilityLabel={source.label}
+                style={({ pressed }) => [
+                  styles.sourceRow,
+                  { backgroundColor: pressed ? COLOR_CHIP_BG : "transparent" },
+                ]}
+              >
+                <Image
+                  source={usdcLogo}
+                  style={styles.sourceRowLogo}
+                  accessibilityLabel="USDC"
+                />
+                <View style={styles.sourceRowMiddle}>
+                  <Text style={styles.sourceRowLabel} numberOfLines={1}>
+                    {source.label}
+                  </Text>
+                  <Text style={styles.sourceRowBalance}>
+                    {BALANCE_FORMATTER.format(sourceBalanceUsd(source))}
+                  </Text>
+                </View>
+                {isSelected ? (
+                  <Check size={22} color={COLOR_BLACK} strokeWidth={2} />
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </BottomSheetView>
+      </BottomSheetModal>
+    </>
   );
 }
 
@@ -448,6 +597,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  selectorPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingLeft: 4,
+    paddingRight: 8,
+    paddingVertical: 4,
+    borderRadius: 61,
+    backgroundColor: COLOR_CHIP_SOFT,
+  },
   tokenLogo: {
     width: 40,
     height: 40,
@@ -529,5 +688,47 @@ const styles = StyleSheet.create({
     color: COLOR_ERROR_TEXT,
     textAlign: "center",
     marginBottom: 12,
+  },
+  sourceHandle: {
+    backgroundColor: "rgba(60, 60, 67, 0.3)",
+    width: 40,
+  },
+  sourceListTitle: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 17,
+    lineHeight: 22,
+    color: COLOR_BLACK,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  sourceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderRadius: 16,
+  },
+  sourceRowLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  sourceRowMiddle: {
+    flex: 1,
+  },
+  sourceRowLabel: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 16,
+    lineHeight: 20,
+    color: COLOR_BLACK,
+  },
+  sourceRowBalance: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 14,
+    lineHeight: 18,
+    color: COLOR_LABEL_DIM,
+    marginTop: 2,
   },
 });

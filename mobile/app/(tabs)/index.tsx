@@ -32,9 +32,14 @@ import {
   setEarnAutodepositActive,
   updateEarnAutodepositThreshold,
 } from "@/lib/solana/earn/autodeposit";
+import {
+  toWithdrawPrepareSource,
+  type EarnWithdrawSourceInfo,
+} from "@/lib/solana/earn/earn-api";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
+import { useEarnWithdrawSources } from "@/hooks/wallet/useEarnWithdrawSources";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
@@ -102,6 +107,10 @@ export default function EarnScreen() {
   // state + balance once it loads; the optimistic just-deposited value below
   // bridges the gap until the read-model catches up.
   const { position, refreshEarnPosition } = useEarnPosition(walletAddress);
+  // Withdrawal sources (reserves + idle vault USDC) — fetched lazily when the
+  // user opens withdraw; drives the source picker.
+  const { sources: withdrawSources, refreshSources: refreshWithdrawSources } =
+    useEarnWithdrawSources(walletAddress);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [hasDeposit, setHasDeposit] = useState(false);
@@ -284,33 +293,49 @@ export default function EarnScreen() {
 
   const handleOpenWithdraw = useCallback(() => {
     void Haptics.selectionAsync();
+    refreshWithdrawSources();
     setWithdrawOpen(true);
-  }, []);
+  }, [refreshWithdrawSources]);
 
   const handleCloseWithdraw = useCallback(() => {
     setWithdrawOpen(false);
   }, []);
 
   const handleWithdrawConfirmed = useCallback(
-    async (amountUsd: number) => {
+    async (amountUsd: number, source: EarnWithdrawSourceInfo | null) => {
       if (!signer || !isWalletUnlocked(state)) {
         throw new Error("Unlock your wallet to withdraw.");
       }
-      const available = depositedUsd ?? 0;
-      // "Withdraw the whole balance" is a full exit, so the backend uses the
-      // exact on-chain source amount rather than the rounded display value.
+      // Mode is relative to the selected source: emptying that source is a full
+      // withdrawal (backend uses the exact on-chain amount), otherwise partial.
+      const sourceBalance = source
+        ? Number(source.amountRaw) / 1e6
+        : (depositedUsd ?? 0);
       const mode: "full" | "partial" =
-        amountUsd >= available - 0.005 ? "full" : "partial";
-      await executeEarnWithdraw({ signer, amountUsd, mode });
-      // Optimistic: a full exit clears the funded state; a partial leaves it and
-      // the read-model refresh reconciles the exact remaining balance.
-      if (mode === "full") {
+        amountUsd >= sourceBalance - 0.005 ? "full" : "partial";
+      await executeEarnWithdraw({
+        signer,
+        amountUsd,
+        mode,
+        source: source ? toWithdrawPrepareSource(source) : null,
+      });
+      // Optimistic clear only when this empties the whole position (single
+      // source); for multi-source the read-model refresh reconciles the rest.
+      if (mode === "full" && withdrawSources.length <= 1) {
         setHasDeposit(false);
         setDepositedUsd(null);
       }
       refreshEarnPosition();
+      refreshWithdrawSources();
     },
-    [signer, state, depositedUsd, refreshEarnPosition],
+    [
+      signer,
+      state,
+      depositedUsd,
+      withdrawSources,
+      refreshEarnPosition,
+      refreshWithdrawSources,
+    ],
   );
 
   const handleAutodepositSetup = useCallback(() => {
@@ -644,6 +669,7 @@ export default function EarnScreen() {
         onClose={handleCloseWithdraw}
         onWithdraw={handleWithdrawConfirmed}
         availableUsdc={depositedUsd}
+        sources={withdrawSources}
       />
 
       <AutodepositHelpSheet

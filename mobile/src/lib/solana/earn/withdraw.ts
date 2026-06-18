@@ -5,6 +5,7 @@ import {
   confirmEarnWithdraw,
   prepareEarnWithdraw,
   type EarnWithdrawMode,
+  type EarnWithdrawSource,
 } from "./earn-api";
 import { signEarnAuth } from "./earn-auth";
 import { signAndSendPreparedOperation } from "./send-prepared";
@@ -36,6 +37,10 @@ export async function executeEarnWithdraw(args: {
   signer: Signer;
   amountUsd: number;
   mode: EarnWithdrawMode;
+  // The chosen source. Omitted/null lets the backend auto-select when there's
+  // exactly one source; required (from the picker) when the position spans
+  // multiple sources.
+  source?: EarnWithdrawSource | null;
 }): Promise<EarnWithdrawResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const prepareAuth = await signEarnAuth(args.signer, "earn-withdraw-prepare");
@@ -43,9 +48,7 @@ export async function executeEarnWithdraw(args: {
     auth: prepareAuth,
     amountRaw,
     mode: args.mode,
-    // Single-source positions auto-select server-side. Multi-source selection
-    // would need a source picker in the UI (not yet built).
-    source: null,
+    source: args.source ?? null,
   });
   const preparedWithdraw = prepared.preparedWithdraw;
 
