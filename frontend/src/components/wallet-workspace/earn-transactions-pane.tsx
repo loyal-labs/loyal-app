@@ -5,7 +5,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ReceiptText } from "lucide-react";
 import { motion } from "motion/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type {
   ActivityRow,
@@ -1175,6 +1175,7 @@ export function EarnTransactionsPane({
   onRefreshScheduledSweeps,
   onSelectTransaction,
   pendingScheduledSweep = null,
+  refreshKey = 0,
   scheduledSweepExecuteError = null,
   scheduledSweeps = [],
   showPolicyRefundScan = false,
@@ -1189,6 +1190,7 @@ export function EarnTransactionsPane({
   onRefreshScheduledSweeps?: () => Promise<void> | void;
   onSelectTransaction: (detail: TransactionDetail) => void;
   pendingScheduledSweep?: PendingScheduledSweepPreview | null;
+  refreshKey?: number;
   scheduledSweepExecuteError?: string | null;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   showPolicyRefundScan?: boolean;
@@ -1204,6 +1206,9 @@ export function EarnTransactionsPane({
   const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
+  const feedKeyRef = useRef<string | null>(null);
+  const knownTransactionIdsRef = useRef<Set<string> | null>(null);
+  const loadRequestSeqRef = useRef(0);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
@@ -1234,13 +1239,17 @@ export function EarnTransactionsPane({
       setErrorMessage(null);
       setPolicyRefundPolicies(null);
       setPolicyRefundError(null);
+      feedKeyRef.current = null;
+      knownTransactionIdsRef.current = null;
       return;
     }
 
     let isMounted = true;
-    // Ids already on screen; null until the initial load lands. Poll results
-    // diff against this so only rows that arrive later animate in.
-    let knownIds: Set<string> | null = null;
+    const feedKey = `${solanaEnv}:${settingsPda}:${walletAddress}`;
+    if (feedKeyRef.current !== feedKey) {
+      feedKeyRef.current = feedKey;
+      knownTransactionIdsRef.current = null;
+    }
 
     const refreshScheduledSweeps = () => {
       void Promise.resolve(onRefreshScheduledSweeps?.()).catch((error) => {
@@ -1252,7 +1261,7 @@ export function EarnTransactionsPane({
     };
 
     const applyTransactions = (items: EarnTransactionItem[]) => {
-      const previousIds = knownIds;
+      const previousIds = knownTransactionIdsRef.current;
       const freshIds =
         previousIds === null
           ? []
@@ -1267,12 +1276,13 @@ export function EarnTransactionsPane({
         // Same id set as the last render — skip the no-op state update.
         return;
       }
-      knownIds = new Set(items.map((item) => item.id));
+      knownTransactionIdsRef.current = new Set(items.map((item) => item.id));
       setTransactions(items);
       setEnteringIds(new Set(freshIds));
     };
 
     const loadTransactions = async ({ silent }: { silent: boolean }) => {
+      const requestSeq = (loadRequestSeqRef.current += 1);
       if (!silent) {
         setIsLoading(true);
         setErrorMessage(null);
@@ -1285,7 +1295,7 @@ export function EarnTransactionsPane({
           walletAddress,
         });
 
-        if (isMounted) {
+        if (isMounted && requestSeq === loadRequestSeqRef.current) {
           applyTransactions(payload.transactions);
           setErrorMessage(null);
         }
@@ -1293,7 +1303,7 @@ export function EarnTransactionsPane({
         console.warn("[earn-transactions] failed to load transactions", error);
         // Silent polls keep whatever is on screen; only the initial load
         // surfaces the error state.
-        if (isMounted && !silent) {
+        if (isMounted && requestSeq === loadRequestSeqRef.current && !silent) {
           setTransactions([]);
           setErrorMessage(
             error instanceof Error
@@ -1302,13 +1312,13 @@ export function EarnTransactionsPane({
           );
         }
       } finally {
-        if (isMounted && !silent) {
+        if (isMounted && requestSeq === loadRequestSeqRef.current && !silent) {
           setIsLoading(false);
         }
       }
     };
 
-    void loadTransactions({ silent: false });
+    void loadTransactions({ silent: knownTransactionIdsRef.current !== null });
     refreshScheduledSweeps();
 
     // Pseudo-realtime: poll the cached fetcher so new transactions appear
@@ -1327,6 +1337,7 @@ export function EarnTransactionsPane({
     isAuthenticated,
     isHydrated,
     onRefreshScheduledSweeps,
+    refreshKey,
     settingsPda,
     solanaEnv,
     walletAddress,

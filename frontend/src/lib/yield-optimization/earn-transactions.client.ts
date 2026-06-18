@@ -124,6 +124,16 @@ export function invalidateEarnTransactionsCache(args?: Partial<CacheKeyArgs>) {
       cache.delete(key);
     }
   }
+
+  for (const key of inflight.keys()) {
+    if (
+      (!args.solanaEnv || key.startsWith(`${args.solanaEnv}:`)) &&
+      (!args.settingsPda || key.includes(`:${args.settingsPda}:`)) &&
+      (!args.walletAddress || key.endsWith(`:${args.walletAddress}`))
+    ) {
+      inflight.delete(key);
+    }
+  }
 }
 
 export function resetEarnTransactionsCacheForTests() {

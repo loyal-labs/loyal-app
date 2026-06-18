@@ -1081,6 +1081,8 @@ export function AppWalletWorkspace({
     solanaEnv: publicEnv.solanaEnv,
     walletAddress: walletDesktopData.walletAddress,
   });
+  const [earnTransactionsRefreshKey, setEarnTransactionsRefreshKey] =
+    useState(0);
   const invalidateEarnClientCaches = useCallback(() => {
     invalidateEarnEarningsCache();
     invalidateEarnTransactionsCache({
@@ -1088,6 +1090,7 @@ export function AppWalletWorkspace({
       solanaEnv: publicEnv.solanaEnv,
       walletAddress: walletDesktopData.walletAddress ?? undefined,
     });
+    setEarnTransactionsRefreshKey((value) => value + 1);
   }, [
     publicEnv.solanaEnv,
     smartAccountData.overview?.settingsPda,
@@ -5744,6 +5747,7 @@ export function AppWalletWorkspace({
                   );
                 }}
                 pendingScheduledSweep={pendingScheduledSweepPreview}
+                refreshKey={earnTransactionsRefreshKey}
                 scheduledSweepExecuteError={scheduledSweepExecuteError}
                 scheduledSweeps={autodepositConfig?.scheduledSweeps ?? []}
                 showPolicyRefundScan={isMockBackupSignerFlowEnabled}
