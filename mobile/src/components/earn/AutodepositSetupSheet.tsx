@@ -5,12 +5,10 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { X } from "lucide-react-native";
+import { Info, Wallet, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Dimensions,
-  Image,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -23,18 +21,12 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const usdcLogo = require("../../../assets/images/earn/usdc.png");
+import AutodepositIcon from "../../../assets/images/earn/autodeposit.svg";
 
-// Withdraw shares Deposit's visual language (toolbar, "$" amount input with a
-// custom caret, balance cell + MAX, keyboard-riding CTA). The only differences
-// are the title/labels and the validation (cap = Earn balance, no $5 minimum).
-const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
-const COLOR_CHIP_BG = "#F2F2F7";
-const COLOR_CHIP_SOFT = "rgba(0, 0, 0, 0.04)";
-const COLOR_BLACK = "#000";
-const COLOR_ERROR_BG = "rgba(249, 54, 60, 0.14)";
-const COLOR_ERROR_TEXT = "#F9363C";
-
+// Autodeposit set-up sheet (Figma 74-18887). Enter the wallet balance to keep;
+// anything above it auto-routes to Earn. The "edit" mode (settings icon on the
+// control) is identical except the CTA reads "Confirm". Mirrors DepositSheet's
+// input + keyboard-riding footer mechanics.
 const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SCREEN_WIDTH = Dimensions.get("screen").width;
 const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
@@ -43,12 +35,13 @@ const AMOUNT_MAX_FONT_SIZE = 48;
 const AMOUNT_MIN_FONT_SIZE = 22;
 const AMOUNT_CHAR_WIDTH_RATIO = 0.6;
 
-const BALANCE_FORMATTER = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+const COLOR_BLACK = "#000";
+const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
+const COLOR_CENTS_DIM = "rgba(60, 60, 67, 0.4)";
+const COLOR_CHIP_BG = "#F2F2F7";
+const COLOR_RED = "#F9363C";
+const COLOR_WALLET_GREEN = "#32B67C";
+const COLOR_CONNECTOR = "rgba(0, 0, 0, 0.14)";
 
 function sanitizeAmount(input: string): string {
   let cleaned = input.replace(/[^0-9.]/g, "");
@@ -88,45 +81,62 @@ function amountToUsd(raw: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-type WithdrawSheetProps = {
-  open: boolean;
-  onClose: () => void;
-  // May return a Promise — the button shows a loading spinner while pending.
-  onWithdraw?: (amountUsd: number) => void | Promise<void>;
-  // The user's withdrawable Earn balance (token units ≈ dollars).
-  availableUsdc?: number | null;
-};
+function splitDollars(value: number): { whole: string; cents: string } {
+  const [whole, cents] = value.toFixed(2).split(".");
+  return {
+    whole: `$${Number(whole).toLocaleString("en-US")}`,
+    cents: `.${cents}`,
+  };
+}
 
-export function WithdrawSheet({
+function shortenAddress(address: string | null): string {
+  if (!address || address.length <= 9) {
+    return address ?? "";
+  }
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+export function AutodepositSetupSheet({
   open,
   onClose,
-  onWithdraw,
+  onConfirm,
+  mode,
+  initialThresholdUsd,
   availableUsdc,
-}: WithdrawSheetProps) {
+  walletAddress,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (thresholdUsd: number) => void;
+  mode: "create" | "edit";
+  initialThresholdUsd: number | null;
+  availableUsdc: number | null;
+  walletAddress: string | null;
+}) {
   const sheetRef = useRef<BottomSheetModal>(null);
   const inputRef = useRef<{ focus: () => void } | null>(null);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [caretOn, setCaretOn] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const snapPoints = useMemo(() => ["94%"], []);
-  const available = Number.isFinite(availableUsdc ?? NaN)
+  const balance = Number.isFinite(availableUsdc ?? NaN)
     ? (availableUsdc as number)
     : 0;
 
   useEffect(() => {
     if (open) {
-      setAmount("");
-      setSubmitError(null);
-      setSubmitting(false);
+      setAmount(
+        mode === "edit" && initialThresholdUsd != null && initialThresholdUsd > 0
+          ? String(initialThresholdUsd)
+          : "",
+      );
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
     }
-  }, [open]);
+  }, [open, mode, initialThresholdUsd]);
 
   useEffect(() => {
     if (!isFocused) {
@@ -152,44 +162,19 @@ export function WithdrawSheet({
     sheetRef.current?.dismiss();
   }, []);
 
-  const handleMax = useCallback(() => {
-    void Haptics.selectionAsync();
-    setAmount(available.toFixed(2));
-  }, [available]);
+  const thresholdUsd = amountToUsd(amount);
+  // The design's only validation: a $0 threshold can't create an autodeposit.
+  const disabled = thresholdUsd <= 0;
 
-  const enteredUsd = amountToUsd(amount);
-  const isEmpty = enteredUsd <= 0;
-  const insufficientFunds = !isEmpty && enteredUsd > available;
-  const hasError = insufficientFunds;
-  const disabled = isEmpty || hasError;
-  const ctaLabel = insufficientFunds ? "Insufficient balance" : "Withdraw";
-
-  const handleWithdraw = useCallback(async () => {
+  const handleConfirm = useCallback(() => {
     if (disabled) {
       return;
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
-    setSubmitError(null);
-    const result = onWithdraw?.(enteredUsd);
-    if (!(result instanceof Promise)) {
-      sheetRef.current?.dismiss();
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await result;
-      sheetRef.current?.dismiss();
-    } catch (error) {
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : "Withdrawal failed. Please try again.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }, [disabled, enteredUsd, onWithdraw]);
+    sheetRef.current?.dismiss();
+    onConfirm(thresholdUsd);
+  }, [disabled, onConfirm, thresholdUsd]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -204,6 +189,10 @@ export function WithdrawSheet({
   );
 
   const displayValue = formatAmountDisplay(amount);
+  const toEarn = Math.max(0, balance - thresholdUsd);
+  const fromParts = splitDollars(balance);
+  const toParts = splitDollars(toEarn);
+  const ctaLabel = mode === "edit" ? "Confirm" : "Create Autodeposit";
 
   const amountFontSize = useMemo(() => {
     const text = `$${displayValue || "0"}`;
@@ -251,41 +240,46 @@ export function WithdrawSheet({
           >
             <X size={24} color="#1C1C1E" strokeWidth={2} />
           </Pressable>
-          <Text style={styles.toolbarTitle}>Withdraw</Text>
+          <Text style={styles.toolbarTitle}>Autodeposit</Text>
           <View style={styles.iconButtonSpacer} />
         </View>
 
         <View style={styles.body}>
-          <View style={styles.amountInputWrap}>
-            <View style={styles.amountRow}>
-              <View style={styles.amountVisual} pointerEvents="none">
-                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
-                  $
-                </Text>
-                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
-                  {displayValue || "0"}
-                </Text>
-                <View
-                  style={[
-                    styles.caret,
-                    { opacity: isFocused && caretOn ? 1 : 0 },
-                  ]}
-                />
-              </View>
-              <BottomSheetTextInput
-                ref={inputRef as unknown as React.Ref<never>}
-                value={displayValue}
-                onChangeText={handleAmountChange}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                keyboardType="decimal-pad"
-                inputMode="decimal"
-                maxLength={15}
-                caretHidden
-                style={styles.overlayInput}
-                accessibilityLabel="Withdraw amount"
+          <Text style={styles.inputLabel}>Deposit anything above</Text>
+          <View style={styles.amountRow}>
+            <View style={styles.amountVisual} pointerEvents="none">
+              <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
+                $
+              </Text>
+              <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
+                {displayValue || "0"}
+              </Text>
+              <View
+                style={[
+                  styles.caret,
+                  { opacity: isFocused && caretOn ? 1 : 0 },
+                ]}
               />
             </View>
+            <BottomSheetTextInput
+              ref={inputRef as unknown as React.Ref<never>}
+              value={displayValue}
+              onChangeText={handleAmountChange}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              maxLength={15}
+              caretHidden
+              style={styles.overlayInput}
+              accessibilityLabel="Autodeposit threshold"
+            />
+          </View>
+          <View style={styles.caption}>
+            <Info size={20} color={COLOR_RED} strokeWidth={2} />
+            <Text style={styles.captionText}>
+              Any stablecoins above this amount will automatically go to Earn
+            </Text>
           </View>
         </View>
 
@@ -296,58 +290,50 @@ export function WithdrawSheet({
             animatedFooterStyle,
           ]}
         >
-          <View style={styles.balanceCell}>
-            <View style={styles.logoChip}>
-              <Image
-                source={usdcLogo}
-                style={styles.tokenLogo}
-                accessibilityLabel="USDC"
-              />
+          <View style={styles.flow}>
+            <View style={styles.flowCell}>
+              <View style={styles.walletIcon}>
+                <Wallet size={24} color="#FFF" strokeWidth={2} />
+              </View>
+              <View style={styles.flowMiddle}>
+                <Text style={styles.flowSubtitle}>
+                  from {shortenAddress(walletAddress)}
+                </Text>
+                <Text style={styles.flowAmount}>
+                  <Text style={styles.flowAmountWhole}>{fromParts.whole}</Text>
+                  <Text style={styles.flowAmountCents}>{fromParts.cents}</Text>
+                </Text>
+              </View>
             </View>
-            <View style={styles.balanceMiddle}>
-              <Text style={styles.balanceAmount}>
-                {BALANCE_FORMATTER.format(available)}
-              </Text>
-              <Text style={styles.balanceAvailable}>Available</Text>
+            <View style={styles.connector} />
+            <View style={styles.flowCell}>
+              <AutodepositIcon width={48} height={48} />
+              <View style={styles.flowMiddle}>
+                <Text style={styles.flowSubtitle}>to Earn</Text>
+                <Text style={styles.flowAmount}>
+                  <Text style={styles.flowAmountWhole}>{toParts.whole}</Text>
+                  <Text style={styles.flowAmountCents}>{toParts.cents}</Text>
+                </Text>
+              </View>
             </View>
-            <Pressable
-              onPress={handleMax}
-              accessibilityRole="button"
-              accessibilityLabel="Use maximum balance"
-              style={({ pressed }) => [
-                styles.maxBadge,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-              hitSlop={8}
-            >
-              <Text style={styles.maxBadgeText}>MAX</Text>
-            </Pressable>
           </View>
 
-          {submitError ? (
-            <Text style={styles.submitError}>{submitError}</Text>
-          ) : null}
-
           <Pressable
-            onPress={handleWithdraw}
+            onPress={handleConfirm}
             accessibilityRole="button"
             accessibilityLabel={ctaLabel}
-            disabled={disabled || submitting}
+            disabled={disabled}
             style={({ pressed }) => [
               styles.cta,
-              hasError ? styles.ctaError : styles.ctaEnabled,
-              !disabled && !submitting && pressed && styles.ctaPressed,
+              disabled ? styles.ctaDisabled : styles.ctaEnabled,
+              !disabled && pressed && styles.ctaPressed,
             ]}
           >
-            {submitting ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text
-                style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
-              >
-                {ctaLabel}
-              </Text>
-            )}
+            <Text
+              style={disabled ? styles.ctaLabelDisabled : styles.ctaLabelEnabled}
+            >
+              {ctaLabel}
+            </Text>
           </Pressable>
         </Animated.View>
       </BottomSheetView>
@@ -396,15 +382,19 @@ const styles = StyleSheet.create({
   },
   body: {
     paddingHorizontal: 16,
-    paddingTop: 36,
+    paddingTop: 10,
   },
-  amountInputWrap: {
-    paddingBottom: 24,
+  inputLabel: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 15,
+    lineHeight: 20,
+    color: COLOR_LABEL_DIM,
   },
   amountRow: {
     position: "relative",
     height: 48,
     justifyContent: "flex-end",
+    marginTop: 4,
   },
   amountVisual: {
     flexDirection: "row",
@@ -435,55 +425,18 @@ const styles = StyleSheet.create({
     padding: 0,
     fontSize: 48,
   },
-  balanceCell: {
+  caption: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
+    gap: 8,
+    paddingTop: 8,
   },
-  logoChip: {
-    padding: 4,
-    borderRadius: 999,
-    backgroundColor: COLOR_CHIP_SOFT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tokenLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  balanceMiddle: {
+  captionText: {
     flex: 1,
-    paddingVertical: 8,
-  },
-  balanceAmount: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 20,
-    lineHeight: 24,
-    color: COLOR_BLACK,
-  },
-  balanceAvailable: {
     fontFamily: "Geist_400Regular",
     fontSize: 15,
     lineHeight: 20,
-    color: COLOR_LABEL_DIM,
-  },
-  maxBadge: {
-    minWidth: 64,
-    backgroundColor: COLOR_CHIP_SOFT,
-    borderRadius: 40,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  maxBadgeText: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 15,
-    lineHeight: 20,
-    color: COLOR_BLACK,
-    textAlign: "center",
+    color: COLOR_RED,
   },
   footerAbsolute: {
     position: "absolute",
@@ -494,40 +447,86 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
+  flow: {
+    position: "relative",
+    gap: 8,
+    marginBottom: 16,
+  },
+  flowCell: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  walletIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: COLOR_WALLET_GREEN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flowMiddle: {
+    flex: 1,
+    paddingVertical: 9,
+  },
+  flowSubtitle: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 15,
+    lineHeight: 20,
+    color: COLOR_LABEL_DIM,
+  },
+  flowAmount: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 20,
+    lineHeight: 24,
+  },
+  flowAmountWhole: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 20,
+    lineHeight: 24,
+    color: COLOR_BLACK,
+  },
+  flowAmountCents: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 20,
+    lineHeight: 24,
+    color: COLOR_CENTS_DIM,
+  },
+  // Short vertical tick joining the two cells' icons (Figma 75:32258).
+  connector: {
+    position: "absolute",
+    left: 23,
+    top: 54,
+    width: 2,
+    height: 18,
+    borderRadius: 2,
+    backgroundColor: COLOR_CONNECTOR,
+  },
   cta: {
     height: 50,
-    borderRadius: 9999,
+    borderRadius: 78,
     alignItems: "center",
     justifyContent: "center",
   },
   ctaEnabled: {
     backgroundColor: COLOR_BLACK,
   },
-  ctaError: {
-    backgroundColor: COLOR_ERROR_BG,
+  ctaDisabled: {
+    backgroundColor: COLOR_CHIP_BG,
   },
   ctaPressed: {
     opacity: 0.85,
   },
   ctaLabelEnabled: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 17,
-    lineHeight: 22,
-    color: "#FFF",
-  },
-  ctaLabelError: {
     fontFamily: "Geist_500Medium",
     fontSize: 16,
     lineHeight: 20,
-    color: COLOR_ERROR_TEXT,
-    textAlign: "center",
+    color: "#FFF",
   },
-  submitError: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 14,
+  ctaLabelDisabled: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 16,
     lineHeight: 20,
-    color: COLOR_ERROR_TEXT,
-    textAlign: "center",
-    marginBottom: 12,
+    color: "rgba(60, 60, 67, 0.3)",
   },
 });

@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
-import { router, useFocusEffect } from "expo-router";
-import { ArrowUp, Plus } from "lucide-react-native";
+import { useFocusEffect } from "expo-router";
+import { ArrowUp, Plus, SlidersHorizontal } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
@@ -13,10 +13,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AutodepositHelpSheet } from "@/components/earn/AutodepositHelpSheet";
+import { AutodepositSetupSheet } from "@/components/earn/AutodepositSetupSheet";
 import { DepositSheet } from "@/components/earn/DepositSheet";
-import { EarnChart } from "@/components/earn/EarnChart";
+import { EarnChartTabs } from "@/components/earn/EarnChartTabs";
 import { EarnDog } from "@/components/earn/EarnDog";
-import { buildDepositProcessHref } from "@/components/earn/routes";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -25,7 +26,7 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
-import { takePendingEarnDeposit } from "@/lib/solana/earn/result";
+import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
@@ -75,7 +76,7 @@ export default function EarnScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const appReady = useAppReady();
-  const { publicKey, state } = useWallet();
+  const { publicKey, signer, state } = useWallet();
   // Read-only holdings (no signer) so the Deposit sheet can show the wallet's
   // real USDC balance. Passing a signer here would trigger a Seed Vault
   // hardware prompt on Seeker — balance display must stay passive.
@@ -96,6 +97,17 @@ export default function EarnScreen() {
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [hasDeposit, setHasDeposit] = useState(false);
+  // Autodeposit (mock/local for now): threshold null = not set up. When set up
+  // the control shows the threshold + an on/off toggle instead of "Set up".
+  const [autodepositThresholdUsd, setAutodepositThresholdUsd] = useState<
+    number | null
+  >(null);
+  const [autodepositEnabled, setAutodepositEnabled] = useState(false);
+  const [autodepositHelpOpen, setAutodepositHelpOpen] = useState(false);
+  const [autodepositSetupOpen, setAutodepositSetupOpen] = useState(false);
+  const [autodepositSetupMode, setAutodepositSetupMode] = useState<
+    "create" | "edit"
+  >("create");
   // Principal just deposited, used as the funded Earn Balance until the real
   // on-chain position is wired (see .context/earn-deposit-findings.md, step b).
   const [depositedUsd, setDepositedUsd] = useState<number | null>(null);
@@ -118,13 +130,7 @@ export default function EarnScreen() {
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      // Returning from a successful deposit → show the funded state immediately
-      // (optimistic), then pull the real read-model to reconcile the balance.
-      const deposited = takePendingEarnDeposit();
-      if (deposited != null) {
-        setDepositedUsd(deposited);
-        setHasDeposit(true);
-      }
+      // Pull the real read-model whenever the tab gains focus.
       refreshEarnPosition();
       return () => {
         setIsFocused(false);
@@ -235,12 +241,22 @@ export default function EarnScreen() {
     setDepositOpen(false);
   }, []);
 
-  const handleDepositConfirmed = useCallback((amountUsd: number) => {
-    // Run the real on-chain deposit in the process screen; it returns to this
-    // tab (funded) on success via takePendingEarnDeposit().
-    setDepositOpen(false);
-    router.push(buildDepositProcessHref(amountUsd));
-  }, []);
+  const handleDepositConfirmed = useCallback(
+    async (amountUsd: number) => {
+      // Runs inline while the Deposit button shows its loading state — no
+      // separate process screen. Throwing surfaces the error in the sheet.
+      if (!signer || !isWalletUnlocked(state)) {
+        throw new Error("Unlock your wallet to deposit.");
+      }
+      await executeEarnDeposit({ signer, amountUsd });
+      // Show the funded state immediately; the read-model reconciles the exact
+      // balance on the next refresh.
+      setDepositedUsd(amountUsd);
+      setHasDeposit(true);
+      refreshEarnPosition();
+    },
+    [signer, state, refreshEarnPosition],
+  );
 
   const handleOpenWithdraw = useCallback(() => {
     void Haptics.selectionAsync();
@@ -258,12 +274,37 @@ export default function EarnScreen() {
 
   const handleAutodepositSetup = useCallback(() => {
     void Haptics.selectionAsync();
-    // TODO(autodeposit): launch the Autodeposit setup flow (separate feature).
+    setAutodepositSetupMode("create");
+    setAutodepositSetupOpen(true);
+  }, []);
+
+  const handleAutodepositEdit = useCallback(() => {
+    void Haptics.selectionAsync();
+    setAutodepositSetupMode("edit");
+    setAutodepositSetupOpen(true);
   }, []);
 
   const handleAutodepositHelp = useCallback(() => {
     void Haptics.selectionAsync();
-    // TODO(autodeposit): surface Autodeposit help.
+    setAutodepositHelpOpen(true);
+  }, []);
+
+  // Help sheet "Set up autodeposit" → close help, open the create flow.
+  const handleAutodepositHelpSetUp = useCallback(() => {
+    setAutodepositHelpOpen(false);
+    setAutodepositSetupMode("create");
+    setAutodepositSetupOpen(true);
+  }, []);
+
+  const handleAutodepositToggle = useCallback(() => {
+    void Haptics.selectionAsync();
+    setAutodepositEnabled((on) => !on);
+  }, []);
+
+  const handleAutodepositConfirm = useCallback((thresholdUsd: number) => {
+    setAutodepositThresholdUsd(thresholdUsd);
+    setAutodepositEnabled(true);
+    setAutodepositSetupOpen(false);
   }, []);
 
   // Live position APY for the funded header badge; falls back to the marketing
@@ -278,6 +319,18 @@ export default function EarnScreen() {
     }
     return APY_LABEL;
   }, [position]);
+
+  // Autodeposit threshold subtitle, shown once it's been set up (Figma 74:20722).
+  const isAutodepositSetUp = autodepositThresholdUsd != null;
+  const autodepositSubtitle = useMemo(() => {
+    if (autodepositThresholdUsd == null) {
+      return null;
+    }
+    return `Anything above $${autodepositThresholdUsd.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }, [autodepositThresholdUsd]);
 
   // Funded Earn Balance, split so the cents render dimmed (Figma 74:19926).
   const balanceParts = useMemo(() => {
@@ -302,7 +355,7 @@ export default function EarnScreen() {
                 <Text style={styles.badgeText}>{apyLabel}</Text>
               </View>
             </View>
-            <EarnChart />
+            <EarnChartTabs principalUsd={depositedUsd} />
             <View style={styles.autodepositSection}>
               <View style={styles.autodepositCell}>
                 <View style={styles.autodepositIcon}>
@@ -310,31 +363,74 @@ export default function EarnScreen() {
                 </View>
                 <View style={styles.autodepositMiddle}>
                   <Text style={styles.autodepositTitle}>Autodeposit</Text>
+                  {autodepositSubtitle ? (
+                    <Text style={styles.autodepositSubtitle}>
+                      {autodepositSubtitle}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.autodepositRight}>
-                  <Pressable
-                    onPress={handleAutodepositHelp}
-                    accessibilityRole="button"
-                    accessibilityLabel="Autodeposit help"
-                    hitSlop={8}
-                    style={({ pressed }) => [
-                      styles.autodepositHelp,
-                      { opacity: pressed ? 0.7 : 1 },
-                    ]}
-                  >
-                    <EarnQuestionmark width={24} height={24} />
-                  </Pressable>
-                  <Pressable
-                    onPress={handleAutodepositSetup}
-                    accessibilityRole="button"
-                    accessibilityLabel="Set up Autodeposit"
-                    style={({ pressed }) => [
-                      styles.setUpButton,
-                      { opacity: pressed ? 0.85 : 1 },
-                    ]}
-                  >
-                    <Text style={styles.setUpLabel}>Set up</Text>
-                  </Pressable>
+                  {isAutodepositSetUp ? (
+                    <>
+                      <Pressable
+                        onPress={handleAutodepositEdit}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit Autodeposit"
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.autodepositHelp,
+                          { opacity: pressed ? 0.7 : 1 },
+                        ]}
+                      >
+                        <SlidersHorizontal
+                          size={24}
+                          color="#FFF"
+                          strokeWidth={2}
+                        />
+                      </Pressable>
+                      <Pressable
+                        onPress={handleAutodepositToggle}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: autodepositEnabled }}
+                        accessibilityLabel="Toggle Autodeposit"
+                        hitSlop={8}
+                        style={[
+                          styles.toggleTrack,
+                          autodepositEnabled
+                            ? styles.toggleTrackOn
+                            : styles.toggleTrackOff,
+                        ]}
+                      >
+                        <View style={styles.toggleHandle} />
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable
+                        onPress={handleAutodepositHelp}
+                        accessibilityRole="button"
+                        accessibilityLabel="Autodeposit help"
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.autodepositHelp,
+                          { opacity: pressed ? 0.7 : 1 },
+                        ]}
+                      >
+                        <EarnQuestionmark width={24} height={24} />
+                      </Pressable>
+                      <Pressable
+                        onPress={handleAutodepositSetup}
+                        accessibilityRole="button"
+                        accessibilityLabel="Set up Autodeposit"
+                        style={({ pressed }) => [
+                          styles.setUpButton,
+                          { opacity: pressed ? 0.85 : 1 },
+                        ]}
+                      >
+                        <Text style={styles.setUpLabel}>Set up</Text>
+                      </Pressable>
+                    </>
+                  )}
                 </View>
               </View>
             </View>
@@ -451,6 +547,23 @@ export default function EarnScreen() {
         open={withdrawOpen}
         onClose={handleCloseWithdraw}
         onWithdraw={handleWithdrawConfirmed}
+        availableUsdc={depositedUsd}
+      />
+
+      <AutodepositHelpSheet
+        open={autodepositHelpOpen}
+        onClose={() => setAutodepositHelpOpen(false)}
+        onSetUp={handleAutodepositHelpSetUp}
+      />
+
+      <AutodepositSetupSheet
+        open={autodepositSetupOpen}
+        onClose={() => setAutodepositSetupOpen(false)}
+        onConfirm={handleAutodepositConfirm}
+        mode={autodepositSetupMode}
+        initialThresholdUsd={autodepositThresholdUsd}
+        availableUsdc={usdcAvailable}
+        walletAddress={walletAddress}
       />
     </View>
   );
@@ -573,6 +686,36 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     letterSpacing: -0.187,
     color: "#FFF",
+  },
+  autodepositSubtitle: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.165,
+    color: COLOR_HEADLINE_DIM,
+  },
+  // On/off switch shown once Autodeposit is set up (Figma 74:20731).
+  toggleTrack: {
+    width: 52,
+    height: 32,
+    borderRadius: 100,
+    padding: 4,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  toggleTrackOn: {
+    backgroundColor: COLOR_AUTODEPOSIT_RED,
+    justifyContent: "flex-end",
+  },
+  toggleTrackOff: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "flex-start",
+  },
+  toggleHandle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#FFF",
   },
   autodepositRight: {
     flexDirection: "row",

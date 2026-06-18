@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   Image,
   Keyboard,
@@ -103,8 +104,10 @@ type DepositSheetProps = {
   open: boolean;
   onClose: () => void;
   // Called with the entered USD amount when the user taps Deposit (after the
-  // minimum/balance checks pass). The parent drives navigation from here.
-  onDeposit?: (amountUsd: number) => void;
+  // minimum/balance checks pass). May return a Promise — while it's pending the
+  // Deposit button shows a loading spinner and the sheet stays open; it
+  // dismisses on success and surfaces the error in-place on failure.
+  onDeposit?: (amountUsd: number) => void | Promise<void>;
   // The wallet's spendable USDC balance (token units ≈ dollars). `null` while
   // holdings are still loading or the wallet has no USDC.
   availableUsdc?: number | null;
@@ -124,6 +127,8 @@ export function DepositSheet({
   const [amount, setAmount] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [caretOn, setCaretOn] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const snapPoints = useMemo(() => ["94%"], []);
   const available = Number.isFinite(availableUsdc ?? NaN)
@@ -133,6 +138,8 @@ export function DepositSheet({
   useEffect(() => {
     if (open) {
       setAmount("");
+      setSubmitError(null);
+      setSubmitting(false);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
@@ -174,13 +181,35 @@ export function DepositSheet({
     setAmount(available.toFixed(2));
   }, [available]);
 
-  const handleDeposit = useCallback(() => {
+  const handleDeposit = useCallback(async () => {
     const usd = amountToUsd(amount);
-    if (usd < MIN_DEPOSIT_USD || usd > available) return;
+    if (usd < MIN_DEPOSIT_USD || usd > available) {
+      return;
+    }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
-    sheetRef.current?.dismiss();
-    onDeposit?.(usd);
+    setSubmitError(null);
+    const result = onDeposit?.(usd);
+    // Synchronous handler (or none) → close immediately, as before.
+    if (!(result instanceof Promise)) {
+      sheetRef.current?.dismiss();
+      return;
+    }
+    // Async on-chain deposit: stay open, show the button loading, then dismiss
+    // on success or surface the error in-place.
+    setSubmitting(true);
+    try {
+      await result;
+      sheetRef.current?.dismiss();
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Deposit failed. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }, [amount, available, onDeposit]);
 
   const renderBackdrop = useCallback(
@@ -354,20 +383,30 @@ export function DepositSheet({
             </Pressable>
           </View>
 
+          {submitError ? (
+            <Text style={styles.submitError}>{submitError}</Text>
+          ) : null}
+
           <Pressable
             onPress={handleDeposit}
             accessibilityRole="button"
             accessibilityLabel={ctaLabel}
-            disabled={hasError}
+            disabled={hasError || submitting}
             style={({ pressed }) => [
               styles.cta,
               hasError ? styles.ctaError : styles.ctaEnabled,
-              !hasError && pressed && styles.ctaPressed,
+              !hasError && !submitting && pressed && styles.ctaPressed,
             ]}
           >
-            <Text style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}>
-              {ctaLabel}
-            </Text>
+            {submitting ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <Text
+                style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
+              >
+                {ctaLabel}
+              </Text>
+            )}
           </Pressable>
         </Animated.View>
       </BottomSheetView>
@@ -551,5 +590,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: COLOR_ERROR_TEXT,
     textAlign: "center",
+  },
+  submitError: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLOR_ERROR_TEXT,
+    textAlign: "center",
+    marginBottom: 12,
   },
 });

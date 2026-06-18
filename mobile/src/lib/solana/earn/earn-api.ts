@@ -96,6 +96,41 @@ export async function fetchEarnState(
   return (await res.json()) as EarnStateResponse;
 }
 
+// Global (per-cluster, not per-user) Earn APY forecast + history — unauthenticated.
+// Mirrors the web `/earn-forecast/summary` response consumed by the APY/Forecast
+// charts. APYs are in basis points.
+export type EarnApySample = { apyBps: number; observedAt: string };
+
+export type EarnApySeries = {
+  key: "loyal" | "mainUsdcReserve";
+  samples: EarnApySample[];
+};
+
+export type EarnForecastSummary = {
+  forecast: {
+    apyBps: number;
+    rangeHighBps: number;
+    rangeLowBps: number;
+    window: { startedAt: string; endedAt: string };
+  };
+  history: {
+    samples: EarnApySample[];
+    series?: EarnApySeries[];
+    window?: { startedAt: string; endedAt: string };
+  };
+};
+
+export async function fetchEarnForecastSummary(): Promise<EarnForecastSummary> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/earn-forecast/summary`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to load Earn forecast.");
+  }
+  return (await res.json()) as EarnForecastSummary;
+}
+
 export type EarnDepositConfirmArgs = {
   auth: EarnAuthFields;
   // Echoed back verbatim from the prepare response; the backend rebuilds the
