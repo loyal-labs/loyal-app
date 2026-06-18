@@ -256,6 +256,62 @@ export type SnapshotReconciliationInput = {
   sourceSnapshotId: bigint;
 };
 
+const REDEEMABLE_LIQUIDITY_AMOUNT_SEMANTICS = new Set([
+  "kamino_redeemable_liquidity",
+]);
+
+const COLLATERAL_UNIT_AMOUNT_SEMANTICS = new Set([
+  "kamino_obligation_collateral_deposited_amount",
+]);
+
+function metadataStringValue(
+  metadata: Record<string, unknown> | null | undefined,
+  keys: string[]
+): string | null {
+  if (!metadata) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function getReserveAmountSemantics(
+  metadata: Record<string, unknown> | null | undefined
+): string | null {
+  return metadataStringValue(metadata, ["amountSemantics", "amount_semantics"]);
+}
+
+export function isUserFacingReserveAmountMetadata(
+  metadata: Record<string, unknown> | null | undefined
+): boolean {
+  const semantics = getReserveAmountSemantics(metadata);
+  return (
+    semantics !== null && REDEEMABLE_LIQUIDITY_AMOUNT_SEMANTICS.has(semantics)
+  );
+}
+
+function hasCollateralUnitAmountSemantics(
+  metadata: Record<string, unknown> | null | undefined
+): boolean {
+  const semantics = getReserveAmountSemantics(metadata);
+  return semantics !== null && COLLATERAL_UNIT_AMOUNT_SEMANTICS.has(semantics);
+}
+
+export function filterUserFacingYieldVaultReservePositions<
+  T extends { planningMetadata: Record<string, unknown> }
+>(rows: T[]): T[] {
+  return rows.filter((row) =>
+    isUserFacingReserveAmountMetadata(row.planningMetadata)
+  );
+}
+
 export type YieldPositionVerificationFailureReason =
   | "negative_principal"
   | "negative_holding"
@@ -375,6 +431,71 @@ async function findLatestHoldingEventForPosition(
     .limit(1);
 
   return (event as UserYieldPositionHoldingEventRecord | undefined) ?? null;
+}
+
+async function holdingEventUsesCollateralUnitSnapshot(
+  event: UserYieldPositionHoldingEventRecord | null,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<boolean> {
+  if (
+    !event ||
+    event.eventType !== "snapshot_reconciled" ||
+    event.sourceSnapshotId === null
+  ) {
+    return false;
+  }
+
+  const [snapshotPosition] = await dependencies.client.db
+    .select({
+      planningMetadata: vaultPositionSnapshotPositions.planningMetadata,
+    })
+    .from(vaultPositionSnapshotPositions)
+    .where(
+      and(
+        eq(vaultPositionSnapshotPositions.snapshotId, event.sourceSnapshotId),
+        eq(vaultPositionSnapshotPositions.reserve, event.reserve),
+        eq(vaultPositionSnapshotPositions.liquidityMint, event.liquidityMint),
+        eq(vaultPositionSnapshotPositions.amountRaw, event.amountRaw)
+      )
+    )
+    .limit(1);
+
+  return hasCollateralUnitAmountSemantics(
+    snapshotPosition?.planningMetadata ?? null
+  );
+}
+
+function principalBackedPositionProjection(
+  position: UserYieldPositionRecord,
+  event: UserYieldPositionHoldingEventRecord | null
+): UserYieldPositionRecord {
+  if (position.principalAmountRaw <= BigInt(0)) {
+    return position;
+  }
+
+  return {
+    ...position,
+    currentAmountRaw: position.principalAmountRaw,
+    currentLiquidityMint:
+      event?.liquidityMint ?? position.currentLiquidityMint,
+    currentMarket: event?.market ?? position.currentMarket,
+    currentObservedAt: event?.observedAt ?? position.currentObservedAt,
+    currentObservedSlot: event?.observedSlot ?? position.currentObservedSlot,
+    currentReserve: event?.reserve ?? position.currentReserve,
+  };
+}
+
+async function projectPositionForUserFacingRead(
+  position: UserYieldPositionRecord,
+  latestEvent: UserYieldPositionHoldingEventRecord | null,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+): Promise<UserYieldPositionRecord> {
+  return (await holdingEventUsesCollateralUnitSnapshot(
+    latestEvent,
+    dependencies
+  ))
+    ? principalBackedPositionProjection(position, latestEvent)
+    : position;
 }
 
 async function recordZeroCurrentVaultPositionsAfterFullWithdrawal(
@@ -2101,7 +2222,16 @@ export async function findReconciledActiveYieldPositionForVault(
     return position;
   }
 
-  const [current] = await dependencies.client.db
+  const latestEvent = await findLatestHoldingEventForPosition(
+    position.id,
+    dependencies
+  );
+  const positionForRead = await projectPositionForUserFacingRead(
+    position,
+    latestEvent,
+    dependencies
+  );
+  const currentRows = await dependencies.client.db
     .select()
     .from(vaultReservePositionsCurrent)
     .where(
@@ -2114,20 +2244,18 @@ export async function findReconciledActiveYieldPositionForVault(
       desc(vaultReservePositionsCurrent.observedSlot),
       desc(vaultReservePositionsCurrent.amountRaw),
       desc(vaultReservePositionsCurrent.snapshotId)
-    )
-    .limit(1);
+    );
+  const [current] = filterUserFacingYieldVaultReservePositions(
+    currentRows as CurrentYieldVaultReservePositionRecord[]
+  );
 
   if (!current) {
-    return position;
+    return positionForRead;
   }
   if (current.observedSlot <= position.currentObservedSlot) {
-    return position;
+    return positionForRead;
   }
 
-  const latestEvent = await findLatestHoldingEventForPosition(
-    position.id,
-    dependencies
-  );
   if (latestEvent && currentVaultPositionMatchesEvent(current, latestEvent)) {
     if (currentPositionMatchesHoldingEvent(position, latestEvent)) {
       return position;
@@ -2210,7 +2338,7 @@ export async function findCurrentNonzeroYieldVaultReservePositions(
     return [];
   }
 
-  return dependencies.client.db
+  const rows = await dependencies.client.db
     .select()
     .from(vaultReservePositionsCurrent)
     .where(
@@ -2224,6 +2352,10 @@ export async function findCurrentNonzeroYieldVaultReservePositions(
       desc(vaultReservePositionsCurrent.amountRaw),
       desc(vaultReservePositionsCurrent.snapshotId)
     );
+
+  return filterUserFacingYieldVaultReservePositions(
+    rows as CurrentYieldVaultReservePositionRecord[]
+  );
 }
 
 export async function findCurrentYieldVaultIdleTokenBalances(
