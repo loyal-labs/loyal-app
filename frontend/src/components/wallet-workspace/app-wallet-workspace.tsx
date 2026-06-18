@@ -108,7 +108,11 @@ import {
   invalidateEarnEarningsCache,
 } from "@/hooks/use-earn-earnings";
 import { invalidateEarnTransactionsCache } from "@/lib/yield-optimization/earn-transactions.client";
-import { useActiveEarnPosition } from "@/hooks/use-active-earn-position";
+import {
+  useActiveEarnPosition,
+  type ActiveEarnPosition,
+  type ActiveEarnPositionHolding,
+} from "@/hooks/use-active-earn-position";
 import {
   prepareEarnDepositOnServer,
   prepareEarnWithdrawOnServer,
@@ -141,6 +145,7 @@ import {
   isLoadedEarnAutodepositConfig,
   type LoadedEarnAutodepositConfig,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
 import { BuilderBlocksPane } from "./builder-blocks-pane";
@@ -558,6 +563,113 @@ function rawTokenAmountToNumber(amountRaw: string, decimals: number): number {
   const raw = BigInt(amountRaw);
   const scale = BigInt(10) ** BigInt(decimals);
   return Number(raw / scale) + Number(raw % scale) / 10 ** decimals;
+}
+
+function buildPostDepositEarnPosition(args: {
+  amountRaw: bigint;
+  confirmedSlot?: string;
+  current: ActiveEarnPosition | null;
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+}): ActiveEarnPosition {
+  const amountRawString = args.amountRaw.toString();
+  const currentTotalAmountRaw = (
+    BigInt(args.current?.currentTotalAmountRaw ?? "0") + args.amountRaw
+  ).toString();
+  const principalAmountRaw = (
+    BigInt(args.current?.principalAmountRaw ?? "0") + args.amountRaw
+  ).toString();
+  const liquidityMint = args.preparedDeposit.targetReserve.liquidityMint
+    .toBase58();
+  const market = args.preparedDeposit.targetReserve.market.toBase58();
+  const reserve = args.preparedDeposit.targetReserve.reserve.toBase58();
+  const display = resolveEarnPositionDisplay({ liquidityMint, market });
+  const nowIso = new Date().toISOString();
+  const observedSlot = args.confirmedSlot ?? "0";
+  const supplyApyBps =
+    args.preparedDeposit.targetReserve.supplyApyBps?.toString() ?? null;
+  const depositedHolding: ActiveEarnPositionHolding = {
+    amountRaw: amountRawString,
+    kind: "kamino",
+    label: display.label,
+    liquidityMint,
+    market,
+    marketName: display.marketName,
+    observedAt: nowIso,
+    observedSlot,
+    provenance: {
+      source: "earn_deposit_confirmation",
+      vaultUsdcAta: args.preparedDeposit.vault.usdcAta.toBase58(),
+    },
+    reserve,
+    supplyApyBps,
+  };
+  const holdings = upsertPostDepositEarnHolding({
+    amountRaw: args.amountRaw,
+    currentHoldings: args.current?.holdings,
+    depositedHolding,
+  });
+  const currentHoldingAmountRaw =
+    holdings.find(
+      (holding) => holding.kind === "kamino" && holding.reserve === reserve
+    )?.amountRaw ?? amountRawString;
+
+  return {
+    currentHolding: {
+      amountRaw: currentHoldingAmountRaw,
+      liquidityMint,
+      market,
+      observedAt: nowIso,
+      observedSlot,
+      provenance: {
+        lastHoldingEventId: null,
+        lastRebalanceDecisionId: null,
+      },
+      reserve,
+    },
+    currentSupplyApyBps: args.current?.currentSupplyApyBps ?? supplyApyBps,
+    display,
+    initialHolding: args.current?.initialHolding ?? {
+      liquidityMint,
+      market,
+      reserve,
+      supplyApyBps,
+    },
+    holdings,
+    currentTotalAmountRaw,
+    principalAmountRaw,
+    status: "active",
+  };
+}
+
+function upsertPostDepositEarnHolding(args: {
+  amountRaw: bigint;
+  currentHoldings: ActiveEarnPositionHolding[] | undefined;
+  depositedHolding: ActiveEarnPositionHolding;
+}): ActiveEarnPositionHolding[] {
+  const holdings = args.currentHoldings ?? [];
+  const existingIndex = holdings.findIndex(
+    (holding) =>
+      holding.kind === "kamino" &&
+      holding.reserve === args.depositedHolding.reserve
+  );
+
+  if (existingIndex === -1) {
+    return [...holdings, args.depositedHolding];
+  }
+
+  return holdings.map((holding, index) => {
+    if (index !== existingIndex) {
+      return holding;
+    }
+
+    return {
+      ...holding,
+      amountRaw: (BigInt(holding.amountRaw) + args.amountRaw).toString(),
+      observedAt: args.depositedHolding.observedAt,
+      observedSlot: args.depositedHolding.observedSlot,
+      supplyApyBps: holding.supplyApyBps ?? args.depositedHolding.supplyApyBps,
+    };
+  });
 }
 
 function buildVaultSendContext(args: {
@@ -3319,48 +3431,12 @@ export function AppWalletWorkspace({
       setEarnDepositPrepareError(null);
       invalidateEarnClientCaches();
       setActiveEarnPosition((current) => {
-        const nowIso = new Date().toISOString();
-        const tokenMint = pendingEarnDepositDraft.tokenMint ?? "";
-        const next = {
-          display: current?.display ?? {
-            label: "Main Kamino · USDC",
-            marketName: "Main Kamino",
-            mintSymbol: "USDC",
-          },
-          initialHolding: current?.initialHolding ?? {
-            liquidityMint: tokenMint,
-            market: null,
-            reserve: "",
-            supplyApyBps: null,
-          },
-          currentHolding: current?.currentHolding
-            ? {
-                ...current.currentHolding,
-                amountRaw: (
-                  BigInt(current.currentHolding.amountRaw) + amountRaw
-                ).toString(),
-              }
-            : {
-                amountRaw: amountRaw.toString(),
-                liquidityMint: tokenMint,
-                market: null,
-                observedAt: nowIso,
-                observedSlot: "0",
-                provenance: {
-                  lastHoldingEventId: null,
-                  lastRebalanceDecisionId: null,
-                },
-                reserve: "",
-              },
-          currentTotalAmountRaw: (
-            BigInt(current?.currentTotalAmountRaw ?? "0") + amountRaw
-          ).toString(),
-          principalAmountRaw: (
-            BigInt(current?.principalAmountRaw ?? "0") + amountRaw
-          ).toString(),
-          status: "active" as const,
-          currentSupplyApyBps: current?.currentSupplyApyBps ?? null,
-        };
+        const next = buildPostDepositEarnPosition({
+          amountRaw,
+          confirmedSlot: result.confirmedSlot,
+          current,
+          preparedDeposit: pendingEarnDepositPrepared,
+        });
         console.log("[earn-position] optimistic post-deposit update", {
           current,
           depositAmountRaw: amountRaw.toString(),
