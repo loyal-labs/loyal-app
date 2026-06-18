@@ -4,7 +4,7 @@ import { DogWithMood } from "@/components/chat-input";
 import type { SmartAccountApprovalItem } from "@/hooks/use-smart-account-sidebar-data";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { motion, type Variants } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { SubViewHeader } from "./shared";
 
@@ -963,6 +963,43 @@ const mascotNoteVariants: Variants = {
 };
 
 function ApprovalMascotNote({ text }: { text: string }) {
+  const [visibleLength, setVisibleLength] = useState(0);
+  const visibleText = text.slice(0, visibleLength);
+  const isComplete = visibleLength >= text.length;
+
+  useEffect(() => {
+    const prefersReducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      setVisibleLength(text.length);
+      return;
+    }
+
+    setVisibleLength(0);
+
+    let index = 0;
+    let intervalId: number | null = null;
+    const startTimeoutId = window.setTimeout(() => {
+      intervalId = window.setInterval(() => {
+        index = Math.min(text.length, index + 1);
+        setVisibleLength(index);
+
+        if (index >= text.length && intervalId !== null) {
+          window.clearInterval(intervalId);
+        }
+      }, 30);
+    }, 240);
+
+    return () => {
+      window.clearTimeout(startTimeoutId);
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [text]);
+
   return (
     // The motion wrapper only carries the propagated exit fade. It must stay
     // unstyled: styled-jsx scopes classes to plain DOM elements only, so the
@@ -970,132 +1007,169 @@ function ApprovalMascotNote({ text }: { text: string }) {
     <motion.div variants={mascotNoteVariants}>
       <div className="approval-mascot-note">
         <style jsx>{`
-        .approval-mascot-note {
-          display: flex;
-          width: 100%;
-          align-items: flex-end;
-          justify-content: flex-end;
-          gap: 12px;
-          padding: 4px 20px 12px;
-        }
-        /* On wide layouts the review pane sits in the grid with the scrim to
+          .approval-mascot-note {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            align-items: flex-end;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 4px 20px 12px;
+          }
+          /* On wide layouts the review pane sits in the grid with the scrim to
            its left, so the mascot floats outside the pane's left edge,
            aligned with the pane title. Below 1024px the pane becomes a fixed
            overlay with no room to the left and the mascot keeps its in-pane
            spot above the buttons. */
-        @media (min-width: 1025px) {
-          .approval-mascot-note {
+          @media (min-width: 1025px) {
+            .approval-mascot-note {
+              position: absolute;
+              top: 66%;
+              right: 100%;
+              width: max-content;
+              margin-right: clamp(32px, 8vw, 120px);
+              padding: 0;
+              align-items: flex-end;
+              transform: translateY(-50%);
+            }
+            .approval-mascot-bubble::before {
+              bottom: -6px;
+            }
+          }
+          .approval-mascot-bubble {
+            position: relative;
+            max-width: 300px;
+            padding: 12px 16px;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 18px;
+            background: #fff;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
+              0 2px 6px rgba(0, 0, 0, 0.04);
+            color: rgba(0, 0, 0, 0.86);
+            font-family: var(--font-geist-sans), sans-serif;
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 21px;
+            transform-origin: 100% 50%;
+            animation: approval-mascot-bubble-unravel 0.62s
+              cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
+          }
+          .approval-mascot-bubble-content {
+            display: block;
+            position: relative;
+          }
+          .approval-mascot-bubble-measure {
+            display: block;
+            visibility: hidden;
+          }
+          .approval-mascot-bubble-stream {
             position: absolute;
-            top: 92px;
-            right: 100%;
-            width: max-content;
-            margin-right: 12px;
-            padding: 0;
-            align-items: flex-start;
+            inset: 0;
+            display: block;
+            white-space: normal;
+          }
+          .approval-mascot-bubble-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            margin-left: 2px;
+            border-radius: 9999px;
+            background: currentColor;
+            transform: translateY(2px);
+            animation: approval-mascot-stream-cursor 0.8s step-end infinite;
+          }
+          .approval-mascot-bubble-cursor[data-complete="true"] {
+            animation: none;
+            opacity: 0;
           }
           .approval-mascot-bubble::before {
-            top: 18px;
-            bottom: auto;
+            content: "";
+            position: absolute;
+            right: 34px;
+            bottom: -6px;
+            width: 11px;
+            height: 11px;
+            background: #fff;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            border-right: 1px solid rgba(0, 0, 0, 0.08);
+            transform: rotate(45deg);
+            animation: approval-mascot-bubble-tail 0.62s
+              cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
           }
-        }
-        .approval-mascot-bubble {
-          position: relative;
-          max-width: 300px;
-          padding: 12px 16px;
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          border-radius: 18px;
-          background: #fff;
-          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
-            0 2px 6px rgba(0, 0, 0, 0.04);
-          color: rgba(0, 0, 0, 0.86);
-          font-family: var(--font-geist-sans), sans-serif;
-          font-size: 15px;
-          font-weight: 500;
-          line-height: 21px;
-          transform-origin: 100% 50%;
-          animation: approval-mascot-bubble-unravel 0.62s
-            cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
-        }
-        .approval-mascot-bubble-content {
-          display: block;
-          animation: approval-mascot-bubble-content 0.62s
-            cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
-        }
-        .approval-mascot-bubble::before {
-          content: "";
-          position: absolute;
-          right: -6px;
-          bottom: 18px;
-          width: 11px;
-          height: 11px;
-          background: #fff;
-          border-top: 1px solid rgba(0, 0, 0, 0.08);
-          border-right: 1px solid rgba(0, 0, 0, 0.08);
-          transform: rotate(45deg);
-          animation: approval-mascot-bubble-tail 0.62s
-            cubic-bezier(0.16, 1, 0.3, 1) 0.14s both;
-        }
-        .approval-mascot-dog {
-          flex-shrink: 0;
-          width: 88px;
-          height: 70px;
-          animation: approval-mascot-dog-slide-in 0.5s
-            cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-        .approval-mascot-dog :global(svg) {
-          display: block;
-          width: 100%;
-          height: 100%;
-        }
-        @keyframes approval-mascot-bubble-unravel {
-          from {
-            opacity: 0;
-            transform: translateX(4px) scaleX(0.08);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0) scaleX(1);
-          }
-        }
-        @keyframes approval-mascot-bubble-content {
-          from {
-            clip-path: inset(0 0 0 100%);
-          }
-          to {
-            clip-path: inset(0 0 0 0);
-          }
-        }
-        @keyframes approval-mascot-bubble-tail {
-          from {
-            opacity: 0;
-            transform: translateX(4px) rotate(45deg) scale(0.3);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0) rotate(45deg) scale(1);
-          }
-        }
-        @keyframes approval-mascot-dog-slide-in {
-          from {
-            opacity: 0;
-            transform: translateX(28px);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .approval-mascot-bubble,
-          .approval-mascot-bubble-content,
-          .approval-mascot-bubble::before,
           .approval-mascot-dog {
-            animation: none;
+            flex-shrink: 0;
+            width: 88px;
+            height: 70px;
+            animation: approval-mascot-dog-slide-in 0.5s
+              cubic-bezier(0.16, 1, 0.3, 1) both;
           }
-        }
-      `}</style>
+          .approval-mascot-dog :global(svg) {
+            display: block;
+            width: 100%;
+            height: 100%;
+          }
+          @keyframes approval-mascot-bubble-unravel {
+            from {
+              opacity: 0;
+              transform: translateX(4px) scaleX(0.08);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(0) scaleX(1);
+            }
+          }
+          @keyframes approval-mascot-bubble-tail {
+            from {
+              opacity: 0;
+              transform: translateY(-3px) rotate(45deg) scale(0.3);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) rotate(45deg) scale(1);
+            }
+          }
+          @keyframes approval-mascot-dog-slide-in {
+            from {
+              opacity: 0;
+              transform: translateX(28px);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(0);
+            }
+          }
+          @keyframes approval-mascot-stream-cursor {
+            0%,
+            48% {
+              opacity: 1;
+            }
+            49%,
+            100% {
+              opacity: 0;
+            }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .approval-mascot-bubble,
+            .approval-mascot-bubble::before,
+            .approval-mascot-bubble-cursor,
+            .approval-mascot-dog {
+              animation: none;
+            }
+          }
+        `}</style>
         <div className="approval-mascot-bubble" key={text}>
-          <span className="approval-mascot-bubble-content">{text}</span>
+          <span aria-label={text} className="approval-mascot-bubble-content">
+            <span aria-hidden="true" className="approval-mascot-bubble-measure">
+              {text}
+            </span>
+            <span aria-hidden="true" className="approval-mascot-bubble-stream">
+              {visibleText}
+              <span
+                className="approval-mascot-bubble-cursor"
+                data-complete={isComplete}
+              />
+            </span>
+          </span>
         </div>
         <div className="approval-mascot-dog">
           <DogWithMood />

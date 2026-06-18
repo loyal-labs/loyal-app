@@ -463,7 +463,7 @@ describe("Earn autodeposit load state", () => {
     };
     const now = () => new Date("2026-06-11T00:00:00.000Z");
 
-    const { calls, client } = createSumClient([{ totalRaw: "65520000" }]);
+    const { client } = createSumClient([{ totalRaw: "65520000" }]);
     await expect(
       sumEarnAutodepositCurrentPeriodDeposits(target, { client, now } as never)
     ).resolves.toBe(BigInt(65_520_000));
@@ -491,7 +491,7 @@ describe("Earn autodeposit load state", () => {
       lotRemainingAmountRaw: BigInt(600_000_000),
       projectionAmountRaw: BigInt(1_000_000_000),
     });
-    const { client } = createFloorUpdateClient({
+    const { client, getExecuteSql } = createFloorUpdateClient({
       existing,
       row,
     });
@@ -520,6 +520,11 @@ describe("Earn autodeposit load state", () => {
         remainingAmountRaw: BigInt(600_000_000),
       },
     });
+    expect(getExecuteSql()[0]).toContain("SET wallet_balance_floor_raw = $");
+    expect(getExecuteSql()[0]).toContain("status = 'suppressed'");
+    expect(getExecuteSql()[0]).not.toContain(
+      'SET "loyal_yield"."balance_sweep_targets"."wallet_balance_floor_raw"'
+    );
   });
 
   test("higher floor update schedules only surplus above the new floor", async () => {

@@ -1226,9 +1226,7 @@ export async function updateAutodepositWalletBalanceFloor(
     ),
     updated_target AS (
       UPDATE ${balanceSweepTargets}
-      SET ${balanceSweepTargets.walletBalanceFloorRaw} = ${
-    input.walletBalanceFloorRaw
-  }
+      SET wallet_balance_floor_raw = ${input.walletBalanceFloorRaw}
       WHERE ${balanceSweepTargets.id} IN (SELECT id FROM locked_target)
       RETURNING
         ${balanceSweepTargets.id},
@@ -1238,10 +1236,8 @@ export async function updateAutodepositWalletBalanceFloor(
     suppressed_lots AS (
       UPDATE ${balanceSweepSurplusLots}
       SET
-        ${
-          balanceSweepSurplusLots.status
-        } = 'suppressed'::loyal_yield.balance_sweep_surplus_lot_status,
-        ${balanceSweepSurplusLots.updatedAt} = ${now}
+        status = 'suppressed'::loyal_yield.balance_sweep_surplus_lot_status,
+        updated_at = ${now}
       WHERE ${
         balanceSweepSurplusLots.targetId
       } IN (SELECT id FROM updated_target)

@@ -1393,7 +1393,7 @@ export async function prepareEarnWithdrawOnServer(args: {
   return hydratePreparedEarnUsdcWithdraw(payload.preparedWithdraw);
 }
 
-async function prepareEarnAutodepositSetupOnServer(args: {
+export async function prepareEarnAutodepositSetupOnServer(args: {
   amountRaw: bigint;
   nonce?: bigint;
   policySeed?: bigint;

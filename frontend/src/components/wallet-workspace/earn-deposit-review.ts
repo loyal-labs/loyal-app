@@ -419,7 +419,7 @@ export function buildEarnDepositReviewItem(args: {
   const policyPage: ApprovalReviewPage = {
     title: approvalTitle,
     heading: "Set up Safe Earn routing",
-    mascotNote: `One-time setup so the ${EARN_VAULT_LABEL} can route your ${args.draft.symbol} through Kamino Safe same-mint reserves.`,
+    mascotNote: `First, let's set up the policy that lets Loyal agents route your money across Kamino stablecoin reserves: ${safeMarketLabels}. You keep full custody the whole time.`,
     rows: [
       {
         label: "What you're approving",
@@ -442,7 +442,7 @@ export function buildEarnDepositReviewItem(args: {
     title: approvalTitle,
     heading: "Set up Earn obligation",
     mascotNote:
-      "This one-time policy lets the Earn vault initialize its Kamino obligation before depositing.",
+      "Next, let's add one more policy so your agent can keep Kamino deposit data up to date. That helps the routing policy do its job correctly.",
     rows: [
       {
         label: "Policy",
@@ -472,8 +472,8 @@ export function buildEarnDepositReviewItem(args: {
     heading: `Deposit into ${EARN_VAULT_LABEL}`,
     hideAmountHeading: true,
     mascotNote: isPolicySetupFlow
-      ? "Final approval: move USDC into Earn and route it through Kamino."
-      : `Top up your ${EARN_VAULT_LABEL} with ${args.draft.symbol}.`,
+      ? `Now you'll deposit $${args.draft.amountLabel} into Earn. As soon as it lands, Loyal agents can start optimizing it across the Safe reserves.`
+      : "Your Earn policy is already ready, so this top-up can go straight into Earn and route to the current Safe reserve.",
     rows: [
       {
         label: "First",
@@ -659,7 +659,7 @@ export function buildEarnWithdrawReviewItem(args: {
             title: `Approval ${approvalNumber} of ${approvalCount}`,
             heading: "Remove Autodeposit",
             mascotNote:
-              "First, close the recurring allowance before withdrawing everything.",
+              "Before you fully exit, let's turn off Autodeposit so no future sweep can refill Earn after this withdrawal.",
             rows: [
               {
                 label: "Autodeposit",
@@ -675,8 +675,10 @@ export function buildEarnWithdrawReviewItem(args: {
               : "Withdraw reserve step",
             hideAmountHeading: true,
             mascotNote: isFinalWithdrawStep
-              ? "Withdraw the selected source and transfer USDC back to your wallet."
-              : "Withdraw this source step before continuing.",
+              ? args.draft.mode === "full"
+                ? "I'm sorry to see you go. This transaction returns your money, closes the Earn accounts, and refunds the rent you've paid. You're always welcome back."
+                : "This returns USDC from the Earn source you selected. Your Earn setup stays active for the rest of your position."
+              : "Your Earn balance is split across sources, so we'll withdraw this one first and then continue to the next step.",
             rows: [
               ...(step
                 ? [
@@ -727,12 +729,14 @@ export function buildEarnAutodepositSetupReviewItem(args: {
       args.draft.keepAmountChanged !== undefined
   );
   const requiresSignature = args.draft.requiresSignature ?? true;
+  const autodepositFloorLabel = `${args.draft.keepAmountLabel} ${args.draft.symbol}`;
+  const autodepositSweepRule = `Keep ${autodepositFloorLabel} in Main Account; move the rest to Earn`;
   const changeRows: ApprovalReviewDisplaySection["rows"] = [
     ...(args.draft.amountChanged ?? !isEdit
       ? [
           {
-            label: "Max deposit",
-            value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+            label: "Sweep rule",
+            value: autodepositSweepRule,
           },
         ]
       : []),
@@ -859,7 +863,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
               },
               {
                 label: "Allowance",
-                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+                value: autodepositSweepRule,
               },
               {
                 label: "Minimum balance",
@@ -872,7 +876,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             rows: [
               {
                 label: "Allowance",
-                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+                value: autodepositSweepRule,
               },
               {
                 label: "Minimum balance",
@@ -920,7 +924,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
 
   return {
     actionMode: "vote",
-    amount: args.draft.amountLabel,
+    amount: args.draft.keepAmountLabel,
     destinationLabel: EARN_VAULT_LABEL,
     pages: [
       stage === "authority"
@@ -928,10 +932,10 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             title: firstPageTitle,
             heading,
             mascotNote: !requiresSignature
-              ? "This setting updates your saved Autodeposit rule only."
+              ? "Saved. This only updates your Autodeposit rule in Loyal, so there's no wallet approval this time."
               : isEdit
-              ? "This updates the signed allowance while keeping the same Earn policy."
-              : "First, initialize the allowance authority for your Main Account.",
+              ? "This updates your signed Autodeposit settings while keeping the same policy in place."
+              : "Solana has native subscriptions now. Since this is your first Earn subscription, let's set up the authority that makes Autodeposit possible.",
             rows: changeRows,
             collapsibles: [
               {
@@ -946,8 +950,7 @@ export function buildEarnAutodepositSetupReviewItem(args: {
         ? {
             title: isEdit ? "Approval" : "Approval 2 of 3",
             heading: "Create policy",
-            mascotNote:
-              "This creates the Earn policy that will hold your recurring allowance rules.",
+            mascotNote: `This lowers the minimum USDC balance our agents keep in your wallet to $${args.draft.keepAmountLabel}.`,
             rows: changeRows,
             collapsibles: [
               {
@@ -958,15 +961,15 @@ export function buildEarnAutodepositSetupReviewItem(args: {
           }
         : {
             title: isEdit ? "Approval" : "Approval 3 of 3",
-            amount: args.draft.amountLabel,
+            amount: args.draft.keepAmountLabel,
+            heading: "Keep in Main Account",
             symbol: args.draft.symbol,
-            heading: "Create recurring allowance",
             mascotNote:
-              "Now create the recurring allowance from Main Account to the Earn vault.",
+              "This lets Loyal agents sign the transaction that moves eligible USDC from your wallet to your smart account and into Earn.",
             rows: [
               {
-                label: "Frequency",
-                value: `${args.draft.amountLabel} ${args.draft.symbol} every month`,
+                label: "Sweep rule",
+                value: autodepositSweepRule,
               },
               {
                 label: "Minimum balance",
@@ -994,8 +997,8 @@ export function buildEarnAutodepositSetupReviewItem(args: {
     status: "draft",
     statusLabel: "Ready to review",
     summaryLabel: isEdit
-      ? "Update monthly Autodeposit"
-      : "Create monthly Autodeposit",
+      ? "Update Main Account floor"
+      : "Set Main Account floor",
     symbol: args.draft.symbol,
     title: "Autodeposit",
   };
@@ -1038,7 +1041,7 @@ export function buildEarnAutodepositCloseReviewItem(args: {
         title: "Autodeposit",
         heading: "Turn off Autodeposit",
         mascotNote:
-          "This closes the allowance path and removes Loyal's automation policy.",
+          "This closes the recurring delegation from your wallet and removes the smart account permission. Autodeposits stop, and refundable rent comes back to your wallet.",
         rows: [
           {
             label: "Refunds",
