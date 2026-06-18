@@ -38,6 +38,7 @@ export type BalanceSweepWalletBalanceCurrentInput = {
   sourceCommitment: string;
   targetId: bigint;
   wallet: string;
+  walletTokenAta: string;
   walletUsdcAta: string;
 };
 
@@ -48,6 +49,7 @@ export type BalanceSweepExecutionInput = {
   dedupeKey: string;
   destinationPostBalanceRaw?: bigint | null;
   destinationPreBalanceRaw?: bigint | null;
+  destinationTokenAta: string;
   destinationVaultAta: string;
   rawEvidence?: Record<string, unknown> | null;
   receivedAt?: Date;
@@ -56,8 +58,10 @@ export type BalanceSweepExecutionInput = {
   sourceCommitment: string;
   sourcePostBalanceRaw?: bigint | null;
   sourcePreBalanceRaw?: bigint | null;
+  sourceTokenAta: string;
   sourceWalletAta: string;
   targetId: bigint;
+  tokenMint: string;
 };
 
 export type EarnAutodepositBootstrapWalletBalanceSnapshot = {
@@ -551,7 +555,12 @@ export async function scheduleBootstrapEarnAutodepositSweep(
   const existingProjection = await client.db
     .select()
     .from(balanceSweepWalletBalancesCurrent)
-    .where(eq(balanceSweepWalletBalancesCurrent.targetId, target.id))
+    .where(
+      and(
+        eq(balanceSweepWalletBalancesCurrent.targetId, target.id),
+        eq(balanceSweepWalletBalancesCurrent.mint, snapshot.mint)
+      )
+    )
     .limit(1);
 
   await upsertBalanceSweepWalletBalanceCurrent(
@@ -567,6 +576,7 @@ export async function scheduleBootstrapEarnAutodepositSweep(
       sourceCommitment: snapshot.sourceCommitment,
       targetId: target.id,
       wallet: target.wallet,
+      walletTokenAta: target.walletTokenAta,
       walletUsdcAta: target.walletUsdcAta,
     },
     dependencies
@@ -594,6 +604,7 @@ export async function scheduleBootstrapEarnAutodepositSweep(
           ? null
           : snapshot.amountRaw - previousAmountRaw,
       eventId: sourceEventId,
+      mint: snapshot.mint,
       observedAt: snapshot.observedAt,
       observedSlot: snapshot.observedSlot,
       previousAmountRaw,
@@ -608,6 +619,7 @@ export async function scheduleBootstrapEarnAutodepositSweep(
       targetId: target.id,
       txnSignature: null,
       wallet: target.wallet,
+      walletTokenAta: target.walletTokenAta,
       walletUsdcAta: target.walletUsdcAta,
     })
     .onConflictDoNothing({
@@ -1240,6 +1252,7 @@ export async function updateAutodepositWalletBalanceFloor(
       RETURNING
         ${balanceSweepTargets.id},
         ${balanceSweepTargets.wallet},
+        ${balanceSweepTargets.walletTokenAta},
         ${balanceSweepTargets.walletUsdcAta}
     ),
     suppressed_lots AS (
@@ -1268,6 +1281,8 @@ export async function updateAutodepositWalletBalanceFloor(
         target_id,
         wallet,
         wallet_usdc_ata,
+        wallet_token_ata,
+        mint,
         previous_amount_raw,
         amount_raw,
         delta_amount_raw,
@@ -1285,6 +1300,8 @@ export async function updateAutodepositWalletBalanceFloor(
         projection.target_id,
         projection.wallet,
         projection.wallet_usdc_ata,
+        projection.wallet_token_ata,
+        projection.mint,
         projection.amount_raw,
         projection.amount_raw,
         0,
@@ -1483,7 +1500,12 @@ export async function upsertBalanceSweepWalletBalanceCurrent(
   const existing = await client.db
     .select()
     .from(balanceSweepWalletBalancesCurrent)
-    .where(eq(balanceSweepWalletBalancesCurrent.targetId, input.targetId))
+    .where(
+      and(
+        eq(balanceSweepWalletBalancesCurrent.targetId, input.targetId),
+        eq(balanceSweepWalletBalancesCurrent.mint, input.mint)
+      )
+    )
     .limit(1);
   if (existing[0] && existing[0].observedSlot > input.observedSlot) {
     return existing[0];
@@ -1505,10 +1527,14 @@ export async function upsertBalanceSweepWalletBalanceCurrent(
       targetId: input.targetId,
       updatedAt: now,
       wallet: input.wallet,
+      walletTokenAta: input.walletTokenAta,
       walletUsdcAta: input.walletUsdcAta,
     })
     .onConflictDoUpdate({
-      target: [balanceSweepWalletBalancesCurrent.targetId],
+      target: [
+        balanceSweepWalletBalancesCurrent.targetId,
+        balanceSweepWalletBalancesCurrent.mint,
+      ],
       set: {
         accountDataHash: input.accountDataHash,
         amountRaw: input.amountRaw,
@@ -1521,6 +1547,7 @@ export async function upsertBalanceSweepWalletBalanceCurrent(
         sourceCommitment: input.sourceCommitment,
         updatedAt: now,
         wallet: input.wallet,
+        walletTokenAta: input.walletTokenAta,
         walletUsdcAta: input.walletUsdcAta,
       },
     })
@@ -1546,6 +1573,7 @@ export async function recordBalanceSweepExecution(
       decodedAt: input.decodedAt ?? null,
       decodedEvidence: input.decodedEvidence ?? null,
       dedupeKey: input.dedupeKey,
+      destinationTokenAta: input.destinationTokenAta,
       destinationPostBalanceRaw: input.destinationPostBalanceRaw ?? null,
       destinationPreBalanceRaw: input.destinationPreBalanceRaw ?? null,
       destinationVaultAta: input.destinationVaultAta,
@@ -1555,10 +1583,12 @@ export async function recordBalanceSweepExecution(
       signature: input.signature,
       slot: input.slot,
       sourceCommitment: input.sourceCommitment,
+      sourceTokenAta: input.sourceTokenAta,
       sourcePostBalanceRaw: input.sourcePostBalanceRaw ?? null,
       sourcePreBalanceRaw: input.sourcePreBalanceRaw ?? null,
       sourceWalletAta: input.sourceWalletAta,
       targetId: input.targetId,
+      tokenMint: input.tokenMint,
     })
     .onConflictDoNothing({
       target: [balanceSweepExecutions.dedupeKey],

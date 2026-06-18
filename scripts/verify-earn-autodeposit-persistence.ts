@@ -168,6 +168,9 @@ async function main() {
       "balanceSweepWalletBalancesCurrent",
       "balanceSweepExecutions",
       "balanceSweepPolicyId",
+      "destinationTokenAta",
+      "mint",
+      "sourceTokenAta",
       "walletBalanceFloorRaw",
       "tokenMint",
       "walletTokenAta",
@@ -195,14 +198,21 @@ async function main() {
       "ADD COLUMN IF NOT EXISTS token_mint",
       "ADD COLUMN IF NOT EXISTS wallet_token_ata",
       "ADD COLUMN IF NOT EXISTS vault_token_ata",
+      "ADD COLUMN IF NOT EXISTS source_token_ata",
+      "ADD COLUMN IF NOT EXISTS destination_token_ata",
+      "ADD COLUMN IF NOT EXISTS mint",
+      "ADD PRIMARY KEY (target_id, mint)",
       "ADD COLUMN IF NOT EXISTS wallet_balance_floor_raw",
       "ADD COLUMN IF NOT EXISTS lifecycle_status",
+      "balance_sweep_executions_target_mint_slot_idx",
       "balance_sweep_targets_recurring_delegation_uidx",
       "balance_sweep_targets_lifecycle_status_idx",
       "balance_sweep_targets_active_wallet_token_ata_idx",
       "balance_sweep_targets_wallet_token_idx",
+      "balance_sweep_wallet_balance_events_target_mint_event_idx",
+      "balance_sweep_wallet_balances_wallet_token_idx",
     ]),
-    "Migration extends balance_sweep_targets additively."
+    "Migration extends balance-sweep token-account tables additively."
   );
 
   record(
@@ -495,6 +505,49 @@ async function main() {
         )
       ORDER BY indexname;
     `);
+    const liveGenericTokenColumns = await runPsql(`
+      SELECT table_name || '.' || column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'loyal_yield'
+        AND (
+          (
+            table_name = 'balance_sweep_wallet_balances_current'
+            AND column_name IN ('wallet_token_ata', 'mint')
+          )
+          OR (
+            table_name = 'balance_sweep_wallet_balance_events'
+            AND column_name IN ('wallet_token_ata', 'mint')
+          )
+          OR (
+            table_name = 'balance_sweep_executions'
+            AND column_name IN ('token_mint', 'source_token_ata', 'destination_token_ata')
+          )
+        )
+        AND is_nullable = 'NO'
+      ORDER BY table_name, column_name;
+    `);
+    const liveGenericTokenIndexes = await runPsql(`
+      SELECT tablename || '.' || indexname
+      FROM pg_indexes
+      WHERE schemaname = 'loyal_yield'
+        AND indexname IN (
+          'balance_sweep_wallet_balances_wallet_token_idx',
+          'balance_sweep_wallet_balance_events_target_mint_event_idx',
+          'balance_sweep_executions_target_mint_slot_idx'
+        )
+      ORDER BY tablename, indexname;
+    `);
+    const liveWalletBalancePrimaryKey = await runPsql(`
+      SELECT ARRAY_TO_STRING(ARRAY_AGG(a.attname ORDER BY cols.ordinality), ',')
+      FROM pg_constraint c
+      CROSS JOIN LATERAL UNNEST(c.conkey) WITH ORDINALITY AS cols(attnum, ordinality)
+      JOIN pg_attribute a
+        ON a.attrelid = c.conrelid
+       AND a.attnum = cols.attnum
+      WHERE c.conrelid = 'loyal_yield.balance_sweep_wallet_balances_current'::regclass
+        AND c.contype = 'p'
+      GROUP BY c.conname;
+    `);
     const liveConstraints = await runPsql(`
       SELECT conname
       FROM pg_constraint
@@ -667,6 +720,36 @@ async function main() {
         "balance_sweep_targets_wallet_token_idx",
       ]),
       "Live loyal_yield.balance_sweep_targets has autodeposit indexes."
+    );
+    record(
+      checks,
+      "live Neon generic token columns",
+      includesAll(liveGenericTokenColumns, [
+        "balance_sweep_executions.destination_token_ata",
+        "balance_sweep_executions.source_token_ata",
+        "balance_sweep_executions.token_mint",
+        "balance_sweep_wallet_balance_events.mint",
+        "balance_sweep_wallet_balance_events.wallet_token_ata",
+        "balance_sweep_wallet_balances_current.mint",
+        "balance_sweep_wallet_balances_current.wallet_token_ata",
+      ]),
+      "Live balance-sweep projection/event/execution tables have required generic token-account columns."
+    );
+    record(
+      checks,
+      "live Neon generic token indexes",
+      includesAll(liveGenericTokenIndexes, [
+        "balance_sweep_executions.balance_sweep_executions_target_mint_slot_idx",
+        "balance_sweep_wallet_balance_events.balance_sweep_wallet_balance_events_target_mint_event_idx",
+        "balance_sweep_wallet_balances_current.balance_sweep_wallet_balances_wallet_token_idx",
+      ]),
+      "Live balance-sweep projection/event/execution tables have generic token-account indexes."
+    );
+    record(
+      checks,
+      "live Neon wallet balance primary key",
+      liveWalletBalancePrimaryKey === "target_id,mint",
+      "Live balance_sweep_wallet_balances_current is keyed by target_id plus mint."
     );
     record(
       checks,

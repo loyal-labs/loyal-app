@@ -634,6 +634,8 @@ export const balanceSweepWalletBalanceEvents = loyalYieldSchema.table(
     targetId: bigint("target_id", { mode: "bigint" }).notNull(),
     wallet: text("wallet").notNull(),
     walletUsdcAta: text("wallet_usdc_ata").notNull(),
+    walletTokenAta: text("wallet_token_ata").notNull(),
+    mint: text("mint").notNull(),
     previousAmountRaw: bigint("previous_amount_raw", { mode: "bigint" }),
     amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
     deltaAmountRaw: bigint("delta_amount_raw", { mode: "bigint" }),
@@ -656,6 +658,11 @@ export const balanceSweepWalletBalanceEvents = loyalYieldSchema.table(
     index("balance_sweep_wallet_balance_events_target_slot_idx").on(
       table.targetId,
       table.observedSlot
+    ),
+    index("balance_sweep_wallet_balance_events_target_mint_event_idx").on(
+      table.targetId,
+      table.mint,
+      table.eventId
     ),
     index("balance_sweep_wallet_balance_events_txn_signature_idx")
       .on(table.txnSignature)
@@ -747,9 +754,10 @@ export const balanceSweepLotClaimItems = loyalYieldSchema.table(
 export const balanceSweepWalletBalancesCurrent = loyalYieldSchema.table(
   "balance_sweep_wallet_balances_current",
   {
-    targetId: bigint("target_id", { mode: "bigint" }).primaryKey(),
+    targetId: bigint("target_id", { mode: "bigint" }).notNull(),
     wallet: text("wallet").notNull(),
     walletUsdcAta: text("wallet_usdc_ata").notNull(),
+    walletTokenAta: text("wallet_token_ata").notNull(),
     amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
     owner: text("owner").notNull(),
     mint: text("mint").notNull(),
@@ -762,9 +770,18 @@ export const balanceSweepWalletBalancesCurrent = loyalYieldSchema.table(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => [
+    primaryKey({
+      columns: [table.targetId, table.mint],
+      name: "balance_sweep_wallet_balances_current_pkey",
+    }),
     index("balance_sweep_wallet_balances_wallet_idx").on(
       table.wallet,
       table.walletUsdcAta
+    ),
+    index("balance_sweep_wallet_balances_wallet_token_idx").on(
+      table.wallet,
+      table.mint,
+      table.updatedAt
     ),
   ]
 );
@@ -778,6 +795,9 @@ export const balanceSweepExecutions = loyalYieldSchema.table(
     slot: bigint("slot", { mode: "bigint" }).notNull(),
     sourceWalletAta: text("source_wallet_ata").notNull(),
     destinationVaultAta: text("destination_vault_ata").notNull(),
+    tokenMint: text("token_mint").notNull(),
+    sourceTokenAta: text("source_token_ata").notNull(),
+    destinationTokenAta: text("destination_token_ata").notNull(),
     amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
     sourcePreBalanceRaw: bigint("source_pre_balance_raw", { mode: "bigint" }),
     sourcePostBalanceRaw: bigint("source_post_balance_raw", {
@@ -802,6 +822,12 @@ export const balanceSweepExecutions = loyalYieldSchema.table(
     index("balance_sweep_executions_target_slot_idx").on(
       table.targetId,
       table.slot
+    ),
+    index("balance_sweep_executions_target_mint_slot_idx").on(
+      table.targetId,
+      table.tokenMint,
+      table.slot,
+      table.id
     ),
   ]
 );
