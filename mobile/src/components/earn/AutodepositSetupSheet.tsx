@@ -8,6 +8,7 @@ import * as Haptics from "expo-haptics";
 import { Info, Trash2, Wallet, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   Keyboard,
   Pressable,
@@ -108,8 +109,9 @@ export function AutodepositSetupSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  onConfirm: (thresholdUsd: number) => void;
-  onDelete?: () => void;
+  // May return a Promise — the CTA shows a spinner while it's pending.
+  onConfirm: (thresholdUsd: number) => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
   mode: "create" | "edit";
   initialThresholdUsd: number | null;
   availableUsdc: number | null;
@@ -121,6 +123,8 @@ export function AutodepositSetupSheet({
   const [amount, setAmount] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [caretOn, setCaretOn] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const snapPoints = useMemo(() => ["94%"], []);
   const balance = Number.isFinite(availableUsdc ?? NaN)
@@ -134,6 +138,8 @@ export function AutodepositSetupSheet({
           ? String(initialThresholdUsd)
           : "",
       );
+      setSubmitError(null);
+      setSubmitting(false);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
@@ -164,26 +170,63 @@ export function AutodepositSetupSheet({
     sheetRef.current?.dismiss();
   }, []);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
+    if (submitting) {
+      return;
+    }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Keyboard.dismiss();
-    sheetRef.current?.dismiss();
-    onDelete?.();
-  }, [onDelete]);
+    setSubmitError(null);
+    const result = onDelete?.();
+    if (!(result instanceof Promise)) {
+      sheetRef.current?.dismiss();
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await result;
+      sheetRef.current?.dismiss();
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't remove Autodeposit. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [submitting, onDelete]);
 
   const thresholdUsd = amountToUsd(amount);
   // The design's only validation: a $0 threshold can't create an autodeposit.
   const disabled = thresholdUsd <= 0;
 
-  const handleConfirm = useCallback(() => {
-    if (disabled) {
+  const handleConfirm = useCallback(async () => {
+    if (disabled || submitting) {
       return;
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
-    sheetRef.current?.dismiss();
-    onConfirm(thresholdUsd);
-  }, [disabled, onConfirm, thresholdUsd]);
+    setSubmitError(null);
+    const result = onConfirm(thresholdUsd);
+    if (!(result instanceof Promise)) {
+      sheetRef.current?.dismiss();
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await result;
+      sheetRef.current?.dismiss();
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Something went wrong. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [disabled, submitting, onConfirm, thresholdUsd]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -255,6 +298,7 @@ export function AutodepositSetupSheet({
               onPress={handleDelete}
               accessibilityRole="button"
               accessibilityLabel="Delete Autodeposit"
+              disabled={submitting}
               style={({ pressed }) => [
                 styles.iconButton,
                 styles.deleteButton,
@@ -343,22 +387,32 @@ export function AutodepositSetupSheet({
             </View>
           </View>
 
+          {submitError ? (
+            <Text style={styles.submitError}>{submitError}</Text>
+          ) : null}
+
           <Pressable
             onPress={handleConfirm}
             accessibilityRole="button"
             accessibilityLabel={ctaLabel}
-            disabled={disabled}
+            disabled={disabled || submitting}
             style={({ pressed }) => [
               styles.cta,
               disabled ? styles.ctaDisabled : styles.ctaEnabled,
-              !disabled && pressed && styles.ctaPressed,
+              !disabled && !submitting && pressed && styles.ctaPressed,
             ]}
           >
-            <Text
-              style={disabled ? styles.ctaLabelDisabled : styles.ctaLabelEnabled}
-            >
-              {ctaLabel}
-            </Text>
+            {submitting ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <Text
+                style={
+                  disabled ? styles.ctaLabelDisabled : styles.ctaLabelEnabled
+                }
+              >
+                {ctaLabel}
+              </Text>
+            )}
           </Pressable>
         </Animated.View>
       </BottomSheetView>
@@ -465,6 +519,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     color: COLOR_RED,
+  },
+  submitError: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+    color: COLOR_RED,
+    textAlign: "center",
+    marginBottom: 8,
   },
   footerAbsolute: {
     position: "absolute",

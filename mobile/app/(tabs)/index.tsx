@@ -26,8 +26,15 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
+import {
+  executeEarnAutodepositClose,
+  executeEarnAutodepositSetup,
+  setEarnAutodepositActive,
+  updateEarnAutodepositThreshold,
+} from "@/lib/solana/earn/autodeposit";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
+import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
@@ -98,12 +105,18 @@ export default function EarnScreen() {
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [hasDeposit, setHasDeposit] = useState(false);
-  // Autodeposit (mock/local for now): threshold null = not set up. When set up
-  // the control shows the threshold + an on/off toggle instead of "Set up".
-  const [autodepositThresholdUsd, setAutodepositThresholdUsd] = useState<
-    number | null
-  >(null);
-  const [autodepositEnabled, setAutodepositEnabled] = useState(false);
+  // Real on-chain Autodeposit state (read-only, wallet-keyed). The threshold +
+  // on/off are derived from it; the create/edit/delete/toggle handlers below
+  // drive the on-chain policy and refresh this.
+  const { autodeposit, refreshAutodeposit } = useEarnAutodeposit(walletAddress);
+  const autodepositThresholdUsd = useMemo(() => {
+    if (!autodeposit) {
+      return null;
+    }
+    const raw = Number(autodeposit.walletBalanceFloorRaw ?? "0");
+    return Number.isFinite(raw) ? raw / 1e6 : 0;
+  }, [autodeposit]);
+  const autodepositEnabled = autodeposit?.active ?? false;
   const [autodepositHelpOpen, setAutodepositHelpOpen] = useState(false);
   const [autodepositSetupOpen, setAutodepositSetupOpen] = useState(false);
   const [autodepositSetupMode, setAutodepositSetupMode] = useState<
@@ -131,8 +144,9 @@ export default function EarnScreen() {
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      // Pull the real read-model whenever the tab gains focus.
+      // Pull the real read-models whenever the tab gains focus.
       refreshEarnPosition();
+      refreshAutodeposit();
       return () => {
         setIsFocused(false);
         riseY.value = width * DOG_SINK_RATIO;
@@ -141,7 +155,16 @@ export default function EarnScreen() {
         line2.value = 0;
         badge.value = 0;
       };
-    }, [width, riseY, line0, line1, line2, badge, refreshEarnPosition]),
+    }, [
+      width,
+      riseY,
+      line0,
+      line1,
+      line2,
+      badge,
+      refreshEarnPosition,
+      refreshAutodeposit,
+    ]),
   );
 
   // Real read-model is the source of truth: once a position with a balance
@@ -314,22 +337,71 @@ export default function EarnScreen() {
     setAutodepositSetupOpen(true);
   }, []);
 
-  const handleAutodepositToggle = useCallback(() => {
+  const handleAutodepositToggle = useCallback(async () => {
+    if (
+      !autodeposit?.recurringDelegation ||
+      !signer ||
+      !isWalletUnlocked(state)
+    ) {
+      return;
+    }
     void Haptics.selectionAsync();
-    setAutodepositEnabled((on) => !on);
-  }, []);
+    try {
+      await setEarnAutodepositActive({
+        signer,
+        active: !autodeposit.active,
+        policyAccount: autodeposit.policyAccount,
+        recurringDelegation: autodeposit.recurringDelegation,
+        vaultIndex: autodeposit.vaultIndex,
+      });
+    } catch (error) {
+      console.warn("[autodeposit] toggle failed", error);
+    } finally {
+      refreshAutodeposit();
+    }
+  }, [autodeposit, signer, state, refreshAutodeposit]);
 
-  const handleAutodepositConfirm = useCallback((thresholdUsd: number) => {
-    setAutodepositThresholdUsd(thresholdUsd);
-    setAutodepositEnabled(true);
-    setAutodepositSetupOpen(false);
-  }, []);
+  // Returns a Promise so the setup sheet can show its loading state. Create
+  // stands up the on-chain policy; edit changes the threshold (DB-only). The
+  // sheet dismisses itself on success.
+  const handleAutodepositConfirm = useCallback(
+    async (thresholdUsd: number) => {
+      if (!signer || !isWalletUnlocked(state)) {
+        throw new Error("Unlock your wallet to continue.");
+      }
+      if (autodepositSetupMode === "edit") {
+        if (!autodeposit?.recurringDelegation) {
+          throw new Error("Autodeposit isn't set up.");
+        }
+        await updateEarnAutodepositThreshold({
+          signer,
+          thresholdUsd,
+          policyAccount: autodeposit.policyAccount,
+          recurringDelegation: autodeposit.recurringDelegation,
+          vaultIndex: autodeposit.vaultIndex,
+        });
+      } else {
+        await executeEarnAutodepositSetup({ signer, thresholdUsd });
+      }
+      refreshAutodeposit();
+    },
+    [signer, state, autodepositSetupMode, autodeposit, refreshAutodeposit],
+  );
 
-  const handleAutodepositDelete = useCallback(() => {
-    setAutodepositThresholdUsd(null);
-    setAutodepositEnabled(false);
-    setAutodepositSetupOpen(false);
-  }, []);
+  const handleAutodepositDelete = useCallback(async () => {
+    if (!signer || !isWalletUnlocked(state)) {
+      throw new Error("Unlock your wallet to continue.");
+    }
+    if (!autodeposit?.recurringDelegation) {
+      throw new Error("Autodeposit isn't set up.");
+    }
+    await executeEarnAutodepositClose({
+      signer,
+      policy: autodeposit.policyAccount,
+      recurringDelegation: autodeposit.recurringDelegation,
+    });
+    refreshAutodeposit();
+  }, [signer, state, autodeposit, refreshAutodeposit]);
 
   // Live position APY for the funded header badge; falls back to the marketing
   // rate while the read-model is loading or Timescale has no APY data.
