@@ -7,6 +7,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
   index,
   integer,
@@ -269,6 +270,10 @@ export const userYieldPositions = loyalYieldSchema.table(
       table.vaultIndex,
       table.initialReserve
     ),
+    check(
+      "user_yield_positions_smart_account_is_vault",
+      sql`${table.smartAccountAddress} = ${table.vaultPubkey}`
+    ),
   ]
 );
 
@@ -329,6 +334,10 @@ export const userYieldPositionDeposits = loyalYieldSchema.table(
     uniqueIndex("user_yield_position_deposits_signature_uidx").on(
       table.depositSignature
     ),
+    check(
+      "user_yield_position_deposits_smart_account_is_vault",
+      sql`${table.smartAccountAddress} = ${table.vaultPubkey}`
+    ),
   ]
 );
 
@@ -369,6 +378,10 @@ export const userYieldPositionWithdrawals = loyalYieldSchema.table(
   (table) => [
     uniqueIndex("user_yield_position_withdrawals_signature_uidx").on(
       table.withdrawalSignature
+    ),
+    check(
+      "user_yield_position_withdrawals_smart_account_is_vault",
+      sql`${table.smartAccountAddress} = ${table.vaultPubkey}`
     ),
   ]
 );

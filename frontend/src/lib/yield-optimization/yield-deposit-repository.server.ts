@@ -782,6 +782,12 @@ function assertDuplicateDepositField<T extends string | bigint | number | null>(
   }
 }
 
+function canonicalYieldSmartAccountAddress(input: {
+  vaultPubkey: string;
+}): string {
+  return input.vaultPubkey;
+}
+
 function normalizeReserveWithdrawalsForCompare(
   value: YieldWithdrawalReserveMetadata[] | null | undefined
 ): string {
@@ -1026,7 +1032,7 @@ async function findIdempotentDepositPosition(
   );
   assertDuplicateDepositField(
     deposit.smartAccountAddress,
-    input.smartAccountAddress,
+    canonicalYieldSmartAccountAddress(input),
     "smartAccountAddress"
   );
   assertDuplicateDepositField(deposit.settings, input.settings, "settings");
@@ -1152,7 +1158,7 @@ async function findIdempotentWithdrawalPosition(
   );
   assertDuplicateWithdrawalField(
     withdrawal.smartAccountAddress,
-    input.smartAccountAddress,
+    canonicalYieldSmartAccountAddress(input),
     "smartAccountAddress"
   );
   assertDuplicateWithdrawalField(
@@ -1670,6 +1676,7 @@ async function upsertAggregatePosition(args: {
   now: Date;
 }): Promise<UserYieldPositionRecord> {
   const { client, input, mode, now } = args;
+  const smartAccountAddress = canonicalYieldSmartAccountAddress(input);
   const principalAmountRaw =
     mode === "increment-principal"
       ? sql`${userYieldPositions.principalAmountRaw} + ${input.principalAmountRaw}`
@@ -1700,7 +1707,7 @@ async function upsertAggregatePosition(args: {
       policySeed: input.policySeed,
       principalAmountRaw: input.principalAmountRaw,
       settings: input.settings,
-      smartAccountAddress: input.smartAccountAddress,
+      smartAccountAddress,
       status: "active",
       initialReserve: input.targetReserve,
       initialSupplyApyBps: input.targetSupplyApyBps,
@@ -1726,7 +1733,7 @@ async function upsertAggregatePosition(args: {
         policyId: input.policyId,
         policySeed: input.policySeed,
         principalAmountRaw,
-        smartAccountAddress: input.smartAccountAddress,
+        smartAccountAddress,
         status: "active",
         initialSupplyApyBps: input.targetSupplyApyBps,
         updatedAt: now,
@@ -1913,6 +1920,7 @@ export async function recordConfirmedYieldDeposit(
     input,
     now,
   });
+  const smartAccountAddress = canonicalYieldSmartAccountAddress(input);
   const depositValues = {
     confirmedAt: now,
     confirmedSlot: input.confirmedSlot,
@@ -1927,7 +1935,7 @@ export async function recordConfirmedYieldDeposit(
     policySignature: input.policySignature,
     principalAmountRaw: input.principalAmountRaw,
     settings: input.settings,
-    smartAccountAddress: input.smartAccountAddress,
+    smartAccountAddress,
     targetReserve: input.targetReserve,
     targetSupplyApyBps: input.targetSupplyApyBps,
     vaultIndex: input.vaultIndex,
@@ -3018,6 +3026,7 @@ export async function recordConfirmedYieldWithdrawal(
     );
   }
 
+  const smartAccountAddress = canonicalYieldSmartAccountAddress(input);
   const withdrawalValues = {
     confirmedAt: now,
     confirmedSlot: input.confirmedSlot,
@@ -3038,7 +3047,7 @@ export async function recordConfirmedYieldWithdrawal(
     }),
     sourceType: withdrawalSource.sourceType,
     settings: input.settings,
-    smartAccountAddress: input.smartAccountAddress,
+    smartAccountAddress,
     targetReserve: input.targetReserve,
     vaultIndex: input.vaultIndex,
     vaultPubkey: input.vaultPubkey,
