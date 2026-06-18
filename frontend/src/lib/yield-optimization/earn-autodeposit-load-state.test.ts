@@ -522,6 +522,10 @@ describe("Earn autodeposit load state", () => {
     });
     expect(getExecuteSql()[0]).toContain("SET wallet_balance_floor_raw = $");
     expect(getExecuteSql()[0]).toContain("status = 'suppressed'");
+    expect(getExecuteSql()[0]).toContain(
+      "'previousWalletBalanceFloorRaw', $9::text"
+    );
+    expect(getExecuteSql()[0]).toContain("'walletBalanceFloorRaw', $10::text");
     expect(getExecuteSql()[0]).not.toContain(
       'SET "loyal_yield"."balance_sweep_targets"."wallet_balance_floor_raw"'
     );

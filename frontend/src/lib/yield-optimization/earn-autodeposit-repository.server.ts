@@ -1289,8 +1289,10 @@ export async function updateAutodepositWalletBalanceFloor(
           'floorRebaseline', true,
           'previousWalletBalanceFloorRaw', ${
             existing.walletBalanceFloorRaw?.toString() ?? null
-          },
-          'walletBalanceFloorRaw', ${input.walletBalanceFloorRaw.toString()},
+          }::text,
+          'walletBalanceFloorRaw', ${
+            input.walletBalanceFloorRaw.toString()
+          }::text,
           'suppressedOpenLotCount', (SELECT COUNT(*) FROM suppressed_lots)
         ),
         ${now}
