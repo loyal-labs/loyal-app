@@ -8,6 +8,7 @@ import {
   ArrowLeftRightIcon,
   BellRingIcon,
   BookOpenIcon,
+  CircleDollarSignIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   ShieldUserIcon,
@@ -54,6 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Solana",
     items: [
       { href: "/transfers", icon: ArrowLeftRightIcon, label: "Transfers" },
+      { href: "/earn", icon: CircleDollarSignIcon, label: "Earn" },
       {
         href: "/smart-accounts",
         icon: WalletCardsIcon,

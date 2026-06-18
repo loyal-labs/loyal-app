@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "admin:dev": "bun run --cwd admin dev",
+    "admin:dev:1pass": "bun run --cwd admin dev:1pass",
     "admin:build": "bun run --cwd admin build",
     "admin:lint": "bun run --cwd admin lint",
     "extension:dev": "bun run --cwd extension dev",
