@@ -307,6 +307,12 @@ export default function EarnScreen() {
     setAutodepositSetupOpen(false);
   }, []);
 
+  const handleAutodepositDelete = useCallback(() => {
+    setAutodepositThresholdUsd(null);
+    setAutodepositEnabled(false);
+    setAutodepositSetupOpen(false);
+  }, []);
+
   // Live position APY for the funded header badge; falls back to the marketing
   // rate while the read-model is loading or Timescale has no APY data.
   const apyLabel = useMemo(() => {
@@ -560,6 +566,7 @@ export default function EarnScreen() {
         open={autodepositSetupOpen}
         onClose={() => setAutodepositSetupOpen(false)}
         onConfirm={handleAutodepositConfirm}
+        onDelete={handleAutodepositDelete}
         mode={autodepositSetupMode}
         initialThresholdUsd={autodepositThresholdUsd}
         availableUsdc={usdcAvailable}

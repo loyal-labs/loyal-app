@@ -5,7 +5,7 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { Info, Wallet, X } from "lucide-react-native";
+import { Info, Trash2, Wallet, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
@@ -100,6 +100,7 @@ export function AutodepositSetupSheet({
   open,
   onClose,
   onConfirm,
+  onDelete,
   mode,
   initialThresholdUsd,
   availableUsdc,
@@ -108,6 +109,7 @@ export function AutodepositSetupSheet({
   open: boolean;
   onClose: () => void;
   onConfirm: (thresholdUsd: number) => void;
+  onDelete?: () => void;
   mode: "create" | "edit";
   initialThresholdUsd: number | null;
   availableUsdc: number | null;
@@ -161,6 +163,13 @@ export function AutodepositSetupSheet({
     Keyboard.dismiss();
     sheetRef.current?.dismiss();
   }, []);
+
+  const handleDelete = useCallback(() => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Keyboard.dismiss();
+    sheetRef.current?.dismiss();
+    onDelete?.();
+  }, [onDelete]);
 
   const thresholdUsd = amountToUsd(amount);
   // The design's only validation: a $0 threshold can't create an autodeposit.
@@ -241,7 +250,23 @@ export function AutodepositSetupSheet({
             <X size={24} color="#1C1C1E" strokeWidth={2} />
           </Pressable>
           <Text style={styles.toolbarTitle}>Autodeposit</Text>
-          <View style={styles.iconButtonSpacer} />
+          {mode === "edit" ? (
+            <Pressable
+              onPress={handleDelete}
+              accessibilityRole="button"
+              accessibilityLabel="Delete Autodeposit"
+              style={({ pressed }) => [
+                styles.iconButton,
+                styles.deleteButton,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+              hitSlop={12}
+            >
+              <Trash2 size={24} color={COLOR_RED} strokeWidth={2} />
+            </Pressable>
+          ) : (
+            <View style={styles.iconButtonSpacer} />
+          )}
         </View>
 
         <View style={styles.body}>
@@ -368,6 +393,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR_CHIP_BG,
     alignItems: "center",
     justifyContent: "center",
+  },
+  deleteButton: {
+    backgroundColor: "rgba(249, 54, 60, 0.14)",
   },
   iconButtonSpacer: {
     width: 44,
