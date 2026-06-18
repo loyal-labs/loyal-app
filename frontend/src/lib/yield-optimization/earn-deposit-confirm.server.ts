@@ -13,6 +13,9 @@ import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
+  markEarnDepositOnboardingAccountingFailed,
+  markEarnDepositOnboardingComplete,
+  recordEarnDepositOnboardingDepositSignature,
   recordConfirmedYieldDeposit,
   type ConfirmedYieldDepositInput,
   type UserYieldPositionRecord,
@@ -449,6 +452,19 @@ export async function recordConfirmedEarnDeposit(args: {
     }
   }
 
+  try {
+    await recordEarnDepositOnboardingDepositSignature(input);
+  } catch (error) {
+    console.warn("[earn-deposit-confirm] failed to record onboarding deposit", {
+      depositSignature: input.depositSignature,
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown record error.",
+      errorName: error instanceof Error ? error.name : typeof error,
+      settings: input.settings,
+      walletAddress: input.walletAddress,
+    });
+  }
+
   let position: UserYieldPositionRecord;
   try {
     position = await recordConfirmedYieldDeposit(input);
@@ -467,6 +483,22 @@ export async function recordConfirmedEarnDeposit(args: {
       stack: error instanceof Error ? error.stack : undefined,
       walletAddress: input.walletAddress,
     });
+    await markEarnDepositOnboardingAccountingFailed(
+      input,
+      "record_failed"
+    ).catch((markError) => {
+      console.warn("[earn-deposit-confirm] failed to mark accounting failure", {
+        depositSignature: input.depositSignature,
+        errorMessage:
+          markError instanceof Error
+            ? markError.message
+            : "Unknown mark error.",
+        errorName:
+          markError instanceof Error ? markError.name : typeof markError,
+        settings: input.settings,
+        walletAddress: input.walletAddress,
+      });
+    });
     throw new EarnDepositConfirmError({
       status: 409,
       code: "record_failed",
@@ -476,6 +508,17 @@ export async function recordConfirmedEarnDeposit(args: {
           : "Failed to record confirmed earn deposit.",
     });
   }
+
+  await markEarnDepositOnboardingComplete(input).catch((error) => {
+    console.warn("[earn-deposit-confirm] failed to mark onboarding complete", {
+      depositSignature: input.depositSignature,
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown mark error.",
+      errorName: error instanceof Error ? error.name : typeof error,
+      settings: input.settings,
+      walletAddress: input.walletAddress,
+    });
+  });
 
   return serializePosition(position);
 }

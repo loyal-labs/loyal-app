@@ -12,6 +12,7 @@ import { PublicKey } from "@solana/web3.js";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 
 import {
+  earnDepositOnboardingAttempts,
   getYieldOptimizationClient,
   managedVaults,
   rebalanceDecisions,
@@ -132,6 +133,22 @@ export type CurrentYieldVaultReservePositionRecord =
 export type CurrentYieldVaultIdleTokenBalanceRecord =
   typeof vaultIdleTokenBalancesCurrent.$inferSelect;
 export type ManagedYieldVaultRecord = typeof managedVaults.$inferSelect;
+export type EarnDepositOnboardingAttemptRecord =
+  typeof earnDepositOnboardingAttempts.$inferSelect;
+
+export type EarnDepositOnboardingStatus =
+  | "route_policy_confirmed"
+  | "setup_policy_confirmed"
+  | "deposit_confirmed"
+  | "accounting_failed"
+  | "complete";
+
+export type EarnDepositOnboardingNextStep =
+  | "route_policy"
+  | "setup_policy"
+  | "deposit"
+  | "deposit_accounting_retry"
+  | "complete";
 
 export type ActiveManagedYieldVaultWithPolicy = {
   routePolicy: RoutePolicyRecord;
@@ -1269,7 +1286,10 @@ async function upsertConfirmedYieldRoutePolicy(args: {
   client: YieldOptimizationClient;
   input: ConfirmedYieldRoutePolicyInput;
   now: Date;
-}): Promise<RoutePolicyRecord> {
+}): Promise<{
+  routePolicy: RoutePolicyRecord;
+  setupPolicy: RoutePolicyRecord | null;
+}> {
   const { client, input, now } = args;
   const routePolicyPlan = createYieldRoutingPolicyPlanFromRouteInput(input);
   const routePolicyInput = {
@@ -1363,34 +1383,163 @@ async function upsertConfirmedYieldRoutePolicy(args: {
     setupPolicy = record;
   }
 
-  const managedVaultValues = {
-    active: true,
-    activePolicyId: routePolicy.id,
+  if (setupPolicy) {
+    const managedVaultValues = {
+      active: true,
+      activePolicyId: routePolicy.id,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      settings: input.settings,
+      setupPolicyId: setupPolicy.id,
+      vaultIndex: routePolicyPlan.metadata.vaultIndex,
+      vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
+    };
+    await client.db
+      .insert(managedVaults)
+      .values(managedVaultValues)
+      .onConflictDoUpdate({
+        target: [
+          managedVaults.settings,
+          managedVaults.vaultIndex,
+          managedVaults.vaultPubkey,
+        ],
+        set: {
+          active: true,
+          activePolicyId: routePolicy.id,
+          lastSeenAt: now,
+          setupPolicyId: setupPolicy.id,
+        },
+      });
+  }
+
+  return { routePolicy, setupPolicy };
+}
+
+async function upsertEarnDepositOnboardingAttempt(args: {
+  client: YieldOptimizationClient;
+  input: ConfirmedYieldRoutePolicyInput | ConfirmedYieldDepositInput;
+  now: Date;
+  routePolicyDbId?: bigint | null;
+  setupPolicyDbId?: bigint | null;
+  status: EarnDepositOnboardingStatus;
+  lastErrorCode?: string | null;
+}): Promise<EarnDepositOnboardingAttemptRecord> {
+  const { client, input, now } = args;
+  const values = {
+    delegatedSigner: input.delegatedSigner,
     firstSeenAt: now,
-    lastSeenAt: now,
+    lastErrorCode: args.lastErrorCode ?? null,
+    liquidityMint: input.liquidityMint,
+    market: input.market,
+    policyAccount: input.policyAccount,
+    policyId: input.policyId,
+    policySeed: input.policySeed,
+    routePolicyConfirmedSlot:
+      "policyConfirmedSlot" in input
+        ? input.policyConfirmedSlot ?? input.confirmedSlot
+        : input.confirmedSlot,
+    routePolicyDbId: args.routePolicyDbId ?? null,
+    routePolicySignature: input.policySignature,
     settings: input.settings,
-    ...(setupPolicy ? { setupPolicyId: setupPolicy.id } : {}),
-    vaultIndex: routePolicyPlan.metadata.vaultIndex,
-    vaultPubkey: routePolicyPlan.metadata.vault.toBase58(),
+    setupPolicyAccount: input.setupPolicyAccount ?? null,
+    setupPolicyConfirmedSlot: input.setupPolicyConfirmedSlot ?? null,
+    setupPolicyDbId: args.setupPolicyDbId ?? null,
+    setupPolicyId: input.setupPolicyId ?? null,
+    setupPolicySeed: input.setupPolicySeed ?? null,
+    setupPolicySignature: input.setupPolicySignature ?? null,
+    smartAccountAddress:
+      "smartAccountAddress" in input ? input.smartAccountAddress : null,
+    status: args.status,
+    targetReserve: input.targetReserve,
+    targetSupplyApyBps:
+      "targetSupplyApyBps" in input ? input.targetSupplyApyBps : null,
+    updatedAt: now,
+    vaultIndex: input.vaultIndex,
+    vaultPubkey: input.vaultPubkey,
+    walletAddress: input.walletAddress,
+    ...("depositSignature" in input
+      ? {
+          depositConfirmedSlot: input.confirmedSlot,
+          depositMint: input.depositMint,
+          depositSignature: input.depositSignature,
+          principalAmountRaw: input.principalAmountRaw,
+        }
+      : {}),
   };
-  await client.db
-    .insert(managedVaults)
-    .values(managedVaultValues)
+
+  const [attempt] = await client.db
+    .insert(earnDepositOnboardingAttempts)
+    .values(values)
     .onConflictDoUpdate({
       target: [
-        managedVaults.settings,
-        managedVaults.vaultIndex,
-        managedVaults.vaultPubkey,
+        earnDepositOnboardingAttempts.settings,
+        earnDepositOnboardingAttempts.vaultIndex,
+        earnDepositOnboardingAttempts.vaultPubkey,
       ],
+      targetWhere: sql`${earnDepositOnboardingAttempts.status} <> 'complete'`,
       set: {
-        active: true,
-        activePolicyId: routePolicy.id,
-        lastSeenAt: now,
-        ...(setupPolicy ? { setupPolicyId: setupPolicy.id } : {}),
+        delegatedSigner: input.delegatedSigner,
+        lastErrorCode: args.lastErrorCode ?? null,
+        liquidityMint: input.liquidityMint,
+        market: input.market,
+        policyAccount: input.policyAccount,
+        policyId: input.policyId,
+        policySeed: input.policySeed,
+        routePolicyConfirmedSlot:
+          "policyConfirmedSlot" in input
+            ? input.policyConfirmedSlot ?? input.confirmedSlot
+            : input.confirmedSlot,
+        routePolicyDbId:
+          args.routePolicyDbId ??
+          sql`${earnDepositOnboardingAttempts.routePolicyDbId}`,
+        routePolicySignature: input.policySignature,
+        setupPolicyAccount:
+          input.setupPolicyAccount ??
+          sql`${earnDepositOnboardingAttempts.setupPolicyAccount}`,
+        setupPolicyConfirmedSlot:
+          input.setupPolicyConfirmedSlot ??
+          sql`${earnDepositOnboardingAttempts.setupPolicyConfirmedSlot}`,
+        setupPolicyDbId:
+          args.setupPolicyDbId ??
+          sql`${earnDepositOnboardingAttempts.setupPolicyDbId}`,
+        setupPolicyId:
+          input.setupPolicyId ??
+          sql`${earnDepositOnboardingAttempts.setupPolicyId}`,
+        setupPolicySeed:
+          input.setupPolicySeed ??
+          sql`${earnDepositOnboardingAttempts.setupPolicySeed}`,
+        setupPolicySignature:
+          input.setupPolicySignature ??
+          sql`${earnDepositOnboardingAttempts.setupPolicySignature}`,
+        smartAccountAddress:
+          "smartAccountAddress" in input
+            ? input.smartAccountAddress
+            : sql`${earnDepositOnboardingAttempts.smartAccountAddress}`,
+        status: args.status,
+        targetReserve: input.targetReserve,
+        targetSupplyApyBps:
+          "targetSupplyApyBps" in input
+            ? input.targetSupplyApyBps
+            : sql`${earnDepositOnboardingAttempts.targetSupplyApyBps}`,
+        updatedAt: now,
+        walletAddress: input.walletAddress,
+        ...("depositSignature" in input
+          ? {
+              depositConfirmedSlot: input.confirmedSlot,
+              depositMint: input.depositMint,
+              depositSignature: input.depositSignature,
+              principalAmountRaw: input.principalAmountRaw,
+            }
+          : {}),
       },
-    });
+    })
+    .returning();
 
-  return routePolicy;
+  if (!attempt) {
+    throw new Error("Failed to record Earn deposit onboarding progress.");
+  }
+
+  return attempt as EarnDepositOnboardingAttemptRecord;
 }
 
 async function upsertAggregatePosition(args: {
@@ -1754,11 +1903,115 @@ export async function recordConfirmedYieldRoutePolicy(
   const { client } = dependencies;
   const now = dependencies.now();
 
-  return upsertConfirmedYieldRoutePolicy({
+  const { routePolicy } = await upsertConfirmedYieldRoutePolicy({
     client,
     input,
     now,
   });
+
+  return routePolicy;
+}
+
+export async function recordConfirmedEarnDepositOnboardingPolicyStage(
+  input: ConfirmedYieldRoutePolicyInput,
+  stage: "route_policy" | "setup_policy",
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<RoutePolicyRecord> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const { routePolicy, setupPolicy } = await upsertConfirmedYieldRoutePolicy({
+    client,
+    input,
+    now,
+  });
+
+  await upsertEarnDepositOnboardingAttempt({
+    client,
+    input,
+    now,
+    routePolicyDbId: routePolicy.id,
+    setupPolicyDbId: setupPolicy?.id ?? null,
+    status:
+      stage === "setup_policy"
+        ? "setup_policy_confirmed"
+        : "route_policy_confirmed",
+  });
+
+  return routePolicy;
+}
+
+export async function recordEarnDepositOnboardingDepositSignature(
+  input: ConfirmedYieldDepositInput,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<EarnDepositOnboardingAttemptRecord> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const pair = await findActiveYieldRoutePolicyPair(
+    {
+      authority: input.walletAddress,
+      cluster: input.cluster,
+      settings: input.settings,
+      vaultIndex: input.vaultIndex,
+      vaultPubkey: input.vaultPubkey,
+    },
+    dependencies
+  );
+
+  return upsertEarnDepositOnboardingAttempt({
+    client,
+    input,
+    now,
+    routePolicyDbId: pair?.routePolicy.id ?? null,
+    setupPolicyDbId: pair?.setupPolicy?.id ?? null,
+    status: "deposit_confirmed",
+  });
+}
+
+export async function markEarnDepositOnboardingAccountingFailed(
+  input: Pick<
+    ConfirmedYieldDepositInput,
+    "settings" | "vaultIndex" | "vaultPubkey"
+  >,
+  errorCode: string,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<void> {
+  await dependencies.client.db
+    .update(earnDepositOnboardingAttempts)
+    .set({
+      lastErrorCode: errorCode,
+      status: "accounting_failed",
+      updatedAt: dependencies.now(),
+    })
+    .where(
+      and(
+        eq(earnDepositOnboardingAttempts.settings, input.settings),
+        eq(earnDepositOnboardingAttempts.vaultIndex, input.vaultIndex),
+        eq(earnDepositOnboardingAttempts.vaultPubkey, input.vaultPubkey)
+      )
+    );
+}
+
+export async function markEarnDepositOnboardingComplete(
+  input: Pick<
+    ConfirmedYieldDepositInput,
+    "settings" | "vaultIndex" | "vaultPubkey"
+  >,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<void> {
+  await dependencies.client.db
+    .update(earnDepositOnboardingAttempts)
+    .set({
+      lastErrorCode: null,
+      status: "complete",
+      updatedAt: dependencies.now(),
+    })
+    .where(
+      and(
+        eq(earnDepositOnboardingAttempts.settings, input.settings),
+        eq(earnDepositOnboardingAttempts.vaultIndex, input.vaultIndex),
+        eq(earnDepositOnboardingAttempts.vaultPubkey, input.vaultPubkey)
+      )
+    );
 }
 
 export async function findActiveYieldPosition(
@@ -2009,14 +2262,19 @@ export async function findCurrentYieldVaultIdleTokenBalances(
     );
 }
 
-export async function findActiveYieldRoutePolicyPair(input: {
-  authority: string;
-  cluster: string;
-  settings: string;
-  vaultIndex: number;
-  vaultPubkey?: string;
-}): Promise<ActiveYieldRoutePolicyPair | null> {
-  const client = getYieldOptimizationClient();
+export async function findActiveYieldRoutePolicyPair(
+  input: {
+    authority: string;
+    cluster: string;
+    settings: string;
+    vaultIndex: number;
+    vaultPubkey?: string;
+  },
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<ActiveYieldRoutePolicyPair | null> {
+  const client = dependencies.client;
   const vaultFilters = [
     eq(managedVaults.active, true),
     eq(managedVaults.settings, input.settings),
@@ -2069,14 +2327,19 @@ export async function findActiveYieldRoutePolicyPair(input: {
   };
 }
 
-export async function findActiveManagedYieldVaultWithPolicy(input: {
-  authority: string;
-  cluster: string;
-  settings: string;
-  vaultIndex: number;
-  vaultPubkey?: string;
-}): Promise<ActiveManagedYieldVaultWithPolicy | null> {
-  const client = getYieldOptimizationClient();
+export async function findActiveManagedYieldVaultWithPolicy(
+  input: {
+    authority: string;
+    cluster: string;
+    settings: string;
+    vaultIndex: number;
+    vaultPubkey?: string;
+  },
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<ActiveManagedYieldVaultWithPolicy | null> {
+  const client = dependencies.client;
   const vaultFilters = [
     eq(managedVaults.active, true),
     eq(managedVaults.settings, input.settings),
@@ -2138,6 +2401,73 @@ export async function findActiveYieldRoutePolicy(input: {
 }): Promise<RoutePolicyRecord | null> {
   const pair = await findActiveYieldRoutePolicyPair(input);
   return pair?.routePolicy ?? null;
+}
+
+export function deriveEarnDepositOnboardingNextStep(args: {
+  attempt: EarnDepositOnboardingAttemptRecord | null;
+  hasActivePosition: boolean;
+  policyPair: ActiveYieldRoutePolicyPair | null;
+}): EarnDepositOnboardingNextStep {
+  if (args.hasActivePosition) {
+    return "complete";
+  }
+
+  if (
+    args.attempt?.status === "accounting_failed" ||
+    (args.attempt?.status === "deposit_confirmed" &&
+      args.attempt.depositSignature)
+  ) {
+    return "deposit_accounting_retry";
+  }
+
+  if (args.policyPair?.routePolicy && args.policyPair.setupPolicy) {
+    return "deposit";
+  }
+
+  if (args.attempt?.setupPolicySignature) {
+    return "deposit";
+  }
+
+  if (args.policyPair?.routePolicy || args.attempt?.routePolicySignature) {
+    return "setup_policy";
+  }
+
+  return "route_policy";
+}
+
+export async function findCurrentEarnDepositOnboardingAttempt(
+  input: {
+    settings: string;
+    vaultIndex: number;
+    vaultPubkey?: string;
+    walletAddress: string;
+  },
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<EarnDepositOnboardingAttemptRecord | null> {
+  const filters = [
+    eq(earnDepositOnboardingAttempts.settings, input.settings),
+    eq(earnDepositOnboardingAttempts.vaultIndex, input.vaultIndex),
+    eq(earnDepositOnboardingAttempts.walletAddress, input.walletAddress),
+    sql`${earnDepositOnboardingAttempts.status} <> 'complete'`,
+  ];
+  if (input.vaultPubkey) {
+    filters.push(
+      eq(earnDepositOnboardingAttempts.vaultPubkey, input.vaultPubkey)
+    );
+  }
+
+  const attempt =
+    await dependencies.client.db.query.earnDepositOnboardingAttempts.findFirst({
+      where: and(...filters),
+      orderBy: [
+        desc(earnDepositOnboardingAttempts.updatedAt),
+        desc(earnDepositOnboardingAttempts.id),
+      ],
+    });
+
+  return (attempt as EarnDepositOnboardingAttemptRecord | undefined) ?? null;
 }
 
 export async function recordReconciledYieldVaultSnapshot(

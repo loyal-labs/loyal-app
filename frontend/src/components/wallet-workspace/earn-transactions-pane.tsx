@@ -1,5 +1,8 @@
 "use client";
 
+import { sendPreparedWithWallet } from "@loyal-labs/smart-account-vaults";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ReceiptText } from "lucide-react";
 import { motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -11,6 +14,12 @@ import type {
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import {
+  hydratePreparedEarnPolicyRefund,
+  type EarnPolicyRefundPrepareResponse,
+  type EarnPolicyRefundScanPolicy,
+  type EarnPolicyRefundScanResponse,
+} from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import {
   fetchEarnTransactions,
   type EarnTransactionItem,
@@ -140,8 +149,7 @@ export function buildEarnTransactionDetail(
   timeZone?: string | null
 ): TransactionDetail {
   const isDeposit = item.kind === "deposit" || item.kind === "balance_sweep";
-  const isMovement =
-    item.kind === "rebalance" || item.kind === "reconciliation";
+  const isMovement = item.kind === "rebalance" || item.kind === "reconciliation";
   const isAutodepositAction = item.kind === "autodeposit_action";
   const confirmedAt = getEarnTransactionConfirmedAt(item);
   const timestamp =
@@ -470,7 +478,8 @@ function EarnTransactionRow({
   onSelect: (item: EarnTransactionItem) => void;
 }) {
   const label = getEarnTransactionRowLabel(item);
-  const isMovement = item.kind === "rebalance" || item.kind === "reconciliation";
+  const isMovement =
+    item.kind === "rebalance" || item.kind === "reconciliation";
   const timestamp =
     formatEarnTransactionTimestamp(
       getEarnTransactionConfirmedAt(item),
@@ -888,6 +897,174 @@ function ScheduledTransactionRow({
   );
 }
 
+function formatPolicyRefundLamports(lamports: number | null): string {
+  if (lamports === null || !Number.isFinite(lamports)) {
+    return "Unknown rent";
+  }
+
+  return `${(lamports / LAMPORTS_PER_SOL).toFixed(6)} SOL`;
+}
+
+function PolicyRefundRow({
+  isRefunding = false,
+  onRefund,
+  policy,
+}: {
+  isRefunding?: boolean;
+  onRefund?: () => void;
+  policy: EarnPolicyRefundScanPolicy;
+}) {
+  const isButtonDisabled = isRefunding || !policy.canRefund || !onRefund;
+  const subtitle = policy.blockedReason ?? `Policy #${policy.seed}`;
+
+  return (
+    <div
+      style={{
+        alignItems: "flex-start",
+        display: "flex",
+        padding: "0 12px",
+        width: "100%",
+      }}
+    >
+      <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+        <CompoundIcon />
+      </span>
+      <span
+        style={{
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            alignItems: "center",
+            display: "flex",
+            width: "100%",
+          }}
+        >
+          <span
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: 0,
+              padding: "10px 0",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+              }}
+            >
+              Policy rent
+            </span>
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "16px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={policy.account}
+            >
+              {subtitle}
+            </span>
+          </span>
+          <span
+            style={{
+              alignItems: "flex-end",
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              paddingBottom: "10px",
+              paddingLeft: "12px",
+              paddingTop: "10px",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                lineHeight: "20px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {formatPolicyRefundLamports(policy.lamports)}
+            </span>
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "16px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {policy.state}
+            </span>
+          </span>
+        </span>
+        <span style={{ display: "flex", gap: "8px", paddingBottom: "11px" }}>
+          <button
+            aria-busy={isRefunding}
+            className="earn-scheduled-execute-btn"
+            disabled={isButtonDisabled}
+            onClick={onRefund}
+            style={{
+              alignItems: "center",
+              background:
+                isRefunding || !policy.canRefund
+                  ? "#F97B80"
+                  : LOYAL_EARN_BRAND_COLOR,
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: isButtonDisabled ? "default" : "pointer",
+              display: "inline-flex",
+              gap: "6px",
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              justifyContent: "center",
+              lineHeight: "20px",
+              padding: "6px 16px",
+            }}
+            type="button"
+          >
+            {isRefunding ? (
+              <span
+                aria-hidden="true"
+                className="earn-scheduled-spinner"
+                style={{
+                  border: "2px solid rgba(255, 255, 255, 0.45)",
+                  borderRadius: "9999px",
+                  borderTopColor: "#fff",
+                  display: "inline-block",
+                  height: "12px",
+                  width: "12px",
+                }}
+              />
+            ) : null}
+            {isRefunding ? "Refunding..." : "Refund"}
+          </button>
+        </span>
+      </span>
+    </div>
+  );
+}
+
 function EarnTransactionsEmptyState() {
   return (
     <div
@@ -1000,6 +1177,7 @@ export function EarnTransactionsPane({
   pendingScheduledSweep = null,
   scheduledSweepExecuteError = null,
   scheduledSweeps = [],
+  showPolicyRefundScan = false,
   settingsPda,
   solanaEnv,
   topInset = 0,
@@ -1013,18 +1191,31 @@ export function EarnTransactionsPane({
   pendingScheduledSweep?: PendingScheduledSweepPreview | null;
   scheduledSweepExecuteError?: string | null;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
+  showPolicyRefundScan?: boolean;
   settingsPda: string | null | undefined;
   solanaEnv: string;
   topInset?: number;
   walletAddress: string | null | undefined;
 }) {
   const { isAuthenticated, isHydrated } = useAuthSession();
+  const { connection } = useConnection();
+  const wallet = useWallet();
   const [transactions, setTransactions] = useState<EarnTransactionItem[]>([]);
   const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
+    EarnPolicyRefundScanPolicy[] | null
+  >(null);
+  const [isScanningPolicies, setIsScanningPolicies] = useState(false);
+  const [refundingPolicyAccount, setRefundingPolicyAccount] = useState<
+    string | null
+  >(null);
+  const [policyRefundError, setPolicyRefundError] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     // Wait for the auth session to hydrate and become active before fetching.
@@ -1041,6 +1232,8 @@ export function EarnTransactionsPane({
       setTransactions([]);
       setEnteringIds(new Set());
       setErrorMessage(null);
+      setPolicyRefundPolicies(null);
+      setPolicyRefundError(null);
       return;
     }
 
@@ -1149,9 +1342,99 @@ export function EarnTransactionsPane({
     scheduledSweeps,
     visiblePendingScheduledSweep
   );
+  const showPolicyRefunds =
+    showPolicyRefundScan && policyRefundPolicies !== null;
+  const isPolicyScanDisabled =
+    isScanningPolicies || !isAuthenticated || !settingsPda || !walletAddress;
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item, displayTimeZone));
+  };
+
+  const readApiError = async (response: Response, fallback: string) => {
+    try {
+      const payload = (await response.json()) as {
+        error?: { message?: string };
+      };
+      return payload.error?.message ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const handleScanPolicies = async () => {
+    setIsScanningPolicies(true);
+    setPolicyRefundError(null);
+    try {
+      const response = await fetch(
+        "/api/smart-accounts/yield-optimization/policy-refunds/scan",
+        {
+          method: "POST",
+        }
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(response, "Failed to scan policies.")
+        );
+      }
+      const payload = (await response.json()) as EarnPolicyRefundScanResponse;
+      setPolicyRefundPolicies(payload.policies);
+    } catch (error) {
+      console.warn("[earn-policy-refunds] scan failed", error);
+      setPolicyRefundPolicies([]);
+      setPolicyRefundError(
+        error instanceof Error ? error.message : "Failed to scan policies."
+      );
+    } finally {
+      setIsScanningPolicies(false);
+    }
+  };
+
+  const handleRefundPolicy = async (policy: EarnPolicyRefundScanPolicy) => {
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      setPolicyRefundError("Connect a wallet before refunding policy rent.");
+      return;
+    }
+
+    setRefundingPolicyAccount(policy.account);
+    setPolicyRefundError(null);
+    try {
+      const response = await fetch(
+        "/api/smart-accounts/yield-optimization/policy-refunds/prepare",
+        {
+          body: JSON.stringify({ policyAccount: policy.account }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(response, "Failed to prepare policy refund.")
+        );
+      }
+      const payload =
+        (await response.json()) as EarnPolicyRefundPrepareResponse;
+      const preparedRefund = hydratePreparedEarnPolicyRefund(
+        payload.preparedRefund
+      );
+      await sendPreparedWithWallet({
+        confirm: true,
+        connection,
+        prepared: preparedRefund.prepared,
+        wallet: {
+          publicKey: wallet.publicKey,
+          signTransaction: wallet.signTransaction,
+        },
+      });
+      await handleScanPolicies();
+    } catch (error) {
+      console.warn("[earn-policy-refunds] refund failed", error);
+      setPolicyRefundError(
+        error instanceof Error ? error.message : "Failed to refund policy rent."
+      );
+    } finally {
+      setRefundingPolicyAccount(null);
+    }
   };
 
   return (
@@ -1173,6 +1456,24 @@ export function EarnTransactionsPane({
         .earn-tx-row:focus-visible {
           outline: 2px solid rgba(249, 54, 60, 0.45);
           outline-offset: -2px;
+        }
+        .earn-scheduled-execute-btn {
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .earn-scheduled-execute-btn:hover {
+          background: #e72f34 !important;
+          transform: translateY(-1px);
+        }
+        .earn-scheduled-execute-btn:active {
+          transform: translateY(0);
+        }
+        .earn-scheduled-spinner {
+          animation: earn-scheduled-spin 0.8s linear infinite;
+        }
+        @keyframes earn-scheduled-spin {
+          to {
+            transform: rotate(360deg);
+          }
         }
       `}</style>
       {/* SVG pixelation filters */}
@@ -1223,6 +1524,30 @@ export function EarnTransactionsPane({
         >
           Transactions
         </h2>
+        {showPolicyRefundScan ? (
+          <button
+            disabled={isPolicyScanDisabled}
+            onClick={() => void handleScanPolicies()}
+            style={{
+              background: isPolicyScanDisabled
+                ? "#F97B80"
+                : LOYAL_EARN_BRAND_COLOR,
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: isPolicyScanDisabled ? "default" : "pointer",
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 500,
+              lineHeight: "18px",
+              padding: "6px 12px",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            {isScanningPolicies ? "Scanning..." : "Scan policies"}
+          </button>
+        ) : null}
       </div>
 
       <div
@@ -1241,10 +1566,64 @@ export function EarnTransactionsPane({
           <EarnTransactionsLoadingState />
         ) : errorMessage ? (
           <EarnTransactionsErrorState message={errorMessage} />
-        ) : transactions.length === 0 && !showScheduledSweeps ? (
+        ) : transactions.length === 0 &&
+          !showScheduledSweeps &&
+          !showPolicyRefunds ? (
           <EarnTransactionsEmptyState />
         ) : (
           <>
+            {showPolicyRefunds ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  width: "100%",
+                }}
+              >
+                <TransactionsSectionHeader label="Policies" />
+                {policyRefundPolicies.length === 0 ? (
+                  <p
+                    style={{
+                      color: secondary,
+                      fontFamily: font,
+                      fontSize: "13px",
+                      lineHeight: "16px",
+                      margin: "0",
+                      padding: "0 12px 12px",
+                    }}
+                  >
+                    No open policies found.
+                  </p>
+                ) : (
+                  policyRefundPolicies.map((policy) => (
+                    <PolicyRefundRow
+                      isRefunding={refundingPolicyAccount === policy.account}
+                      key={policy.account}
+                      onRefund={
+                        policy.canRefund
+                          ? () => void handleRefundPolicy(policy)
+                          : undefined
+                      }
+                      policy={policy}
+                    />
+                  ))
+                )}
+                {policyRefundError ? (
+                  <p
+                    style={{
+                      color: LOYAL_EARN_BRAND_COLOR,
+                      fontFamily: font,
+                      fontSize: "13px",
+                      lineHeight: "16px",
+                      margin: "0",
+                      padding: "0 12px 10px 56px",
+                    }}
+                  >
+                    {policyRefundError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {showScheduledSweeps ? (
               <div
                 style={{

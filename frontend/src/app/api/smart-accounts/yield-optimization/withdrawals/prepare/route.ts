@@ -82,6 +82,25 @@ type SelectedEarnWithdrawSource =
       type: "idle";
     };
 
+function publicKeyFromMetadata(
+  metadata: Record<string, unknown>,
+  keys: string[]
+): PublicKey | null {
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      continue;
+    }
+    try {
+      return new PublicKey(value);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function selectEarnWithdrawSource(args: {
   amountRaw: bigint;
   idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
@@ -336,21 +355,50 @@ export async function POST(request: Request) {
       ...(mode === "full" && selectedSource.type === "reserve"
         ? {
             fullWithdrawalTargets: currentReserveRows
-              .filter((row) =>
-                row.reserve === selectedSource.reserve
-              )
+              .filter((row) => row.reserve === selectedSource.reserve)
               .map((row) => {
                 if (!row.market) {
                   throw new Error(
                     "Reconciled Earn reserve row is missing a Kamino market."
                   );
                 }
+                const reserveCollateralMint = publicKeyFromMetadata(
+                  row.planningMetadata,
+                  [
+                    "reserveCollateralMint",
+                    "reserve_collateral_mint",
+                    "collateralMint",
+                    "collateral_mint",
+                  ]
+                );
+                const reserveLiquiditySupply = publicKeyFromMetadata(
+                  row.planningMetadata,
+                  [
+                    "reserveLiquiditySupply",
+                    "reserve_liquidity_supply",
+                    "liquiditySupply",
+                    "liquidity_supply",
+                  ]
+                );
+                const vaultCollateralAta = publicKeyFromMetadata(
+                  row.planningMetadata,
+                  [
+                    "vaultCollateralAta",
+                    "vault_collateral_ata",
+                    "collateralAta",
+                    "collateral_ata",
+                  ]
+                );
+
                 return {
                   amountRaw: row.amountRaw,
                   liquidityMint: new PublicKey(row.liquidityMint),
                   market: new PublicKey(row.market),
                   reserve: new PublicKey(row.reserve),
+                  ...(reserveCollateralMint ? { reserveCollateralMint } : {}),
+                  ...(reserveLiquiditySupply ? { reserveLiquiditySupply } : {}),
                   supplyApyBps: row.supplyApyBps ?? null,
+                  ...(vaultCollateralAta ? { vaultCollateralAta } : {}),
                 };
               }),
           }

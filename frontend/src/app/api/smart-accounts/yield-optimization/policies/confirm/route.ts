@@ -14,7 +14,8 @@ import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
-  recordConfirmedYieldRoutePolicy,
+  findCurrentEarnDepositOnboardingAttempt,
+  recordConfirmedEarnDepositOnboardingPolicyStage,
   type ConfirmedYieldRoutePolicyInput,
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -56,7 +57,8 @@ function toSafePolicySeed(policySeed: bigint): number {
 }
 
 function createCanonicalPolicyInput(
-  requestInput: ConfirmedYieldRoutePolicyInput
+  requestInput: ConfirmedYieldRoutePolicyInput,
+  stage: "route_policy" | "setup_policy"
 ): ConfirmedYieldRoutePolicyInput {
   const cluster = normalizeLoyalCluster(requestInput.cluster);
   const normalizedRequestInput = { ...requestInput, cluster };
@@ -122,30 +124,32 @@ function createCanonicalPolicyInput(
     canonicalInput.policySeed,
     "policySeed"
   );
-  if (!requestInput.setupPolicySignature) {
-    throw new Error("setupPolicySignature is required for policy setup.");
+  if (stage === "setup_policy") {
+    if (!requestInput.setupPolicySignature) {
+      throw new Error("setupPolicySignature is required for policy setup.");
+    }
+    if (
+      requestInput.setupPolicyConfirmedSlot === null ||
+      requestInput.setupPolicyConfirmedSlot === undefined
+    ) {
+      throw new Error("setupPolicyConfirmedSlot is required for policy setup.");
+    }
+    assertCanonicalField(
+      requestInput.setupPolicyAccount ?? null,
+      canonicalInput.setupPolicyAccount,
+      "setupPolicyAccount"
+    );
+    assertCanonicalField(
+      requestInput.setupPolicyId ?? null,
+      canonicalInput.setupPolicyId,
+      "setupPolicyId"
+    );
+    assertCanonicalField(
+      requestInput.setupPolicySeed ?? null,
+      canonicalInput.setupPolicySeed,
+      "setupPolicySeed"
+    );
   }
-  if (
-    requestInput.setupPolicyConfirmedSlot === null ||
-    requestInput.setupPolicyConfirmedSlot === undefined
-  ) {
-    throw new Error("setupPolicyConfirmedSlot is required for policy setup.");
-  }
-  assertCanonicalField(
-    requestInput.setupPolicyAccount ?? null,
-    canonicalInput.setupPolicyAccount,
-    "setupPolicyAccount"
-  );
-  assertCanonicalField(
-    requestInput.setupPolicyId ?? null,
-    canonicalInput.setupPolicyId,
-    "setupPolicyId"
-  );
-  assertCanonicalField(
-    requestInput.setupPolicySeed ?? null,
-    canonicalInput.setupPolicySeed,
-    "setupPolicySeed"
-  );
   assertCanonicalField(
     requestInput.targetReserve,
     canonicalInput.targetReserve,
@@ -229,7 +233,9 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
 
-  let input: ConfirmedYieldRoutePolicyInput;
+  let input: ConfirmedYieldRoutePolicyInput & {
+    stage: "route_policy" | "setup_policy";
+  };
   try {
     input = parseEarnPolicyConfirmRequestBody(await request.json());
   } catch (error) {
@@ -252,7 +258,31 @@ export async function POST(request: Request) {
   }
 
   try {
-    input = createCanonicalPolicyInput(input);
+    if (input.stage === "setup_policy") {
+      const attempt = await findCurrentEarnDepositOnboardingAttempt({
+        settings: input.settings,
+        vaultIndex: input.vaultIndex,
+        vaultPubkey: input.vaultPubkey,
+        walletAddress: input.walletAddress,
+      });
+      if (!attempt?.routePolicySignature || !attempt.routePolicyConfirmedSlot) {
+        return jsonError(
+          409,
+          "missing_route_policy_stage",
+          "Confirm the Earn route policy before confirming the setup policy."
+        );
+      }
+      input = {
+        ...input,
+        policyConfirmedSlot: attempt.routePolicyConfirmedSlot,
+        policySignature: attempt.routePolicySignature,
+      };
+    }
+
+    input = {
+      ...createCanonicalPolicyInput(input, input.stage),
+      stage: input.stage,
+    };
   } catch (error) {
     return jsonError(
       400,
@@ -273,57 +303,52 @@ export async function POST(request: Request) {
     );
   }
 
+  const signatureToVerify =
+    input.stage === "setup_policy"
+      ? input.setupPolicySignature ?? ""
+      : input.policySignature;
+  const expectedSlot =
+    input.stage === "setup_policy"
+      ? input.setupPolicyConfirmedSlot
+      : input.confirmedSlot;
   let confirmedSlot: bigint;
   try {
     confirmedSlot = await resolveConfirmedSignatureSlot({
       cluster: solanaEnv,
-      operation: "route policy setup",
-      signature: input.policySignature,
+      operation:
+        input.stage === "setup_policy"
+          ? "setup policy setup"
+          : "route policy setup",
+      signature: signatureToVerify,
     });
   } catch (error) {
     return jsonError(
       400,
-      "unconfirmed_signature",
+      input.stage === "setup_policy"
+        ? "unconfirmed_setup_policy_signature"
+        : "unconfirmed_signature",
       error instanceof Error
         ? error.message
         : "Policy setup transaction is not confirmed."
     );
   }
 
-  if (input.confirmedSlot !== confirmedSlot) {
+  if (expectedSlot !== confirmedSlot) {
     return jsonError(
       400,
-      "slot_mismatch",
-      "Confirmed yield policy slot does not match the transaction status."
+      input.stage === "setup_policy"
+        ? "setup_policy_slot_mismatch"
+        : "slot_mismatch",
+      input.stage === "setup_policy"
+        ? "Confirmed setup policy slot does not match the transaction status."
+        : "Confirmed yield policy slot does not match the transaction status."
     );
   }
 
-  let setupPolicyConfirmedSlot: bigint;
-  try {
-    setupPolicyConfirmedSlot = await resolveConfirmedSignatureSlot({
-      cluster: solanaEnv,
-      operation: "setup policy setup",
-      signature: input.setupPolicySignature ?? "",
-    });
-  } catch (error) {
-    return jsonError(
-      400,
-      "unconfirmed_setup_policy_signature",
-      error instanceof Error
-        ? error.message
-        : "Setup policy transaction is not confirmed."
-    );
-  }
-
-  if (input.setupPolicyConfirmedSlot !== setupPolicyConfirmedSlot) {
-    return jsonError(
-      400,
-      "setup_policy_slot_mismatch",
-      "Confirmed setup policy slot does not match the transaction status."
-    );
-  }
-
-  const policy = await recordConfirmedYieldRoutePolicy(input);
+  const policy = await recordConfirmedEarnDepositOnboardingPolicyStage(
+    input,
+    input.stage
+  );
 
   return NextResponse.json({
     policy: serializePolicy(policy),

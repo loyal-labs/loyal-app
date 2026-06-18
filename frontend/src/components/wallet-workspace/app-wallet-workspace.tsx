@@ -5747,6 +5747,7 @@ export function AppWalletWorkspace({
                 pendingScheduledSweep={pendingScheduledSweepPreview}
                 scheduledSweepExecuteError={scheduledSweepExecuteError}
                 scheduledSweeps={autodepositConfig?.scheduledSweeps ?? []}
+                showPolicyRefundScan={isMockBackupSignerFlowEnabled}
                 settingsPda={smartAccountData.overview?.settingsPda}
                 solanaEnv={publicEnv.solanaEnv}
                 walletAddress={walletDesktopData.walletAddress}

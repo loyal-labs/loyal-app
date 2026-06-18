@@ -66,6 +66,7 @@ import {
 } from "@/lib/wallet/stablecoin-classification";
 import {
   buildEarnDepositConfirmRequestBody,
+  buildEarnDepositPolicyStageConfirmRequestBody,
   buildEarnPolicyConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
@@ -154,8 +155,36 @@ type EarnStateResponse = {
   canonicalVaultPubkey: string;
   loadErrors: {
     autodeposit?: true;
+    onboarding?: true;
     policy?: true;
     position?: true;
+  };
+  onboarding: {
+    depositConfirmedSlot?: string | null;
+    depositSignature?: string | null;
+    lastErrorCode?: string | null;
+    nextStep:
+      | "route_policy"
+      | "setup_policy"
+      | "deposit"
+      | "deposit_accounting_retry"
+      | "complete";
+    policy?: {
+      account: string;
+      id: string;
+      lastSeenSignature: string | null;
+      lastSeenSlot: string | null;
+      seed: string;
+    };
+    setupPolicy?: {
+      account: string;
+      id: string;
+      lastSeenSignature: string | null;
+      lastSeenSlot: string | null;
+      seed: string;
+    } | null;
+    status?: string;
+    updatedAt?: string;
   };
   policy: {
     account: string;
@@ -1464,7 +1493,66 @@ async function postConfirmedEarnPolicySetup(args: {
   setupPolicySignature: string;
   setupPolicyConfirmedSlot: string;
 }) {
-  const body = buildEarnPolicyConfirmRequestBody(args);
+  const routeBody = buildEarnPolicyConfirmRequestBody({
+    confirmedSlot: args.confirmedSlot,
+    preparedPolicy: args.preparedPolicy,
+    signature: args.signature,
+    stage: "route_policy",
+  });
+  const routeResponse = await fetch(
+    "/api/smart-accounts/yield-optimization/policies/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(routeBody),
+    }
+  );
+
+  if (!routeResponse.ok) {
+    const payload = (await routeResponse
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to record confirmed earn policy."
+    );
+  }
+
+  const setupBody = buildEarnPolicyConfirmRequestBody({
+    confirmedSlot: args.setupPolicyConfirmedSlot,
+    preparedPolicy: args.preparedPolicy,
+    setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot,
+    setupPolicySignature: args.setupPolicySignature,
+    signature: args.setupPolicySignature,
+    stage: "setup_policy",
+  });
+  const setupResponse = await fetch(
+    "/api/smart-accounts/yield-optimization/policies/confirm",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(setupBody),
+    }
+  );
+
+  if (!setupResponse.ok) {
+    const payload = (await setupResponse
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to record confirmed earn setup policy."
+    );
+  }
+}
+
+async function postConfirmedEarnDepositPolicyStage(args: {
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  signature: string;
+  confirmedSlot: string;
+  stage: "policy" | "policy-finalize";
+}) {
+  const body = buildEarnDepositPolicyStageConfirmRequestBody(args);
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/policies/confirm",
     {
@@ -1480,7 +1568,7 @@ async function postConfirmedEarnPolicySetup(args: {
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed earn policy."
+      payload?.error?.message ?? "Failed to record confirmed Earn policy stage."
     );
   }
 }
@@ -4476,6 +4564,17 @@ export function useSmartAccountSidebarData(
           signature: sendResult.signature,
         });
 
+        await postConfirmedEarnDepositPolicyStage({
+          confirmedSlot,
+          preparedDeposit: request.preparedDeposit,
+          signature: sendResult.signature,
+          stage: request.stage,
+        });
+        const nextEarnState = await fetchEarnState();
+        if (nextEarnState) {
+          setEarnState(nextEarnState);
+        }
+
         return {
           success: true,
           signature: sendResult.signature,
@@ -4592,14 +4691,29 @@ export function useSmartAccountSidebarData(
             vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
           }
         );
+        const currentEarnState = earnState ?? (await fetchEarnState());
+        if (currentEarnState && currentEarnState !== earnState) {
+          setEarnState(currentEarnState);
+        }
+        const onboarding = currentEarnState?.onboarding;
         const policySignatureResolution =
           resolveEarnDepositConfirmPolicySignature({
-            activePolicy: earnState?.policy ?? null,
-            policyConfirmedSlot: request.policyConfirmedSlot,
-            policySignature: request.policySignature,
+            activePolicy: currentEarnState?.policy ?? null,
+            policyConfirmedSlot:
+              request.policyConfirmedSlot ??
+              onboarding?.policy?.lastSeenSlot ??
+              currentEarnState?.policy?.lastSeenSlot,
+            policySignature:
+              request.policySignature ??
+              onboarding?.policy?.lastSeenSignature ??
+              currentEarnState?.policy?.lastSeenSignature,
             preparedDeposit,
-            setupPolicyConfirmedSlot: request.setupPolicyConfirmedSlot,
-            setupPolicySignature: request.setupPolicySignature,
+            setupPolicyConfirmedSlot:
+              request.setupPolicyConfirmedSlot ??
+              onboarding?.setupPolicy?.lastSeenSlot,
+            setupPolicySignature:
+              request.setupPolicySignature ??
+              onboarding?.setupPolicy?.lastSeenSignature,
           });
         if ("error" in policySignatureResolution) {
           return {
@@ -4681,7 +4795,7 @@ export function useSmartAccountSidebarData(
     },
     [
       connection,
-      earnState?.policy,
+      earnState,
       overview,
       refreshAfterTx,
       solanaEnv,

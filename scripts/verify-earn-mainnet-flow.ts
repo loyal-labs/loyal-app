@@ -1398,7 +1398,9 @@ function withdrawSourceFromCurrentRows(args: {
     getStringField(idleRow, "mint") ?? EARN_TARGET.liquidityMint.toBase58();
   const tokenAccount = getStringField(idleRow, "tokenAccount");
   if (!amountRaw || !tokenAccount) {
-    throw new Error(`${args.label} active idle row is missing source metadata.`);
+    throw new Error(
+      `${args.label} active idle row is missing source metadata.`
+    );
   }
   return {
     amountRaw: amountRaw.toString(),
@@ -4272,8 +4274,9 @@ async function main() {
       session: frontendSession,
       signature: idleSent.signature,
     };
-    const idleConfirmPosition =
-      await confirmEarnWithdrawViaFrontend(idleConfirmArgs);
+    const idleConfirmPosition = await confirmEarnWithdrawViaFrontend(
+      idleConfirmArgs
+    );
     const idleIdempotency = await verifyWithdrawConfirmReplayAndFailures({
       ...idleConfirmArgs,
       label: "idle source withdrawal confirm",
@@ -4294,10 +4297,7 @@ async function main() {
       postIdleState.db,
       "currentReserveRows"
     );
-    const postIdleIdleRows = getArrayField(
-      postIdleState.db,
-      "currentIdleRows"
-    );
+    const postIdleIdleRows = getArrayField(postIdleState.db, "currentIdleRows");
     if (
       !postIdleReserveRows.some(
         (row) =>
@@ -4306,7 +4306,9 @@ async function main() {
           (getRawAmountField(row, "amountRaw") ?? 0n) > 0n
       )
     ) {
-      throw new Error("Idle withdrawal did not preserve the Kamino reserve row.");
+      throw new Error(
+        "Idle withdrawal did not preserve the Kamino reserve row."
+      );
     }
     if (
       postIdleIdleRows.some(
@@ -4428,8 +4430,9 @@ async function main() {
       session: frontendSession,
       signature: reserveSent.signature,
     };
-    const reserveConfirmPosition =
-      await confirmEarnWithdrawViaFrontend(reserveConfirmArgs);
+    const reserveConfirmPosition = await confirmEarnWithdrawViaFrontend(
+      reserveConfirmArgs
+    );
     const reserveIdempotency = await verifyWithdrawConfirmReplayAndFailures({
       ...reserveConfirmArgs,
       label: "reserve source withdrawal confirm",
@@ -4457,7 +4460,9 @@ async function main() {
       (reservePrepared.persistence.vaultCollateralCleanupIncluded
         ? BigInt(preReserveState.accounts.vaultCollateralAta?.lamports ?? 0)
         : 0n);
-    const preReserveSol = BigInt(preReserveState.accounts.wallet?.lamports ?? 0);
+    const preReserveSol = BigInt(
+      preReserveState.accounts.wallet?.lamports ?? 0
+    );
     const postReserveSol = BigInt(
       postReserveState.accounts.wallet?.lamports ?? 0
     );
@@ -4490,7 +4495,9 @@ async function main() {
       postReservePosition.currentAmountRaw !== 0n ||
       postReservePosition.principalAmountRaw !== 0n
     ) {
-      throw new Error("Final reserve withdrawal did not close the Earn position.");
+      throw new Error(
+        "Final reserve withdrawal did not close the Earn position."
+      );
     }
     assertNoPositionActive(postReserveState);
     evidence.steps.reserveWithdrawal = {
@@ -4797,6 +4804,9 @@ async function main() {
     if (!before) {
       throw new Error("top-up-partial-smoke requires an active Earn position.");
     }
+    if (!before.currentMarket) {
+      throw new Error("Active Earn position is missing current market.");
+    }
     const candidateRanking = await loadTopSafeUsdcCandidateEvidence();
 
     const topUp = frontendSession
@@ -4811,6 +4821,12 @@ async function main() {
           initializeYieldRoutingPolicy: false,
           policySigner,
           settingsPda: SETTINGS_PDA,
+          target: {
+            liquidityMint: new PublicKey(before.currentLiquidityMint),
+            market: new PublicKey(before.currentMarket),
+            reserve: new PublicKey(before.currentReserve),
+            supplyApyBps: null,
+          },
           walletAddress: wallet.publicKey,
           yieldRoutingPolicy: {
             account: new PublicKey(activeRoutePolicy.policyAccount),

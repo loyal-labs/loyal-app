@@ -20,6 +20,7 @@ export type EarnPolicyConfirmRequestBody = {
   policyId: string;
   policySeed: string;
   policySignature: string;
+  stage?: "route_policy" | "setup_policy";
   setupPolicyAccount?: string | null;
   setupPolicyConfirmedSlot?: string | null;
   setupPolicyId?: string | null;
@@ -186,6 +187,21 @@ function readPolicyInitialization(
   return value;
 }
 
+function readPolicyConfirmStage(
+  body: EarnConfirmRequestRecord
+): "route_policy" | "setup_policy" {
+  const value = readOptionalString(body, "stage");
+  if (value === null) {
+    return readOptionalString(body, "setupPolicySignature")
+      ? "setup_policy"
+      : "route_policy";
+  }
+  if (value !== "route_policy" && value !== "setup_policy") {
+    throw new Error("stage must be route_policy or setup_policy.");
+  }
+  return value;
+}
+
 function readMode(body: EarnConfirmRequestRecord): "partial" | "full" {
   const mode = readRequiredString(body, "mode");
   if (mode !== "partial" && mode !== "full") {
@@ -309,12 +325,14 @@ export function buildEarnPolicyConfirmRequestBody({
   confirmedSlot,
   preparedPolicy,
   signature,
+  stage = "route_policy",
   setupPolicyConfirmedSlot,
   setupPolicySignature,
 }: {
   preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
   signature: string;
   confirmedSlot: string;
+  stage?: "route_policy" | "setup_policy";
   setupPolicySignature?: string;
   setupPolicyConfirmedSlot?: string;
 }): EarnPolicyConfirmRequestBody {
@@ -324,6 +342,29 @@ export function buildEarnPolicyConfirmRequestBody({
     setupPolicySignature,
     setupPolicyConfirmedSlot,
     confirmedSlot,
+    stage,
+  };
+}
+
+export function buildEarnDepositPolicyStageConfirmRequestBody({
+  confirmedSlot,
+  preparedDeposit,
+  signature,
+  stage,
+}: {
+  confirmedSlot: string;
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  signature: string;
+  stage: "policy" | "policy-finalize";
+}): EarnPolicyConfirmRequestBody {
+  return {
+    ...preparedDeposit.persistence,
+    confirmedSlot,
+    policySignature: signature,
+    setupPolicyConfirmedSlot:
+      stage === "policy-finalize" ? confirmedSlot : undefined,
+    setupPolicySignature: stage === "policy-finalize" ? signature : undefined,
+    stage: stage === "policy" ? "route_policy" : "setup_policy",
   };
 }
 
@@ -397,8 +438,11 @@ export function buildEarnWithdrawalConfirmRequestBody({
 
 export function parseEarnPolicyConfirmRequestBody(
   body: unknown
-): ConfirmedYieldRoutePolicyInput {
+): ConfirmedYieldRoutePolicyInput & {
+  stage: "route_policy" | "setup_policy";
+} {
   const record = assertRequestObject(body);
+  const stage = readPolicyConfirmStage(record);
   return {
     cluster: readRequiredString(record, "cluster"),
     confirmedSlot: readBigIntString(record, "confirmedSlot"),
@@ -409,6 +453,7 @@ export function parseEarnPolicyConfirmRequestBody(
     policyId: readBigIntString(record, "policyId"),
     policySeed: readBigIntString(record, "policySeed"),
     policySignature: readRequiredString(record, "policySignature"),
+    stage,
     setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
     setupPolicyConfirmedSlot: readOptionalBigIntString(
       record,

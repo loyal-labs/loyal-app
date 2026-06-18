@@ -12,12 +12,15 @@ import {
   sumEarnAutodepositCurrentPeriodDeposits,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
+  serializeEarnDepositOnboardingState,
   serializeAutodepositState,
   serializeRoutePolicyState,
   type CurrentEarnAutodepositStateWithProgress,
 } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
-  findActiveYieldRoutePolicy,
+  deriveEarnDepositOnboardingNextStep,
+  findActiveYieldRoutePolicyPair,
+  findCurrentEarnDepositOnboardingAttempt,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
@@ -97,7 +100,7 @@ async function loadCurrentTotalAmountRaw(args: {
 }
 
 async function loadEarnStatePart<T>(
-  name: "autodeposit" | "policy" | "position",
+  name: "autodeposit" | "onboarding" | "policy" | "position",
   loader: () => Promise<T | null>
 ): Promise<{ data: T | null; error: boolean }> {
   try {
@@ -137,47 +140,58 @@ export async function GET(request: Request) {
     programId,
     settingsPda,
   });
-  const [positionResult, policyResult, autodepositResult] = await Promise.all([
-    loadEarnStatePart("position", () =>
-      findReconciledActiveYieldPositionForVault({
-        cluster,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        walletAddress: principal.walletAddress,
-      })
-    ),
-    loadEarnStatePart("policy", () =>
-      findActiveYieldRoutePolicy({
-        authority: principal.walletAddress,
-        cluster,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: earnVaultPda.toBase58(),
-      })
-    ),
-    loadEarnStatePart(
-      "autodeposit",
-      async (): Promise<CurrentEarnAutodepositStateWithProgress | null> => {
-        const state = await findCurrentEarnAutodepositState({
+  const [positionResult, policyResult, onboardingResult, autodepositResult] =
+    await Promise.all([
+      loadEarnStatePart("position", () =>
+        findReconciledActiveYieldPositionForVault({
+          cluster,
           settings: principal.settingsPda,
           vaultIndex: EARN_VAULT_INDEX,
           walletAddress: principal.walletAddress,
-        });
-        if (!state) {
-          return null;
+        })
+      ),
+      loadEarnStatePart("policy", () =>
+        findActiveYieldRoutePolicyPair({
+          authority: principal.walletAddress,
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+        })
+      ),
+      loadEarnStatePart("onboarding", () =>
+        findCurrentEarnDepositOnboardingAttempt({
+          settings: principal.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+          walletAddress: principal.walletAddress,
+        })
+      ),
+      loadEarnStatePart(
+        "autodeposit",
+        async (): Promise<CurrentEarnAutodepositStateWithProgress | null> => {
+          const state = await findCurrentEarnAutodepositState({
+            settings: principal.settingsPda,
+            vaultIndex: EARN_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
+          });
+          if (!state) {
+            return null;
+          }
+
+          const [depositedThisPeriodRaw, scheduledSweeps] = await Promise.all([
+            sumEarnAutodepositCurrentPeriodDeposits(state.target),
+            findPendingEarnAutodepositScheduledSweeps(state.target),
+          ]);
+
+          return { ...state, depositedThisPeriodRaw, scheduledSweeps };
         }
-
-        const [depositedThisPeriodRaw, scheduledSweeps] = await Promise.all([
-          sumEarnAutodepositCurrentPeriodDeposits(state.target),
-          findPendingEarnAutodepositScheduledSweeps(state.target),
-        ]);
-
-        return { ...state, depositedThisPeriodRaw, scheduledSweeps };
-      }
-    ),
-  ]);
+      ),
+    ]);
   const position = positionResult.data;
-  const policy = policyResult.data;
+  const policyPair = policyResult.data;
+  const policy = policyPair?.routePolicy ?? null;
+  const onboarding = onboardingResult.data;
   const autodeposit = autodepositResult.data;
   const currentTotalAmountRaw = position
     ? await loadCurrentTotalAmountRaw({
@@ -190,13 +204,23 @@ export async function GET(request: Request) {
   const loadErrors = {
     ...(positionResult.error ? { position: true } : {}),
     ...(policyResult.error ? { policy: true } : {}),
+    ...(onboardingResult.error ? { onboarding: true } : {}),
     ...(autodepositResult.error ? { autodeposit: true } : {}),
   };
+  const onboardingNextStep = deriveEarnDepositOnboardingNextStep({
+    attempt: onboarding,
+    hasActivePosition: Boolean(position),
+    policyPair,
+  });
 
   return NextResponse.json({
     autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     loadErrors,
+    onboarding: serializeEarnDepositOnboardingState({
+      attempt: onboarding,
+      nextStep: onboardingNextStep,
+    }),
     policy: policy ? serializeRoutePolicyState(policy) : null,
     position: position
       ? serializePosition(position, currentTotalAmountRaw)

@@ -15,8 +15,9 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { findBestSafeUsdcEarnReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
+  findCurrentEarnDepositOnboardingAttempt,
   findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
   type RoutePolicyRecord,
@@ -77,6 +78,8 @@ export async function POST(request: Request) {
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   let policy: RoutePolicyRecord | null = null;
+  let setupPolicy: RoutePolicyRecord | null = null;
+  let resumeRouteOnly = false;
 
   try {
     const serverEnv = getServerEnv();
@@ -87,22 +90,82 @@ export async function POST(request: Request) {
       programId,
       settingsPda,
     });
-    const [policyResult, activePosition] = await Promise.all([
-      findActiveYieldRoutePolicyPair({
-        authority: principal.walletAddress,
-        cluster,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        vaultPubkey: earnVaultPda.toBase58(),
-      }),
-      findReconciledActiveYieldPositionForVault({
-        cluster,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        walletAddress: principal.walletAddress,
-      }),
-    ]);
+    const [policyResult, activePosition, onboardingAttempt] = await Promise.all(
+      [
+        findActiveYieldRoutePolicyPair({
+          authority: principal.walletAddress,
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+        }),
+        findReconciledActiveYieldPositionForVault({
+          cluster,
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          walletAddress: principal.walletAddress,
+        }),
+        findCurrentEarnDepositOnboardingAttempt({
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+          walletAddress: principal.walletAddress,
+        }),
+      ]
+    );
     policy = policyResult?.routePolicy ?? null;
+    setupPolicy = policyResult?.setupPolicy ?? null;
+    if (
+      !policy &&
+      onboardingAttempt?.routePolicySignature &&
+      onboardingAttempt.routePolicyConfirmedSlot
+    ) {
+      policy = {
+        active: true,
+        authority: principal.walletAddress,
+        delegatedSigners: [onboardingAttempt.delegatedSigner],
+        firstSeenAt: onboardingAttempt.firstSeenAt,
+        id: onboardingAttempt.routePolicyDbId ?? onboardingAttempt.policyId,
+        kaminoLiquidityMints: [onboardingAttempt.liquidityMint],
+        kaminoMarkets: onboardingAttempt.market
+          ? [onboardingAttempt.market]
+          : [],
+        lastSeenAt: onboardingAttempt.updatedAt,
+        lastSeenSignature: onboardingAttempt.routePolicySignature,
+        lastSeenSlot: onboardingAttempt.routePolicyConfirmedSlot,
+        policyAccount: onboardingAttempt.policyAccount,
+        policySeed: onboardingAttempt.policySeed,
+        riskProfile: "safe",
+        routeModes: [],
+        settings: onboardingAttempt.settings,
+        stableMints: [onboardingAttempt.liquidityMint],
+        swapLanes: [],
+        threshold: 1,
+        universePreset: null,
+        vaultIndex: onboardingAttempt.vaultIndex,
+        vaultPubkey: onboardingAttempt.vaultPubkey,
+      };
+      if (
+        onboardingAttempt.setupPolicySignature &&
+        onboardingAttempt.setupPolicyAccount &&
+        onboardingAttempt.setupPolicySeed
+      ) {
+        setupPolicy = {
+          ...policy,
+          id:
+            onboardingAttempt.setupPolicyDbId ??
+            onboardingAttempt.setupPolicyId ??
+            onboardingAttempt.setupPolicySeed,
+          lastSeenSignature: onboardingAttempt.setupPolicySignature,
+          lastSeenSlot:
+            onboardingAttempt.setupPolicyConfirmedSlot ??
+            onboardingAttempt.routePolicyConfirmedSlot,
+          policyAccount: onboardingAttempt.setupPolicyAccount,
+          policySeed: onboardingAttempt.setupPolicySeed,
+        };
+      }
+      resumeRouteOnly = !setupPolicy;
+    }
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
       connection: getConnection(solanaEnv),
@@ -112,29 +175,21 @@ export async function POST(request: Request) {
       ? {
           account: new PublicKey(policy.policyAccount),
           seed: policy.policySeed,
-          ...(policyResult?.setupPolicy
+          ...(setupPolicy
             ? {
                 setupPolicy: {
-                  account: new PublicKey(
-                    policyResult.setupPolicy.policyAccount
-                  ),
-                  seed: policyResult.setupPolicy.policySeed,
+                  account: new PublicKey(setupPolicy.policyAccount),
+                  seed: setupPolicy.policySeed,
                 },
               }
             : {}),
+          ...(resumeRouteOnly ? { prepareSetupPolicy: true } : {}),
         }
       : undefined;
     const target =
       policy && activePosition
-        ? await findBestSafeUsdcEarnReserveTarget(cluster)
+        ? earnReserveTargetFromActivePosition(activePosition)
         : null;
-    if (policy && activePosition && !target) {
-      return jsonError(
-        409,
-        "no_eligible_earn_reserve",
-        "No fresh Safe USDC reserve candidate is available for this top-up."
-      );
-    }
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,

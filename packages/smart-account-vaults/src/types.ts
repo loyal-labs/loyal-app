@@ -405,6 +405,7 @@ export type SmartAccountEarnUsdcDepositInput = {
   yieldRoutingPolicy?: {
     account: PublicKey;
     seed: bigint;
+    prepareSetupPolicy?: boolean;
     setupPolicy?: {
       account: PublicKey;
       seed: bigint;
@@ -565,6 +566,7 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
   fullWithdrawalTargets?: Array<
     SmartAccountEarnUsdcReserveTargetInput & {
       amountRaw?: bigint;
+      vaultCollateralAta?: PublicKey;
     }
   >;
   yieldRoutingPolicy?: {

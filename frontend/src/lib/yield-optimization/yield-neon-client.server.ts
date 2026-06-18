@@ -87,6 +87,61 @@ export type YieldWithdrawalReserveMetadata = {
   withdrawnAmountRaw: string;
 };
 
+export const earnDepositOnboardingAttempts = loyalYieldSchema.table(
+  "earn_deposit_onboarding_attempts",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    walletAddress: text("wallet_address").notNull(),
+    delegatedSigner: text("delegated_signer").notNull(),
+    smartAccountAddress: text("smart_account_address"),
+    settings: text("settings").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    vaultPubkey: text("vault_pubkey").notNull(),
+    policyId: bigint("policy_id", { mode: "bigint" }).notNull(),
+    policyAccount: text("policy_account").notNull(),
+    policySeed: bigint("policy_seed", { mode: "bigint" }).notNull(),
+    routePolicyDbId: bigint("route_policy_db_id", { mode: "bigint" }),
+    routePolicySignature: text("route_policy_signature"),
+    routePolicyConfirmedSlot: bigint("route_policy_confirmed_slot", {
+      mode: "bigint",
+    }),
+    setupPolicyId: bigint("setup_policy_id", { mode: "bigint" }),
+    setupPolicyAccount: text("setup_policy_account"),
+    setupPolicySeed: bigint("setup_policy_seed", { mode: "bigint" }),
+    setupPolicyDbId: bigint("setup_policy_db_id", { mode: "bigint" }),
+    setupPolicySignature: text("setup_policy_signature"),
+    setupPolicyConfirmedSlot: bigint("setup_policy_confirmed_slot", {
+      mode: "bigint",
+    }),
+    depositSignature: text("deposit_signature"),
+    depositConfirmedSlot: bigint("deposit_confirmed_slot", {
+      mode: "bigint",
+    }),
+    depositMint: text("deposit_mint"),
+    principalAmountRaw: bigint("principal_amount_raw", { mode: "bigint" }),
+    targetReserve: text("target_reserve").notNull(),
+    market: text("market"),
+    liquidityMint: text("liquidity_mint").notNull(),
+    targetSupplyApyBps: bigint("target_supply_apy_bps", { mode: "bigint" }),
+    status: text("status").notNull(),
+    lastErrorCode: text("last_error_code"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_deposit_onboarding_active_attempt_uidx")
+      .on(table.settings, table.vaultIndex, table.vaultPubkey)
+      .where(sql`${table.status} <> 'complete'`),
+    index("earn_deposit_onboarding_wallet_idx").on(
+      table.walletAddress,
+      table.updatedAt
+    ),
+    index("earn_deposit_onboarding_deposit_signature_idx")
+      .on(table.depositSignature)
+      .where(sql`${table.depositSignature} IS NOT NULL`),
+  ]
+);
+
 export const routePolicies = loyalYieldSchema.table(
   "route_policies",
   {
@@ -764,6 +819,7 @@ export const yieldOptimizationSchema = {
   balanceSweepTargets,
   balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
+  earnDepositOnboardingAttempts,
   earnApyHourlySnapshots,
   earnForecastSnapshots,
   managedVaults,
@@ -795,6 +851,7 @@ export type YieldOptimizationClientTables = {
   balanceSweepTargets: typeof balanceSweepTargets;
   balanceSweepWalletBalanceEvents: typeof balanceSweepWalletBalanceEvents;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
+  earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
@@ -820,6 +877,7 @@ export class YieldOptimizationClient {
     balanceSweepTargets,
     balanceSweepWalletBalanceEvents,
     balanceSweepWalletBalancesCurrent,
+    earnDepositOnboardingAttempts,
     earnApyHourlySnapshots,
     earnForecastSnapshots,
     managedVaults,

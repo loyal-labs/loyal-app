@@ -434,9 +434,7 @@ function readPublicKey(data: Buffer, offset: number): PublicKey {
   return new PublicKey(data.subarray(offset, offset + 32));
 }
 
-function assertKaminoReserveAccountData(
-  data: Buffer | Uint8Array
-): Buffer {
+function assertKaminoReserveAccountData(data: Buffer | Uint8Array): Buffer {
   const normalizedData = Buffer.isBuffer(data) ? data : Buffer.from(data);
   if (!bufferStartsWith(normalizedData, KAMINO_RESERVE_DISCRIMINATOR)) {
     throw new Error("Kamino reserve account has an invalid discriminator.");
@@ -626,11 +624,91 @@ function requireLocalKaminoTargetAccounts(target: KaminoEarnTarget): {
 
 function createLocalKaminoDepositInstruction(args: {
   amountRaw: bigint;
+  obligation?: PublicKey;
+  reserveAccounts?: KaminoReserveTokenAccounts;
   target: KaminoEarnTarget;
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;
   vaultCollateralAta: PublicKey;
 }): TransactionInstruction {
+  if (args.obligation && args.reserveAccounts) {
+    const lendingMarketAuthority = getLendingMarketAuthority({
+      market: args.target.market,
+      lendProgramId: args.target.lendProgramId,
+    });
+    const hasCollateralFarm = !args.reserveAccounts.farmCollateral.equals(
+      PublicKey.default
+    );
+    const obligationFarmUserState = hasCollateralFarm
+      ? deriveKaminoFarmUserStatePda({
+          farmState: args.reserveAccounts.farmCollateral,
+          owner: args.obligation,
+        })
+      : args.target.lendProgramId;
+    const reserveFarmState = hasCollateralFarm
+      ? args.reserveAccounts.farmCollateral
+      : args.target.lendProgramId;
+
+    return new TransactionInstruction({
+      programId: args.target.lendProgramId,
+      keys: [
+        { pubkey: args.vaultPda, isSigner: true, isWritable: true },
+        { pubkey: args.obligation, isSigner: false, isWritable: true },
+        { pubkey: args.target.market, isSigner: false, isWritable: false },
+        { pubkey: lendingMarketAuthority, isSigner: false, isWritable: false },
+        { pubkey: args.target.reserve, isSigner: false, isWritable: true },
+        {
+          pubkey: args.reserveAccounts.reserveLiquidityMint,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: args.reserveAccounts.reserveLiquiditySupply,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: args.reserveAccounts.reserveCollateralMint,
+          isSigner: false,
+          isWritable: true,
+        },
+        {
+          pubkey: args.reserveAccounts.reserveCollateralSupply,
+          isSigner: false,
+          isWritable: true,
+        },
+        { pubkey: args.vaultUsdcAta, isSigner: false, isWritable: true },
+        {
+          pubkey: args.target.lendProgramId,
+          isSigner: false,
+          isWritable: false,
+        },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        {
+          pubkey: SYSVAR_INSTRUCTIONS_PUBKEY,
+          isSigner: false,
+          isWritable: false,
+        },
+        {
+          pubkey: obligationFarmUserState,
+          isSigner: false,
+          isWritable: hasCollateralFarm,
+        },
+        {
+          pubkey: reserveFarmState,
+          isSigner: false,
+          isWritable: hasCollateralFarm,
+        },
+        { pubkey: KAMINO_FARMS_PROGRAM_ID, isSigner: false, isWritable: false },
+      ],
+      data: encodeU64InstructionData(
+        args.target.depositDiscriminator,
+        args.amountRaw
+      ),
+    });
+  }
+
   const { reserveCollateralMint, reserveLiquiditySupply } =
     requireLocalKaminoTargetAccounts(args.target);
   const lendingMarketAuthority = getLendingMarketAuthority({
@@ -679,8 +757,9 @@ function createLocalKaminoWithdrawInstruction(args: {
       market: args.target.market,
       lendProgramId: args.target.lendProgramId,
     });
-    const hasCollateralFarm =
-      !args.reserveAccounts.farmCollateral.equals(PublicKey.default);
+    const hasCollateralFarm = !args.reserveAccounts.farmCollateral.equals(
+      PublicKey.default
+    );
     const obligationFarmUserState = hasCollateralFarm
       ? deriveKaminoFarmUserStatePda({
           farmState: args.reserveAccounts.farmCollateral,
@@ -705,7 +784,7 @@ function createLocalKaminoWithdrawInstruction(args: {
           isWritable: false,
         },
         {
-          pubkey: args.vaultCollateralAta,
+          pubkey: args.reserveAccounts.reserveCollateralSupply,
           isSigner: false,
           isWritable: true,
         },
@@ -1564,6 +1643,7 @@ function validateKaminoWithdrawInstruction(args: {
 }): {
   executionMarket: PublicKey;
   executionReserve: PublicKey;
+  usesCurrentWithdrawAccountOrder: boolean;
   vaultCollateralAta: PublicKey;
   reserveCollateralMint: PublicKey;
 } {
@@ -1658,6 +1738,7 @@ function validateKaminoWithdrawInstruction(args: {
   return {
     executionMarket,
     executionReserve,
+    usesCurrentWithdrawAccountOrder,
     reserveCollateralMint,
     vaultCollateralAta,
   };
@@ -4553,6 +4634,43 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  async function resolveEarnYieldRoutingSetupPolicyForCreation(args: {
+    cluster: LoyalCluster;
+    feePayer: PublicKey;
+    policySeed: bigint;
+    policySigner: PublicKey;
+    settingsPda: PublicKey;
+    signer: PublicKey;
+  }): Promise<ResolvedEarnYieldRoutingPolicy> {
+    const {
+      setupOperation,
+      setupPersistence,
+      setupPolicyAccount,
+      setupPolicySeed,
+    } = await createEarnYieldRoutingPolicyOperation({
+      cluster: args.cluster,
+      feePayer: args.feePayer,
+      policySeed: args.policySeed,
+      policySigner: args.policySigner,
+      settingsPda: args.settingsPda,
+      signer: args.signer,
+    });
+
+    return {
+      account: pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: Number(args.policySeed),
+      })[0],
+      finalizeOperation: setupOperation,
+      seed: args.policySeed,
+      setupAccount: setupPolicyAccount,
+      setupOperation,
+      setupPersistence,
+      setupSeed: setupPolicySeed,
+    };
+  }
+
   async function resolveEarnYieldRoutingPolicyForExecution(args: {
     settingsPda: PublicKey;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
@@ -5170,12 +5288,26 @@ export function createSmartAccountVaultsClient(
           signer: args.walletAddress,
         })
       : args.yieldRoutingPolicy
-      ? {
-          account: args.yieldRoutingPolicy.account,
-          seed: args.yieldRoutingPolicy.seed,
-          setupAccount: args.yieldRoutingPolicy.setupPolicy?.account,
-          setupSeed: args.yieldRoutingPolicy.setupPolicy?.seed,
-        }
+      ? args.yieldRoutingPolicy.setupPolicy
+        ? {
+            account: args.yieldRoutingPolicy.account,
+            seed: args.yieldRoutingPolicy.seed,
+            setupAccount: args.yieldRoutingPolicy.setupPolicy.account,
+            setupSeed: args.yieldRoutingPolicy.setupPolicy.seed,
+          }
+        : args.yieldRoutingPolicy.prepareSetupPolicy
+        ? await resolveEarnYieldRoutingSetupPolicyForCreation({
+            cluster,
+            feePayer: args.feePayer,
+            policySeed: args.yieldRoutingPolicy.seed,
+            policySigner: args.policySigner,
+            settingsPda: args.settingsPda,
+            signer: args.walletAddress,
+          })
+        : {
+            account: args.yieldRoutingPolicy.account,
+            seed: args.yieldRoutingPolicy.seed,
+          }
       : await resolveEarnYieldRoutingPolicyForExecution({
           settingsPda: args.settingsPda,
         });
@@ -5183,7 +5315,7 @@ export function createSmartAccountVaultsClient(
     const policyAccount = earnPolicy.account;
     const setupPolicyAccount = earnPolicy.setupAccount ?? null;
     const setupPolicySeed = earnPolicy.setupSeed ?? null;
-    const kaminoDepositBundle =
+    let kaminoDepositBundle =
       cluster === LoyalCluster.Devnet
         ? (() => {
             const instruction = createLocalKaminoDepositInstruction({
@@ -5193,7 +5325,11 @@ export function createSmartAccountVaultsClient(
               vaultUsdcAta,
               vaultCollateralAta: vaultCollateralAta!,
             });
-            return { instruction, instructions: [instruction] };
+            return {
+              instruction,
+              instructions: [instruction],
+              matchingInstructions: [instruction],
+            };
           })()
         : await fetchKaminoDepositInstruction({
             amountRaw: args.amountRaw,
@@ -5203,6 +5339,61 @@ export function createSmartAccountVaultsClient(
             reserve: earnTarget.reserve,
             wallet: vaultPda,
           });
+    if (cluster !== LoyalCluster.Devnet) {
+      const usesCurrentDepositAccountOrder =
+        kaminoDepositBundle.instruction.keys[2]?.pubkey.equals(
+          earnTarget.market
+        ) ?? false;
+      const executionReserve = usesCurrentDepositAccountOrder
+        ? kaminoDepositBundle.instruction.keys[4]?.pubkey ?? null
+        : null;
+      if (executionReserve && !executionReserve.equals(earnTarget.reserve)) {
+        const reserveAccount = await config.connection.getAccountInfo(
+          earnTarget.reserve,
+          "confirmed"
+        );
+        if (!reserveAccount) {
+          throw new Error("Selected Kamino reserve account was not found.");
+        }
+        const reserveAccounts = parseKaminoReserveTokenAccounts(
+          reserveAccount.data
+        );
+        assertKaminoAccountEquals({
+          actual: reserveAccounts.reserveLiquidityMint,
+          expected: usdcMint,
+          label: "liquidity mint",
+        });
+        const localDepositInstruction = createLocalKaminoDepositInstruction({
+          amountRaw: args.amountRaw,
+          obligation: targetObligation,
+          reserveAccounts,
+          target: {
+            ...earnTarget,
+            reserveCollateralMint: reserveAccounts.reserveCollateralMint,
+            reserveLiquiditySupply: reserveAccounts.reserveLiquiditySupply,
+          },
+          vaultCollateralAta: getAssociatedTokenAddressSync(
+            reserveAccounts.reserveCollateralMint,
+            vaultPda,
+            true,
+            TOKEN_PROGRAM_ID
+          ),
+          vaultPda,
+          vaultUsdcAta,
+        });
+        const refreshPrefix = kaminoDepositBundle.instructions.filter(
+          (instruction) =>
+            !instruction.data
+              .subarray(0, earnTarget.depositDiscriminator.length)
+              .equals(Buffer.from(earnTarget.depositDiscriminator))
+        );
+        kaminoDepositBundle = {
+          instruction: localDepositInstruction,
+          instructions: [...refreshPrefix, localDepositInstruction],
+          matchingInstructions: [localDepositInstruction],
+        };
+      }
+    }
     const inferredVaultCollateralAccounts =
       vaultCollateralAta && earnTarget.reserveCollateralMint
         ? {
@@ -5766,6 +5957,10 @@ export function createSmartAccountVaultsClient(
             TOKEN_PROGRAM_ID
           )
         : null;
+      const reconciledCollateralAta =
+        "vaultCollateralAta" in targetInput
+          ? targetInput.vaultCollateralAta ?? null
+          : null;
 
       assertKaminoAccountEquals({
         actual: target.liquidityMint,
@@ -5775,7 +5970,7 @@ export function createSmartAccountVaultsClient(
 
       return {
         amountRaw: targetInput.amountRaw ?? args.amountRaw,
-        localCollateralAta,
+        localCollateralAta: reconciledCollateralAta ?? localCollateralAta,
         obligation: deriveKaminoVanillaObligation(
           vaultPda,
           target.market,
@@ -5880,7 +6075,9 @@ export function createSmartAccountVaultsClient(
         vaultUsdcAta,
         withdrawDiscriminator: plan.target.withdrawDiscriminator,
       });
-      if (!validatedWithdrawAccounts.executionReserve.equals(plan.target.reserve)) {
+      if (
+        !validatedWithdrawAccounts.executionReserve.equals(plan.target.reserve)
+      ) {
         const reserveAccount = await config.connection.getAccountInfo(
           plan.target.reserve,
           "confirmed"
@@ -5902,8 +6099,8 @@ export function createSmartAccountVaultsClient(
           true,
           TOKEN_PROGRAM_ID
         );
-        const selectedWithdrawInstruction = createLocalKaminoWithdrawInstruction(
-          {
+        const selectedWithdrawInstruction =
+          createLocalKaminoWithdrawInstruction({
             amountRaw: kaminoWithdrawAmountRaw,
             obligation: plan.obligation,
             reserveAccounts,
@@ -5915,12 +6112,11 @@ export function createSmartAccountVaultsClient(
             vaultCollateralAta: selectedVaultCollateralAta,
             vaultPda,
             vaultUsdcAta,
-          }
-        );
+          });
         const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
           (instruction) =>
-            !instruction
-              .data.subarray(0, plan.target.withdrawDiscriminator.length)
+            !instruction.data
+              .subarray(0, plan.target.withdrawDiscriminator.length)
               .equals(Buffer.from(plan.target.withdrawDiscriminator))
         );
         kaminoWithdrawBundle = {
@@ -5938,6 +6134,76 @@ export function createSmartAccountVaultsClient(
           vaultUsdcAta,
           withdrawDiscriminator: plan.target.withdrawDiscriminator,
         });
+      }
+      if (
+        !validatedWithdrawAccounts.usesCurrentWithdrawAccountOrder &&
+        plan.localCollateralAta &&
+        !validatedWithdrawAccounts.vaultCollateralAta.equals(
+          plan.localCollateralAta
+        )
+      ) {
+        const [returnedIsVaultOwned, reconciledIsVaultOwned, reserveAccount] =
+          await Promise.all([
+            isTokenAccountOwnedBy({
+              account: validatedWithdrawAccounts.vaultCollateralAta,
+              connection: config.connection,
+              owner: vaultPda,
+            }),
+            isTokenAccountOwnedBy({
+              account: plan.localCollateralAta,
+              connection: config.connection,
+              owner: vaultPda,
+            }),
+            config.connection.getAccountInfo(
+              validatedWithdrawAccounts.executionReserve,
+              "confirmed"
+            ),
+          ]);
+
+        if (!returnedIsVaultOwned && reconciledIsVaultOwned) {
+          if (!reserveAccount) {
+            throw new Error("Selected Kamino reserve account was not found.");
+          }
+          const reserveAccounts = parseKaminoReserveTokenAccounts(
+            reserveAccount.data
+          );
+          const reconciledWithdrawInstruction =
+            createLocalKaminoWithdrawInstruction({
+              amountRaw: kaminoWithdrawAmountRaw,
+              obligation: plan.obligation,
+              reserveAccounts,
+              target: {
+                ...plan.target,
+                reserve: validatedWithdrawAccounts.executionReserve,
+                reserveCollateralMint: reserveAccounts.reserveCollateralMint,
+                reserveLiquiditySupply: reserveAccounts.reserveLiquiditySupply,
+              },
+              vaultCollateralAta: plan.localCollateralAta,
+              vaultPda,
+              vaultUsdcAta,
+            });
+          const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
+            (instruction) =>
+              !instruction.data
+                .subarray(0, plan.target.withdrawDiscriminator.length)
+                .equals(Buffer.from(plan.target.withdrawDiscriminator))
+          );
+          kaminoWithdrawBundle = {
+            instruction: reconciledWithdrawInstruction,
+            instructions: [...refreshPrefix, reconciledWithdrawInstruction],
+            matchingInstructions: [reconciledWithdrawInstruction],
+          };
+          validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
+            instruction: kaminoWithdrawBundle.instruction,
+            lendProgramId: plan.target.lendProgramId,
+            liquidityMint: usdcMint,
+            market: plan.target.market,
+            safeMarkets,
+            vaultPda,
+            vaultUsdcAta,
+            withdrawDiscriminator: plan.target.withdrawDiscriminator,
+          });
+        }
       }
       vaultCollateralAta = validatedWithdrawAccounts.vaultCollateralAta;
       if (plan.target.reserveCollateralMint) {

@@ -2,7 +2,11 @@ import type {
   CurrentEarnAutodepositState,
   PendingEarnAutodepositScheduledSweepRecord,
 } from "./earn-autodeposit-repository.server";
-import type { RoutePolicyRecord } from "./yield-deposit-repository.server";
+import type {
+  EarnDepositOnboardingAttemptRecord,
+  EarnDepositOnboardingNextStep,
+  RoutePolicyRecord,
+} from "./yield-deposit-repository.server";
 
 export type CurrentEarnAutodepositStateWithProgress =
   CurrentEarnAutodepositState & {
@@ -75,5 +79,46 @@ export function serializeRoutePolicyState(policy: RoutePolicyRecord) {
     seed: policy.policySeed.toString(),
     vaultIndex: policy.vaultIndex,
     vaultPubkey: policy.vaultPubkey,
+  };
+}
+
+export function serializeEarnDepositOnboardingState(args: {
+  attempt: EarnDepositOnboardingAttemptRecord | null;
+  nextStep: EarnDepositOnboardingNextStep;
+}) {
+  const { attempt, nextStep } = args;
+
+  return {
+    nextStep,
+    ...(attempt
+      ? {
+          depositConfirmedSlot:
+            attempt.depositConfirmedSlot?.toString() ?? null,
+          depositSignature: attempt.depositSignature,
+          lastErrorCode: attempt.lastErrorCode,
+          policy: {
+            account: attempt.policyAccount,
+            id: attempt.policyId.toString(),
+            lastSeenSignature: attempt.routePolicySignature,
+            lastSeenSlot: attempt.routePolicyConfirmedSlot?.toString() ?? null,
+            seed: attempt.policySeed.toString(),
+          },
+          setupPolicy:
+            attempt.setupPolicyAccount && attempt.setupPolicySeed
+              ? {
+                  account: attempt.setupPolicyAccount,
+                  id:
+                    attempt.setupPolicyId?.toString() ??
+                    attempt.setupPolicySeed.toString(),
+                  lastSeenSignature: attempt.setupPolicySignature,
+                  lastSeenSlot:
+                    attempt.setupPolicyConfirmedSlot?.toString() ?? null,
+                  seed: attempt.setupPolicySeed.toString(),
+                }
+              : null,
+          status: attempt.status,
+          updatedAt: attempt.updatedAt.toISOString(),
+        }
+      : {}),
   };
 }
