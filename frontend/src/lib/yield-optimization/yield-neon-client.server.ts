@@ -578,6 +578,9 @@ export const balanceSweepTargets = loyalYieldSchema.table(
     wallet: text("wallet").notNull(),
     walletUsdcAta: text("wallet_usdc_ata").notNull(),
     vaultUsdcAta: text("vault_usdc_ata").notNull(),
+    tokenMint: text("token_mint").notNull(),
+    walletTokenAta: text("wallet_token_ata").notNull(),
+    vaultTokenAta: text("vault_token_ata").notNull(),
     delegatedSigners: text("delegated_signers").array().notNull(),
     threshold: integer("threshold").notNull(),
     maxAmountPerPeriod: bigint("max_amount_per_period", {
@@ -610,7 +613,17 @@ export const balanceSweepTargets = loyalYieldSchema.table(
     index("balance_sweep_targets_active_wallet_ata_idx").on(
       table.walletUsdcAta
     ),
+    index("balance_sweep_targets_active_wallet_token_ata_idx").on(
+      table.active,
+      table.tokenMint,
+      table.walletTokenAta
+    ),
     index("balance_sweep_targets_wallet_idx").on(table.wallet),
+    index("balance_sweep_targets_wallet_token_idx").on(
+      table.wallet,
+      table.tokenMint,
+      table.active
+    ),
   ]
 );
 

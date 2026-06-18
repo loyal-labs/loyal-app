@@ -820,11 +820,14 @@ function targetValuesFromSetup(
     startTimestamp: input.startTimestamp,
     subscriptionAuthority: input.subscriptionAuthority,
     threshold: 1,
+    tokenMint: input.liquidityMint,
     vaultIndex: input.vaultIndex,
+    vaultTokenAta: input.vaultUsdcAta,
     vaultPubkey: input.vaultPubkey,
     vaultUsdcAta: input.vaultUsdcAta,
     wallet: input.walletAddress,
     walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+    walletTokenAta: input.walletUsdcAta,
     walletUsdcAta: input.walletUsdcAta,
   };
 }
@@ -995,9 +998,12 @@ export async function recordPendingAutodepositSetup(
         recurringDelegation: input.recurringDelegation,
         startTimestamp: input.startTimestamp,
         subscriptionAuthority: input.subscriptionAuthority,
+        tokenMint: input.liquidityMint,
         vaultPubkey: input.vaultPubkey,
+        vaultTokenAta: input.vaultUsdcAta,
         vaultUsdcAta: input.vaultUsdcAta,
         walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+        walletTokenAta: input.walletUsdcAta,
         walletUsdcAta: input.walletUsdcAta,
       },
     })
@@ -1060,9 +1066,12 @@ export async function recordConfirmedAutodepositDelegation(
         recurringDelegation: input.recurringDelegation,
         startTimestamp: input.startTimestamp,
         subscriptionAuthority: input.subscriptionAuthority,
+        tokenMint: input.liquidityMint,
         vaultPubkey: input.vaultPubkey,
+        vaultTokenAta: input.vaultUsdcAta,
         vaultUsdcAta: input.vaultUsdcAta,
         walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+        walletTokenAta: input.walletUsdcAta,
         walletUsdcAta: input.walletUsdcAta,
       },
     })
@@ -1290,9 +1299,7 @@ export async function updateAutodepositWalletBalanceFloor(
           'previousWalletBalanceFloorRaw', ${
             existing.walletBalanceFloorRaw?.toString() ?? null
           }::text,
-          'walletBalanceFloorRaw', ${
-            input.walletBalanceFloorRaw.toString()
-          }::text,
+          'walletBalanceFloorRaw', ${input.walletBalanceFloorRaw.toString()}::text,
           'suppressedOpenLotCount', (SELECT COUNT(*) FROM suppressed_lots)
         ),
         ${now}

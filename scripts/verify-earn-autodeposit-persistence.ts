@@ -76,6 +76,7 @@ async function main() {
     migration0006,
     migration0007,
     migration0009,
+    migration0015,
     smartAccountClient,
   ] = await Promise.all([
     read("frontend/src/lib/yield-optimization/yield-neon-client.server.ts"),
@@ -117,6 +118,9 @@ async function main() {
     ),
     read(
       "frontend/src/lib/yield-optimization/migrations/0009_add_floor_rebaseline_surplus_classification.sql"
+    ),
+    read(
+      "frontend/src/lib/yield-optimization/migrations/0015_add_balance_sweep_target_token_accounts.sql"
     ),
     read("packages/smart-account-vaults/src/client.ts"),
   ]);
@@ -165,6 +169,9 @@ async function main() {
       "balanceSweepExecutions",
       "balanceSweepPolicyId",
       "walletBalanceFloorRaw",
+      "tokenMint",
+      "walletTokenAta",
+      "vaultTokenAta",
       "subscriptionAuthority",
       "recurringDelegation",
       "periodLengthSeconds",
@@ -176,7 +183,7 @@ async function main() {
   record(
     checks,
     "migration columns and indexes",
-    includesAll(migration0005 + migration0006 + migration0007, [
+    includesAll(migration0005 + migration0006 + migration0007 + migration0015, [
       "CREATE TABLE IF NOT EXISTS loyal_yield.balance_sweep_policies",
       "balance_sweep_policy_id",
       "balance_sweep_policies_policy_account_uidx",
@@ -185,10 +192,15 @@ async function main() {
       "ADD COLUMN IF NOT EXISTS recurring_delegation",
       "ADD COLUMN IF NOT EXISTS period_length_seconds",
       "ADD COLUMN IF NOT EXISTS start_timestamp",
+      "ADD COLUMN IF NOT EXISTS token_mint",
+      "ADD COLUMN IF NOT EXISTS wallet_token_ata",
+      "ADD COLUMN IF NOT EXISTS vault_token_ata",
       "ADD COLUMN IF NOT EXISTS wallet_balance_floor_raw",
       "ADD COLUMN IF NOT EXISTS lifecycle_status",
       "balance_sweep_targets_recurring_delegation_uidx",
       "balance_sweep_targets_lifecycle_status_idx",
+      "balance_sweep_targets_active_wallet_token_ata_idx",
+      "balance_sweep_targets_wallet_token_idx",
     ]),
     "Migration extends balance_sweep_targets additively."
   );
@@ -308,7 +320,7 @@ async function main() {
         "loadEarnStatePart",
         'loadEarnStatePart("position"',
         'loadEarnStatePart("policy"',
-        'loadEarnStatePart(\n      "autodeposit"',
+        '"autodeposit",\n        async (): Promise<CurrentEarnAutodepositStateWithProgress | null>',
         "Promise<{ data: T | null; error: boolean }>",
         "positionResult.data",
         "policyResult.data",
@@ -379,7 +391,10 @@ async function main() {
       "Couldn’t load Autodeposit settings",
       "isLoading={shouldShowAutodepositSkeleton}",
       "shouldShowAutodepositSkeleton",
-      "isEarnStateLoading && !hasEarnStateLoadError",
+      "isEarnStateLoading",
+      "!hasEarnStateResolved",
+      "!hasEarnStateLoadError",
+      "!isAutodepositConfigured",
       "isError={hasEarnStateLoadError}",
       "onRetry={onSmartAccountRetry}",
       "hasEarnStateLoadError={Boolean(",
@@ -456,6 +471,9 @@ async function main() {
           'recurring_delegation',
           'period_length_seconds',
           'start_timestamp',
+          'token_mint',
+          'wallet_token_ata',
+          'vault_token_ata',
           'wallet_balance_floor_raw',
           'lifecycle_status',
           'close_signature',
@@ -471,7 +489,9 @@ async function main() {
         AND tablename = 'balance_sweep_targets'
         AND indexname IN (
           'balance_sweep_targets_recurring_delegation_uidx',
-          'balance_sweep_targets_lifecycle_status_idx'
+          'balance_sweep_targets_lifecycle_status_idx',
+          'balance_sweep_targets_active_wallet_token_ata_idx',
+          'balance_sweep_targets_wallet_token_idx'
         )
       ORDER BY indexname;
     `);
@@ -519,6 +539,19 @@ async function main() {
           'balance_sweep_policies_active_authority_idx'
         )
       ORDER BY indexname;
+    `);
+    const liveFloorRebaselineObjects = await runPsql(`
+      SELECT 'enum:' || enumlabel
+      FROM pg_enum e
+      JOIN pg_type t ON t.oid = e.enumtypid
+      JOIN pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'loyal_yield'
+        AND t.typname = 'balance_sweep_surplus_classification'
+        AND enumlabel = 'floor_rebaseline'
+      UNION ALL
+      SELECT 'sequence:' || to_regclass('loyal_yield.balance_sweep_floor_rebaseline_event_id_seq')::text
+      WHERE to_regclass('loyal_yield.balance_sweep_floor_rebaseline_event_id_seq') IS NOT NULL
+      ORDER BY 1;
     `);
     const livePolicyLinks = await runPsql(`
       SELECT COUNT(*)
@@ -613,6 +646,9 @@ async function main() {
         "recurring_delegation",
         "period_length_seconds",
         "start_timestamp",
+        "token_mint",
+        "wallet_token_ata",
+        "vault_token_ata",
         "wallet_balance_floor_raw",
         "lifecycle_status",
         "close_signature",
@@ -625,8 +661,10 @@ async function main() {
       checks,
       "live Neon indexes",
       includesAll(liveIndexes, [
+        "balance_sweep_targets_active_wallet_token_ata_idx",
         "balance_sweep_targets_lifecycle_status_idx",
         "balance_sweep_targets_recurring_delegation_uidx",
+        "balance_sweep_targets_wallet_token_idx",
       ]),
       "Live loyal_yield.balance_sweep_targets has autodeposit indexes."
     );
@@ -668,6 +706,15 @@ async function main() {
         "balance_sweep_policies_policy_account_uidx",
       ]),
       "Live loyal_yield.balance_sweep_policies has lookup/uniqueness indexes."
+    );
+    record(
+      checks,
+      "live Neon floor rebaseline objects",
+      includesAll(liveFloorRebaselineObjects, [
+        "enum:floor_rebaseline",
+        "sequence:loyal_yield.balance_sweep_floor_rebaseline_event_id_seq",
+      ]),
+      "Live Neon can cast floor_rebaseline lots and allocate synthetic rebaseline event ids."
     );
     record(
       checks,
