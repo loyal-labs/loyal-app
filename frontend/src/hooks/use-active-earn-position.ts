@@ -8,7 +8,7 @@ import {
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
 
-const EARN_POSITION_CACHE_VERSION = 2;
+const EARN_POSITION_CACHE_VERSION = 3;
 
 export type ActiveEarnPositionHolding = {
   amountRaw: string;
@@ -50,6 +50,7 @@ export type ActiveEarnPosition = {
     };
     reserve: string;
   };
+  currentTotalAmountRaw: string;
   principalAmountRaw: string;
   status: string;
 };
@@ -79,7 +80,7 @@ export function isActiveEarnPosition(
   }
 
   try {
-    return BigInt(position.principalAmountRaw) > BigInt(0);
+    return BigInt(position.currentTotalAmountRaw) > BigInt(0);
   } catch {
     return false;
   }

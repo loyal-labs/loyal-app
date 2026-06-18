@@ -20,6 +20,7 @@ import {
   findActiveManagedYieldVaultWithPolicy,
   findCurrentNonzeroYieldVaultReservePositions,
   findReconciledActiveYieldPositionForVault,
+  recordSnapshotReconciledYieldHolding,
   recordReconciledYieldVaultSnapshot,
   type CurrentYieldVaultReservePositionRecord,
   type ReconciledYieldVaultReservePositionInput,
@@ -413,7 +414,7 @@ export async function reconcileEarnVaultPosition(
     expectedOwner: vaultPda,
   });
 
-  await recordReconciledYieldVaultSnapshot({
+  const { snapshotId } = await recordReconciledYieldVaultSnapshot({
     chainSlot: observedSlot,
     context: {
       source: "frontend_position_reconcile",
@@ -434,11 +435,28 @@ export async function reconcileEarnVaultPosition(
     vaultId: managed.vault.id,
   });
 
-  await findReconciledActiveYieldPositionForVault({
+  const reconciledTotalAmountRaw =
+    reservePositions.reduce((sum, row) => sum + row.amountRaw, BigInt(0)) +
+    idleAmountRaw;
+  const primaryReservePosition = reservePositions.find(
+    (row) => row.amountRaw > BigInt(0)
+  ) ??
+    reservePositions[0] ?? {
+      liquidityMint: canonicalAccounts.targetReserve.liquidityMint.toBase58(),
+      market: canonicalAccounts.targetReserve.market.toBase58(),
+      reserve: canonicalAccounts.targetReserve.reserve.toBase58(),
+    };
+
+  await recordSnapshotReconciledYieldHolding({
+    amountRaw: reconciledTotalAmountRaw,
     cluster: input.cluster,
-    settings: input.settings,
-    vaultIndex: EARN_VAULT_INDEX,
-    walletAddress: input.authority,
+    liquidityMint: primaryReservePosition.liquidityMint,
+    market: primaryReservePosition.market,
+    observedAt: now,
+    observedSlot,
+    positionId: position.id,
+    reserve: primaryReservePosition.reserve,
+    sourceSnapshotId: snapshotId,
   });
 
   return {

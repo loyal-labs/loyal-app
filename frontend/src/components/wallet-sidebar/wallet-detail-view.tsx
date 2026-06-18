@@ -2,18 +2,16 @@
 
 import type { SmartAccountSpendingLimitSnapshot } from "@loyal-labs/smart-account-vaults";
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
   Check,
   ChevronRight,
   Copy,
+  Repeat2,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
-import { ActivityRowItem } from "./activity-row-item";
 import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import { SpendingLimitSection } from "./spending-limit-section";
 import {
@@ -77,21 +75,16 @@ export function WalletDetailView({
   balanceWhole,
   balanceFraction,
   isBalanceHidden,
-  tokenRows,
-  activityRows,
-  transactionDetails,
-  onNavigate,
-  onOpenSend,
-  onOpenReceive,
+  cashTokenRows,
+  investmentTokenRows,
+  onOpenSwap,
   onOpenShield,
   onRemoveSigner,
   getTokenActions,
   onTokenDetail,
-  onActivityTabOpen,
   accessLevel,
   accessTitle = "User Access",
   initialTab = "tokens",
-  receiveLabel = "Receive",
   onAccessLevelChange,
   isAccessLevelPending = false,
   spendingLimit,
@@ -106,11 +99,12 @@ export function WalletDetailView({
   balanceFraction: string;
   isBalanceHidden: boolean;
   tokenRows: TokenRow[];
+  cashTokenRows: TokenRow[];
+  investmentTokenRows: TokenRow[];
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
   onNavigate: (view: Exclude<SubView, null>) => void;
-  onOpenSend: () => void;
-  onOpenReceive: () => void;
+  onOpenSwap: () => void;
   onOpenShield: () => void;
   onRemoveSigner?: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
@@ -119,7 +113,6 @@ export function WalletDetailView({
   accessLevel?: AccessLevel;
   accessTitle?: string;
   initialTab?: "activity" | "tokens";
-  receiveLabel?: string;
   onAccessLevelChange?: (level: AccessLevel) => Promise<void>;
   isAccessLevelPending?: boolean;
   spendingLimit?: SmartAccountSpendingLimitSnapshot | null;
@@ -129,8 +122,11 @@ export function WalletDetailView({
     spendingLimit: SmartAccountSpendingLimitSnapshot
   ) => Promise<void>;
 }) {
-  const [activeTab, setActiveTab] =
-    useState<"activity" | "tokens">(initialTab);
+  const resolveInitialTab = (tab: "activity" | "tokens") =>
+    tab === "tokens" ? "cash" : "investment";
+  const [activeTab, setActiveTab] = useState<"cash" | "investment">(
+    resolveInitialTab(initialTab)
+  );
   const [displayAccessLevel, setDisplayAccessLevel] = useState<AccessLevel>(
     accessLevel ?? "suggest"
   );
@@ -144,7 +140,7 @@ export function WalletDetailView({
   }, [accessLevel]);
 
   useEffect(() => {
-    setActiveTab(initialTab);
+    setActiveTab(resolveInitialTab(initialTab));
   }, [initialTab]);
 
   const loyalPriceUsd = useLoyalPriceUsd();
@@ -409,14 +405,14 @@ export function WalletDetailView({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
             gap: "10px",
             padding: "8px 20px",
           }}
         >
           <button
             className="wallet-detail-action"
-            onClick={onOpenSend}
+            onClick={onOpenSwap}
             style={{
               display: "flex",
               gap: "6px",
@@ -432,33 +428,7 @@ export function WalletDetailView({
             }}
             type="button"
           >
-            <ArrowUpRight size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
-            <span
-              className="wallet-detail-action-label"
-              style={{ fontFamily: font, fontSize: "15px", lineHeight: "20px" }}
-            >
-              Send
-            </span>
-          </button>
-          <button
-            className="wallet-detail-action"
-            onClick={onOpenReceive}
-            style={{
-              display: "flex",
-              gap: "6px",
-              alignItems: "center",
-              justifyContent: "center",
-              minWidth: 0,
-              padding: "10px 8px",
-              borderRadius: "9999px",
-              background: "rgba(249, 54, 60, 0.14)",
-              border: "none",
-              cursor: "pointer",
-              transition: "background 0.15s ease",
-            }}
-            type="button"
-          >
-            <ArrowDownLeft size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
+            <Repeat2 size={22} style={{ color: "rgba(0, 0, 0, 0.6)" }} />
             <span
               className="wallet-detail-action-label"
               style={{
@@ -467,7 +437,7 @@ export function WalletDetailView({
                 lineHeight: "20px",
               }}
             >
-              {receiveLabel}
+              Swap
             </span>
           </button>
           <button
@@ -761,18 +731,13 @@ export function WalletDetailView({
               gap: "24px",
             }}
           >
-            {(["tokens", "activity"] as const).map((tab) => {
+            {(["cash", "investment"] as const).map((tab) => {
               const isSelected = activeTab === tab;
 
               return (
                 <button
                   key={tab}
-                  onClick={() => {
-                    if (tab === "activity") {
-                      onActivityTabOpen?.();
-                    }
-                    setActiveTab(tab);
-                  }}
+                  onClick={() => setActiveTab(tab)}
                   style={{
                     position: "relative",
                     background: "transparent",
@@ -788,7 +753,7 @@ export function WalletDetailView({
                   }}
                   type="button"
                 >
-                  {tab === "tokens" ? "Tokens" : "Activity"}
+                  {tab === "cash" ? "Cash" : "Investment"}
                   {isSelected && (
                     <span
                       style={{
@@ -815,55 +780,54 @@ export function WalletDetailView({
               width: "100%",
             }}
           >
-            {activeTab === "tokens" &&
-              tokenRows.map((token, index) => (
+            {activeTab === "cash" &&
+              cashTokenRows.map((token, index) => (
                 <TokenRowItem
                   actions={getTokenActions?.(token)}
                   isBalanceHidden={isBalanceHidden}
                   key={token.id ?? token.symbol}
                   onDetail={onTokenDetail}
-                  pairConnection={getTokenPairConnection(tokenRows, index)}
+                  pairConnection={getTokenPairConnection(cashTokenRows, index)}
                   token={token}
                 />
               ))}
 
-            {activeTab === "activity" &&
-              activityRows.map((activity) => (
-                <ActivityRowItem
-                  activity={activity}
+            {activeTab === "investment" &&
+              investmentTokenRows.map((token, index) => (
+                <TokenRowItem
+                  actions={getTokenActions?.(token)}
                   isBalanceHidden={isBalanceHidden}
-                  key={activity.id}
-                  onClick={() =>
-                    onNavigate({
-                      type: "transaction",
-                      detail: transactionDetails[activity.id],
-                      from: "portfolio",
-                    })
-                  }
+                  key={token.id ?? token.symbol}
+                  onDetail={onTokenDetail}
+                  pairConnection={getTokenPairConnection(
+                    investmentTokenRows,
+                    index
+                  )}
+                  token={token}
                 />
               ))}
 
-            {activeTab === "tokens" && tokenRows.length === 0 && (
+            {activeTab === "cash" && cashTokenRows.length === 0 && (
+              <div
+                style={{
+                  padding: "12px",
+                  textAlign: "left",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  color: secondary,
+                  width: "100%",
+                }}
+              >
+                No cash yet
+              </div>
+            )}
+
+            {activeTab === "investment" && investmentTokenRows.length === 0 && (
               <TokenRowItem
                 isBalanceHidden={isBalanceHidden}
                 onDetail={onTokenDetail}
                 token={loyalPlaceholderRow}
               />
-            )}
-
-            {activeTab === "activity" && activityRows.length === 0 && (
-            <div
-              style={{
-                padding: "12px",
-                textAlign: "left",
-                fontFamily: font,
-                fontSize: "14px",
-                color: secondary,
-                width: "100%",
-              }}
-            >
-              No activity yet
-            </div>
             )}
           </div>
         </div>

@@ -251,6 +251,7 @@ function serializePosition(position: UserYieldPositionRecord) {
       reserve: position.initialReserve,
       supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
     },
+    currentTotalAmountRaw: position.currentAmountRaw.toString(),
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
   };

@@ -662,8 +662,12 @@ function normalizeReserveWithdrawalsForCompare(
     };
   });
   normalized.sort((left, right) =>
-    `${left.reserve}:${left.market ?? ""}:${left.liquidityMint}:${left.amountRaw}`.localeCompare(
-      `${right.reserve}:${right.market ?? ""}:${right.liquidityMint}:${right.amountRaw}`
+    `${left.reserve}:${left.market ?? ""}:${left.liquidityMint}:${
+      left.amountRaw
+    }`.localeCompare(
+      `${right.reserve}:${right.market ?? ""}:${right.liquidityMint}:${
+        right.amountRaw
+      }`
     )
   );
   return JSON.stringify(normalized);
@@ -728,6 +732,8 @@ type WithdrawalSourceResolution = {
   isFinalExit: boolean;
   selectedIdleRow: CurrentYieldVaultIdleTokenBalanceRecord | null;
   selectedReserveRow: CurrentYieldVaultReservePositionRecord | null;
+  remainingIdleAmountRaw: bigint;
+  remainingReserveAmountRaw: bigint;
   sourceAmountRaw: bigint;
   sourceId: string;
   sourceMetadata: Record<string, unknown>;
@@ -835,6 +841,8 @@ async function resolveWithdrawalSource(
     idleRows: currentIdleRows,
     isFinalExit:
       remainingReserveRaw <= BigInt(0) && remainingIdleRaw <= BigInt(0),
+    remainingIdleAmountRaw: remainingIdleRaw,
+    remainingReserveAmountRaw: remainingReserveRaw,
     selectedIdleRow,
     selectedReserveRow,
     sourceAmountRaw,
@@ -2514,9 +2522,6 @@ export async function recordConfirmedYieldWithdrawal(
   if (existingPosition.status !== "active") {
     throw new Error("Yield position is not active.");
   }
-  if (existingPosition.principalAmountRaw < input.withdrawnAmountRaw) {
-    throw new Error("Withdrawal exceeds the active yield position amount.");
-  }
   const withdrawalSource = await resolveWithdrawalSource(input, dependencies);
   if (
     withdrawalSource.sourceType === "reserve" &&
@@ -2583,7 +2588,9 @@ export async function recordConfirmedYieldWithdrawal(
     ? BigInt(0)
     : withdrawalSource.sourceType === "idle"
     ? existingPosition.principalAmountRaw
-    : existingPosition.principalAmountRaw - input.withdrawnAmountRaw;
+    : existingPosition.principalAmountRaw > input.withdrawnAmountRaw
+    ? existingPosition.principalAmountRaw - input.withdrawnAmountRaw
+    : BigInt(0);
   const insertedWithdrawals = await client.db
     .insert(userYieldPositionWithdrawals)
     .values(withdrawalValues)
@@ -2599,10 +2606,15 @@ export async function recordConfirmedYieldWithdrawal(
   const [insertedWithdrawal] = insertedWithdrawals;
   const nextHoldingAmountRaw = withdrawalSource.isFinalExit
     ? BigInt(0)
-    : withdrawalSource.sourceType === "reserve" &&
-      existingPosition.currentReserve === input.targetReserve
-    ? existingPosition.currentAmountRaw - input.withdrawnAmountRaw
-    : existingPosition.currentAmountRaw;
+    : withdrawalSource.remainingReserveAmountRaw +
+      withdrawalSource.remainingIdleAmountRaw;
+  const principalDeltaRaw = withdrawalSource.isFinalExit
+    ? -existingPosition.principalAmountRaw
+    : withdrawalSource.sourceType === "idle"
+    ? BigInt(0)
+    : -(existingPosition.principalAmountRaw > input.withdrawnAmountRaw
+        ? input.withdrawnAmountRaw
+        : existingPosition.principalAmountRaw);
   const event = await insertHoldingEvent({
     amountRaw: nextHoldingAmountRaw,
     client,
@@ -2610,12 +2622,7 @@ export async function recordConfirmedYieldWithdrawal(
     eventType: withdrawalSource.isFinalExit
       ? "withdrawal_full"
       : "withdrawal_partial",
-    holdingDeltaRaw: withdrawalSource.isFinalExit
-      ? -existingPosition.currentAmountRaw
-      : withdrawalSource.sourceType === "reserve" &&
-        existingPosition.currentReserve === input.targetReserve
-      ? -input.withdrawnAmountRaw
-      : BigInt(0),
+    holdingDeltaRaw: nextHoldingAmountRaw - existingPosition.currentAmountRaw,
     liquidityMint:
       withdrawalSource.selectedReserveRow?.liquidityMint ??
       existingPosition.currentLiquidityMint,
@@ -2625,11 +2632,7 @@ export async function recordConfirmedYieldWithdrawal(
     observedAt: now,
     observedSlot: input.confirmedSlot,
     positionId: existingPosition.id,
-    principalDeltaRaw: withdrawalSource.isFinalExit
-      ? -existingPosition.principalAmountRaw
-      : withdrawalSource.sourceType === "idle"
-      ? BigInt(0)
-      : -input.withdrawnAmountRaw,
+    principalDeltaRaw,
     reserve:
       withdrawalSource.selectedReserveRow?.reserve ??
       existingPosition.currentReserve,
@@ -2646,7 +2649,7 @@ export async function recordConfirmedYieldWithdrawal(
       ? BigInt(0)
       : withdrawalSource.sourceType === "idle"
       ? existingPosition.principalAmountRaw
-      : sql`${userYieldPositions.principalAmountRaw} - ${input.withdrawnAmountRaw}`,
+      : nextPrincipal,
     status: withdrawalSource.isFinalExit ? "closed" : "active",
   });
 

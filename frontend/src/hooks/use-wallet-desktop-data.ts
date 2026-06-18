@@ -32,6 +32,10 @@ import {
 } from "@/lib/market/token-market.client";
 import { fetchTokenMarkets } from "@/lib/market/token-markets.client";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import {
+  getStablecoinMintSetForSolanaEnv,
+  isStablecoinMint,
+} from "@/lib/wallet/stablecoin-classification";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 
@@ -64,6 +68,8 @@ export type WalletDesktopData = {
   walletLabel: string;
   tokenRows: TokenRow[];
   allTokenRows: TokenRow[];
+  cashTokenRows: TokenRow[];
+  investmentTokenRows: TokenRow[];
   activityRows: ActivityRow[];
   allActivityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
@@ -990,6 +996,10 @@ export function useWalletDesktopData(): WalletDesktopData {
   const [priceChange24hByMint, setPriceChange24hByMint] = useState<
     ReadonlyMap<string, number>
   >(() => new Map());
+  const stablecoinMints = useMemo(
+    () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
+    [publicEnv.solanaEnv]
+  );
 
   useEffect(() => {
     if (!valuedMintsSignature) {
@@ -1091,6 +1101,9 @@ export function useWalletDesktopData(): WalletDesktopData {
   const allTokenRows = useMemo(() => {
     const rows: TokenRow[] = [];
     const attachPriceChange = (row: TokenRow, mint: string) => {
+      if (isStablecoinMint(mint, stablecoinMints)) {
+        return row;
+      }
       const pct = priceChange24hByMint.get(mint);
       if (typeof pct === "number") {
         row.priceChange24h = pct;
@@ -1181,7 +1194,25 @@ export function useWalletDesktopData(): WalletDesktopData {
     earningsByMint,
     apyByMint,
     priceChange24hByMint,
+    stablecoinMints,
   ]);
+
+  const cashTokenRows = useMemo(
+    () =>
+      allTokenRows.filter((row) =>
+        isStablecoinMint(row.id?.replace(/-secured$/, ""), stablecoinMints)
+      ),
+    [allTokenRows, stablecoinMints]
+  );
+
+  const investmentTokenRows = useMemo(
+    () =>
+      allTokenRows.filter(
+        (row) =>
+          !isStablecoinMint(row.id?.replace(/-secured$/, ""), stablecoinMints)
+      ),
+    [allTokenRows, stablecoinMints]
+  );
 
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
@@ -1312,6 +1343,8 @@ export function useWalletDesktopData(): WalletDesktopData {
     walletLabel,
     tokenRows: allTokenRows.slice(0, 3),
     allTokenRows,
+    cashTokenRows,
+    investmentTokenRows,
     activityRows: mergedActivityData.rows.slice(0, 5),
     allActivityRows: mergedActivityData.rows,
     transactionDetails: mergedActivityData.details,

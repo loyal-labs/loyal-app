@@ -62,9 +62,7 @@ function responseMatchesExpectedPrincipal(
   }
 
   return Object.values(payload.ranges).some(
-    (range) =>
-      range.principalAmountRaw === expectedPrincipalAmountRaw ||
-      (Number.isFinite(range.principalUsd) && range.principalUsd > 0)
+    (range) => range.principalAmountRaw === expectedPrincipalAmountRaw
   );
 }
 

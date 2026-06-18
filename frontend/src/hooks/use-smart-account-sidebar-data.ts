@@ -61,6 +61,10 @@ import {
 import { fetchTokenMarkets } from "@/lib/market/token-markets.client";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
+  getStablecoinMintSetForSolanaEnv,
+  isStablecoinMint,
+} from "@/lib/wallet/stablecoin-classification";
+import {
   buildEarnDepositConfirmRequestBody,
   buildEarnPolicyConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
@@ -163,6 +167,7 @@ type EarnStateResponse = {
     vaultPubkey: string;
   } | null;
   position: {
+    currentTotalAmountRaw: string;
     principalAmountRaw: string;
     status: string;
   } | null;
@@ -281,6 +286,8 @@ export type SmartAccountVaultView = {
   entry: SmartAccountVaultEntry;
   positions: PortfolioPosition[];
   tokenRows: TokenRow[];
+  cashTokenRows: TokenRow[];
+  investmentTokenRows: TokenRow[];
   activityRows: ActivityRow[];
   transactionDetails: Record<string, TransactionDetail>;
   spendingLimits: SmartAccountSpendingLimitSnapshot[];
@@ -308,6 +315,7 @@ const EMPTY_SIGNER_PORTFOLIO_VIEW: SmartAccountSignerPortfolioView = {
   hasLoadedActivity: false,
   error: null,
 };
+const EMPTY_STABLECOIN_MINTS = new Set<string>();
 
 export type VaultTransferRequest = {
   accountIndex: number;
@@ -1542,7 +1550,7 @@ function isActiveEarnStatePosition(
   }
 
   try {
-    return BigInt(earnState.position.principalAmountRaw) > BigInt(0);
+    return BigInt(earnState.position.currentTotalAmountRaw) > BigInt(0);
   } catch {
     return false;
   }
@@ -1751,12 +1759,14 @@ function mapSignersToEntries(args: {
   signers: SmartAccountSignerSnapshot[];
   authenticatedWalletAddress: string | null | undefined;
   /**
-   * Full portfolio total (USD) for the authenticated user — already includes
-   * SPL tokens + shielded balances. When provided, the "User" row in the
-   * sidebar shows this instead of just `signer.lamports * solPrice`, so the
-   * sidebar matches the wallet detail view.
+   * Full portfolio total (USD) for fallback display of the authenticated user.
    */
   authenticatedUserTotalUsd?: number | null;
+  /**
+   * Public stablecoin subtotal (USD) for the authenticated user. When present,
+   * the Main Account row shows available cash instead of the whole portfolio.
+   */
+  authenticatedUserCashUsd?: number | null;
   solPriceUsd: number;
   spendingLimits?: SmartAccountSpendingLimitSnapshot[];
 }): SmartAccountSignerEntry[] {
@@ -1774,8 +1784,12 @@ function mapSignersToEntries(args: {
       : `Signer ${++signerCount}`;
     const balanceUsd =
       isAuthenticatedUser &&
-      typeof args.authenticatedUserTotalUsd === "number" &&
-      Number.isFinite(args.authenticatedUserTotalUsd)
+      typeof args.authenticatedUserCashUsd === "number" &&
+      Number.isFinite(args.authenticatedUserCashUsd)
+        ? args.authenticatedUserCashUsd
+        : isAuthenticatedUser &&
+          typeof args.authenticatedUserTotalUsd === "number" &&
+          Number.isFinite(args.authenticatedUserTotalUsd)
         ? args.authenticatedUserTotalUsd
         : lamportsToUsd(signer.lamports ?? 0, args.solPriceUsd);
     const balance = splitUsd(balanceUsd);
@@ -1935,7 +1949,8 @@ function mapVaultActivity(
 
 function mapVaultToTokenRows(
   positions: PortfolioPosition[],
-  priceChange24hByMint?: ReadonlyMap<string, number>
+  priceChange24hByMint?: ReadonlyMap<string, number>,
+  stablecoinMints?: ReadonlySet<string>
 ): TokenRow[] {
   return positions
     .filter((position) => position.totalBalance > 0)
@@ -1955,7 +1970,13 @@ function mapVaultToTokenRows(
         securedValueDisplay: formatUsd(position.securedValueUsd),
       };
       const pct = priceChange24hByMint?.get(position.asset.mint);
-      if (typeof pct === "number") {
+      if (
+        typeof pct === "number" &&
+        !isStablecoinMint(
+          position.asset.mint,
+          stablecoinMints ?? EMPTY_STABLECOIN_MINTS
+        )
+      ) {
         row.priceChange24h = pct;
       }
       return row;
@@ -2383,12 +2404,18 @@ async function normalizeSpendingLimitError(
 export function useSmartAccountSidebarData(
   options: {
     authenticatedUserTotalUsd?: number | null;
+    authenticatedUserCashUsd?: number | null;
     onAfterTx?: () => Promise<void> | void;
   } = {}
 ): SmartAccountSidebarData {
-  const { authenticatedUserTotalUsd, onAfterTx } = options;
+  const { authenticatedUserCashUsd, authenticatedUserTotalUsd, onAfterTx } =
+    options;
   const publicEnv = usePublicEnv();
   const solanaEnv = publicEnv.solanaEnv;
+  const stablecoinMints = useMemo(
+    () => getStablecoinMintSetForSolanaEnv(solanaEnv),
+    [solanaEnv]
+  );
   const onAfterTxRef = useRef(onAfterTx);
   useEffect(() => {
     onAfterTxRef.current = onAfterTx;
@@ -2962,7 +2989,11 @@ export function useSmartAccountSidebarData(
           const portfolio = await walletDataClient.getPortfolio(publicKey, {
             forceRefresh,
           });
-          const tokenRows = mapVaultToTokenRows(portfolio.positions);
+          const tokenRows = mapVaultToTokenRows(
+            portfolio.positions,
+            undefined,
+            stablecoinMints
+          );
 
           setSignerPortfolioByAddress((current) => ({
             ...current,
@@ -2997,7 +3028,7 @@ export function useSmartAccountSidebarData(
         signerPortfolioLoadPromisesRef.current.delete(signerAddress);
       }
     },
-    [walletDataClient]
+    [stablecoinMints, walletDataClient]
   );
 
   const loadSignerActivity = useCallback(
@@ -3173,6 +3204,7 @@ export function useSmartAccountSidebarData(
       const signers = mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        authenticatedUserCashUsd,
         authenticatedUserTotalUsd,
         solPriceUsd,
         spendingLimits: vault.spendingLimits ?? [],
@@ -3188,7 +3220,12 @@ export function useSmartAccountSidebarData(
         signers,
       };
     });
-  }, [overview?.vaults, user?.walletAddress, authenticatedUserTotalUsd]);
+  }, [
+    overview?.vaults,
+    user?.walletAddress,
+    authenticatedUserCashUsd,
+    authenticatedUserTotalUsd,
+  ]);
 
   const totalUsd = useMemo(
     () =>
@@ -3269,6 +3306,7 @@ export function useSmartAccountSidebarData(
       signers: mapSignersToEntries({
         signers: vault.signers ?? [],
         authenticatedWalletAddress: user?.walletAddress,
+        authenticatedUserCashUsd,
         authenticatedUserTotalUsd,
         solPriceUsd: resolveSolPriceUsd({
           effectiveSolPriceUsd: vault.portfolio.totals.effectiveSolPriceUsd,
@@ -3279,7 +3317,15 @@ export function useSmartAccountSidebarData(
     };
     const tokenRows = mapVaultToTokenRows(
       vault.portfolio.positions,
-      vaultPriceChange24hByMint
+      vaultPriceChange24hByMint,
+      stablecoinMints
+    );
+    const cashTokenRows = tokenRows.filter((row) =>
+      isStablecoinMint(row.id?.replace(/-secured$/, ""), stablecoinMints)
+    );
+    const investmentTokenRows = tokenRows.filter(
+      (row) =>
+        !isStablecoinMint(row.id?.replace(/-secured$/, ""), stablecoinMints)
     );
     const activityView =
       vaultActivityByAccountIndex[vault.accountIndex] ??
@@ -3297,6 +3343,8 @@ export function useSmartAccountSidebarData(
       },
       positions: vault.portfolio.positions,
       tokenRows,
+      cashTokenRows,
+      investmentTokenRows,
       activityRows: activityView.activityRows,
       transactionDetails: activityView.transactionDetails,
       spendingLimits: vault.spendingLimits ?? [],
@@ -3305,7 +3353,9 @@ export function useSmartAccountSidebarData(
     overview?.vaults,
     selectedVaultIndex,
     user?.walletAddress,
+    authenticatedUserCashUsd,
     authenticatedUserTotalUsd,
+    stablecoinMints,
     vaultActivityByAccountIndex,
     vaultEntries,
     vaultPriceChange24hByMint,

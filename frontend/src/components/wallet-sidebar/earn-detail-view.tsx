@@ -1171,9 +1171,6 @@ export function deriveEstimatedEarnBalanceAmount({
     return principalAmount;
   }
 
-  const principalUsd = Number.isFinite(earningsData.principalUsd)
-    ? earningsData.principalUsd
-    : principalAmount;
   const sinceLastDepositEarnedUsd = Number.isFinite(
     earningsData.sinceLastDepositEarnedUsd
   )
@@ -1182,11 +1179,11 @@ export function deriveEstimatedEarnBalanceAmount({
   const liveEarnedUsd = deriveLiveEarnedUsd({
     apyBps,
     generatedAt,
-    principalAmount: principalUsd,
+    principalAmount,
   });
 
   return Number(
-    (principalUsd + sinceLastDepositEarnedUsd + liveEarnedUsd).toFixed(
+    (principalAmount + sinceLastDepositEarnedUsd + liveEarnedUsd).toFixed(
       EARN_BALANCE_DECIMALS
     )
   );
@@ -1226,9 +1223,6 @@ export function deriveEstimatedEarnedSummaryAmount({
     return 0;
   }
 
-  const principalUsd = Number.isFinite(earningsData.principalUsd)
-    ? earningsData.principalUsd
-    : principalAmount;
   const sinceLastDepositEarnedUsd = Number.isFinite(
     earningsData.sinceLastDepositEarnedUsd
   )
@@ -1241,7 +1235,7 @@ export function deriveEstimatedEarnedSummaryAmount({
       deriveLiveEarnedUsd({
         apyBps,
         generatedAt,
-        principalAmount: principalUsd,
+        principalAmount,
       })
     ).toFixed(EARN_BALANCE_DECIMALS)
   );
@@ -2439,8 +2433,7 @@ export function EarnDetailView({
       ? visibleCurrentPositionHoldings.map((holding) => ({
           amount: formatRawUsdcAmount(holding.amountRaw),
           key: `${holding.kind}:${holding.reserve ?? holding.liquidityMint}`,
-          primary:
-            holding.kind === "idle" ? holding.label : holding.marketName,
+          primary: holding.kind === "idle" ? holding.label : holding.marketName,
           secondary:
             holding.kind === "idle"
               ? holding.marketName
@@ -2562,7 +2555,11 @@ export function EarnDetailView({
             />
           </div>
         ) : (
-          <DepositButton onClick={onDeposit} tone={depositButtonTone} withIcon />
+          <DepositButton
+            onClick={onDeposit}
+            tone={depositButtonTone}
+            withIcon
+          />
         )}
       </div>
 
@@ -3139,7 +3136,8 @@ export function EarnWithdrawView({
   const destinationOptions =
     destinations.length > 0 ? destinations : FALLBACK_EARN_DEPOSIT_SOURCES;
   const sourceOptions = useMemo(
-    () => createWithdrawSourceOptions(currentPositionHoldings, maxWithdrawAmount),
+    () =>
+      createWithdrawSourceOptions(currentPositionHoldings, maxWithdrawAmount),
     [currentPositionHoldings, maxWithdrawAmount]
   );
   const [selectedSourceId, setSelectedSourceId] = useState(
@@ -3176,8 +3174,7 @@ export function EarnWithdrawView({
         maxWithdrawAmount: selectedSourceMaxAmount,
       }) === "full");
   const withdrawAmountError =
-    !Number.isFinite(effectiveWithdrawAmount) ||
-    effectiveWithdrawAmount <= 0
+    !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
       ? "Enter an amount"
       : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
       ? "Insufficient balance"

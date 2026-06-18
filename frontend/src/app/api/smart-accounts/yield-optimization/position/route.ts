@@ -62,6 +62,7 @@ function serializePosition(
   currentReserve: TimescaleReserveUpdateRow | null = null,
   holdings: ReturnType<typeof serializeHoldings> = []
 ) {
+  const currentTotalAmountRaw = sumSerializedHoldingsAmountRaw(holdings);
   return {
     currentHolding: {
       amountRaw: position.currentAmountRaw.toString(),
@@ -91,9 +92,23 @@ function serializePosition(
       supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
     },
     holdings,
+    currentTotalAmountRaw: currentTotalAmountRaw.toString(),
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
   };
+}
+
+function sumSerializedHoldingsAmountRaw(
+  holdings: ReturnType<typeof serializeHoldings>
+): bigint {
+  const total = holdings.reduce((sum, holding) => {
+    try {
+      return sum + BigInt(holding.amountRaw);
+    } catch {
+      return sum;
+    }
+  }, BigInt(0));
+  return total > BigInt(0) ? total : BigInt(0);
 }
 
 function serializeKaminoHolding(row: CurrentYieldVaultReservePositionRecord) {

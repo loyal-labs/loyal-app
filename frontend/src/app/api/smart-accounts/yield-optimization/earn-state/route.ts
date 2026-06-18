@@ -18,6 +18,8 @@ import {
 } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
   findActiveYieldRoutePolicy,
+  findCurrentNonzeroYieldVaultReservePositions,
+  findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -29,7 +31,10 @@ function resolveConfiguredCluster() {
   return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 
-function serializePosition(position: UserYieldPositionRecord) {
+function serializePosition(
+  position: UserYieldPositionRecord,
+  currentTotalAmountRaw: bigint
+) {
   return {
     currentHolding: {
       amountRaw: position.currentAmountRaw.toString(),
@@ -51,9 +56,44 @@ function serializePosition(position: UserYieldPositionRecord) {
       reserve: position.initialReserve,
       supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
     },
+    currentTotalAmountRaw: currentTotalAmountRaw.toString(),
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
   };
+}
+
+async function loadCurrentTotalAmountRaw(args: {
+  cluster: ReturnType<typeof resolveConfiguredCluster>;
+  position: UserYieldPositionRecord;
+  settings: string;
+  walletAddress: string;
+}): Promise<bigint> {
+  try {
+    const [reserveRows, idleRows] = await Promise.all([
+      findCurrentNonzeroYieldVaultReservePositions({
+        cluster: args.cluster,
+        settings: args.settings,
+        vaultIndex: EARN_VAULT_INDEX,
+        vaultPubkey: args.position.vaultPubkey,
+        walletAddress: args.walletAddress,
+      }),
+      findCurrentYieldVaultIdleTokenBalances({
+        cluster: args.cluster,
+        settings: args.settings,
+        vaultIndex: EARN_VAULT_INDEX,
+        vaultPubkey: args.position.vaultPubkey,
+        walletAddress: args.walletAddress,
+      }),
+    ]);
+    const total = [...reserveRows, ...idleRows].reduce(
+      (sum, row) => sum + row.amountRaw,
+      BigInt(0)
+    );
+    return total > BigInt(0) ? total : args.position.currentAmountRaw;
+  } catch (error) {
+    console.warn("[earn-state] failed to load current holdings total", error);
+    return args.position.currentAmountRaw;
+  }
 }
 
 async function loadEarnStatePart<T>(
@@ -139,6 +179,14 @@ export async function GET(request: Request) {
   const position = positionResult.data;
   const policy = policyResult.data;
   const autodeposit = autodepositResult.data;
+  const currentTotalAmountRaw = position
+    ? await loadCurrentTotalAmountRaw({
+        cluster,
+        position,
+        settings: principal.settingsPda,
+        walletAddress: principal.walletAddress,
+      })
+    : BigInt(0);
   const loadErrors = {
     ...(positionResult.error ? { position: true } : {}),
     ...(policyResult.error ? { policy: true } : {}),
@@ -150,7 +198,9 @@ export async function GET(request: Request) {
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     loadErrors,
     policy: policy ? serializeRoutePolicyState(policy) : null,
-    position: position ? serializePosition(position) : null,
+    position: position
+      ? serializePosition(position, currentTotalAmountRaw)
+      : null,
     settingsPda: principal.settingsPda,
     vault: {
       accountIndex: EARN_VAULT_INDEX,

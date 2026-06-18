@@ -132,6 +132,10 @@ import { trackWalletShieldPressed } from "@/lib/core/analytics";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
+  getStablecoinMintSetForSolanaEnv,
+  sumPublicStablecoinUsd,
+} from "@/lib/wallet/stablecoin-classification";
+import {
   earnAutodepositConfigFromLoadedState,
   getEarnAutodepositProgressScale,
   isLoadedEarnAutodepositConfig,
@@ -1045,13 +1049,22 @@ export function AppWalletWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const walletDesktopData = useWalletDesktopData();
+  const publicEnv = usePublicEnv();
+  const stablecoinMints = useMemo(
+    () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
+    [publicEnv.solanaEnv]
+  );
+  const mainAccountStablecoinUsd = useMemo(
+    () => sumPublicStablecoinUsd(walletDesktopData.positions, stablecoinMints),
+    [stablecoinMints, walletDesktopData.positions]
+  );
   const smartAccountData = useSmartAccountSidebarData({
+    authenticatedUserCashUsd: mainAccountStablecoinUsd,
     authenticatedUserTotalUsd: walletDesktopData.totalUsd,
     onAfterTx: walletDesktopData.refresh,
   });
   const { disconnect } = useWallet();
   const { logout, user } = useAuthSession();
-  const publicEnv = usePublicEnv();
   const trackedKaminoUsdcMint = useMemo(
     () => resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
@@ -1803,7 +1816,7 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPosition =
     activeEarnPosition?.status === "active" &&
-    BigInt(activeEarnPosition.principalAmountRaw) > BigInt(0);
+    BigInt(activeEarnPosition.currentTotalAmountRaw) > BigInt(0);
   const isEarnDepositDetailActive =
     detailSelection === "earnDeposit" ||
     (detailSelection === "earn" && !hasEarnPosition);
@@ -1904,7 +1917,7 @@ export function AppWalletWorkspace({
     }
   }
   const earnWithdrawMaxAmount = activeEarnPosition
-    ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
+    ? rawTokenAmountToNumber(activeEarnPosition.currentTotalAmountRaw, 6)
     : 0;
   const getEarnWithdrawDraftAmountRaw = useCallback(
     (draft: EarnWithdrawDraft): bigint =>
@@ -1930,6 +1943,7 @@ export function AppWalletWorkspace({
     publicEnv.solanaEnv,
     walletDesktopData.walletAddress ?? "anonymous",
     smartAccountData.overview?.settingsPda ?? "no-settings",
+    activeEarnPosition?.currentTotalAmountRaw ?? "0",
     activeEarnPosition?.principalAmountRaw ?? "0",
   ].join(":");
   useEffect(() => {
@@ -1952,6 +1966,7 @@ export function AppWalletWorkspace({
     isSignedIn,
     publicEnv.solanaEnv,
     activeEarnPosition?.principalAmountRaw,
+    activeEarnPosition?.currentTotalAmountRaw,
     smartAccountData.overview?.settingsPda,
     walletDesktopData.walletAddress,
   ]);
@@ -3338,6 +3353,9 @@ export function AppWalletWorkspace({
                 },
                 reserve: "",
               },
+          currentTotalAmountRaw: (
+            BigInt(current?.currentTotalAmountRaw ?? "0") + amountRaw
+          ).toString(),
           principalAmountRaw: (
             BigInt(current?.principalAmountRaw ?? "0") + amountRaw
           ).toString(),
@@ -3523,14 +3541,29 @@ export function AppWalletWorkspace({
             return current;
           }
 
-          if (withdrawalDraft.mode === "full") {
-            return null;
-          }
+          const currentTotalAmountRaw = BigInt(current.currentTotalAmountRaw);
+          const nextCurrentTotal =
+            currentTotalAmountRaw > amountRaw
+              ? currentTotalAmountRaw - amountRaw
+              : BigInt(0);
+          const currentPrincipal = BigInt(current.principalAmountRaw);
+          const nextPrincipal =
+            withdrawalDraft.source.type === "idle"
+              ? nextCurrentTotal > BigInt(0)
+                ? currentPrincipal
+                : BigInt(0)
+              : currentPrincipal > amountRaw
+              ? currentPrincipal - amountRaw
+              : BigInt(0);
 
-          const nextPrincipal = BigInt(current.principalAmountRaw) - amountRaw;
-          return nextPrincipal > BigInt(0)
+          return nextCurrentTotal > BigInt(0)
             ? {
                 ...current,
+                currentHolding: {
+                  ...current.currentHolding,
+                  amountRaw: nextCurrentTotal.toString(),
+                },
+                currentTotalAmountRaw: nextCurrentTotal.toString(),
                 principalAmountRaw: nextPrincipal.toString(),
                 status: "active",
               }
@@ -4675,6 +4708,12 @@ export function AppWalletWorkspace({
       const walletDetailTokenRows = selectedMockRootSigner
         ? []
         : walletDesktopData.allTokenRows;
+      const walletDetailCashTokenRows = selectedMockRootSigner
+        ? []
+        : walletDesktopData.cashTokenRows;
+      const walletDetailInvestmentTokenRows = selectedMockRootSigner
+        ? []
+        : walletDesktopData.investmentTokenRows;
       const walletDetailActivityRows = selectedMockRootSigner
         ? []
         : walletDesktopData.allActivityRows;
@@ -4688,8 +4727,10 @@ export function AppWalletWorkspace({
           activityRows={walletDetailActivityRows}
           balanceFraction={walletDetailBalanceFraction}
           balanceWhole={walletDetailBalanceWhole}
+          cashTokenRows={walletDetailCashTokenRows}
           icon={walletDetailIcon}
           initialTab={detailInitialTab}
+          investmentTokenRows={walletDetailInvestmentTokenRows}
           isBalanceHidden={isBalanceHidden}
           label={
             selectedMockRootSigner
@@ -4706,17 +4747,19 @@ export function AppWalletWorkspace({
               "wallet"
             )
           }
-          onOpenReceive={() => {
-            openActionView({ type: "receivePanel" }, "Receive", "", "wallet");
-          }}
-          onOpenSend={() =>
-            openActionView({ type: "sendPanel" }, "Send", "", "wallet")
-          }
           onOpenShield={() => {
             setShieldDirection("shield");
             openActionView(
               { type: "swapPanel", mode: "shield" },
               "Shield",
+              "",
+              "wallet"
+            );
+          }}
+          onOpenSwap={() => {
+            openActionView(
+              { type: "swapPanel", mode: "swap" },
+              "Swap",
               "",
               "wallet"
             );
@@ -4776,7 +4819,6 @@ export function AppWalletWorkspace({
           onTokenDetail={handleTokenDetail}
           tokenRows={walletDetailTokenRows}
           transactionDetails={walletDetailTransactionDetails}
-          receiveLabel="Receive"
           spendingLimit={
             selectedSignerId && !selectedMockRootSigner
               ? selectedVaultSpendingLimit
