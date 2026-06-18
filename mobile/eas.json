@@ -24,7 +24,7 @@
       "env": {
         "APP_VARIANT": "development",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
-        "EXPO_PUBLIC_SOLANA_ENV": "devnet"
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
       }
     },
     "production": {
@@ -60,7 +60,7 @@
       "env": {
         "APP_VARIANT": "development",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
-        "EXPO_PUBLIC_SOLANA_ENV": "devnet"
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet"
       },
       "ios": {
         "simulator": true

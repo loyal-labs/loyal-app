@@ -14,16 +14,19 @@ const GRID_AUTH_BASE_URL =
   "https://auth.askloyal.com";
 const SOLANA_ENV = resolveSolanaEnv(process.env.EXPO_PUBLIC_SOLANA_ENV);
 
-// Earn backend (the web `frontend` app, e.g. https://staging.askloyal.com) —
-// hosts the wallet-signed mobile Earn deposit endpoints. Distinct from
-// API_BASE_URL, which points at the chat/wallet `/app` backend.
+// Earn backend (the web `frontend` app at https://askloyal.com) — hosts the
+// wallet-signed mobile Earn deposit/state endpoints (merged to main via PR
+// #342). Distinct from API_BASE_URL, which points at the chat/wallet `/app`
+// backend.
 const EARN_API_BASE_URL =
-  process.env.EXPO_PUBLIC_EARN_API_BASE_URL ?? "https://staging.askloyal.com";
-// Vercel deployment-protection bypass for staging only. Sent as the
-// `x-vercel-protection-bypass` header. Empty in production (no bypass).
+  process.env.EXPO_PUBLIC_EARN_API_BASE_URL ?? "https://askloyal.com";
+// Vercel deployment-protection bypass — only needed for protected preview
+// deploys (e.g. a staging branch). Production askloyal.com is public, so this
+// is empty by default; set EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS to test against
+// a protected deploy. Sent as the `x-vercel-protection-bypass` header only when
+// non-empty.
 const VERCEL_PROTECTION_BYPASS =
-  process.env.EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS ??
-  "ohvA2MJaqX1VXu8zu1e14sDCLdHeF2YC";
+  process.env.EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS ?? "";
 
 // Hardcoded identity for MVP (auth deferred)
 const TELEGRAM_USER_ID = "2131567542";
