@@ -877,27 +877,27 @@ function SignedOutDetailPane() {
             <DogWithMood />
           </div>
           <div className="wallet-signin-headline">
-            <h2>Put your money on autopilot</h2>
+            <h2>Makes your money bigger</h2>
             <p>
-              Open a self-custodial smart account in seconds — it earns,
-              shields, and runs on your rules.
+              A self-custodial way to earn, automate deposits, and keep control
+              of every move.
             </p>
           </div>
           <div className="wallet-signin-values">
             <SignInValueRow
-              desc="Yield on SOL, USDC and USDT without locking up funds"
+              desc="Automatically moves stablecoins toward better APY"
               icon={<TrendingUp size={18} strokeWidth={1.9} />}
-              title="Earn in the background"
+              title="Earn"
             />
             <SignInValueRow
-              desc="Shielded balances and secure transactions"
-              icon={<ShieldIcon size={18} strokeWidth={1.9} />}
-              title="Private by default"
+              desc="Put idle wallet balances to work automatically"
+              icon={<Repeat2 size={18} strokeWidth={1.9} />}
+              title="Autodeposit"
             />
             <SignInValueRow
-              desc="Granular permissions for every agent"
+              desc="Your funds stay in your custody, with permissions you approve"
               icon={<SlidersHorizontal size={18} strokeWidth={1.9} />}
-              title="You set the rules"
+              title="You stay in control"
             />
           </div>
         </div>
@@ -908,10 +908,6 @@ function SignedOutDetailPane() {
             <p>Connect your Solana wallet to continue.</p>
           </div>
           <WalletSignIn />
-          <p className="wallet-signin-form-foot">
-            <KeyRound size={13} strokeWidth={1.9} />
-            Self-custodial — your keys never leave your device.
-          </p>
         </div>
       </div>
     </div>
@@ -6897,21 +6893,6 @@ export function AppWalletWorkspace({
           color: rgba(60, 60, 67, 0.6);
           font-size: 14px;
           line-height: 20px;
-        }
-
-        .wallet-signin-form-foot {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          margin: 0;
-          color: rgba(60, 60, 67, 0.45);
-          font-size: 12px;
-          line-height: 16px;
-        }
-
-        .wallet-signin-form-foot svg {
-          flex: 0 0 auto;
-          color: rgba(60, 60, 67, 0.4);
         }
 
         @media (max-width: 860px) {

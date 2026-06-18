@@ -91,11 +91,7 @@ export function useWalletProofAuth({
 
   const installedWallets = useMemo(
     () =>
-      wallets.filter(
-        (candidate) =>
-          candidate.readyState === "Installed" ||
-          candidate.adapter.name === "WalletConnect"
-      ),
+      wallets.filter((candidate) => candidate.readyState === "Installed"),
     [wallets]
   );
 

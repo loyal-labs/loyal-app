@@ -60,7 +60,6 @@
     "@tabler/icons-react": "^3.35.0",
     "@usercentrics/cmp-browser-sdk": "4.62.2",
     "@vercel/speed-insights": "^1.2.0",
-    "@walletconnect/solana-adapter": "^0.0.8",
     "ai": "^5.0.13",
     "bs58": "^6.0.0",
     "class-variance-authority": "^0.7.1",
