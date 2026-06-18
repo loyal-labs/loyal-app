@@ -245,6 +245,12 @@ const KAMINO_SETUP_INSTRUCTION_DISCRIMINATORS = [
   [251, 10, 231, 76, 27, 11, 159, 96],
   [136, 63, 15, 186, 211, 152, 168, 164],
 ] as const;
+const KAMINO_INIT_OBLIGATION_FARMS_FOR_RESERVE_DISCRIMINATOR =
+  KAMINO_SETUP_INSTRUCTION_DISCRIMINATORS[2];
+const KAMINO_RESERVE_FARM_KIND_COLLATERAL = 0;
+const KAMINO_REFRESH_OBLIGATION_DISCRIMINATOR = [
+  33, 132, 147, 228, 151, 192, 72, 89,
+] as const;
 
 type KaminoDepositInstructionResponse = {
   instructions?: Array<{
@@ -741,6 +747,91 @@ function createLocalKaminoDepositInstruction(args: {
       args.amountRaw
     ),
   });
+}
+
+function createLocalKaminoInitObligationFarmsForReserveInstruction(args: {
+  obligation: PublicKey;
+  reserveAccounts: KaminoReserveTokenAccounts;
+  target: KaminoEarnTarget;
+  vaultPda: PublicKey;
+}): TransactionInstruction | null {
+  if (args.reserveAccounts.farmCollateral.equals(PublicKey.default)) {
+    return null;
+  }
+
+  const lendingMarketAuthority = getLendingMarketAuthority({
+    market: args.target.market,
+    lendProgramId: args.target.lendProgramId,
+  });
+  const obligationFarm = deriveKaminoFarmUserStatePda({
+    farmState: args.reserveAccounts.farmCollateral,
+    owner: args.obligation,
+  });
+
+  return new TransactionInstruction({
+    programId: args.target.lendProgramId,
+    keys: [
+      { pubkey: args.vaultPda, isSigner: true, isWritable: true },
+      { pubkey: args.vaultPda, isSigner: false, isWritable: false },
+      { pubkey: args.obligation, isSigner: false, isWritable: true },
+      { pubkey: lendingMarketAuthority, isSigner: false, isWritable: false },
+      { pubkey: args.target.reserve, isSigner: false, isWritable: true },
+      {
+        pubkey: args.reserveAccounts.farmCollateral,
+        isSigner: false,
+        isWritable: true,
+      },
+      { pubkey: obligationFarm, isSigner: false, isWritable: true },
+      { pubkey: args.target.market, isSigner: false, isWritable: false },
+      { pubkey: KAMINO_FARMS_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([
+      ...KAMINO_INIT_OBLIGATION_FARMS_FOR_RESERVE_DISCRIMINATOR,
+      KAMINO_RESERVE_FARM_KIND_COLLATERAL,
+    ]),
+  });
+}
+
+function insertKaminoSetupInstructionBeforeExecution(args: {
+  instructions: TransactionInstruction[];
+  setupInstruction: TransactionInstruction;
+}): TransactionInstruction[] {
+  const refreshObligationInstructionIndex = args.instructions.findIndex(
+    (instruction) =>
+      instruction.programId.equals(args.setupInstruction.programId) &&
+      instructionDataStartsWith(
+        instruction.data,
+        KAMINO_REFRESH_OBLIGATION_DISCRIMINATOR
+      )
+  );
+  if (refreshObligationInstructionIndex >= 0) {
+    return [
+      ...args.instructions.slice(0, refreshObligationInstructionIndex),
+      args.setupInstruction,
+      ...args.instructions.slice(refreshObligationInstructionIndex),
+    ];
+  }
+
+  const firstExecutionInstructionIndex = args.instructions.findIndex(
+    (instruction) =>
+      instruction.programId.equals(args.setupInstruction.programId) &&
+      !instructionStartsWithAnyDiscriminator(
+        instruction,
+        KAMINO_SETUP_INSTRUCTION_DISCRIMINATORS
+      )
+  );
+
+  if (firstExecutionInstructionIndex < 0) {
+    return [...args.instructions, args.setupInstruction];
+  }
+
+  return [
+    ...args.instructions.slice(0, firstExecutionInstructionIndex),
+    args.setupInstruction,
+    ...args.instructions.slice(firstExecutionInstructionIndex),
+  ];
 }
 
 function createLocalKaminoWithdrawInstruction(args: {
@@ -5339,6 +5430,32 @@ export function createSmartAccountVaultsClient(
             reserve: earnTarget.reserve,
             wallet: vaultPda,
           });
+    let targetReserveAccounts: KaminoReserveTokenAccounts | null = null;
+    const fetchTargetReserveAccounts =
+      async (): Promise<KaminoReserveTokenAccounts> => {
+        if (targetReserveAccounts) {
+          return targetReserveAccounts;
+        }
+
+        const reserveAccount = await config.connection.getAccountInfo(
+          earnTarget.reserve,
+          "confirmed"
+        );
+        if (!reserveAccount) {
+          throw new Error("Selected Kamino reserve account was not found.");
+        }
+
+        targetReserveAccounts = parseKaminoReserveTokenAccounts(
+          reserveAccount.data
+        );
+        assertKaminoAccountEquals({
+          actual: targetReserveAccounts.reserveLiquidityMint,
+          expected: usdcMint,
+          label: "liquidity mint",
+        });
+
+        return targetReserveAccounts;
+      };
     if (cluster !== LoyalCluster.Devnet) {
       const usesCurrentDepositAccountOrder =
         kaminoDepositBundle.instruction.keys[2]?.pubkey.equals(
@@ -5348,21 +5465,7 @@ export function createSmartAccountVaultsClient(
         ? kaminoDepositBundle.instruction.keys[4]?.pubkey ?? null
         : null;
       if (executionReserve && !executionReserve.equals(earnTarget.reserve)) {
-        const reserveAccount = await config.connection.getAccountInfo(
-          earnTarget.reserve,
-          "confirmed"
-        );
-        if (!reserveAccount) {
-          throw new Error("Selected Kamino reserve account was not found.");
-        }
-        const reserveAccounts = parseKaminoReserveTokenAccounts(
-          reserveAccount.data
-        );
-        assertKaminoAccountEquals({
-          actual: reserveAccounts.reserveLiquidityMint,
-          expected: usdcMint,
-          label: "liquidity mint",
-        });
+        const reserveAccounts = await fetchTargetReserveAccounts();
         const localDepositInstruction = createLocalKaminoDepositInstruction({
           amountRaw: args.amountRaw,
           obligation: targetObligation,
@@ -5392,6 +5495,45 @@ export function createSmartAccountVaultsClient(
           instructions: [...refreshPrefix, localDepositInstruction],
           matchingInstructions: [localDepositInstruction],
         };
+      }
+
+      if (typeof config.connection.getAccountInfo === "function") {
+        const reserveAccounts = await fetchTargetReserveAccounts();
+        if (!reserveAccounts.farmCollateral.equals(PublicKey.default)) {
+          const obligationFarmUserState = deriveKaminoFarmUserStatePda({
+            farmState: reserveAccounts.farmCollateral,
+            owner: targetObligation,
+          });
+          const obligationFarmAccount = await config.connection.getAccountInfo(
+            obligationFarmUserState,
+            "confirmed"
+          );
+          const alreadyIncludesFarmInit = kaminoDepositBundle.instructions.some(
+            (instruction) =>
+              instructionDataStartsWith(
+                instruction.data,
+                KAMINO_INIT_OBLIGATION_FARMS_FOR_RESERVE_DISCRIMINATOR
+              )
+          );
+          if (!obligationFarmAccount && !alreadyIncludesFarmInit) {
+            const farmInitInstruction =
+              createLocalKaminoInitObligationFarmsForReserveInstruction({
+                obligation: targetObligation,
+                reserveAccounts,
+                target: earnTarget,
+                vaultPda,
+              });
+            if (farmInitInstruction) {
+              kaminoDepositBundle = {
+                ...kaminoDepositBundle,
+                instructions: insertKaminoSetupInstructionBeforeExecution({
+                  instructions: kaminoDepositBundle.instructions,
+                  setupInstruction: farmInitInstruction,
+                }),
+              };
+            }
+          }
+        }
       }
     }
     const inferredVaultCollateralAccounts =
@@ -5514,6 +5656,15 @@ export function createSmartAccountVaultsClient(
         )
       ),
     });
+    const preparedLength = preparedPacketLength(prepared);
+    if (
+      preparedLength === null ||
+      preparedLength > EARN_POLICY_PACKET_DATA_SIZE
+    ) {
+      throw new Error(
+        "Earn deposit transaction is too large to fit in a Solana packet. Split Kamino setup from the deposit and try again."
+      );
+    }
 
     return {
       kaminoSetupAccountCount: kaminoSetupInstructionCount,
