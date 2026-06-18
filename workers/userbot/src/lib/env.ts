@@ -46,7 +46,8 @@ function parseApiId(rawApiId: string): number {
 }
 
 function parseAccountKey(rawAccountKey: string | undefined): string {
-  const normalized = normalizeOptionalValue(rawAccountKey) ?? DEFAULT_ACCOUNT_KEY;
+  const normalized =
+    normalizeOptionalValue(rawAccountKey) ?? DEFAULT_ACCOUNT_KEY;
 
   if (!ACCOUNT_KEY_PATTERN.test(normalized)) {
     throw new Error(
@@ -58,12 +59,15 @@ function parseAccountKey(rawAccountKey: string | undefined): string {
 }
 
 function parseStorageDir(rawStorageDir: string | undefined): string {
-  const normalized = normalizeOptionalValue(rawStorageDir) ?? DEFAULT_STORAGE_DIR;
+  const normalized =
+    normalizeOptionalValue(rawStorageDir) ?? DEFAULT_STORAGE_DIR;
   return resolve(normalized);
 }
 
 function parseBotToken(env: EnvRecord): string | null {
-  const explicitBotToken = normalizeOptionalValue(env.TELEGRAM_USERBOT_BOT_TOKEN);
+  const explicitBotToken = normalizeOptionalValue(
+    env.TELEGRAM_USERBOT_BOT_TOKEN
+  );
   if (explicitBotToken) {
     return explicitBotToken;
   }

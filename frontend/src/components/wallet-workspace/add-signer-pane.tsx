@@ -1,14 +1,9 @@
 "use client";
 
 import { PublicKey } from "@solana/web3.js";
-import { Check, Plus, UserPlus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import {
-  ACCESS_OPTIONS,
-  AccessLevelIcon,
-  type AccessLevel,
-} from "@/components/wallet-sidebar/agent-page-view";
 import type { SmartAccountSignerEntry } from "@/hooks/use-smart-account-sidebar-data";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -38,83 +33,79 @@ function formatAddressForDisplay(address: string): string {
 }
 
 export function AddSignerPane({
-  accountIndex,
+  connectedWalletAddress,
   existingSigners,
-  onAddSigner,
-  onAdded,
-  pendingActionKey,
-  vaultAddress,
-  vaultLabel,
+  isBackupLimitReached,
+  onPreviewSigner,
+  settingsAddress,
+  targetAccountLabel,
 }: {
-  accountIndex: number;
-  existingSigners: SmartAccountSignerEntry[];
-  onAddSigner: (args: {
-    signerAddress: string;
-    accessLevel: AccessLevel;
-  }) => Promise<void>;
-  onAdded?: (args: { signerAddress: string }) => void;
-  pendingActionKey: string | null;
-  vaultAddress: string | null;
-  vaultLabel: string;
+  connectedWalletAddress: string | null | undefined;
+  existingSigners: Pick<SmartAccountSignerEntry, "address" | "label">[];
+  isBackupLimitReached: boolean;
+  onPreviewSigner: (args: { signerAddress: string }) => void;
+  settingsAddress: string | null | undefined;
+  targetAccountLabel: string;
 }) {
   const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [addedAddress, setAddedAddress] = useState<string | null>(null);
-  const [accessLevel, setAccessLevel] = useState<AccessLevel>("suggest");
   const normalizedAddress = useMemo(() => normalizeAddress(address), [address]);
+  const connectedAddress = useMemo(
+    () => normalizeAddress(connectedWalletAddress ?? ""),
+    [connectedWalletAddress]
+  );
   const existingSigner = normalizedAddress
     ? existingSigners.find((signer) => signer.address === normalizedAddress) ??
       null
     : null;
-  const isPending =
-    normalizedAddress !== null &&
-    pendingActionKey === `add-signer:${normalizedAddress}`;
+  const isConnectedWallet =
+    normalizedAddress !== null && normalizedAddress === connectedAddress;
   const isSubmitDisabled =
-    isPending || normalizedAddress === null || existingSigner !== null;
+    isBackupLimitReached ||
+    address.trim().length === 0 ||
+    existingSigner !== null ||
+    isConnectedWallet;
   const statusText = error
     ? error
-    : existingSigner
+    : isBackupLimitReached
+      ? "Backup account already added"
+      : existingSigner
       ? `Already added as ${existingSigner.label}`
-      : addedAddress
-        ? `Added ${formatAddressForDisplay(addedAddress)}`
+      : isConnectedWallet
+        ? "This is your current wallet"
         : normalizedAddress
           ? formatAddressForDisplay(normalizedAddress)
           : null;
-  const statusColor = error
-    ? red
-    : addedAddress
-      ? "#34C759"
+  const statusColor =
+    error || isBackupLimitReached || existingSigner || isConnectedWallet
+      ? red
       : secondary;
 
-  const submit = async (event: React.FormEvent) => {
+  const submit = (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    setAddedAddress(null);
+
+    if (isBackupLimitReached) {
+      setError("Only one Backup Account can be added.");
+      return;
+    }
 
     if (!normalizedAddress) {
       setError("Enter a valid Solana wallet address.");
       return;
     }
 
-    if (existingSigner) {
-      setError("This wallet is already in the vault tree.");
+    if (isConnectedWallet) {
+      setError("Use a different wallet than your current wallet.");
       return;
     }
 
-    try {
-      await onAddSigner({
-        signerAddress: normalizedAddress,
-        accessLevel,
-      });
-      setAddedAddress(normalizedAddress);
-      setAddress("");
-      setAccessLevel("suggest");
-      onAdded?.({ signerAddress: normalizedAddress });
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error ? nextError.message : "Failed to add signer."
-      );
+    if (existingSigner) {
+      setError("This wallet is already a signer.");
+      return;
     }
+
+    onPreviewSigner({ signerAddress: normalizedAddress });
   };
 
   return (
@@ -135,9 +126,6 @@ export function AddSignerPane({
           border-color: rgba(249, 54, 60, 0.45) !important;
           box-shadow: 0 0 0 3px rgba(249, 54, 60, 0.12);
           outline: none;
-        }
-        .add-signer-access-row:hover {
-          background: rgba(0, 0, 0, 0.04) !important;
         }
       `}</style>
 
@@ -167,7 +155,7 @@ export function AddSignerPane({
               lineHeight: "20px",
             }}
           >
-            Add signer
+            Add backup
           </span>
           <span
             style={{
@@ -180,9 +168,12 @@ export function AddSignerPane({
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
-            title={vaultAddress ?? undefined}
+            title={settingsAddress ?? undefined}
           >
-            {vaultLabel} · {vaultAddress ? formatAddressForDisplay(vaultAddress) : `Stash ${accountIndex}`}
+            {targetAccountLabel} ·{" "}
+            {settingsAddress
+              ? formatAddressForDisplay(settingsAddress)
+              : "Root settings"}
           </span>
         </div>
       </div>
@@ -233,7 +224,7 @@ export function AddSignerPane({
                 lineHeight: "24px",
               }}
             >
-              New signer
+              New backup
             </span>
           </div>
         </div>
@@ -285,7 +276,6 @@ export function AddSignerPane({
                     letterSpacing: 0,
                   }}
                 >
-                  {addedAddress && <Check size={14} />}
                   {statusText}
                 </span>
               )}
@@ -296,7 +286,6 @@ export function AddSignerPane({
               onChange={(event) => {
                 setAddress(event.target.value);
                 setError(null);
-                setAddedAddress(null);
               }}
               placeholder="Paste Solana address"
               spellCheck={false}
@@ -315,112 +304,6 @@ export function AddSignerPane({
               value={address}
             />
           </label>
-
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-              marginTop: "4px",
-            }}
-          >
-            <span
-              style={{
-                color: "#000",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                letterSpacing: "-0.176px",
-                lineHeight: "20px",
-              }}
-            >
-              Access level
-            </span>
-            {ACCESS_OPTIONS.map((option) => {
-              const selected = accessLevel === option.id;
-              return (
-                <div
-                  className="add-signer-access-row"
-                  key={option.id}
-                  onClick={() => {
-                    if (isPending) return;
-                    setAccessLevel(option.id);
-                  }}
-                  role="button"
-                  style={{
-                    alignItems: "center",
-                    background: "transparent",
-                    border: "none",
-                    borderRadius: "16px",
-                    cursor: isPending ? "default" : "pointer",
-                    display: "flex",
-                    padding: "6px 12px",
-                    transition: "background 0.15s ease",
-                    width: "100%",
-                  }}
-                  tabIndex={0}
-                >
-                  <div
-                    style={{
-                      flexShrink: 0,
-                      padding: "10px 0",
-                      paddingRight: "12px",
-                    }}
-                  >
-                    <AccessLevelIcon level={option.id} />
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      flex: 1,
-                      flexDirection: "column",
-                      gap: "2px",
-                      padding: "10px 0",
-                    }}
-                  >
-                    <span
-                      style={{
-                        color: "#000",
-                        fontFamily: font,
-                        fontSize: "16px",
-                        fontWeight: 500,
-                        letterSpacing: "-0.176px",
-                        lineHeight: "20px",
-                      }}
-                    >
-                      {option.label}
-                    </span>
-                    <span
-                      style={{
-                        color: secondary,
-                        fontFamily: font,
-                        fontSize: "13px",
-                        fontWeight: 400,
-                        lineHeight: "16px",
-                      }}
-                    >
-                      {option.description}
-                    </span>
-                  </div>
-                  <div style={{ flexShrink: 0, paddingLeft: "12px" }}>
-                    <div
-                      style={{
-                        background: "#fff",
-                        border: selected
-                          ? "7px solid #F9363C"
-                          : "2px solid rgba(60, 60, 67, 0.3)",
-                        borderRadius: "9999px",
-                        boxSizing: "border-box",
-                        height: "24px",
-                        transition: "border 0.15s ease",
-                        width: "24px",
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
 
           <button
             className="add-signer-submit"
@@ -446,7 +329,7 @@ export function AddSignerPane({
             type="submit"
           >
             <Plus size={22} />
-            {isPending ? "Adding" : "Add signer"}
+            Preview transaction
           </button>
         </form>
       </div>

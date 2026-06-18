@@ -20,7 +20,7 @@ export function buildOriginFaviconUrl(origin: string): string {
 export function getTrustState(
   origin: string,
   connectedOrigins: string[],
-  trustedOrigins: string[],
+  trustedOrigins: string[]
 ): DappTrustState {
   if (trustedOrigins.includes(origin)) return "trusted";
   if (connectedOrigins.includes(origin)) return "connected";

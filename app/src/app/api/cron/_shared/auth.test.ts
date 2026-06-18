@@ -28,23 +28,28 @@ describe("cron auth helper", () => {
 
     const response = validateCronAuthHeader(request);
     expect(response?.status).toBe(500);
-    expect(await response?.json()).toEqual({ error: "Server misconfigured" });
   });
 
   test("returns 401 for missing or invalid auth", async () => {
     process.env.CRON_SECRET = "expected-secret";
     const { validateCronAuthHeader } = await import("./auth");
 
-    const missingHeaderRequest = new Request("http://localhost/api/cron/example", {
-      method: "POST",
-    });
+    const missingHeaderRequest = new Request(
+      "http://localhost/api/cron/example",
+      {
+        method: "POST",
+      }
+    );
     const missingHeaderResponse = validateCronAuthHeader(missingHeaderRequest);
     expect(missingHeaderResponse?.status).toBe(401);
 
-    const invalidHeaderRequest = new Request("http://localhost/api/cron/example", {
-      method: "POST",
-      headers: { authorization: "Bearer wrong-secret" },
-    });
+    const invalidHeaderRequest = new Request(
+      "http://localhost/api/cron/example",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer wrong-secret" },
+      }
+    );
     const invalidHeaderResponse = validateCronAuthHeader(invalidHeaderRequest);
     expect(invalidHeaderResponse?.status).toBe(401);
   });

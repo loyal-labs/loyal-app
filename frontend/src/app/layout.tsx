@@ -3,16 +3,10 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
-import { cookies } from "next/headers";
 
 import { XPixelBootstrap } from "@/components/analytics/x-pixel-bootstrap";
 import { PublicEnvProvider } from "@/contexts/public-env-context";
 import { createPublicEnv } from "@/lib/core/config/public";
-import {
-  resolveSolanaEnvOverride,
-  SOLANA_ENV_OVERRIDE_COOKIE,
-} from "@/lib/core/config/solana-env-override";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 
 const geistSans = GeistSans;
 const geistMono = GeistMono;
@@ -128,18 +122,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const basePublicEnv = createPublicEnv(process.env);
-  const cookieStore = await cookies();
-  const override = resolveSolanaEnvOverride(
-    cookieStore.get(SOLANA_ENV_OVERRIDE_COOKIE)?.value
-  );
-  const publicEnv = override
-    ? {
-        ...basePublicEnv,
-        solanaEnv: override,
-        solanaRpcEndpoint: getFrontendSolanaEndpoints(override).rpcEndpoint,
-      }
-    : basePublicEnv;
+  const publicEnv = createPublicEnv(process.env);
 
   return (
     <html className="dark" lang="en">

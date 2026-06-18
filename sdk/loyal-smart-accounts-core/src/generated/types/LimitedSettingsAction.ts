@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
 import {
   SmartAccountSigner,
   smartAccountSignerBeet,
-} from './SmartAccountSigner'
+} from "./SmartAccountSigner";
 /**
  * This type is used to derive the {@link LimitedSettingsAction} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link LimitedSettingsAction} type instead.
@@ -22,11 +22,11 @@ import {
  * @private
  */
 export type LimitedSettingsActionRecord = {
-  AddSigner: { newSigner: SmartAccountSigner }
-  RemoveSigner: { oldSigner: web3.PublicKey }
-  ChangeThreshold: { newThreshold: number }
-  SetTimeLock: { newTimeLock: number }
-}
+  AddSigner: { newSigner: SmartAccountSigner };
+  RemoveSigner: { oldSigner: web3.PublicKey };
+  ChangeThreshold: { newThreshold: number };
+  SetTimeLock: { newTimeLock: number };
+};
 
 /**
  * Union type respresenting the LimitedSettingsAction data enum defined in Rust.
@@ -40,24 +40,24 @@ export type LimitedSettingsActionRecord = {
  * @category generated
  */
 export type LimitedSettingsAction =
-  beet.DataEnumKeyAsKind<LimitedSettingsActionRecord>
+  beet.DataEnumKeyAsKind<LimitedSettingsActionRecord>;
 
 export const isLimitedSettingsActionAddSigner = (
   x: LimitedSettingsAction
-): x is LimitedSettingsAction & { __kind: 'AddSigner' } =>
-  x.__kind === 'AddSigner'
+): x is LimitedSettingsAction & { __kind: "AddSigner" } =>
+  x.__kind === "AddSigner";
 export const isLimitedSettingsActionRemoveSigner = (
   x: LimitedSettingsAction
-): x is LimitedSettingsAction & { __kind: 'RemoveSigner' } =>
-  x.__kind === 'RemoveSigner'
+): x is LimitedSettingsAction & { __kind: "RemoveSigner" } =>
+  x.__kind === "RemoveSigner";
 export const isLimitedSettingsActionChangeThreshold = (
   x: LimitedSettingsAction
-): x is LimitedSettingsAction & { __kind: 'ChangeThreshold' } =>
-  x.__kind === 'ChangeThreshold'
+): x is LimitedSettingsAction & { __kind: "ChangeThreshold" } =>
+  x.__kind === "ChangeThreshold";
 export const isLimitedSettingsActionSetTimeLock = (
   x: LimitedSettingsAction
-): x is LimitedSettingsAction & { __kind: 'SetTimeLock' } =>
-  x.__kind === 'SetTimeLock'
+): x is LimitedSettingsAction & { __kind: "SetTimeLock" } =>
+  x.__kind === "SetTimeLock";
 
 /**
  * @category userTypes
@@ -66,34 +66,34 @@ export const isLimitedSettingsActionSetTimeLock = (
 export const limitedSettingsActionBeet =
   beet.dataEnum<LimitedSettingsActionRecord>([
     [
-      'AddSigner',
-      new beet.BeetArgsStruct<LimitedSettingsActionRecord['AddSigner']>(
-        [['newSigner', smartAccountSignerBeet]],
+      "AddSigner",
+      new beet.BeetArgsStruct<LimitedSettingsActionRecord["AddSigner"]>(
+        [["newSigner", smartAccountSignerBeet]],
         'LimitedSettingsActionRecord["AddSigner"]'
       ),
     ],
 
     [
-      'RemoveSigner',
-      new beet.BeetArgsStruct<LimitedSettingsActionRecord['RemoveSigner']>(
-        [['oldSigner', beetSolana.publicKey]],
+      "RemoveSigner",
+      new beet.BeetArgsStruct<LimitedSettingsActionRecord["RemoveSigner"]>(
+        [["oldSigner", beetSolana.publicKey]],
         'LimitedSettingsActionRecord["RemoveSigner"]'
       ),
     ],
 
     [
-      'ChangeThreshold',
-      new beet.BeetArgsStruct<LimitedSettingsActionRecord['ChangeThreshold']>(
-        [['newThreshold', beet.u16]],
+      "ChangeThreshold",
+      new beet.BeetArgsStruct<LimitedSettingsActionRecord["ChangeThreshold"]>(
+        [["newThreshold", beet.u16]],
         'LimitedSettingsActionRecord["ChangeThreshold"]'
       ),
     ],
 
     [
-      'SetTimeLock',
-      new beet.BeetArgsStruct<LimitedSettingsActionRecord['SetTimeLock']>(
-        [['newTimeLock', beet.u32]],
+      "SetTimeLock",
+      new beet.BeetArgsStruct<LimitedSettingsActionRecord["SetTimeLock"]>(
+        [["newTimeLock", beet.u32]],
         'LimitedSettingsActionRecord["SetTimeLock"]'
       ),
     ],
-  ]) as beet.FixableBeet<LimitedSettingsAction, LimitedSettingsAction>
+  ]) as beet.FixableBeet<LimitedSettingsAction, LimitedSettingsAction>;

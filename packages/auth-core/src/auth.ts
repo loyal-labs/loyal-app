@@ -1,11 +1,5 @@
 import { authRoutePaths } from "./contracts";
-import type {
-  ApiOutcome,
-  AuthClient,
-  AuthRuntimeConfig,
-  StartPasskeyRegistrationInput,
-  StartPasskeySignInInput,
-} from "./types";
+import type { ApiOutcome, AuthClient, AuthRuntimeConfig } from "./types";
 
 function normalizeAuthBaseUrl(value: string): string {
   const trimmed = value.trim();
@@ -44,7 +38,10 @@ export async function callAuthEndpoint(
   init: RequestInit
 ): Promise<ApiOutcome> {
   const fetcher = config.fetch ?? fetch;
-  const response = await fetcher(buildAuthUrl(config.authBaseUrl, endpoint), init);
+  const response = await fetcher(
+    buildAuthUrl(config.authBaseUrl, endpoint),
+    init
+  );
   const body = await parseResponseBody(response);
 
   return {
@@ -105,25 +102,5 @@ export function createAuthClient(config: AuthRuntimeConfig): AuthClient {
       }),
     getAuthSession,
     logoutAuthSession,
-    startPasskeyRegistration: (payload: StartPasskeyRegistrationInput) =>
-      callAuthEndpoint(config, authRoutePaths.startPasskeyRegistration, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }),
-    startPasskeySignIn: (payload: StartPasskeySignInInput) =>
-      callAuthEndpoint(config, authRoutePaths.startPasskeySignIn, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }),
-    getPasskeyAccount: (passkeyAddress: string) =>
-      callAuthEndpoint(config, authRoutePaths.getPasskeyAccount(passkeyAddress), {
-        method: "GET",
-      }),
   };
 }

@@ -24,7 +24,9 @@ function readMessageDate(message: unknown): Date | null {
   }
 
   const value = (message as { date?: unknown }).date;
-  return value instanceof Date && Number.isFinite(value.getTime()) ? value : null;
+  return value instanceof Date && Number.isFinite(value.getTime())
+    ? value
+    : null;
 }
 
 export async function getLatestTelegramMessageId(
@@ -158,7 +160,8 @@ export async function* fetchUnseenMessagesByIdBatches(
     });
 
   let consecutiveEmptyBatches = 0;
-  let nextMessageId = lastStoredMessageId === null ? 1 : lastStoredMessageId + 1;
+  let nextMessageId =
+    lastStoredMessageId === null ? 1 : lastStoredMessageId + 1;
 
   while (consecutiveEmptyBatches < stopAfterEmptyBatches) {
     const requestedIds = buildMessageIdBatch(nextMessageId, batchSize);

@@ -102,10 +102,20 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ## Testing
 
-- Write assertions inside `it()` or `test()` blocks
-- Avoid done callbacks in async tests - use async/await instead
-- Don't use `.only` or `.skip` in committed code
-- Keep test suites reasonably flat - avoid excessive `describe` nesting
+- Default to no new unit tests. Do not create `*.test.ts`, `*.test.tsx`,
+  `__tests__/`, or any `bun:test` / Vitest / Jest suite unless the maintainer
+  has explicitly approved a narrow contract-test exception.
+- Approved exceptions must protect an external contract or invariant that would
+  still compile while broken: auth/session boundaries, confirmed-chain writes,
+  money movement ordering, SDK/wire compatibility, public route discriminants,
+  DB idempotency/conflict behavior, signer or storage boundaries, or dangerous
+  pure calculations.
+- Delete or avoid tests that mainly assert mocked JSON bodies, every field in a
+  Drizzle `.values()` call, object defaults, route-string builders, non-contract
+  copy, `Object.keys(...)` mirrors, `typeof ... === "function"`, or third-party
+  library behavior.
+- Verify changes with `next lint`, `tsc --noEmit`, and a manual smoke check of
+  the affected flow instead.
 
 ## When Biome Can't Help
 

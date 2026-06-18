@@ -4,7 +4,11 @@ import bs58 from "bs58";
 
 import { WalletAuthError } from "./wallet-auth-errors";
 
-function decodeBase58(value: string, message: string, code: string): Uint8Array {
+function decodeBase58(
+  value: string,
+  message: string,
+  code: string
+): Uint8Array {
   try {
     return bs58.decode(value);
   } catch {

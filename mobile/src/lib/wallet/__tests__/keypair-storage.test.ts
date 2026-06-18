@@ -10,19 +10,23 @@ import {
 } from "../keypair-storage";
 
 const store = new Map<string, string>();
-jest.mock("expo-secure-store", () => ({
-  getItemAsync: jest.fn((key: string) =>
-    Promise.resolve(store.get(key) ?? null),
-  ),
-  setItemAsync: jest.fn((key: string, value: string) => {
-    store.set(key, value);
-    return Promise.resolve();
+jest.mock(
+  "expo-secure-store",
+  () => ({
+    getItemAsync: jest.fn((key: string) =>
+      Promise.resolve(store.get(key) ?? null)
+    ),
+    setItemAsync: jest.fn((key: string, value: string) => {
+      store.set(key, value);
+      return Promise.resolve();
+    }),
+    deleteItemAsync: jest.fn((key: string) => {
+      store.delete(key);
+      return Promise.resolve();
+    }),
   }),
-  deleteItemAsync: jest.fn((key: string) => {
-    store.delete(key);
-    return Promise.resolve();
-  }),
-}));
+  { virtual: true }
+);
 
 beforeEach(() => store.clear());
 
@@ -66,9 +70,7 @@ describe("keypair-storage", () => {
     const secretKey = generated.secretKey;
     await clearStoredKeypair();
     const imported = await importKeypair(secretKey, pin);
-    expect(imported.publicKey.toBase58()).toBe(
-      generated.publicKey.toBase58(),
-    );
+    expect(imported.publicKey.toBase58()).toBe(generated.publicKey.toBase58());
   });
 
   it("stores and retrieves public key", async () => {
@@ -85,8 +87,6 @@ describe("keypair-storage", () => {
     expect(loadedOld).toBeNull();
     const loadedNew = await loadKeypair(newPin);
     expect(loadedNew).not.toBeNull();
-    expect(loadedNew!.publicKey.toBase58()).toBe(
-      keypair.publicKey.toBase58(),
-    );
+    expect(loadedNew!.publicKey.toBase58()).toBe(keypair.publicKey.toBase58());
   });
 });

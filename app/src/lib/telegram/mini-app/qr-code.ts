@@ -26,7 +26,6 @@ export const openQrScanner = async (
   const promise = qrScanner.open({
     text: "Scan the QR",
     onCaptured(qr: string) {
-      console.log("QR code captured:", qr);
       onCaptured?.(qr);
       qrScanner.close();
     },

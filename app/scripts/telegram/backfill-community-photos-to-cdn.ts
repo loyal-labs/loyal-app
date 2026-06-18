@@ -7,9 +7,7 @@ import {
   getCloudflareR2UploadClientFromEnv,
   isCloudflareR2UploadConfigured,
 } from "@/lib/core/r2-upload";
-import {
-  resolveCommunityPhotoObjectKey,
-} from "@/lib/telegram/photo-path";
+import { resolveCommunityPhotoObjectKey } from "@/lib/telegram/photo-path";
 
 type CommunitySettings = Record<string, unknown> & {
   photoUrl?: string;
@@ -67,9 +65,9 @@ function isDirectExecution(scriptName: string): boolean {
   return typeof entrypoint === "string" && entrypoint.endsWith(scriptName);
 }
 
-export async function runBackfillCommunityPhotosToCdn(
-  options?: { apply?: boolean }
-): Promise<BackfillStats> {
+export async function runBackfillCommunityPhotosToCdn(options?: {
+  apply?: boolean;
+}): Promise<BackfillStats> {
   const shouldApply = options?.apply ?? false;
 
   if (!isCloudflareR2UploadConfigured()) {
@@ -107,12 +105,18 @@ export async function runBackfillCommunityPhotosToCdn(
           ? ({ ...row.settings } as CommunitySettings)
           : ({} as CommunitySettings);
 
-      if (typeof settings.photoUrl === "string" && settings.photoUrl.length > 0) {
+      if (
+        typeof settings.photoUrl === "string" &&
+        settings.photoUrl.length > 0
+      ) {
         stats.skippedAlreadyMigrated += 1;
         continue;
       }
 
-      if (typeof settings.photoBase64 !== "string" || settings.photoBase64.length === 0) {
+      if (
+        typeof settings.photoBase64 !== "string" ||
+        settings.photoBase64.length === 0
+      ) {
         stats.skippedInvalidBase64 += 1;
         continue;
       }
@@ -124,7 +128,10 @@ export async function runBackfillCommunityPhotosToCdn(
       }
 
       const contentType = normalizePhotoContentType(settings.photoMimeType);
-      const key = resolveCommunityPhotoObjectKey(String(row.chatId), contentType);
+      const key = resolveCommunityPhotoObjectKey(
+        String(row.chatId),
+        contentType
+      );
       const photoUrl = cdnClient.resolveUrl({ key });
 
       if (!shouldApply) {

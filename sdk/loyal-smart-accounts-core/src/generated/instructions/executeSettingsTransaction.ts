@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const executeSettingsTransactionStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'ExecuteSettingsTransactionInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "ExecuteSettingsTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _executeSettingsTransaction_ instruction
  *
@@ -33,19 +33,19 @@ export const executeSettingsTransactionStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type ExecuteSettingsTransactionInstructionAccounts = {
-  settings: web3.PublicKey
-  signer: web3.PublicKey
-  proposal: web3.PublicKey
-  transaction: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  signer: web3.PublicKey;
+  proposal: web3.PublicKey;
+  transaction: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const executeSettingsTransactionInstructionDiscriminator = [
   131, 210, 27, 88, 27, 204, 143, 189,
-]
+];
 
 /**
  * Creates a _ExecuteSettingsTransaction_ instruction.
@@ -60,12 +60,12 @@ export const executeSettingsTransactionInstructionDiscriminator = [
  */
 export function createExecuteSettingsTransactionInstruction(
   accounts: ExecuteSettingsTransactionInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = executeSettingsTransactionStruct.serialize({
     instructionDiscriminator:
       executeSettingsTransactionInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -102,11 +102,11 @@ export function createExecuteSettingsTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -114,6 +114,6 @@ export function createExecuteSettingsTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

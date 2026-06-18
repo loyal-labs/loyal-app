@@ -16,9 +16,7 @@ export function useWalletBalance(walletAddress: string | null): {
 } {
   const [solBalanceLamports, setSolBalanceLamports] = useState<number | null>(
     () =>
-      cachedWalletAddress
-        ? getCachedWalletBalance(cachedWalletAddress)
-        : null,
+      cachedWalletAddress ? getCachedWalletBalance(cachedWalletAddress) : null
   );
 
   const refreshBalance = useCallback(
@@ -31,7 +29,7 @@ export function useWalletBalance(walletAddress: string | null): {
         console.error("Failed to refresh wallet balance", error);
       }
     },
-    [walletAddress],
+    [walletAddress]
   );
 
   useEffect(() => {
@@ -47,7 +45,7 @@ export function useWalletBalance(walletAddress: string | null): {
     const cachedBalance = getCachedWalletBalance(walletAddress);
     if (cachedBalance !== null) {
       setSolBalanceLamports((prev) =>
-        prev === cachedBalance ? prev : cachedBalance,
+        prev === cachedBalance ? prev : cachedBalance
       );
     }
 

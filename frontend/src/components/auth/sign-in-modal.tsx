@@ -3,7 +3,7 @@
 import { Check, Copy, LogOut, Unplug } from "lucide-react";
 import Image from "next/image";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   Dialog,
@@ -14,11 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { useAuthSession } from "@/contexts/auth-session-context";
-import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 
-import { TurnstileWidget } from "./turnstile-widget";
-import { WalletTab } from "./wallet-tab";
+import { WalletSignIn } from "./wallet-sign-in";
 
 function ConnectedView() {
   const { publicKey, disconnect } = useWallet();
@@ -84,7 +82,7 @@ function ConnectedView() {
           <button
             className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
             onClick={async () => {
-              await logout();
+              await Promise.allSettled([logout(), disconnect()]);
               close();
             }}
             type="button"
@@ -114,24 +112,11 @@ function ConnectedView() {
 export function SignInModal() {
   const { isOpen, close } = useSignInModal();
   const { hasAuthSession } = useAuthCapability();
-  const publicEnv = usePublicEnv();
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const turnstileMode = publicEnv.turnstile.mode;
-
-  // Auto-resolve only for misconfigured environments. In bypass (local dev)
-  // mode we keep the widget visible so the developer can click the bypass
-  // button — it confirms the captcha is wired into the login flow.
-  useEffect(() => {
-    if (turnstileMode === "misconfigured" && captchaToken === null) {
-      setCaptchaToken("captcha-skipped");
-    }
-  }, [captchaToken, turnstileMode]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
         close();
-        setCaptchaToken(null);
       }
     },
     [close]
@@ -162,18 +147,9 @@ export function SignInModal() {
                 Choose your preferred sign-in method.
               </DialogDescription>
             </DialogHeader>
-            {captchaToken === null ? (
-              <div className="flex flex-col items-center gap-3 px-6 pb-6">
-                <p className="text-neutral-500 text-sm">
-                  Complete verification to continue
-                </p>
-                <TurnstileWidget onVerify={setCaptchaToken} />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4 px-6 pb-6">
-                <WalletTab />
-              </div>
-            )}
+            <div className="px-6 pb-6">
+              <WalletSignIn />
+            </div>
           </>
         )}
       </DialogContent>

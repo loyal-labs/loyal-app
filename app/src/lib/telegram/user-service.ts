@@ -167,13 +167,9 @@ export async function getOrCreateUser(
     return pendingUser;
   }
 
-  const resolvePromise = resolveOrCreateUser(
-    telegramId,
-    userData,
-    {
-      backfillAvatar: shouldBackfillAvatar,
-    }
-  ).finally(() => {
+  const resolvePromise = resolveOrCreateUser(telegramId, userData, {
+    backfillAvatar: shouldBackfillAvatar,
+  }).finally(() => {
     inFlightUsers.delete(telegramIdStr);
   });
 

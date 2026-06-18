@@ -14,11 +14,11 @@ export function useSolPrice(): {
   setSolPriceUsd: React.Dispatch<React.SetStateAction<number | null>>;
   isSolPriceLoading: boolean;
 } {
-  const [solPriceUsd, setSolPriceUsd] = useState<number | null>(
-    () => getCachedSolPrice(),
+  const [solPriceUsd, setSolPriceUsd] = useState<number | null>(() =>
+    getCachedSolPrice()
   );
   const [isSolPriceLoading, setIsSolPriceLoading] = useState(
-    () => getCachedSolPrice() === null,
+    () => getCachedSolPrice() === null
   );
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export function useSolPrice(): {
           retryCount++;
           console.error(
             `Failed to fetch SOL price (attempt ${retryCount}/${MAX_RETRIES})`,
-            error,
+            error
           );
           if (retryCount < MAX_RETRIES && isMounted) {
             await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));

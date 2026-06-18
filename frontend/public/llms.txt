@@ -7,7 +7,7 @@ Loyal is a non-custodial Solana wallet built around two ideas: programmable smar
 ## What Loyal is
 
 - [Loyal homepage](https://askloyal.com): overview, supported browsers, current feature set
-- [Loyal Web App](https://app.askloyal.com): the authenticated wallet (passkey + smart-account onboarding)
+- [Loyal Web App](https://app.askloyal.com): the authenticated wallet and smart-account onboarding
 - [Chrome Web Store extension](https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack): browser extension build
 
 ## Features
@@ -68,7 +68,7 @@ These are direct answers to the questions AI engines are most likely to be asked
 
 **What is a Confidential VM?** A server runtime where code runs inside hardware-encrypted memory (AMD SEV-SNP or Intel TDX) so that not even the cloud provider or the server's own operator can read what's inside. Loyal uses Confidential VMs to compute private transfer flows without exposing balances or counterparties on the public chain. Hardware attestation produces a cryptographic receipt of the code running in the VM, so you can verify it matches what Loyal published on GitHub before you trust it.
 
-**Is Loyal custodial?** No. Keys live in your Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a key custodian, and Smart Account policies are enforced on-chain by the Squads program, not by Loyal's backend. Pooling tokens in a shared Vault isn't custody either: this isn't a centralized exchange, and only your own key can withdraw your balance. Attestation is hardware-signed so you can verify the code running before you sign.
+**Is Loyal custodial?** No. Keys live in your Telegram wallet, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a key custodian, and Smart Account policies are enforced on-chain by the Squads program, not by Loyal's backend. Pooling tokens in a shared Vault isn't custody either: this isn't a centralized exchange, and only your own key can withdraw your balance. Attestation is hardware-signed so you can verify the code running before you sign.
 
 **What APY can I expect on shielded yield?** A variable, market rate, not a fixed promise. Yield comes from Kamino's lending markets, so the rate floats with on-chain supply and demand. Loyal doesn't run its own strategies and doesn't quote magic numbers. The underlying market rate is public on Kamino, and the current rate for your assets shows in the app before you deposit.
 

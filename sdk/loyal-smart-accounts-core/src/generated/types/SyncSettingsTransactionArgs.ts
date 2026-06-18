@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import { SettingsAction, settingsActionBeet } from './SettingsAction'
+import * as beet from "@metaplex-foundation/beet";
+import { SettingsAction, settingsActionBeet } from "./SettingsAction";
 export type SyncSettingsTransactionArgs = {
-  numSigners: number
-  actions: SettingsAction[]
-  memo: beet.COption<string>
-}
+  numSigners: number;
+  actions: SettingsAction[];
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -20,9 +20,9 @@ export type SyncSettingsTransactionArgs = {
 export const syncSettingsTransactionArgsBeet =
   new beet.FixableBeetArgsStruct<SyncSettingsTransactionArgs>(
     [
-      ['numSigners', beet.u8],
-      ['actions', beet.array(settingsActionBeet)],
-      ['memo', beet.coption(beet.utf8String)],
+      ["numSigners", beet.u8],
+      ["actions", beet.array(settingsActionBeet)],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'SyncSettingsTransactionArgs'
-  )
+    "SyncSettingsTransactionArgs"
+  );

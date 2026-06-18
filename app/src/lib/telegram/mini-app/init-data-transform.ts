@@ -25,7 +25,9 @@ type ParsedTelegramUser = {
   is_premium?: unknown;
 };
 
-const parseTelegramUserField = (userField: unknown): ParsedTelegramUser | null => {
+const parseTelegramUserField = (
+  userField: unknown
+): ParsedTelegramUser | null => {
   if (typeof userField === "string") {
     try {
       const parsedUser = JSON.parse(userField);
@@ -316,7 +318,9 @@ export function parseTelegramAnalyticsContextFromInitData(
 export function parseTelegramIdentityFromInitData(
   rawInitData: string | undefined
 ): TelegramIdentity | null {
-  return parseTelegramAnalyticsContextFromInitData(rawInitData)?.identity ?? null;
+  return (
+    parseTelegramAnalyticsContextFromInitData(rawInitData)?.identity ?? null
+  );
 }
 
 export function parseUserFromInitData(

@@ -11,7 +11,6 @@
     "frontend",
     "loyal-web-frontend",
     "summaries-admin",
-    "passkey",
     "@loyal-labs/extension",
     "@loyal-labs/userbot-worker"
   ]

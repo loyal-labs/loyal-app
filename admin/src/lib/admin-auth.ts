@@ -92,7 +92,7 @@ async function getSigningKey() {
     encodeText(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign", "verify"],
+    ["sign", "verify"]
   );
 }
 
@@ -131,7 +131,7 @@ export async function signSessionToken(payload: SessionPayload) {
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    encodeText(unsignedToken),
+    encodeText(unsignedToken)
   );
   const encodedSignature = encodeBase64Url(new Uint8Array(signature));
 
@@ -167,10 +167,10 @@ export async function verifySessionToken(token: string | undefined | null) {
   const expectedSignatureBuffer = await crypto.subtle.sign(
     "HMAC",
     key,
-    encodeText(unsignedToken),
+    encodeText(unsignedToken)
   );
   const expectedSignature = encodeBase64Url(
-    new Uint8Array(expectedSignatureBuffer),
+    new Uint8Array(expectedSignatureBuffer)
   );
 
   if (!constantTimeEqual(encodedSignature, expectedSignature)) {

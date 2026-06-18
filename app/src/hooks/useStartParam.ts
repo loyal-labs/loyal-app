@@ -15,7 +15,9 @@ import {
 function getNativeStartParam(): string | undefined {
   try {
     const startParam = (
-      window as { Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } } }
+      window as {
+        Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } };
+      }
     ).Telegram?.WebApp?.initDataUnsafe?.start_param;
     return startParam || undefined;
   } catch {
@@ -36,7 +38,9 @@ function getNativeStartParam(): string | undefined {
 export function getStartParamRoute(): string | undefined {
   if (typeof window === "undefined") return undefined;
 
-  const mapStartParamToRoute = (startParam: string | null | undefined): string | undefined => {
+  const mapStartParamToRoute = (
+    startParam: string | null | undefined
+  ): string | undefined => {
     // Check for verification deeplink (vr_<userId>) first
     const verifyUserId = parseVerifyStartParam(startParam);
     if (verifyUserId) {
@@ -100,7 +104,9 @@ export function getStartParamRoute(): string | undefined {
   // Some Telegram clients embed start_param only inside tgWebAppData
   // and don't expose it as a separate tgWebAppStartParam parameter.
   try {
-    const allParams = window.location.href.replace(/^[^?#]*[?#]/, "").replace(/[?#]/g, "&");
+    const allParams = window.location.href
+      .replace(/^[^?#]*[?#]/, "")
+      .replace(/[?#]/g, "&");
     const urlParams = new URLSearchParams(allParams);
     const tgWebAppData = urlParams.get("tgWebAppData");
     if (tgWebAppData) {

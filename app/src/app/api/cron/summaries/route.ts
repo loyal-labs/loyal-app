@@ -140,7 +140,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   );
 }
 
-export function buildDailySummaryRunContext(date: Date = new Date()): SummaryRunContext {
+export function buildDailySummaryRunContext(
+  date: Date = new Date()
+): SummaryRunContext {
   const dayStartUtc = new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
   );
@@ -214,7 +216,9 @@ export async function runDailyCommunitySummaries(
 
     stats.deliveryAttempted += 1;
     try {
-      const deliveryResult = await options.deliverSummary(generationResult.summaryId);
+      const deliveryResult = await options.deliverSummary(
+        generationResult.summaryId
+      );
       if (!deliveryResult.sent) {
         stats.deliveryFailed += 1;
         stats.errors += 1;
@@ -289,14 +293,17 @@ function logQualityControlForwardFailure(
   deliveredMessage: SummaryDeliveredMessage,
   error: unknown
 ): void {
-  console.error("[cron/summaries] Failed to forward summary to quality control chat", {
-    destinationChatId: String(deliveredMessage.destinationChatId),
-    error: error instanceof Error ? error.message : String(error),
-    messageId: deliveredMessage.messageId,
-    qualityControlChatId: String(SUMMARY_QUALITY_CONTROL_CHAT_ID),
-    sourceCommunityChatId: String(deliveredMessage.sourceCommunityChatId),
-    summaryId,
-  });
+  console.error(
+    "[cron/summaries] Failed to forward summary to quality control chat",
+    {
+      destinationChatId: String(deliveredMessage.destinationChatId),
+      error: error instanceof Error ? error.message : String(error),
+      messageId: deliveredMessage.messageId,
+      qualityControlChatId: String(SUMMARY_QUALITY_CONTROL_CHAT_ID),
+      sourceCommunityChatId: String(deliveredMessage.sourceCommunityChatId),
+      summaryId,
+    }
+  );
 }
 
 type BuildCommunityProcessingErrorOptions = {
@@ -313,7 +320,10 @@ function buildCommunityProcessingError(
   const baseError: CommunityProcessingError = {
     chatId: String(options.chatId),
     communityId: options.communityId,
-    error: options.error instanceof Error ? options.error.message : String(options.error),
+    error:
+      options.error instanceof Error
+        ? options.error.message
+        : String(options.error),
     scope: options.scope,
     summaryId: options.summaryId,
   };

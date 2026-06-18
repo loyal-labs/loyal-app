@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const closeBatchTransactionStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'CloseBatchTransactionInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "CloseBatchTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _closeBatchTransaction_ instruction
  *
@@ -32,18 +32,18 @@ export const closeBatchTransactionStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type CloseBatchTransactionInstructionAccounts = {
-  settings: web3.PublicKey
-  proposal: web3.PublicKey
-  batch: web3.PublicKey
-  transaction: web3.PublicKey
-  transactionRentCollector: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  proposal: web3.PublicKey;
+  batch: web3.PublicKey;
+  transaction: web3.PublicKey;
+  transactionRentCollector: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const closeBatchTransactionInstructionDiscriminator = [
   86, 144, 133, 225, 45, 209, 62, 251,
-]
+];
 
 /**
  * Creates a _CloseBatchTransaction_ instruction.
@@ -55,11 +55,11 @@ export const closeBatchTransactionInstructionDiscriminator = [
  */
 export function createCloseBatchTransactionInstruction(
   accounts: CloseBatchTransactionInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = closeBatchTransactionStruct.serialize({
     instructionDiscriminator: closeBatchTransactionInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -91,11 +91,11 @@ export function createCloseBatchTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -103,6 +103,6 @@ export function createCloseBatchTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

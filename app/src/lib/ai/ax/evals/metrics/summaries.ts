@@ -20,7 +20,9 @@ export type SummaryEvalMetrics = {
   topicCountComplianceRate: number;
 };
 
-export function computeSummaryEvalMetrics(cases: SummaryEvalCase[]): SummaryEvalMetrics {
+export function computeSummaryEvalMetrics(
+  cases: SummaryEvalCase[]
+): SummaryEvalMetrics {
   if (cases.length === 0) {
     return {
       onelinerLengthComplianceRate: 0,
@@ -56,7 +58,9 @@ export function computeSummaryEvalMetrics(cases: SummaryEvalCase[]): SummaryEval
       topicCountValidCount += 1;
     }
 
-    const onelinerValidation = validateSummaryOneliner(testCase.output.oneliner);
+    const onelinerValidation = validateSummaryOneliner(
+      testCase.output.oneliner
+    );
     if (onelinerValidation.ok) {
       onelinerLengthValidCount += 1;
     }

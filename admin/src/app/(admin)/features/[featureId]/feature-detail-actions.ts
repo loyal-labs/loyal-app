@@ -35,7 +35,10 @@ function getStringValue(formData: FormData, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getOptionalStringValue(formData: FormData, key: string): string | null {
+function getOptionalStringValue(
+  formData: FormData,
+  key: string
+): string | null {
   const value = getStringValue(formData, key);
 
   return value.length > 0 ? value : null;
@@ -53,7 +56,10 @@ function revalidateFeaturePath(featureId: string) {
   revalidatePath(`/features/${featureId}`);
 }
 
-export async function updateFeatureStatus(statusId: string, formData: FormData): Promise<void> {
+export async function updateFeatureStatus(
+  statusId: string,
+  formData: FormData
+): Promise<void> {
   const featureId = getStringValue(formData, "featureId");
   const status = getStringValue(formData, "status");
 
@@ -82,7 +88,13 @@ export async function addFeatureEvidence(formData: FormData): Promise<void> {
   const label = getStringValue(formData, "label");
   const value = getStringValue(formData, "value");
 
-  if (!featureId || !featureAppStatusId || !isFeatureEvidenceType(type) || !label || !value) {
+  if (
+    !featureId ||
+    !featureAppStatusId ||
+    !isFeatureEvidenceType(type) ||
+    !label ||
+    !value
+  ) {
     return;
   }
 
@@ -110,7 +122,10 @@ export async function linkFeatureFlag(formData: FormData): Promise<void> {
   const db = getDatabase();
 
   const existingLink = await db.query.featureFlagLinks.findFirst({
-    where: and(eq(featureFlagLinks.featureId, featureId), eq(featureFlagLinks.flagId, flagId)),
+    where: and(
+      eq(featureFlagLinks.featureId, featureId),
+      eq(featureFlagLinks.flagId, flagId)
+    ),
   });
 
   if (!existingLink) {
@@ -123,7 +138,10 @@ export async function linkFeatureFlag(formData: FormData): Promise<void> {
   revalidateFeaturePath(featureId);
 }
 
-export async function unlinkFeatureFlag(linkId: string, featureId: string): Promise<void> {
+export async function unlinkFeatureFlag(
+  linkId: string,
+  featureId: string
+): Promise<void> {
   const db = getDatabase();
 
   await db.delete(featureFlagLinks).where(eq(featureFlagLinks.id, linkId));

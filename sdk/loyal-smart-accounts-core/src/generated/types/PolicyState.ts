@@ -5,23 +5,23 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   InternalFundTransferPolicy,
   internalFundTransferPolicyBeet,
-} from './InternalFundTransferPolicy'
+} from "./InternalFundTransferPolicy";
 import {
   SpendingLimitPolicy,
   spendingLimitPolicyBeet,
-} from './SpendingLimitPolicy'
+} from "./SpendingLimitPolicy";
 import {
   SettingsChangePolicy,
   settingsChangePolicyBeet,
-} from './SettingsChangePolicy'
+} from "./SettingsChangePolicy";
 import {
   ProgramInteractionPolicy,
   programInteractionPolicyBeet,
-} from './ProgramInteractionPolicy'
+} from "./ProgramInteractionPolicy";
 /**
  * This type is used to derive the {@link PolicyState} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link PolicyState} type instead.
@@ -32,11 +32,11 @@ import {
  * @private
  */
 export type PolicyStateRecord = {
-  InternalFundTransfer: { fields: [InternalFundTransferPolicy] }
-  SpendingLimit: { fields: [SpendingLimitPolicy] }
-  SettingsChange: { fields: [SettingsChangePolicy] }
-  ProgramInteraction: { fields: [ProgramInteractionPolicy] }
-}
+  InternalFundTransfer: { fields: [InternalFundTransferPolicy] };
+  SpendingLimit: { fields: [SpendingLimitPolicy] };
+  SettingsChange: { fields: [SettingsChangePolicy] };
+  ProgramInteraction: { fields: [ProgramInteractionPolicy] };
+};
 
 /**
  * Union type respresenting the PolicyState data enum defined in Rust.
@@ -49,24 +49,24 @@ export type PolicyStateRecord = {
  * @category enums
  * @category generated
  */
-export type PolicyState = beet.DataEnumKeyAsKind<PolicyStateRecord>
+export type PolicyState = beet.DataEnumKeyAsKind<PolicyStateRecord>;
 
 export const isPolicyStateInternalFundTransfer = (
   x: PolicyState
-): x is PolicyState & { __kind: 'InternalFundTransfer' } =>
-  x.__kind === 'InternalFundTransfer'
+): x is PolicyState & { __kind: "InternalFundTransfer" } =>
+  x.__kind === "InternalFundTransfer";
 export const isPolicyStateSpendingLimit = (
   x: PolicyState
-): x is PolicyState & { __kind: 'SpendingLimit' } =>
-  x.__kind === 'SpendingLimit'
+): x is PolicyState & { __kind: "SpendingLimit" } =>
+  x.__kind === "SpendingLimit";
 export const isPolicyStateSettingsChange = (
   x: PolicyState
-): x is PolicyState & { __kind: 'SettingsChange' } =>
-  x.__kind === 'SettingsChange'
+): x is PolicyState & { __kind: "SettingsChange" } =>
+  x.__kind === "SettingsChange";
 export const isPolicyStateProgramInteraction = (
   x: PolicyState
-): x is PolicyState & { __kind: 'ProgramInteraction' } =>
-  x.__kind === 'ProgramInteraction'
+): x is PolicyState & { __kind: "ProgramInteraction" } =>
+  x.__kind === "ProgramInteraction";
 
 /**
  * @category userTypes
@@ -74,31 +74,31 @@ export const isPolicyStateProgramInteraction = (
  */
 export const policyStateBeet = beet.dataEnum<PolicyStateRecord>([
   [
-    'InternalFundTransfer',
-    new beet.FixableBeetArgsStruct<PolicyStateRecord['InternalFundTransfer']>(
-      [['fields', beet.tuple([internalFundTransferPolicyBeet])]],
+    "InternalFundTransfer",
+    new beet.FixableBeetArgsStruct<PolicyStateRecord["InternalFundTransfer"]>(
+      [["fields", beet.tuple([internalFundTransferPolicyBeet])]],
       'PolicyStateRecord["InternalFundTransfer"]'
     ),
   ],
   [
-    'SpendingLimit',
-    new beet.FixableBeetArgsStruct<PolicyStateRecord['SpendingLimit']>(
-      [['fields', beet.tuple([spendingLimitPolicyBeet])]],
+    "SpendingLimit",
+    new beet.FixableBeetArgsStruct<PolicyStateRecord["SpendingLimit"]>(
+      [["fields", beet.tuple([spendingLimitPolicyBeet])]],
       'PolicyStateRecord["SpendingLimit"]'
     ),
   ],
   [
-    'SettingsChange',
-    new beet.FixableBeetArgsStruct<PolicyStateRecord['SettingsChange']>(
-      [['fields', beet.tuple([settingsChangePolicyBeet])]],
+    "SettingsChange",
+    new beet.FixableBeetArgsStruct<PolicyStateRecord["SettingsChange"]>(
+      [["fields", beet.tuple([settingsChangePolicyBeet])]],
       'PolicyStateRecord["SettingsChange"]'
     ),
   ],
   [
-    'ProgramInteraction',
-    new beet.FixableBeetArgsStruct<PolicyStateRecord['ProgramInteraction']>(
-      [['fields', beet.tuple([programInteractionPolicyBeet])]],
+    "ProgramInteraction",
+    new beet.FixableBeetArgsStruct<PolicyStateRecord["ProgramInteraction"]>(
+      [["fields", beet.tuple([programInteractionPolicyBeet])]],
       'PolicyStateRecord["ProgramInteraction"]'
     ),
   ],
-]) as beet.FixableBeet<PolicyState, PolicyState>
+]) as beet.FixableBeet<PolicyState, PolicyState>;

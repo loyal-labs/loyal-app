@@ -133,12 +133,13 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
     principalLiquidityAmountRaw === null
       ? null
       : currentLiquidityAmountRaw > principalLiquidityAmountRaw
-        ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
-        : BigInt(0);
-  const totalEarnedLiquidityAmountRaw = resolveKaminoTotalEarnedLiquidityAmountRaw({
-    trackedPosition,
-    unrealizedEarnedLiquidityAmountRaw: earnedLiquidityAmountRaw,
-  });
+      ? currentLiquidityAmountRaw - principalLiquidityAmountRaw
+      : BigInt(0);
+  const totalEarnedLiquidityAmountRaw =
+    resolveKaminoTotalEarnedLiquidityAmountRaw({
+      trackedPosition,
+      unrealizedEarnedLiquidityAmountRaw: earnedLiquidityAmountRaw,
+    });
 
   const existingPosition = snapshot.positions.find(
     (position) => position.asset.mint === trackedKaminoMint
@@ -157,9 +158,7 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
       ? null
       : Number(totalEarnedLiquidityAmountRaw) / scale;
   const earnedValueUsd =
-    earnedBalance === null
-      ? null
-      : earnedBalance * KAMINO_USDC_PRICE_USD;
+    earnedBalance === null ? null : earnedBalance * KAMINO_USDC_PRICE_USD;
 
   const nextHolding: TokenHolding = {
     mint: trackedKaminoMint,
@@ -194,7 +193,9 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
         existingPosition?.asset.symbol ??
         KAMINO_USDC_SYMBOL,
       name:
-        securedHolding?.name ?? existingPosition?.asset.name ?? KAMINO_USDC_NAME,
+        securedHolding?.name ??
+        existingPosition?.asset.name ??
+        KAMINO_USDC_NAME,
       decimals: holdingDecimals,
       imageUrl:
         securedHolding?.imageUrl ??
@@ -219,7 +220,7 @@ async function enrichHoldingsWithKaminoUsdcEarnings(
       ? snapshot.positions.map((position, index) =>
           index === existingPositionIndex ? nextPosition : position
         )
-        : [...snapshot.positions, nextPosition];
+      : [...snapshot.positions, nextPosition];
 
   nextPositions.sort((left, right) => {
     const valueDelta = (right.totalValueUsd ?? -1) - (left.totalValueUsd ?? -1);
@@ -382,41 +383,40 @@ export function useTokenHoldings(walletAddress: string | null): {
 
     void (async () => {
       try {
-        unsubscribe =
-          await getTelegramWalletDataClient().subscribePortfolio(
-            walletAddress,
-            (snapshot) => {
-              if (isCancelled) return;
-              holdingsFetchIdRef.current += 1;
-              const nextFetchId = holdingsFetchIdRef.current;
-              void resolveTokenHoldingsSnapshot(snapshot, walletAddress)
-                .then((enriched) => {
-                  if (isCancelled) return;
-                  if (holdingsFetchIdRef.current !== nextFetchId) return;
-                  setPortfolioSnapshot(enriched.snapshot);
-                  setTokenHoldings(enriched.holdings);
-                  hasLoadedHoldingsRef.current = true;
-                  setIsHoldingsLoading(false);
-                })
-                .catch((error) => {
-                  console.error(
-                    "Failed to enrich token holdings with Kamino earnings",
-                    error
-                  );
-                });
-            },
-            {
-              debounceMs: HOLDINGS_REFRESH_DEBOUNCE_MS,
-              commitment: "confirmed",
-              emitInitial: false,
-              onError: (error) => {
+        unsubscribe = await getTelegramWalletDataClient().subscribePortfolio(
+          walletAddress,
+          (snapshot) => {
+            if (isCancelled) return;
+            holdingsFetchIdRef.current += 1;
+            const nextFetchId = holdingsFetchIdRef.current;
+            void resolveTokenHoldingsSnapshot(snapshot, walletAddress)
+              .then((enriched) => {
+                if (isCancelled) return;
+                if (holdingsFetchIdRef.current !== nextFetchId) return;
+                setPortfolioSnapshot(enriched.snapshot);
+                setTokenHoldings(enriched.holdings);
+                hasLoadedHoldingsRef.current = true;
+                setIsHoldingsLoading(false);
+              })
+              .catch((error) => {
                 console.error(
-                  "Failed to refresh token holdings from websocket",
+                  "Failed to enrich token holdings with Kamino earnings",
                   error
                 );
-              },
-            }
-          );
+              });
+          },
+          {
+            debounceMs: HOLDINGS_REFRESH_DEBOUNCE_MS,
+            commitment: "confirmed",
+            emitInitial: false,
+            onError: (error) => {
+              console.error(
+                "Failed to refresh token holdings from websocket",
+                error
+              );
+            },
+          }
+        );
       } catch (error) {
         console.error("Failed to subscribe to token holdings", error);
       }

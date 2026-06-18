@@ -54,5 +54,7 @@ export function isRetryableLlmError(error: unknown): boolean {
     return error.retryable;
   }
 
-  return error instanceof LlmValidationError || error instanceof LlmAssertionError;
+  return (
+    error instanceof LlmValidationError || error instanceof LlmAssertionError
+  );
 }

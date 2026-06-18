@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   VoteOnProposalArgs,
   voteOnProposalArgsBeet,
-} from '../types/VoteOnProposalArgs'
+} from "../types/VoteOnProposalArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type CancelProposalInstructionArgs = {
-  args: VoteOnProposalArgs
-}
+  args: VoteOnProposalArgs;
+};
 /**
  * @category Instructions
  * @category CancelProposal
@@ -27,15 +27,15 @@ export type CancelProposalInstructionArgs = {
  */
 export const cancelProposalStruct = new beet.FixableBeetArgsStruct<
   CancelProposalInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', voteOnProposalArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", voteOnProposalArgsBeet],
   ],
-  'CancelProposalInstructionArgs'
-)
+  "CancelProposalInstructionArgs"
+);
 /**
  * Accounts required by the _cancelProposal_ instruction
  *
@@ -48,17 +48,17 @@ export const cancelProposalStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type CancelProposalInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  signer: web3.PublicKey
-  proposal: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  signer: web3.PublicKey;
+  proposal: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const cancelProposalInstructionDiscriminator = [
   106, 74, 128, 146, 19, 65, 39, 23,
-]
+];
 
 /**
  * Creates a _CancelProposal_ instruction.
@@ -76,12 +76,12 @@ export const cancelProposalInstructionDiscriminator = [
 export function createCancelProposalInstruction(
   accounts: CancelProposalInstructionAccounts,
   args: CancelProposalInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = cancelProposalStruct.serialize({
     instructionDiscriminator: cancelProposalInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -108,11 +108,11 @@ export function createCancelProposalInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -120,6 +120,6 @@ export function createCancelProposalInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

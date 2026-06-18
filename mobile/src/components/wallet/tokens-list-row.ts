@@ -62,9 +62,10 @@ function formatBalance(value: number): string {
   });
 }
 
-function formatPriceChange(
-  value: number | null,
-): { text: string | null; tone: TokenRowPriceChangeTone } {
+function formatPriceChange(value: number | null): {
+  text: string | null;
+  tone: TokenRowPriceChangeTone;
+} {
   if (!isFiniteNumber(value)) {
     return { text: null, tone: null };
   }
@@ -88,7 +89,7 @@ function formatPriceChange(
 export function buildTokenRowContent(
   holding: TokenHolding,
   marketState: TokenRowMarketState,
-  overrides?: { name?: string | null; symbol?: string | null },
+  overrides?: { name?: string | null; symbol?: string | null }
 ): TokenRowContent {
   const name = resolveTokenName({
     mint: holding.mint,
@@ -103,10 +104,10 @@ export function buildTokenRowContent(
   const resolvedUsdValue = isFiniteNumber(holding.valueUsd)
     ? holding.valueUsd
     : isFiniteNumber(holding.priceUsd)
-      ? holding.balance * holding.priceUsd
-      : holding.balance === 0
-        ? 0
-        : null;
+    ? holding.balance * holding.priceUsd
+    : holding.balance === 0
+    ? 0
+    : null;
 
   if (marketState.status === "loading") {
     return {
@@ -124,8 +125,8 @@ export function buildTokenRowContent(
     marketState.status === "loaded" && isFiniteNumber(marketState.priceUsd)
       ? marketState.priceUsd
       : isFiniteNumber(holding.priceUsd)
-        ? holding.priceUsd
-        : null;
+      ? holding.priceUsd
+      : null;
 
   const priceChange =
     marketState.status === "loaded"

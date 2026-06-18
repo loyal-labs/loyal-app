@@ -3,7 +3,11 @@ import type { Bot, Context } from "grammy";
 
 import { getDatabase } from "@/lib/core/database";
 import { getOrCreateUser } from "@/lib/telegram/user-service";
-import { getTelegramDisplayName, isCommunityChat, isGroupChat } from "@/lib/telegram/utils";
+import {
+  getTelegramDisplayName,
+  isCommunityChat,
+  isGroupChat,
+} from "@/lib/telegram/utils";
 
 import { resolveActiveBotCommunityId } from "./active-community-cache";
 import { logWebhookHandlerError } from "./webhook-error-log";
@@ -29,7 +33,10 @@ function pickRandomReaction(): (typeof POSITIVE_REACTIONS)[number] {
   return POSITIVE_REACTIONS[index];
 }
 
-export async function handleGLoyalReaction(ctx: Context, bot: Bot): Promise<void> {
+export async function handleGLoyalReaction(
+  ctx: Context,
+  bot: Bot
+): Promise<void> {
   const text = ctx.message?.text;
   if (!text) return;
   if (!text.toLowerCase().includes(GLOYAL_TRIGGER)) return;

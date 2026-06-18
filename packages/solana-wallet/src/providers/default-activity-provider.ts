@@ -149,9 +149,12 @@ export function createRpcActivityProvider(args: {
 
             rememberSignature(signature);
 
-            const parsedTransaction = await connection.getParsedTransaction(signature, {
-              maxSupportedTransactionVersion: 0,
-            });
+            const parsedTransaction = await connection.getParsedTransaction(
+              signature,
+              {
+                maxSupportedTransactionVersion: 0,
+              }
+            );
             if (!parsedTransaction) {
               return;
             }

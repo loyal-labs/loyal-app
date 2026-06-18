@@ -122,11 +122,7 @@ export async function POST(req: Request) {
     }
 
     const { input, output } = body;
-    const verified = verifySIWSForEnv(
-      input,
-      output,
-      getServerEnv().solanaEnv
-    );
+    const verified = verifySIWSForEnv(input, output, getServerEnv().solanaEnv);
 
     return NextResponse.json({ verified });
   } catch (error) {

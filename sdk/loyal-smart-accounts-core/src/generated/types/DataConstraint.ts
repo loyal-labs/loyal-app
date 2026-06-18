@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import { DataValue, dataValueBeet } from './DataValue'
-import { DataOperator, dataOperatorBeet } from './DataOperator'
+import * as beet from "@metaplex-foundation/beet";
+import { DataValue, dataValueBeet } from "./DataValue";
+import { DataOperator, dataOperatorBeet } from "./DataOperator";
 export type DataConstraint = {
-  dataOffset: beet.bignum
-  dataValue: DataValue
-  operator: DataOperator
-}
+  dataOffset: beet.bignum;
+  dataValue: DataValue;
+  operator: DataOperator;
+};
 
 /**
  * @category userTypes
@@ -21,9 +21,9 @@ export type DataConstraint = {
 export const dataConstraintBeet =
   new beet.FixableBeetArgsStruct<DataConstraint>(
     [
-      ['dataOffset', beet.u64],
-      ['dataValue', dataValueBeet],
-      ['operator', dataOperatorBeet],
+      ["dataOffset", beet.u64],
+      ["dataValue", dataValueBeet],
+      ["operator", dataOperatorBeet],
     ],
-    'DataConstraint'
-  )
+    "DataConstraint"
+  );

@@ -5,9 +5,9 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 
 /**
  * Arguments used to create {@link Batch}
@@ -15,18 +15,18 @@ import * as beetSolana from '@metaplex-foundation/beet-solana'
  * @category generated
  */
 export type BatchArgs = {
-  settings: web3.PublicKey
-  creator: web3.PublicKey
-  rentCollector: web3.PublicKey
-  index: beet.bignum
-  bump: number
-  accountIndex: number
-  accountBump: number
-  size: number
-  executedTransactionIndex: number
-}
+  settings: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentCollector: web3.PublicKey;
+  index: beet.bignum;
+  bump: number;
+  accountIndex: number;
+  accountBump: number;
+  size: number;
+  executedTransactionIndex: number;
+};
 
-export const batchDiscriminator = [156, 194, 70, 44, 22, 88, 137, 44]
+export const batchDiscriminator = [156, 194, 70, 44, 22, 88, 137, 44];
 /**
  * Holds the data for the {@link Batch} Account and provides de/serialization
  * functionality for that data
@@ -61,7 +61,7 @@ export class Batch implements BatchArgs {
       args.accountBump,
       args.size,
       args.executedTransactionIndex
-    )
+    );
   }
 
   /**
@@ -72,7 +72,7 @@ export class Batch implements BatchArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [Batch, number] {
-    return Batch.deserialize(accountInfo.data, offset)
+    return Batch.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -89,11 +89,11 @@ export class Batch implements BatchArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find Batch account at ${address}`)
+      throw new Error(`Unable to find Batch account at ${address}`);
     }
-    return Batch.fromAccountInfo(accountInfo, 0)[0]
+    return Batch.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -104,10 +104,10 @@ export class Batch implements BatchArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, batchBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, batchBeet);
   }
 
   /**
@@ -115,7 +115,7 @@ export class Batch implements BatchArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [Batch, number] {
-    return batchBeet.deserialize(buf, offset)
+    return batchBeet.deserialize(buf, offset);
   }
 
   /**
@@ -126,7 +126,7 @@ export class Batch implements BatchArgs {
     return batchBeet.serialize({
       accountDiscriminator: batchDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -134,7 +134,7 @@ export class Batch implements BatchArgs {
    * {@link Batch}
    */
   static get byteSize() {
-    return batchBeet.byteSize
+    return batchBeet.byteSize;
   }
 
   /**
@@ -150,7 +150,7 @@ export class Batch implements BatchArgs {
     return connection.getMinimumBalanceForRentExemption(
       Batch.byteSize,
       commitment
-    )
+    );
   }
 
   /**
@@ -158,7 +158,7 @@ export class Batch implements BatchArgs {
    * hold {@link Batch} data.
    */
   static hasCorrectByteSize(buf: Buffer, offset = 0) {
-    return buf.byteLength - offset === Batch.byteSize
+    return buf.byteLength - offset === Batch.byteSize;
   }
 
   /**
@@ -171,22 +171,22 @@ export class Batch implements BatchArgs {
       creator: this.creator.toBase58(),
       rentCollector: this.rentCollector.toBase58(),
       index: (() => {
-        const x = <{ toNumber: () => number }>this.index
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.index;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       bump: this.bump,
       accountIndex: this.accountIndex,
       accountBump: this.accountBump,
       size: this.size,
       executedTransactionIndex: this.executedTransactionIndex,
-    }
+    };
   }
 }
 
@@ -197,21 +197,21 @@ export class Batch implements BatchArgs {
 export const batchBeet = new beet.BeetStruct<
   Batch,
   BatchArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['settings', beetSolana.publicKey],
-    ['creator', beetSolana.publicKey],
-    ['rentCollector', beetSolana.publicKey],
-    ['index', beet.u64],
-    ['bump', beet.u8],
-    ['accountIndex', beet.u8],
-    ['accountBump', beet.u8],
-    ['size', beet.u32],
-    ['executedTransactionIndex', beet.u32],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["settings", beetSolana.publicKey],
+    ["creator", beetSolana.publicKey],
+    ["rentCollector", beetSolana.publicKey],
+    ["index", beet.u64],
+    ["bump", beet.u8],
+    ["accountIndex", beet.u8],
+    ["accountBump", beet.u8],
+    ["size", beet.u32],
+    ["executedTransactionIndex", beet.u32],
   ],
   Batch.fromArgs,
-  'Batch'
-)
+  "Batch"
+);

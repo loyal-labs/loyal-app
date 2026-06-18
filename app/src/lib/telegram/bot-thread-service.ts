@@ -221,7 +221,8 @@ export async function addMessage(params: {
     type: messageContent.type,
     ciphertext: encrypted.ciphertext,
     iv: encrypted.iv,
-    metadata: "metadata" in messageContent ? messageContent.metadata : undefined,
+    metadata:
+      "metadata" in messageContent ? messageContent.metadata : undefined,
   };
 
   // neon-http does not support db.transaction(), so use batch for atomic writes.
@@ -267,7 +268,9 @@ export async function getThreadMessages(
   const messages = await db.query.botMessages.findMany({
     where: eq(botMessages.threadId, threadId),
     orderBy: [
-      options?.latest ? desc(botMessages.createdAt) : asc(botMessages.createdAt),
+      options?.latest
+        ? desc(botMessages.createdAt)
+        : asc(botMessages.createdAt),
     ],
     limit: options?.limit,
   });

@@ -59,7 +59,7 @@ export const BALANCE_BACKGROUND_OPTIONS: BalanceBackgroundOption[] = [
 ];
 
 export function findBalanceBackground(
-  id: string | null,
+  id: string | null
 ): BalanceBackgroundOption | undefined {
   return BALANCE_BACKGROUND_OPTIONS.find((option) => option.id === id);
 }

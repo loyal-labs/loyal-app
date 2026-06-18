@@ -32,6 +32,7 @@ export const downloadTelegramFile = async (
 
   return {
     body: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get("content-type") || "application/octet-stream",
+    contentType:
+      response.headers.get("content-type") || "application/octet-stream",
   };
 };

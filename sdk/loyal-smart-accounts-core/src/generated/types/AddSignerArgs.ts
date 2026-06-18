@@ -5,15 +5,15 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   SmartAccountSigner,
   smartAccountSignerBeet,
-} from './SmartAccountSigner'
+} from "./SmartAccountSigner";
 export type AddSignerArgs = {
-  newSigner: SmartAccountSigner
-  memo: beet.COption<string>
-}
+  newSigner: SmartAccountSigner;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -21,8 +21,8 @@ export type AddSignerArgs = {
  */
 export const addSignerArgsBeet = new beet.FixableBeetArgsStruct<AddSignerArgs>(
   [
-    ['newSigner', smartAccountSignerBeet],
-    ['memo', beet.coption(beet.utf8String)],
+    ["newSigner", smartAccountSignerBeet],
+    ["memo", beet.coption(beet.utf8String)],
   ],
-  'AddSignerArgs'
-)
+  "AddSignerArgs"
+);

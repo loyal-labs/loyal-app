@@ -7,7 +7,10 @@ import { getDatabase } from "@/lib/core/database";
 
 export async function getFrontendFlagsManifest() {
   const db = getDatabase();
-  const flags = await db.select().from(runtimeFlags).orderBy(asc(runtimeFlags.key));
+  const flags = await db
+    .select()
+    .from(runtimeFlags)
+    .orderBy(asc(runtimeFlags.key));
 
   const generatedAt = new Date().toISOString();
 

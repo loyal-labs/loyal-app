@@ -30,7 +30,9 @@ async function getKey(): Promise<CryptoKey | null> {
   }
 }
 
-export async function decrypt(encrypted: EncryptedData): Promise<string | null> {
+export async function decrypt(
+  encrypted: EncryptedData
+): Promise<string | null> {
   const key = await getKey();
   if (!key) {
     return null;

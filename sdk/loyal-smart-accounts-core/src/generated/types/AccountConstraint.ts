@@ -5,18 +5,18 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   AccountConstraintType,
   accountConstraintTypeBeet,
-} from './AccountConstraintType'
+} from "./AccountConstraintType";
 export type AccountConstraint = {
-  accountIndex: number
-  accountConstraint: AccountConstraintType
-  owner: beet.COption<web3.PublicKey>
-}
+  accountIndex: number;
+  accountConstraint: AccountConstraintType;
+  owner: beet.COption<web3.PublicKey>;
+};
 
 /**
  * @category userTypes
@@ -25,9 +25,9 @@ export type AccountConstraint = {
 export const accountConstraintBeet =
   new beet.FixableBeetArgsStruct<AccountConstraint>(
     [
-      ['accountIndex', beet.u8],
-      ['accountConstraint', accountConstraintTypeBeet],
-      ['owner', beet.coption(beetSolana.publicKey)],
+      ["accountIndex", beet.u8],
+      ["accountConstraint", accountConstraintTypeBeet],
+      ["owner", beet.coption(beetSolana.publicKey)],
     ],
-    'AccountConstraint'
-  )
+    "AccountConstraint"
+  );

@@ -34,7 +34,7 @@ export function useTokenApy(holdings: TokenHolding[]): ApyByMint {
       mints.map(async (mint) => {
         const apyBps = await getCachedKaminoLendingApyBps(mint);
         return [mint, apyBps] as const;
-      }),
+      })
     ).then((results) => {
       if (cancelled) return;
       const next: ApyByMint = {};

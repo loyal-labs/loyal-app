@@ -54,9 +54,7 @@ async function callHeliusRpc<T>(
   });
 }
 
-export async function getTokenAccountsByOwner(
-  owner: string
-): Promise<
+export async function getTokenAccountsByOwner(owner: string): Promise<
   Array<{
     address: string;
     amountRaw: string;
@@ -109,9 +107,7 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
-export async function getAssetsByMint(
-  mints: string[]
-): Promise<HeliusAsset[]> {
+export async function getAssetsByMint(mints: string[]): Promise<HeliusAsset[]> {
   if (mints.length === 0) {
     return [];
   }

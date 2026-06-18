@@ -27,12 +27,13 @@ type ParsedInstruction = {
 };
 
 function extractInstructions(
-  tx: Transaction | VersionedTransaction,
+  tx: Transaction | VersionedTransaction
 ): ParsedInstruction[] {
   if (tx instanceof VersionedTransaction) {
     const staticKeys = tx.message.staticAccountKeys;
     return tx.message.compiledInstructions.map((ix) => ({
-      programId: staticKeys[ix.programIdIndex] ?? new PublicKey(new Uint8Array(32)),
+      programId:
+        staticKeys[ix.programIdIndex] ?? new PublicKey(new Uint8Array(32)),
       keys: ix.accountKeyIndexes.map((idx) => ({
         pubkey: staticKeys[idx] ?? new PublicKey(new Uint8Array(32)),
       })),
@@ -47,7 +48,9 @@ function extractInstructions(
   }));
 }
 
-function describeSystemTransfer(ix: ParsedInstruction): DecodedInstruction | null {
+function describeSystemTransfer(
+  ix: ParsedInstruction
+): DecodedInstruction | null {
   try {
     const decoded = SystemInstruction.decodeTransfer({
       programId: ix.programId,
@@ -62,7 +65,7 @@ function describeSystemTransfer(ix: ParsedInstruction): DecodedInstruction | nul
     return {
       program: "System Program",
       description: `Transfer ${sol} SOL to ${truncateAddress(
-        decoded.toPubkey.toBase58(),
+        decoded.toPubkey.toBase58()
       )}`,
     };
   } catch {
@@ -88,13 +91,13 @@ function summarizeInstruction(ix: ParsedInstruction): DecodedInstruction {
 }
 
 export function decodeTransactionInstructions(
-  tx: Transaction | VersionedTransaction,
+  tx: Transaction | VersionedTransaction
 ): DecodedInstruction[] {
   return extractInstructions(tx).map(summarizeInstruction);
 }
 
 export function deserializeTransaction(
-  bytes: Uint8Array,
+  bytes: Uint8Array
 ): Transaction | VersionedTransaction {
   try {
     return VersionedTransaction.deserialize(bytes);
@@ -103,15 +106,15 @@ export function deserializeTransaction(
   }
 }
 
-export function decodeTransactionBase64(
-  base64: string,
-): DecodedInstruction[] {
+export function decodeTransactionBase64(base64: string): DecodedInstruction[] {
   try {
     const bytes = Buffer.from(base64, "base64");
     const tx = deserializeTransaction(bytes);
     return decodeTransactionInstructions(tx);
   } catch {
-    return [{ program: "Unknown", description: "Failed to decode transaction" }];
+    return [
+      { program: "Unknown", description: "Failed to decode transaction" },
+    ];
   }
 }
 

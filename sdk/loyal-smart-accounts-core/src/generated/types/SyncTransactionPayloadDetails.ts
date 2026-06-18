@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type SyncTransactionPayloadDetails = {
-  accountIndex: number
-  instructions: Uint8Array
-}
+  accountIndex: number;
+  instructions: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -18,8 +18,8 @@ export type SyncTransactionPayloadDetails = {
 export const syncTransactionPayloadDetailsBeet =
   new beet.FixableBeetArgsStruct<SyncTransactionPayloadDetails>(
     [
-      ['accountIndex', beet.u8],
-      ['instructions', beet.bytes],
+      ["accountIndex", beet.u8],
+      ["instructions", beet.bytes],
     ],
-    'SyncTransactionPayloadDetails'
-  )
+    "SyncTransactionPayloadDetails"
+  );

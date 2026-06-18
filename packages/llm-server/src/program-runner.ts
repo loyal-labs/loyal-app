@@ -102,10 +102,13 @@ export async function runAxProgram<TInput, TOutput, TResult>(
           }
         }
 
-        const wrappedProviderError = new LlmProviderError(getErrorMessage(error), {
-          details: wrappedErrorDetails,
-          retryable: true,
-        });
+        const wrappedProviderError = new LlmProviderError(
+          getErrorMessage(error),
+          {
+            details: wrappedErrorDetails,
+            retryable: true,
+          }
+        );
 
         if (error instanceof Error) {
           (wrappedProviderError as Error & { cause?: unknown }).cause = error;
@@ -117,7 +120,10 @@ export async function runAxProgram<TInput, TOutput, TResult>(
       try {
         return params.normalizeOutput(output);
       } catch (error) {
-        if (error instanceof LlmValidationError || error instanceof LlmAssertionError) {
+        if (
+          error instanceof LlmValidationError ||
+          error instanceof LlmAssertionError
+        ) {
           throw error;
         }
 
@@ -150,7 +156,9 @@ export async function runAxProgram<TInput, TOutput, TResult>(
 
 const MAX_ERROR_FIELD_LENGTH = 2_000;
 
-function buildTelemetryErrorFields(error: unknown): Pick<
+function buildTelemetryErrorFields(
+  error: unknown
+): Pick<
   LlmTelemetryEvent,
   "errorCauseMessage" | "errorDetails" | "errorName" | "errorStack"
 > {
@@ -187,7 +195,14 @@ function extractErrorDetails(error: Error): Record<string, string> {
     details.details = truncateValue(stringifyUnknown(baseRecord.details));
   }
 
-  const directKeys = ["code", "status", "statusCode", "type", "param", "requestId"];
+  const directKeys = [
+    "code",
+    "status",
+    "statusCode",
+    "type",
+    "param",
+    "requestId",
+  ];
   for (const key of directKeys) {
     const value = baseRecord[key];
     if (value !== undefined) {
@@ -224,7 +239,11 @@ function stringifyUnknown(value: unknown): string {
     return value;
   }
 
-  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
     return String(value);
   }
 

@@ -5,21 +5,21 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
-import { TimeConstraints, timeConstraintsBeet } from './TimeConstraints'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
+import { TimeConstraints, timeConstraintsBeet } from "./TimeConstraints";
 import {
   QuantityConstraints,
   quantityConstraintsBeet,
-} from './QuantityConstraints'
-import { UsageState, usageStateBeet } from './UsageState'
+} from "./QuantityConstraints";
+import { UsageState, usageStateBeet } from "./UsageState";
 export type SpendingLimitV2 = {
-  mint: web3.PublicKey
-  timeConstraints: TimeConstraints
-  quantityConstraints: QuantityConstraints
-  usage: UsageState
-}
+  mint: web3.PublicKey;
+  timeConstraints: TimeConstraints;
+  quantityConstraints: QuantityConstraints;
+  usage: UsageState;
+};
 
 /**
  * @category userTypes
@@ -28,10 +28,10 @@ export type SpendingLimitV2 = {
 export const spendingLimitV2Beet =
   new beet.FixableBeetArgsStruct<SpendingLimitV2>(
     [
-      ['mint', beetSolana.publicKey],
-      ['timeConstraints', timeConstraintsBeet],
-      ['quantityConstraints', quantityConstraintsBeet],
-      ['usage', usageStateBeet],
+      ["mint", beetSolana.publicKey],
+      ["timeConstraints", timeConstraintsBeet],
+      ["quantityConstraints", quantityConstraintsBeet],
+      ["usage", usageStateBeet],
     ],
-    'SpendingLimitV2'
-  )
+    "SpendingLimitV2"
+  );

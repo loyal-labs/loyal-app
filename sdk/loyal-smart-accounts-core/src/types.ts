@@ -31,7 +31,7 @@ export const Permission = {
   Execute: 0b0000_0100,
 } as const;
 
-export type Permission = typeof Permission[keyof typeof Permission];
+export type Permission = (typeof Permission)[keyof typeof Permission];
 
 export class Permissions implements IPermissions {
   private constructor(readonly mask: number) {}

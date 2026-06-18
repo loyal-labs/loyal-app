@@ -35,8 +35,8 @@ export async function wrapSolToWSol(opts: {
         owner,
         wsolAta,
         owner,
-        NATIVE_MINT,
-      ),
+        NATIVE_MINT
+      )
     );
   }
 
@@ -45,7 +45,7 @@ export async function wrapSolToWSol(opts: {
       fromPubkey: owner,
       toPubkey: wsolAta,
       lamports,
-    }),
+    })
   );
 
   tx.add(createSyncNativeInstruction(wsolAta));
@@ -59,7 +59,7 @@ export async function wrapSolToWSol(opts: {
   const signature = await connection.sendRawTransaction(tx.serialize());
   await connection.confirmTransaction(
     { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
+    "confirmed"
   );
 
   return { wsolAta, createdAta };
@@ -76,7 +76,7 @@ export async function closeWsolAta(opts: {
   try {
     const owner = signer.publicKey;
     const tx = new Transaction().add(
-      createCloseAccountInstruction(wsolAta, owner, owner),
+      createCloseAccountInstruction(wsolAta, owner, owner)
     );
 
     const { blockhash, lastValidBlockHeight } =
@@ -88,7 +88,7 @@ export async function closeWsolAta(opts: {
     const signature = await connection.sendRawTransaction(tx.serialize());
     await connection.confirmTransaction(
       { signature, blockhash, lastValidBlockHeight },
-      "confirmed",
+      "confirmed"
     );
   } catch (error) {
     console.error("Failed to close wSOL ATA", error);

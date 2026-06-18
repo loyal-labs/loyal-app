@@ -82,7 +82,8 @@ function getAnalyticsClient(): AnalyticsClient {
 function mapLaunchContextToEventProperties(
   context: TelegramLaunchContext
 ): AnalyticsProperties {
-  const startParamRaw = normalizeOptionalString(context.startParamRaw) ?? "none";
+  const startParamRaw =
+    normalizeOptionalString(context.startParamRaw) ?? "none";
   const parsedStartParam = parseSummaryFeedStartParam(context.startParamRaw);
 
   return {
@@ -144,7 +145,9 @@ export function initAnalytics(): Promise<void> {
 export function setTelegramLaunchContext(
   context: TelegramLaunchContext | null
 ): void {
-  getAnalyticsClient().setContext(mapLaunchContextToEventProperties(context ?? {}));
+  getAnalyticsClient().setContext(
+    mapLaunchContextToEventProperties(context ?? {})
+  );
 }
 
 export function clearTelegramLaunchContext(): void {

@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowLeft, Check, Globe, Share } from "lucide-react";
+import { ArrowLeft, Check, Globe, Share, X } from "lucide-react";
 import { useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
+import { getExplorerTxUrl } from "@/lib/solana/explorer";
 import type { TransactionDetail } from "./types";
 
 function truncateAddress(addr: string): string {
@@ -14,9 +15,11 @@ function truncateAddress(addr: string): string {
 
 export function TransactionDetailView({
   detail,
+  dismissIcon = "back",
   onBack,
 }: {
   detail: TransactionDetail;
+  dismissIcon?: "back" | "close";
   onBack: () => void;
 }) {
   const publicEnv = usePublicEnv();
@@ -26,12 +29,19 @@ export function TransactionDetailView({
   const isUnshielded = detail.activity.type === "unshielded";
   const isPrivate = detail.isPrivate || detail.activity.isPrivate;
   const isShieldType = isShielded || isUnshielded;
-  const title = isShielded ? "Shielded" : isUnshielded ? "Unshielded" : isSent ? "Sent" : "Received";
+  const title = isShielded
+    ? "Shielded"
+    : isUnshielded
+    ? "Unshielded"
+    : isSent
+    ? "Sent"
+    : "Received";
   // Strip the +/− prefix for the large display
   const rawAmount = detail.activity.amount.replace(/^[+\u2212-]/, "");
   const parts = rawAmount.split(" ");
   const amountNum = parts[0];
   const amountToken = parts[1] || "";
+  const transactionUrl = getExplorerTxUrl(detail.activity.id);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -83,7 +93,7 @@ export function TransactionDetailView({
           }}
           type="button"
         >
-          <ArrowLeft size={24} />
+          {dismissIcon === "close" ? <X size={24} /> : <ArrowLeft size={24} />}
         </button>
       </div>
 
@@ -136,7 +146,8 @@ export function TransactionDetailView({
                   color: isSent || isShieldType ? "#000" : "#34C759",
                 }}
               >
-                {isShieldType ? "" : isSent ? "\u2212" : "+"}{amountNum}
+                {isShieldType ? "" : isSent ? "\u2212" : "+"}
+                {amountNum}
               </span>
               <span
                 style={{
@@ -226,7 +237,13 @@ export function TransactionDetailView({
                   display: "block",
                 }}
               >
-                {isShielded ? "Moved to" : isUnshielded ? "Moved from" : isSent ? "Recipient" : "Sender"}
+                {isShielded
+                  ? "Moved to"
+                  : isUnshielded
+                  ? "Moved from"
+                  : isSent
+                  ? "Recipient"
+                  : "Sender"}
               </span>
               <span
                 style={{
@@ -239,7 +256,11 @@ export function TransactionDetailView({
                   marginTop: "2px",
                 }}
               >
-                {isShielded ? "Secure balance" : isUnshielded ? "Secure balance" : truncateAddress(detail.activity.counterparty)}
+                {isShielded
+                  ? "Secure balance"
+                  : isUnshielded
+                  ? "Secure balance"
+                  : truncateAddress(detail.activity.counterparty)}
               </span>
             </div>
 
@@ -303,7 +324,7 @@ export function TransactionDetailView({
                 className="tx-action-btn"
                 onClick={() =>
                   openTrackedLink(publicEnv, {
-                    href: `https://explorer.solana.com/tx/${detail.activity.id}`,
+                    href: transactionUrl,
                     linkText: "View in explorer",
                     source: "transaction_detail",
                   })
@@ -353,10 +374,16 @@ export function TransactionDetailView({
               className="tx-action-btn"
               onClick={() => {
                 const text = isPrivate
-                  ? `Sent ${rawAmount} ${amountToken} (${detail.usdValue}) to ${truncateAddress(detail.activity.counterparty)}`
+                  ? `Sent ${rawAmount} ${amountToken} (${
+                      detail.usdValue
+                    }) to ${truncateAddress(detail.activity.counterparty)}`
                   : isShieldType
-                    ? `${title} ${rawAmount} ${amountToken} (${detail.usdValue})\nhttps://explorer.solana.com/tx/${detail.activity.id}`
-                    : `${title} ${rawAmount} ${amountToken} (${detail.usdValue}) ${isSent ? "to" : "from"} ${truncateAddress(detail.activity.counterparty)}\nhttps://explorer.solana.com/tx/${detail.activity.id}`;
+                  ? `${title} ${rawAmount} ${amountToken} (${detail.usdValue})\n${transactionUrl}`
+                  : `${title} ${rawAmount} ${amountToken} (${
+                      detail.usdValue
+                    }) ${isSent ? "to" : "from"} ${truncateAddress(
+                      detail.activity.counterparty
+                    )}\n${transactionUrl}`;
                 void navigator.clipboard.writeText(text).then(() => {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);

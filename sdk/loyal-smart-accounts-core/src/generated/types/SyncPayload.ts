@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
+import * as beet from "@metaplex-foundation/beet";
+import { PolicyPayload, policyPayloadBeet } from "./PolicyPayload";
 /**
  * This type is used to derive the {@link SyncPayload} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link SyncPayload} type instead.
@@ -17,9 +17,9 @@ import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
  * @private
  */
 export type SyncPayloadRecord = {
-  Transaction: { fields: [Uint8Array] }
-  Policy: { fields: [PolicyPayload] }
-}
+  Transaction: { fields: [Uint8Array] };
+  Policy: { fields: [PolicyPayload] };
+};
 
 /**
  * Union type respresenting the SyncPayload data enum defined in Rust.
@@ -32,14 +32,14 @@ export type SyncPayloadRecord = {
  * @category enums
  * @category generated
  */
-export type SyncPayload = beet.DataEnumKeyAsKind<SyncPayloadRecord>
+export type SyncPayload = beet.DataEnumKeyAsKind<SyncPayloadRecord>;
 
 export const isSyncPayloadTransaction = (
   x: SyncPayload
-): x is SyncPayload & { __kind: 'Transaction' } => x.__kind === 'Transaction'
+): x is SyncPayload & { __kind: "Transaction" } => x.__kind === "Transaction";
 export const isSyncPayloadPolicy = (
   x: SyncPayload
-): x is SyncPayload & { __kind: 'Policy' } => x.__kind === 'Policy'
+): x is SyncPayload & { __kind: "Policy" } => x.__kind === "Policy";
 
 /**
  * @category userTypes
@@ -47,17 +47,17 @@ export const isSyncPayloadPolicy = (
  */
 export const syncPayloadBeet = beet.dataEnum<SyncPayloadRecord>([
   [
-    'Transaction',
-    new beet.FixableBeetArgsStruct<SyncPayloadRecord['Transaction']>(
-      [['fields', beet.tuple([beet.bytes])]],
+    "Transaction",
+    new beet.FixableBeetArgsStruct<SyncPayloadRecord["Transaction"]>(
+      [["fields", beet.tuple([beet.bytes])]],
       'SyncPayloadRecord["Transaction"]'
     ),
   ],
   [
-    'Policy',
-    new beet.FixableBeetArgsStruct<SyncPayloadRecord['Policy']>(
-      [['fields', beet.tuple([policyPayloadBeet])]],
+    "Policy",
+    new beet.FixableBeetArgsStruct<SyncPayloadRecord["Policy"]>(
+      [["fields", beet.tuple([policyPayloadBeet])]],
       'SyncPayloadRecord["Policy"]'
     ),
   ],
-]) as beet.FixableBeet<SyncPayload, SyncPayload>
+]) as beet.FixableBeet<SyncPayload, SyncPayload>;

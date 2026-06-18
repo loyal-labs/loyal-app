@@ -77,7 +77,6 @@ const ChatBotDemo = () => {
     setInput("");
     // Reset model to default
     setModel(models[0].value);
-    console.log("New chat started");
   }, [setMessages]);
 
   // Initialize dark mode based on system preference

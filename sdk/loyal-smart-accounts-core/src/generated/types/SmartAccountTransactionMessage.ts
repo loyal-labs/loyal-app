@@ -5,25 +5,25 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   SmartAccountCompiledInstruction,
   smartAccountCompiledInstructionBeet,
-} from './SmartAccountCompiledInstruction'
+} from "./SmartAccountCompiledInstruction";
 import {
   SmartAccountMessageAddressTableLookup,
   smartAccountMessageAddressTableLookupBeet,
-} from './SmartAccountMessageAddressTableLookup'
+} from "./SmartAccountMessageAddressTableLookup";
 export type SmartAccountTransactionMessage = {
-  numSigners: number
-  numWritableSigners: number
-  numWritableNonSigners: number
-  accountKeys: web3.PublicKey[]
-  instructions: SmartAccountCompiledInstruction[]
-  addressTableLookups: SmartAccountMessageAddressTableLookup[]
-}
+  numSigners: number;
+  numWritableSigners: number;
+  numWritableNonSigners: number;
+  accountKeys: web3.PublicKey[];
+  instructions: SmartAccountCompiledInstruction[];
+  addressTableLookups: SmartAccountMessageAddressTableLookup[];
+};
 
 /**
  * @category userTypes
@@ -32,15 +32,15 @@ export type SmartAccountTransactionMessage = {
 export const smartAccountTransactionMessageBeet =
   new beet.FixableBeetArgsStruct<SmartAccountTransactionMessage>(
     [
-      ['numSigners', beet.u8],
-      ['numWritableSigners', beet.u8],
-      ['numWritableNonSigners', beet.u8],
-      ['accountKeys', beet.array(beetSolana.publicKey)],
-      ['instructions', beet.array(smartAccountCompiledInstructionBeet)],
+      ["numSigners", beet.u8],
+      ["numWritableSigners", beet.u8],
+      ["numWritableNonSigners", beet.u8],
+      ["accountKeys", beet.array(beetSolana.publicKey)],
+      ["instructions", beet.array(smartAccountCompiledInstructionBeet)],
       [
-        'addressTableLookups',
+        "addressTableLookups",
         beet.array(smartAccountMessageAddressTableLookupBeet),
       ],
     ],
-    'SmartAccountTransactionMessage'
-  )
+    "SmartAccountTransactionMessage"
+  );

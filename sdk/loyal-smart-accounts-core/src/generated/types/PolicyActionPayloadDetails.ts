@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
+import * as beet from "@metaplex-foundation/beet";
+import { PolicyPayload, policyPayloadBeet } from "./PolicyPayload";
 export type PolicyActionPayloadDetails = {
-  payload: PolicyPayload
-}
+  payload: PolicyPayload;
+};
 
 /**
  * @category userTypes
@@ -17,6 +17,6 @@ export type PolicyActionPayloadDetails = {
  */
 export const policyActionPayloadDetailsBeet =
   new beet.FixableBeetArgsStruct<PolicyActionPayloadDetails>(
-    [['payload', policyPayloadBeet]],
-    'PolicyActionPayloadDetails'
-  )
+    [["payload", policyPayloadBeet]],
+    "PolicyActionPayloadDetails"
+  );

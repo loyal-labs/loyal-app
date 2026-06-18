@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import { PeriodV2, periodV2Beet } from './PeriodV2'
+import * as beet from "@metaplex-foundation/beet";
+import { PeriodV2, periodV2Beet } from "./PeriodV2";
 export type LimitedTimeConstraints = {
-  start: beet.bignum
-  expiration: beet.COption<beet.bignum>
-  period: PeriodV2
-}
+  start: beet.bignum;
+  expiration: beet.COption<beet.bignum>;
+  period: PeriodV2;
+};
 
 /**
  * @category userTypes
@@ -20,9 +20,9 @@ export type LimitedTimeConstraints = {
 export const limitedTimeConstraintsBeet =
   new beet.FixableBeetArgsStruct<LimitedTimeConstraints>(
     [
-      ['start', beet.i64],
-      ['expiration', beet.coption(beet.i64)],
-      ['period', periodV2Beet],
+      ["start", beet.i64],
+      ["expiration", beet.coption(beet.i64)],
+      ["period", periodV2Beet],
     ],
-    'LimitedTimeConstraints'
-  )
+    "LimitedTimeConstraints"
+  );

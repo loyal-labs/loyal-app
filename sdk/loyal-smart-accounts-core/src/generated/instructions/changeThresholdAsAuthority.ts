@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   ChangeThresholdArgs,
   changeThresholdArgsBeet,
-} from '../types/ChangeThresholdArgs'
+} from "../types/ChangeThresholdArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type ChangeThresholdAsAuthorityInstructionArgs = {
-  args: ChangeThresholdArgs
-}
+  args: ChangeThresholdArgs;
+};
 /**
  * @category Instructions
  * @category ChangeThresholdAsAuthority
@@ -27,15 +27,15 @@ export type ChangeThresholdAsAuthorityInstructionArgs = {
  */
 export const changeThresholdAsAuthorityStruct = new beet.FixableBeetArgsStruct<
   ChangeThresholdAsAuthorityInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', changeThresholdArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", changeThresholdArgsBeet],
   ],
-  'ChangeThresholdAsAuthorityInstructionArgs'
-)
+  "ChangeThresholdAsAuthorityInstructionArgs"
+);
 /**
  * Accounts required by the _changeThresholdAsAuthority_ instruction
  *
@@ -48,17 +48,17 @@ export const changeThresholdAsAuthorityStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type ChangeThresholdAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const changeThresholdAsAuthorityInstructionDiscriminator = [
   51, 141, 78, 133, 70, 47, 95, 124,
-]
+];
 
 /**
  * Creates a _ChangeThresholdAsAuthority_ instruction.
@@ -76,13 +76,13 @@ export const changeThresholdAsAuthorityInstructionDiscriminator = [
 export function createChangeThresholdAsAuthorityInstruction(
   accounts: ChangeThresholdAsAuthorityInstructionAccounts,
   args: ChangeThresholdAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = changeThresholdAsAuthorityStruct.serialize({
     instructionDiscriminator:
       changeThresholdAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -109,11 +109,11 @@ export function createChangeThresholdAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -121,6 +121,6 @@ export function createChangeThresholdAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

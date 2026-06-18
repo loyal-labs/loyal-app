@@ -101,7 +101,7 @@ export async function requestPermission(): Promise<boolean> {
  * the public key for the requested derivation path.
  */
 export async function authorizeExistingSeed(
-  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH,
+  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH
 ): Promise<VaultAccount> {
   const native = await ExpoSeedVault.authorizeExistingSeed(derivationPath);
   return toVaultAccount(native);
@@ -114,7 +114,7 @@ export async function authorizeExistingSeed(
  * authorizations exist or the platform is not Android.
  */
 export async function listAuthorizedSeeds(
-  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH,
+  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH
 ): Promise<VaultAccount[]> {
   if (Platform.OS !== "android") return [];
   try {
@@ -130,7 +130,7 @@ export async function listAuthorizedSeeds(
  * for this app. The fresh 24-word seed never leaves the vault.
  */
 export async function createNewSeed(
-  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH,
+  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH
 ): Promise<VaultAccount> {
   const native = await ExpoSeedVault.createNewSeed(derivationPath);
   return toVaultAccount(native);
@@ -141,7 +141,7 @@ export async function createNewSeed(
  * authorize it for this app.
  */
 export async function importSeed(
-  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH,
+  derivationPath: string = DEFAULT_SOLANA_DERIVATION_PATH
 ): Promise<VaultAccount> {
   const native = await ExpoSeedVault.importSeed(derivationPath);
   return toVaultAccount(native);
@@ -167,7 +167,7 @@ export async function signTransaction(args: {
   const sigB64 = await ExpoSeedVault.signTransaction(
     args.authToken,
     args.derivationPath,
-    uint8ToBase64(args.txBytes),
+    uint8ToBase64(args.txBytes)
   );
   return base64ToUint8(sigB64);
 }
@@ -184,7 +184,7 @@ export async function signMessage(args: {
   const sigB64 = await ExpoSeedVault.signMessage(
     args.authToken,
     args.derivationPath,
-    uint8ToBase64(args.message),
+    uint8ToBase64(args.message)
   );
   return base64ToUint8(sigB64);
 }
@@ -200,7 +200,7 @@ export async function getPublicKey(args: {
 }): Promise<string> {
   const b64 = await ExpoSeedVault.getPublicKey(
     args.authToken,
-    args.derivationPath,
+    args.derivationPath
   );
   return encodeBase58(base64ToUint8(b64));
 }

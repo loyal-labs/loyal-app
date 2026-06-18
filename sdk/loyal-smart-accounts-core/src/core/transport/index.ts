@@ -11,16 +11,15 @@ import type {
 import { PROGRAM_ID } from "../generated/index.js";
 import { translateAndThrowAnchorError } from "../errors/index.js";
 
-export type PreparedLoyalSmartAccountsOperation<
-  Name extends string = string,
-> = Readonly<{
-  operation: Name;
-  payer: PublicKey;
-  programId: PublicKey;
-  requiresConfirmation: boolean;
-  instructions: readonly TransactionInstruction[];
-  lookupTableAccounts: readonly AddressLookupTableAccount[];
-}>;
+export type PreparedLoyalSmartAccountsOperation<Name extends string = string> =
+  Readonly<{
+    operation: Name;
+    payer: PublicKey;
+    programId: PublicKey;
+    requiresConfirmation: boolean;
+    instructions: readonly TransactionInstruction[];
+    lookupTableAccounts: readonly AddressLookupTableAccount[];
+  }>;
 
 export type LoyalSmartAccountsConfirmationContext = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;

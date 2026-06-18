@@ -43,8 +43,7 @@ function createS3Client(config: CloudflareR2UploadClientConfig): S3Client {
   return new S3Client({
     region: "auto",
     endpoint:
-      config.endpoint ??
-      `https://${config.accountId}.r2.cloudflarestorage.com`,
+      config.endpoint ?? `https://${config.accountId}.r2.cloudflarestorage.com`,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,

@@ -57,7 +57,15 @@ function MobileWalletList() {
   );
 }
 
-export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
+export function WalletTab({
+  onFlowStart,
+  onTurnstileConsumed,
+  turnstileToken,
+}: {
+  onFlowStart?: () => void;
+  onTurnstileConsumed?: () => void;
+  turnstileToken?: string | null;
+}) {
   const {
     connected,
     publicKey,
@@ -68,9 +76,30 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
     startConnectedWalletVerification,
   } = useWalletProofAuth({
     onFlowStart,
+    onTurnstileConsumed,
+    turnstileToken: turnstileToken ?? undefined,
   });
 
+  const isVerified = Boolean(turnstileToken);
+
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    if (
+      connected &&
+      publicKey &&
+      isVerified &&
+      state.status === "idle"
+    ) {
+      startConnectedWalletVerification();
+    }
+  }, [
+    connected,
+    isVerified,
+    publicKey,
+    startConnectedWalletVerification,
+    state.status,
+  ]);
 
   // Delay showing errors so transient failures during connection don't flash
   const isErrorState =
@@ -143,7 +172,8 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
     <div className="flex flex-col gap-4">
       {connected && publicKey ? (
         <button
-          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
+          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!isVerified}
           onClick={startConnectedWalletVerification}
           type="button"
         >
@@ -153,7 +183,8 @@ export function WalletTab({ onFlowStart }: { onFlowStart?: () => void }) {
         <div className="flex flex-col gap-2">
           {installedWallets.map((installedWallet) => (
             <button
-              className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06]"
+              className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!isVerified}
               key={installedWallet.adapter.name}
               onClick={() => connectWallet(installedWallet.adapter.name)}
               type="button"

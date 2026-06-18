@@ -1,6 +1,6 @@
 {
   "name": "@loyal-labs/smart-account-vaults",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -21,6 +21,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@loyal-labs/actions": "workspace:*",
     "@loyal-labs/loyal-smart-accounts": "workspace:*",
     "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
     "@loyal-labs/solana-instruction-decoder": "workspace:*",

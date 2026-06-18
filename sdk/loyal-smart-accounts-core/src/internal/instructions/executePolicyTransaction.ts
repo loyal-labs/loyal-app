@@ -3,10 +3,7 @@ import {
   TransactionInstruction,
   AccountMeta,
 } from "@solana/web3.js";
-import {
-  createExecuteTransactionInstruction,
-  PROGRAM_ID,
-} from "../generated";
+import { createExecuteTransactionInstruction, PROGRAM_ID } from "../generated";
 import { getProposalPda, getTransactionPda } from "../pda";
 
 export function executePolicyTransaction({

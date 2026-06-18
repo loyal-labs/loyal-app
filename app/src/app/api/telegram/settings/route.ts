@@ -21,7 +21,7 @@ function extractUser(rawInitData: string): {
 }
 
 async function authenticateAndGetUserId(
-  rawInitData: string,
+  rawInitData: string
 ): Promise<
   { userId: string; error?: never } | { userId?: never; error: NextResponse }
 > {
@@ -34,7 +34,7 @@ async function authenticateAndGetUserId(
     return {
       error: NextResponse.json(
         { error: "Invalid initData payload" },
-        { status: 400 },
+        { status: 400 }
       ),
     };
   }
@@ -44,7 +44,7 @@ async function authenticateAndGetUserId(
     return {
       error: NextResponse.json(
         { error: "Invalid Telegram init data" },
-        { status: 401 },
+        { status: 401 }
       ),
     };
   }
@@ -70,7 +70,7 @@ export async function GET(req: Request) {
     if (!rawInitData) {
       return NextResponse.json(
         { error: "initData is required" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -93,7 +93,7 @@ export async function GET(req: Request) {
     if (!settings) {
       return NextResponse.json(
         { error: "Failed to load settings" },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -105,7 +105,7 @@ export async function GET(req: Request) {
     console.error("[telegram][settings] GET failed", error);
     return NextResponse.json(
       { error: "Failed to load settings" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
@@ -119,14 +119,14 @@ export async function PATCH(req: Request) {
     if (!rawInitData) {
       return NextResponse.json(
         { error: "rawInitData is required" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
     if (typeof notifications !== "boolean") {
       return NextResponse.json(
         { error: "notifications (boolean) is required" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -146,7 +146,7 @@ export async function PATCH(req: Request) {
     if (!updated) {
       return NextResponse.json(
         { error: "Failed to update settings" },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -158,7 +158,7 @@ export async function PATCH(req: Request) {
     console.error("[telegram][settings] PATCH failed", error);
     return NextResponse.json(
       { error: "Failed to update settings" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

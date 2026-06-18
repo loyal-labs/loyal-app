@@ -54,7 +54,7 @@ export function initDatadog(): Promise<void> {
         sessionSampleRate: 100,
       },
       logsConfiguration: {},
-    },
+    }
   );
 
   initPromise = DdSdkReactNative.initialize(config)

@@ -2,7 +2,7 @@ import type { FlagDefinition, FlagEvaluationContext } from "./types.js";
 
 export function evaluateFlag(
   flag: FlagDefinition,
-  context: FlagEvaluationContext,
+  context: FlagEvaluationContext
 ): boolean {
   if (!flag.enabled) return false;
   if (!flag.targetApps.includes(context.app)) return false;

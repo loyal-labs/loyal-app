@@ -5,22 +5,22 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
 import {
   LimitedTimeConstraints,
   limitedTimeConstraintsBeet,
-} from './LimitedTimeConstraints'
+} from "./LimitedTimeConstraints";
 import {
   LimitedQuantityConstraints,
   limitedQuantityConstraintsBeet,
-} from './LimitedQuantityConstraints'
+} from "./LimitedQuantityConstraints";
 export type LimitedSpendingLimit = {
-  mint: web3.PublicKey
-  timeConstraints: LimitedTimeConstraints
-  quantityConstraints: LimitedQuantityConstraints
-}
+  mint: web3.PublicKey;
+  timeConstraints: LimitedTimeConstraints;
+  quantityConstraints: LimitedQuantityConstraints;
+};
 
 /**
  * @category userTypes
@@ -29,9 +29,9 @@ export type LimitedSpendingLimit = {
 export const limitedSpendingLimitBeet =
   new beet.FixableBeetArgsStruct<LimitedSpendingLimit>(
     [
-      ['mint', beetSolana.publicKey],
-      ['timeConstraints', limitedTimeConstraintsBeet],
-      ['quantityConstraints', limitedQuantityConstraintsBeet],
+      ["mint", beetSolana.publicKey],
+      ["timeConstraints", limitedTimeConstraintsBeet],
+      ["quantityConstraints", limitedQuantityConstraintsBeet],
     ],
-    'LimitedSpendingLimit'
-  )
+    "LimitedSpendingLimit"
+  );

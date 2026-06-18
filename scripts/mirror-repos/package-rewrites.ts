@@ -6,7 +6,6 @@ const packageDirs = [
   "packages/db-adapter-neon",
   "packages/db-core",
   "packages/flags",
-  "packages/grid-core",
   "packages/llm-core",
   "packages/llm-server",
   "packages/shared",

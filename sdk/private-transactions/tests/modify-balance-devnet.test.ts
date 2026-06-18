@@ -53,9 +53,7 @@ const SOLANA_KEYPAIR_PATH =
   process.env.SOLANA_KEYPAIR_PATH ??
   path.join(homedir(), ".config", "solana", "id.json");
 
-const USDC_INCREASE_AMOUNT = BigInt(
-  process.env.USDC_TEST_AMOUNT ?? "200000"
-);
+const USDC_INCREASE_AMOUNT = BigInt(process.env.USDC_TEST_AMOUNT ?? "200000");
 const WSOL_INCREASE_AMOUNT = BigInt(
   process.env.WSOL_TEST_AMOUNT ?? String(Math.floor(LAMPORTS_PER_SOL / 200))
 );
@@ -291,7 +289,10 @@ describeIfEnabled("modify_balance devnet integration", () => {
       tokenMint,
     });
 
-    const userUsdcBefore = await getTokenAmountOrZero(connection, userTokenAccount);
+    const userUsdcBefore = await getTokenAmountOrZero(
+      connection,
+      userTokenAccount
+    );
     const vaultLiquidityBefore = await getTokenAmountOrZero(
       connection,
       vaultTokenAccount
@@ -316,7 +317,10 @@ describeIfEnabled("modify_balance devnet integration", () => {
       connection,
       increaseResult.signature
     );
-    const depositAfterIncrease = await loyalClient.getBaseDeposit(user, tokenMint);
+    const depositAfterIncrease = await loyalClient.getBaseDeposit(
+      user,
+      tokenMint
+    );
     const userUsdcAfterIncrease = await getTokenAmountOrZero(
       connection,
       userTokenAccount
@@ -356,7 +360,10 @@ describeIfEnabled("modify_balance devnet integration", () => {
       connection,
       decreaseResult.signature
     );
-    const depositAfterDecrease = await loyalClient.getBaseDeposit(user, tokenMint);
+    const depositAfterDecrease = await loyalClient.getBaseDeposit(
+      user,
+      tokenMint
+    );
     const userUsdcAfterDecrease = await getTokenAmountOrZero(
       connection,
       userTokenAccount
@@ -425,8 +432,14 @@ describeIfEnabled("modify_balance devnet integration", () => {
       connection,
       increaseResult.signature
     );
-    const depositAfterIncrease = await loyalClient.getBaseDeposit(user, tokenMint);
-    const userWsolAfterIncrease = await getTokenAmountOrZero(connection, wsolAta);
+    const depositAfterIncrease = await loyalClient.getBaseDeposit(
+      user,
+      tokenMint
+    );
+    const userWsolAfterIncrease = await getTokenAmountOrZero(
+      connection,
+      wsolAta
+    );
     const vaultWsolAfterIncrease = await getTokenAmountOrZero(
       connection,
       vaultTokenAccount
@@ -453,8 +466,14 @@ describeIfEnabled("modify_balance devnet integration", () => {
       connection,
       decreaseResult.signature
     );
-    const depositAfterDecrease = await loyalClient.getBaseDeposit(user, tokenMint);
-    const userWsolAfterDecrease = await getTokenAmountOrZero(connection, wsolAta);
+    const depositAfterDecrease = await loyalClient.getBaseDeposit(
+      user,
+      tokenMint
+    );
+    const userWsolAfterDecrease = await getTokenAmountOrZero(
+      connection,
+      wsolAta
+    );
     const vaultWsolAfterDecrease = await getTokenAmountOrZero(
       connection,
       vaultTokenAccount

@@ -91,6 +91,26 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
 });
 ```
 
+## Manual Devnet Smoke Tests
+
+Live PER/devnet smoke tests are opt-in and are not part of default
+`bun test`. Provide funded throwaway keypairs through environment variables;
+do not commit key material.
+
+```bash
+RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE=true \
+PRIVATE_TRANSACTIONS_SHIELD_USER_KEYPAIR='[1,2,...]' \
+PRIVATE_TRANSACTIONS_SHIELD_OTHER_USER_KEYPAIR='[1,2,...]' \
+bun test tests/private-transactions-shield.test.ts
+```
+
+```bash
+RUN_PRIVATE_TRANSACTIONS_DEVNET_SMOKE=true \
+PRIVATE_TRANSACTIONS_DEVNET_USER_KEYPAIR='[1,2,...]' \
+PRIVATE_TRANSACTIONS_DEVNET_OTHER_USER_KEYPAIR='[1,2,...]' \
+bun test tests/private-transactions-devnet.test.ts
+```
+
 ## API Overview
 
 ### Factory Method

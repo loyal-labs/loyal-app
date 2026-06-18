@@ -8,7 +8,8 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
-  "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+  "Cache-Control":
+    "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
 };
 
 export type MobileLibraryArticle = {
@@ -69,10 +70,7 @@ export async function GET(): Promise<NextResponse> {
         })
         .from(libraryArticles)
         .where(eq(libraryArticles.isActive, true))
-        .orderBy(
-          asc(libraryArticles.displayOrder),
-          asc(libraryArticles.title)
-        ),
+        .orderBy(asc(libraryArticles.displayOrder), asc(libraryArticles.title)),
     ]);
 
     const activeSectionIds = new Set(sectionRows.map((row) => row.id));

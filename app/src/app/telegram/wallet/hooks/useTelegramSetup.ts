@@ -30,10 +30,8 @@ export function useTelegramSetup(rawInitData: string | undefined): {
         TELEGRAM_BOT_ID,
         cleanInitDataResult
       );
-      console.log("validationString:", validationString);
       const signature = cleanInitDataResult.signature as string;
-      const isValid = validateInitData(validationString, signature);
-      console.log("Signature is valid: ", isValid);
+      validateInitData(validationString, signature);
     }
   }, [rawInitData]);
 

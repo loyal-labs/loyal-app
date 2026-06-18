@@ -21,48 +21,41 @@ export function useWalletInit(): {
   const isUnlocked = isWalletUnlocked(state);
 
   const [walletAddress, setWalletAddress] = useState<string | null>(
-    isUnlocked ? publicKey : null,
+    isUnlocked ? publicKey : null
   );
   const [isLoading, setIsLoading] = useState(() => !hasCachedWalletData());
   const [walletError, setWalletError] = useState<string | null>(null);
   const loadedForKeyRef = useRef<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
-  const loadBalance = useCallback(
-    async (address: string) => {
-      setIsLoading(true);
-      setWalletError(null);
+  const loadBalance = useCallback(async (address: string) => {
+    setIsLoading(true);
+    setWalletError(null);
 
-      try {
-        setCachedWalletAddress(address);
-        setWalletAddress(address);
+    try {
+      setCachedWalletAddress(address);
+      setWalletAddress(address);
 
-        const cachedBalance = getCachedWalletBalance(address);
+      const cachedBalance = getCachedWalletBalance(address);
 
-        if (cachedBalance !== null) {
-          setIsLoading(false);
-          void getWalletBalance().then((freshBalance) => {
-            setCachedWalletBalance(address, freshBalance);
-            walletBalanceListeners.forEach((listener) =>
-              listener(freshBalance),
-            );
-          });
-        } else {
-          const balanceLamports = await getWalletBalance();
-          setCachedWalletBalance(address, balanceLamports);
-          walletBalanceListeners.forEach((listener) =>
-            listener(balanceLamports),
-          );
-          setIsLoading(false);
-        }
-      } catch (error) {
-        console.error("Failed to load wallet balance", error);
-        setWalletError("Something went wrong loading your wallet.");
+      if (cachedBalance !== null) {
+        setIsLoading(false);
+        void getWalletBalance().then((freshBalance) => {
+          setCachedWalletBalance(address, freshBalance);
+          walletBalanceListeners.forEach((listener) => listener(freshBalance));
+        });
+      } else {
+        const balanceLamports = await getWalletBalance();
+        setCachedWalletBalance(address, balanceLamports);
+        walletBalanceListeners.forEach((listener) => listener(balanceLamports));
         setIsLoading(false);
       }
-    },
-    [],
-  );
+    } catch (error) {
+      console.error("Failed to load wallet balance", error);
+      setWalletError("Something went wrong loading your wallet.");
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!publicKey || !isUnlocked) {

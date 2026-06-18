@@ -10,13 +10,19 @@ interface SafeAreaInsets {
 }
 
 const getWebApp = () => {
-  return (window as { Telegram?: { WebApp?: {
-    isVersionAtLeast?: (version: string) => boolean;
-    contentSafeAreaInset?: { top: number; bottom: number };
-    safeAreaInset?: { top: number; bottom: number };
-    onEvent?: (eventType: string, callback: () => void) => void;
-    offEvent?: (eventType: string, callback: () => void) => void;
-  } } }).Telegram?.WebApp;
+  return (
+    window as {
+      Telegram?: {
+        WebApp?: {
+          isVersionAtLeast?: (version: string) => boolean;
+          contentSafeAreaInset?: { top: number; bottom: number };
+          safeAreaInset?: { top: number; bottom: number };
+          onEvent?: (eventType: string, callback: () => void) => void;
+          offEvent?: (eventType: string, callback: () => void) => void;
+        };
+      };
+    }
+  ).Telegram?.WebApp;
 };
 
 const getDeviceSafeAreaTopValue = (): number => {
@@ -29,7 +35,9 @@ const getSafeArea = (): SafeAreaInsets => {
   if (!webApp) return { top: 0, bottom: 0 };
 
   const hasContentSafe = webApp.isVersionAtLeast?.("8.0") ?? false;
-  const contentInsets = hasContentSafe ? webApp.contentSafeAreaInset : undefined;
+  const contentInsets = hasContentSafe
+    ? webApp.contentSafeAreaInset
+    : undefined;
   const deviceInsets = webApp.safeAreaInset;
 
   return {

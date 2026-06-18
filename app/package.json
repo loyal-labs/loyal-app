@@ -42,7 +42,6 @@
     "@loyal-labs/solana-wallet": "workspace:*",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/web3.js": "1",
-    "@sqds/grid": "^3.1.2",
     "@telegram-apps/bridge": "^2.11.0",
     "@telegram-apps/sdk": "^3.11.8",
     "@telegram-apps/sdk-react": "^3.3.9",

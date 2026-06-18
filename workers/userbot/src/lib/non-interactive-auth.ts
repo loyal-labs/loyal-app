@@ -27,9 +27,9 @@ export function createNonInteractiveAuthCallbacks(
   };
 }
 
-export function createBotTokenStartParams(
-  config: UserbotConfig
-): { botToken: string } {
+export function createBotTokenStartParams(config: UserbotConfig): {
+  botToken: string;
+} {
   if (!config.botToken) {
     throw new Error(
       "Bot auth mode selected but bot token is missing. Set TELEGRAM_USERBOT_BOT_TOKEN or ASKLOYAL_TGBOT_KEY."

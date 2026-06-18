@@ -17,6 +17,7 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePrivateSend } from "@/hooks/use-private-send";
 import { useSend } from "@/hooks/use-send";
 import { openTrackedLink, trackWalletSendPressed } from "@/lib/core/analytics";
+import { getExplorerTxUrl } from "@/lib/solana/explorer";
 
 import type {
   ActivityRow,
@@ -473,6 +474,7 @@ function SendTransactionDetail({
   const displayRecipient = isTgRecipient
     ? recipient
     : truncateAddress(recipient);
+  const transactionUrl = signature ? getExplorerTxUrl(signature) : null;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "short",
@@ -706,9 +708,9 @@ function SendTransactionDetail({
               <button
                 className="send-tx-action-btn"
                 onClick={() =>
-                  signature &&
+                  transactionUrl &&
                   openTrackedLink(publicEnv, {
-                    href: `https://explorer.solana.com/tx/${signature}`,
+                    href: transactionUrl,
                     linkText: "View in explorer",
                     source: "send_transaction_detail",
                   })
@@ -760,10 +762,8 @@ function SendTransactionDetail({
                   void navigator.clipboard.writeText(
                     `Sent ${amount} ${token.symbol} to ${displayRecipient} (${usdValue})`
                   );
-                } else if (signature) {
-                  void navigator.clipboard.writeText(
-                    `https://explorer.solana.com/tx/${signature}`
-                  );
+                } else if (transactionUrl) {
+                  void navigator.clipboard.writeText(transactionUrl);
                 }
               }}
               style={{
@@ -927,8 +927,7 @@ export function SendContent({
   const recipientIsStash =
     recipientSuggestions?.some(
       (suggestion) =>
-        suggestion.kind === "stash" &&
-        suggestion.address === recipientTrimmed
+        suggestion.kind === "stash" && suggestion.address === recipientTrimmed
     ) ?? false;
   const effectiveIsPrivate = isPrivate && !recipientIsStash;
 
@@ -1760,8 +1759,7 @@ export function SendContent({
                 alignItems: "center",
                 padding: "0 12px",
                 borderRadius: "16px",
-                cursor:
-                  isTg || recipientIsStash ? "default" : "pointer",
+                cursor: isTg || recipientIsStash ? "default" : "pointer",
                 background:
                   effectiveIsPrivate || isTg
                     ? "rgba(0, 0, 0, 0.04)"

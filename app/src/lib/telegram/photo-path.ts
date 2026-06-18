@@ -4,7 +4,9 @@ export function hashIdentifier(value: bigint | number | string): string {
   return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
-export function resolveImageExtensionFromContentType(contentType: string): string {
+export function resolveImageExtensionFromContentType(
+  contentType: string
+): string {
   const normalized = contentType.split(";")[0]?.trim().toLowerCase();
 
   switch (normalized) {

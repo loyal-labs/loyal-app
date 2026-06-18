@@ -1,18 +1,9 @@
 import { Keypair } from "@solana/web3.js";
-import {
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // --- Mock cloud-storage module ---
 
-type GetCloudValueFn = (
-  key: string
-) => Promise<string | null>;
+type GetCloudValueFn = (key: string) => Promise<string | null>;
 type SetCloudValueFn = (key: string, value: string) => Promise<boolean>;
 type DeleteCloudValueFn = (keys: string | string[]) => Promise<boolean>;
 
@@ -122,7 +113,9 @@ describe("ensureWalletKeypair", () => {
   test("throws CloudStorageUnavailableError after all retries return null", async () => {
     getCloudValueImpl = async () => null;
 
-    await expect(ensureWalletKeypair()).rejects.toThrow(CloudStorageUnavailableError);
+    await expect(ensureWalletKeypair()).rejects.toThrow(
+      CloudStorageUnavailableError
+    );
   });
 
   test("retries when cloud storage throws, then succeeds", async () => {
@@ -148,7 +141,9 @@ describe("ensureWalletKeypair", () => {
       throw new Error("SDK not ready");
     };
 
-    await expect(ensureWalletKeypair()).rejects.toThrow(CloudStorageUnavailableError);
+    await expect(ensureWalletKeypair()).rejects.toThrow(
+      CloudStorageUnavailableError
+    );
   });
 
   test("generates new keypair only when cloud storage returns empty strings on first attempt", async () => {

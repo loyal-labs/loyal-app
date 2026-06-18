@@ -188,14 +188,6 @@ Use `/app/src/lib` for cross-slice infrastructure and integration primitives. Ex
 - Run `bun run guard:admin-shared-schema` after admin schema/DB changes.
 - For Vercel monorepo deploys, set Root Directory to `admin` (config in `admin/vercel.json`).
 
-### Grid + Passkey Boundary
-
-- Keep runtime-agnostic Grid code in `packages/grid-core`.
-- Keep `packages/shared` for generic shared types only; do not place WebAuthn or passkey browser-flow helpers there.
-- `passkey` is the auth-domain app for `/api/passkeys/*` and should remain the only workspace that owns WebAuthn ceremony code, host/RP resolution, and passkey flow orchestration.
-- Consumer apps should integrate against the passkey domain via `NEXT_PUBLIC_GRID_AUTH_BASE_URL` or `EXPO_PUBLIC_GRID_AUTH_BASE_URL`.
-- Server-side Grid upstream config stays in `passkey` under `GRID_*`; browser code should use only public envs such as `NEXT_PUBLIC_GRID_RP_ID` when needed.
-
 ### Key Patterns
 
 - **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit"`, `"vault"`, `"tg_session"`

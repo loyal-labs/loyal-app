@@ -6,5 +6,8 @@ const TOKEN_ICON_OVERRIDES: Record<string, string> = {
 };
 
 export function getTokenIconUrl(symbol: string): string {
-  return TOKEN_ICON_OVERRIDES[symbol.toUpperCase()] ?? getFallbackTokenIconUrl(symbol);
+  return (
+    TOKEN_ICON_OVERRIDES[symbol.toUpperCase()] ??
+    getFallbackTokenIconUrl(symbol)
+  );
 }

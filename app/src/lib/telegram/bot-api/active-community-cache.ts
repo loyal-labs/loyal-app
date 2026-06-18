@@ -1,10 +1,13 @@
 import { communities } from "@loyal-labs/db-core/schema";
 import { and, eq, type SQL } from "drizzle-orm";
 
-type CommunityRecord = {
-  id: string;
-  parserType: "bot" | "userbot";
-} | null | undefined;
+type CommunityRecord =
+  | {
+      id: string;
+      parserType: "bot" | "userbot";
+    }
+  | null
+  | undefined;
 
 type CommunityQueryDb = {
   query: {

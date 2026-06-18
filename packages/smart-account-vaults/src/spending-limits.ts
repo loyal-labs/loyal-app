@@ -119,7 +119,9 @@ export function toSpendingLimitPeriodLabel(
     case "custom":
       if (typeof periodSeconds === "number" && Number.isFinite(periodSeconds)) {
         const days = periodSeconds / (24 * 60 * 60);
-        return Number.isInteger(days) ? `${days} day${days === 1 ? "" : "s"}` : "custom";
+        return Number.isInteger(days)
+          ? `${days} day${days === 1 ? "" : "s"}`
+          : "custom";
       }
 
       return "custom";

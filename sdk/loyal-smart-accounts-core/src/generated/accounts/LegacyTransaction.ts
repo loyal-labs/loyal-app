@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   SmartAccountTransactionMessage,
   smartAccountTransactionMessageBeet,
-} from '../types/SmartAccountTransactionMessage'
+} from "../types/SmartAccountTransactionMessage";
 
 /**
  * Arguments used to create {@link LegacyTransaction}
@@ -19,20 +19,20 @@ import {
  * @category generated
  */
 export type LegacyTransactionArgs = {
-  smartAccountSettings: web3.PublicKey
-  creator: web3.PublicKey
-  rentCollector: web3.PublicKey
-  index: beet.bignum
-  bump: number
-  accountIndex: number
-  accountBump: number
-  ephemeralSignerBumps: Uint8Array
-  message: SmartAccountTransactionMessage
-}
+  smartAccountSettings: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentCollector: web3.PublicKey;
+  index: beet.bignum;
+  bump: number;
+  accountIndex: number;
+  accountBump: number;
+  ephemeralSignerBumps: Uint8Array;
+  message: SmartAccountTransactionMessage;
+};
 
 export const legacyTransactionDiscriminator = [
   144, 147, 65, 169, 145, 227, 57, 51,
-]
+];
 /**
  * Holds the data for the {@link LegacyTransaction} Account and provides de/serialization
  * functionality for that data
@@ -67,7 +67,7 @@ export class LegacyTransaction implements LegacyTransactionArgs {
       args.accountBump,
       args.ephemeralSignerBumps,
       args.message
-    )
+    );
   }
 
   /**
@@ -78,7 +78,7 @@ export class LegacyTransaction implements LegacyTransactionArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [LegacyTransaction, number] {
-    return LegacyTransaction.deserialize(accountInfo.data, offset)
+    return LegacyTransaction.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -95,11 +95,11 @@ export class LegacyTransaction implements LegacyTransactionArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find LegacyTransaction account at ${address}`)
+      throw new Error(`Unable to find LegacyTransaction account at ${address}`);
     }
-    return LegacyTransaction.fromAccountInfo(accountInfo, 0)[0]
+    return LegacyTransaction.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -110,10 +110,10 @@ export class LegacyTransaction implements LegacyTransactionArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, legacyTransactionBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, legacyTransactionBeet);
   }
 
   /**
@@ -121,7 +121,7 @@ export class LegacyTransaction implements LegacyTransactionArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [LegacyTransaction, number] {
-    return legacyTransactionBeet.deserialize(buf, offset)
+    return legacyTransactionBeet.deserialize(buf, offset);
   }
 
   /**
@@ -132,7 +132,7 @@ export class LegacyTransaction implements LegacyTransactionArgs {
     return legacyTransactionBeet.serialize({
       accountDiscriminator: legacyTransactionDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -143,11 +143,11 @@ export class LegacyTransaction implements LegacyTransactionArgs {
    * depends on them
    */
   static byteSize(args: LegacyTransactionArgs) {
-    const instance = LegacyTransaction.fromArgs(args)
+    const instance = LegacyTransaction.fromArgs(args);
     return legacyTransactionBeet.toFixedFromValue({
       accountDiscriminator: legacyTransactionDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -166,7 +166,7 @@ export class LegacyTransaction implements LegacyTransactionArgs {
     return connection.getMinimumBalanceForRentExemption(
       LegacyTransaction.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -179,22 +179,22 @@ export class LegacyTransaction implements LegacyTransactionArgs {
       creator: this.creator.toBase58(),
       rentCollector: this.rentCollector.toBase58(),
       index: (() => {
-        const x = <{ toNumber: () => number }>this.index
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.index;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       bump: this.bump,
       accountIndex: this.accountIndex,
       accountBump: this.accountBump,
       ephemeralSignerBumps: this.ephemeralSignerBumps,
       message: this.message,
-    }
+    };
   }
 }
 
@@ -205,21 +205,21 @@ export class LegacyTransaction implements LegacyTransactionArgs {
 export const legacyTransactionBeet = new beet.FixableBeetStruct<
   LegacyTransaction,
   LegacyTransactionArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['smartAccountSettings', beetSolana.publicKey],
-    ['creator', beetSolana.publicKey],
-    ['rentCollector', beetSolana.publicKey],
-    ['index', beet.u64],
-    ['bump', beet.u8],
-    ['accountIndex', beet.u8],
-    ['accountBump', beet.u8],
-    ['ephemeralSignerBumps', beet.bytes],
-    ['message', smartAccountTransactionMessageBeet],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["smartAccountSettings", beetSolana.publicKey],
+    ["creator", beetSolana.publicKey],
+    ["rentCollector", beetSolana.publicKey],
+    ["index", beet.u64],
+    ["bump", beet.u8],
+    ["accountIndex", beet.u8],
+    ["accountBump", beet.u8],
+    ["ephemeralSignerBumps", beet.bytes],
+    ["message", smartAccountTransactionMessageBeet],
   ],
   LegacyTransaction.fromArgs,
-  'LegacyTransaction'
-)
+  "LegacyTransaction"
+);

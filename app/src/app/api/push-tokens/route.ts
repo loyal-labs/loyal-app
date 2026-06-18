@@ -11,7 +11,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     if (!token || !platform) {
       return NextResponse.json(
         { error: "Missing required fields: token, platform" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -21,7 +21,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           error:
             "At least one identity required: telegramUserId or walletPublicKey",
         },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -56,7 +56,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     console.error("[api/push-tokens] Failed to register token:", error);
     return NextResponse.json(
       { error: "Failed to register push token" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

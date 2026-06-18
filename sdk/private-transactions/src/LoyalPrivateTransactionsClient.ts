@@ -669,7 +669,8 @@ export class LoyalPrivateTransactionsClient {
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
       totalNativeLamports: estimate.totalNativeLamports,
-      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      feeAndRentLamports:
+        estimate.totalFeeLamports + estimate.totalRentLamports,
       totalLamports:
         estimate.totalFeeLamports +
         estimate.totalRentLamports +

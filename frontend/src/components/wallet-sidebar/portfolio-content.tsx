@@ -25,6 +25,8 @@ import type {
   WalletEarningsSummary,
   WalletPortfolioChange24h,
 } from "@/hooks/use-wallet-desktop-data";
+import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
+import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { getVaultIcon } from "./vault-icon";
 
@@ -42,6 +44,17 @@ const skeletonBar = (width: string, height: string) => ({
 const COLLAPSED_SIGNER_COUNT = 3;
 const SIGNER_EXPAND_THRESHOLD = 5;
 const rowHoverBackground = "rgba(0, 0, 0, 0.04)";
+
+export type MockRootSignerEntry = Pick<
+  SmartAccountSignerEntry,
+  | "address"
+  | "balanceFraction"
+  | "balanceWhole"
+  | "icon"
+  | "id"
+  | "label"
+  | "shortAddress"
+>;
 
 function getSmartAccountErrorCopy(error: string | null | undefined) {
   const isRateLimited = error?.toLowerCase().includes("rate limited") ?? false;
@@ -139,6 +152,503 @@ function SmartAccountInlineError({
         </button>
       ) : null}
     </div>
+  );
+}
+
+export function EarnYieldIcon({ size = 48 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height={size}
+      style={{ display: "inline-block", flexShrink: 0 }}
+      viewBox="0 0 64 64"
+      width={size}
+    >
+      <rect fill="#F9363C" height="64" rx="16" width="64" />
+      <path
+        d="M36 9.39795C36.22 9.35546 36.4427 9.3335 36.667 9.3335C41.4533 9.33394 45.3329 19.1837 45.333 31.3335C45.333 43.4835 41.4533 53.3331 36.667 53.3335C36.4427 53.3335 36.22 53.3125 36 53.27V53.3335H28L28 9.3335H36V9.39795Z"
+        fill="#FD9528"
+      />
+      <ellipse cx="27.3346" cy="31.3335" fill="#FFD41B" rx="8.66667" ry="22" />
+    </svg>
+  );
+}
+
+function EarnPortfolioRow({
+  balance = 0,
+  hasPosition = false,
+  isAutodepositConfigured = false,
+  isBalanceHidden = false,
+  isSelected,
+  onDeposit,
+  onOpen,
+}: {
+  balance?: number;
+  hasPosition?: boolean;
+  isAutodepositConfigured?: boolean;
+  isBalanceHidden?: boolean;
+  isSelected?: boolean;
+  onDeposit?: () => void;
+  onOpen?: () => void;
+}) {
+  const earnForecastApy = useEarnForecastApy();
+  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
+  const displayBalance =
+    hasPosition && Number.isFinite(balance) ? Math.max(0, balance) : 0;
+  const [balanceWhole, balanceFraction] = displayBalance
+    .toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    })
+    .split(".");
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onOpen?.();
+    }
+  };
+  const handleDepositClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onDeposit?.();
+  };
+  const isDepositRed = !hasPosition || isAutodepositConfigured;
+  const depositBackground = isDepositRed ? "#F9363C" : "#000";
+  const depositHoverBackground = isDepositRed ? "#e72f34" : "#222";
+
+  return (
+    <>
+      <style jsx>{`
+        .portfolio-earn-row:hover {
+          background: ${rowHoverBackground} !important;
+        }
+        .portfolio-earn-row:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.45);
+          outline-offset: 2px;
+        }
+        .portfolio-earn-deposit-btn {
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .portfolio-earn-deposit-btn:hover {
+          background: ${depositHoverBackground} !important;
+          transform: translateY(-1px);
+        }
+        .portfolio-earn-deposit-btn:active {
+          transform: translateY(0);
+        }
+      `}</style>
+      <div
+        className="portfolio-account-row portfolio-earn-row"
+        onClick={onOpen}
+        onKeyDown={handleKeyDown}
+        role="button"
+        style={{
+          alignItems: "center",
+          background: isSelected ? rowHoverBackground : "transparent",
+          borderRadius: "16px",
+          cursor: "pointer",
+          display: "flex",
+          minHeight: "60px",
+          overflow: "hidden",
+          padding: "0 12px",
+          transition: "background 0.15s ease",
+          width: "100%",
+        }}
+        tabIndex={0}
+      >
+        <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+          <EarnYieldIcon />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            flexDirection: "column",
+            gap: "2px",
+            minWidth: 0,
+            padding: "9px 0",
+          }}
+        >
+          <span
+            style={{
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              display: "block",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ${balanceWhole}
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
+              .{balanceFraction ?? "00"}
+            </span>
+          </span>
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              gap: "4px",
+              minWidth: 0,
+            }}
+          >
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Earn
+            </span>
+            <span
+              style={{
+                alignItems: "center",
+                background: "rgba(52, 199, 89, 0.14)",
+                borderRadius: "6px",
+                color: "#34C759",
+                display: "inline-flex",
+                fontFamily: font,
+                fontSize: "11px",
+                fontWeight: 500,
+                gap: "2px",
+                lineHeight: "13px",
+                padding: "1px 4px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                src="/wallet-workspace/earn-flash.svg"
+                style={{ height: "12px", width: "8px" }}
+              />
+              {earnApyLabel}
+            </span>
+          </div>
+        </div>
+        <button
+          className="portfolio-earn-deposit-btn"
+          onClick={handleDepositClick}
+          style={{
+            background: depositBackground,
+            border: "none",
+            borderRadius: "9999px",
+            color: "#fff",
+            cursor: "pointer",
+            flexShrink: 0,
+            fontFamily: font,
+            fontSize: "14px",
+            fontWeight: 500,
+            lineHeight: "20px",
+            marginLeft: "12px",
+            padding: "6px 16px",
+            whiteSpace: "nowrap",
+          }}
+          type="button"
+        >
+          Deposit
+        </button>
+      </div>
+    </>
+  );
+}
+
+function AutodepositStatusCard({
+  amountLabel,
+  depositedLabel,
+  hasEarnPosition = false,
+  isBalanceHidden = false,
+  isConfigured = false,
+  isError = false,
+  isLoading = false,
+  nextPeriodLabel = null,
+  onRetry,
+  onSetUp,
+  progress,
+}: {
+  amountLabel?: string;
+  depositedLabel?: string;
+  hasEarnPosition?: boolean;
+  isBalanceHidden?: boolean;
+  isConfigured?: boolean;
+  isError?: boolean;
+  isLoading?: boolean;
+  nextPeriodLabel?: string | null;
+  onRetry?: () => void;
+  onSetUp?: () => void;
+  progress?: number;
+}) {
+  if (isConfigured && !isError && !isLoading) {
+    const [depositedWhole, depositedFraction] = (
+      depositedLabel ?? "$0.00"
+    ).split(".");
+    const progressPercent = Math.max(0, Math.min(1, progress ?? 0)) * 100;
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSetUp?.();
+      }
+    };
+
+    return (
+      <>
+        <style jsx>{`
+          .autodeposit-goal-card:hover {
+            background: ${rowHoverBackground} !important;
+          }
+          .autodeposit-goal-card:focus-visible {
+            outline: 2px solid rgba(249, 54, 60, 0.45);
+            outline-offset: 2px;
+          }
+        `}</style>
+        <div
+          aria-label="Edit Autodeposit"
+          className="autodeposit-goal-card"
+          onClick={onSetUp}
+          onKeyDown={handleKeyDown}
+          role="button"
+          style={{
+            borderRadius: "16px",
+            cursor: "pointer",
+            display: "flex",
+            marginBottom: "16px",
+            overflow: "hidden",
+            padding: "0 12px",
+            transition: "background 0.15s ease",
+            width: "100%",
+          }}
+          tabIndex={0}
+        >
+          <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              src="/wallet-workspace/earn-coin-icon.svg"
+              style={{ flexShrink: 0, height: "48px", width: "48px" }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+                padding: "9px 0",
+              }}
+            >
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {nextPeriodLabel
+                  ? `Autodeposit goal by ${nextPeriodLabel}`
+                  : "Autodeposit goal"}
+              </span>
+              <span
+                style={{
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  fontFamily: font,
+                  fontSize: "20px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.22px",
+                  lineHeight: "24px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {depositedWhole}
+                <span
+                  style={{
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
+                  }}
+                >
+                  .{depositedFraction ?? "00"} out of {amountLabel ?? "$0.00"}
+                </span>
+              </span>
+            </div>
+            <div style={{ padding: "3px 0 9px" }}>
+              <div
+                style={{
+                  background: "rgba(0, 0, 0, 0.04)",
+                  borderRadius: "34px",
+                  height: "8px",
+                  overflow: "hidden",
+                  width: "100%",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#F9363C",
+                    borderRadius: "34px",
+                    height: "8px",
+                    transition: "width 0.3s ease",
+                    width: `${progressPercent}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const body = isError
+    ? "Couldn’t load Autodeposit settings"
+    : "Start earning the moment your money arrives";
+  const actionLabel = isError ? "Retry" : "Set up";
+  const action = isError ? onRetry : onSetUp;
+  const shouldShowAction = !isLoading && (hasEarnPosition || isError);
+  const actionBackground = isError ? "#000" : "#F9363C";
+  const actionHoverBackground = isError ? "#1a1a1a" : "#e72f34";
+
+  return (
+    <>
+      <style jsx>{`
+        .auto-earn-status-btn {
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+        .auto-earn-status-btn:hover {
+          background: ${actionHoverBackground} !important;
+          transform: translateY(-1px);
+        }
+        .auto-earn-status-btn:active {
+          transform: translateY(0);
+        }
+      `}</style>
+      <div
+        aria-busy={isLoading}
+        style={{
+          alignItems: "center",
+          background: isError
+            ? "rgba(249, 54, 60, 0.06)"
+            : "linear-gradient(90deg, rgba(249, 54, 60, 0.04) 0%, rgba(249, 54, 60, 0.08) 100%)",
+          borderRadius: "16px",
+          display: "flex",
+          marginBottom: "22px",
+          overflow: "hidden",
+          padding: "0 12px",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            padding: "12px 12px 6px 0",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            src="/wallet-workspace/earn-coin-icon.svg"
+            style={{ flexShrink: 0, height: "48px", width: "48px" }}
+          />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            gap: "2px",
+            flexDirection: "column",
+            minWidth: 0,
+            padding: "12px 0",
+          }}
+        >
+          {isLoading ? (
+            <>
+              <span style={skeletonBar("76px", "16px")} />
+              <span style={skeletonBar("190px", "14px")} />
+            </>
+          ) : (
+            <>
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.176px",
+                  lineHeight: "20px",
+                }}
+              >
+                Autodeposit
+              </span>
+              <span
+                style={{
+                  color: "rgba(60, 60, 67, 0.6)",
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                }}
+              >
+                {body}
+              </span>
+            </>
+          )}
+        </div>
+        {isLoading ? (
+          <span style={skeletonBar("64px", "32px")} />
+        ) : shouldShowAction ? (
+          <button
+            className="auto-earn-status-btn"
+            onClick={action}
+            style={{
+              background: actionBackground,
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: "pointer",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              marginLeft: "12px",
+              padding: "6px 16px",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -280,9 +790,7 @@ function SignerTreeRow({
             {signer.balanceWhole}
             <span
               style={{
-                color: isBalanceHidden
-                  ? "#BBBBC0"
-                  : "rgba(60, 60, 67, 0.4)",
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
               }}
             >
               {signer.balanceFraction}
@@ -320,11 +828,15 @@ function SignerTreeRow({
 }
 
 function AddSignerTreeRow({
-  isFirst,
+  isFirst = false,
+  label = "Add",
   onOpen,
+  showConnector = false,
 }: {
-  isFirst: boolean;
+  isFirst?: boolean;
+  label?: string;
   onOpen: () => void;
+  showConnector?: boolean;
 }) {
   return (
     <button
@@ -335,7 +847,7 @@ function AddSignerTreeRow({
         display: "flex",
         alignItems: "center",
         minHeight: "56px",
-        marginTop: isFirst ? "12px" : 0,
+        marginTop: showConnector ? (isFirst ? "12px" : 0) : "12px",
         padding: "0 12px",
         borderRadius: "16px",
         background: "transparent",
@@ -347,33 +859,37 @@ function AddSignerTreeRow({
       }}
       type="button"
     >
-      <div
-        style={{
-          position: "absolute",
-          left: "36px",
-          top: isFirst ? "-12px" : 0,
-          bottom: "28px",
-          width: "1px",
-          background: "rgba(60, 60, 67, 0.16)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: "36px",
-          top: "28px",
-          width: "12px",
-          height: "1px",
-          background: "rgba(60, 60, 67, 0.16)",
-        }}
-      />
+      {showConnector ? (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              left: "36px",
+              top: isFirst ? "-12px" : 0,
+              bottom: "28px",
+              width: "1px",
+              background: "rgba(60, 60, 67, 0.16)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: "36px",
+              top: "28px",
+              width: "12px",
+              height: "1px",
+              background: "rgba(60, 60, 67, 0.16)",
+            }}
+          />
+        </>
+      ) : null}
       <span
         style={{
           width: "48px",
           height: "48px",
           borderRadius: "12px",
           flexShrink: 0,
-          marginLeft: "36px",
+          marginLeft: showConnector ? "36px" : 0,
           marginRight: "12px",
           background: "rgba(249, 54, 60, 0.14)",
           display: "inline-flex",
@@ -394,8 +910,227 @@ function AddSignerTreeRow({
           letterSpacing: "-0.176px",
         }}
       >
-        Add
+        {label}
       </span>
+    </button>
+  );
+}
+
+function MockRootSignerRow({
+  isBalanceHidden,
+  isSelected,
+  onOpen,
+  signer,
+}: {
+  isBalanceHidden: boolean;
+  isSelected: boolean;
+  onOpen: (signer: MockRootSignerEntry) => void;
+  signer: MockRootSignerEntry;
+}) {
+  return (
+    <button
+      className="portfolio-account-row"
+      onClick={() => onOpen(signer)}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        minHeight: "68px",
+        marginTop: "12px",
+        padding: "4px 12px",
+        borderRadius: "16px",
+        background: isSelected ? rowHoverBackground : "transparent",
+        border: "none",
+        cursor: "pointer",
+        width: "100%",
+        transition: "background 0.15s ease",
+        textAlign: "left",
+      }}
+      title={signer.address}
+      type="button"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={signer.label}
+        src={signer.icon}
+        style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "12px",
+          flexShrink: 0,
+          marginRight: "12px",
+        }}
+      />
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: "2px",
+          padding: "9px 0",
+        }}
+      >
+        <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              letterSpacing: "-0.22px",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
+              display: "block",
+            }}
+          >
+            {signer.balanceWhole}
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
+              {signer.balanceFraction}
+            </span>
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: secondary,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {signer.label} · {signer.shortAddress}
+          </span>
+          <RowCopyAddress address={signer.address} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function MainAccountRow({
+  isBalanceHidden,
+  isSelected,
+  onOpen,
+  signer,
+}: {
+  isBalanceHidden: boolean;
+  isSelected: boolean;
+  onOpen: () => void;
+  signer: SmartAccountSignerEntry;
+}) {
+  return (
+    <button
+      className="portfolio-account-row"
+      onClick={onOpen}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        minHeight: "68px",
+        padding: "4px 12px",
+        borderRadius: "16px",
+        background: isSelected ? rowHoverBackground : "transparent",
+        border: "none",
+        cursor: "pointer",
+        width: "100%",
+        transition: "background 0.15s ease",
+        textAlign: "left",
+      }}
+      title={signer.address}
+      type="button"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        alt={signer.label}
+        src={signer.icon}
+        style={{
+          width: "48px",
+          height: "48px",
+          borderRadius: "12px",
+          flexShrink: 0,
+          marginRight: "12px",
+        }}
+      />
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: "2px",
+          padding: "9px 0",
+        }}
+      >
+        <div style={{ borderRadius: "6px", overflow: "hidden" }}>
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "24px",
+              color: isBalanceHidden ? "#BBBBC0" : "#000",
+              letterSpacing: "-0.22px",
+              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+              transition: "filter 0.15s ease, color 0.15s ease",
+              userSelect: isBalanceHidden ? "none" : "auto",
+              display: "block",
+            }}
+          >
+            {signer.balanceWhole}
+            <span
+              style={{
+                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+              }}
+            >
+              {signer.balanceFraction}
+            </span>
+          </span>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: secondary,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {signer.label} · {signer.shortAddress}
+          </span>
+          <RowCopyAddress address={signer.address} />
+        </div>
+      </div>
     </button>
   );
 }
@@ -418,19 +1153,37 @@ export function PortfolioContent({
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  onOpenEarnDeposit,
+  onOpenEarn,
+  onOpenAutodeposit,
   onOpenCommandMenu,
   onOpenVault,
   onOpenAgent,
   onOpenAddSigner,
+  onOpenMockRootSigner,
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
+  autodepositAmountLabel,
+  autodepositDepositedLabel,
+  autodepositNextPeriodLabel = null,
+  autodepositProgress,
+  earnBalance = 0,
+  enableMockBackupSignerFlow = true,
+  hasEarnStateLoadError = false,
+  hasEarnStateResolved = false,
+  hasEarnPosition = false,
+  isAutodepositConfigured = false,
+  isEarnStateLoading = false,
   selectedSignerId = null,
   selectedVaultIndex = null,
+  isEarnSelected = false,
   isWalletSelected = false,
   showActionButtons = true,
   showApprovals = true,
   showHeaderControls = true,
+  showMainAccountOnly = false,
+  mockRootSigners = [],
   topInset = 0,
 }: {
   balanceFraction: string;
@@ -450,19 +1203,37 @@ export function PortfolioContent({
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  onOpenEarnDeposit?: () => void;
+  onOpenEarn?: () => void;
+  onOpenAutodeposit?: () => void;
+  isAutodepositConfigured?: boolean;
   onOpenCommandMenu?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   onOpenAddSigner?: (accountIndex: number) => void;
+  onOpenMockRootSigner?: (signer: MockRootSignerEntry) => void;
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
+  autodepositAmountLabel?: string;
+  autodepositDepositedLabel?: string;
+  autodepositNextPeriodLabel?: string | null;
+  autodepositProgress?: number;
+  earnBalance?: number;
+  enableMockBackupSignerFlow?: boolean;
+  hasEarnStateLoadError?: boolean;
+  hasEarnStateResolved?: boolean;
+  hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
+  isEarnStateLoading?: boolean;
+  isEarnSelected?: boolean;
   isWalletSelected?: boolean;
   showActionButtons?: boolean;
   showApprovals?: boolean;
   showHeaderControls?: boolean;
+  showMainAccountOnly?: boolean;
+  mockRootSigners?: MockRootSignerEntry[];
   topInset?: number;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -470,6 +1241,11 @@ export function PortfolioContent({
   const [expandedSignerVaults, setExpandedSignerVaults] = useState<Set<number>>(
     () => new Set()
   );
+  const shouldShowAutodepositSkeleton =
+    isEarnStateLoading &&
+    !hasEarnStateResolved &&
+    !hasEarnStateLoadError &&
+    !isAutodepositConfigured;
   const sortedVaultEntries = useMemo(
     () =>
       [...vaultEntries].sort(
@@ -526,7 +1302,9 @@ export function PortfolioContent({
           </div>
 
           {showActionButtons && (
-            <div style={{ padding: "0 12px 24px", display: "flex", gap: "12px" }}>
+            <div
+              style={{ padding: "0 12px 24px", display: "flex", gap: "12px" }}
+            >
               <div style={skeletonBar("74px", "44px")} />
               <div style={skeletonBar("74px", "44px")} />
               <div style={skeletonBar("74px", "44px")} />
@@ -543,7 +1321,9 @@ export function PortfolioContent({
               background: "rgba(0, 0, 0, 0.04)",
             }}
           >
-            <div style={{ ...skeletonBar("64px", "64px"), borderRadius: "20px" }} />
+            <div
+              style={{ ...skeletonBar("64px", "64px"), borderRadius: "20px" }}
+            />
             <div
               style={{
                 flex: 1,
@@ -581,7 +1361,9 @@ export function PortfolioContent({
                 gap: "12px",
               }}
             >
-              <div style={{ ...skeletonBar("56px", "56px"), borderRadius: "18px" }} />
+              <div
+                style={{ ...skeletonBar("56px", "56px"), borderRadius: "18px" }}
+              />
               <div
                 style={{
                   flex: 1,
@@ -626,7 +1408,9 @@ export function PortfolioContent({
         .portfolio-review-btn:hover {
           background: rgba(0, 0, 0, 0.12) !important;
         }
-        .portfolio-account-row:hover {
+        /* :global because account rows are rendered by child components
+           (MainAccountRow, SignerTreeRow), which styled-jsx scoping skips. */
+        :global(.portfolio-account-row:hover) {
           background: rgba(0, 0, 0, 0.04) !important;
         }
         .portfolio-disconnect-btn:hover {
@@ -737,58 +1521,58 @@ export function PortfolioContent({
         ) : null}
         */}
         {showHeaderControls && (
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            alignItems: "center",
-            paddingLeft: "12px",
-          }}
-        >
-          {onDisconnect && (
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+              paddingLeft: "12px",
+            }}
+          >
+            {onDisconnect && (
+              <button
+                className="portfolio-disconnect-btn"
+                onClick={onDisconnect}
+                style={{
+                  background: "rgba(60, 60, 67, 0.06)",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "2px 8px",
+                  fontFamily: font,
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  lineHeight: "18px",
+                  color: "rgba(60, 60, 67, 0.45)",
+                  cursor: "pointer",
+                  transition: "background 0.15s ease, color 0.15s ease",
+                  flexShrink: 0,
+                }}
+                type="button"
+              >
+                Disconnect
+              </button>
+            )}
             <button
-              className="portfolio-disconnect-btn"
-              onClick={onDisconnect}
+              className="portfolio-close-btn"
+              onClick={onClose}
               style={{
-                background: "rgba(60, 60, 67, 0.06)",
+                width: "36px",
+                height: "36px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.04)",
                 border: "none",
-                borderRadius: "6px",
-                padding: "2px 8px",
-                fontFamily: font,
-                fontSize: "12px",
-                fontWeight: 500,
-                lineHeight: "18px",
-                color: "rgba(60, 60, 67, 0.45)",
+                borderRadius: "9999px",
                 cursor: "pointer",
-                transition: "background 0.15s ease, color 0.15s ease",
-                flexShrink: 0,
+                transition: "all 0.2s ease",
+                color: "#3C3C43",
               }}
               type="button"
             >
-              Disconnect
+              <X size={24} />
             </button>
-          )}
-          <button
-            className="portfolio-close-btn"
-            onClick={onClose}
-            style={{
-              width: "36px",
-              height: "36px",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              background: "rgba(0, 0, 0, 0.04)",
-              border: "none",
-              borderRadius: "9999px",
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-              color: "#3C3C43",
-            }}
-            type="button"
-          >
-            <X size={24} />
-          </button>
-        </div>
+          </div>
         )}
       </div>
 
@@ -905,15 +1689,33 @@ export function PortfolioContent({
             >
               {hasChange && (
                 <>
-                  <span style={{ color: changeColor }}>
-                    {`${sign(portfolioChange24h.percent)}${portfolioChange24h.percent.toFixed(2)}% (${sign(portfolioChange24h.usdAmount)}${formatUsd(portfolioChange24h.usdAmount)})`}
+                  <span
+                    style={{
+                      color: isBalanceHidden ? "#BBBBC0" : changeColor,
+                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                      transition: "filter 0.15s ease, color 0.15s ease",
+                      userSelect: isBalanceHidden ? "none" : "auto",
+                    }}
+                  >
+                    {`${sign(
+                      portfolioChange24h.percent
+                    )}${portfolioChange24h.percent.toFixed(2)}% (${sign(
+                      portfolioChange24h.usdAmount
+                    )}${formatUsd(portfolioChange24h.usdAmount)})`}
                   </span>
                   {" · 24h"}
                 </>
               )}
               {hasChange && hasEarned ? " · " : null}
               {hasEarned && (
-                <span style={{ color: "#34C759" }}>
+                <span
+                  style={{
+                    color: isBalanceHidden ? "#BBBBC0" : "#34C759",
+                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                    transition: "filter 0.15s ease, color 0.15s ease",
+                    userSelect: isBalanceHidden ? "none" : "auto",
+                  }}
+                >
                   {`+${formatUsd(earnedUsd)} earned`}
                 </span>
               )}
@@ -924,106 +1726,112 @@ export function PortfolioContent({
 
       {/* Action buttons: receive, send, swap + Shield pill */}
       {showActionButtons && (
-      <div
-        style={{
-          display: "flex",
-          gap: "16px",
-          alignItems: "center",
-          padding: "8px 20px",
-        }}
-      >
-        <button
-          className="portfolio-action-btn"
-          onClick={onOpenReceive}
+        <div
           style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
             display: "flex",
+            gap: "16px",
             alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-            flexShrink: 0,
+            padding: "8px 20px",
           }}
-          type="button"
         >
-          <ArrowDownLeft size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="portfolio-action-btn"
-          onClick={onOpenSend}
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-            flexShrink: 0,
-          }}
-          type="button"
-        >
-          <ArrowUpRight size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="portfolio-action-btn"
-          onClick={onOpenSwap}
-          style={{
-            width: "44px",
-            height: "44px",
-            borderRadius: "9999px",
-            background: "rgba(249, 54, 60, 0.14)",
-            border: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-            flexShrink: 0,
-          }}
-          type="button"
-        >
-          <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="portfolio-shield-btn"
-          onClick={onOpenShield}
-          style={{
-            flex: 1,
-            display: "flex",
-            gap: "6px",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "10px 16px 10px 8px",
-            borderRadius: "9999px",
-            background: "transparent",
-            border: "2px solid rgba(60, 60, 67, 0.18)",
-            cursor: "pointer",
-            transition: "background 0.15s ease",
-          }}
-          type="button"
-        >
-          <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
-          <span
+          <button
+            className="portfolio-action-btn"
+            onClick={onOpenReceive}
             style={{
-              fontFamily: font,
-              fontSize: "16px",
-              fontWeight: 400,
-              lineHeight: "20px",
-              color: "#000",
+              width: "44px",
+              height: "44px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              flexShrink: 0,
             }}
+            type="button"
           >
-            Shield
-          </span>
-        </button>
-      </div>
+            <ArrowDownLeft
+              size={24}
+              style={{ color: "rgba(60, 60, 67, 0.6)" }}
+            />
+          </button>
+          <button
+            className="portfolio-action-btn"
+            onClick={onOpenSend}
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              flexShrink: 0,
+            }}
+            type="button"
+          >
+            <ArrowUpRight
+              size={24}
+              style={{ color: "rgba(60, 60, 67, 0.6)" }}
+            />
+          </button>
+          <button
+            className="portfolio-action-btn"
+            onClick={onOpenSwap}
+            style={{
+              width: "44px",
+              height: "44px",
+              borderRadius: "9999px",
+              background: "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+              flexShrink: 0,
+            }}
+            type="button"
+          >
+            <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
+          </button>
+          <button
+            className="portfolio-shield-btn"
+            onClick={onOpenShield}
+            style={{
+              flex: 1,
+              display: "flex",
+              gap: "6px",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
+              borderRadius: "9999px",
+              background: "transparent",
+              border: "2px solid rgba(60, 60, 67, 0.18)",
+              cursor: "pointer",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: "#000",
+              }}
+            >
+              Shield
+            </span>
+          </button>
+        </div>
       )}
 
       {/* Scrollable content */}
@@ -1040,8 +1848,12 @@ export function PortfolioContent({
           overflowY: "auto",
           overflowX: "hidden",
           scrollbarWidth: "none",
-          borderTop: isScrolled ? "1px solid rgba(0, 0, 0, 0.08)" : "1px solid transparent",
-          boxShadow: isScrolled ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)" : "none",
+          borderTop: isScrolled
+            ? "1px solid rgba(0, 0, 0, 0.08)"
+            : "1px solid transparent",
+          boxShadow: isScrolled
+            ? "inset 0 6px 6px -6px rgba(0, 0, 0, 0.08)"
+            : "none",
           transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         }}
       >
@@ -1049,6 +1861,32 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
+          {onOpenAutodeposit ? (
+            <AutodepositStatusCard
+              amountLabel={autodepositAmountLabel}
+              depositedLabel={autodepositDepositedLabel}
+              hasEarnPosition={hasEarnPosition}
+              isBalanceHidden={isBalanceHidden}
+              isConfigured={isAutodepositConfigured}
+              isError={hasEarnStateLoadError}
+              isLoading={shouldShowAutodepositSkeleton}
+              nextPeriodLabel={autodepositNextPeriodLabel}
+              onRetry={onSmartAccountRetry}
+              onSetUp={onOpenAutodeposit}
+              progress={autodepositProgress}
+            />
+          ) : null}
+          {onOpenEarn ? (
+            <EarnPortfolioRow
+              balance={earnBalance}
+              hasPosition={hasEarnPosition}
+              isAutodepositConfigured={isAutodepositConfigured}
+              isBalanceHidden={isBalanceHidden}
+              isSelected={isEarnSelected}
+              onDeposit={onOpenEarnDeposit}
+              onOpen={onOpenEarn}
+            />
+          ) : null}
           {smartAccountError ? (
             <SmartAccountInlineError
               error={smartAccountError}
@@ -1056,7 +1894,60 @@ export function PortfolioContent({
             />
           ) : hasVaultAccount ? (
             <>
-              {sortedVaultEntries.map((vault) => {
+              {sortedVaultEntries.map((vault, vaultIndex) => {
+                if (showMainAccountOnly) {
+                  const mainSigner = vault.signers.find(
+                    (entry) => entry.label === "Main Account"
+                  );
+                  if (!mainSigner) {
+                    return null;
+                  }
+                  // The root signer is mirrored into every vault, so render the
+                  // single Main Account row only for the first vault that has
+                  // it — otherwise it duplicates once per vault.
+                  const firstVaultWithMainAccount = sortedVaultEntries.findIndex(
+                    (candidate) =>
+                      candidate.signers.some(
+                        (entry) => entry.label === "Main Account"
+                      )
+                  );
+                  if (vaultIndex !== firstVaultWithMainAccount) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={mainSigner.id}
+                      style={{ display: "flex", flexDirection: "column" }}
+                    >
+                      <MainAccountRow
+                        isBalanceHidden={isBalanceHidden}
+                        isSelected={selectedSignerId === mainSigner.id}
+                        onOpen={() => onOpenAgent(mainSigner)}
+                        signer={mainSigner}
+                      />
+                      {enableMockBackupSignerFlow
+                        ? mockRootSigners.map((signer) => (
+                            <MockRootSignerRow
+                              isBalanceHidden={isBalanceHidden}
+                              isSelected={selectedSignerId === signer.id}
+                              key={signer.id}
+                              onOpen={(nextSigner) =>
+                                onOpenMockRootSigner?.(nextSigner)
+                              }
+                              signer={signer}
+                            />
+                          ))
+                        : null}
+                      {enableMockBackupSignerFlow &&
+                      mockRootSigners.length === 0 ? (
+                        <AddSignerTreeRow
+                          label="Add backup"
+                          onOpen={() => onOpenAddSigner?.(vault.accountIndex)}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                }
                 const signersExpanded = expandedSignerVaults.has(
                   vault.accountIndex
                 );
@@ -1070,6 +1961,7 @@ export function PortfolioContent({
                 const isVaultSelected =
                   selectedVaultIndex === vault.accountIndex &&
                   selectedSignerId === null &&
+                  !isEarnSelected &&
                   !isWalletSelected;
 
                 return (
@@ -1288,6 +2180,7 @@ export function PortfolioContent({
                     <AddSignerTreeRow
                       isFirst={visibleSigners.length === 0}
                       onOpen={() => onOpenAddSigner?.(vault.accountIndex)}
+                      showConnector
                     />
                   </div>
                 );
@@ -1310,83 +2203,85 @@ export function PortfolioContent({
 
         {/* Approvals section */}
         {showApprovals && (
-        <div
-          style={{ display: "flex", flexDirection: "column", padding: "8px" }}
-        >
-          {/* Section header */}
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "3px 12px 1px",
-            }}
+            style={{ display: "flex", flexDirection: "column", padding: "8px" }}
           >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                lineHeight: "20px",
-                color: "#000",
-                letterSpacing: "-0.176px",
-                padding: "12px 0 8px",
-              }}
-            >
-              Approvals
-            </span>
-            {approvals.length > 0 && (
-              <button
-                className="portfolio-link-btn"
-                onClick={onSeeAllApprovals}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: "12px 0 8px",
-                  cursor: "pointer",
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  color: "#F9363C",
-                  transition: "opacity 0.15s ease",
-                }}
-                type="button"
-              >
-                See All
-              </button>
-            )}
-          </div>
-
-          {/* Approval rows */}
-          {smartAccountError ? (
-            <SmartAccountInlineError
-              error={smartAccountError}
-              onRetry={onSmartAccountRetry}
-            />
-          ) : approvals.length === 0 && (
+            {/* Section header */}
             <div
-              style={{
-                padding: "32px 20px",
-                textAlign: "center",
-                fontFamily: font,
-                fontSize: "14px",
-                color: "rgba(60, 60, 67, 0.6)",
-              }}
-            >
-              No smart-account proposals yet.
-            </div>
-          )}
-          {approvals.slice(0, 3).map((approval) => (
-            <div
-              key={approval.id}
               style={{
                 display: "flex",
-                padding: "0 12px",
-                borderRadius: "16px",
-                background: "transparent",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "3px 12px 1px",
               }}
             >
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  color: "#000",
+                  letterSpacing: "-0.176px",
+                  padding: "12px 0 8px",
+                }}
+              >
+                Approvals
+              </span>
+              {approvals.length > 0 && (
+                <button
+                  className="portfolio-link-btn"
+                  onClick={onSeeAllApprovals}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: "12px 0 8px",
+                    cursor: "pointer",
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#F9363C",
+                    transition: "opacity 0.15s ease",
+                  }}
+                  type="button"
+                >
+                  See All
+                </button>
+              )}
+            </div>
+
+            {/* Approval rows */}
+            {smartAccountError ? (
+              <SmartAccountInlineError
+                error={smartAccountError}
+                onRetry={onSmartAccountRetry}
+              />
+            ) : (
+              approvals.length === 0 && (
+                <div
+                  style={{
+                    padding: "32px 20px",
+                    textAlign: "center",
+                    fontFamily: font,
+                    fontSize: "14px",
+                    color: "rgba(60, 60, 67, 0.6)",
+                  }}
+                >
+                  No smart-account proposals yet.
+                </div>
+              )
+            )}
+            {approvals.slice(0, 3).map((approval) => (
+              <div
+                key={approval.id}
+                style={{
+                  display: "flex",
+                  padding: "0 12px",
+                  borderRadius: "16px",
+                  background: "transparent",
+                }}
+              >
                 {/* Stacked icon: token (40px) + account badge (24px) */}
                 <div
                   style={{
@@ -1477,8 +2372,9 @@ export function PortfolioContent({
                           color: secondary,
                         }}
                       >
-                        {approval.status.charAt(0).toUpperCase() + approval.status.slice(1)} · to{" "}
-                        {approval.destinationLabel}
+                        {approval.status.charAt(0).toUpperCase() +
+                          approval.status.slice(1)}{" "}
+                        · to {approval.destinationLabel}
                       </span>
                     </div>
                     <div
@@ -1553,8 +2449,7 @@ export function PortfolioContent({
                     const pillLabel =
                       approval.status === "active"
                         ? "Review & Respond"
-                        : approval.status === "approved" &&
-                          approval.canExecute
+                        : approval.status === "approved" && approval.canExecute
                         ? "Execute"
                         : null;
                     if (!pillLabel) return null;
@@ -1592,7 +2487,7 @@ export function PortfolioContent({
                 </div>
               </div>
             ))}
-        </div>
+          </div>
         )}
       </div>
     </div>

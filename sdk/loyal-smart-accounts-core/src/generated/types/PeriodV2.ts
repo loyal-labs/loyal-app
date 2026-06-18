@@ -5,7 +5,7 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 /**
  * This type is used to derive the {@link PeriodV2} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link PeriodV2} type instead.
@@ -16,12 +16,12 @@ import * as beet from '@metaplex-foundation/beet'
  * @private
  */
 export type PeriodV2Record = {
-  OneTime: void /* scalar variant */
-  Daily: void /* scalar variant */
-  Weekly: void /* scalar variant */
-  Monthly: void /* scalar variant */
-  Custom: { fields: [beet.bignum] }
-}
+  OneTime: void /* scalar variant */;
+  Daily: void /* scalar variant */;
+  Weekly: void /* scalar variant */;
+  Monthly: void /* scalar variant */;
+  Custom: { fields: [beet.bignum] };
+};
 
 /**
  * Union type respresenting the PeriodV2 data enum defined in Rust.
@@ -34,38 +34,38 @@ export type PeriodV2Record = {
  * @category enums
  * @category generated
  */
-export type PeriodV2 = beet.DataEnumKeyAsKind<PeriodV2Record>
+export type PeriodV2 = beet.DataEnumKeyAsKind<PeriodV2Record>;
 
 export const isPeriodV2OneTime = (
   x: PeriodV2
-): x is PeriodV2 & { __kind: 'OneTime' } => x.__kind === 'OneTime'
+): x is PeriodV2 & { __kind: "OneTime" } => x.__kind === "OneTime";
 export const isPeriodV2Daily = (
   x: PeriodV2
-): x is PeriodV2 & { __kind: 'Daily' } => x.__kind === 'Daily'
+): x is PeriodV2 & { __kind: "Daily" } => x.__kind === "Daily";
 export const isPeriodV2Weekly = (
   x: PeriodV2
-): x is PeriodV2 & { __kind: 'Weekly' } => x.__kind === 'Weekly'
+): x is PeriodV2 & { __kind: "Weekly" } => x.__kind === "Weekly";
 export const isPeriodV2Monthly = (
   x: PeriodV2
-): x is PeriodV2 & { __kind: 'Monthly' } => x.__kind === 'Monthly'
+): x is PeriodV2 & { __kind: "Monthly" } => x.__kind === "Monthly";
 export const isPeriodV2Custom = (
   x: PeriodV2
-): x is PeriodV2 & { __kind: 'Custom' } => x.__kind === 'Custom'
+): x is PeriodV2 & { __kind: "Custom" } => x.__kind === "Custom";
 
 /**
  * @category userTypes
  * @category generated
  */
 export const periodV2Beet = beet.dataEnum<PeriodV2Record>([
-  ['OneTime', beet.unit],
-  ['Daily', beet.unit],
-  ['Weekly', beet.unit],
-  ['Monthly', beet.unit],
+  ["OneTime", beet.unit],
+  ["Daily", beet.unit],
+  ["Weekly", beet.unit],
+  ["Monthly", beet.unit],
   [
-    'Custom',
-    new beet.BeetArgsStruct<PeriodV2Record['Custom']>(
-      [['fields', beet.fixedSizeTuple([beet.i64])]],
+    "Custom",
+    new beet.BeetArgsStruct<PeriodV2Record["Custom"]>(
+      [["fields", beet.fixedSizeTuple([beet.i64])]],
       'PeriodV2Record["Custom"]'
     ),
   ],
-]) as beet.FixableBeet<PeriodV2, PeriodV2>
+]) as beet.FixableBeet<PeriodV2, PeriodV2>;

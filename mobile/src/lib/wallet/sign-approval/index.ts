@@ -5,7 +5,4 @@ export {
   type ConfirmLabels,
   type ConfirmLabelsSource,
 } from "./with-confirmation";
-export type {
-  SignApprovalContextValue,
-  SignApprovalRequest,
-} from "./types";
+export type { SignApprovalContextValue, SignApprovalRequest } from "./types";

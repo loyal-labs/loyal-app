@@ -2,7 +2,8 @@ import "server-only";
 
 import { PublicKey } from "@solana/web3.js";
 import { PROGRAM_ADDRESS } from "@loyal-labs/loyal-smart-accounts";
-import { resolveSolanaEnv, type SolanaEnv } from "@loyal-labs/solana-rpc";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   isStrictTrue,
   isVercelPreviewEnv,
@@ -17,11 +18,9 @@ import {
 export type { AppEnvironment } from "./shared";
 
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const LOYAL_SMART_ACCOUNTS_PROGRAM_ID_ENV_NAME =
   "LOYAL_SMART_ACCOUNTS_PROGRAM_ID";
-const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME =
-  "AUTH_SESSION_RS256_PUBLIC_KEY";
+const AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME = "AUTH_SESSION_RS256_PUBLIC_KEY";
 const AUTH_SESSION_RS256_PRIVATE_KEY_ENV_NAME =
   "AUTH_SESSION_RS256_PRIVATE_KEY";
 const AUTH_JWT_SECRET_ENV_NAME = "AUTH_JWT_SECRET";
@@ -32,6 +31,7 @@ const AUTH_COOKIE_PARENT_DOMAIN_ENV_NAME = "AUTH_COOKIE_PARENT_DOMAIN";
 const AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME = "AUTH_COOKIE_ALLOW_LOCALHOST";
 const AUTH_APP_NAME_ENV_NAME = "AUTH_APP_NAME";
 const DEPLOYMENT_PRIVATE_KEY_ENV_NAME = "DEPLOYMENT_PK";
+const EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME = "EARN_YIELD_ROUTER_PUBLIC_KEY";
 
 export type ChatRuntimeConfig = {
   apiKey: string;
@@ -55,6 +55,7 @@ export type ServerEnv = {
   authSessionRs256PrivateKey: string | undefined;
   authSessionRs256PublicKey: string | undefined;
   deploymentPrivateKey: string | undefined;
+  earnYieldRouterPublicKey: string | undefined;
   mixpanelToken: string | undefined;
   solanaEnv: SolanaEnv;
   loyalSmartAccounts: LoyalSmartAccountsRuntimeConfig;
@@ -81,7 +82,9 @@ function parsePositiveInteger(
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${AUTH_JWT_TTL_SECONDS_ENV_NAME} must be a positive integer`);
+    throw new Error(
+      `${AUTH_JWT_TTL_SECONDS_ENV_NAME} must be a positive integer`
+    );
   }
 
   return parsed;
@@ -107,7 +110,7 @@ function createLoyalSmartAccountsRuntimeConfig(
 }
 
 export function createServerEnv(env: EnvSource): ServerEnv {
-  const solanaEnv = resolveSolanaEnv(getOptionalEnv(env, SOLANA_ENV_ENV_NAME));
+  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(env);
 
   return {
     appEnvironment: resolveAppEnvironment(
@@ -137,6 +140,10 @@ export function createServerEnv(env: EnvSource): ServerEnv {
         getOptionalEnv(env, AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME)
     ),
     deploymentPrivateKey: getOptionalEnv(env, DEPLOYMENT_PRIVATE_KEY_ENV_NAME),
+    earnYieldRouterPublicKey: getOptionalEnv(
+      env,
+      EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME
+    ),
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
     solanaEnv,
     loyalSmartAccounts: createLoyalSmartAccountsRuntimeConfig(env, solanaEnv),

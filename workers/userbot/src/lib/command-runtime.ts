@@ -28,7 +28,9 @@ export async function hasFile(path: string): Promise<boolean> {
 
 export function isTransientError(error: unknown): boolean {
   const message =
-    error instanceof Error ? error.message.toUpperCase() : String(error).toUpperCase();
+    error instanceof Error
+      ? error.message.toUpperCase()
+      : String(error).toUpperCase();
   const code =
     error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code)
@@ -46,7 +48,10 @@ export function isTransientError(error: unknown): boolean {
   );
 }
 
-export function parseChatIdsCsv(value: string, flagName: string = "--chat-ids"): bigint[] {
+export function parseChatIdsCsv(
+  value: string,
+  flagName: string = "--chat-ids"
+): bigint[] {
   const parsed = value
     .split(",")
     .map((entry) => entry.trim())

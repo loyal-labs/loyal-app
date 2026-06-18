@@ -55,11 +55,13 @@ export function SubViewHeader({
   title,
   onBack,
   onClose,
+  showBack = true,
   showClose = true,
 }: {
   title: string;
   onBack: () => void;
   onClose: () => void;
+  showBack?: boolean;
   showClose?: boolean;
 }) {
   return (
@@ -80,26 +82,30 @@ export function SubViewHeader({
           padding: "8px",
         }}
       >
-        <button
-          className="subview-back"
-          onClick={onBack}
-          style={{
-            width: "36px",
-            height: "36px",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            background: "rgba(0, 0, 0, 0.04)",
-            border: "none",
-            borderRadius: "9999px",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            color: "#3C3C43",
-          }}
-          type="button"
-        >
-          <ArrowRight size={24} />
-        </button>
+        {showBack ? (
+          <button
+            className="subview-back"
+            onClick={onBack}
+            style={{
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              background: "rgba(0, 0, 0, 0.04)",
+              border: "none",
+              borderRadius: "9999px",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              color: "#3C3C43",
+            }}
+            type="button"
+          >
+            <ArrowRight size={24} />
+          </button>
+        ) : (
+          <span style={{ height: "36px", width: "36px" }} />
+        )}
         <span
           style={{
             fontFamily: "var(--font-geist-sans), sans-serif",

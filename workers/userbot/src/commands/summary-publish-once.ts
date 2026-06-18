@@ -12,7 +12,11 @@ import {
   runWithRetry,
   sleep,
 } from "../lib/command-runtime";
-import { createWorkerDatabase, loadDatabaseUrl, type UserbotDb } from "../lib/database";
+import {
+  createWorkerDatabase,
+  loadDatabaseUrl,
+  type UserbotDb,
+} from "../lib/database";
 import { loadUserbotConfig, type UserbotConfig } from "../lib/env";
 import { createNonInteractiveStartParams } from "../lib/non-interactive-auth";
 import {
@@ -89,7 +93,9 @@ function isDirectExecution(scriptName: string): boolean {
   return typeof entrypoint === "string" && entrypoint.endsWith(scriptName);
 }
 
-function parseSummaryPublishOnceCliOptions(argv: string[]): SummaryPublishOnceOptions {
+function parseSummaryPublishOnceCliOptions(
+  argv: string[]
+): SummaryPublishOnceOptions {
   const options: SummaryPublishOnceOptions = {};
 
   for (const arg of argv.slice(2)) {
@@ -109,7 +115,9 @@ function resolveOptions(
   };
 }
 
-function resolveDeps(overrides: Partial<SummaryPublishOnceDeps>): SummaryPublishOnceDeps {
+function resolveDeps(
+  overrides: Partial<SummaryPublishOnceDeps>
+): SummaryPublishOnceDeps {
   return {
     createClient: overrides.createClient ?? createUserbotClient,
     createDb: overrides.createDb ?? createWorkerDatabase,
@@ -134,7 +142,14 @@ function createRetryLogger(params: {
   stats: SummaryPublishOnceStats;
   label: string;
 }) {
-  return async ({ delayMs, error }: { attempt: number; delayMs: number; error: unknown }) => {
+  return async ({
+    delayMs,
+    error,
+  }: {
+    attempt: number;
+    delayMs: number;
+    error: unknown;
+  }) => {
     params.stats.retryCount += 1;
     params.deps.logger.warn(
       `[userbot] transient error while ${params.label}; retrying in ${delayMs}ms`,
@@ -183,9 +198,13 @@ async function fetchInlineSummaryResult(params: {
   community: ActiveSummaryCommunity;
   deps: SummaryPublishOnceDeps;
   peerOverride: SummaryPeerOverride | null;
-  botInputUser: Awaited<ReturnType<UserbotClientBundle["client"]["resolveUser"]>>;
+  botInputUser: Awaited<
+    ReturnType<UserbotClientBundle["client"]["resolveUser"]>
+  >;
 }): Promise<{
-  destinationPeer: Awaited<ReturnType<UserbotClientBundle["client"]["resolvePeer"]>>;
+  destinationPeer: Awaited<
+    ReturnType<UserbotClientBundle["client"]["resolvePeer"]>
+  >;
   queryId: Long;
   resultId: string;
 }> {
@@ -242,7 +261,9 @@ async function fetchInlineSummaryResult(params: {
 
 async function sendInlineSummaryResult(params: {
   bundle: UserbotClientBundle;
-  destinationPeer: Awaited<ReturnType<UserbotClientBundle["client"]["resolvePeer"]>>;
+  destinationPeer: Awaited<
+    ReturnType<UserbotClientBundle["client"]["resolvePeer"]>
+  >;
   queryId: Long;
   resultId: string;
   randomId: Long;
@@ -360,7 +381,9 @@ export async function runSummaryPublishOnce(
       stats.deliveryAttempted += 1;
 
       let inlineResult: {
-        destinationPeer: Awaited<ReturnType<UserbotClientBundle["client"]["resolvePeer"]>>;
+        destinationPeer: Awaited<
+          ReturnType<UserbotClientBundle["client"]["resolvePeer"]>
+        >;
         queryId: Long;
         resultId: string;
       };

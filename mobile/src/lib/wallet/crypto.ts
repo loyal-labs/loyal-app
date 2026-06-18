@@ -9,7 +9,7 @@ const PBKDF2_ITERATIONS = 10_000;
 
 async function deriveKey(
   password: string,
-  salt: Uint8Array,
+  salt: Uint8Array
 ): Promise<Uint8Array> {
   return pbkdf2Async(sha256, new TextEncoder().encode(password), salt, {
     c: PBKDF2_ITERATIONS,
@@ -19,7 +19,7 @@ async function deriveKey(
 
 export async function encryptSecret(
   plaintext: string,
-  password: string,
+  password: string
 ): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -35,7 +35,7 @@ export async function encryptSecret(
 
 export async function decryptSecret(
   ciphertext: string,
-  password: string,
+  password: string
 ): Promise<string | null> {
   try {
     const { salt, iv, data } = JSON.parse(ciphertext);

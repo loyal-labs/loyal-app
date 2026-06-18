@@ -1,8 +1,6 @@
 import "server-only";
 
-import {
-  mapAuthSessionTokenClaimsToUser,
-} from "@loyal-labs/auth-core";
+import { mapAuthSessionTokenClaimsToUser } from "@loyal-labs/auth-core";
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { getServerEnv } from "@/lib/core/config/server";
@@ -60,7 +58,10 @@ async function verifySessionLocally(
   const cookieHeader = request.headers.get("cookie");
   if (!cookieHeader) return null;
 
-  const token = extractCookieValue(cookieHeader, WALLET_AUTH_SESSION_COOKIE_NAME);
+  const token = extractCookieValue(
+    cookieHeader,
+    WALLET_AUTH_SESSION_COOKIE_NAME
+  );
   if (!token) return null;
 
   let payload;

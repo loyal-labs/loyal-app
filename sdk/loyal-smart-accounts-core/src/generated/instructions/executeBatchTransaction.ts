@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const executeBatchTransactionStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'ExecuteBatchTransactionInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "ExecuteBatchTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _executeBatchTransaction_ instruction
  *
@@ -32,17 +32,17 @@ export const executeBatchTransactionStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type ExecuteBatchTransactionInstructionAccounts = {
-  settings: web3.PublicKey
-  signer: web3.PublicKey
-  proposal: web3.PublicKey
-  batch: web3.PublicKey
-  transaction: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  signer: web3.PublicKey;
+  proposal: web3.PublicKey;
+  batch: web3.PublicKey;
+  transaction: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const executeBatchTransactionInstructionDiscriminator = [
   237, 67, 201, 173, 33, 130, 88, 134,
-]
+];
 
 /**
  * Creates a _ExecuteBatchTransaction_ instruction.
@@ -54,11 +54,11 @@ export const executeBatchTransactionInstructionDiscriminator = [
  */
 export function createExecuteBatchTransactionInstruction(
   accounts: ExecuteBatchTransactionInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = executeBatchTransactionStruct.serialize({
     instructionDiscriminator: executeBatchTransactionInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -85,11 +85,11 @@ export function createExecuteBatchTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -97,6 +97,6 @@ export function createExecuteBatchTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

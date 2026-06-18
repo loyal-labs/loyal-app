@@ -2,8 +2,10 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
 const KAMINO_USDC_POSITION_STORAGE_KEY_PREFIX = "loyal:kamino_usdc_position_v1";
 
-const SOLANA_USDC_MINT_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const SOLANA_USDC_MINT_DEVNET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+export const SOLANA_USDC_MINT_MAINNET =
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const SOLANA_USDC_MINT_DEVNET =
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 
 export type StoredKaminoUsdcPosition = {
   version: 1;
@@ -223,7 +225,9 @@ function applyKaminoUnshieldToTrackedPosition(args: {
     return args.trackedPosition;
   }
 
-  const trackedPrincipal = BigInt(args.trackedPosition.principalLiquidityAmountRaw);
+  const trackedPrincipal = BigInt(
+    args.trackedPosition.principalLiquidityAmountRaw
+  );
   const trackedShares = BigInt(args.trackedPosition.collateralSharesAmountRaw);
   if (
     trackedShares <= BigInt(0) ||

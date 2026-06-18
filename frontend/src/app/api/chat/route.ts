@@ -204,7 +204,12 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("[chat] prepareChatTurn failed:", error);
     return Response.json(
-      { error: { code: "persistence_error", message: "Failed to persist chat turn" } },
+      {
+        error: {
+          code: "persistence_error",
+          message: "Failed to persist chat turn",
+        },
+      },
       { status: 500 }
     );
   }

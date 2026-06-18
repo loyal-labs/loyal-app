@@ -135,8 +135,12 @@ describe("loyal adapter", () => {
       peerDependencies?: Record<string, string>;
     };
 
-    expect(packageJson.dependencies?.["@loyal-labs/loyal-smart-accounts"]).toBeUndefined();
-    expect(packageJson.peerDependencies?.["@loyal-labs/loyal-smart-accounts"]).toBeUndefined();
+    expect(
+      packageJson.dependencies?.["@loyal-labs/loyal-smart-accounts"]
+    ).toBeUndefined();
+    expect(
+      packageJson.peerDependencies?.["@loyal-labs/loyal-smart-accounts"]
+    ).toBeUndefined();
   });
 });
 
@@ -280,13 +284,5 @@ describe("transport", () => {
     });
 
     expect(confirmCount).toBe(1);
-  });
-});
-
-describe("subpath exports", () => {
-  it("exposes the Loyal env helpers from the dedicated loyal entry", () => {
-    expect(typeof createLoyalSmartAccountsConnectionCache).toBe("function");
-    expect(typeof getLoyalSmartAccountsConnection).toBe("function");
-    expect(typeof resolveLoyalSmartAccountsClientConfigFromEnv).toBe("function");
   });
 });

@@ -51,7 +51,9 @@ export async function registerCommandsForChat(
   });
 }
 
-export async function runSetupChatCommands(chatId: string = DEFAULT_CHAT_ID): Promise<void> {
+export async function runSetupChatCommands(
+  chatId: string = DEFAULT_CHAT_ID
+): Promise<void> {
   const bot = await getBot();
   await registerCommandsForChat(bot, chatId);
 }
@@ -64,7 +66,10 @@ export async function runSetupChatCommandsCli(
     console.info(`Telegram bot commands registered for chat ${chatId}.`);
     return 0;
   } catch (error) {
-    console.error(`Failed to register Telegram bot commands for chat ${chatId}.`, error);
+    console.error(
+      `Failed to register Telegram bot commands for chat ${chatId}.`,
+      error
+    );
     return 1;
   }
 }

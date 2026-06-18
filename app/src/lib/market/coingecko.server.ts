@@ -212,6 +212,9 @@ export async function fetchCoinGeckoPoolOhlcv(
 
   // OHLCV tuples: [timestamp, open, high, low, close, volume].
   return ohlcvList
-    .filter((candle): candle is number[] => Array.isArray(candle) && candle.length >= 5)
+    .filter(
+      (candle): candle is number[] =>
+        Array.isArray(candle) && candle.length >= 5
+    )
     .map((candle) => ({ timestamp: candle[0], priceUsd: candle[4] }));
 }

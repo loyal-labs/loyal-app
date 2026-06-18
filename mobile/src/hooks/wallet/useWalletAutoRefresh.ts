@@ -66,43 +66,46 @@ export function useWalletAutoRefresh({
   const pendingReasonRef = useRef<WalletRefreshReason | null>(null);
   const lastRefreshAtRef = useRef(0);
 
-  const requestRefresh = useCallback<RefreshFn>(async (reason) => {
-    if (!walletAddress) return;
+  const requestRefresh = useCallback<RefreshFn>(
+    async (reason) => {
+      if (!walletAddress) return;
 
-    if (inFlightRef.current) {
-      // Preserve the "strongest" pending reason: user-initiated wins
-      // over ambient ticks so we don't skip a manual refresh just
-      // because a 60-s timer popped a moment earlier.
-      const current = pendingReasonRef.current;
-      if (!current || BYPASS_THROTTLE_REASONS.has(reason)) {
-        pendingReasonRef.current = reason;
+      if (inFlightRef.current) {
+        // Preserve the "strongest" pending reason: user-initiated wins
+        // over ambient ticks so we don't skip a manual refresh just
+        // because a 60-s timer popped a moment earlier.
+        const current = pendingReasonRef.current;
+        if (!current || BYPASS_THROTTLE_REASONS.has(reason)) {
+          pendingReasonRef.current = reason;
+        }
+        return;
       }
-      return;
-    }
 
-    const now = Date.now();
-    if (
-      !BYPASS_THROTTLE_REASONS.has(reason) &&
-      now - lastRefreshAtRef.current < minIntervalMs
-    ) {
-      return;
-    }
-
-    inFlightRef.current = true;
-    lastRefreshAtRef.current = now;
-    try {
-      await refreshRef.current(reason);
-    } catch (error) {
-      console.error(`[wallet-auto-refresh] ${reason} refresh failed`, error);
-    } finally {
-      inFlightRef.current = false;
-      const pending = pendingReasonRef.current;
-      if (pending) {
-        pendingReasonRef.current = null;
-        void requestRefresh(pending);
+      const now = Date.now();
+      if (
+        !BYPASS_THROTTLE_REASONS.has(reason) &&
+        now - lastRefreshAtRef.current < minIntervalMs
+      ) {
+        return;
       }
-    }
-  }, [walletAddress, minIntervalMs]);
+
+      inFlightRef.current = true;
+      lastRefreshAtRef.current = now;
+      try {
+        await refreshRef.current(reason);
+      } catch (error) {
+        console.error(`[wallet-auto-refresh] ${reason} refresh failed`, error);
+      } finally {
+        inFlightRef.current = false;
+        const pending = pendingReasonRef.current;
+        if (pending) {
+          pendingReasonRef.current = null;
+          void requestRefresh(pending);
+        }
+      }
+    },
+    [walletAddress, minIntervalMs]
+  );
 
   // 1. AppState: every transition to "active" while we have a wallet.
   useEffect(() => {
@@ -122,7 +125,7 @@ export function useWalletAutoRefresh({
     useCallback(() => {
       void requestRefresh("screen-focus");
       return undefined;
-    }, [requestRefresh]),
+    }, [requestRefresh])
   );
 
   // 3. Push notification received → wallet activity changed on chain.

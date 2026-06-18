@@ -17,7 +17,8 @@ const EVENT_NAMES: Record<WalletOnboardingEventName, string> = {
   invalid_signature: FRONTEND_ANALYTICS_EVENTS.walletAuthInvalidSignature,
   existing_smart_account_reused:
     FRONTEND_ANALYTICS_EVENTS.walletAuthExistingSmartAccountReused,
-  sponsorship_submitted: FRONTEND_ANALYTICS_EVENTS.walletAuthSponsorshipSubmitted,
+  sponsorship_submitted:
+    FRONTEND_ANALYTICS_EVENTS.walletAuthSponsorshipSubmitted,
   reservation_conflict: FRONTEND_ANALYTICS_EVENTS.walletAuthReservationConflict,
   reconciliation_succeeded:
     FRONTEND_ANALYTICS_EVENTS.walletAuthReconciliationSucceeded,

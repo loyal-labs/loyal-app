@@ -145,6 +145,16 @@ export async function findAppUserById(userId: string): Promise<AppUser | null> {
   );
 }
 
+// Read-only resolver: returns the existing app user for a principal, or null.
+// Unlike getOrCreateCurrentUser it never inserts, so unauthenticated read paths
+// (e.g. the mobile Earn state lookup) can't be used to spam user rows.
+export async function findCurrentUser(
+  principal: CurrentUserPrincipal,
+  dependencies: AppUserDependencies = createAppUserDependencies()
+): Promise<AppUser | null> {
+  return dependencies.findUserByPrincipal(principal);
+}
+
 export async function getOrCreateCurrentUser(
   principal: CurrentUserPrincipal,
   dependencies: AppUserDependencies = createAppUserDependencies()
@@ -178,6 +188,10 @@ export async function getOrCreateCurrentUser(
   }
 
   await dependencies.updateUserMetadata(racedUser, principal, now);
-  await dependencies.upsertWalletForUser(racedUser.id, principal.walletAddress, now);
+  await dependencies.upsertWalletForUser(
+    racedUser.id,
+    principal.walletAddress,
+    now
+  );
   return mergeUserMetadata(racedUser);
 }

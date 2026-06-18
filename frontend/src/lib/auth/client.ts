@@ -33,9 +33,13 @@ export class AuthApiClientError extends Error {
   }
 }
 
+export type WalletChallengeRequestWithTurnstile = WalletChallengeRequest & {
+  turnstileToken?: string;
+};
+
 export type AuthApiClient = {
   challengeWalletAuth(
-    payload: WalletChallengeRequest
+    payload: WalletChallengeRequestWithTurnstile
   ): Promise<WalletChallengeResponse>;
   completeWalletAuth(payload: WalletCompleteRequest): Promise<AuthSessionUser>;
   getSession(): Promise<WalletSessionResponse | null>;
@@ -128,13 +132,16 @@ function assertSuccessfulResponse<T>(
 export function createAuthApiClient(): AuthApiClient {
   return {
     async challengeWalletAuth(payload) {
-      const outcome = await callLocalAuthEndpoint("/api/auth/wallet/challenge", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      const outcome = await callLocalAuthEndpoint(
+        "/api/auth/wallet/challenge",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       return assertSuccessfulResponse(outcome, walletChallengeResponseSchema, {
         invalidResponseMessage:

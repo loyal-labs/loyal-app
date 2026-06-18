@@ -5,11 +5,11 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { X_PIXEL_EVENTS, xPixelEvent } from "@/lib/core/x-pixel";
 
 type Segment = "Extension" | "Mobile" | "Web";
 
-const appUrl = "https://app.askloyal.com";
 const chromeWebStoreUrl =
   "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack";
 const telegramMiniAppUrl =
@@ -95,6 +95,7 @@ const previewBySegment: Record<Segment, { alt: string; src: string }> = {
 };
 
 export function LandingGetStarted() {
+  const { loyalAppUrl } = usePublicEnv();
   const [activeSegment, setActiveSegment] = useState<Segment>("Extension");
   const [showSeekerQr, setShowSeekerQr] = useState(false);
   const activePreview = previewBySegment[activeSegment];
@@ -219,6 +220,7 @@ export function LandingGetStarted() {
               <div className="grid min-h-0 grid-cols-2 gap-2 lg:gap-6">
                 {mobileCards.slice(1).map((platform, index) => (
                   <PlatformCard
+                    appUrl={loyalAppUrl}
                     className="h-full"
                     dataRevealDelay={index + 2}
                     iconClassName="h-16 w-16 lg:h-24 lg:w-24"
@@ -230,7 +232,11 @@ export function LandingGetStarted() {
               </div>
             </div>
           ) : activeSegment === "Web" ? (
-            <ActionCard dataRevealDelay={1} href={appUrl} label="Open web app" />
+            <ActionCard
+              dataRevealDelay={1}
+              href={loyalAppUrl}
+              label="Open web app"
+            />
           ) : (
             <div className="grid min-w-0 grid-cols-2 gap-2 overflow-hidden lg:h-[600px] lg:grid-rows-2 lg:gap-6">
               {browserCards.map((browser, index) => (
@@ -238,6 +244,7 @@ export function LandingGetStarted() {
                   iconClassName="h-16 w-16 lg:h-24 lg:w-24"
                   key={browser.label}
                   platform={browser}
+                  appUrl={loyalAppUrl}
                   dataRevealDelay={index + 1}
                 />
               ))}
@@ -415,12 +422,14 @@ function SeekerCard({
 }
 
 function PlatformCard({
+  appUrl,
   className = "",
   dataRevealDelay,
   iconClassName,
   platform,
   preserveAspect = true,
 }: {
+  appUrl: string;
   className?: string;
   dataRevealDelay: number;
   iconClassName: string;

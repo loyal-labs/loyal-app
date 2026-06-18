@@ -1,7 +1,5 @@
-import {
-  resolveSolanaEnv,
-  type SolanaEnv,
-} from "@loyal-labs/solana-rpc";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
   getOptionalEnv,
@@ -15,10 +13,9 @@ export type { AppEnvironment } from "./shared";
 
 const LOCAL_TURNSTILE_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
+const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
 const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
-const GRID_AUTH_BASE_URL_ENV_NAME = "NEXT_PUBLIC_GRID_AUTH_BASE_URL";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
@@ -36,8 +33,8 @@ export type SwapConfig =
 
 export type PublicEnv = {
   appEnvironment: AppEnvironment;
+  loyalAppUrl: string;
   turnstile: TurnstileConfig;
-  gridAuthBaseUrl: string | undefined;
   flagsManifestUrl: string | undefined;
   solanaEnv: SolanaEnv;
   solanaRpcEndpoint: string;
@@ -93,16 +90,28 @@ function resolveSwapConfig(env: EnvSource): SwapConfig {
   };
 }
 
+function resolveLoyalAppUrl(
+  env: EnvSource,
+  appEnvironment: AppEnvironment
+): string {
+  return (
+    getOptionalEnv(env, APP_URL_ENV_NAME) ??
+    (appEnvironment === "local"
+      ? "http://localhost:3000/app"
+      : "https://app.askloyal.com")
+  );
+}
+
 export function createPublicEnv(env: EnvSource): PublicEnv {
   const appEnvironment = resolveAppEnvironment(
     getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
   );
-  const solanaEnv = resolveSolanaEnv(getOptionalEnv(env, SOLANA_ENV_ENV_NAME));
+  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(env);
 
   return {
     appEnvironment,
+    loyalAppUrl: resolveLoyalAppUrl(env, appEnvironment),
     turnstile: resolveTurnstileConfig(env, appEnvironment),
-    gridAuthBaseUrl: getOptionalEnv(env, GRID_AUTH_BASE_URL_ENV_NAME),
     flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
     solanaEnv,
     solanaRpcEndpoint: getFrontendSolanaEndpoints(solanaEnv).rpcEndpoint,
@@ -125,7 +134,8 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
       USERCENTRICS_SETTINGS_ID_ENV_NAME
     ),
     gitBranch: getOptionalEnv(env, "NEXT_PUBLIC_GIT_BRANCH") ?? "unknown",
-    gitCommitHash: getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
+    gitCommitHash:
+      getOptionalEnv(env, "NEXT_PUBLIC_GIT_COMMIT_HASH") ?? "unknown",
   };
 }
 

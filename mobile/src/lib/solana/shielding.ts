@@ -23,15 +23,12 @@ const KNOWN_TOKEN_DECIMALS: Record<string, number> = {
   BONK: 5,
 };
 
-export function buildShieldAssetKey(
-  mint: string,
-  isSecured?: boolean,
-): string {
+export function buildShieldAssetKey(mint: string, isSecured?: boolean): string {
   return `${mint}:${isSecured ? "shielded" : "public"}`;
 }
 
 export function buildShieldAssets(
-  tokenHoldings: TokenHolding[],
+  tokenHoldings: TokenHolding[]
 ): ShieldAsset[] {
   return getDisplayTokenHoldings(tokenHoldings)
     .filter((holding) => holding.balance > 0)
@@ -48,7 +45,7 @@ export function buildShieldAssets(
 }
 
 export function getShieldDirection(
-  asset: { isSecured?: boolean } | null | undefined,
+  asset: { isSecured?: boolean } | null | undefined
 ): ShieldDirection {
   return asset?.isSecured ? "unshield" : "shield";
 }
@@ -61,10 +58,12 @@ export function resolveInitialShieldAssetKey(
   }: {
     initialMint?: string;
     initialDirection?: ShieldDirection;
-  } = {},
+  } = {}
 ): string | null {
   const candidates = initialDirection
-    ? shieldAssets.filter((asset) => getShieldDirection(asset) === initialDirection)
+    ? shieldAssets.filter(
+        (asset) => getShieldDirection(asset) === initialDirection
+      )
     : shieldAssets;
 
   if (candidates.length === 0) {
@@ -81,10 +80,10 @@ export function resolveInitialShieldAssetKey(
 
   return (
     candidates.find(
-      (asset) => asset.key === buildShieldAssetKey(initialMint, false),
+      (asset) => asset.key === buildShieldAssetKey(initialMint, false)
     )?.key ??
     candidates.find(
-      (asset) => asset.key === buildShieldAssetKey(initialMint, true),
+      (asset) => asset.key === buildShieldAssetKey(initialMint, true)
     )?.key ??
     candidates[0]?.key ??
     null
@@ -132,7 +131,7 @@ export type ComputeUnshieldModifyAmountParams = {
  * leaving an accrued-interest residue. See ASK-1135.
  */
 export function computeUnshieldModifyAmount(
-  params: ComputeUnshieldModifyAmountParams,
+  params: ComputeUnshieldModifyAmountParams
 ): bigint {
   if (params.isMax) {
     if (params.currentDepositRaw > BigInt(0)) {

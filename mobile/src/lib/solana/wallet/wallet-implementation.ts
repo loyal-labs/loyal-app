@@ -14,13 +14,13 @@ export class SimpleWallet {
   constructor(readonly signer: Signer) {}
 
   async signTransaction<T extends Transaction | VersionedTransaction>(
-    tx: T,
+    tx: T
   ): Promise<T> {
     return this.signer.signTransaction(tx);
   }
 
   async signAllTransactions<T extends Transaction | VersionedTransaction>(
-    txs: T[],
+    txs: T[]
   ): Promise<T[]> {
     return this.signer.signAllTransactions(txs);
   }

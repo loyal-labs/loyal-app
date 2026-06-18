@@ -4,10 +4,7 @@ import {
   getKaminoModifyBalanceAccountsForTokenMint,
   type KaminoModifyBalanceAccounts,
 } from "./constants";
-import type {
-  KaminoPositionYieldInfo,
-  KaminoReserveSnapshot,
-} from "./types";
+import type { KaminoPositionYieldInfo, KaminoReserveSnapshot } from "./types";
 
 const KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
   43, 242, 204, 202, 26, 247, 59, 127,
@@ -77,7 +74,7 @@ export function parseKaminoReserveSnapshotFromAccountData(args: {
     !bytesEqual(data.subarray(0, 8), KAMINO_RESERVE_DISCRIMINATOR)
   ) {
     throw new Error(
-      `Kamino reserve ${reserve.toBase58()} has an invalid discriminator`,
+      `Kamino reserve ${reserve.toBase58()} has an invalid discriminator`
     );
   }
 
@@ -86,39 +83,36 @@ export function parseKaminoReserveSnapshotFromAccountData(args: {
 
   if (data.length < requiredLength) {
     throw new Error(
-      `Kamino reserve ${reserve.toBase58()} is too small: expected at least ${requiredLength} bytes`,
+      `Kamino reserve ${reserve.toBase58()} is too small: expected at least ${requiredLength} bytes`
     );
   }
 
   const liquidityAvailableAmount = readUint64LE(
     data,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAvailableAmount,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAvailableAmount
   );
   const liquidityBorrowedAmountSf = readUint128LE(
     data,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityBorrowedAmountSf,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityBorrowedAmountSf
   );
   const liquidityAccumulatedProtocolFeesSf = readUint128LE(
     data,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedProtocolFeesSf,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedProtocolFeesSf
   );
   const liquidityAccumulatedReferrerFeesSf = readUint128LE(
     data,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedReferrerFeesSf,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityAccumulatedReferrerFeesSf
   );
   const liquidityPendingReferrerFeesSf = readUint128LE(
     data,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityPendingReferrerFeesSf,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityPendingReferrerFeesSf
   );
   const collateralSupplyRaw = readUint64LE(
     data,
-    KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply,
+    KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintTotalSupply
   );
   const liquidityDecimals = Number(
-    readUint64LE(
-      data,
-      KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityMintDecimals,
-    ),
+    readUint64LE(data, KAMINO_RESERVE_LAYOUT_OFFSETS.liquidityMintDecimals)
   );
 
   const grossLiquiditySupplyScaled =
@@ -188,9 +182,7 @@ export function calculateKaminoShareAmountForLiquidityAmountRaw(args: {
   }
 
   const numerator =
-    liquidityAmount *
-    args.snapshot.collateralSupplyRaw *
-    KAMINO_FRACTION_SCALE;
+    liquidityAmount * args.snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE;
 
   return args.rounding === "ceil"
     ? divCeil(numerator, args.snapshot.totalLiquiditySupplyScaled)

@@ -51,7 +51,10 @@ export function parseModifyBalanceEventsFromTransaction(
       return;
     }
 
-    if (instruction.programId.toBase58() !== PRIVATE_TRANSFER_PROGRAM_ID.toBase58()) {
+    if (
+      instruction.programId.toBase58() !==
+      PRIVATE_TRANSFER_PROGRAM_ID.toBase58()
+    ) {
       return;
     }
 
@@ -60,7 +63,8 @@ export function parseModifyBalanceEventsFromTransaction(
       return;
     }
 
-    const args = (decoded.data as { args?: ParsedModifyBalanceArgs } | null)?.args;
+    const args = (decoded.data as { args?: ParsedModifyBalanceArgs } | null)
+      ?.args;
     if (!args?.amount || typeof args.increase !== "boolean") {
       return;
     }

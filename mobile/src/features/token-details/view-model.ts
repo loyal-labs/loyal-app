@@ -39,7 +39,7 @@ type BuildTokenDetailViewModelInput = {
 function resolveTokenIdentity(
   position: TokenPosition,
   market: MobileTokenDetailResponse | null,
-  holdings: TokenHolding[],
+  holdings: TokenHolding[]
 ): TokenDetailViewModel["token"] {
   // Keep icon resolution aligned with the token list (TokensList uses
   // resolveTokenIcon with detailLogoUrl). Without passing the market logo
@@ -82,7 +82,8 @@ export function buildTokenDetailViewModel({
     ? {
         ...marketForMint.market,
         priceChange24hPercent: derivePriceChange24hPercent({
-          explicitPriceChange24hPercent: marketForMint.market.priceChange24hPercent,
+          explicitPriceChange24hPercent:
+            marketForMint.market.priceChange24hPercent,
           chart: marketForMint.chart,
         }),
       }

@@ -120,7 +120,6 @@ export function useIncomingDeposits(params: {
         const username = transaction.username.toLowerCase();
         const amountLamports = transaction.amountLamports;
         const payerPublicKey = await getGaslessPublicKey();
-        console.log("payerPublicKey", payerPublicKey);
 
         // Overview of PER claim:
         //
@@ -260,12 +259,10 @@ export function useIncomingDeposits(params: {
         }
 
         const provider = await getWalletProvider();
-        console.log("Fetching deposits for username:", username);
         const deposits = await fetchDeposits(
           provider.wallet.publicKey,
           username
         );
-        console.log("Deposits fetched:", deposits.length, deposits);
         if (isCancelled) {
           return;
         }
@@ -329,12 +326,12 @@ export function useIncomingDeposits(params: {
 
     // Find the first transaction that hasn't already failed auto-claim
     const claimableTransaction = incomingTransactions.find(
-      (tx) => !failedAutoClaimIds.current.has(tx.id),
+      (tx) => !failedAutoClaimIds.current.has(tx.id)
     );
     if (claimableTransaction) {
       void handleApproveTransaction(
         claimableTransaction.id,
-        CLAIM_SOURCES.auto,
+        CLAIM_SOURCES.auto
       );
     }
   }, [incomingTransactions, isClaimingTransaction, handleApproveTransaction]);
@@ -351,7 +348,7 @@ export function useIncomingDeposits(params: {
         return next;
       });
     },
-    [],
+    []
   );
 
   return {

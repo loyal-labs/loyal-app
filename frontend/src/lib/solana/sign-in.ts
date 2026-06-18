@@ -6,10 +6,7 @@ import { verifySignIn } from "@solana/wallet-standard-util";
 import { PublicKey } from "@solana/web3.js";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
-import {
-  DOMAIN_NAME,
-  SIGN_IN_STATEMENT,
-} from "@/lib/solana/constants";
+import { DOMAIN_NAME, SIGN_IN_STATEMENT } from "@/lib/solana/constants";
 import type { SerializedSolanaSignInOutput } from "@/lib/solana/types";
 
 const NONCE_CHARSET =

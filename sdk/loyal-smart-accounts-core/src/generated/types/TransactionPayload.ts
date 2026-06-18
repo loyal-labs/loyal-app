@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type TransactionPayload = {
-  accountIndex: number
-  ephemeralSigners: number
-  transactionMessage: Uint8Array
-  memo: beet.COption<string>
-}
+  accountIndex: number;
+  ephemeralSigners: number;
+  transactionMessage: Uint8Array;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -20,10 +20,10 @@ export type TransactionPayload = {
 export const transactionPayloadBeet =
   new beet.FixableBeetArgsStruct<TransactionPayload>(
     [
-      ['accountIndex', beet.u8],
-      ['ephemeralSigners', beet.u8],
-      ['transactionMessage', beet.bytes],
-      ['memo', beet.coption(beet.utf8String)],
+      ["accountIndex", beet.u8],
+      ["ephemeralSigners", beet.u8],
+      ["transactionMessage", beet.bytes],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'TransactionPayload'
-  )
+    "TransactionPayload"
+  );

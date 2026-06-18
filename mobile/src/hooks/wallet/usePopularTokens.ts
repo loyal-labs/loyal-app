@@ -51,10 +51,12 @@ function toPopularToken(t: JupiterTokenResult): PopularToken {
 
 async function searchJupiterTokens(
   query: string,
-  limit = 10,
+  limit = 10
 ): Promise<JupiterTokenResult[]> {
   const res = await fetch(
-    `${JUPITER_SEARCH_URL}?query=${encodeURIComponent(query)}&tags=verified&limit=${limit}`,
+    `${JUPITER_SEARCH_URL}?query=${encodeURIComponent(
+      query
+    )}&tags=verified&limit=${limit}`
   );
   if (!res.ok) return [];
   return res.json();
@@ -72,14 +74,14 @@ async function fetchPopularTokens(): Promise<PopularToken[]> {
         const exact = tokens
           .filter(
             (t) =>
-              t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified,
+              t.symbol.toUpperCase() === symbol.toUpperCase() && t.isVerified
           )
           .sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0));
         return exact[0] ? toPopularToken(exact[0]) : null;
       } catch {
         return null;
       }
-    }),
+    })
   );
 
   popularCache = results.filter((t): t is PopularToken => t !== null);
@@ -118,7 +120,7 @@ export function usePopularTokens(): {
         return [];
       }
     },
-    [],
+    []
   );
 
   return { tokens, isLoading, searchTokens };

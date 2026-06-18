@@ -29,7 +29,9 @@ export type FrontendAnalyticsEventName =
 export type WalletSidebarTab = "portfolio" | "receive" | "send" | "swap";
 
 export type AuthSignInPressedSource = "header" | "hero_card";
-export type WalletSidebarOpenSource = "hero_action_card" | "sidebar_quick_action";
+export type WalletSidebarOpenSource =
+  | "hero_action_card"
+  | "sidebar_quick_action";
 export type OutboundLinkSource = string;
 
 export const DOCS_HOSTNAME = "docs.askloyal.com";

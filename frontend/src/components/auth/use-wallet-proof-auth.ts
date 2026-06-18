@@ -4,7 +4,10 @@ import type { WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
-import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
+import {
+  useAuthApiClient,
+  useAuthSession,
+} from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { AuthApiClientError } from "@/lib/auth/client";
 import {
@@ -53,8 +56,12 @@ function mapWalletProofError(error: unknown): {
 
 export function useWalletProofAuth({
   onFlowStart,
+  onTurnstileConsumed,
+  turnstileToken,
 }: {
   onFlowStart?: () => void;
+  onTurnstileConsumed?: () => void;
+  turnstileToken?: string;
 }) {
   const authApiClient = useAuthApiClient();
   const { refreshSession } = useAuthSession();
@@ -77,14 +84,14 @@ export function useWalletProofAuth({
   const connectAttemptedRef = useRef(false);
   const selectedWalletNameRef = useRef<WalletName | null>(null);
   const verifyAttemptedForAddressRef = useRef<string | null>(null);
+  const turnstileTokenRef = useRef(turnstileToken);
+  turnstileTokenRef.current = turnstileToken;
+  const onTurnstileConsumedRef = useRef(onTurnstileConsumed);
+  onTurnstileConsumedRef.current = onTurnstileConsumed;
 
   const installedWallets = useMemo(
     () =>
-      wallets.filter(
-        (candidate) =>
-          candidate.readyState === "Installed" ||
-          candidate.adapter.name === "WalletConnect"
-      ),
+      wallets.filter((candidate) => candidate.readyState === "Installed"),
     [wallets]
   );
 
@@ -104,6 +111,16 @@ export function useWalletProofAuth({
       return;
     }
 
+    if (!signMessage) {
+      handleFailure(
+        new WalletProofSignerError(
+          "This wallet does not support message signing.",
+          "wallet_signing_unsupported"
+        )
+      );
+      return;
+    }
+
     const walletAddress = publicKey.toBase58();
     verifyAttemptedForAddressRef.current = walletAddress;
 
@@ -112,6 +129,7 @@ export function useWalletProofAuth({
         authApiClient,
         messageSigner: signMessage,
         onStatusChange: (status) => dispatch({ type: status }),
+        turnstileToken: turnstileTokenRef.current,
         walletAddress,
       });
       await refreshSession();
@@ -120,8 +138,19 @@ export function useWalletProofAuth({
     } catch (error) {
       verifyAttemptedForAddressRef.current = null;
       handleFailure(error);
+    } finally {
+      // The Turnstile token is single-use once the challenge consumes it, so
+      // ask the modal to issue a fresh one before any subsequent attempt.
+      onTurnstileConsumedRef.current?.();
     }
-  }, [authApiClient, close, handleFailure, publicKey, refreshSession, signMessage]);
+  }, [
+    authApiClient,
+    close,
+    handleFailure,
+    publicKey,
+    refreshSession,
+    signMessage,
+  ]);
 
   useEffect(() => {
     if (state.status !== "connecting") {
@@ -129,6 +158,16 @@ export function useWalletProofAuth({
     }
 
     if (connected && publicKey) {
+      if (!signMessage) {
+        handleFailure(
+          new WalletProofSignerError(
+            "This wallet does not support message signing.",
+            "wallet_signing_unsupported"
+          )
+        );
+        return;
+      }
+
       if (verifyAttemptedForAddressRef.current === publicKey.toBase58()) {
         return;
       }
@@ -157,6 +196,7 @@ export function useWalletProofAuth({
     connecting,
     handleFailure,
     publicKey,
+    signMessage,
     state.status,
     verifyConnectedWallet,
     wallet,
@@ -168,10 +208,41 @@ export function useWalletProofAuth({
       verifyAttemptedForAddressRef.current = null;
       selectedWalletNameRef.current = walletName;
       onFlowStart?.();
+
+      if (
+        wallet?.adapter.name === walletName &&
+        connected &&
+        publicKey &&
+        signMessage
+      ) {
+        void verifyConnectedWallet();
+        return;
+      }
+
       dispatch({ type: "connecting" });
+
+      if (wallet?.adapter.name === walletName) {
+        connectAttemptedRef.current = true;
+        void connect().catch((error) => {
+          connectAttemptedRef.current = false;
+          handleFailure(error);
+        });
+        return;
+      }
+
       select(walletName);
     },
-    [onFlowStart, select]
+    [
+      connected,
+      connect,
+      handleFailure,
+      onFlowStart,
+      publicKey,
+      select,
+      signMessage,
+      verifyConnectedWallet,
+      wallet,
+    ]
   );
 
   const retry = useCallback(() => {

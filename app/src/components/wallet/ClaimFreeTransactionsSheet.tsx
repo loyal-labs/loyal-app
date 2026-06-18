@@ -142,7 +142,6 @@ export default function ClaimFreeTransactionsSheet({
         return;
       }
 
-      console.log("Verification success", payload);
       void setGaslessState(GaslessState.CLAIMED);
       setGaslessStateLocal(GaslessState.CLAIMED);
       onStateChange?.(GaslessState.CLAIMED);

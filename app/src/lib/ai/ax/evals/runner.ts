@@ -41,7 +41,9 @@ export function runSummariesEval(
     const formatted = failedMetrics
       .map(([metricName, threshold]) => {
         const currentValue = metrics[metricName as keyof SummaryEvalMetrics];
-        return `${metricName}: ${currentValue.toFixed(3)} < ${threshold.toFixed(3)}`;
+        return `${metricName}: ${currentValue.toFixed(3)} < ${threshold.toFixed(
+          3
+        )}`;
       })
       .join(", ");
 

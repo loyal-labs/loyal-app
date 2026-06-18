@@ -6,7 +6,7 @@ import type { TokenPosition } from "./types";
 function sumBalances(
   holdings: TokenHolding[],
   mint: string,
-  isSecured: boolean,
+  isSecured: boolean
 ): number {
   return holdings.reduce((total, holding) => {
     if (holding.mint !== mint || Boolean(holding.isSecured) !== isSecured) {
@@ -28,9 +28,10 @@ function sumValueUsd(holdings: TokenHolding[], mint: string): number | null {
     const value =
       typeof holding.valueUsd === "number" && Number.isFinite(holding.valueUsd)
         ? holding.valueUsd
-        : typeof holding.priceUsd === "number" && Number.isFinite(holding.priceUsd)
-          ? holding.balance * holding.priceUsd
-          : null;
+        : typeof holding.priceUsd === "number" &&
+          Number.isFinite(holding.priceUsd)
+        ? holding.balance * holding.priceUsd
+        : null;
 
     if (value === null) {
       continue;
@@ -46,7 +47,7 @@ function sumValueUsd(holdings: TokenHolding[], mint: string): number | null {
 function resolveName(
   mint: string,
   symbol: string,
-  holdings: TokenHolding[],
+  holdings: TokenHolding[]
 ): string {
   const name = holdings.find((holding) => holding.mint === mint)?.name?.trim();
   return name || symbol;
@@ -54,7 +55,7 @@ function resolveName(
 
 export function buildTokenPosition(
   mint: string,
-  holdings: TokenHolding[],
+  holdings: TokenHolding[]
 ): TokenPosition {
   const { symbol, icon } = resolveTokenInfo(mint, holdings);
   const publicBalance = sumBalances(holdings, mint, false);

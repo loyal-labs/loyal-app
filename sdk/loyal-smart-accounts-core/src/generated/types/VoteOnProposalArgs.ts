@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type VoteOnProposalArgs = {
-  memo: beet.COption<string>
-}
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -16,6 +16,6 @@ export type VoteOnProposalArgs = {
  */
 export const voteOnProposalArgsBeet =
   new beet.FixableBeetArgsStruct<VoteOnProposalArgs>(
-    [['memo', beet.coption(beet.utf8String)]],
-    'VoteOnProposalArgs'
-  )
+    [["memo", beet.coption(beet.utf8String)]],
+    "VoteOnProposalArgs"
+  );

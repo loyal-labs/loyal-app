@@ -10,7 +10,9 @@ const APP_ENVIRONMENT_VALUES: readonly AppEnvironment[] = [
 
 export const DEFAULT_APP_ENVIRONMENT: AppEnvironment = "prod";
 
-export function normalizeOptionalValue(value: string | undefined): string | undefined {
+export function normalizeOptionalValue(
+  value: string | undefined
+): string | undefined {
   if (typeof value !== "string") {
     return undefined;
   }

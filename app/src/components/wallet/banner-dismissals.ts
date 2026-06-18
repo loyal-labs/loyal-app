@@ -59,7 +59,9 @@ export async function loadDismissedBannerIds(): Promise<Set<string>> {
   return new Set();
 }
 
-export async function saveDismissedBannerIds(ids: Iterable<string>): Promise<void> {
+export async function saveDismissedBannerIds(
+  ids: Iterable<string>
+): Promise<void> {
   const uniqueIds = new Set<string>();
 
   for (const id of ids) {

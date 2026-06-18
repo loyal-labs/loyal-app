@@ -21,7 +21,9 @@ export class WalletProofSignerError extends Error {
 
 function isRejectedSignatureError(error: unknown): boolean {
   const message =
-    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
 
   return (
     message.includes("rejected") ||

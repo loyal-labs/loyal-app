@@ -105,6 +105,31 @@ export async function findSettingsSignerAddresses(args: {
   }
 }
 
+export async function fetchRootSettingsSigners(args: {
+  solanaEnv: SolanaEnv;
+  programId: string;
+  settingsPda: string;
+}): Promise<Array<{ address: string; permissionMask: number }> | null> {
+  const client = getSmartAccountsClient(args);
+
+  try {
+    const settings = await client.smartAccounts.queries.fetchSettings(
+      new PublicKey(args.settingsPda)
+    );
+
+    return settings.signers.map((signer) => ({
+      address: signer.key.toBase58(),
+      permissionMask: signer.permissions.mask,
+    }));
+  } catch (error) {
+    if (isMissingAccountError(error, "Settings")) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 export async function createSponsoredSmartAccount(args: {
   solanaEnv: SolanaEnv;
   programId: string;
