@@ -3490,24 +3490,23 @@ export function AppWalletWorkspace({
   ]);
 
   const handleCompleteEarnWithdraw = useCallback(
-    async (withdrawal?: { amount: number; mode: "partial" | "full" }) => {
-      const withdrawalDraft = withdrawal ?? pendingEarnWithdrawDraft;
-      if (!withdrawalDraft) {
+    async () => {
+      if (!pendingEarnWithdrawDraft) {
         setProposalActionError("Enter a withdrawal amount before continuing.");
         return;
       }
 
       setProposalActionError(null);
       try {
-        const amountRaw = withdrawal
-          ? parseTokenAmountLabelToRaw(withdrawal.amount.toString(), 6)
-          : getEarnWithdrawDraftAmountRaw(pendingEarnWithdrawDraft!);
+        const amountRaw = getEarnWithdrawDraftAmountRaw(
+          pendingEarnWithdrawDraft
+        );
         const result = await smartAccountData.executeEarnWithdraw({
           amountRaw,
           autodepositCloseAlreadyCompleted:
             earnWithdrawReviewStage !== "autodeposit" &&
-            withdrawalDraft.mode === "full",
-          mode: withdrawalDraft.mode,
+            pendingEarnWithdrawDraft.mode === "full",
+          mode: pendingEarnWithdrawDraft.mode,
           preparedWithdraw: pendingEarnWithdrawPrepared ?? undefined,
           stepIndex:
             earnWithdrawReviewStage === "autodeposit"
@@ -3548,7 +3547,7 @@ export function AppWalletWorkspace({
               : BigInt(0);
           const currentPrincipal = BigInt(current.principalAmountRaw);
           const nextPrincipal =
-            withdrawalDraft.source.type === "idle"
+            pendingEarnWithdrawDraft.source.type === "idle"
               ? nextCurrentTotal > BigInt(0)
                 ? currentPrincipal
                 : BigInt(0)
