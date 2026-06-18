@@ -1924,6 +1924,16 @@ export function AppWalletWorkspace({
       earnDepositSources,
       isEarnAutodepositSetupConfirming,
     ]);
+  const liveEarnTransactionScheduledSweeps =
+    smartAccountData.earnAutodeposit?.scheduledSweeps ?? [];
+  const localEarnTransactionScheduledSweeps =
+    autodepositConfig?.scheduledSweeps ?? [];
+  const earnTransactionScheduledSweeps =
+    liveEarnTransactionScheduledSweeps.length > 0
+      ? liveEarnTransactionScheduledSweeps
+      : smartAccountData.isEarnStateLoading
+      ? localEarnTransactionScheduledSweeps
+      : [];
   const earnWithdrawDestinations = useMemo<EarnDepositSourceOption[]>(() => {
     const mainDestination = earnDepositSources.find(
       (source) => source.id === "main"
@@ -5788,6 +5798,9 @@ export function AppWalletWorkspace({
               </AnimatePresence>
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
+                isAutodepositConfigured={Boolean(
+                  smartAccountData.earnAutodeposit || autodepositConfig
+                )}
                 isBalanceHidden={isBalanceHidden}
                 isExecutingScheduledSweep={isExecutingScheduledSweep}
                 onExecuteScheduledSweep={handleExecuteScheduledAutodepositSweep}
@@ -5803,7 +5816,7 @@ export function AppWalletWorkspace({
                 pendingScheduledSweep={pendingScheduledSweepPreview}
                 refreshKey={earnTransactionsRefreshKey}
                 scheduledSweepExecuteError={scheduledSweepExecuteError}
-                scheduledSweeps={autodepositConfig?.scheduledSweeps ?? []}
+                scheduledSweeps={earnTransactionScheduledSweeps}
                 showPolicyRefundScan={isMockBackupSignerFlowEnabled}
                 settingsPda={smartAccountData.overview?.settingsPda}
                 solanaEnv={publicEnv.solanaEnv}

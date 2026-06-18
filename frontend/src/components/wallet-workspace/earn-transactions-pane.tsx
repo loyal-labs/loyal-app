@@ -4,8 +4,14 @@ import { sendPreparedWithWallet } from "@loyal-labs/smart-account-vaults";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ReceiptText } from "lucide-react";
-import { motion } from "motion/react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   ActivityRow,
@@ -22,6 +28,7 @@ import {
 } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import {
   fetchEarnTransactions,
+  invalidateEarnTransactionsCache,
   type EarnTransactionItem,
 } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -38,6 +45,8 @@ const USDC_RAW_SCALE = BigInt(1_000_000);
 // client cache for free; the tick after an Earn action fetches fresh data
 // because the workspace invalidates the cache on confirmation.
 const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
+const EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS = 2_000;
+const EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS = 90_000;
 
 export type PendingScheduledSweepPreview = {
   amountRaw: string;
@@ -149,7 +158,8 @@ export function buildEarnTransactionDetail(
   timeZone?: string | null
 ): TransactionDetail {
   const isDeposit = item.kind === "deposit" || item.kind === "balance_sweep";
-  const isMovement = item.kind === "rebalance" || item.kind === "reconciliation";
+  const isMovement =
+    item.kind === "rebalance" || item.kind === "reconciliation";
   const isAutodepositAction = item.kind === "autodeposit_action";
   const confirmedAt = getEarnTransactionConfirmedAt(item);
   const timestamp =
@@ -690,8 +700,39 @@ export function resolveVisiblePendingScheduledSweep(
   return scheduledSweeps.length > 0 ? null : pendingScheduledSweep ?? null;
 }
 
+function parseExactUsdcRawAmount(rawAmount: string): bigint | null {
+  const match = rawAmount.trim().match(/^\$(-?\d+)\.(\d{6})$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, whole = "0", fraction = "000000"] = match;
+  const sign = whole.startsWith("-") ? BigInt(-1) : BigInt(1);
+  const absoluteWhole = whole.startsWith("-") ? whole.slice(1) : whole;
+  return sign * (BigInt(absoluteWhole) * USDC_RAW_SCALE + BigInt(fraction));
+}
+
+function hasBalanceSweepActivityForScheduledSweep(
+  transactions: readonly EarnTransactionItem[],
+  sweep: LoadedEarnAutodepositScheduledSweep
+): boolean {
+  if (!/^\d+$/.test(sweep.remainingAmountRaw)) {
+    return false;
+  }
+
+  const scheduledAmountRaw = BigInt(sweep.remainingAmountRaw);
+  return transactions.some((item) => {
+    if (item.kind !== "balance_sweep") {
+      return false;
+    }
+
+    return parseExactUsdcRawAmount(item.rawAmount) === scheduledAmountRaw;
+  });
+}
+
 function ScheduledTransactionRow({
   displayTimeZone,
+  isAwaitingExecution = false,
   isExecuting = false,
   isPending = false,
   isBalanceHidden = false,
@@ -699,6 +740,7 @@ function ScheduledTransactionRow({
   sweep,
 }: {
   displayTimeZone: string;
+  isAwaitingExecution?: boolean;
   isExecuting?: boolean;
   isPending?: boolean;
   isBalanceHidden?: boolean;
@@ -852,9 +894,7 @@ function ScheduledTransactionRow({
               style={{
                 alignItems: "center",
                 background:
-                  isPending || isExecuting
-                    ? "#F97B80"
-                    : LOYAL_EARN_BRAND_COLOR,
+                  isPending || isExecuting ? "#F97B80" : LOYAL_EARN_BRAND_COLOR,
                 border: "none",
                 borderRadius: "9999px",
                 color: "#fff",
@@ -886,6 +926,8 @@ function ScheduledTransactionRow({
               ) : null}
               {isPending
                 ? "Scheduling"
+                : isAwaitingExecution
+                ? "Executing..."
                 : isExecuting
                 ? "Requesting..."
                 : "Execute now"}
@@ -1135,11 +1177,13 @@ function EnterReveal({
   return (
     <motion.div
       animate={{ height: "auto", opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
       initial={isEntering ? { height: 0, opacity: 0 } : false}
+      layout
       style={{ overflow: "hidden", width: "100%" }}
       transition={{
         height: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
-        opacity: { delay: 0.22, duration: 0.28, ease: "easeOut" },
+        opacity: { duration: 0.22, ease: "easeOut" },
       }}
     >
       {children}
@@ -1169,6 +1213,7 @@ export function groupEarnTransactions(
 }
 
 export function EarnTransactionsPane({
+  isAutodepositConfigured = false,
   isBalanceHidden = false,
   isExecutingScheduledSweep = false,
   onExecuteScheduledSweep,
@@ -1184,6 +1229,7 @@ export function EarnTransactionsPane({
   topInset = 0,
   walletAddress,
 }: {
+  isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
   isExecutingScheduledSweep?: boolean;
   onExecuteScheduledSweep?: () => void;
@@ -1206,11 +1252,20 @@ export function EarnTransactionsPane({
   const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(
     () => new Set()
   );
+  const [renderedScheduledSweeps, setRenderedScheduledSweeps] = useState<
+    LoadedEarnAutodepositScheduledSweep[]
+  >(() => scheduledSweeps);
   const feedKeyRef = useRef<string | null>(null);
   const knownTransactionIdsRef = useRef<Set<string> | null>(null);
   const loadRequestSeqRef = useRef(0);
+  const renderedScheduledSweepsFeedKeyRef = useRef<string | null>(null);
+  const scheduledSweepsLengthRef = useRef(scheduledSweeps.length);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [
+    scheduledSweepExecutionRequestedAtMs,
+    setScheduledSweepExecutionRequestedAtMs,
+  ] = useState<number | null>(null);
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
     EarnPolicyRefundScanPolicy[] | null
   >(null);
@@ -1221,6 +1276,70 @@ export function EarnTransactionsPane({
   const [policyRefundError, setPolicyRefundError] = useState<string | null>(
     null
   );
+  const isAwaitingScheduledSweepExecution =
+    scheduledSweepExecutionRequestedAtMs !== null;
+
+  useEffect(() => {
+    scheduledSweepsLengthRef.current = scheduledSweeps.length;
+  }, [scheduledSweeps.length]);
+
+  useEffect(() => {
+    const feedKey = `${solanaEnv}:${settingsPda ?? ""}:${walletAddress ?? ""}`;
+    if (renderedScheduledSweepsFeedKeyRef.current !== feedKey) {
+      renderedScheduledSweepsFeedKeyRef.current = feedKey;
+      setRenderedScheduledSweeps(scheduledSweeps);
+      return;
+    }
+
+    if (!isAutodepositConfigured) {
+      setRenderedScheduledSweeps([]);
+      return;
+    }
+
+    if (scheduledSweeps.length > 0) {
+      setRenderedScheduledSweeps(scheduledSweeps);
+      return;
+    }
+
+    setRenderedScheduledSweeps((current) =>
+      current.filter(
+        (sweep) =>
+          !hasBalanceSweepActivityForScheduledSweep(transactions, sweep)
+      )
+    );
+  }, [
+    isAutodepositConfigured,
+    scheduledSweeps,
+    settingsPda,
+    solanaEnv,
+    transactions,
+    walletAddress,
+  ]);
+
+  useEffect(() => {
+    if (scheduledSweepExecuteError) {
+      setScheduledSweepExecutionRequestedAtMs(null);
+    }
+  }, [scheduledSweepExecuteError]);
+
+  const handleExecuteScheduledSweep = useCallback(() => {
+    if (
+      isAwaitingScheduledSweepExecution ||
+      isExecutingScheduledSweep ||
+      !onExecuteScheduledSweep
+    ) {
+      return;
+    }
+
+    setScheduledSweepExecutionRequestedAtMs(Date.now());
+    void Promise.resolve(onExecuteScheduledSweep()).catch(() => {
+      setScheduledSweepExecutionRequestedAtMs(null);
+    });
+  }, [
+    isAwaitingScheduledSweepExecution,
+    isExecutingScheduledSweep,
+    onExecuteScheduledSweep,
+  ]);
 
   useEffect(() => {
     // Wait for the auth session to hydrate and become active before fetching.
@@ -1241,6 +1360,7 @@ export function EarnTransactionsPane({
       setPolicyRefundError(null);
       feedKeyRef.current = null;
       knownTransactionIdsRef.current = null;
+      setScheduledSweepExecutionRequestedAtMs(null);
       return;
     }
 
@@ -1260,6 +1380,26 @@ export function EarnTransactionsPane({
       });
     };
 
+    const hasConfirmedRequestedSweep = (items: EarnTransactionItem[]) => {
+      if (scheduledSweepExecutionRequestedAtMs === null) {
+        return false;
+      }
+
+      return items.some((item) => {
+        if (item.kind !== "balance_sweep") {
+          return false;
+        }
+
+        const confirmedAt = parseEarnTransactionInstant(
+          getEarnTransactionConfirmedAt(item)
+        );
+        return (
+          confirmedAt !== null &&
+          confirmedAt.getTime() >= scheduledSweepExecutionRequestedAtMs - 5_000
+        );
+      });
+    };
+
     const applyTransactions = (items: EarnTransactionItem[]) => {
       const previousIds = knownTransactionIdsRef.current;
       const freshIds =
@@ -1273,19 +1413,49 @@ export function EarnTransactionsPane({
         freshIds.length === 0 &&
         items.length === previousIds.size
       ) {
+        if (
+          hasConfirmedRequestedSweep(items) &&
+          scheduledSweepsLengthRef.current === 0
+        ) {
+          setScheduledSweepExecutionRequestedAtMs(null);
+        }
         // Same id set as the last render — skip the no-op state update.
         return;
       }
       knownTransactionIdsRef.current = new Set(items.map((item) => item.id));
       setTransactions(items);
       setEnteringIds(new Set(freshIds));
+
+      if (
+        hasConfirmedRequestedSweep(items) &&
+        scheduledSweepsLengthRef.current === 0
+      ) {
+        setScheduledSweepExecutionRequestedAtMs(null);
+      }
     };
 
-    const loadTransactions = async ({ silent }: { silent: boolean }) => {
+    const invalidateTransactionsCache = () => {
+      invalidateEarnTransactionsCache({
+        settingsPda,
+        solanaEnv,
+        walletAddress,
+      });
+    };
+
+    const loadTransactions = async ({
+      fresh = false,
+      silent,
+    }: {
+      fresh?: boolean;
+      silent: boolean;
+    }) => {
       const requestSeq = (loadRequestSeqRef.current += 1);
       if (!silent) {
         setIsLoading(true);
         setErrorMessage(null);
+      }
+      if (fresh) {
+        invalidateTransactionsCache();
       }
 
       try {
@@ -1318,16 +1488,38 @@ export function EarnTransactionsPane({
       }
     };
 
-    void loadTransactions({ silent: knownTransactionIdsRef.current !== null });
+    const isFastPolling =
+      scheduledSweepExecutionRequestedAtMs !== null &&
+      Date.now() - scheduledSweepExecutionRequestedAtMs <
+        EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
+    const pollIntervalMs = isFastPolling
+      ? EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS
+      : EARN_TRANSACTIONS_POLL_INTERVAL_MS;
+
+    if (scheduledSweepExecutionRequestedAtMs !== null && !isFastPolling) {
+      setScheduledSweepExecutionRequestedAtMs(null);
+    }
+
+    void loadTransactions({
+      fresh: isFastPolling,
+      silent: knownTransactionIdsRef.current !== null,
+    });
     refreshScheduledSweeps();
 
     // Pseudo-realtime: poll the cached fetcher so new transactions appear
     // without a reload. Refresh loaded Earn state on the same cadence because
     // scheduled sweep lots are created by the background worker after setup.
     const intervalId = window.setInterval(() => {
-      void loadTransactions({ silent: true });
+      const shouldFastPoll =
+        scheduledSweepExecutionRequestedAtMs !== null &&
+        Date.now() - scheduledSweepExecutionRequestedAtMs <
+          EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
+      if (scheduledSweepExecutionRequestedAtMs !== null && !shouldFastPoll) {
+        setScheduledSweepExecutionRequestedAtMs(null);
+      }
+      void loadTransactions({ fresh: shouldFastPoll, silent: true });
       refreshScheduledSweeps();
-    }, EARN_TRANSACTIONS_POLL_INTERVAL_MS);
+    }, pollIntervalMs);
 
     return () => {
       isMounted = false;
@@ -1338,6 +1530,7 @@ export function EarnTransactionsPane({
     isHydrated,
     onRefreshScheduledSweeps,
     refreshKey,
+    scheduledSweepExecutionRequestedAtMs,
     settingsPda,
     solanaEnv,
     walletAddress,
@@ -1346,15 +1539,16 @@ export function EarnTransactionsPane({
   const displayTimeZone = resolveEarnTransactionDisplayTimeZone();
   const groups = groupEarnTransactions(transactions, displayTimeZone);
   const visiblePendingScheduledSweep = resolveVisiblePendingScheduledSweep(
-    scheduledSweeps,
+    renderedScheduledSweeps,
     pendingScheduledSweep
   );
   const showScheduledSweeps = shouldShowScheduledSweepsSection(
-    scheduledSweeps,
+    renderedScheduledSweeps,
     visiblePendingScheduledSweep
   );
   const showPolicyRefunds =
     showPolicyRefundScan && policyRefundPolicies !== null;
+  const hasPinnedContent = showPolicyRefunds || showScheduledSweeps;
   const isPolicyScanDisabled =
     isScanningPolicies || !isAuthenticated || !settingsPda || !walletAddress;
 
@@ -1573,9 +1767,9 @@ export function EarnTransactionsPane({
           width: "100%",
         }}
       >
-        {isLoading ? (
+        {isLoading && !hasPinnedContent ? (
           <EarnTransactionsLoadingState />
-        ) : errorMessage ? (
+        ) : errorMessage && !hasPinnedContent ? (
           <EarnTransactionsErrorState message={errorMessage} />
         ) : transactions.length === 0 &&
           !showScheduledSweeps &&
@@ -1652,13 +1846,20 @@ export function EarnTransactionsPane({
                     sweep={visiblePendingScheduledSweep}
                   />
                 ) : null}
-                {scheduledSweeps.map((sweep) => (
+                {renderedScheduledSweeps.map((sweep) => (
                   <ScheduledTransactionRow
                     displayTimeZone={displayTimeZone}
                     isBalanceHidden={isBalanceHidden}
-                    isExecuting={isExecutingScheduledSweep}
+                    isAwaitingExecution={
+                      isAwaitingScheduledSweepExecution &&
+                      !isExecutingScheduledSweep
+                    }
+                    isExecuting={
+                      isExecutingScheduledSweep ||
+                      isAwaitingScheduledSweepExecution
+                    }
                     key={sweep.id}
-                    onExecuteNow={onExecuteScheduledSweep}
+                    onExecuteNow={handleExecuteScheduledSweep}
                     sweep={sweep}
                   />
                 ))}
@@ -1678,37 +1879,45 @@ export function EarnTransactionsPane({
                 ) : null}
               </div>
             ) : null}
-            {groups.map((group) => (
-              <div
-                key={group.date}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  width: "100%",
-                }}
-              >
-                <EnterReveal
-                  isEntering={group.items.every((item) =>
-                    enteringIds.has(item.id)
-                  )}
+            {isLoading ? (
+              <EarnTransactionsLoadingState />
+            ) : errorMessage ? (
+              <EarnTransactionsErrorState message={errorMessage} />
+            ) : (
+              groups.map((group) => (
+                <div
+                  key={group.date}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    width: "100%",
+                  }}
                 >
-                  <TransactionsSectionHeader label={group.date} />
-                </EnterReveal>
-                {group.items.map((item) => (
                   <EnterReveal
-                    isEntering={enteringIds.has(item.id)}
-                    key={item.id}
+                    isEntering={group.items.every((item) =>
+                      enteringIds.has(item.id)
+                    )}
                   >
-                    <EarnTransactionRow
-                      displayTimeZone={displayTimeZone}
-                      isBalanceHidden={isBalanceHidden}
-                      item={item}
-                      onSelect={handleSelect}
-                    />
+                    <TransactionsSectionHeader label={group.date} />
                   </EnterReveal>
-                ))}
-              </div>
-            ))}
+                  <AnimatePresence initial={false}>
+                    {group.items.map((item) => (
+                      <EnterReveal
+                        isEntering={enteringIds.has(item.id)}
+                        key={item.id}
+                      >
+                        <EarnTransactionRow
+                          displayTimeZone={displayTimeZone}
+                          isBalanceHidden={isBalanceHidden}
+                          item={item}
+                          onSelect={handleSelect}
+                        />
+                      </EnterReveal>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              ))
+            )}
           </>
         )}
       </div>
