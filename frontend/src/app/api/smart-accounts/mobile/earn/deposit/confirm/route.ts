@@ -138,8 +138,18 @@ export async function POST(request: Request) {
         "No provisioned smart account for this wallet."
       );
     }
-    smartAccountAddress = existing.smartAccountAddress;
     settingsPda = existing.settingsPda;
+    // Earn confirm keys on the vault (smart-account index 1), not the wallet's
+    // main account (index 0) that findReadyCurrentUserSmartAccount returns. The
+    // web client derives the vault from the prepared op; mirror that here so the
+    // canonical `smartAccountAddress` check passes and the vault-keyed position
+    // is matched. (Same derivation the deposit-confirm canonical uses.)
+    smartAccountAddress = pda
+      .getSmartAccountPda({
+        settingsPda: new PublicKey(settingsPda),
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+      })[0]
+      .toBase58();
   } catch (error) {
     console.error("[mobile-earn-deposit-confirm] resolve failed", {
       errorMessage:

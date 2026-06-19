@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { PublicKey } from "@solana/web3.js";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
@@ -44,6 +46,23 @@ function jsonError(
 
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
+}
+
+// The Earn deposit/withdraw smart-account vault lives at index 1; index 0 is the
+// wallet's main account. The confirm canonical keys on this vault.
+const EARN_DEPOSIT_VAULT_INDEX = 1;
+
+// Re-derive the Earn vault address (index 1) from the settings PDA — the value
+// the confirm canonical expects as `smartAccountAddress`. findReadyCurrentUser-
+// SmartAccount returns the main account (index 0), which would fail the canonical
+// check and miss the vault-keyed position.
+function deriveEarnVaultAddress(settingsPda: string): string {
+  return pda
+    .getSmartAccountPda({
+      settingsPda: new PublicKey(settingsPda),
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0]
+    .toBase58();
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -148,8 +167,9 @@ export async function POST(request: Request) {
         "No provisioned smart account for this wallet."
       );
     }
-    smartAccountAddress = existing.smartAccountAddress;
     settingsPda = existing.settingsPda;
+    // Earn confirm keys on the vault (index 1), not the main account (index 0).
+    smartAccountAddress = deriveEarnVaultAddress(settingsPda);
   } catch (error) {
     console.error("[mobile-earn-withdraw-confirm] resolve failed", {
       errorMessage:
