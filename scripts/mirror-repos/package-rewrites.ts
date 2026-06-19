@@ -8,6 +8,7 @@ const packageDirs = [
   "packages/flags",
   "packages/llm-core",
   "packages/llm-server",
+  "packages/loyal-actions",
   "packages/shared",
   "packages/smart-account-vaults",
   "packages/solana-instruction-decoder",
