@@ -1,24 +1,20 @@
 "use client";
 
-import { TOKEN_DECIMALS } from "@loyal-labs/wallet-core/constants";
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useShield } from "@/hooks/use-shield";
 
+import {
+  formatShieldAmountInputValue,
+  isShieldAmountOverBalance,
+} from "./shield-amount";
 import type { FormButtonProps, SubView, SwapMode, SwapToken } from "./types";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const red = "#F9363C";
-
-function formatAmountInputValue(value: number, tokenSymbol: string): string {
-  const decimals = TOKEN_DECIMALS[tokenSymbol.toUpperCase()] ?? 6;
-  const fractionDigits = Math.min(Math.max(decimals, 0), 9);
-
-  return String(Number(value.toFixed(fractionDigits)));
-}
 
 function SwapShieldTabs({
   mode,
@@ -451,6 +447,7 @@ export function ShieldContent({
     initialDirection
   );
   const [amount, setAmount] = useState("");
+  const [isMaxSelected, setIsMaxSelected] = useState(false);
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [resultAmount, setResultAmount] = useState("");
@@ -469,7 +466,15 @@ export function ShieldContent({
   const hasAmount = numericAmount > 0;
 
   const sourceBalance = direction === "shield" ? token.balance : securedBalance;
-  const insufficientFunds = numericAmount > sourceBalance;
+  const insufficientFunds = useMemo(
+    () =>
+      isShieldAmountOverBalance({
+        amount: numericAmount,
+        sourceBalance,
+        tokenSymbol: token.symbol,
+      }),
+    [numericAmount, sourceBalance, token.symbol]
+  );
 
   const usdValue = useMemo(
     () =>
@@ -502,6 +507,7 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
+      const isMax = pct === 100;
       let val = pct === 100 ? bal : bal * (pct / 100);
       // Reserve a small SOL buffer for gas only when shielding (public → vault).
       // Unshield drains the vault and pays fees from the public wallet, so
@@ -513,10 +519,15 @@ export function ShieldContent({
       ) {
         val = Math.max(0, bal - 0.00005);
       }
-      setAmount(val > 0 ? formatAmountInputValue(val, token.symbol) : "");
+      setIsMaxSelected(isMax && val > 0);
+      setAmount(val > 0 ? formatShieldAmountInputValue(val, token.symbol) : "");
     },
     [direction, sourceBalance, token.symbol]
   );
+
+  useEffect(() => {
+    setIsMaxSelected(false);
+  }, [direction, token.mint]);
 
   const handleConfirm = useCallback(async () => {
     if (!hasAmount || insufficientFunds) return;
@@ -549,7 +560,10 @@ export function ShieldContent({
               direction,
             },
           })
-        : await unshieldFn(params);
+        : await unshieldFn({
+            ...params,
+            isMax: isMaxSelected,
+          });
 
     if (result.success) {
       setPhase("success");
@@ -575,6 +589,7 @@ export function ShieldContent({
     shieldFn,
     unshieldFn,
     usdValue,
+    isMaxSelected,
   ]);
 
   // Report form button props to parent when chrome is managed externally
@@ -1308,7 +1323,10 @@ export function ShieldContent({
                   inputMode="decimal"
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
+                    if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                      setIsMaxSelected(false);
+                      setAmount(v);
+                    }
                   }}
                   placeholder="0"
                   style={{
