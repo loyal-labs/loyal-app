@@ -611,18 +611,16 @@ function useMainAccountUsdcBalance(args: {
 }): {
   amount: number | null;
   amountRaw: bigint | null;
+  refresh: () => Promise<void>;
   setAmountRaw: Dispatch<SetStateAction<bigint | null>>;
 } {
   const { connection, mint, walletAddress } = args;
   const [amountRaw, setAmountRaw] = useState<bigint | null>(null);
 
-  useEffect(() => {
+  const readAmountRaw = useCallback(async (): Promise<bigint | null> => {
     if (!walletAddress || !mint) {
-      setAmountRaw(null);
-      return;
+      return null;
     }
-
-    let cancelled = false;
 
     try {
       const owner = new PublicKey(walletAddress);
@@ -634,53 +632,45 @@ function useMainAccountUsdcBalance(args: {
         TOKEN_PROGRAM_ID
       );
 
-      void connection
-        .getAccountInfo(usdcAta, "confirmed")
-        .then((account) => {
-          if (cancelled) {
-            return;
-          }
+      const account = await connection.getAccountInfo(usdcAta, "confirmed");
+      if (!account || !account.owner.equals(TOKEN_PROGRAM_ID)) {
+        return BigInt(0);
+      }
 
-          if (!account) {
-            setAmountRaw(BigInt(0));
-            return;
-          }
+      const decoded = AccountLayout.decode(account.data);
+      if (!decoded.mint.equals(usdcMint) || !decoded.owner.equals(owner)) {
+        return BigInt(0);
+      }
 
-          if (!account.owner.equals(TOKEN_PROGRAM_ID)) {
-            setAmountRaw(BigInt(0));
-            return;
-          }
-
-          const decoded = AccountLayout.decode(account.data);
-          if (!decoded.mint.equals(usdcMint) || !decoded.owner.equals(owner)) {
-            setAmountRaw(BigInt(0));
-            return;
-          }
-
-          setAmountRaw(BigInt(decoded.amount.toString()));
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            console.warn(
-              "[earn-deposit] failed to load wallet USDC ATA",
-              error
-            );
-            setAmountRaw(null);
-          }
-        });
+      return BigInt(decoded.amount.toString());
     } catch (error) {
-      console.warn("[earn-deposit] invalid wallet USDC ATA input", error);
-      setAmountRaw(null);
+      console.warn("[earn-deposit] failed to load wallet USDC ATA", error);
+      return null;
     }
+  }, [connection, mint, walletAddress]);
+
+  const refresh = useCallback(async () => {
+    setAmountRaw(await readAmountRaw());
+  }, [readAmountRaw]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void readAmountRaw().then((nextAmountRaw) => {
+      if (!cancelled) {
+        setAmountRaw(nextAmountRaw);
+      }
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [connection, mint, walletAddress]);
+  }, [readAmountRaw]);
 
   return {
     amount: amountRaw === null ? null : Number(amountRaw) / 1_000_000,
     amountRaw,
+    refresh,
     setAmountRaw,
   };
 }
@@ -1599,6 +1589,11 @@ export function AppWalletWorkspace({
     },
     [setMainAccountUsdcAmountRaw]
   );
+  const refreshWalletPortfolio = walletDesktopData.refresh;
+  const refreshMainAccountUsdc = mainAccountUsdcBalance.refresh;
+  const refreshMainAccountBalances = useCallback(async () => {
+    await Promise.all([refreshWalletPortfolio(), refreshMainAccountUsdc()]);
+  }, [refreshMainAccountUsdc, refreshWalletPortfolio]);
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
@@ -1646,7 +1641,7 @@ export function AppWalletWorkspace({
   const smartAccountData = useSmartAccountSidebarData({
     authenticatedUserCashUsd: mainAccountDisplayUsd,
     authenticatedUserTotalUsd: mainAccountDisplayUsd,
-    onAfterTx: walletDesktopData.refresh,
+    onAfterTx: refreshMainAccountBalances,
   });
   const { disconnect } = useWallet();
   const { logout, user } = useAuthSession();
