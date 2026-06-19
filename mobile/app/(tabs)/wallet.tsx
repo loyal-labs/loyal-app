@@ -176,8 +176,18 @@ export default function WalletScreen() {
       }
     }
 
+    // Earn lives in the vault, not in tokenHoldings — add it explicitly so the
+    // headline balance equals the sum of the three overview buckets shown below
+    // (Earn + Stablecoins + Crypto). Without this the headline silently omits
+    // the Earn deposit and no longer reconciles with the category rows.
+    const earnRaw = Number(earnPosition?.currentAmountRaw);
+    if (Number.isFinite(earnRaw) && earnRaw > 0) {
+      total += earnRaw / 1e6;
+      hasValuation = true;
+    }
+
     return hasValuation ? total : null;
-  }, [tokenHoldings]);
+  }, [tokenHoldings, earnPosition]);
 
   // Portfolio split into the three overview buckets (Figma 74:18033).
   const stablecoinsUsd = useMemo(
