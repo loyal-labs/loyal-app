@@ -6021,6 +6021,10 @@ export function AppWalletWorkspace({
 
     if (type === "swapPanel") {
       const isVaultSwap = actionReturnSelection === "vault";
+      const refreshAfterWalletAction =
+        actionReturnSelection === "wallet"
+          ? refreshMainAccountBalances
+          : undefined;
       const showTabs =
         !isVaultSwap &&
         (swapMode === "swap" ? swapFormActive : shieldFormActive);
@@ -6073,6 +6077,7 @@ export function AppWalletWorkspace({
                 onFormButtonChange={setSwapButtonProps}
                 onFromTokenChange={setSwapFromToken}
                 onNavigate={pushView}
+                onSuccess={refreshAfterWalletAction}
                 onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
                 swapMode={swapMode}
@@ -6099,6 +6104,7 @@ export function AppWalletWorkspace({
                 onFormButtonChange={setShieldButtonProps}
                 initialDirection={shieldDirection}
                 onNavigate={pushView}
+                onSuccess={refreshAfterWalletAction}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
                 securedBalance={shieldSecuredBalance}

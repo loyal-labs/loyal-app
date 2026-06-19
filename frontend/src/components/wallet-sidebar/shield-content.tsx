@@ -418,6 +418,7 @@ type ShieldPhase = "form" | "processing" | "success" | "error" | "details";
 export function ShieldContent({
   onClose,
   onDone,
+  onSuccess,
   onNavigate,
   onBack,
   token: tokenProp,
@@ -432,6 +433,7 @@ export function ShieldContent({
 }: {
   onClose: () => void;
   onDone: () => void;
+  onSuccess?: () => Promise<void> | void;
   onNavigate: (view: Exclude<SubView, null>) => void;
   onBack?: () => void;
   token: SwapToken;
@@ -552,6 +554,11 @@ export function ShieldContent({
     if (result.success) {
       setPhase("success");
       setAmount("");
+      void Promise.resolve()
+        .then(() => onSuccess?.())
+        .catch((error) => {
+          console.warn("Failed to refresh balances after shield", error);
+        });
     } else {
       setErrorMessage(result.error);
       setPhase("error");
@@ -560,6 +567,7 @@ export function ShieldContent({
     hasAmount,
     insufficientFunds,
     numericAmount,
+    onSuccess,
     token.price,
     token.symbol,
     token.mint,
