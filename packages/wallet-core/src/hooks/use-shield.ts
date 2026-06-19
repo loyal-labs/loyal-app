@@ -16,7 +16,10 @@ import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "../constants/token-mints";
-import { toRoundedTokenRawAmount } from "../lib/shielding";
+import {
+  computeUnshieldModifyAmount,
+  toRoundedTokenRawAmount,
+} from "../lib/shielding";
 import type { WalletSigner } from "../types/signer";
 
 export type ShieldResult = {
@@ -61,44 +64,6 @@ async function getDepositAmount(params: {
   ]);
 
   return ephemeralDeposit?.amount ?? baseDeposit?.amount ?? BigInt(0);
-}
-
-function computeUnshieldModifyAmount(params: {
-  currentDepositRaw: bigint;
-  isMax: boolean;
-  isTrackedKaminoToken: boolean;
-  kaminoQuotedShares: bigint | null;
-  requestedRawAmount: bigint;
-}): bigint {
-  if (params.isMax) {
-    if (params.currentDepositRaw > BigInt(0)) {
-      return params.currentDepositRaw;
-    }
-    if (params.isTrackedKaminoToken) {
-      throw new Error(
-        "Could not read the current USDC shielded balance. Please retry."
-      );
-    }
-    return params.requestedRawAmount;
-  }
-
-  if (params.isTrackedKaminoToken) {
-    if (params.kaminoQuotedShares === null) {
-      throw new Error(
-        "Could not quote the current USDC shielded exchange rate. Please retry."
-      );
-    }
-
-    if (
-      params.currentDepositRaw > BigInt(0) &&
-      params.kaminoQuotedShares > params.currentDepositRaw
-    ) {
-      return params.currentDepositRaw;
-    }
-    return params.kaminoQuotedShares;
-  }
-
-  return params.requestedRawAmount;
 }
 
 export function useShield(
