@@ -1,8 +1,8 @@
 import type { Connection, ParsedAccountData } from "@solana/web3.js";
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
-import { TOKEN_MINTS } from "../constants/token-mints";
+import { TOKEN_DECIMALS, TOKEN_MINTS } from "../constants/token-mints";
 import type { WalletSigner } from "../types/signer";
 
 // Debug logger that only emits in development
@@ -40,6 +40,9 @@ export type SwapConfig =
 
 const JUPITER_QUOTE_API_URL = "https://lite-api.jup.ag/swap/v1/quote";
 const JUPITER_SWAP_API_URL = "https://lite-api.jup.ag/swap/v1/swap";
+const JUPITER_QUOTE_TIMEOUT_MS = 10_000;
+const JUPITER_QUOTE_TIMEOUT_ERROR =
+  "Quote request timed out. Please try again.";
 
 const buildJupiterHeaders = (
   apiKey: string,
@@ -86,6 +89,33 @@ const getTokenMint = (symbol: string): string | undefined => {
   return TOKEN_MINTS[symbol.toUpperCase()];
 };
 
+const getKnownTokenDecimals = (symbol: string): number | undefined => {
+  return TOKEN_DECIMALS[symbol.toUpperCase()];
+};
+
+function withTimeout<T>(
+  operation: (signal: AbortSignal | undefined) => Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  const controller =
+    typeof AbortController === "undefined" ? undefined : new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  return new Promise<T>((resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      controller?.abort();
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    operation(controller?.signal).then(resolve, reject);
+  }).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
 async function sendTransactionViaSigner(
   signer: WalletSigner,
   connection: Connection,
@@ -108,6 +138,7 @@ export function useSwap(
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [quoteResponse, setQuoteResponse] =
     useState<JupiterQuoteResponse | null>(null);
+  const quoteRequestIdRef = useRef(0);
 
   const getTokenDecimals = useCallback(
     async (mintAddress: string): Promise<number> => {
@@ -140,7 +171,14 @@ export function useSwap(
       toTokenDecimals?: number,
       toTokenMint?: string
     ): Promise<SwapQuote | null> => {
+      const quoteRequestId = quoteRequestIdRef.current + 1;
+      quoteRequestIdRef.current = quoteRequestId;
+      const isCurrentQuoteRequest = () =>
+        quoteRequestIdRef.current === quoteRequestId;
+
       try {
+        setQuote(null);
+        setQuoteResponse(null);
         setError(null);
 
         if (swapConfig.mode === "disabled") {
@@ -159,71 +197,95 @@ export function useSwap(
           throw new Error(`Unknown token: ${toToken}`);
         }
 
-        const inputDecimalsPromise = fromTokenDecimals
-          ? Promise.resolve(fromTokenDecimals)
-          : getTokenDecimals(inputMint);
-        const outputDecimalsPromise = toTokenDecimals
-          ? Promise.resolve(toTokenDecimals)
-          : getTokenDecimals(outputMint);
-        const inputDecimals = await inputDecimalsPromise;
-        const amountInSmallestUnit = Math.floor(
-          Number.parseFloat(amount) * 10 ** inputDecimals
-        ).toString();
+        const { data, quoteData } = await withTimeout(
+          async (signal) => {
+            const knownInputDecimals =
+              fromTokenDecimals ?? getKnownTokenDecimals(fromToken);
+            const knownOutputDecimals =
+              toTokenDecimals ?? getKnownTokenDecimals(toToken);
+            const inputDecimalsPromise =
+              typeof knownInputDecimals === "number"
+                ? Promise.resolve(knownInputDecimals)
+                : getTokenDecimals(inputMint);
+            const outputDecimalsPromise =
+              typeof knownOutputDecimals === "number"
+                ? Promise.resolve(knownOutputDecimals)
+                : getTokenDecimals(outputMint);
+            const inputDecimals = await inputDecimalsPromise;
+            const amountInSmallestUnit = Math.floor(
+              Number.parseFloat(amount) * 10 ** inputDecimals
+            ).toString();
 
-        logger.debug("Token conversion:", {
-          fromToken,
-          inputMint,
-          toToken,
-          outputMint,
-          amount,
-          amountInSmallestUnit,
-          decimals: inputDecimals,
-        });
+            logger.debug("Token conversion:", {
+              fromToken,
+              inputMint,
+              toToken,
+              outputMint,
+              amount,
+              amountInSmallestUnit,
+              decimals: inputDecimals,
+            });
 
-        const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
-        logger.debug("Fetching quote from Jupiter API:", url);
+            const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
+            logger.debug("Fetching quote from Jupiter API:", url);
 
-        const response = await fetch(url, {
-          headers: buildJupiterHeaders(swapConfig.apiKey),
-        });
+            const response = await fetch(url, {
+              headers: buildJupiterHeaders(swapConfig.apiKey),
+              signal,
+            });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          logger.debug("Quote API error:", errorText);
-          throw new Error(`Failed to get quote: ${response.statusText}`);
-        }
+            if (!response.ok) {
+              const errorText = await response.text();
+              logger.debug("Quote API error:", errorText);
+              throw new Error(`Failed to get quote: ${response.statusText}`);
+            }
 
-        const data: JupiterQuoteResponse = await response.json();
-        logger.debug("Jupiter Quote response:", data);
+            const data: JupiterQuoteResponse = await response.json();
+            logger.debug("Jupiter Quote response:", data);
 
-        setQuoteResponse(data);
+            const outputDecimals = await outputDecimalsPromise;
+            const outputAmount = (
+              Number.parseInt(data.outAmount, 10) /
+              10 ** outputDecimals
+            ).toFixed(outputDecimals);
 
-        const outputDecimals = await outputDecimalsPromise;
-        const outputAmount = (
-          Number.parseInt(data.outAmount, 10) /
-          10 ** outputDecimals
-        ).toFixed(outputDecimals);
+            const priceImpact = `${(
+              Number.parseFloat(data.priceImpactPct) * PERCENTAGE_MULTIPLIER
+            ).toFixed(2)}%`;
 
-        const priceImpact = `${(
-          Number.parseFloat(data.priceImpactPct) * PERCENTAGE_MULTIPLIER
-        ).toFixed(2)}%`;
+            const quoteData: SwapQuote = {
+              inputAmount: amount,
+              outputAmount,
+              inputToken: fromToken,
+              outputToken: toToken,
+              priceImpact,
+              fee: undefined,
+            };
 
-        const quoteData: SwapQuote = {
-          inputAmount: amount,
-          outputAmount,
-          inputToken: fromToken,
-          outputToken: toToken,
-          priceImpact,
-          fee: undefined,
-        };
+            return { data, quoteData };
+          },
+          JUPITER_QUOTE_TIMEOUT_MS,
+          JUPITER_QUOTE_TIMEOUT_ERROR
+        );
 
         logger.debug("Parsed quote data:", quoteData);
-        setQuote(quoteData);
+        if (isCurrentQuoteRequest()) {
+          setQuoteResponse(data);
+          setQuote(quoteData);
+        }
         return quoteData;
       } catch (err) {
         const errorMessage =
-          err instanceof Error ? err.message : "Failed to get quote";
-        setError(errorMessage);
+          err instanceof Error && err.name === "AbortError"
+            ? JUPITER_QUOTE_TIMEOUT_ERROR
+            : err instanceof Error
+            ? err.message
+            : "Failed to get quote";
+        if (isCurrentQuoteRequest()) {
+          setQuote(null);
+          setQuoteResponse(null);
+          setError(errorMessage);
+        }
         logger.debug("Quote error:", err);
         return null;
       }
@@ -346,6 +408,7 @@ export function useSwap(
   }, [connection, signer, quoteResponse, swapConfig]);
 
   const resetQuote = useCallback(() => {
+    quoteRequestIdRef.current += 1;
     setQuote(null);
     setQuoteResponse(null);
     setError(null);

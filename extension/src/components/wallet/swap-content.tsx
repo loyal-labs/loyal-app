@@ -920,10 +920,14 @@ export function SwapContent({
   }, [toAmount, toToken.price]);
   const hasAmount = numericFrom > 0;
   const insufficientFunds = numericFrom > fromToken.balance;
+  const quoteUnavailable =
+    hasAmount && !isQuoting && !quote && Boolean(swapError);
 
   // Debounced quote fetching
   useEffect(() => {
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
+    let isCurrentQuote = true;
+
     if (!hasAmount || insufficientFunds || phase !== "form") {
       resetQuote();
       setIsQuoting(false);
@@ -939,9 +943,14 @@ export function SwapContent({
         undefined,
         undefined,
         toToken.mint
-      ).finally(() => setIsQuoting(false));
+      ).finally(() => {
+        if (isCurrentQuote) {
+          setIsQuoting(false);
+        }
+      });
     }, 500);
     return () => {
+      isCurrentQuote = false;
       if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     };
   }, [
@@ -966,6 +975,8 @@ export function SwapContent({
     ? "Insufficient Funds"
     : isQuoting
     ? "Getting quote..."
+    : quoteUnavailable
+    ? "Quote unavailable. Try again"
     : !quote
     ? "Enter Amount"
     : "Confirm and Swap";
@@ -1072,7 +1083,10 @@ export function SwapContent({
     (pct: number) => {
       let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
-      if (fromToken.symbol.toUpperCase() === "SOL" && fromToken.balance - val < 0.00005) {
+      if (
+        fromToken.symbol.toUpperCase() === "SOL" &&
+        fromToken.balance - val < 0.00005
+      ) {
         val = Math.max(0, fromToken.balance - 0.00005);
       }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
