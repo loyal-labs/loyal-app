@@ -16,6 +16,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useCallback, useRef, useState } from "react";
 
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "../constants/token-mints";
+import { toRoundedTokenRawAmount } from "../lib/shielding";
 import type { WalletSigner } from "../types/signer";
 
 export type ShieldResult = {
@@ -174,12 +175,12 @@ export function useShield(
         }
         const tokenMint = new PublicKey(resolvedMint);
         const decimals = TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
-        const rawAmount = Math.floor(params.amount * 10 ** decimals);
+        const rawAmount = toRoundedTokenRawAmount(params.amount, decimals);
         const user = signer.publicKey;
 
         const plan = await client.buildShieldTokensTransactionPlan({
           tokenMint,
-          amount: BigInt(rawAmount),
+          amount: rawAmount,
           user,
           payer: user,
           magicProgram: MAGIC_PROGRAM_ID,
@@ -235,7 +236,7 @@ export function useShield(
         }
         const tokenMint = new PublicKey(resolvedMint);
         const decimals = TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
-        const rawAmount = Math.floor(params.amount * 10 ** decimals);
+        const rawAmount = toRoundedTokenRawAmount(params.amount, decimals);
         const user = signer.publicKey;
         const isTrackedKaminoToken = isKaminoUsdcMint(tokenMint, solanaEnv);
         const wantsMax = params.isMax === true;
@@ -243,7 +244,7 @@ export function useShield(
           wantsMax || isTrackedKaminoToken
             ? await getDepositAmount({ client, tokenMint, user })
             : BigInt(0);
-        const requestedRawAmount = BigInt(rawAmount);
+        const requestedRawAmount = rawAmount;
         const kaminoQuotedShares =
           isTrackedKaminoToken && !wantsMax
             ? await client.getKaminoCollateralSharesForLiquidityAmount({
