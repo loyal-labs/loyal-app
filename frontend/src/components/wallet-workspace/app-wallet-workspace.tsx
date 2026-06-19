@@ -1,8 +1,6 @@
 "use client";
 
-import {
-  resolveLoyalClusterForSolanaEnv,
-} from "@loyal-labs/actions";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -330,6 +328,28 @@ function findEarnUsdcPosition(
   );
 }
 
+function getPublicPositionUsd(position: PortfolioPosition | undefined): number {
+  if (!position) {
+    return 0;
+  }
+
+  if (
+    typeof position.publicValueUsd === "number" &&
+    Number.isFinite(position.publicValueUsd)
+  ) {
+    return position.publicValueUsd;
+  }
+
+  if (
+    typeof position.priceUsd === "number" &&
+    Number.isFinite(position.priceUsd)
+  ) {
+    return position.publicBalance * position.priceUsd;
+  }
+
+  return 0;
+}
+
 function findTrackedUsdcToken(
   tokens: SwapToken[],
   trackedUsdcMint: string | null
@@ -641,7 +661,10 @@ function useMainAccountUsdcBalance(args: {
         })
         .catch((error) => {
           if (!cancelled) {
-            console.warn("[earn-deposit] failed to load wallet USDC ATA", error);
+            console.warn(
+              "[earn-deposit] failed to load wallet USDC ATA",
+              error
+            );
             setAmountRaw(null);
           }
         });
@@ -1580,19 +1603,49 @@ export function AppWalletWorkspace({
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
   );
-  const mainAccountStablecoinUsd = useMemo(
-    () =>
-      Math.max(
-        sumPublicStablecoinUsd(walletDesktopData.positions, stablecoinMints),
-        mainAccountUsdcBalance.amount ?? 0
-      ),
-    [mainAccountUsdcBalance.amount, stablecoinMints, walletDesktopData.positions]
+  const mainAccountStablecoinUsd = useMemo(() => {
+    const portfolioStablecoinUsd = sumPublicStablecoinUsd(
+      walletDesktopData.positions,
+      stablecoinMints
+    );
+
+    if (mainAccountUsdcBalance.amount === null) {
+      return portfolioStablecoinUsd;
+    }
+
+    const trackedUsdcPosition = findEarnUsdcPosition(
+      walletDesktopData.positions,
+      trackedKaminoUsdcMint
+    );
+    const trackedUsdcPriceUsd =
+      typeof trackedUsdcPosition?.priceUsd === "number" &&
+      Number.isFinite(trackedUsdcPosition.priceUsd)
+        ? trackedUsdcPosition.priceUsd
+        : 1;
+    const trackedUsdcPortfolioUsd =
+      trackedUsdcPosition && stablecoinMints.has(trackedUsdcPosition.asset.mint)
+        ? getPublicPositionUsd(trackedUsdcPosition)
+        : 0;
+
+    return (
+      portfolioStablecoinUsd -
+      trackedUsdcPortfolioUsd +
+      mainAccountUsdcBalance.amount * trackedUsdcPriceUsd
+    );
+  }, [
+    mainAccountUsdcBalance.amount,
+    stablecoinMints,
+    trackedKaminoUsdcMint,
+    walletDesktopData.positions,
+  ]);
+  const mainAccountDisplayUsd = mainAccountStablecoinUsd;
+  const mainAccountDisplayBalance = useMemo(
+    () => splitUsdBalance(mainAccountDisplayUsd),
+    [mainAccountDisplayUsd]
   );
   const smartAccountData = useSmartAccountSidebarData({
-    authenticatedUserCashUsd: mainAccountStablecoinUsd,
-    authenticatedUserTotalUsd: shouldLoadMainAccountPrivateBalances
-      ? walletDesktopData.totalUsd
-      : mainAccountStablecoinUsd,
+    authenticatedUserCashUsd: mainAccountDisplayUsd,
+    authenticatedUserTotalUsd: mainAccountDisplayUsd,
     onAfterTx: walletDesktopData.refresh,
   });
   const { disconnect } = useWallet();
@@ -1732,10 +1785,8 @@ export function AppWalletWorkspace({
   );
 
   useEffect(() => {
-    setShouldLoadMainAccountPrivateBalances(
-      detailSelection === "wallet" && selectedSignerId === null
-    );
-  }, [detailSelection, selectedSignerId]);
+    setShouldLoadMainAccountPrivateBalances(detailSelection === "wallet");
+  }, [detailSelection]);
 
   const [accountPaneWidth, setAccountPaneWidth] = useState(
     ACCOUNT_PANE_DEFAULT_WIDTH
@@ -2491,15 +2542,11 @@ export function AppWalletWorkspace({
   const totalBalance = useMemo(
     () =>
       splitUsdBalance(
-        walletDesktopData.totalUsd +
+        mainAccountDisplayUsd +
           smartAccountData.totalUsd +
           earnCurrentBalanceAmount
       ),
-    [
-      earnCurrentBalanceAmount,
-      walletDesktopData.totalUsd,
-      smartAccountData.totalUsd,
-    ]
+    [earnCurrentBalanceAmount, mainAccountDisplayUsd, smartAccountData.totalUsd]
   );
   const earnEarningsCacheKey = [
     publicEnv.solanaEnv,
@@ -4221,10 +4268,7 @@ export function AppWalletWorkspace({
         setSelectedDetail("Earn");
         if (pendingEarnWithdrawDraft.mode !== "partial") {
           void refreshActiveEarnPosition().catch((error) => {
-            console.warn(
-              "[earn-position] post-withdraw refresh failed",
-              error
-            );
+            console.warn("[earn-position] post-withdraw refresh failed", error);
           });
         }
         break;
@@ -5373,14 +5417,24 @@ export function AppWalletWorkspace({
     }
 
     if (detailSelection === "wallet") {
+      const isMainAccountDetail = Boolean(
+        selectedAgent?.address &&
+          walletDesktopData.walletAddress &&
+          selectedAgent.address === walletDesktopData.walletAddress
+      );
       const walletDetailAddress =
         selectedMockRootSigner?.address ?? walletDesktopData.walletAddress;
       const walletDetailIcon = selectedMockRootSigner?.icon ?? getWalletIcon();
       const walletDetailBalanceWhole =
-        selectedMockRootSigner?.balanceWhole ?? walletDesktopData.balanceWhole;
+        selectedMockRootSigner?.balanceWhole ??
+        (isMainAccountDetail
+          ? mainAccountDisplayBalance.balanceWhole
+          : walletDesktopData.balanceWhole);
       const walletDetailBalanceFraction =
         selectedMockRootSigner?.balanceFraction ??
-        walletDesktopData.balanceFraction;
+        (isMainAccountDetail
+          ? mainAccountDisplayBalance.balanceFraction
+          : walletDesktopData.balanceFraction);
       const walletDetailTokenRows = selectedMockRootSigner
         ? []
         : walletDesktopData.allTokenRows;
