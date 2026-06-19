@@ -877,7 +877,10 @@ export function SwapContent({
   const { signer, connection } = useWalletContext();
 
   // Jupiter public API does not require a key for basic operations.
-  const swapConfig: SwapConfig = { mode: "enabled", apiKey: "" };
+  const swapConfig = useMemo<SwapConfig>(
+    () => ({ mode: "enabled", apiKey: "" }),
+    []
+  );
 
   const {
     getQuote,

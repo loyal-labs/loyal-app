@@ -133,6 +133,10 @@ export function useSwap(
   connection: Connection,
   swapConfig: SwapConfig
 ) {
+  const swapMode = swapConfig.mode;
+  const swapApiKey = swapConfig.mode === "enabled" ? swapConfig.apiKey : "";
+  const swapUnavailableReason =
+    swapConfig.mode === "disabled" ? swapConfig.reason : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<SwapQuote | null>(null);
@@ -181,8 +185,8 @@ export function useSwap(
         setQuoteResponse(null);
         setError(null);
 
-        if (swapConfig.mode === "disabled") {
-          throw new Error(swapConfig.reason);
+        if (swapMode === "disabled") {
+          throw new Error(swapUnavailableReason ?? "Swap unavailable");
         }
 
         const inputMint = fromTokenMint || getTokenMint(fromToken);
@@ -230,7 +234,7 @@ export function useSwap(
             logger.debug("Fetching quote from Jupiter API:", url);
 
             const response = await fetch(url, {
-              headers: buildJupiterHeaders(swapConfig.apiKey),
+              headers: buildJupiterHeaders(swapApiKey),
               signal,
             });
 
@@ -290,13 +294,14 @@ export function useSwap(
         return null;
       }
     },
-    [getTokenDecimals, swapConfig]
+    [getTokenDecimals, swapApiKey, swapMode, swapUnavailableReason]
   );
 
   const executeSwap = useCallback(async (): Promise<SwapResult> => {
-    if (swapConfig.mode === "disabled") {
-      setError(swapConfig.reason);
-      return { success: false, error: swapConfig.reason };
+    if (swapMode === "disabled") {
+      const errorMessage = swapUnavailableReason ?? "Swap unavailable";
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
     }
 
     if (!signer) {
@@ -319,10 +324,9 @@ export function useSwap(
 
       const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
         method: "POST",
-        headers: buildJupiterHeaders(
-          (swapConfig as { apiKey: string }).apiKey,
-          { "Content-Type": "application/json" }
-        ),
+        headers: buildJupiterHeaders(swapApiKey, {
+          "Content-Type": "application/json",
+        }),
         body: JSON.stringify({
           userPublicKey: signer.publicKey.toBase58(),
           quoteResponse,
@@ -405,7 +409,14 @@ export function useSwap(
       setLoading(false);
       return { success: false, error: errorMessage };
     }
-  }, [connection, signer, quoteResponse, swapConfig]);
+  }, [
+    connection,
+    signer,
+    quoteResponse,
+    swapApiKey,
+    swapMode,
+    swapUnavailableReason,
+  ]);
 
   const resetQuote = useCallback(() => {
     quoteRequestIdRef.current += 1;
@@ -421,8 +432,7 @@ export function useSwap(
     quote,
     loading,
     error,
-    isAvailable: swapConfig.mode === "enabled",
-    unavailableReason:
-      swapConfig.mode === "disabled" ? swapConfig.reason : null,
+    isAvailable: swapMode === "enabled",
+    unavailableReason: swapUnavailableReason,
   };
 }
