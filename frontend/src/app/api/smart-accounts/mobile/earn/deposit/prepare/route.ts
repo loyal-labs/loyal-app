@@ -26,7 +26,7 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { findBestSafeUsdcEarnReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
@@ -242,17 +242,15 @@ export async function POST(request: Request) {
             : {}),
         }
       : undefined;
+    // A top-up deposits into the reserve the position is already in (always a
+    // safe USDC reserve), mirroring the session deposit-prepare. The previous
+    // findBestSafeUsdcEarnReserveTarget re-picked the best fresh candidate and
+    // hard-failed ~1-in-5 attempts whenever every safe USDC reserve was
+    // momentarily flagged reserveLastUpdateStale in the Timescale feed.
     const target =
       policy && activePosition
-        ? await findBestSafeUsdcEarnReserveTarget(cluster)
+        ? earnReserveTargetFromActivePosition(activePosition)
         : null;
-    if (policy && activePosition && !target) {
-      return jsonError(
-        409,
-        "no_eligible_earn_reserve",
-        "No fresh Safe USDC reserve candidate is available for this top-up."
-      );
-    }
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
