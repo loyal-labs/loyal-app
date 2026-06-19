@@ -617,8 +617,32 @@ export function applyEarnRpcSnapshotToPosition(
       mintSymbol: "USDC",
     },
     holdings: snapshot.holdings,
+    principalAmountRaw: deriveRpcSnapshotPrincipalAmountRaw(
+      activePosition,
+      totalAmountRaw
+    ),
     status: "active",
   };
+}
+
+function deriveRpcSnapshotPrincipalAmountRaw(
+  position: ActiveEarnPosition,
+  totalAmountRaw: bigint
+): string {
+  try {
+    const currentTotalAmountRaw = BigInt(position.currentTotalAmountRaw);
+    const principalAmountRaw = BigInt(position.principalAmountRaw);
+    if (
+      principalAmountRaw === currentTotalAmountRaw &&
+      currentTotalAmountRaw > totalAmountRaw
+    ) {
+      return totalAmountRaw.toString();
+    }
+  } catch {
+    return position.principalAmountRaw;
+  }
+
+  return position.principalAmountRaw;
 }
 
 function createPositionFromRpcHolding(

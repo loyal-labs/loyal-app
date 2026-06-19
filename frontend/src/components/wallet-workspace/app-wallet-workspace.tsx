@@ -662,18 +662,43 @@ function useMainAccountUsdcBalance(args: {
   };
 }
 
+function hasEarnPositionObservedConfirmedSlot(
+  position: ActiveEarnPosition,
+  confirmedSlot: string | undefined
+): boolean {
+  if (!confirmedSlot) {
+    return false;
+  }
+
+  try {
+    return (
+      BigInt(position.currentHolding.observedSlot) >= BigInt(confirmedSlot)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function buildPostDepositEarnPosition(args: {
   amountRaw: bigint;
   confirmedSlot?: string;
   current: ActiveEarnPosition | null;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
 }): ActiveEarnPosition {
+  const current = args.current;
+  if (
+    current &&
+    hasEarnPositionObservedConfirmedSlot(current, args.confirmedSlot)
+  ) {
+    return current;
+  }
+
   const amountRawString = args.amountRaw.toString();
   const currentTotalAmountRaw = (
-    BigInt(args.current?.currentTotalAmountRaw ?? "0") + args.amountRaw
+    BigInt(current?.currentTotalAmountRaw ?? "0") + args.amountRaw
   ).toString();
   const principalAmountRaw = (
-    BigInt(args.current?.principalAmountRaw ?? "0") + args.amountRaw
+    BigInt(current?.principalAmountRaw ?? "0") + args.amountRaw
   ).toString();
   const liquidityMint =
     args.preparedDeposit.targetReserve.liquidityMint.toBase58();
@@ -702,7 +727,7 @@ function buildPostDepositEarnPosition(args: {
   };
   const holdings = upsertPostDepositEarnHolding({
     amountRaw: args.amountRaw,
-    currentHoldings: args.current?.holdings,
+    currentHoldings: current?.holdings,
     depositedHolding,
   });
   const currentHoldingAmountRaw =
@@ -723,9 +748,9 @@ function buildPostDepositEarnPosition(args: {
       },
       reserve,
     },
-    currentSupplyApyBps: args.current?.currentSupplyApyBps ?? supplyApyBps,
+    currentSupplyApyBps: current?.currentSupplyApyBps ?? supplyApyBps,
     display,
-    initialHolding: args.current?.initialHolding ?? {
+    initialHolding: current?.initialHolding ?? {
       liquidityMint,
       market,
       reserve,

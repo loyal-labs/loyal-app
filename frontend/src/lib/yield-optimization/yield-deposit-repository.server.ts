@@ -126,6 +126,10 @@ export type ActiveYieldPositionForVaultLookupInput = Omit<
   ActiveYieldPositionLookupInput,
   "initialReserve"
 >;
+type ReconciledActiveYieldPositionForVaultLookupInput =
+  ActiveYieldPositionForVaultLookupInput & {
+    skipCurrentRowsObservedAtOrAfterSlot?: bigint;
+  };
 
 export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
   vaultPubkey?: string;
@@ -2347,6 +2351,7 @@ export async function recordConfirmedYieldDeposit(
     {
       cluster: input.cluster,
       settings: input.settings,
+      skipCurrentRowsObservedAtOrAfterSlot: input.confirmedSlot,
       vaultIndex: input.vaultIndex,
       walletAddress: input.walletAddress,
     },
@@ -2678,7 +2683,7 @@ export async function findActiveYieldPositionForVault(
 }
 
 export async function findReconciledActiveYieldPositionForVault(
-  input: ActiveYieldPositionForVaultLookupInput,
+  input: ReconciledActiveYieldPositionForVaultLookupInput,
   dependencies: YieldDepositRepositoryDependencies = createDependencies()
 ): Promise<UserYieldPositionRecord | null> {
   const position = await findActiveYieldPositionForVault(input, dependencies);
@@ -2726,6 +2731,12 @@ export async function findReconciledActiveYieldPositionForVault(
   );
 
   if (!current) {
+    return positionForRead;
+  }
+  if (
+    input.skipCurrentRowsObservedAtOrAfterSlot !== undefined &&
+    current.observedSlot >= input.skipCurrentRowsObservedAtOrAfterSlot
+  ) {
     return positionForRead;
   }
   if (current.observedSlot <= position.currentObservedSlot) {
