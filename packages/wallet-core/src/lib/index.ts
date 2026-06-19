@@ -1,5 +1,9 @@
 export * from "./jupiter/client";
 export * from "./jupiter/types";
+export {
+  computeUnshieldModifyAmount,
+  type ComputeUnshieldModifyAmountParams,
+} from "./shielding";
 export { getTokenIconUrl } from "./token-icon";
 export * from "./solana/sign-in";
 export * from "./solana/constants";

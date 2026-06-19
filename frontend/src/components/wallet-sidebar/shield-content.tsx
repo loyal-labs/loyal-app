@@ -451,6 +451,7 @@ export function ShieldContent({
     initialDirection
   );
   const [amount, setAmount] = useState("");
+  const [isMaxSelected, setIsMaxSelected] = useState(false);
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [resultAmount, setResultAmount] = useState("");
@@ -502,6 +503,7 @@ export function ShieldContent({
   const handlePercentage = useCallback(
     (pct: number) => {
       const bal = sourceBalance;
+      const isMax = pct === 100;
       let val = pct === 100 ? bal : bal * (pct / 100);
       // Reserve a small SOL buffer for gas only when shielding (public → vault).
       // Unshield drains the vault and pays fees from the public wallet, so
@@ -513,10 +515,15 @@ export function ShieldContent({
       ) {
         val = Math.max(0, bal - 0.00005);
       }
+      setIsMaxSelected(isMax && val > 0);
       setAmount(val > 0 ? formatAmountInputValue(val, token.symbol) : "");
     },
     [direction, sourceBalance, token.symbol]
   );
+
+  useEffect(() => {
+    setIsMaxSelected(false);
+  }, [direction, token.mint]);
 
   const handleConfirm = useCallback(async () => {
     if (!hasAmount || insufficientFunds) return;
@@ -549,7 +556,10 @@ export function ShieldContent({
               direction,
             },
           })
-        : await unshieldFn(params);
+        : await unshieldFn({
+            ...params,
+            isMax: isMaxSelected,
+          });
 
     if (result.success) {
       setPhase("success");
@@ -575,6 +585,7 @@ export function ShieldContent({
     shieldFn,
     unshieldFn,
     usdValue,
+    isMaxSelected,
   ]);
 
   // Report form button props to parent when chrome is managed externally
@@ -1308,7 +1319,10 @@ export function ShieldContent({
                   inputMode="decimal"
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
+                    if (v === "" || /^\d*\.?\d*$/.test(v)) {
+                      setIsMaxSelected(false);
+                      setAmount(v);
+                    }
                   }}
                   placeholder="0"
                   style={{
