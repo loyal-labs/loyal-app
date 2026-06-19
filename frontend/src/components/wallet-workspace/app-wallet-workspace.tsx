@@ -6021,10 +6021,9 @@ export function AppWalletWorkspace({
 
     if (type === "swapPanel") {
       const isVaultSwap = actionReturnSelection === "vault";
-      const refreshAfterWalletAction =
-        actionReturnSelection === "wallet"
-          ? refreshMainAccountBalances
-          : undefined;
+      const refreshAfterWalletAction = isVaultSwap
+        ? undefined
+        : refreshMainAccountBalances;
       const showTabs =
         !isVaultSwap &&
         (swapMode === "swap" ? swapFormActive : shieldFormActive);
