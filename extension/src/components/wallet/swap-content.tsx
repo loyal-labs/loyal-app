@@ -877,7 +877,10 @@ export function SwapContent({
   const { signer, connection } = useWalletContext();
 
   // Jupiter public API does not require a key for basic operations.
-  const swapConfig: SwapConfig = { mode: "enabled", apiKey: "" };
+  const swapConfig = useMemo<SwapConfig>(
+    () => ({ mode: "enabled", apiKey: "" }),
+    []
+  );
 
   const {
     getQuote,
@@ -896,6 +899,7 @@ export function SwapContent({
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [isQuoting, setIsQuoting] = useState(false);
   const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quoteUiRequestIdRef = useRef(0);
 
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
@@ -920,10 +924,46 @@ export function SwapContent({
   }, [toAmount, toToken.price]);
   const hasAmount = numericFrom > 0;
   const insufficientFunds = numericFrom > fromToken.balance;
+  const quoteUnavailable =
+    hasAmount && !isQuoting && !quote && Boolean(swapError);
+
+  const requestQuote = useCallback(() => {
+    if (!hasAmount || insufficientFunds || phase !== "form") return;
+
+    const quoteUiRequestId = quoteUiRequestIdRef.current + 1;
+    quoteUiRequestIdRef.current = quoteUiRequestId;
+    setIsQuoting(true);
+
+    void getQuote(
+      fromToken.symbol,
+      toToken.symbol,
+      String(numericFrom),
+      fromToken.mint,
+      undefined,
+      undefined,
+      toToken.mint
+    ).finally(() => {
+      if (quoteUiRequestIdRef.current === quoteUiRequestId) {
+        setIsQuoting(false);
+      }
+    });
+  }, [
+    fromToken.symbol,
+    fromToken.mint,
+    getQuote,
+    hasAmount,
+    insufficientFunds,
+    numericFrom,
+    phase,
+    toToken.symbol,
+    toToken.mint,
+  ]);
 
   // Debounced quote fetching
   useEffect(() => {
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
+    quoteUiRequestIdRef.current += 1;
+
     if (!hasAmount || insufficientFunds || phase !== "form") {
       resetQuote();
       setIsQuoting(false);
@@ -931,32 +971,13 @@ export function SwapContent({
     }
     setIsQuoting(true);
     quoteTimerRef.current = setTimeout(() => {
-      void getQuote(
-        fromToken.symbol,
-        toToken.symbol,
-        String(numericFrom),
-        fromToken.mint,
-        undefined,
-        undefined,
-        toToken.mint
-      ).finally(() => setIsQuoting(false));
+      requestQuote();
     }, 500);
     return () => {
+      quoteUiRequestIdRef.current += 1;
       if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     };
-  }, [
-    fromAmount,
-    fromToken.symbol,
-    fromToken.mint,
-    toToken.symbol,
-    toToken.mint,
-    hasAmount,
-    insufficientFunds,
-    phase,
-    getQuote,
-    resetQuote,
-    numericFrom,
-  ]);
+  }, [hasAmount, insufficientFunds, phase, requestQuote, resetQuote]);
 
   const buttonLabel = !isAvailable
     ? unavailableReason ?? "Swap unavailable"
@@ -966,11 +987,17 @@ export function SwapContent({
     ? "Insufficient Funds"
     : isQuoting
     ? "Getting quote..."
+    : quoteUnavailable
+    ? "Quote unavailable. Try again"
     : !quote
     ? "Enter Amount"
     : "Confirm and Swap";
   const buttonDisabled =
-    !isAvailable || !hasAmount || insufficientFunds || isQuoting || !quote;
+    !isAvailable ||
+    !hasAmount ||
+    insufficientFunds ||
+    isQuoting ||
+    (!quote && !quoteUnavailable);
   const amountColor = insufficientFunds && hasAmount ? red : "#000";
 
   const handleSwapTokens = useCallback(() => {
@@ -1038,6 +1065,15 @@ export function SwapContent({
     resetQuote,
   ]);
 
+  const handleFormButtonClick = useCallback(() => {
+    if (quoteUnavailable) {
+      requestQuote();
+      return;
+    }
+
+    void handleConfirm();
+  }, [handleConfirm, quoteUnavailable, requestQuote]);
+
   // Report form button props to parent when chrome is managed externally
   useEffect(() => {
     if (!hideFormChrome || !onFormButtonChange) return;
@@ -1048,7 +1084,7 @@ export function SwapContent({
     onFormButtonChange({
       label: buttonLabel,
       disabled: buttonDisabled,
-      onClick: handleConfirm,
+      onClick: handleFormButtonClick,
     });
   });
 
@@ -1072,7 +1108,10 @@ export function SwapContent({
     (pct: number) => {
       let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
-      if (fromToken.symbol.toUpperCase() === "SOL" && fromToken.balance - val < 0.00005) {
+      if (
+        fromToken.symbol.toUpperCase() === "SOL" &&
+        fromToken.balance - val < 0.00005
+      ) {
         val = Math.max(0, fromToken.balance - 0.00005);
       }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
@@ -1577,7 +1616,7 @@ export function SwapContent({
             <button
               className="confirm-btn"
               disabled={buttonDisabled}
-              onClick={handleConfirm}
+              onClick={handleFormButtonClick}
               style={{
                 width: "100%",
                 padding: "12px 16px",
