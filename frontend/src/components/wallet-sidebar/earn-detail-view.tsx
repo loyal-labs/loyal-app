@@ -71,6 +71,7 @@ const EARN_BALANCE_CATCH_UP_SPIN_MS = 1_800;
 const EARN_LAST_SEEN_BALANCE_STORAGE_PREFIX = "earn-detail:last-seen-balance";
 const EARN_LAST_SEEN_BALANCE_WRITE_MS = 1_000;
 const USDC_RAW_SCALE = BigInt(1_000_000);
+const USDC_DISPLAY_DUST_TOLERANCE = 1.5 / Number(USDC_RAW_SCALE);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
 const FALLBACK_EARN_APY = {
@@ -145,6 +146,7 @@ export type EarnWithdrawSourceOption = {
   market: string | null;
   reserve: string | null;
   sourceId: string;
+  supplyApyBps?: string | null;
   tokenAccount: string | null;
   type: "reserve" | "idle";
 };
@@ -183,6 +185,17 @@ function formatMoney(value: number) {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
   });
+}
+
+function snapDollarDisplayDust(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const nearestCent = Math.round(value * 100) / 100;
+  return Math.abs(value - nearestCent) <= USDC_DISPLAY_DUST_TOLERANCE
+    ? nearestCent
+    : value;
 }
 
 function formatDepositAmount(value: number) {
@@ -897,13 +910,13 @@ function writeEarnLastSeenBalance(
 
 function EarnGrowingBalance({
   baseAmount,
-  isEarningsReady = true,
+  isBalanceReady = true,
   isHidden = false,
   principalAmount,
   storageScope = null,
 }: {
   baseAmount: number;
-  isEarningsReady?: boolean;
+  isBalanceReady?: boolean;
   isHidden?: boolean;
   principalAmount: number;
   storageScope?: string | null;
@@ -921,9 +934,9 @@ function EarnGrowingBalance({
     if (!stored || stored.principal !== principalAmount || stored.value <= 0) {
       return null;
     }
-    // With earnings data already cached the live amount is trustworthy at
-    // mount, so a stored value at/above it has nothing to replay.
-    if (isEarningsReady && stored.value >= baseAmount) {
+    // Once the live balance is ready, a stored value at/above it has nothing
+    // to replay.
+    if (isBalanceReady && stored.value >= baseAmount) {
       return null;
     }
     return stored.value;
@@ -936,7 +949,7 @@ function EarnGrowingBalance({
   latestBaseAmountRef.current = baseAmount;
 
   useEffect(() => {
-    if (!(isCatchingUp && isEarningsReady)) {
+    if (!(isCatchingUp && isBalanceReady)) {
       return;
     }
     // Hold the last-seen value for one painted frame, then run a single long
@@ -952,7 +965,7 @@ function EarnGrowingBalance({
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
-  }, [isCatchingUp, isEarningsReady]);
+  }, [isBalanceReady, isCatchingUp]);
 
   useEffect(() => {
     if (isCatchingUp) {
@@ -989,6 +1002,7 @@ function EarnGrowingBalance({
       persist();
     };
   }, [storageScope]);
+  const displayValue = snapDollarDisplayDust(value);
 
   return (
     <>
@@ -1031,7 +1045,7 @@ function EarnGrowingBalance({
           easing: "cubic-bezier(0.2, 0, 0, 1)",
         }}
         trend={1}
-        value={value}
+        value={displayValue}
       />
     </>
   );
@@ -1148,44 +1162,6 @@ export function deriveEstimatedEarnedAmount({
   return Number.isFinite(earningsData.lifetimeEarnedUsd)
     ? earningsData.lifetimeEarnedUsd
     : 0;
-}
-
-export function deriveEstimatedEarnBalanceAmount({
-  apyBps,
-  earningsData,
-  earningsError,
-  generatedAt,
-  nowMs,
-  principalAmount,
-}: {
-  apyBps: number;
-  earningsData: EarnEarningsResponse | null;
-  earningsError: string | null;
-  generatedAt: string | null;
-  nowMs?: number;
-  principalAmount: number;
-}) {
-  if (earningsError || !earningsData) {
-    return principalAmount;
-  }
-
-  const sinceLastDepositEarnedUsd = Number.isFinite(
-    earningsData.sinceLastDepositEarnedUsd
-  )
-    ? earningsData.sinceLastDepositEarnedUsd
-    : 0;
-  const liveEarnedUsd = deriveLiveEarnedUsd({
-    apyBps,
-    generatedAt,
-    nowMs,
-    principalAmount,
-  });
-
-  return Number(
-    (principalAmount + sinceLastDepositEarnedUsd + liveEarnedUsd).toFixed(
-      EARN_BALANCE_DECIMALS
-    )
-  );
 }
 
 function deriveLiveEarnedUsd({
@@ -1890,60 +1866,50 @@ function formatRawUsdcAmount(rawAmount: string) {
 }
 
 function createWithdrawSourceOptions(
-  holdings: ActiveEarnPositionHolding[] | undefined,
-  fallbackAmount: number
+  holdings: ActiveEarnPositionHolding[] | undefined
 ): EarnWithdrawSourceOption[] {
-  const options =
-    holdings
-      ?.filter((holding) => {
-        try {
-          return BigInt(holding.amountRaw) > BigInt(0);
-        } catch {
-          return false;
-        }
-      })
-      .map((holding): EarnWithdrawSourceOption => {
-        const tokenAccount =
-          typeof holding.provenance.tokenAccount === "string"
-            ? holding.provenance.tokenAccount
-            : null;
-        const sourceId =
-          holding.kind === "idle"
-            ? tokenAccount ?? holding.liquidityMint
-            : holding.reserve ?? holding.liquidityMint;
-        return {
-          amountRaw: holding.amountRaw,
-          balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
-          id: `${holding.kind}:${sourceId}`,
-          label:
-            holding.kind === "idle"
-              ? "Idle vault USDC"
-              : `${holding.marketName} reserve`,
-          liquidityMint: holding.liquidityMint,
-          market: holding.market,
-          reserve: holding.reserve,
-          sourceId,
-          tokenAccount,
-          type: holding.kind === "idle" ? "idle" : "reserve",
-        };
-      }) ?? [];
+  const positiveHoldings =
+    holdings?.filter((holding) => {
+      try {
+        return BigInt(holding.amountRaw) > BigInt(0);
+      } catch {
+        return false;
+      }
+    }) ?? [];
+  const hasReserveHolding = positiveHoldings.some(
+    (holding) => holding.kind === "kamino"
+  );
+  const eligibleHoldings = hasReserveHolding
+    ? positiveHoldings.filter((holding) => holding.kind === "kamino")
+    : positiveHoldings;
+  const options = eligibleHoldings.map((holding): EarnWithdrawSourceOption => {
+    const tokenAccount =
+      typeof holding.provenance.tokenAccount === "string"
+        ? holding.provenance.tokenAccount
+        : null;
+    const sourceId =
+      holding.kind === "idle"
+        ? tokenAccount ?? holding.liquidityMint
+        : holding.reserve ?? holding.liquidityMint;
+    return {
+      amountRaw: holding.amountRaw,
+      balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
+      id: `${holding.kind}:${sourceId}`,
+      label:
+        holding.kind === "idle"
+          ? "Idle vault USDC"
+          : `${holding.marketName} reserve`,
+      liquidityMint: holding.liquidityMint,
+      market: holding.market,
+      reserve: holding.reserve,
+      sourceId,
+      supplyApyBps: holding.supplyApyBps,
+      tokenAccount,
+      type: holding.kind === "idle" ? "idle" : "reserve",
+    };
+  });
 
-  return options.length > 0
-    ? options
-    : [
-        {
-          amountRaw: Math.round(fallbackAmount * 1_000_000).toString(),
-          balance: fallbackAmount,
-          id: "reserve:fallback",
-          label: "Earn vault",
-          liquidityMint: "",
-          market: null,
-          reserve: null,
-          sourceId: "",
-          tokenAccount: null,
-          type: "reserve",
-        },
-      ];
+  return options;
 }
 
 function formatScheduledSweepTime(eligibleAfter: string): string {
@@ -1980,7 +1946,7 @@ function getScheduledSweepSourceLabel(classification: string): string {
 }
 
 function AutodepositCard({
-  amountLabel,
+  floorAccountLabel = "your wallet",
   floorLabel,
   hasCurrentPosition = false,
   isBalanceHidden = false,
@@ -1990,7 +1956,7 @@ function AutodepositCard({
   onDisable,
   onSetUp,
 }: {
-  amountLabel?: string;
+  floorAccountLabel?: string;
   floorLabel?: string;
   hasCurrentPosition?: boolean;
   isBalanceHidden?: boolean;
@@ -2021,10 +1987,12 @@ function AutodepositCard({
       ? "Resuming…"
       : state === "paused"
       ? "Paused"
-      : `Up to ${amountLabel ?? "$0"}/mo above ${floorLabel ?? "$0"}`;
-  // Only the configured "Up to $X/mo above $Y" status carries balance numbers;
-  // the creating/closing/pausing/resuming/paused statuses are plain text and
-  // must not blur.
+      : `Keeps ${
+          floorLabel ?? "$0"
+        } in ${floorAccountLabel}, moves the rest to the best earn position`;
+  // Only the configured Smart Account status carries balance numbers; the
+  // creating/closing/pausing/resuming/paused statuses are plain text and must
+  // not blur.
   const statusLabelHasAmount = !isBusy && !isToggling && state !== "paused";
 
   if (isConfigured) {
@@ -2358,10 +2326,11 @@ function AutodepositCard({
 }
 
 export function EarnDetailView({
-  autodepositAmountLabel,
+  autodepositFloorAccountLabel,
   autodepositFloorLabel,
   autodepositScheduledSweeps = [],
   autodepositState = "idle",
+  currentBalanceAmount = 0,
   currentPositionHoldings,
   currentPositionMarketName = "Main Kamino",
   currentPositionTokenSymbol = "USDC",
@@ -2376,7 +2345,7 @@ export function EarnDetailView({
   onWithdraw,
   principalAmount = 0,
 }: {
-  autodepositAmountLabel?: string;
+  autodepositFloorAccountLabel?: string;
   autodepositFloorLabel?: string;
   autodepositScheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   autodepositState?:
@@ -2387,6 +2356,7 @@ export function EarnDetailView({
     | "paused"
     | "pausing"
     | "resuming";
+  currentBalanceAmount?: number;
   currentPositionHoldings?: ActiveEarnPositionHolding[];
   currentPositionMarketName?: string;
   currentPositionTokenSymbol?: string;
@@ -2458,20 +2428,13 @@ export function EarnDetailView({
         }))
       : [
           {
-            amount: formatForecastMoney(principalAmount, true),
+            amount: formatForecastMoney(currentBalanceAmount, true),
             key: "current-position",
             primary: currentPositionMarketName,
             secondary: currentPositionTokenSymbol,
           },
         ];
-  const displayBalanceAmount = deriveEstimatedEarnBalanceAmount({
-    apyBps: estimatedEarnedAmountApyBps,
-    earningsData,
-    earningsError,
-    generatedAt: earningsRangeSet?.generatedAt ?? null,
-    nowMs: earnLiveNowMs,
-    principalAmount,
-  });
+  const displayBalanceAmount = currentBalanceAmount;
   const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
     apyBps: estimatedEarnedAmountApyBps,
     earningsData,
@@ -2636,7 +2599,7 @@ export function EarnDetailView({
             {hasCurrentPosition ? (
               <EarnGrowingBalance
                 baseAmount={displayBalanceAmount}
-                isEarningsReady={Boolean(earningsRangeSet || earningsError)}
+                isBalanceReady
                 isHidden={isBalanceHidden}
                 principalAmount={principalAmount}
                 storageScope={balanceStorageScope}
@@ -2690,7 +2653,7 @@ export function EarnDetailView({
       ) : null}
 
       <AutodepositCard
-        amountLabel={autodepositAmountLabel}
+        floorAccountLabel={autodepositFloorAccountLabel}
         floorLabel={autodepositFloorLabel}
         hasCurrentPosition={hasCurrentPosition}
         isBalanceHidden={isBalanceHidden}
@@ -3128,7 +3091,6 @@ function BucksAmountInput({
 export function EarnWithdrawView({
   currentPositionHoldings,
   isSubmitting = false,
-  maxWithdrawAmount = 1280,
   onClose,
   onDraftChange,
   onDraftSubmit,
@@ -3138,7 +3100,6 @@ export function EarnWithdrawView({
 }: {
   currentPositionHoldings?: ActiveEarnPositionHolding[];
   isSubmitting?: boolean;
-  maxWithdrawAmount?: number;
   onClose?: () => void;
   onDraftChange?: (draft: EarnWithdrawDraft | null) => void;
   onDraftSubmit?: (draft: EarnWithdrawDraft) => void | Promise<void>;
@@ -3154,17 +3115,17 @@ export function EarnWithdrawView({
   const destinationOptions =
     destinations.length > 0 ? destinations : FALLBACK_EARN_DEPOSIT_SOURCES;
   const sourceOptions = useMemo(
-    () =>
-      createWithdrawSourceOptions(currentPositionHoldings, maxWithdrawAmount),
-    [currentPositionHoldings, maxWithdrawAmount]
+    () => createWithdrawSourceOptions(currentPositionHoldings),
+    [currentPositionHoldings]
   );
   const [selectedSourceId, setSelectedSourceId] = useState(
-    sourceOptions[0]?.id ?? "reserve:fallback"
+    sourceOptions[0]?.id ?? ""
   );
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
   const selectedSource =
     sourceOptions.find((source) => source.id === selectedSourceId) ??
-    sourceOptions[0];
+    sourceOptions[0] ??
+    null;
   const alternateSourceOptions = sourceOptions.filter(
     (source) => source.id !== selectedSource?.id
   );
@@ -3177,22 +3138,24 @@ export function EarnWithdrawView({
     FALLBACK_EARN_DEPOSIT_SOURCES[0];
   const hasWithdrawAmount = withdrawAmount.length > 0;
   const numericWithdrawAmount = Number(withdrawAmount.replace(/,/g, ""));
-  const selectedSourceMaxAmount = selectedSource?.balance ?? maxWithdrawAmount;
+  const selectedSourceMaxAmount = selectedSource?.balance ?? 0;
   const effectiveWithdrawAmount = hasWithdrawAmount
     ? numericWithdrawAmount
     : selectedSourceMaxAmount;
   const effectiveWithdrawAmountLabel = hasWithdrawAmount
     ? withdrawAmount
     : formatDepositAmount(selectedSourceMaxAmount);
-  const isFullWithdraw =
-    !hasWithdrawAmount ||
-    (Number.isFinite(effectiveWithdrawAmount) &&
-      deriveEarnWithdrawMode({
-        amount: effectiveWithdrawAmount,
-        maxWithdrawAmount: selectedSourceMaxAmount,
-      }) === "full");
+  const effectiveWithdrawMode =
+    selectedSource?.type === "reserve"
+      ? "partial"
+      : deriveEarnWithdrawMode({
+          amount: effectiveWithdrawAmount,
+          maxWithdrawAmount: selectedSourceMaxAmount,
+        });
   const withdrawAmountError =
-    !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
+    !selectedSource
+      ? "No withdrawable Earn source"
+      : !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
       ? "Enter an amount"
       : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
       ? "Insufficient balance"
@@ -3202,22 +3165,28 @@ export function EarnWithdrawView({
     ? "Withdrawing..."
     : withdrawAmountError ??
       `Withdraw $${formatEarnActionCtaAmount(effectiveWithdrawAmount)}`;
-  const buildCurrentDraft = (): EarnWithdrawDraft => ({
-    amount: effectiveWithdrawAmount,
-    amountLabel: effectiveWithdrawAmountLabel,
-    destination: selectedDestination,
-    mode: isFullWithdraw ? "full" : "partial",
-    source: selectedSource,
-    symbol: "USDC",
-    tokenDecimals: 6,
-  });
+  const buildCurrentDraft = (): EarnWithdrawDraft => {
+    if (!selectedSource) {
+      throw new Error("No withdrawable Earn source was found.");
+    }
+
+    return {
+      amount: effectiveWithdrawAmount,
+      amountLabel: effectiveWithdrawAmountLabel,
+      destination: selectedDestination,
+      mode: effectiveWithdrawMode,
+      source: selectedSource,
+      symbol: "USDC",
+      tokenDecimals: 6,
+    };
+  };
 
   useEffect(() => {
     if (
       selectedSourceId &&
       !sourceOptions.some((source) => source.id === selectedSourceId)
     ) {
-      setSelectedSourceId(sourceOptions[0]?.id ?? "reserve:fallback");
+      setSelectedSourceId(sourceOptions[0]?.id ?? "");
       setIsSourceDropdownOpen(false);
     }
   }, [selectedSourceId, sourceOptions]);
@@ -3326,9 +3295,9 @@ export function EarnWithdrawView({
                 if (sanitizedValue === null) {
                   return;
                 }
-                // Typing past the position balance snaps the field to the max
-                // withdrawable amount, which also flips the draft to "full".
-                const numericValue = Number(sanitizedValue.replace(/,/g, ""));
+                const numericValue = Number(
+                  sanitizedValue.replace(/,/g, "")
+                );
                 setWithdrawAmount(
                   numericValue > selectedSourceMaxAmount
                     ? formatBucksAmount(selectedSourceMaxAmount)
@@ -3457,7 +3426,7 @@ export function EarnWithdrawView({
               ? void onDraftSubmit(buildCurrentDraft())
               : void onComplete?.({
                   amount: effectiveWithdrawAmount,
-                  mode: isFullWithdraw ? "full" : "partial",
+                  mode: effectiveWithdrawMode,
                 })
           }
           style={{

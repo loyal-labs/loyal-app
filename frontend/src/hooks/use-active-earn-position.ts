@@ -1,14 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
+import type { Connection } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   readClientCache,
   removeClientCache,
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
+import {
+  fetchEarnRpcHoldingsSnapshot,
+  sumEarnRpcHoldingsAmountRaw,
+  type EarnRpcHolding,
+  type EarnRpcHoldingsSnapshot,
+  type EarnRpcPolicyMetadata,
+  type EarnRpcReserveCandidate,
+  type EarnRpcWatchedAccount,
+} from "@/lib/yield-optimization/earn-rpc-holdings.client";
 
-const EARN_POSITION_CACHE_VERSION = 3;
+const EARN_POSITION_CACHE_VERSION = 4;
+const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
 
 export type ActiveEarnPositionHolding = {
   amountRaw: string;
@@ -64,13 +78,36 @@ type LastEarnPositionCachePayload = {
   settingsPda: string;
 };
 
-type ActiveEarnPositionResponse = {
+type EarnPositionConnection = Pick<
+  Connection,
+  "getMultipleAccountsInfoAndContext"
+> &
+  Partial<
+    Pick<Connection, "onAccountChange" | "removeAccountChangeListener">
+  >;
+
+type RpcPositionRead = {
   position: ActiveEarnPosition | null;
+  watchedAccounts: EarnRpcWatchedAccount[];
 };
 
-type ReconcileEarnPositionResponse = {
-  status: "cached" | "missing" | "refreshed";
-};
+function getEarnRpcPolicyKey(
+  policy: EarnRpcPolicyMetadata | null | undefined
+): string {
+  if (!policy) {
+    return "none";
+  }
+
+  return [
+    policy.account,
+    policy.seed,
+    String(policy.vaultIndex),
+    policy.vaultPubkey,
+    ...(policy.stableMints ?? []),
+    ...(policy.kaminoLiquidityMints ?? []),
+    ...(policy.kaminoMarkets ?? []),
+  ].join("|");
+}
 
 export function isActiveEarnPosition(
   position: ActiveEarnPosition | null | undefined
@@ -199,63 +236,19 @@ export function writeEarnPositionCache(args: {
   writeLastEarnPositionCache(args);
 }
 
-export async function fetchActiveEarnPosition(): Promise<ActiveEarnPosition | null> {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/position",
-    {
-      credentials: "include",
-    }
-  );
-
-  if (response.status === 401) {
-    return null;
-  }
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to load active earn position."
-    );
-  }
-
-  const payload = (await response.json()) as ActiveEarnPositionResponse;
-  return payload.position;
-}
-
-async function reconcileActiveEarnPosition(): Promise<ReconcileEarnPositionResponse | null> {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/position/reconcile",
-    {
-      credentials: "include",
-      method: "POST",
-    }
-  );
-
-  if (response.status === 401 || response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to reconcile active earn position."
-    );
-  }
-
-  return (await response.json()) as ReconcileEarnPositionResponse;
-}
-
 export function useActiveEarnPosition({
+  connection,
+  earnPolicy,
   enabled,
+  programId,
   settingsPda,
   solanaEnv,
   walletAddress,
 }: {
+  connection?: EarnPositionConnection | null;
+  earnPolicy?: EarnRpcPolicyMetadata | null;
   enabled: boolean;
+  programId?: string | null;
   settingsPda: string | null | undefined;
   solanaEnv: string;
   walletAddress: string | null | undefined;
@@ -263,8 +256,14 @@ export function useActiveEarnPosition({
   const [position, setPositionState] = useState<ActiveEarnPosition | null>(
     null
   );
+  const [watchedAccounts, setWatchedAccounts] = useState<
+    EarnRpcWatchedAccount[]
+  >([]);
+  const positionRef = useRef<ActiveEarnPosition | null>(null);
+  const suppressSubscriptionRefreshThroughSlotRef = useRef<bigint | null>(null);
 
   const canUseCache = Boolean(enabled && walletAddress && settingsPda);
+  const earnPolicyKey = getEarnRpcPolicyKey(earnPolicy);
 
   const setPosition = useCallback(
     (
@@ -275,6 +274,7 @@ export function useActiveEarnPosition({
     ) => {
       setPositionState((current) => {
         const resolved = typeof next === "function" ? next(current) : next;
+        positionRef.current = resolved;
         if (walletAddress && settingsPda) {
           writeEarnPositionCache({
             solanaEnv,
@@ -289,20 +289,88 @@ export function useActiveEarnPosition({
     [settingsPda, solanaEnv, walletAddress]
   );
 
+  const readRpcPosition = useCallback(
+    async (
+      basePosition: ActiveEarnPosition | null
+    ): Promise<RpcPositionRead | null> => {
+      if (!connection || !programId || !earnPolicy || !settingsPda) {
+        return null;
+      }
+
+      const snapshot = await fetchEarnRpcHoldingsSnapshot({
+        candidates: createEarnRpcReserveCandidates(basePosition),
+        cluster: resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(solanaEnv)),
+        connection,
+        policy: earnPolicy,
+        programId: new PublicKey(programId),
+        settingsPda: new PublicKey(settingsPda),
+      });
+
+      return {
+        position: applyEarnRpcSnapshotToPosition(basePosition, snapshot),
+        watchedAccounts: snapshot.provenance.watchedAccounts,
+      };
+    },
+    [connection, earnPolicyKey, programId, settingsPda, solanaEnv]
+  );
+
+  const commitRpcPosition = useCallback(
+    (next: RpcPositionRead) => {
+      if (walletAddress && settingsPda) {
+        writeEarnPositionCache({
+          solanaEnv,
+          walletAddress,
+          settingsPda,
+          position: next.position,
+        });
+      }
+      positionRef.current = next.position;
+      setWatchedAccounts(next.watchedAccounts);
+      setPositionState(next.position);
+    },
+    [settingsPda, solanaEnv, walletAddress]
+  );
+
   const refresh = useCallback(async () => {
-    const next = await fetchActiveEarnPosition();
-    setPosition(next);
-    return next;
-  }, [setPosition]);
+    const currentPosition = positionRef.current;
+    const next = await readRpcPosition(currentPosition);
+    if (!next) {
+      return currentPosition;
+    }
+
+    commitRpcPosition(next);
+    return next.position;
+  }, [commitRpcPosition, readRpcPosition]);
+
+  const suppressSubscriptionRefreshThroughSlot = useCallback(
+    (slot: bigint | number | string | null | undefined) => {
+      if (slot == null) {
+        return;
+      }
+
+      try {
+        const nextSlot = BigInt(slot);
+        const current = suppressSubscriptionRefreshThroughSlotRef.current;
+        if (current === null || nextSlot > current) {
+          suppressSubscriptionRefreshThroughSlotRef.current = nextSlot;
+        }
+      } catch {
+        // Ignore malformed slot hints; the subscription will refresh normally.
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!canUseCache || !walletAddress || !settingsPda) {
+      setWatchedAccounts([]);
       if (enabled && walletAddress && !settingsPda) {
         const fallback = readLastEarnPositionCache({
           solanaEnv,
           walletAddress,
         });
         if (fallback?.position) {
+          positionRef.current = fallback.position;
           setPositionState(fallback.position);
           return;
         }
@@ -312,6 +380,7 @@ export function useActiveEarnPosition({
         return;
       }
 
+      positionRef.current = null;
       setPositionState(null);
       return;
     }
@@ -322,70 +391,268 @@ export function useActiveEarnPosition({
       settingsPda,
     });
     if (cached) {
+      positionRef.current = cached;
       setPositionState(cached);
+    } else {
+      positionRef.current = null;
+      setPositionState(null);
     }
 
     let cancelled = false;
-    fetchActiveEarnPosition()
-      .then((fresh) => {
-        if (cancelled) {
-          return;
-        }
-        setPositionState((current) => {
-          if (
-            fresh !== null &&
-            !isActiveEarnPosition(fresh) &&
-            isActiveEarnPosition(current)
-          ) {
-            return current;
-          }
+    const loadLivePosition = async () => {
+      const next = await readRpcPosition(cached ?? null);
+      if (cancelled) {
+        return;
+      }
+      if (next) {
+        commitRpcPosition(next);
+      }
+    };
 
-          writeEarnPositionCache({
-            solanaEnv,
-            walletAddress,
-            settingsPda,
-            position: fresh,
-          });
-          return fresh;
-        });
-
-        return reconcileActiveEarnPosition();
-      })
-      .then((reconciled) => {
-        if (cancelled || reconciled?.status !== "refreshed") {
-          return null;
-        }
-
-        return fetchActiveEarnPosition();
-      })
-      .then((reconciledFresh) => {
-        if (cancelled || !reconciledFresh) {
-          return;
-        }
-
-        writeEarnPositionCache({
-          solanaEnv,
-          walletAddress,
-          settingsPda,
-          position: reconciledFresh,
-        });
-        setPositionState(reconciledFresh);
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        console.warn("[earn-position] failed to load active position", error);
-      });
+    loadLivePosition().catch((error) => {
+      if (cancelled) {
+        return;
+      }
+      console.warn("[earn-position] failed to load live active position", error);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [canUseCache, enabled, settingsPda, solanaEnv, walletAddress]);
+  }, [
+    canUseCache,
+    commitRpcPosition,
+    enabled,
+    readRpcPosition,
+    settingsPda,
+    solanaEnv,
+    walletAddress,
+  ]);
+
+  const watchAccountKey = watchedAccounts
+    .filter((account) => account.kind !== "reserve")
+    .map((account) => `${account.kind}:${account.pubkey}`)
+    .join("|");
+
+  useEffect(() => {
+    const onAccountChange = connection?.onAccountChange?.bind(connection);
+    const removeAccountChangeListener =
+      connection?.removeAccountChangeListener?.bind(connection);
+    if (
+      !enabled ||
+      !onAccountChange ||
+      !removeAccountChangeListener ||
+      !watchAccountKey
+    ) {
+      return;
+    }
+
+    let closed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const subscriptionIds: number[] = [];
+    const watchAccounts = watchAccountKey.split("|").map((entry) => {
+      const separatorIndex = entry.indexOf(":");
+      return new PublicKey(entry.slice(separatorIndex + 1));
+    });
+
+    const refreshFromSubscription = (
+      _accountInfo?: unknown,
+      context?: { slot?: number }
+    ) => {
+      const changedSlot =
+        typeof context?.slot === "number" ? BigInt(context.slot) : null;
+      const suppressThrough =
+        suppressSubscriptionRefreshThroughSlotRef.current;
+      if (
+        changedSlot !== null &&
+        suppressThrough !== null &&
+        changedSlot <= suppressThrough
+      ) {
+        return;
+      }
+
+      if (closed || timer) {
+        return;
+      }
+
+      timer = setTimeout(() => {
+        timer = null;
+        refresh().catch((error) => {
+          if (!closed) {
+            console.warn(
+              "[earn-position] failed to refresh live active position",
+              error
+            );
+          }
+        });
+      }, EARN_POSITION_REFRESH_DEBOUNCE_MS);
+    };
+
+    const subscribe = async () => {
+      for (const account of watchAccounts) {
+        const subscriptionId = await onAccountChange(
+          account,
+          refreshFromSubscription,
+          "confirmed"
+        );
+        if (closed) {
+          await removeAccountChangeListener(subscriptionId);
+          continue;
+        }
+
+        subscriptionIds.push(subscriptionId);
+      }
+    };
+
+    subscribe().catch((error) => {
+      if (!closed) {
+        console.warn(
+          "[earn-position] failed to subscribe to live active position",
+          error
+        );
+      }
+    });
+
+    return () => {
+      closed = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+
+      for (const subscriptionId of subscriptionIds) {
+        void removeAccountChangeListener(subscriptionId);
+      }
+    };
+  }, [connection, enabled, refresh, watchAccountKey]);
 
   return {
     position,
     refresh,
     setPosition,
+    suppressSubscriptionRefreshThroughSlot,
+  };
+}
+
+export function createEarnRpcReserveCandidates(
+  position: ActiveEarnPosition | null | undefined
+): EarnRpcReserveCandidate[] {
+  const candidates: Array<EarnRpcReserveCandidate | null> = [
+    ...(position?.holdings ?? [])
+      .filter((holding) => holding.kind === "kamino")
+      .map((holding) => ({
+        amountRaw: holding.amountRaw,
+        liquidityMint: holding.liquidityMint,
+        market: holding.market,
+        reserve: holding.reserve,
+        supplyApyBps: holding.supplyApyBps,
+      })),
+    position?.currentHolding
+      ? {
+          amountRaw: position.currentHolding.amountRaw,
+          liquidityMint: position.currentHolding.liquidityMint,
+          market: position.currentHolding.market,
+          reserve: position.currentHolding.reserve,
+          supplyApyBps: position.currentSupplyApyBps,
+        }
+      : null,
+    position?.initialHolding
+      ? {
+          amountRaw: null,
+          liquidityMint: position.initialHolding.liquidityMint,
+          market: position.initialHolding.market,
+          reserve: position.initialHolding.reserve,
+          supplyApyBps: position.initialHolding.supplyApyBps,
+        }
+      : null,
+  ];
+
+  return candidates.filter(
+    (candidate): candidate is EarnRpcReserveCandidate => candidate !== null
+  );
+}
+
+export function applyEarnRpcSnapshotToPosition(
+  position: ActiveEarnPosition | null | undefined,
+  snapshot: EarnRpcHoldingsSnapshot
+): ActiveEarnPosition | null {
+  const totalAmountRaw = sumEarnRpcHoldingsAmountRaw(snapshot.holdings);
+  if (totalAmountRaw <= BigInt(0)) {
+    return null;
+  }
+
+  const primaryHolding =
+    snapshot.holdings.find((holding) => holding.kind === "kamino") ??
+    snapshot.holdings[0];
+  if (!primaryHolding) {
+    return null;
+  }
+
+  const activePosition = position ?? createPositionFromRpcHolding(primaryHolding);
+  const currentHolding = {
+    amountRaw: primaryHolding.amountRaw,
+    liquidityMint: primaryHolding.liquidityMint,
+    market: primaryHolding.market,
+    observedAt: primaryHolding.observedAt,
+    observedSlot: primaryHolding.observedSlot,
+    provenance: {
+      lastHoldingEventId:
+        activePosition.currentHolding.provenance.lastHoldingEventId,
+      lastRebalanceDecisionId:
+        activePosition.currentHolding.provenance.lastRebalanceDecisionId,
+    },
+    reserve: primaryHolding.reserve ?? "",
+  };
+
+  return {
+    ...activePosition,
+    currentHolding,
+    currentSupplyApyBps:
+      snapshot.holdings.find((holding) => holding.kind === "kamino")
+        ?.supplyApyBps ?? activePosition.currentSupplyApyBps,
+    currentTotalAmountRaw: totalAmountRaw.toString(),
+    display: {
+      label: primaryHolding.label,
+      marketName: primaryHolding.marketName,
+      mintSymbol: "USDC",
+    },
+    holdings: snapshot.holdings,
+    status: "active",
+  };
+}
+
+function createPositionFromRpcHolding(
+  holding: EarnRpcHolding
+): ActiveEarnPosition {
+  const reserve = holding.reserve ?? "";
+  return {
+    currentHolding: {
+      amountRaw: holding.amountRaw,
+      liquidityMint: holding.liquidityMint,
+      market: holding.market,
+      observedAt: holding.observedAt,
+      observedSlot: holding.observedSlot,
+      provenance: {
+        lastHoldingEventId: null,
+        lastRebalanceDecisionId: null,
+      },
+      reserve,
+    },
+    currentSupplyApyBps: holding.supplyApyBps,
+    currentTotalAmountRaw: holding.amountRaw,
+    display: {
+      label: holding.label,
+      marketName: holding.marketName,
+      mintSymbol: "USDC",
+    },
+    holdings: [holding],
+    initialHolding: {
+      liquidityMint: holding.liquidityMint,
+      market: holding.market,
+      reserve,
+      supplyApyBps: holding.supplyApyBps,
+    },
+    principalAmountRaw: holding.amountRaw,
+    status: "active",
   };
 }

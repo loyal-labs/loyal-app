@@ -8,14 +8,18 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import {
   parseEarnWithdrawPrepareRequestBody,
   serializePreparedEarnUsdcWithdraw,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  findCurrentEarnAutodepositState,
+  reconcileMissingOnChainEarnAutodepositPolicy,
+} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
@@ -51,7 +55,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(cluster);
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -128,9 +132,7 @@ function sourceMatchesDirectIdentifier(
     return true;
   }
 
-  return source.type === "reserve"
-    ? identifiers.includes(source.reserve)
-    : identifiers.includes(source.tokenAccount);
+  return source.type === "reserve" && identifiers.includes(source.reserve);
 }
 
 function sourceMatchesStableMint(
@@ -231,11 +233,7 @@ function selectEarnWithdrawSource(args: {
           },
         ]
       : [];
-  const sources = [
-    ...reserveSources,
-    ...idleSources,
-    ...positionFallbackSources,
-  ];
+  const sources = [...reserveSources, ...idleSources, ...positionFallbackSources];
 
   if (sources.length === 0) {
     throw new Error("No active Earn withdrawal source was found.");
@@ -292,6 +290,15 @@ export async function POST(request: Request) {
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
       programId,
       settingsPda,
+    });
+    const connection = getConnection(solanaEnv);
+    await reconcileEarnVaultPosition({
+      authority: principal.walletAddress,
+      cluster,
+      connection,
+      force: true,
+      settings: principal.settingsPda,
+      vaultPubkey: earnVaultPda.toBase58(),
     });
     const [policyResult, position, currentReserveRows, currentIdleRows] =
       await Promise.all([
@@ -367,7 +374,9 @@ export async function POST(request: Request) {
           total +
           (selectedSource.type === "reserve" &&
           row.reserve === selectedSource.reserve
-            ? row.amountRaw - effectiveAmountRaw!
+            ? row.amountRaw > effectiveAmountRaw!
+              ? row.amountRaw - effectiveAmountRaw!
+              : BigInt(0)
             : row.amountRaw),
         BigInt(0)
       ) +
@@ -376,7 +385,9 @@ export async function POST(request: Request) {
           total +
           (selectedSource.type === "idle" &&
           row.tokenAccount === selectedSource.tokenAccount
-            ? row.amountRaw - effectiveAmountRaw!
+            ? row.amountRaw > effectiveAmountRaw!
+              ? row.amountRaw - effectiveAmountRaw!
+              : BigInt(0)
             : row.amountRaw),
         BigInt(0)
       );
@@ -384,7 +395,7 @@ export async function POST(request: Request) {
 
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
-      connection: getConnection(solanaEnv),
+      connection,
       programId,
     });
     const yieldRoutingPolicy = {
@@ -407,22 +418,64 @@ export async function POST(request: Request) {
             walletAddress: principal.walletAddress,
           })
         : null;
-    const autodepositClose =
+    let autodepositClose:
+      | {
+          policy: PublicKey;
+          recurringDelegation: PublicKey;
+        }
+      | undefined;
+    let reconciledMissingAutodepositPolicy = false;
+
+    if (
       autodepositState?.policy.policyAccount &&
       autodepositState.target.recurringDelegation
-        ? {
-            policy: new PublicKey(autodepositState.policy.policyAccount),
-            recurringDelegation: new PublicKey(
-              autodepositState.target.recurringDelegation
-            ),
+    ) {
+      const autodepositPolicyAccount = new PublicKey(
+        autodepositState.policy.policyAccount
+      );
+      const autodepositPolicyInfo = await connection.getAccountInfo(
+        autodepositPolicyAccount,
+        "confirmed"
+      );
+
+      if (autodepositPolicyInfo) {
+        autodepositClose = {
+          policy: autodepositPolicyAccount,
+          recurringDelegation: new PublicKey(
+            autodepositState.target.recurringDelegation
+          ),
+        };
+      } else {
+        reconciledMissingAutodepositPolicy = true;
+        const reconciledTarget =
+          await reconcileMissingOnChainEarnAutodepositPolicy({
+            policyAccount: autodepositState.policy.policyAccount,
+            settings: principal.settingsPda,
+            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
+          });
+        console.warn(
+          "[earn-withdraw-prepare] reconciled missing autodeposit policy account",
+          {
+            cluster,
+            lifecycleStatus: reconciledTarget.lifecycleStatus,
+            policyAccount: autodepositState.policy.policyAccount,
+            reconciliationSource: "reconciled_missing_policy",
+            settings: principal.settingsPda,
+            targetId: reconciledTarget.id.toString(),
+            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
           }
-        : undefined;
+        );
+      }
+    }
 
     if (
       mode === "full" &&
       isFinalExit &&
       autodepositState &&
-      !autodepositClose
+      !autodepositClose &&
+      !reconciledMissingAutodepositPolicy
     ) {
       console.warn(
         "[earn-withdraw-prepare] active autodeposit state is missing close metadata",

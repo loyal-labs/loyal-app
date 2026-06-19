@@ -70,13 +70,33 @@ export function serializeAutodepositState(
   };
 }
 
-export function serializeRoutePolicyState(policy: RoutePolicyRecord) {
+export function serializeRoutePolicyState(
+  policy: RoutePolicyRecord,
+  setupPolicy: RoutePolicyRecord | null = null
+) {
   return {
     account: policy.policyAccount,
+    delegatedSigners: policy.delegatedSigners,
     id: policy.id.toString(),
+    kaminoLiquidityMints: policy.kaminoLiquidityMints,
+    kaminoMarkets: policy.kaminoMarkets,
     lastSeenSignature: policy.lastSeenSignature,
     lastSeenSlot: policy.lastSeenSlot.toString(),
+    riskProfile: policy.riskProfile,
+    routeModes: policy.routeModes,
     seed: policy.policySeed.toString(),
+    setupPolicy: setupPolicy
+      ? {
+          account: setupPolicy.policyAccount,
+          delegatedSigners: setupPolicy.delegatedSigners,
+          id: setupPolicy.id.toString(),
+          lastSeenSignature: setupPolicy.lastSeenSignature,
+          lastSeenSlot: setupPolicy.lastSeenSlot.toString(),
+          seed: setupPolicy.policySeed.toString(),
+        }
+      : null,
+    stableMints: policy.stableMints,
+    universePreset: policy.universePreset,
     vaultIndex: policy.vaultIndex,
     vaultPubkey: policy.vaultPubkey,
   };

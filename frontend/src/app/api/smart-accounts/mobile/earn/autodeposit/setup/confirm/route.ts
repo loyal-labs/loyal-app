@@ -22,7 +22,7 @@ import { authenticateMobileWalletRequest } from "@/features/identity/server/mobi
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
@@ -237,7 +237,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(cluster);
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,

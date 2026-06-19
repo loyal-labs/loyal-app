@@ -19,7 +19,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { getServerEnv } from "@/lib/core/config/server";
 import { createFrontendAssetProvider } from "@/lib/solana/frontend-asset-provider";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 const walletDataClientCache = new Map<
@@ -122,7 +122,7 @@ function getConnection(solanaEnv: SolanaEnv) {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(solanaEnv);
+    getServerSolanaEndpoints(solanaEnv);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -141,7 +141,7 @@ function getWalletDataClient(solanaEnv: SolanaEnv) {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(solanaEnv);
+    getServerSolanaEndpoints(solanaEnv);
   const client = createSolanaWalletDataClient({
     assetProvider: createFrontendAssetProvider({
       commitment: "confirmed",
@@ -182,7 +182,7 @@ function getWalletDataClientWithActivity(solanaEnv: SolanaEnv) {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(solanaEnv);
+    getServerSolanaEndpoints(solanaEnv);
   const client = createSolanaWalletDataClient({
     assetProvider: createFrontendAssetProvider({
       commitment: "confirmed",

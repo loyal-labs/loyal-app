@@ -6,9 +6,18 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import {
+  Connection,
+  PublicKey,
+  type ParsedTransactionWithMeta,
+  type TokenBalance,
+} from "@solana/web3.js";
 
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
@@ -17,6 +26,7 @@ import {
   type ConfirmedYieldWithdrawalInput,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 
 // Shared core for confirming an Earn withdrawal, used by BOTH the session
 // (`yield-optimization/withdrawals/confirm`) and mobile
@@ -46,6 +56,13 @@ export class EarnWithdrawConfirmError extends Error {
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
+type ConfirmedWithdrawalTransactionProof = {
+  reserveDebitAmountRaw: bigint;
+  vaultIdleDeltaRaw: bigint;
+  vaultIdleTokenAccount: string;
+  walletTransferAmountRaw: bigint;
+};
+
 function getConnection(cluster: SolanaEnv): Connection {
   const cached = connectionCache.get(cluster);
   if (cached) {
@@ -53,7 +70,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(cluster);
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -82,6 +99,171 @@ function toSafePolicySeed(policySeed: bigint): number {
   }
 
   return Number(policySeed);
+}
+
+function readTokenBalanceAmountRaw(balance: TokenBalance | undefined): bigint {
+  const amount = balance?.uiTokenAmount.amount;
+  return typeof amount === "string" && /^\d+$/.test(amount)
+    ? BigInt(amount)
+    : BigInt(0);
+}
+
+function getParsedTransactionAccountKey(
+  transaction: ParsedTransactionWithMeta,
+  accountIndex: number
+): string | null {
+  const account = transaction.transaction.message.accountKeys[accountIndex];
+  return account ? account.pubkey.toBase58() : null;
+}
+
+function getParsedTokenBalanceDeltaRaw(args: {
+  fallbackOwner?: string;
+  mint: string;
+  tokenAccount?: string;
+  transaction: ParsedTransactionWithMeta;
+}): bigint {
+  const preBalances = args.transaction.meta?.preTokenBalances ?? [];
+  const postBalances = args.transaction.meta?.postTokenBalances ?? [];
+  const indexes = new Set<number>();
+
+  for (const balance of [...preBalances, ...postBalances]) {
+    if (balance.mint === args.mint) {
+      indexes.add(balance.accountIndex);
+    }
+  }
+
+  let deltaRaw = BigInt(0);
+  for (const accountIndex of indexes) {
+    const pre = preBalances.find(
+      (balance) =>
+        balance.accountIndex === accountIndex && balance.mint === args.mint
+    );
+    const post = postBalances.find(
+      (balance) =>
+        balance.accountIndex === accountIndex && balance.mint === args.mint
+    );
+    const tokenAccount = getParsedTransactionAccountKey(
+      args.transaction,
+      accountIndex
+    );
+    const owner = post?.owner ?? pre?.owner ?? null;
+    const tokenAccountMatches =
+      Boolean(args.tokenAccount) && tokenAccount === args.tokenAccount;
+    const ownerMatches =
+      !args.tokenAccount &&
+      Boolean(args.fallbackOwner) &&
+      owner === args.fallbackOwner;
+
+    if (!tokenAccountMatches && !ownerMatches) {
+      continue;
+    }
+
+    deltaRaw += readTokenBalanceAmountRaw(post) - readTokenBalanceAmountRaw(pre);
+  }
+
+  return deltaRaw;
+}
+
+async function resolveConfirmedWithdrawalTransactionProof(args: {
+  cluster: SolanaEnv;
+  input: ConfirmedYieldWithdrawalInput;
+}): Promise<ConfirmedWithdrawalTransactionProof> {
+  const transaction = await getConnection(args.cluster).getParsedTransaction(
+    args.input.withdrawalSignature,
+    {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    }
+  );
+
+  if (!transaction || !transaction.meta) {
+    throw new Error("Confirmed withdrawal transaction details are unavailable.");
+  }
+  if (transaction.meta.err) {
+    throw new Error("Withdrawal transaction proof has an execution error.");
+  }
+  if (BigInt(transaction.slot) !== args.input.confirmedSlot) {
+    throw new Error(
+      "Confirmed withdrawal transaction slot does not match the recorded slot."
+    );
+  }
+
+  const liquidityMint = new PublicKey(args.input.liquidityMint);
+  const walletUsdcAta = getAssociatedTokenAddressSync(
+    liquidityMint,
+    new PublicKey(args.input.walletAddress),
+    false,
+    TOKEN_PROGRAM_ID
+  ).toBase58();
+  const vaultUsdcAta = getAssociatedTokenAddressSync(
+    liquidityMint,
+    new PublicKey(args.input.vaultPubkey),
+    true,
+    TOKEN_PROGRAM_ID
+  ).toBase58();
+  const walletAtaDeltaRaw = getParsedTokenBalanceDeltaRaw({
+    mint: args.input.liquidityMint,
+    tokenAccount: walletUsdcAta,
+    transaction,
+  });
+  const walletOwnerDeltaRaw =
+    walletAtaDeltaRaw > BigInt(0)
+      ? walletAtaDeltaRaw
+      : getParsedTokenBalanceDeltaRaw({
+          fallbackOwner: args.input.walletAddress,
+          mint: args.input.liquidityMint,
+          transaction,
+        });
+  const walletTransferAmountRaw =
+    walletAtaDeltaRaw > BigInt(0) ? walletAtaDeltaRaw : walletOwnerDeltaRaw;
+
+  if (walletTransferAmountRaw <= BigInt(0)) {
+    throw new Error(
+      "Confirmed withdrawal transaction does not transfer USDC to the authenticated wallet."
+    );
+  }
+
+  const vaultUsdcDeltaRaw = getParsedTokenBalanceDeltaRaw({
+    mint: args.input.liquidityMint,
+    tokenAccount: vaultUsdcAta,
+    transaction,
+  });
+  const vaultIdleDeltaRaw =
+    vaultUsdcDeltaRaw > BigInt(0) ? vaultUsdcDeltaRaw : BigInt(0);
+  const sourceType = args.input.sourceType ?? "reserve";
+  const reserveDebitAmountRaw =
+    sourceType === "reserve"
+      ? walletTransferAmountRaw + vaultIdleDeltaRaw
+      : BigInt(0);
+
+  return {
+    reserveDebitAmountRaw,
+    vaultIdleDeltaRaw,
+    vaultIdleTokenAccount: vaultUsdcAta,
+    walletTransferAmountRaw,
+  };
+}
+
+function applyConfirmedWithdrawalTransactionProof(args: {
+  input: ConfirmedYieldWithdrawalInput;
+  proof: ConfirmedWithdrawalTransactionProof;
+}): ConfirmedYieldWithdrawalInput {
+  const sourceType = args.input.sourceType ?? "reserve";
+
+  return {
+    ...args.input,
+    confirmedVaultIdleDeltaRaw: args.proof.vaultIdleDeltaRaw,
+    confirmedVaultIdleTokenAccount: args.proof.vaultIdleTokenAccount,
+    confirmedWalletTransferAmountRaw: args.proof.walletTransferAmountRaw,
+    withdrawnAmountRaw: args.proof.walletTransferAmountRaw,
+    ...(sourceType === "reserve"
+      ? {
+          confirmedReserveDebitAmountRaw: args.proof.reserveDebitAmountRaw,
+          sourceAmountRaw:
+            args.input.sourceAmountRaw ?? args.proof.reserveDebitAmountRaw,
+        }
+      : {}),
+  };
 }
 
 // Re-derives the canonical withdrawal metadata from the settings PDA and
@@ -134,6 +316,7 @@ export function createCanonicalWithdrawalInput(
         }
       : {}),
     targetReserve: target.targetReserve,
+    smartAccountAddress: expectedVault.toBase58(),
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
@@ -190,6 +373,11 @@ export function createCanonicalWithdrawalInput(
     requestInput.targetReserve,
     canonicalInput.targetReserve,
     "targetReserve"
+  );
+  assertCanonicalField(
+    requestInput.smartAccountAddress,
+    canonicalInput.smartAccountAddress,
+    "smartAccountAddress"
   );
   assertCanonicalField(
     requestInput.vaultIndex,
@@ -281,7 +469,6 @@ export async function recordConfirmedEarnWithdrawal(args: {
 
   if (
     args.input.walletAddress !== principal.walletAddress ||
-    args.input.smartAccountAddress !== principal.smartAccountAddress ||
     args.input.settings !== principal.settingsPda
   ) {
     throw new EarnWithdrawConfirmError(
@@ -338,6 +525,22 @@ export async function recordConfirmedEarnWithdrawal(args: {
     );
   }
 
+  try {
+    const proof = await resolveConfirmedWithdrawalTransactionProof({
+      cluster: solanaEnv,
+      input,
+    });
+    input = applyConfirmedWithdrawalTransactionProof({ input, proof });
+  } catch (error) {
+    throw new EarnWithdrawConfirmError(
+      400,
+      "invalid_transaction_proof",
+      error instanceof Error
+        ? error.message
+        : "Confirmed withdrawal transaction proof is invalid."
+    );
+  }
+
   if (input.mode === "full" && input.autodepositClose) {
     let autodepositCloseConfirmedSlot: bigint;
     try {
@@ -383,6 +586,25 @@ export async function recordConfirmedEarnWithdrawal(args: {
   let position: UserYieldPositionRecord;
   try {
     position = await recordConfirmedYieldWithdrawal(input);
+    await reconcileEarnVaultPosition({
+      authority: input.walletAddress,
+      cluster: normalizeLoyalCluster(input.cluster),
+      connection: getConnection(solanaEnv),
+      force: true,
+      settings: input.settings,
+      vaultPubkey: input.vaultPubkey,
+    }).catch((error) => {
+      console.warn("[earn-withdraw-confirm] post-record reconcile failed", {
+        cluster: input.cluster,
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown reconcile error.",
+        errorName: error instanceof Error ? error.name : typeof error,
+        settings: input.settings,
+        signature: input.withdrawalSignature,
+        vaultIndex: input.vaultIndex,
+        walletAddress: input.walletAddress,
+      });
+    });
   } catch (error) {
     const message =
       error instanceof Error
@@ -390,6 +612,7 @@ export async function recordConfirmedEarnWithdrawal(args: {
         : "Confirmed yield withdrawal could not be recorded.";
     if (
       message.startsWith("Duplicate withdrawal ") ||
+      message.includes("Withdrawal source") ||
       message.includes("Withdrawal target does not match") ||
       message.includes("Withdrawal exceeds")
     ) {

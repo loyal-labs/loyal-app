@@ -94,6 +94,7 @@ function createMutationClient({
   const dialect = new PgDialect();
   const executeSql: string[] = [];
   let updateSet: Record<string, unknown> | null = null;
+  const updateSets: Record<string, unknown>[] = [];
   const selectQuery = {
     from() {
       calls.push("select.from");
@@ -116,6 +117,7 @@ function createMutationClient({
     set(values: Record<string, unknown>) {
       calls.push("update.set");
       updateSet = values;
+      updateSets.push(values);
       return updateQuery;
     },
     where() {
@@ -128,6 +130,7 @@ function createMutationClient({
     calls,
     getExecuteSql: () => executeSql,
     getUpdateSet: () => updateSet,
+    getUpdateSets: () => updateSets,
     client: {
       db: {
         execute(query: SQL) {
@@ -772,6 +775,64 @@ describe("Earn autodeposit load state", () => {
         { client } as never
       )
     ).rejects.toThrow("Autodeposit target does not match the wallet.");
+  });
+
+  test("missing on-chain policy reconciliation closes policy and target", async () => {
+    const { reconcileMissingOnChainEarnAutodepositPolicy } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: true,
+      lifecycleStatus: "active",
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const closed = createRecord({
+      active: false,
+      closeSignature: "reconciled_missing_policy:policy",
+      lifecycleStatus: "closed",
+      policyAccount: "policy",
+      recurringDelegation: "recurring",
+    });
+    const now = new Date("2026-06-18T00:00:00.000Z");
+    const { client, getExecuteSql, getUpdateSets } = createMutationClient({
+      existing,
+      updated: closed,
+    });
+
+    const target = await reconcileMissingOnChainEarnAutodepositPolicy(
+      {
+        policyAccount: "policy",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+      },
+      { client, now: () => now } as never
+    );
+
+    expect(target).toMatchObject({
+      active: false,
+      lifecycleStatus: "closed",
+      policyAccount: "policy",
+    });
+    expect(getExecuteSql()[0]).toContain(
+      "WITH scheduled_slots AS"
+    );
+    expect(getUpdateSets()[0]).toMatchObject({
+      active: false,
+      closeSignature: "reconciled_missing_policy:policy",
+      closedAt: now,
+      lastSeenAt: now,
+      lastSeenSignature: "reconciled_missing_policy:policy",
+    });
+    expect(getUpdateSets()[1]).toMatchObject({
+      active: false,
+      closeSignature: "reconciled_missing_policy:policy",
+      closedAt: now,
+      lastSeenAt: now,
+      lastSeenSignature: "reconciled_missing_policy:policy",
+      lifecycleStatus: "closed",
+    });
   });
 
   test("newer setup cannot reactivate a closed target for the same policy", async () => {

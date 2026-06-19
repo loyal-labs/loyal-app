@@ -595,6 +595,26 @@ export type SmartAccountEarnUsdcWithdrawInput =
       autodepositClose?: SmartAccountEarnUsdcWithdrawAutodepositCloseInput;
     });
 
+export type SmartAccountEarnUsdcCleanupInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  feePayer: PublicKey;
+  policySigner: PublicKey;
+  cluster?: LoyalCluster;
+  idleAmountRaw?: bigint;
+  closeVaultCollateralAtas?: PublicKey[];
+  yieldRoutingPolicy: {
+    account: PublicKey;
+    seed: bigint;
+    setupPolicy?: {
+      account: PublicKey;
+      seed: bigint;
+    } | null;
+  };
+  autodepositClose?: SmartAccountEarnUsdcWithdrawAutodepositCloseInput;
+  memo?: string;
+};
+
 export type SmartAccountEarnUsdcWithdrawMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;
@@ -697,6 +717,46 @@ export type SmartAccountPreparedEarnUsdcWithdraw = {
     obligation: PublicKey;
   };
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
+};
+
+export type SmartAccountEarnUsdcCleanupMetadata = {
+  cluster: LoyalCluster;
+  walletAddress: string;
+  delegatedSigner: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  policyId: string;
+  policyAccount: string;
+  policySeed: string;
+  setupPolicyId?: string;
+  setupPolicyAccount?: string;
+  setupPolicySeed?: string;
+  idleTransferAmountRaw: string;
+  closedVaultUsdcAta: boolean;
+  closedCollateralAtas: string[];
+  autodepositClose?: SmartAccountEarnUsdcAutodepositCloseMetadata | null;
+};
+
+export type SmartAccountPreparedEarnUsdcCleanup = {
+  autodepositClosePrepared?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  persistence: SmartAccountEarnUsdcCleanupMetadata;
+  policy: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+  };
+  setupPolicy?: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+  };
 };
 
 export type SmartAccountEarnUsdcAutodepositSetupInput = {

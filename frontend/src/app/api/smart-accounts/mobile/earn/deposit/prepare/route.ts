@@ -19,7 +19,7 @@ import {
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import {
   parseEarnDepositPrepareRequestBody,
@@ -62,7 +62,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(cluster);
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,

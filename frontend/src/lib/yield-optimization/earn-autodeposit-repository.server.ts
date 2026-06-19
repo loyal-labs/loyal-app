@@ -1182,6 +1182,76 @@ export async function recordClosedAutodepositTarget(
   return target;
 }
 
+export async function reconcileMissingOnChainEarnAutodepositPolicy(
+  input: {
+    policyAccount: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+
+  await cancelScheduledAutodepositTransactionsForClose({
+    client,
+    now,
+    targetId: existing.id,
+  });
+
+  if (existing.lifecycleStatus === "closed") {
+    return existing;
+  }
+
+  const reconciliationSignature = `reconciled_missing_policy:${input.policyAccount}`;
+
+  await client.db
+    .update(balanceSweepPolicies)
+    .set({
+      active: false,
+      closeSignature: reconciliationSignature,
+      closedAt: now,
+      lastSeenAt: now,
+      lastSeenSignature: reconciliationSignature,
+    })
+    .where(eq(balanceSweepPolicies.policyAccount, input.policyAccount));
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: false,
+      closeSignature: reconciliationSignature,
+      closedAt: now,
+      lastSeenAt: now,
+      lastSeenSignature: reconciliationSignature,
+      lifecycleStatus: "closed",
+    })
+    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to reconcile missing autodeposit policy.");
+  }
+
+  return target;
+}
+
 export async function updateAutodepositWalletBalanceFloor(
   input: {
     policyAccount: string;

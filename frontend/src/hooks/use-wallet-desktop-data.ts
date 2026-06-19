@@ -82,6 +82,11 @@ export type WalletDesktopData = {
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
+type UseWalletDesktopDataOptions = {
+  enabled?: boolean;
+  includeSecureBalances?: boolean;
+};
+
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
 const WALLET_ACTIVITY_INITIAL_LIMIT = 10;
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
@@ -554,8 +559,12 @@ function toWalletEarningsSummary(
     : null;
 }
 
-export function useWalletDesktopData(): WalletDesktopData {
-  const client = useSolanaWalletDataClient();
+export function useWalletDesktopData(
+  options: UseWalletDesktopDataOptions = {}
+): WalletDesktopData {
+  const enabled = options.enabled !== false;
+  const includeSecureBalances = options.includeSecureBalances === true;
+  const client = useSolanaWalletDataClient({ includeSecureBalances });
   const publicEnv = usePublicEnv();
   const { user } = useAuthSession();
   const wallet = useWallet();
@@ -718,7 +727,7 @@ export function useWalletDesktopData(): WalletDesktopData {
   }, [client, ownerPublicKey]);
 
   const refresh = useCallback(async () => {
-    if (!ownerPublicKey) {
+    if (!enabled || !ownerPublicKey) {
       return;
     }
 
@@ -775,6 +784,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     applyEnrichment,
     applyPortfolioState,
     client,
+    enabled,
     hasRequestedActivity,
     ownerPublicKey,
   ]);
@@ -813,6 +823,15 @@ export function useWalletDesktopData(): WalletDesktopData {
         walletAddress: address,
         persist: false,
       });
+    } else {
+      setPortfolioSnapshot(null);
+      setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
+      setEarningsSummary(null);
+    }
+
+    if (!enabled) {
+      setIsLoading(false);
+      return;
     }
 
     setIsLoading(!cached);
@@ -852,11 +871,12 @@ export function useWalletDesktopData(): WalletDesktopData {
     ownerPublicKey,
     applyEnrichment,
     applyPortfolioState,
+    enabled,
     publicEnv.solanaEnv,
   ]);
 
   useEffect(() => {
-    if (!ownerPublicKey) {
+    if (!enabled || !ownerPublicKey) {
       return;
     }
 
@@ -955,6 +975,7 @@ export function useWalletDesktopData(): WalletDesktopData {
     ownerPublicKey,
     applyEnrichment,
     applyPortfolioState,
+    enabled,
     hasRequestedActivity,
   ]);
 

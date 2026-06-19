@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  resolveLoyalClusterForSolanaEnv,
+} from "@loyal-labs/actions";
+import {
   ArrowDownLeft,
   ArrowUpRight,
   Copy,
@@ -21,14 +24,23 @@ import {
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import {
+  createSmartAccountVaultsClient,
   SOL_SPENDING_LIMIT_MINT,
+  type SmartAccountEarnUsdcWithdrawInput,
   type SmartAccountOverview,
   type SmartAccountPreparedEarnUsdcAutodepositClose,
   type SmartAccountPreparedEarnUsdcAutodepositSetup,
   type SmartAccountPreparedEarnUsdcDeposit,
   type SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
+import {
+  AccountLayout,
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { type Connection, PublicKey } from "@solana/web3.js";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -37,12 +49,14 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
 
 import { WalletSignIn } from "@/components/auth/wallet-sign-in";
 import { DogWithMood } from "@/components/chat-input";
+import { PrivateClientPreloader } from "@/components/solana/private-client-preloader";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import {
   ApprovalReviewContent,
@@ -104,10 +118,7 @@ import type {
   VaultTransferCapability,
   VaultTransferRequest,
 } from "@/hooks/use-smart-account-sidebar-data";
-import {
-  fetchEarnEarningsRangeSet,
-  invalidateEarnEarningsCache,
-} from "@/hooks/use-earn-earnings";
+import { invalidateEarnEarningsCache } from "@/hooks/use-earn-earnings";
 import { invalidateEarnTransactionsCache } from "@/lib/yield-optimization/earn-transactions.client";
 import {
   useActiveEarnPosition,
@@ -117,7 +128,7 @@ import {
 import {
   prepareEarnAutodepositSetupOnServer,
   prepareEarnDepositOnServer,
-  prepareEarnWithdrawOnServer,
+  type PreparedEarnUsdcCleanup,
   useSmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -207,6 +218,12 @@ type EarnAutodepositConfig = Omit<LoadedEarnAutodepositConfig, "state"> & {
     | "pausing"
     | "resuming";
 };
+type EarnWithdrawVaultsSource = NonNullable<
+  SmartAccountEarnUsdcWithdrawInput["source"]
+>;
+type EarnWithdrawFullWithdrawalTarget = NonNullable<
+  SmartAccountEarnUsdcWithdrawInput["fullWithdrawalTargets"]
+>[number];
 type PendingRootSignerDraft = {
   signerAddress: string;
 };
@@ -565,6 +582,84 @@ function rawTokenAmountToNumber(amountRaw: string, decimals: number): number {
   const raw = BigInt(amountRaw);
   const scale = BigInt(10) ** BigInt(decimals);
   return Number(raw / scale) + Number(raw % scale) / 10 ** decimals;
+}
+
+function useMainAccountUsdcBalance(args: {
+  connection: Connection;
+  mint: string | null | undefined;
+  walletAddress: string | null | undefined;
+}): {
+  amount: number | null;
+  amountRaw: bigint | null;
+  setAmountRaw: Dispatch<SetStateAction<bigint | null>>;
+} {
+  const { connection, mint, walletAddress } = args;
+  const [amountRaw, setAmountRaw] = useState<bigint | null>(null);
+
+  useEffect(() => {
+    if (!walletAddress || !mint) {
+      setAmountRaw(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    try {
+      const owner = new PublicKey(walletAddress);
+      const usdcMint = new PublicKey(mint);
+      const usdcAta = getAssociatedTokenAddressSync(
+        usdcMint,
+        owner,
+        false,
+        TOKEN_PROGRAM_ID
+      );
+
+      void connection
+        .getAccountInfo(usdcAta, "confirmed")
+        .then((account) => {
+          if (cancelled) {
+            return;
+          }
+
+          if (!account) {
+            setAmountRaw(BigInt(0));
+            return;
+          }
+
+          if (!account.owner.equals(TOKEN_PROGRAM_ID)) {
+            setAmountRaw(BigInt(0));
+            return;
+          }
+
+          const decoded = AccountLayout.decode(account.data);
+          if (!decoded.mint.equals(usdcMint) || !decoded.owner.equals(owner)) {
+            setAmountRaw(BigInt(0));
+            return;
+          }
+
+          setAmountRaw(BigInt(decoded.amount.toString()));
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.warn("[earn-deposit] failed to load wallet USDC ATA", error);
+            setAmountRaw(null);
+          }
+        });
+    } catch (error) {
+      console.warn("[earn-deposit] invalid wallet USDC ATA input", error);
+      setAmountRaw(null);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, mint, walletAddress]);
+
+  return {
+    amount: amountRaw === null ? null : Number(amountRaw) / 1_000_000,
+    amountRaw,
+    setAmountRaw,
+  };
 }
 
 function buildPostDepositEarnPosition(args: {
@@ -1163,7 +1258,37 @@ function resolveEarnAutodepositSetupReviewStage(
   return "policy";
 }
 
-function toEarnWithdrawPrepareSource(source: EarnWithdrawSourceOption) {
+function parseEarnWithdrawPublicKey(
+  value: string | null | undefined,
+  label: string
+): PublicKey {
+  if (!value) {
+    throw new Error(`Selected Earn source is missing ${label}.`);
+  }
+
+  try {
+    return new PublicKey(value);
+  } catch {
+    throw new Error(`Selected Earn source has an invalid ${label}.`);
+  }
+}
+
+function parseEarnWithdrawAmountRaw(value: string, label: string): bigint {
+  try {
+    const amountRaw = BigInt(value);
+    if (amountRaw < BigInt(0)) {
+      throw new Error("negative amount");
+    }
+    return amountRaw;
+  } catch {
+    throw new Error(`Selected Earn source has an invalid ${label}.`);
+  }
+}
+
+function toEarnWithdrawVaultsSource(
+  source: EarnWithdrawSourceOption
+): EarnWithdrawVaultsSource {
+  const amountRaw = parseEarnWithdrawAmountRaw(source.amountRaw, "amount");
   const sourceId =
     source.sourceId ||
     source.reserve ||
@@ -1171,18 +1296,211 @@ function toEarnWithdrawPrepareSource(source: EarnWithdrawSourceOption) {
     source.liquidityMint;
 
   if (!sourceId) {
-    return undefined;
+    throw new Error("Selected Earn source is missing an identifier.");
+  }
+
+  if (source.type === "idle") {
+    return {
+      amountRaw,
+      id: sourceId,
+      mint: parseEarnWithdrawPublicKey(source.liquidityMint, "mint"),
+      tokenAccount: parseEarnWithdrawPublicKey(
+        source.tokenAccount,
+        "token account"
+      ),
+      type: "idle",
+    };
   }
 
   return {
-    amountRaw: source.amountRaw,
+    amountRaw,
     id: sourceId,
-    liquidityMint: source.liquidityMint,
-    market: source.market,
-    mint: source.type === "idle" ? source.liquidityMint : undefined,
-    reserve: source.reserve,
-    tokenAccount: source.tokenAccount,
-    type: source.type,
+    liquidityMint: parseEarnWithdrawPublicKey(
+      source.liquidityMint,
+      "liquidity mint"
+    ),
+    market: parseEarnWithdrawPublicKey(source.market, "Kamino market"),
+    reserve: parseEarnWithdrawPublicKey(source.reserve, "Kamino reserve"),
+    type: "reserve",
+  };
+}
+
+function toEarnWithdrawReserveTarget(
+  source: EarnWithdrawSourceOption
+): EarnWithdrawFullWithdrawalTarget {
+  if (source.type !== "reserve") {
+    throw new Error("Selected Earn source is not a Kamino reserve.");
+  }
+
+  const vaultCollateralAta = source.tokenAccount
+    ? parseEarnWithdrawPublicKey(source.tokenAccount, "collateral account")
+    : null;
+
+  return {
+    amountRaw: parseEarnWithdrawAmountRaw(source.amountRaw, "amount"),
+    liquidityMint: parseEarnWithdrawPublicKey(
+      source.liquidityMint,
+      "liquidity mint"
+    ),
+    market: parseEarnWithdrawPublicKey(source.market, "Kamino market"),
+    reserve: parseEarnWithdrawPublicKey(source.reserve, "Kamino reserve"),
+    ...(source.supplyApyBps
+      ? { supplyApyBps: parseEarnWithdrawAmountRaw(source.supplyApyBps, "APY") }
+      : {}),
+    ...(vaultCollateralAta ? { vaultCollateralAta } : {}),
+  };
+}
+
+function getEarnPositionTotalAmountRaw(
+  position: ActiveEarnPosition | null
+): bigint {
+  const holdings = position?.holdings ?? [];
+  if (holdings.length > 0) {
+    return holdings.reduce((total, holding) => {
+      try {
+        return total + BigInt(holding.amountRaw);
+      } catch {
+        return total;
+      }
+    }, BigInt(0));
+  }
+
+  try {
+    return BigInt(position?.currentTotalAmountRaw ?? "0");
+  } catch {
+    return BigInt(0);
+  }
+}
+
+function earnHoldingMatchesWithdrawSource(
+  holding: ActiveEarnPositionHolding,
+  source: EarnWithdrawSourceOption
+): boolean {
+  if (source.type === "idle") {
+    const tokenAccount =
+      typeof holding.provenance.tokenAccount === "string"
+        ? holding.provenance.tokenAccount
+        : null;
+    return (
+      holding.kind === "idle" &&
+      (tokenAccount === source.tokenAccount ||
+        holding.liquidityMint === source.liquidityMint)
+    );
+  }
+
+  return (
+    holding.kind === "kamino" &&
+    holding.reserve === source.reserve &&
+    holding.market === source.market &&
+    holding.liquidityMint === source.liquidityMint
+  );
+}
+
+function applySubmittedEarnWithdrawToPosition(args: {
+  amountRaw: bigint;
+  current: ActiveEarnPosition | null;
+  draft: EarnWithdrawDraft;
+}): ActiveEarnPosition | null {
+  const { amountRaw, current, draft } = args;
+  if (!current) {
+    return current;
+  }
+
+  const currentHoldings = current.holdings ?? [];
+  if (currentHoldings.length === 0) {
+    const currentTotalAmountRaw = BigInt(current.currentTotalAmountRaw);
+    const nextCurrentTotal =
+      currentTotalAmountRaw > amountRaw
+        ? currentTotalAmountRaw - amountRaw
+        : BigInt(0);
+    const currentPrincipal = BigInt(current.principalAmountRaw);
+    const nextPrincipal =
+      draft.source.type === "idle"
+        ? nextCurrentTotal > BigInt(0)
+          ? currentPrincipal
+          : BigInt(0)
+        : currentPrincipal > amountRaw
+        ? currentPrincipal - amountRaw
+        : BigInt(0);
+
+    return nextCurrentTotal > BigInt(0)
+      ? {
+          ...current,
+          currentHolding: {
+            ...current.currentHolding,
+            amountRaw: nextCurrentTotal.toString(),
+          },
+          currentTotalAmountRaw: nextCurrentTotal.toString(),
+          principalAmountRaw: nextPrincipal.toString(),
+          status: "active",
+        }
+      : null;
+  }
+
+  let remainingWithdrawalRaw =
+    draft.mode === "full"
+      ? parseEarnWithdrawAmountRaw(draft.source.amountRaw, "amount")
+      : amountRaw;
+  const nextHoldings = currentHoldings.flatMap((holding) => {
+    if (!earnHoldingMatchesWithdrawSource(holding, draft.source)) {
+      return [holding];
+    }
+
+    const holdingAmountRaw = BigInt(holding.amountRaw);
+    const sourceWithdrawalRaw =
+      remainingWithdrawalRaw > holdingAmountRaw
+        ? holdingAmountRaw
+        : remainingWithdrawalRaw;
+    remainingWithdrawalRaw -= sourceWithdrawalRaw;
+    const nextHoldingAmountRaw = holdingAmountRaw - sourceWithdrawalRaw;
+
+    return nextHoldingAmountRaw > BigInt(0)
+      ? [{ ...holding, amountRaw: nextHoldingAmountRaw.toString() }]
+      : [];
+  });
+  const nextCurrentTotal = nextHoldings.reduce(
+    (total, holding) => total + BigInt(holding.amountRaw),
+    BigInt(0)
+  );
+  if (nextCurrentTotal <= BigInt(0)) {
+    return null;
+  }
+
+  const nextPrimaryHolding =
+    nextHoldings.find((holding) => holding.kind === "kamino") ??
+    nextHoldings[0];
+  const currentPrincipal = BigInt(current.principalAmountRaw);
+  const nextPrincipal =
+    draft.source.type === "idle"
+      ? currentPrincipal
+      : currentPrincipal > amountRaw
+      ? currentPrincipal - amountRaw
+      : BigInt(0);
+
+  return {
+    ...current,
+    currentHolding: nextPrimaryHolding
+      ? {
+          amountRaw: nextPrimaryHolding.amountRaw,
+          liquidityMint: nextPrimaryHolding.liquidityMint,
+          market: nextPrimaryHolding.market,
+          observedAt: nextPrimaryHolding.observedAt,
+          observedSlot: nextPrimaryHolding.observedSlot,
+          provenance: current.currentHolding.provenance,
+          reserve: nextPrimaryHolding.reserve ?? "",
+        }
+      : current.currentHolding,
+    currentTotalAmountRaw: nextCurrentTotal.toString(),
+    display: nextPrimaryHolding
+      ? {
+          label: nextPrimaryHolding.label,
+          marketName: nextPrimaryHolding.marketName,
+          mintSymbol: "USDC",
+        }
+      : current.display,
+    holdings: nextHoldings,
+    principalAmountRaw: nextPrincipal.toString(),
+    status: "active",
   };
 }
 
@@ -1193,35 +1511,80 @@ export function AppWalletWorkspace({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const walletDesktopData = useWalletDesktopData();
   const publicEnv = usePublicEnv();
+  const { connection } = useConnection();
+  const [
+    shouldLoadMainAccountPrivateBalances,
+    setShouldLoadMainAccountPrivateBalances,
+  ] = useState(false);
+  const walletDesktopData = useWalletDesktopData({
+    enabled: shouldLoadMainAccountPrivateBalances,
+    includeSecureBalances: shouldLoadMainAccountPrivateBalances,
+  });
+  const trackedKaminoUsdcMint = useMemo(
+    () => resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv),
+    [publicEnv.solanaEnv]
+  );
+  const mainAccountUsdcBalance = useMainAccountUsdcBalance({
+    connection,
+    mint: trackedKaminoUsdcMint,
+    walletAddress: walletDesktopData.walletAddress,
+  });
+  const setMainAccountUsdcAmountRaw = mainAccountUsdcBalance.setAmountRaw;
+  const debitMainAccountUsdcBalance = useCallback(
+    (amountRaw: bigint) => {
+      setMainAccountUsdcAmountRaw((current) => {
+        if (current === null) {
+          return current;
+        }
+
+        return current > amountRaw ? current - amountRaw : BigInt(0);
+      });
+    },
+    [setMainAccountUsdcAmountRaw]
+  );
+  const creditMainAccountUsdcBalance = useCallback(
+    (amountRaw: bigint) => {
+      setMainAccountUsdcAmountRaw((current) =>
+        current === null ? current : current + amountRaw
+      );
+    },
+    [setMainAccountUsdcAmountRaw]
+  );
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
   );
   const mainAccountStablecoinUsd = useMemo(
-    () => sumPublicStablecoinUsd(walletDesktopData.positions, stablecoinMints),
-    [stablecoinMints, walletDesktopData.positions]
+    () =>
+      Math.max(
+        sumPublicStablecoinUsd(walletDesktopData.positions, stablecoinMints),
+        mainAccountUsdcBalance.amount ?? 0
+      ),
+    [mainAccountUsdcBalance.amount, stablecoinMints, walletDesktopData.positions]
   );
   const smartAccountData = useSmartAccountSidebarData({
     authenticatedUserCashUsd: mainAccountStablecoinUsd,
-    authenticatedUserTotalUsd: walletDesktopData.totalUsd,
+    authenticatedUserTotalUsd: shouldLoadMainAccountPrivateBalances
+      ? walletDesktopData.totalUsd
+      : mainAccountStablecoinUsd,
     onAfterTx: walletDesktopData.refresh,
   });
   const { disconnect } = useWallet();
   const { logout, user } = useAuthSession();
-  const trackedKaminoUsdcMint = useMemo(
-    () => resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv),
-    [publicEnv.solanaEnv]
-  );
   const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn, close: closeSignIn } = useSignInModal();
   const {
     position: activeEarnPosition,
     refresh: refreshActiveEarnPosition,
     setPosition: setActiveEarnPosition,
+    suppressSubscriptionRefreshThroughSlot:
+      suppressEarnSubscriptionRefreshThroughSlot,
   } = useActiveEarnPosition({
+    connection,
+    earnPolicy: smartAccountData.earnPolicy,
     enabled: isAuthHydrated && isSignedIn,
+    programId: smartAccountData.overview?.programId,
     settingsPda: smartAccountData.overview?.settingsPda,
     solanaEnv: publicEnv.solanaEnv,
     walletAddress: walletDesktopData.walletAddress,
@@ -1342,6 +1705,13 @@ export function AppWalletWorkspace({
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(
     null
   );
+
+  useEffect(() => {
+    setShouldLoadMainAccountPrivateBalances(
+      detailSelection === "wallet" && selectedSignerId === null
+    );
+  }, [detailSelection, selectedSignerId]);
+
   const [accountPaneWidth, setAccountPaneWidth] = useState(
     ACCOUNT_PANE_DEFAULT_WIDTH
   );
@@ -1411,6 +1781,8 @@ export function AppWalletWorkspace({
     useState<EarnWithdrawDraft | null>(null);
   const [pendingEarnWithdrawPrepared, setPendingEarnWithdrawPrepared] =
     useState<SmartAccountPreparedEarnUsdcWithdraw | null>(null);
+  const [pendingEarnCleanupPrepared, setPendingEarnCleanupPrepared] =
+    useState<PreparedEarnUsdcCleanup | null>(null);
   const [isEarnWithdrawPreparePending, setIsEarnWithdrawPreparePending] =
     useState(false);
   const [earnWithdrawReviewStage, setEarnWithdrawReviewStage] =
@@ -1876,24 +2248,25 @@ export function AppWalletWorkspace({
       walletDesktopData.positions,
       trackedKaminoUsdcMint
     );
-    const mainBalance = splitUsdcSourceBalance(
-      mainUsdcPosition?.publicBalance ?? 0
-    );
+    const mainUsdcBalance =
+      mainAccountUsdcBalance.amount ?? mainUsdcPosition?.publicBalance ?? 0;
+    const mainBalance = splitUsdcSourceBalance(mainUsdcBalance);
 
     sources.push({
       addressLabel: formatAddressForEarnSource(walletDesktopData.walletAddress),
-      balance: mainUsdcPosition?.publicBalance ?? 0,
+      balance: mainUsdcBalance,
       balanceFraction: mainBalance.fraction,
       balanceWhole: mainBalance.whole,
-      decimals: mainUsdcPosition?.asset.decimals ?? 6,
+      decimals: 6,
       icon: getWalletIcon(),
       id: "main",
       label: "Main",
-      mint: mainUsdcPosition?.asset.mint ?? trackedKaminoUsdcMint,
+      mint: trackedKaminoUsdcMint ?? mainUsdcPosition?.asset.mint ?? null,
     });
 
     return sources;
   }, [
+    mainAccountUsdcBalance.amount,
     trackedKaminoUsdcMint,
     walletDesktopData.positions,
     walletDesktopData.walletAddress,
@@ -2002,7 +2375,8 @@ export function AppWalletWorkspace({
         ? buildEarnWithdrawReviewItem({
             draft: pendingEarnWithdrawDraft,
             hasAutodepositTeardown: Boolean(
-              pendingEarnWithdrawPrepared?.autodepositClosePrepared
+              pendingEarnCleanupPrepared?.autodepositClosePrepared ??
+                pendingEarnWithdrawPrepared?.autodepositClosePrepared
             ),
             preparedWithdraw: pendingEarnWithdrawPrepared,
             stage: earnWithdrawReviewStage,
@@ -2012,6 +2386,7 @@ export function AppWalletWorkspace({
       detailSelection,
       earnWithdrawReviewStage,
       pendingEarnWithdrawDraft,
+      pendingEarnCleanupPrepared,
       pendingEarnWithdrawPrepared,
     ]
   );
@@ -2074,9 +2449,13 @@ export function AppWalletWorkspace({
       setIsEarnReviewExiting(true);
     }
   }
-  const earnWithdrawMaxAmount = activeEarnPosition
+  const earnCurrentBalanceAmount = activeEarnPosition
     ? rawTokenAmountToNumber(activeEarnPosition.currentTotalAmountRaw, 6)
     : 0;
+  const earnPrincipalAmount = activeEarnPosition
+    ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
+    : 0;
+  const earnWithdrawMaxAmount = earnCurrentBalanceAmount;
   const getEarnWithdrawDraftAmountRaw = useCallback(
     (draft: EarnWithdrawDraft): bigint =>
       draft.mode === "full"
@@ -2089,10 +2468,10 @@ export function AppWalletWorkspace({
       splitUsdBalance(
         walletDesktopData.totalUsd +
           smartAccountData.totalUsd +
-          earnWithdrawMaxAmount
+          earnCurrentBalanceAmount
       ),
     [
-      earnWithdrawMaxAmount,
+      earnCurrentBalanceAmount,
       walletDesktopData.totalUsd,
       smartAccountData.totalUsd,
     ]
@@ -2101,33 +2480,8 @@ export function AppWalletWorkspace({
     publicEnv.solanaEnv,
     walletDesktopData.walletAddress ?? "anonymous",
     smartAccountData.overview?.settingsPda ?? "no-settings",
-    activeEarnPosition?.currentTotalAmountRaw ?? "0",
     activeEarnPosition?.principalAmountRaw ?? "0",
   ].join(":");
-  useEffect(() => {
-    if (!isAuthHydrated || !isSignedIn || !hasEarnPosition) {
-      return;
-    }
-
-    void fetchEarnEarningsRangeSet(earnEarningsCacheKey, {
-      expectedPrincipalAmountRaw: activeEarnPosition?.principalAmountRaw,
-      settingsPda: smartAccountData.overview?.settingsPda,
-      solanaEnv: publicEnv.solanaEnv,
-      walletAddress: walletDesktopData.walletAddress,
-    }).catch((error) => {
-      console.warn("[earnings] failed to preload Earn earnings", error);
-    });
-  }, [
-    earnEarningsCacheKey,
-    hasEarnPosition,
-    isAuthHydrated,
-    isSignedIn,
-    publicEnv.solanaEnv,
-    activeEarnPosition?.principalAmountRaw,
-    activeEarnPosition?.currentTotalAmountRaw,
-    smartAccountData.overview?.settingsPda,
-    walletDesktopData.walletAddress,
-  ]);
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -2856,6 +3210,9 @@ export function AppWalletWorkspace({
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
+    setPendingEarnWithdrawPrepared(null);
+    setPendingEarnCleanupPrepared(null);
+    setEarnWithdrawReviewStage("withdraw-0");
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
@@ -2872,6 +3229,7 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
+    setPendingEarnCleanupPrepared(null);
     setEarnWithdrawReviewStage("withdraw-0");
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
@@ -2889,6 +3247,7 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
+    setPendingEarnCleanupPrepared(null);
     setEarnWithdrawReviewStage("withdraw-0");
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
@@ -2899,6 +3258,7 @@ export function AppWalletWorkspace({
     markDetailPaneTransition("back");
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
+    setPendingEarnCleanupPrepared(null);
     setEarnWithdrawReviewStage("withdraw-0");
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
@@ -2936,7 +3296,7 @@ export function AppWalletWorkspace({
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleSaveAutodeposit = useCallback(
-    (keepAmount: string) => {
+    async (keepAmount: string) => {
       const source = earnDepositSources.find((entry) => entry.id === "main");
       if (!source) {
         setProposalActionError("Main Account USDC source is not loaded yet.");
@@ -2992,6 +3352,47 @@ export function AppWalletWorkspace({
       setPendingEarnAutodepositClosePrepared(null);
       setEarnAutodepositSetupReviewStage("policy");
       setIsEarnAutodepositCloseReview(false);
+
+      if (autodepositConfig && !amountChanged && keepAmountChanged) {
+        if (
+          !autodepositConfig.policyAccount ||
+          !autodepositConfig.recurringDelegation
+        ) {
+          setProposalActionError("Autodeposit account metadata is missing.");
+          return;
+        }
+
+        setAutodepositConfig({ ...autodepositConfig, state: "creating" });
+        const result = await smartAccountData.executeEarnAutodepositFloorUpdate(
+          {
+            policyAccount: autodepositConfig.policyAccount,
+            recurringDelegation: autodepositConfig.recurringDelegation,
+            walletBalanceFloorRaw: keepAmountRaw,
+          }
+        );
+
+        if (!result.success) {
+          setAutodepositConfig({ ...autodepositConfig, state: "created" });
+          setProposalActionError(
+            result.error ?? "Autodeposit wallet balance floor update failed."
+          );
+          return;
+        }
+
+        setAutodepositConfig({
+          ...autodepositConfig,
+          keepAmount,
+          scheduledSweeps: result.scheduledSweeps ?? [],
+          state: "created",
+        });
+        invalidateEarnClientCaches();
+        markDetailPaneTransition("back");
+        setSelectedSignerId(null);
+        setDetailSelection("earn");
+        setSelectedDetail("Earn");
+        return;
+      }
+
       setPendingEarnAutodepositDraft({
         amount: normalizedAmount,
         amountChanged,
@@ -3008,7 +3409,14 @@ export function AppWalletWorkspace({
         tokenDecimals: source.decimals,
       });
     },
-    [autodepositConfig, earnDepositSources]
+    [
+      autodepositConfig,
+      earnDepositSources,
+      invalidateEarnClientCaches,
+      markDetailPaneTransition,
+      setDetailSelection,
+      smartAccountData,
+    ]
   );
 
   const handleDismissEarnAutodepositPreview = useCallback(() => {
@@ -3129,7 +3537,6 @@ export function AppWalletWorkspace({
   }, [handleOpenAutodepositCloseReview]);
 
   const handleDismissEarnDepositPreview = useCallback(() => {
-    console.log("[earn-deposit] preview dismissed");
     setPendingEarnDepositDraft(null);
     setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
@@ -3140,9 +3547,9 @@ export function AppWalletWorkspace({
   }, []);
 
   const handleDismissEarnWithdrawPreview = useCallback(() => {
-    console.log("[earn-withdraw] preview dismissed");
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
+    setPendingEarnCleanupPrepared(null);
     setEarnWithdrawReviewStage("withdraw-0");
     setEarnDepositPrepareError(null);
     setProposalActionError(null);
@@ -3152,11 +3559,121 @@ export function AppWalletWorkspace({
     (draft: EarnWithdrawDraft | null) => {
       setPendingEarnWithdrawDraft(draft);
       setPendingEarnWithdrawPrepared(null);
+      setPendingEarnCleanupPrepared(null);
       setEarnWithdrawReviewStage("withdraw-0");
       setEarnDepositPrepareError(null);
       setProposalActionError(null);
     },
     []
+  );
+
+  const prepareEarnWithdrawInBrowser = useCallback(
+    async (
+      draft: EarnWithdrawDraft,
+      options: { autodepositCloseAlreadyCompleted?: boolean } = {}
+    ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
+      const overview = smartAccountData.overview;
+      const policy = smartAccountData.earnPolicy;
+      const walletAddress = walletDesktopData.walletAddress;
+
+      if (!overview || !walletAddress) {
+        throw new Error("Smart-account overview is not loaded yet.");
+      }
+      if (!policy) {
+        throw new Error("Active Earn policy metadata is required to withdraw.");
+      }
+
+      const policySigner = policy.delegatedSigners[0];
+      if (!policySigner) {
+        throw new Error("Active Earn policy is missing its delegated signer.");
+      }
+
+      const source = toEarnWithdrawVaultsSource(draft.source);
+      const requestedAmountRaw = getEarnWithdrawDraftAmountRaw(draft);
+      const effectiveAmountRaw =
+        draft.mode === "full" ? source.amountRaw : requestedAmountRaw;
+      const cluster = resolveLoyalClusterForSolanaEnv(
+        resolveSolanaEnv(publicEnv.solanaEnv)
+      );
+      const settingsPda = new PublicKey(overview.settingsPda);
+      const userWallet = new PublicKey(walletAddress);
+      const target =
+        draft.source.type === "reserve"
+          ? toEarnWithdrawReserveTarget(draft.source)
+          : null;
+      const totalLiveAmountRaw =
+        getEarnPositionTotalAmountRaw(activeEarnPosition);
+      const isFinalExit =
+        draft.source.type === "idle" &&
+        draft.mode === "full" &&
+        totalLiveAmountRaw > BigInt(0) &&
+        effectiveAmountRaw >= totalLiveAmountRaw;
+      const autodepositClose =
+        draft.mode === "full" &&
+        isFinalExit &&
+        !options.autodepositCloseAlreadyCompleted &&
+        smartAccountData.earnAutodeposit?.policyAccount &&
+        smartAccountData.earnAutodeposit.recurringDelegation
+          ? {
+              policy: new PublicKey(
+                smartAccountData.earnAutodeposit.policyAccount
+              ),
+              recurringDelegation: new PublicKey(
+                smartAccountData.earnAutodeposit.recurringDelegation
+              ),
+            }
+          : undefined;
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(overview.programId),
+      });
+      const yieldRoutingPolicy = {
+        account: new PublicKey(policy.account),
+        seed: BigInt(policy.seed),
+        setupPolicy: policy.setupPolicy
+          ? {
+              account: new PublicKey(policy.setupPolicy.account),
+              seed: BigInt(policy.setupPolicy.seed),
+            }
+          : null,
+      };
+      const withdrawInput = {
+        amountRaw: effectiveAmountRaw,
+        closePoliciesOnFullWithdrawal: isFinalExit,
+        cluster,
+        feePayer: userWallet,
+        policySigner: new PublicKey(policySigner),
+        settingsPda,
+        source,
+        ...(target ? { target } : {}),
+        ...(draft.mode === "full" && target
+          ? { fullWithdrawalTargets: [target] }
+          : {}),
+        walletAddress: userWallet,
+        yieldRoutingPolicy,
+      };
+
+      return draft.mode === "full"
+        ? client.prepareEarnUsdcWithdraw({
+            ...withdrawInput,
+            ...(autodepositClose ? { autodepositClose } : {}),
+            mode: "full",
+          })
+        : client.prepareEarnUsdcWithdraw({
+            ...withdrawInput,
+            mode: "partial",
+          });
+    },
+    [
+      activeEarnPosition,
+      connection,
+      getEarnWithdrawDraftAmountRaw,
+      publicEnv.solanaEnv,
+      smartAccountData.earnAutodeposit,
+      smartAccountData.earnPolicy,
+      smartAccountData.overview,
+      walletDesktopData.walletAddress,
+    ]
   );
 
   const handleDismissFocusedEarnPreview = useCallback(() => {
@@ -3252,14 +3769,6 @@ export function AppWalletWorkspace({
 
   const handleSubmitEarnDepositDraft = useCallback(
     async (draft: EarnDepositDraft) => {
-      console.log("[earn-deposit] deposit button submitted preview draft", {
-        amountLabel: draft.amountLabel,
-        requiresPolicySetup: smartAccountData.requiresEarnPolicySetupForDeposit,
-        sourceId: draft.source.id,
-        sourceLabel: draft.source.label,
-        tokenDecimals: draft.tokenDecimals,
-        tokenMint: draft.tokenMint,
-      });
       const requiresPolicySetup =
         smartAccountData.requiresEarnPolicySetupForDeposit;
       setProposalActionError(null);
@@ -3274,6 +3783,47 @@ export function AppWalletWorkspace({
           draft.tokenDecimals
         );
         const preparedDeposit = await prepareEarnDepositOnServer({ amountRaw });
+        const shouldBypassTopUpPreview =
+          hasEarnPosition &&
+          !requiresPolicySetup &&
+          !preparedDeposit.policySetupPrepared &&
+          !preparedDeposit.policyFinalizePrepared;
+
+        if (shouldBypassTopUpPreview) {
+          setIsEarnAutoSigning(true);
+          const result = await smartAccountData.executeEarnDeposit({
+            amountRaw,
+            preparedDeposit,
+            recordConfirmationAsync: true,
+          });
+
+          if (!result.success) {
+            throw new Error(result.error ?? "Earn deposit failed.");
+          }
+
+          markDetailPaneTransition("back");
+          setPendingEarnDepositDraft(null);
+          setPendingEarnDepositPrepared(null);
+          setEarnDepositReviewStage("deposit");
+          setIsEarnDepositPolicySetupFlow(false);
+          setEarnDepositPolicyStageSignatures({});
+          invalidateEarnClientCaches();
+          setActiveEarnPosition((current) =>
+            buildPostDepositEarnPosition({
+              amountRaw,
+              confirmedSlot: result.confirmedSlot,
+              current,
+              preparedDeposit,
+            })
+          );
+          debitMainAccountUsdcBalance(amountRaw);
+          suppressEarnSubscriptionRefreshThroughSlot(result.confirmedSlot);
+          setSelectedSignerId(null);
+          setDetailSelection("earn");
+          setSelectedDetail("Earn");
+          return;
+        }
+
         const nextReview = createSubmittedEarnDepositReviewState({
           draft,
           preparedDeposit,
@@ -3291,38 +3841,81 @@ export function AppWalletWorkspace({
             : "Failed to prepare Earn deposit.";
         setEarnDepositPrepareError(message);
       } finally {
+        setIsEarnAutoSigning(false);
         setIsEarnDepositPreparePending(false);
       }
     },
-    [smartAccountData.requiresEarnPolicySetupForDeposit]
+    [
+      debitMainAccountUsdcBalance,
+      hasEarnPosition,
+      invalidateEarnClientCaches,
+      markDetailPaneTransition,
+      setActiveEarnPosition,
+      setDetailSelection,
+      suppressEarnSubscriptionRefreshThroughSlot,
+      smartAccountData,
+    ]
   );
 
   const handleSubmitEarnWithdrawDraft = useCallback(
     async (draft: EarnWithdrawDraft) => {
-      console.log("[earn-withdraw] withdraw button submitted preview draft", {
-        amountLabel: draft.amountLabel,
-        destinationId: draft.destination.id,
-        destinationLabel: draft.destination.label,
-        mode: draft.mode,
-        sourceId: draft.source.sourceId,
-        sourceType: draft.source.type,
-        tokenDecimals: draft.tokenDecimals,
-      });
       setProposalActionError(null);
       setEarnDepositPrepareError(null);
       setPendingEarnWithdrawPrepared(null);
+      setPendingEarnCleanupPrepared(null);
       setEarnWithdrawReviewStage("withdraw-0");
 
       try {
         setIsEarnWithdrawPreparePending(true);
         const amountRaw = getEarnWithdrawDraftAmountRaw(draft);
-        const preparedWithdraw = await prepareEarnWithdrawOnServer({
-          amountRaw,
-          mode: draft.mode,
-          source: toEarnWithdrawPrepareSource(draft.source),
-        });
+        const preparedWithdraw = await prepareEarnWithdrawInBrowser(draft);
+        const shouldBypassWithdrawPreview =
+          draft.mode === "partial" &&
+          !preparedWithdraw.autodepositClosePrepared;
+
+        if (shouldBypassWithdrawPreview) {
+          setIsEarnAutoSigning(true);
+          const stepCount = Math.max(1, preparedWithdraw.withdrawSteps.length);
+          let latestConfirmedSlot: string | undefined;
+          for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
+            const result = await smartAccountData.executeEarnWithdraw({
+              amountRaw,
+              mode: draft.mode,
+              preparedWithdraw,
+              recordConfirmationAsync: stepIndex === stepCount - 1,
+              stepIndex,
+            });
+
+            if (!result.success) {
+              throw new Error(result.error ?? "Earn withdrawal failed.");
+            }
+            latestConfirmedSlot = result.confirmedSlot ?? latestConfirmedSlot;
+          }
+
+          markDetailPaneTransition("back");
+          invalidateEarnClientCaches();
+          setPendingEarnWithdrawDraft(null);
+          setPendingEarnWithdrawPrepared(null);
+          setPendingEarnCleanupPrepared(null);
+          setEarnWithdrawReviewStage("withdraw-0");
+          setActiveEarnPosition((current) =>
+            applySubmittedEarnWithdrawToPosition({
+              amountRaw,
+              current,
+              draft,
+            })
+          );
+          creditMainAccountUsdcBalance(amountRaw);
+          suppressEarnSubscriptionRefreshThroughSlot(latestConfirmedSlot);
+          setSelectedSignerId(null);
+          setDetailSelection("earn");
+          setSelectedDetail("Earn");
+          return;
+        }
+
         setPendingEarnWithdrawDraft(draft);
         setPendingEarnWithdrawPrepared(preparedWithdraw);
+        setPendingEarnCleanupPrepared(null);
         setEarnWithdrawReviewStage(
           preparedWithdraw.autodepositClosePrepared
             ? "autodeposit"
@@ -3336,20 +3929,25 @@ export function AppWalletWorkspace({
         setProposalActionError(message);
         setEarnDepositPrepareError(message);
       } finally {
+        setIsEarnAutoSigning(false);
         setIsEarnWithdrawPreparePending(false);
       }
     },
-    [getEarnWithdrawDraftAmountRaw]
+    [
+      creditMainAccountUsdcBalance,
+      getEarnWithdrawDraftAmountRaw,
+      invalidateEarnClientCaches,
+      markDetailPaneTransition,
+      prepareEarnWithdrawInBrowser,
+      setActiveEarnPosition,
+      setDetailSelection,
+      suppressEarnSubscriptionRefreshThroughSlot,
+      smartAccountData,
+    ]
   );
 
   const handleContinueEarnDepositReview = useCallback(async () => {
-    console.log("[earn-deposit] approve clicked", {
-      hasDraft: Boolean(pendingEarnDepositDraft),
-      isActionPending: smartAccountData.isActionPending,
-    });
-
     if (!pendingEarnDepositDraft) {
-      console.log("[earn-deposit] approve aborted: no pending draft");
       setProposalActionError("Enter a deposit amount before continuing.");
       return;
     }
@@ -3420,20 +4018,10 @@ export function AppWalletWorkspace({
           pendingEarnDepositDraft.amountLabel,
           pendingEarnDepositDraft.tokenDecimals
         );
-        console.log("[earn-deposit] parsed approve amount", {
-          amountLabel: pendingEarnDepositDraft.amountLabel,
-          amountRaw: amountRaw.toString(),
-          tokenDecimals: pendingEarnDepositDraft.tokenDecimals,
-        });
         const result = await smartAccountData.executeEarnDeposit({
           amountRaw,
           ...stageSignatures,
           preparedDeposit: pendingEarnDepositPrepared,
-        });
-        console.log("[earn-deposit] executeEarnDeposit result", {
-          error: result.error,
-          status: result.status,
-          success: result.success,
         });
 
         if (!result.success) {
@@ -3449,34 +4037,23 @@ export function AppWalletWorkspace({
         setEarnDepositPrepareError(null);
         invalidateEarnClientCaches();
         setActiveEarnPosition((current) => {
-          const next = buildPostDepositEarnPosition({
+          return buildPostDepositEarnPosition({
             amountRaw,
             confirmedSlot: result.confirmedSlot,
             current,
             preparedDeposit: pendingEarnDepositPrepared,
           });
-          console.log("[earn-position] optimistic post-deposit update", {
-            current,
-            depositAmountRaw: amountRaw.toString(),
-            next,
-          });
-          return next;
         });
+        debitMainAccountUsdcBalance(amountRaw);
+        suppressEarnSubscriptionRefreshThroughSlot(result.confirmedSlot);
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
-        void refreshActiveEarnPosition().catch((error) => {
-          console.warn("[earn-position] post-deposit refresh failed", error);
-        });
         break;
       }
     } catch (error) {
       const raw =
         error instanceof Error ? error.message : "Earn deposit failed.";
-      console.log("[earn-deposit] approve failed", {
-        errorName: error instanceof Error ? error.name : typeof error,
-        errorMessage: raw,
-      });
       const haystack = raw.toLowerCase();
       const isRentError =
         haystack.includes("insufficient funds for rent") ||
@@ -3495,12 +4072,13 @@ export function AppWalletWorkspace({
     earnDepositPolicyStageSignatures,
     earnDepositReviewStage,
     isEarnDepositPolicySetupFlow,
+    debitMainAccountUsdcBalance,
     markDetailPaneTransition,
     pendingEarnDepositDraft,
     pendingEarnDepositPrepared,
-    refreshActiveEarnPosition,
     setActiveEarnPosition,
     setDetailSelection,
+    suppressEarnSubscriptionRefreshThroughSlot,
     invalidateEarnClientCaches,
     smartAccountData,
   ]);
@@ -3544,18 +4122,18 @@ export function AppWalletWorkspace({
 
           setAutodepositConfig(null);
           setIsEarnWithdrawPreparePending(true);
-          const nextPreparedWithdraw = await prepareEarnWithdrawOnServer({
-            amountRaw,
-            mode: pendingEarnWithdrawDraft.mode,
-            source: toEarnWithdrawPrepareSource(pendingEarnWithdrawDraft.source),
-          });
+          const nextPreparedWithdraw = await prepareEarnWithdrawInBrowser(
+            pendingEarnWithdrawDraft,
+            { autodepositCloseAlreadyCompleted: true }
+          );
           setIsEarnWithdrawPreparePending(false);
           if (nextPreparedWithdraw.autodepositClosePrepared) {
             throw new Error(
-              "Autodeposit close was confirmed, but the refreshed withdrawal still includes an Autodeposit close. Review the withdrawal again before signing."
+              "Autodeposit close was confirmed, but the refreshed Earn action still includes an Autodeposit close. Review it again before signing."
             );
           }
           preparedWithdraw = nextPreparedWithdraw;
+          setPendingEarnCleanupPrepared(null);
           setPendingEarnWithdrawPrepared(nextPreparedWithdraw);
           stage = "withdraw-0";
           setEarnWithdrawReviewStage(stage);
@@ -3563,12 +4141,19 @@ export function AppWalletWorkspace({
         }
 
         const stepIndex = Number(stage.replace("withdraw-", "")) || 0;
+        if (!preparedWithdraw) {
+          throw new Error("Prepare the Earn withdrawal before signing.");
+        }
+
         const result = await smartAccountData.executeEarnWithdraw({
           amountRaw,
           autodepositCloseAlreadyCompleted:
             pendingEarnWithdrawDraft.mode === "full",
           mode: pendingEarnWithdrawDraft.mode,
-          preparedWithdraw: preparedWithdraw ?? undefined,
+          preparedWithdraw,
+          recordConfirmationAsync:
+            pendingEarnWithdrawDraft.mode === "partial" &&
+            stepIndex === preparedWithdraw.withdrawSteps.length - 1,
           stepIndex,
         });
 
@@ -3593,46 +4178,30 @@ export function AppWalletWorkspace({
         invalidateEarnClientCaches();
         setPendingEarnWithdrawDraft(null);
         setPendingEarnWithdrawPrepared(null);
+        setPendingEarnCleanupPrepared(null);
         setEarnWithdrawReviewStage("withdraw-0");
-        setActiveEarnPosition((current) => {
-          if (!current) {
-            return current;
-          }
-
-          const currentTotalAmountRaw = BigInt(current.currentTotalAmountRaw);
-          const nextCurrentTotal =
-            currentTotalAmountRaw > amountRaw
-              ? currentTotalAmountRaw - amountRaw
-              : BigInt(0);
-          const currentPrincipal = BigInt(current.principalAmountRaw);
-          const nextPrincipal =
-            pendingEarnWithdrawDraft.source.type === "idle"
-              ? nextCurrentTotal > BigInt(0)
-                ? currentPrincipal
-                : BigInt(0)
-              : currentPrincipal > amountRaw
-              ? currentPrincipal - amountRaw
-              : BigInt(0);
-
-          return nextCurrentTotal > BigInt(0)
-            ? {
-                ...current,
-                currentHolding: {
-                  ...current.currentHolding,
-                  amountRaw: nextCurrentTotal.toString(),
-                },
-                currentTotalAmountRaw: nextCurrentTotal.toString(),
-                principalAmountRaw: nextPrincipal.toString(),
-                status: "active",
-              }
-            : null;
-        });
+        setActiveEarnPosition((current) =>
+          applySubmittedEarnWithdrawToPosition({
+            amountRaw,
+            current,
+            draft: pendingEarnWithdrawDraft,
+          })
+        );
+        if (pendingEarnWithdrawDraft.mode === "partial") {
+          creditMainAccountUsdcBalance(amountRaw);
+          suppressEarnSubscriptionRefreshThroughSlot(result.confirmedSlot);
+        }
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
-        void refreshActiveEarnPosition().catch((error) => {
-          console.warn("[earn-position] post-withdraw refresh failed", error);
-        });
+        if (pendingEarnWithdrawDraft.mode !== "partial") {
+          void refreshActiveEarnPosition().catch((error) => {
+            console.warn(
+              "[earn-position] post-withdraw refresh failed",
+              error
+            );
+          });
+        }
         break;
       }
     } catch (error) {
@@ -3651,9 +4220,12 @@ export function AppWalletWorkspace({
     markDetailPaneTransition,
     pendingEarnWithdrawDraft,
     pendingEarnWithdrawPrepared,
+    prepareEarnWithdrawInBrowser,
     refreshActiveEarnPosition,
+    creditMainAccountUsdcBalance,
     setActiveEarnPosition,
     setDetailSelection,
+    suppressEarnSubscriptionRefreshThroughSlot,
     smartAccountData,
   ]);
 
@@ -4712,10 +5284,14 @@ export function AppWalletWorkspace({
     if (detailSelection === "earn") {
       return (
         <EarnDetailView
-          autodepositAmountLabel={autodepositAmountLabel}
+          autodepositFloorAccountLabel={
+            earnDepositSources.find((source) => source.id === "main")
+              ?.addressLabel
+          }
           autodepositFloorLabel={autodepositFloorLabel}
           autodepositScheduledSweeps={autodepositConfig?.scheduledSweeps}
           autodepositState={autodepositConfig?.state ?? "idle"}
+          currentBalanceAmount={earnCurrentBalanceAmount}
           currentPositionHoldings={activeEarnPosition?.holdings}
           currentPositionMarketName={activeEarnPosition?.display?.marketName}
           currentPositionTokenSymbol={activeEarnPosition?.display?.mintSymbol}
@@ -4733,7 +5309,7 @@ export function AppWalletWorkspace({
           onDisableAutodeposit={handleDisableAutodeposit}
           onOpenAutodeposit={handleOpenAutodeposit}
           onWithdraw={handleOpenEarnWithdraw}
-          principalAmount={earnWithdrawMaxAmount}
+          principalAmount={earnPrincipalAmount}
         />
       );
     }
@@ -4741,7 +5317,7 @@ export function AppWalletWorkspace({
     if (detailSelection === "earnAutodeposit") {
       return (
         <AutodepositSetupView
-          earnBalance={earnWithdrawMaxAmount}
+          earnBalance={earnCurrentBalanceAmount}
           earnVaultAddressLabel={earnVaultAddressLabel}
           initialKeepAmount={autodepositConfig?.keepAmount ?? "500"}
           isEditing={Boolean(autodepositConfig)}
@@ -4763,7 +5339,6 @@ export function AppWalletWorkspace({
           isSubmitting={
             smartAccountData.isActionPending || isEarnWithdrawPreparePending
           }
-          maxWithdrawAmount={earnWithdrawMaxAmount}
           onDraftChange={handleEarnWithdrawDraftChange}
           onDraftSubmit={handleSubmitEarnWithdrawDraft}
           onClose={handleBackFromEarnWithdraw}
@@ -5616,6 +6191,8 @@ export function AppWalletWorkspace({
         } as React.CSSProperties
       }
     >
+      <PrivateClientPreloader enabled={shouldLoadMainAccountPrivateBalances} />
+
       <WalletRail
         activeSection={activeSection}
         dogCry={dogCry}
@@ -5675,7 +6252,7 @@ export function AppWalletWorkspace({
                 approvals={smartAccountData.approvals}
                 balanceFraction={totalBalance.balanceFraction}
                 balanceWhole={totalBalance.balanceWhole}
-                earnBalance={earnWithdrawMaxAmount}
+                earnBalance={earnCurrentBalanceAmount}
                 hasEarnPosition={hasEarnPosition}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}

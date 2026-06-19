@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
 
@@ -42,11 +42,14 @@ let currentPrincipal: typeof principal | null = principal;
 let currentAutodepositState: typeof completeAutodepositState | null = null;
 let currentPosition: typeof activePosition | null = activePosition;
 let findAutodepositCalls: unknown[] = [];
+let getAccountInfoCalls: string[] = [];
 let findPolicyCalls: unknown[] = [];
 let findPositionCalls: unknown[] = [];
 let findReserveRowsCalls: unknown[] = [];
 let findIdleRowsCalls: unknown[] = [];
 let prepareCalls: Record<string, unknown>[] = [];
+let reconcileMissingAutodepositCalls: unknown[] = [];
+let currentAutodepositPolicyAccountExists = true;
 let currentReserveRows: Array<{
   hasValue?: boolean;
   amountRaw: bigint;
@@ -116,6 +119,13 @@ mock.module(
       findAutodepositCalls.push(input);
       return currentAutodepositState;
     },
+    reconcileMissingOnChainEarnAutodepositPolicy: async (input: unknown) => {
+      reconcileMissingAutodepositCalls.push(input);
+      return {
+        id: BigInt(11),
+        lifecycleStatus: "closed",
+      };
+    },
     recordClosedAutodepositTarget: async () => {
       throw new Error("recordClosedAutodepositTarget was not expected.");
     },
@@ -171,10 +181,20 @@ function createRequest(body: Record<string, unknown>): Request {
 
 describe("Earn withdrawal prepare route", () => {
   beforeEach(() => {
+    (
+      Connection.prototype as unknown as {
+        getAccountInfo: (key: PublicKey) => Promise<unknown | null>;
+      }
+    ).getAccountInfo = async (key: PublicKey) => {
+      getAccountInfoCalls.push(key.toBase58());
+      return currentAutodepositPolicyAccountExists ? { lamports: 1 } : null;
+    };
     currentPrincipal = principal;
     currentAutodepositState = null;
+    currentAutodepositPolicyAccountExists = true;
     currentPosition = activePosition;
     findAutodepositCalls = [];
+    getAccountInfoCalls = [];
     findPolicyCalls = [];
     findPositionCalls = [];
     findReserveRowsCalls = [];
@@ -190,6 +210,7 @@ describe("Earn withdrawal prepare route", () => {
     ];
     currentIdleRows = [];
     prepareCalls = [];
+    reconcileMissingAutodepositCalls = [];
   });
 
   test("does not fetch autodeposit state for partial withdrawals", async () => {
@@ -264,6 +285,10 @@ describe("Earn withdrawal prepare route", () => {
         walletAddress: principal.walletAddress,
       },
     ]);
+    expect(getAccountInfoCalls).toEqual([
+      completeAutodepositState.policy.policyAccount,
+    ]);
+    expect(reconcileMissingAutodepositCalls).toHaveLength(0);
     expect(
       (
         prepareCalls[0]?.autodepositClose as {
@@ -280,6 +305,30 @@ describe("Earn withdrawal prepare route", () => {
         }
       ).recurringDelegation.toBase58()
     ).toBe(completeAutodepositState.target.recurringDelegation);
+  });
+
+  test("reconciles and skips autodeposit close when the policy account is already missing", async () => {
+    const { POST } = await import("./route");
+    currentAutodepositState = completeAutodepositState;
+    currentAutodepositPolicyAccountExists = false;
+
+    const response = await POST(
+      createRequest({ amountRaw: "1000000", mode: "full" })
+    );
+
+    expect(response.status).toBe(200);
+    expect(getAccountInfoCalls).toEqual([
+      completeAutodepositState.policy.policyAccount,
+    ]);
+    expect(reconcileMissingAutodepositCalls).toEqual([
+      {
+        policyAccount: completeAutodepositState.policy.policyAccount,
+        settings: principal.settingsPda,
+        vaultIndex: 1,
+        walletAddress: principal.walletAddress,
+      },
+    ]);
+    expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
   });
 
   test("omits autodeposit close metadata when full withdrawal state is incomplete", async () => {

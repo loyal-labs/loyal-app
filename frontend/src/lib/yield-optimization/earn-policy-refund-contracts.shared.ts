@@ -9,6 +9,7 @@ import {
 export type EarnPolicyRefundScanPolicy = {
   account: string;
   accountIndex: number | null;
+  activeAutodeposit: boolean;
   activeManagedVault: boolean;
   blockedReason: string | null;
   canRefund: boolean;

@@ -70,6 +70,7 @@ mock.module("server-only", () => ({}));
 // op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=full-withdraw-cleanup EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
 // op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=top-up-partial-smoke EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
 // op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=same-mint-frontend-sdk-live EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
+// NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=rpc-holdings-withdrawal-preview EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts
 //
 // Approved live lifecycle:
 // op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=initial-deposit-then-withdraw-cleanup bun scripts/verify-earn-mainnet-flow.ts'
@@ -86,6 +87,7 @@ type VerifyPhase =
   | "full-withdraw-cleanup"
   | "initial-deposit-from-clean"
   | "initial-deposit-then-withdraw-cleanup"
+  | "rpc-holdings-withdrawal-preview"
   | "same-mint-frontend-sdk-live"
   | "source-lifecycle-withdrawals"
   | "top-up-partial-smoke"
@@ -351,6 +353,7 @@ function assertVerifyPhase(phase: string): asserts phase is VerifyPhase {
     phase !== "full-withdraw-cleanup" &&
     phase !== "initial-deposit-from-clean" &&
     phase !== "initial-deposit-then-withdraw-cleanup" &&
+    phase !== "rpc-holdings-withdrawal-preview" &&
     phase !== "same-mint-frontend-sdk-live" &&
     phase !== "source-lifecycle-withdrawals" &&
     phase !== "top-up-partial-smoke" &&
@@ -2444,6 +2447,184 @@ function fullWithdrawCleanupCandidates(
   return [...candidates];
 }
 
+function commandText(command: readonly string[]): string {
+  return command.join(" ");
+}
+
+function assertNoMatches(result: CommandCapture, label: string): void {
+  if (result.exitCode === 0 || result.stdout.trim().length > 0) {
+    throw new Error(
+      `${label} had unexpected matches:\n${result.stdout || result.stderr}`
+    );
+  }
+  if (result.exitCode !== 1) {
+    throw new Error(
+      `${label} failed to run (${result.exitCode}): ${result.stderr}`
+    );
+  }
+}
+
+function assertHasMatches(result: CommandCapture, label: string): void {
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+    throw new Error(
+      `${label} did not find required evidence (${result.exitCode}): ${result.stderr}`
+    );
+  }
+}
+
+async function runRpcHoldingsWithdrawalPreview(): Promise<void> {
+  if (!DRY_RUN) {
+    throw new Error(
+      "EARN_VERIFY_PHASE=rpc-holdings-withdrawal-preview is read-only. Set EARN_VERIFY_DRY_RUN=1."
+    );
+  }
+
+  const cwd = process.cwd();
+  const negativePrepare = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "prepareEarnWithdrawOnServer|/api/smart-accounts/yield-optimization/withdrawals/prepare|withdrawals/prepare",
+      "frontend/src/components",
+      "frontend/src/hooks",
+      "frontend/src/lib",
+      "-S",
+    ],
+    cwd,
+  });
+  assertNoMatches(
+    negativePrepare,
+    "Loyal web withdrawal review/execution server prepare search"
+  );
+
+  const negativeReconcile = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "position/reconcile|reconcileActiveEarnPosition",
+      "frontend/src/hooks/use-active-earn-position.ts",
+      "frontend/src/components/wallet-workspace/app-wallet-workspace.tsx",
+      "-S",
+    ],
+    cwd,
+  });
+  assertNoMatches(
+    negativeReconcile,
+    "Loyal web active Earn first-open server reconcile search"
+  );
+
+  const rpcReaderEvidence = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "getMultipleAccountsInfoAndContext|GET_MULTIPLE_ACCOUNTS_LIMIT|AccountLayout.decode|parseKaminoReserveSnapshot|parseKaminoReserveTokenAccounts|deriveKaminoVanillaObligation",
+      "frontend/src/lib/yield-optimization/earn-rpc-holdings.client.ts",
+      "-S",
+    ],
+    cwd,
+  });
+  assertHasMatches(rpcReaderEvidence, "RPC holdings reader evidence");
+
+  const validationEvidence = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "not owned by the token program|unexpected mint|not owned by the Earn vault|unexpected owner|parseKaminoReserveSnapshot|parseKaminoReserveTokenAccounts",
+      "frontend/src/lib/yield-optimization/earn-rpc-holdings.client.ts",
+      "-S",
+    ],
+    cwd,
+  });
+  assertHasMatches(
+    validationEvidence,
+    "RPC holdings account validation evidence"
+  );
+
+  const zeroAndStaleEvidence = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "return BigInt\\(0\\)|!reserveAccount \\|\\| !hasObligation|totalAmountRaw <= BigInt\\(0\\)|return null",
+      "frontend/src/lib/yield-optimization/earn-rpc-holdings.client.ts",
+      "frontend/src/hooks/use-active-earn-position.ts",
+      "-S",
+    ],
+    cwd,
+  });
+  assertHasMatches(
+    zeroAndStaleEvidence,
+    "RPC zero-account and stale-position evidence"
+  );
+
+  const hookEvidence = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "fetchEarnRpcHoldingsSnapshot|applyEarnRpcSnapshotToPosition|createEarnRpcReserveCandidates|setPositionState\\(livePosition\\)",
+      "frontend/src/hooks/use-active-earn-position.ts",
+      "-S",
+    ],
+    cwd,
+  });
+  assertHasMatches(hookEvidence, "first-open RPC reconciliation evidence");
+
+  const browserPrepareEvidence = await runCommandCapture({
+    command: [
+      "rg",
+      "-n",
+      "prepareEarnWithdrawInBrowser|prepareEarnUsdcWithdraw|toEarnWithdrawVaultsSource|fullWithdrawalTargets|closePoliciesOnFullWithdrawal",
+      "frontend/src/components/wallet-workspace/app-wallet-workspace.tsx",
+      "-S",
+    ],
+    cwd,
+  });
+  assertHasMatches(browserPrepareEvidence, "browser withdrawal prepare evidence");
+
+  await writeEvidence({
+    cluster: LoyalCluster.MainnetBeta,
+    dryRun: true,
+    env: SOLANA_ENV,
+    evidencePath: EVIDENCE_PATH,
+    mode: "rpc-holdings-withdrawal-preview",
+    phase: VERIFY_PHASE,
+    sendsTransactions: false,
+    status: "success",
+    staticChecks: {
+      browserPrepareEvidence: {
+        command: commandText(browserPrepareEvidence.command),
+        stdout: browserPrepareEvidence.stdout,
+      },
+      hookEvidence: {
+        command: commandText(hookEvidence.command),
+        stdout: hookEvidence.stdout,
+      },
+      negativePrepare: {
+        command: commandText(negativePrepare.command),
+        exitCode: negativePrepare.exitCode,
+      },
+      negativeReconcile: {
+        command: commandText(negativeReconcile.command),
+        exitCode: negativeReconcile.exitCode,
+      },
+      rpcReaderEvidence: {
+        command: commandText(rpcReaderEvidence.command),
+        stdout: rpcReaderEvidence.stdout,
+      },
+      validationEvidence: {
+        command: commandText(validationEvidence.command),
+        stdout: validationEvidence.stdout,
+      },
+      zeroAndStaleEvidence: {
+        command: commandText(zeroAndStaleEvidence.command),
+        stdout: zeroAndStaleEvidence.stdout,
+      },
+    },
+  });
+
+  console.log("[earn-mainnet] PASS rpc holdings withdrawal preview verifier");
+  console.log(`[earn-mainnet] evidence ${EVIDENCE_PATH}`);
+}
+
 async function main() {
   if (OFFLINE_POLICY_VERIFY) {
     await runOfflinePolicyVerifier();
@@ -2453,6 +2634,11 @@ async function main() {
   assertMainnet();
   assertVerifyPhase(VERIFY_PHASE);
   assertSupportedPhaseMode();
+
+  if (VERIFY_PHASE === "rpc-holdings-withdrawal-preview") {
+    await runRpcHoldingsWithdrawalPreview();
+    return;
+  }
 
   const walletKeypair = loadTestingKeypair();
   const policySigner = loadDeploymentPolicySigner();

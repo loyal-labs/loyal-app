@@ -84,6 +84,8 @@ export type ConfirmedYieldRoutePolicyInput = {
 export type UserYieldPositionRecord = typeof userYieldPositions.$inferSelect;
 export type UserYieldPositionHoldingEventRecord =
   typeof userYieldPositionHoldingEvents.$inferSelect;
+type UserYieldPositionWithdrawalRecord =
+  typeof userYieldPositionWithdrawals.$inferSelect;
 export type RoutePolicyRecord = typeof routePolicies.$inferSelect;
 export type UserYieldPositionEventRecord = {
   amountRaw: bigint;
@@ -99,6 +101,7 @@ export type UserYieldPositionHistoryEventRecord = {
   reserve: string;
   market: string | null;
   principalDeltaRaw: bigint | null;
+  withdrawnAmountRaw?: bigint | null;
   liquidityMint: string;
   sourceReserve?: string | null;
   sourceMarket?: string | null;
@@ -215,6 +218,10 @@ export type ConfirmedYieldWithdrawalInput = {
   liquidityMint: string;
   withdrawnAmountRaw: bigint;
   mode: "partial" | "full";
+  confirmedReserveDebitAmountRaw?: bigint | null;
+  confirmedVaultIdleDeltaRaw?: bigint | null;
+  confirmedVaultIdleTokenAccount?: string | null;
+  confirmedWalletTransferAmountRaw?: bigint | null;
   sourceAmountRaw?: bigint | null;
   sourceId?: string | null;
   sourceMetadata?: Record<string, unknown> | null;
@@ -352,6 +359,23 @@ export type YieldPositionVerificationFailure = {
 export type ActiveYieldRoutePolicyPair = {
   routePolicy: RoutePolicyRecord;
   setupPolicy: RoutePolicyRecord | null;
+};
+export type EarnCleanupVaultState = {
+  idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
+  reserveRows: CurrentYieldVaultReservePositionRecord[];
+  routePolicy: RoutePolicyRecord;
+  setupPolicy: RoutePolicyRecord | null;
+  vault: ManagedYieldVaultRecord;
+};
+
+export type ConfirmedEarnCleanupInput = {
+  cleanupSignature: string;
+  cluster: string;
+  confirmedSlot: bigint;
+  settings: string;
+  vaultIndex: number;
+  vaultPubkey: string;
+  walletAddress: string;
 };
 
 type YieldDepositRepositoryDependencies = {
@@ -632,6 +656,78 @@ async function deactivateVaultAfterFullWithdrawal(
   await dependencies.client.db.batch([deactivatePolicies, deactivateVault]);
 }
 
+export async function recordConfirmedEarnCleanup(
+  input: ConfirmedEarnCleanupInput,
+  dependencies: YieldDepositRepositoryDependencies = createDependencies()
+): Promise<void> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const vault = await client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.active, true),
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, input.vaultPubkey)
+    ),
+  });
+  if (!vault) {
+    return;
+  }
+
+  const policyIds = [vault.activePolicyId, vault.setupPolicyId].filter(
+    (policyId): policyId is bigint => typeof policyId === "bigint"
+  );
+  const zeroReserveRows = client.db
+    .update(vaultReservePositionsCurrent)
+    .set({
+      amountRaw: BigInt(0),
+      hasValue: false,
+      observedAt: now,
+      observedSlot: input.confirmedSlot,
+      planningMetadata: {
+        source: "frontend_earn_cleanup",
+        cleanupSignature: input.cleanupSignature,
+      },
+    })
+    .where(eq(vaultReservePositionsCurrent.vaultId, vault.id)) as never;
+  const zeroIdleRows = client.db
+    .update(vaultIdleTokenBalancesCurrent)
+    .set({
+      amountRaw: BigInt(0),
+      observedAt: now,
+      observedSlot: input.confirmedSlot,
+      sourceCommitment: "confirmed_cleanup",
+      updatedAt: now,
+    })
+    .where(eq(vaultIdleTokenBalancesCurrent.vaultId, vault.id)) as never;
+  const deactivateVault = client.db
+    .update(managedVaults)
+    .set({ active: false, lastSeenAt: now })
+    .where(eq(managedVaults.id, vault.id)) as never;
+
+  if (policyIds.length === 0) {
+    await client.db.batch([zeroReserveRows, zeroIdleRows, deactivateVault]);
+    return;
+  }
+
+  const deactivatePolicies = client.db
+    .update(routePolicies)
+    .set({
+      active: false,
+      lastSeenAt: now,
+      lastSeenSignature: input.cleanupSignature,
+      lastSeenSlot: input.confirmedSlot,
+    })
+    .where(inArray(routePolicies.id, policyIds)) as never;
+
+  await client.db.batch([
+    deactivatePolicies,
+    zeroReserveRows,
+    zeroIdleRows,
+    deactivateVault,
+  ]);
+}
+
 async function recordCurrentVaultSourceWithdrawal(args: {
   dependencies: Pick<YieldDepositRepositoryDependencies, "client" | "now">;
   input: ConfirmedYieldWithdrawalInput;
@@ -670,12 +766,16 @@ async function recordCurrentVaultSourceWithdrawal(args: {
   if (!selectedReserve || resolution.reserveRows.length === 0) {
     return;
   }
+  const sourceDebitAmountRaw = getWithdrawalSourceDebitAmountRaw(
+    input,
+    "reserve"
+  );
 
   const nextRows = resolution.reserveRows.map((row) => {
     const nextAmountRaw =
-      row.reserve === selectedReserve.reserve
-        ? row.amountRaw > input.withdrawnAmountRaw
-          ? row.amountRaw - input.withdrawnAmountRaw
+      reserveRowsRepresentSameHolding(row, selectedReserve)
+        ? row.amountRaw > sourceDebitAmountRaw
+          ? row.amountRaw - sourceDebitAmountRaw
           : BigInt(0)
         : row.amountRaw;
     return {
@@ -760,6 +860,55 @@ async function recordCurrentVaultSourceWithdrawal(args: {
       .set({ isCurrent: true })
       .where(eq(vaultPositionSnapshots.id, snapshot.id)) as never,
   ]);
+
+  const vaultIdleDeltaRaw = input.confirmedVaultIdleDeltaRaw ?? BigInt(0);
+  if (vaultIdleDeltaRaw <= BigInt(0) || !input.confirmedVaultIdleTokenAccount) {
+    return;
+  }
+
+  const [existingIdleRow] = await dependencies.client.db
+    .select()
+    .from(vaultIdleTokenBalancesCurrent)
+    .where(
+      and(
+        eq(vaultIdleTokenBalancesCurrent.vaultId, resolution.vault.id),
+        eq(vaultIdleTokenBalancesCurrent.mint, input.liquidityMint)
+      )
+    )
+    .limit(1);
+
+  if (existingIdleRow) {
+    await dependencies.client.db
+      .update(vaultIdleTokenBalancesCurrent)
+      .set({
+        amountRaw: existingIdleRow.amountRaw + vaultIdleDeltaRaw,
+        observedAt,
+        observedSlot: input.confirmedSlot,
+        owner: input.vaultPubkey,
+        sourceCommitment: "confirmed_withdrawal",
+        tokenAccount: input.confirmedVaultIdleTokenAccount,
+        updatedAt: observedAt,
+      })
+      .where(
+        and(
+          eq(vaultIdleTokenBalancesCurrent.vaultId, resolution.vault.id),
+          eq(vaultIdleTokenBalancesCurrent.mint, input.liquidityMint)
+        )
+      );
+    return;
+  }
+
+  await dependencies.client.db.insert(vaultIdleTokenBalancesCurrent).values({
+    amountRaw: vaultIdleDeltaRaw,
+    mint: input.liquidityMint,
+    observedAt,
+    observedSlot: input.confirmedSlot,
+    owner: input.vaultPubkey,
+    sourceCommitment: "confirmed_withdrawal",
+    tokenAccount: input.confirmedVaultIdleTokenAccount,
+    updatedAt: observedAt,
+    vaultId: resolution.vault.id,
+  });
 }
 
 function assertDuplicateWithdrawalField<T extends string | bigint | number>(
@@ -855,6 +1004,242 @@ function normalizeWithdrawalSource(input: ConfirmedYieldWithdrawalInput): {
   };
 }
 
+type NormalizedWithdrawalSource = ReturnType<typeof normalizeWithdrawalSource>;
+
+function compactNonEmptyStrings(
+  values: Array<string | null | undefined>
+): string[] {
+  const strings: string[] = [];
+  for (const value of values) {
+    if (value && !strings.includes(value)) {
+      strings.push(value);
+    }
+  }
+  return strings;
+}
+
+function getReserveWithdrawalSourceIds(
+  source: NormalizedWithdrawalSource,
+  input: ConfirmedYieldWithdrawalInput
+): string[] {
+  return compactNonEmptyStrings([
+    source.sourceId,
+    input.accountingReserve,
+    input.targetReserve,
+  ]);
+}
+
+function reserveRowMatchesWithdrawalSource(
+  row: CurrentYieldVaultReservePositionRecord,
+  source: NormalizedWithdrawalSource,
+  input: ConfirmedYieldWithdrawalInput
+): boolean {
+  return getReserveWithdrawalSourceIds(source, input).includes(row.reserve);
+}
+
+function reserveRowsRepresentSameHolding(
+  left: CurrentYieldVaultReservePositionRecord,
+  right: CurrentYieldVaultReservePositionRecord
+): boolean {
+  return (
+    left.reserve === right.reserve &&
+    left.market === right.market &&
+    left.liquidityMint === right.liquidityMint
+  );
+}
+
+function asRedeemableLiquidityReserveRow(
+  row: CurrentYieldVaultReservePositionRecord,
+  amountRaw: bigint
+): CurrentYieldVaultReservePositionRecord {
+  return {
+    ...row,
+    amountRaw,
+    hasValue: amountRaw > BigInt(0),
+    planningMetadata: {
+      ...row.planningMetadata,
+      amountSemantics: "kamino_redeemable_liquidity",
+      amount_semantics: "kamino_redeemable_liquidity",
+    },
+  };
+}
+
+function buildFallbackRedeemableReserveRow(args: {
+  amountRaw: bigint;
+  input: ConfirmedYieldWithdrawalInput;
+  observedAt: Date;
+  vaultId: bigint;
+}): CurrentYieldVaultReservePositionRecord | null {
+  const reserve = args.input.accountingReserve ?? args.input.targetReserve;
+  if (!reserve || !args.input.liquidityMint) {
+    return null;
+  }
+
+  return {
+    amountRaw: args.amountRaw,
+    borrowApyBps: null,
+    hasValue: args.amountRaw > BigInt(0),
+    liquidityMint: args.input.liquidityMint,
+    market: args.input.market,
+    observedAt: args.observedAt,
+    observedSlot: args.input.confirmedSlot,
+    planningMetadata: {
+      amountSemantics: "kamino_redeemable_liquidity",
+      amount_semantics: "kamino_redeemable_liquidity",
+      source: "confirmed_withdrawal_transaction",
+      withdrawalSignature: args.input.withdrawalSignature,
+    },
+    reserve,
+    snapshotId: BigInt(0),
+    supplyApyBps: null,
+    vaultId: args.vaultId,
+  };
+}
+
+function parseUnsignedBigInt(value: string | null | undefined): bigint | null {
+  return typeof value === "string" && /^\d+$/.test(value)
+    ? BigInt(value)
+    : null;
+}
+
+function getPreparedReserveDebitAmountRaw(
+  input: ConfirmedYieldWithdrawalInput
+): bigint | null {
+  if (!input.reserveWithdrawals || input.reserveWithdrawals.length === 0) {
+    return null;
+  }
+
+  return input.reserveWithdrawals.reduce((total, withdrawal) => {
+    const amountRaw = parseUnsignedBigInt(withdrawal.kaminoWithdrawAmountRaw);
+    return amountRaw === null ? total : total + amountRaw;
+  }, BigInt(0));
+}
+
+function getWithdrawalSourceDebitAmountRaw(
+  input: ConfirmedYieldWithdrawalInput,
+  sourceType: "reserve" | "idle"
+): bigint {
+  if (sourceType === "idle") {
+    return input.withdrawnAmountRaw;
+  }
+
+  return (
+    input.confirmedReserveDebitAmountRaw ??
+    getPreparedReserveDebitAmountRaw(input) ??
+    input.withdrawnAmountRaw
+  );
+}
+
+function maxBigInt(values: bigint[]): bigint {
+  return values.reduce(
+    (largest, value) => (value > largest ? value : largest),
+    BigInt(0)
+  );
+}
+
+function readStoredWithdrawalSourceType(
+  value: string | null
+): "reserve" | "idle" | null {
+  return value === "reserve" || value === "idle" ? value : null;
+}
+
+function readStoredWithdrawalSourceAmountRaw(
+  withdrawal: UserYieldPositionWithdrawalRecord
+): bigint | null {
+  const amountRaw = withdrawal.sourceMetadata?.amountRaw;
+  if (typeof amountRaw !== "string" || !/^\d+$/.test(amountRaw)) {
+    return null;
+  }
+
+  return BigInt(amountRaw);
+}
+
+function readStoredWithdrawalSourceMetadataString(
+  withdrawal: UserYieldPositionWithdrawalRecord,
+  key: string
+): string | null {
+  const value = withdrawal.sourceMetadata?.[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function buildIdempotentWithdrawalRepairInput(
+  input: ConfirmedYieldWithdrawalInput,
+  withdrawal: UserYieldPositionWithdrawalRecord
+): ConfirmedYieldWithdrawalInput | null {
+  const sourceAmountRaw =
+    input.sourceAmountRaw ?? readStoredWithdrawalSourceAmountRaw(withdrawal);
+  if (sourceAmountRaw === null) {
+    return null;
+  }
+
+  const sourceType =
+    input.sourceType ?? readStoredWithdrawalSourceType(withdrawal.sourceType);
+  if (!sourceType) {
+    return null;
+  }
+
+  return {
+    ...input,
+    sourceAmountRaw,
+    sourceId: input.sourceId ?? withdrawal.sourceId,
+    sourceMetadata: input.sourceMetadata ?? withdrawal.sourceMetadata ?? {},
+    sourceMint:
+      input.sourceMint ??
+      readStoredWithdrawalSourceMetadataString(withdrawal, "mint"),
+    sourceTokenAccount:
+      input.sourceTokenAccount ??
+      readStoredWithdrawalSourceMetadataString(withdrawal, "tokenAccount"),
+    sourceType,
+  };
+}
+
+function isIdempotentWithdrawalSourceAlreadyApplied(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message === "No active Earn vault exists for this withdrawal." ||
+    error.message === "Withdrawal source does not match a reconciled reserve." ||
+    error.message === "Withdrawal source does not match idle vault USDC." ||
+    error.message === "Withdrawal source amount changed before confirmation." ||
+    error.message === "Withdrawal exceeds the selected Earn source amount."
+  );
+}
+
+async function repairCurrentVaultSourceWithdrawalForIdempotentRecord(args: {
+  dependencies: YieldDepositRepositoryDependencies;
+  input: ConfirmedYieldWithdrawalInput;
+  withdrawal: UserYieldPositionWithdrawalRecord;
+}): Promise<void> {
+  const repairInput = buildIdempotentWithdrawalRepairInput(
+    args.input,
+    args.withdrawal
+  );
+  if (!repairInput) {
+    return;
+  }
+
+  try {
+    const resolution = await resolveWithdrawalSource(
+      repairInput,
+      args.dependencies
+    );
+    await recordCurrentVaultSourceWithdrawal({
+      dependencies: args.dependencies,
+      input: repairInput,
+      resolution,
+    });
+  } catch (error) {
+    if (isIdempotentWithdrawalSourceAlreadyApplied(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 function buildStoredWithdrawalSourceMetadata(args: {
   sourceAmountRaw: bigint;
   sourceMetadata: Record<string, unknown>;
@@ -890,9 +1275,13 @@ type WithdrawalSourceResolution = {
 
 async function resolveWithdrawalSource(
   input: ConfirmedYieldWithdrawalInput,
-  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client" | "now">
 ): Promise<WithdrawalSourceResolution> {
   const source = normalizeWithdrawalSource(input);
+  const sourceDebitAmountRaw = getWithdrawalSourceDebitAmountRaw(
+    input,
+    source.sourceType
+  );
   const vault = await dependencies.client.db.query.managedVaults.findFirst({
     where: and(
       eq(managedVaults.settings, input.settings),
@@ -915,21 +1304,73 @@ async function resolveWithdrawalSource(
       .from(vaultIdleTokenBalancesCurrent)
       .where(eq(vaultIdleTokenBalancesCurrent.vaultId, vault.id)) as never,
   ]);
-  const currentReserveRows = (
-    reserveRows as CurrentYieldVaultReservePositionRecord[]
-  ).filter((row) => row.amountRaw > BigInt(0));
+  const allReserveRows =
+    reserveRows as CurrentYieldVaultReservePositionRecord[];
+  const userFacingReserveRows =
+    filterUserFacingYieldVaultReservePositions(allReserveRows);
+  const currentReserveRows = userFacingReserveRows.filter(
+    (row) => row.amountRaw > BigInt(0)
+  );
   const currentIdleRows = (
     idleRows as CurrentYieldVaultIdleTokenBalanceRecord[]
   ).filter((row) => row.amountRaw > BigInt(0));
-  const selectedReserveRow =
+  const selectedCurrentReserveRow =
     source.sourceType === "reserve"
-      ? currentReserveRows.find(
-          (row) =>
-            row.reserve === source.sourceId ||
-            row.reserve === input.accountingReserve ||
-            row.reserve === input.targetReserve
+      ? currentReserveRows.find((row) =>
+          reserveRowMatchesWithdrawalSource(row, source, input)
         ) ?? null
       : null;
+  const selectedHistoricalReserveRow =
+    source.sourceType === "reserve"
+      ? userFacingReserveRows.find((row) =>
+          reserveRowMatchesWithdrawalSource(row, source, input)
+        ) ??
+        allReserveRows.find((row) =>
+          reserveRowMatchesWithdrawalSource(row, source, input)
+        ) ?? null
+      : null;
+  const fallbackReserveAmountRaw =
+    source.sourceType === "reserve"
+      ? maxBigInt([
+          sourceDebitAmountRaw,
+          source.sourceAmountRaw ?? BigInt(0),
+          selectedHistoricalReserveRow?.amountRaw ?? BigInt(0),
+        ])
+      : BigInt(0);
+  const selectedReserveRow =
+    source.sourceType !== "reserve"
+      ? null
+      : selectedCurrentReserveRow
+      ? asRedeemableLiquidityReserveRow(
+          selectedCurrentReserveRow,
+          maxBigInt([
+            selectedCurrentReserveRow.amountRaw,
+            source.sourceAmountRaw ?? BigInt(0),
+            sourceDebitAmountRaw,
+          ])
+        )
+      : selectedHistoricalReserveRow && fallbackReserveAmountRaw > BigInt(0)
+      ? asRedeemableLiquidityReserveRow(
+          selectedHistoricalReserveRow,
+          fallbackReserveAmountRaw
+        )
+      : fallbackReserveAmountRaw > BigInt(0)
+      ? buildFallbackRedeemableReserveRow({
+          amountRaw: fallbackReserveAmountRaw,
+          input,
+          observedAt: dependencies.now(),
+          vaultId: vault.id,
+        })
+      : null;
+  const reserveRowsForResolution =
+    source.sourceType === "reserve" && selectedReserveRow
+      ? [
+          ...currentReserveRows.filter(
+            (row) => !reserveRowsRepresentSameHolding(row, selectedReserveRow)
+          ),
+          selectedReserveRow,
+        ]
+      : currentReserveRows;
   const selectedIdleRow =
     source.sourceType === "idle"
       ? currentIdleRows.find(
@@ -952,41 +1393,65 @@ async function resolveWithdrawalSource(
     source.sourceType === "reserve"
       ? selectedReserveRow!.amountRaw
       : selectedIdleRow!.amountRaw;
-  if (
-    source.sourceAmountRaw !== null &&
-    source.sourceAmountRaw !== sourceAmountRaw
-  ) {
-    throw new Error("Withdrawal source amount changed before confirmation.");
-  }
-  if (input.withdrawnAmountRaw > sourceAmountRaw) {
+  if (sourceDebitAmountRaw > sourceAmountRaw) {
     throw new Error("Withdrawal exceeds the selected Earn source amount.");
   }
 
   const remainingReserveRaw = currentReserveRows.reduce((total, row) => {
     if (
       source.sourceType === "reserve" &&
-      row.reserve === selectedReserveRow!.reserve
+      selectedReserveRow &&
+      reserveRowsRepresentSameHolding(row, selectedReserveRow)
     ) {
-      return total + (row.amountRaw - input.withdrawnAmountRaw);
+      return (
+        total +
+        (selectedReserveRow.amountRaw > sourceDebitAmountRaw
+          ? selectedReserveRow.amountRaw - sourceDebitAmountRaw
+          : BigInt(0))
+      );
     }
     return total + row.amountRaw;
   }, BigInt(0));
+  const fallbackRemainingReserveRaw =
+    source.sourceType === "reserve" &&
+    selectedReserveRow &&
+      !selectedCurrentReserveRow
+      ? selectedReserveRow.amountRaw > sourceDebitAmountRaw
+        ? selectedReserveRow.amountRaw - sourceDebitAmountRaw
+        : BigInt(0)
+      : BigInt(0);
   const remainingIdleRaw = currentIdleRows.reduce((total, row) => {
     if (
       source.sourceType === "idle" &&
       row.tokenAccount === selectedIdleRow!.tokenAccount
     ) {
-      return total + (row.amountRaw - input.withdrawnAmountRaw);
+      return (
+        total +
+        (row.amountRaw > input.withdrawnAmountRaw
+          ? row.amountRaw - input.withdrawnAmountRaw
+          : BigInt(0))
+      );
     }
     return total + row.amountRaw;
   }, BigInt(0));
+  const remainingReserveAmountRaw =
+    remainingReserveRaw + fallbackRemainingReserveRaw;
+  const reserveVaultIdleDeltaRaw =
+    source.sourceType === "reserve" &&
+    input.confirmedVaultIdleDeltaRaw !== undefined &&
+    input.confirmedVaultIdleDeltaRaw !== null &&
+    input.confirmedVaultIdleDeltaRaw > BigInt(0)
+      ? input.confirmedVaultIdleDeltaRaw
+      : BigInt(0);
 
   return {
     idleRows: currentIdleRows,
     isFinalExit:
-      remainingReserveRaw <= BigInt(0) && remainingIdleRaw <= BigInt(0),
-    remainingIdleAmountRaw: remainingIdleRaw,
-    remainingReserveAmountRaw: remainingReserveRaw,
+      source.sourceType === "idle" &&
+      remainingReserveAmountRaw <= BigInt(0) &&
+      remainingIdleRaw <= BigInt(0),
+    remainingIdleAmountRaw: remainingIdleRaw + reserveVaultIdleDeltaRaw,
+    remainingReserveAmountRaw,
     selectedIdleRow,
     selectedReserveRow,
     sourceAmountRaw,
@@ -1001,7 +1466,7 @@ async function resolveWithdrawalSource(
       source.sourceTokenAccount ?? selectedIdleRow?.tokenAccount ?? null,
     sourceType: source.sourceType,
     vault,
-    reserveRows: currentReserveRows,
+    reserveRows: reserveRowsForResolution,
   };
 }
 
@@ -1134,7 +1599,10 @@ async function findIdempotentDepositPosition(
 async function findIdempotentWithdrawalPosition(
   input: ConfirmedYieldWithdrawalInput,
   dependencies: Pick<YieldDepositRepositoryDependencies, "client">
-): Promise<UserYieldPositionRecord | null> {
+): Promise<{
+  position: UserYieldPositionRecord;
+  withdrawal: UserYieldPositionWithdrawalRecord;
+} | null> {
   const withdrawal =
     await dependencies.client.db.query.userYieldPositionWithdrawals.findFirst({
       where: eq(
@@ -1273,7 +1741,7 @@ async function findIdempotentWithdrawalPosition(
     throw new Error("Duplicate withdrawal position is missing.");
   }
 
-  return position;
+  return { position, withdrawal };
 }
 
 function createYieldRoutingPolicyPlanFromRouteInput(
@@ -2467,6 +2935,93 @@ export async function findActiveYieldRoutePolicyPair(
   };
 }
 
+export async function findEarnCleanupVaultState(
+  input: {
+    authority: string;
+    settings: string;
+    vaultIndex: number;
+    vaultPubkey: string;
+  },
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<EarnCleanupVaultState | null> {
+  const client = dependencies.client;
+  const vault = await client.db.query.managedVaults.findFirst({
+    where: and(
+      eq(managedVaults.active, true),
+      eq(managedVaults.settings, input.settings),
+      eq(managedVaults.vaultIndex, input.vaultIndex),
+      eq(managedVaults.vaultPubkey, input.vaultPubkey)
+    ),
+    orderBy: [desc(managedVaults.lastSeenAt), desc(managedVaults.id)],
+  });
+  if (!vault) {
+    return null;
+  }
+
+  const routePolicy = await client.db.query.routePolicies.findFirst({
+    where: and(
+      eq(routePolicies.active, true),
+      eq(routePolicies.authority, input.authority),
+      eq(routePolicies.id, vault.activePolicyId),
+      eq(routePolicies.settings, input.settings),
+      eq(routePolicies.vaultIndex, input.vaultIndex),
+      eq(routePolicies.vaultPubkey, vault.vaultPubkey)
+    ),
+  });
+  if (!routePolicy) {
+    return null;
+  }
+
+  const [setupPolicy, reserveRows, idleRows] = await Promise.all([
+    typeof vault.setupPolicyId !== "bigint"
+      ? Promise.resolve(null)
+      : client.db.query.routePolicies.findFirst({
+          where: and(
+            eq(routePolicies.active, true),
+            eq(routePolicies.authority, input.authority),
+            eq(routePolicies.id, vault.setupPolicyId),
+            eq(routePolicies.settings, input.settings),
+            eq(routePolicies.vaultIndex, input.vaultIndex),
+            eq(routePolicies.vaultPubkey, vault.vaultPubkey)
+          ),
+        }),
+    client.db
+      .select()
+      .from(vaultReservePositionsCurrent)
+      .where(eq(vaultReservePositionsCurrent.vaultId, vault.id))
+      .orderBy(
+        desc(vaultReservePositionsCurrent.observedSlot),
+        desc(vaultReservePositionsCurrent.amountRaw),
+        desc(vaultReservePositionsCurrent.snapshotId)
+      ),
+    client.db
+      .select()
+      .from(vaultIdleTokenBalancesCurrent)
+      .where(
+        and(
+          eq(vaultIdleTokenBalancesCurrent.vaultId, vault.id),
+          sql`${vaultIdleTokenBalancesCurrent.amountRaw} > 0`
+        )
+      )
+      .orderBy(
+        desc(vaultIdleTokenBalancesCurrent.observedSlot),
+        desc(vaultIdleTokenBalancesCurrent.updatedAt)
+      ),
+  ]);
+
+  return {
+    idleRows,
+    reserveRows: filterUserFacingYieldVaultReservePositions(
+      reserveRows as CurrentYieldVaultReservePositionRecord[]
+    ),
+    routePolicy,
+    setupPolicy: setupPolicy ?? null,
+    vault,
+  };
+}
+
 export async function findActiveManagedYieldVaultWithPolicy(
   input: {
     authority: string;
@@ -2879,6 +3434,25 @@ async function findYieldPositionHistoryEventsForPosition(
     }
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
+  const withdrawalIds = chronologicalEvents
+    .map((event) => event.sourceWithdrawalId)
+    .filter((id): id is bigint => id !== null);
+  const withdrawalAmounts =
+    withdrawalIds.length > 0
+      ? await dependencies.client.db
+          .select({
+            id: userYieldPositionWithdrawals.id,
+            withdrawnAmountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
+          })
+          .from(userYieldPositionWithdrawals)
+          .where(inArray(userYieldPositionWithdrawals.id, withdrawalIds))
+      : [];
+  const withdrawnAmountById = new Map(
+    withdrawalAmounts.map((withdrawal) => [
+      withdrawal.id,
+      withdrawal.withdrawnAmountRaw,
+    ])
+  );
 
   const history = chronologicalEvents.map((event) => {
     const type: UserYieldPositionHistoryEventRecord["type"] =
@@ -2942,6 +3516,10 @@ async function findYieldPositionHistoryEventsForPosition(
       sourceMarket,
       sourceReserve,
       type,
+      withdrawnAmountRaw:
+        event.sourceWithdrawalId === null
+          ? null
+          : withdrawnAmountById.get(event.sourceWithdrawalId) ?? null,
     };
   });
 
@@ -2961,19 +3539,24 @@ export async function recordConfirmedYieldWithdrawal(
 
   const { client } = dependencies;
   const now = dependencies.now();
-  const idempotentPosition = await findIdempotentWithdrawalPosition(
+  const idempotentWithdrawal = await findIdempotentWithdrawalPosition(
     input,
     dependencies
   );
-  if (idempotentPosition) {
-    if (idempotentPosition.status === "closed") {
+  if (idempotentWithdrawal) {
+    await repairCurrentVaultSourceWithdrawalForIdempotentRecord({
+      dependencies,
+      input,
+      withdrawal: idempotentWithdrawal.withdrawal,
+    });
+    if (idempotentWithdrawal.position.status === "closed") {
       await recordZeroCurrentVaultPositionsAfterFullWithdrawal(
         input,
         dependencies
       );
       await deactivateVaultAfterFullWithdrawal(input, dependencies, now);
     }
-    return idempotentPosition;
+    return idempotentWithdrawal.position;
   }
 
   const existingPosition = await findReconciledActiveYieldPositionForVault(
@@ -3071,6 +3654,18 @@ export async function recordConfirmedYieldWithdrawal(
     .returning({ id: userYieldPositionWithdrawals.id });
 
   if (insertedWithdrawals.length === 0) {
+    const duplicateWithdrawal = await findIdempotentWithdrawalPosition(
+      input,
+      dependencies
+    );
+    if (duplicateWithdrawal) {
+      await repairCurrentVaultSourceWithdrawalForIdempotentRecord({
+        dependencies,
+        input,
+        withdrawal: duplicateWithdrawal.withdrawal,
+      });
+      return duplicateWithdrawal.position;
+    }
     return existingPosition;
   }
 

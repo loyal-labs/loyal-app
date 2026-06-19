@@ -221,7 +221,9 @@ export async function GET(request: Request) {
       attempt: onboarding,
       nextStep: onboardingNextStep,
     }),
-    policy: policy ? serializeRoutePolicyState(policy) : null,
+    policy: policy
+      ? serializeRoutePolicyState(policy, policyPair?.setupPolicy ?? null)
+      : null,
     position: position
       ? serializePosition(position, currentTotalAmountRaw)
       : null,

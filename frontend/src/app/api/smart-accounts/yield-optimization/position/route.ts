@@ -187,15 +187,15 @@ function serializeHoldings(args: {
   position: UserYieldPositionRecord;
   reserveRows: CurrentYieldVaultReservePositionRecord[];
 }) {
-  const kaminoHoldings =
-    args.reserveRows.length > 0
-      ? args.reserveRows.map(serializeKaminoHolding)
-      : args.position.currentAmountRaw > BigInt(0)
-      ? [serializePositionCurrentHoldingAsKamino(args.position)]
-      : [];
   const idleHoldings = args.idleRows
     .filter((row) => row.amountRaw > BigInt(0))
     .map(serializeIdleHolding);
+  const kaminoHoldings =
+    args.reserveRows.length > 0
+      ? args.reserveRows.map(serializeKaminoHolding)
+      : idleHoldings.length === 0 && args.position.currentAmountRaw > BigInt(0)
+      ? [serializePositionCurrentHoldingAsKamino(args.position)]
+      : [];
 
   return [...kaminoHoldings, ...idleHoldings];
 }

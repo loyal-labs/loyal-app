@@ -9,7 +9,7 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
@@ -135,6 +135,7 @@ function createCanonicalDepositInput(
       : {}),
     targetReserve: target.targetReserve,
     targetSupplyApyBps: requestInput.targetSupplyApyBps,
+    smartAccountAddress: expectedVault.toBase58(),
     vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
@@ -235,6 +236,11 @@ function createCanonicalDepositInput(
     "targetSupplyApyBps"
   );
   assertCanonicalField(
+    requestInput.smartAccountAddress,
+    canonicalInput.smartAccountAddress,
+    "smartAccountAddress"
+  );
+  assertCanonicalField(
     requestInput.vaultIndex,
     canonicalInput.vaultIndex,
     "vaultIndex"
@@ -255,7 +261,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(cluster);
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -334,7 +340,6 @@ export async function recordConfirmedEarnDeposit(args: {
 
   if (
     input.walletAddress !== principal.walletAddress ||
-    input.smartAccountAddress !== principal.smartAccountAddress ||
     input.settings !== principal.settingsPda
   ) {
     throw new EarnDepositConfirmError({

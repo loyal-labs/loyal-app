@@ -11,21 +11,23 @@ import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import {
   parseEarnWithdrawPrepareRequestBody,
   serializePreparedEarnUsdcWithdraw,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  findCurrentEarnAutodepositState,
+  reconcileMissingOnChainEarnAutodepositPolicy,
+} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
-  type CurrentYieldVaultIdleTokenBalanceRecord,
   type CurrentYieldVaultReservePositionRecord,
   type RoutePolicyRecord,
   type UserYieldPositionRecord,
@@ -60,7 +62,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(cluster);
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -76,21 +78,14 @@ type EarnWithdrawSourceRequest = ReturnType<
 >["source"];
 
 type SelectedEarnWithdrawSource =
-  | {
-      amountRaw: bigint;
-      id: string;
-      liquidityMint: string;
-      market: string;
-      reserve: string;
-      type: "reserve";
-    }
-  | {
-      amountRaw: bigint;
-      id: string;
-      mint: string;
-      tokenAccount: string;
-      type: "idle";
-    };
+  {
+    amountRaw: bigint;
+    id: string;
+    liquidityMint: string;
+    market: string;
+    reserve: string;
+    type: "reserve";
+  };
 
 function publicKeyFromMetadata(
   metadata: Record<string, unknown> | null | undefined,
@@ -137,9 +132,7 @@ function sourceMatchesDirectIdentifier(
     return true;
   }
 
-  return source.type === "reserve"
-    ? identifiers.includes(source.reserve)
-    : identifiers.includes(source.tokenAccount);
+  return identifiers.includes(source.reserve);
 }
 
 function sourceMatchesStableMint(
@@ -156,9 +149,7 @@ function sourceMatchesStableMint(
     request.mint,
   ].filter(isNonEmptyString);
 
-  return source.type === "reserve"
-    ? identifiers.includes(source.liquidityMint)
-    : identifiers.includes(source.mint);
+  return identifiers.includes(source.liquidityMint);
 }
 
 function selectRequestedEarnWithdrawSource(
@@ -194,7 +185,6 @@ function selectRequestedEarnWithdrawSource(
 
 function selectEarnWithdrawSource(args: {
   amountRaw: bigint;
-  idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
   mode: "partial" | "full";
   position: UserYieldPositionRecord;
   request: EarnWithdrawSourceRequest;
@@ -215,18 +205,8 @@ function selectEarnWithdrawSource(args: {
         type: "reserve" as const,
       };
     });
-  const idleSources = args.idleRows
-    .filter((row) => row.amountRaw > BigInt(0))
-    .map((row) => ({
-      amountRaw: row.amountRaw,
-      id: row.tokenAccount,
-      mint: row.mint,
-      tokenAccount: row.tokenAccount,
-      type: "idle" as const,
-    }));
   const positionFallbackSources =
     reserveSources.length === 0 &&
-    idleSources.length === 0 &&
     isNonEmptyString(args.position.currentMarket) &&
     args.position.currentAmountRaw > BigInt(0)
       ? [
@@ -240,11 +220,7 @@ function selectEarnWithdrawSource(args: {
           },
         ]
       : [];
-  const sources = [
-    ...reserveSources,
-    ...idleSources,
-    ...positionFallbackSources,
-  ];
+  const sources = [...reserveSources, ...positionFallbackSources];
 
   if (sources.length === 0) {
     throw new Error("No active Earn withdrawal source was found.");
@@ -416,7 +392,6 @@ export async function POST(request: Request) {
 
     const selectedSource = selectEarnWithdrawSource({
       amountRaw,
-      idleRows: currentIdleRows,
       mode,
       position,
       request: selectedSourceRequest,
@@ -434,19 +409,15 @@ export async function POST(request: Request) {
         BigInt(0)
       ) +
       currentIdleRows.reduce(
-        (total, row) =>
-          total +
-          (selectedSource.type === "idle" &&
-          row.tokenAccount === selectedSource.tokenAccount
-            ? row.amountRaw - effectiveAmountRaw!
-            : row.amountRaw),
+        (total, row) => total + row.amountRaw,
         BigInt(0)
       );
     const isFinalExit = remainingSourceAmountRaw <= BigInt(0);
 
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const connection = getConnection(solanaEnv);
     const client = createSmartAccountVaultsClient({
-      connection: getConnection(solanaEnv),
+      connection,
       programId,
     });
     const yieldRoutingPolicy = {
@@ -469,22 +440,64 @@ export async function POST(request: Request) {
             walletAddress,
           })
         : null;
-    const autodepositClose =
+    let autodepositClose:
+      | {
+          policy: PublicKey;
+          recurringDelegation: PublicKey;
+        }
+      | undefined;
+    let reconciledMissingAutodepositPolicy = false;
+
+    if (
       autodepositState?.policy.policyAccount &&
       autodepositState.target.recurringDelegation
-        ? {
-            policy: new PublicKey(autodepositState.policy.policyAccount),
-            recurringDelegation: new PublicKey(
-              autodepositState.target.recurringDelegation
-            ),
+    ) {
+      const autodepositPolicyAccount = new PublicKey(
+        autodepositState.policy.policyAccount
+      );
+      const autodepositPolicyInfo = await connection.getAccountInfo(
+        autodepositPolicyAccount,
+        "confirmed"
+      );
+
+      if (autodepositPolicyInfo) {
+        autodepositClose = {
+          policy: autodepositPolicyAccount,
+          recurringDelegation: new PublicKey(
+            autodepositState.target.recurringDelegation
+          ),
+        };
+      } else {
+        reconciledMissingAutodepositPolicy = true;
+        const reconciledTarget =
+          await reconcileMissingOnChainEarnAutodepositPolicy({
+            policyAccount: autodepositState.policy.policyAccount,
+            settings: settingsPda,
+            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+            walletAddress,
+          });
+        console.warn(
+          "[mobile-earn-withdraw-prepare] reconciled missing autodeposit policy account",
+          {
+            cluster,
+            lifecycleStatus: reconciledTarget.lifecycleStatus,
+            policyAccount: autodepositState.policy.policyAccount,
+            reconciliationSource: "reconciled_missing_policy",
+            settings: settingsPda,
+            targetId: reconciledTarget.id.toString(),
+            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+            walletAddress,
           }
-        : undefined;
+        );
+      }
+    }
 
     if (
       mode === "full" &&
       isFinalExit &&
       autodepositState &&
-      !autodepositClose
+      !autodepositClose &&
+      !reconciledMissingAutodepositPolicy
     ) {
       console.warn(
         "[mobile-earn-withdraw-prepare] active autodeposit state is missing close metadata",
@@ -559,23 +572,14 @@ export async function POST(request: Request) {
           }
         : {}),
       closePoliciesOnFullWithdrawal: isFinalExit,
-      source:
-        selectedSource.type === "idle"
-          ? {
-              amountRaw: selectedSource.amountRaw,
-              id: selectedSource.id,
-              mint: new PublicKey(selectedSource.mint),
-              tokenAccount: new PublicKey(selectedSource.tokenAccount),
-              type: "idle" as const,
-            }
-          : {
-              amountRaw: selectedSource.amountRaw,
-              id: selectedSource.id,
-              liquidityMint: new PublicKey(selectedSource.liquidityMint),
-              market: new PublicKey(selectedSource.market),
-              reserve: new PublicKey(selectedSource.reserve),
-              type: "reserve" as const,
-            },
+      source: {
+        amountRaw: selectedSource.amountRaw,
+        id: selectedSource.id,
+        liquidityMint: new PublicKey(selectedSource.liquidityMint),
+        market: new PublicKey(selectedSource.market),
+        reserve: new PublicKey(selectedSource.reserve),
+        type: "reserve" as const,
+      },
       walletAddress: new PublicKey(walletAddress),
       yieldRoutingPolicy,
     };

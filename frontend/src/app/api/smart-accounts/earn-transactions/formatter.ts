@@ -149,7 +149,12 @@ function resolveTransactionAmountRaw(args: {
   kind: Exclude<EarnTransactionKind, "autodeposit_action" | "balance_sweep">;
 }): bigint {
   const { event, kind } = args;
-  if (kind === "deposit" || kind === "withdraw") {
+  if (kind === "withdraw") {
+    return (
+      event.withdrawnAmountRaw ?? event.principalDeltaRaw ?? event.amountRaw
+    );
+  }
+  if (kind === "deposit") {
     return event.principalDeltaRaw ?? event.amountRaw;
   }
   if (event.principalAmountRaw > BigInt(0)) {
