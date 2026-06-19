@@ -1086,7 +1086,14 @@ export function SwapContent({
       disabled: buttonDisabled,
       onClick: handleFormButtonClick,
     });
-  });
+  }, [
+    buttonDisabled,
+    buttonLabel,
+    handleFormButtonClick,
+    hideFormChrome,
+    onFormButtonChange,
+    phase,
+  ]);
 
   // Cross-fade between phases
   const [phaseOpacity, setPhaseOpacity] = useState(1);
