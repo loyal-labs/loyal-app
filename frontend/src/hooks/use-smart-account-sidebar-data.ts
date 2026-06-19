@@ -1390,9 +1390,11 @@ export async function prepareEarnDepositOnServer(args: {
   return hydratePreparedEarnUsdcDeposit(payload.preparedDeposit);
 }
 
-export async function prepareEarnCleanupOnServer(args: {
-  fetchImpl?: typeof fetch;
-} = {}): Promise<PreparedEarnUsdcCleanup> {
+export async function prepareEarnCleanupOnServer(
+  args: {
+    fetchImpl?: typeof fetch;
+  } = {}
+): Promise<PreparedEarnUsdcCleanup> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const response = await fetchImpl(
     "/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare",
@@ -1413,8 +1415,7 @@ export async function prepareEarnCleanupOnServer(args: {
     );
   }
 
-  const payload =
-    (await response.json()) as EarnWithdrawCleanupPrepareResponse;
+  const payload = (await response.json()) as EarnWithdrawCleanupPrepareResponse;
   return hydratePreparedEarnUsdcCleanup(payload.preparedCleanup);
 }
 
@@ -1710,31 +1711,15 @@ function resolveEarnLoyalCluster(solanaEnv: string): LoyalCluster {
 }
 
 export function getSmartAccountTotalUsd({
-  authenticatedWalletAddress,
   vaultEntries,
 }: {
-  authenticatedWalletAddress: string | null | undefined;
+  authenticatedWalletAddress?: string | null | undefined;
   vaultEntries: SmartAccountVaultEntry[];
 }): number {
-  const authenticatedAddress = authenticatedWalletAddress?.toLowerCase();
-  const seenSignerAddresses = new Set<string>();
   let totalUsd = 0;
 
   for (const vault of vaultEntries) {
     totalUsd += finiteUsd(vault.totalUsd);
-
-    for (const signer of vault.signers) {
-      const signerAddress = signer.address.toLowerCase();
-      if (signerAddress === authenticatedAddress) {
-        continue;
-      }
-      if (seenSignerAddresses.has(signerAddress)) {
-        continue;
-      }
-
-      seenSignerAddresses.add(signerAddress);
-      totalUsd += finiteUsd(signer.totalUsd);
-    }
   }
 
   return totalUsd;
@@ -5134,13 +5119,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [
-      connection,
-      refreshAfterTx,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnCleanup = useCallback(
@@ -5278,13 +5257,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [
-      connection,
-      refreshAfterTx,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnAutodepositSetup = useCallback(
@@ -5455,13 +5428,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [
-      connection,
-      refreshAfterTx,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnAutodepositFloorUpdate = useCallback(
@@ -5646,13 +5613,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [
-      connection,
-      refreshAfterTx,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
   );
 
   const isLoading =

@@ -1,8 +1,6 @@
 "use client";
 
-import {
-  resolveLoyalClusterForSolanaEnv,
-} from "@loyal-labs/actions";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -330,6 +328,28 @@ function findEarnUsdcPosition(
   );
 }
 
+function getPublicPositionUsd(position: PortfolioPosition | undefined): number {
+  if (!position) {
+    return 0;
+  }
+
+  if (
+    typeof position.publicValueUsd === "number" &&
+    Number.isFinite(position.publicValueUsd)
+  ) {
+    return position.publicValueUsd;
+  }
+
+  if (
+    typeof position.priceUsd === "number" &&
+    Number.isFinite(position.priceUsd)
+  ) {
+    return position.publicBalance * position.priceUsd;
+  }
+
+  return 0;
+}
+
 function findTrackedUsdcToken(
   tokens: SwapToken[],
   trackedUsdcMint: string | null
@@ -591,18 +611,16 @@ function useMainAccountUsdcBalance(args: {
 }): {
   amount: number | null;
   amountRaw: bigint | null;
+  refresh: () => Promise<void>;
   setAmountRaw: Dispatch<SetStateAction<bigint | null>>;
 } {
   const { connection, mint, walletAddress } = args;
   const [amountRaw, setAmountRaw] = useState<bigint | null>(null);
 
-  useEffect(() => {
+  const readAmountRaw = useCallback(async (): Promise<bigint | null> => {
     if (!walletAddress || !mint) {
-      setAmountRaw(null);
-      return;
+      return null;
     }
-
-    let cancelled = false;
 
     try {
       const owner = new PublicKey(walletAddress);
@@ -614,50 +632,45 @@ function useMainAccountUsdcBalance(args: {
         TOKEN_PROGRAM_ID
       );
 
-      void connection
-        .getAccountInfo(usdcAta, "confirmed")
-        .then((account) => {
-          if (cancelled) {
-            return;
-          }
+      const account = await connection.getAccountInfo(usdcAta, "confirmed");
+      if (!account || !account.owner.equals(TOKEN_PROGRAM_ID)) {
+        return BigInt(0);
+      }
 
-          if (!account) {
-            setAmountRaw(BigInt(0));
-            return;
-          }
+      const decoded = AccountLayout.decode(account.data);
+      if (!decoded.mint.equals(usdcMint) || !decoded.owner.equals(owner)) {
+        return BigInt(0);
+      }
 
-          if (!account.owner.equals(TOKEN_PROGRAM_ID)) {
-            setAmountRaw(BigInt(0));
-            return;
-          }
-
-          const decoded = AccountLayout.decode(account.data);
-          if (!decoded.mint.equals(usdcMint) || !decoded.owner.equals(owner)) {
-            setAmountRaw(BigInt(0));
-            return;
-          }
-
-          setAmountRaw(BigInt(decoded.amount.toString()));
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            console.warn("[earn-deposit] failed to load wallet USDC ATA", error);
-            setAmountRaw(null);
-          }
-        });
+      return BigInt(decoded.amount.toString());
     } catch (error) {
-      console.warn("[earn-deposit] invalid wallet USDC ATA input", error);
-      setAmountRaw(null);
+      console.warn("[earn-deposit] failed to load wallet USDC ATA", error);
+      return null;
     }
+  }, [connection, mint, walletAddress]);
+
+  const refresh = useCallback(async () => {
+    setAmountRaw(await readAmountRaw());
+  }, [readAmountRaw]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void readAmountRaw().then((nextAmountRaw) => {
+      if (!cancelled) {
+        setAmountRaw(nextAmountRaw);
+      }
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [connection, mint, walletAddress]);
+  }, [readAmountRaw]);
 
   return {
     amount: amountRaw === null ? null : Number(amountRaw) / 1_000_000,
     amountRaw,
+    refresh,
     setAmountRaw,
   };
 }
@@ -1576,24 +1589,59 @@ export function AppWalletWorkspace({
     },
     [setMainAccountUsdcAmountRaw]
   );
+  const refreshWalletPortfolio = walletDesktopData.refresh;
+  const refreshMainAccountUsdc = mainAccountUsdcBalance.refresh;
+  const refreshMainAccountBalances = useCallback(async () => {
+    await Promise.all([refreshWalletPortfolio(), refreshMainAccountUsdc()]);
+  }, [refreshMainAccountUsdc, refreshWalletPortfolio]);
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
   );
-  const mainAccountStablecoinUsd = useMemo(
-    () =>
-      Math.max(
-        sumPublicStablecoinUsd(walletDesktopData.positions, stablecoinMints),
-        mainAccountUsdcBalance.amount ?? 0
-      ),
-    [mainAccountUsdcBalance.amount, stablecoinMints, walletDesktopData.positions]
+  const mainAccountStablecoinUsd = useMemo(() => {
+    const portfolioStablecoinUsd = sumPublicStablecoinUsd(
+      walletDesktopData.positions,
+      stablecoinMints
+    );
+
+    if (mainAccountUsdcBalance.amount === null) {
+      return portfolioStablecoinUsd;
+    }
+
+    const trackedUsdcPosition = findEarnUsdcPosition(
+      walletDesktopData.positions,
+      trackedKaminoUsdcMint
+    );
+    const trackedUsdcPriceUsd =
+      typeof trackedUsdcPosition?.priceUsd === "number" &&
+      Number.isFinite(trackedUsdcPosition.priceUsd)
+        ? trackedUsdcPosition.priceUsd
+        : 1;
+    const trackedUsdcPortfolioUsd =
+      trackedUsdcPosition && stablecoinMints.has(trackedUsdcPosition.asset.mint)
+        ? getPublicPositionUsd(trackedUsdcPosition)
+        : 0;
+
+    return (
+      portfolioStablecoinUsd -
+      trackedUsdcPortfolioUsd +
+      mainAccountUsdcBalance.amount * trackedUsdcPriceUsd
+    );
+  }, [
+    mainAccountUsdcBalance.amount,
+    stablecoinMints,
+    trackedKaminoUsdcMint,
+    walletDesktopData.positions,
+  ]);
+  const mainAccountDisplayUsd = mainAccountStablecoinUsd;
+  const mainAccountDisplayBalance = useMemo(
+    () => splitUsdBalance(mainAccountDisplayUsd),
+    [mainAccountDisplayUsd]
   );
   const smartAccountData = useSmartAccountSidebarData({
-    authenticatedUserCashUsd: mainAccountStablecoinUsd,
-    authenticatedUserTotalUsd: shouldLoadMainAccountPrivateBalances
-      ? walletDesktopData.totalUsd
-      : mainAccountStablecoinUsd,
-    onAfterTx: walletDesktopData.refresh,
+    authenticatedUserCashUsd: mainAccountDisplayUsd,
+    authenticatedUserTotalUsd: mainAccountDisplayUsd,
+    onAfterTx: refreshMainAccountBalances,
   });
   const { disconnect } = useWallet();
   const { logout, user } = useAuthSession();
@@ -1732,10 +1780,8 @@ export function AppWalletWorkspace({
   );
 
   useEffect(() => {
-    setShouldLoadMainAccountPrivateBalances(
-      detailSelection === "wallet" && selectedSignerId === null
-    );
-  }, [detailSelection, selectedSignerId]);
+    setShouldLoadMainAccountPrivateBalances(detailSelection === "wallet");
+  }, [detailSelection]);
 
   const [accountPaneWidth, setAccountPaneWidth] = useState(
     ACCOUNT_PANE_DEFAULT_WIDTH
@@ -2491,15 +2537,11 @@ export function AppWalletWorkspace({
   const totalBalance = useMemo(
     () =>
       splitUsdBalance(
-        walletDesktopData.totalUsd +
+        mainAccountDisplayUsd +
           smartAccountData.totalUsd +
           earnCurrentBalanceAmount
       ),
-    [
-      earnCurrentBalanceAmount,
-      walletDesktopData.totalUsd,
-      smartAccountData.totalUsd,
-    ]
+    [earnCurrentBalanceAmount, mainAccountDisplayUsd, smartAccountData.totalUsd]
   );
   const earnEarningsCacheKey = [
     publicEnv.solanaEnv,
@@ -4221,10 +4263,7 @@ export function AppWalletWorkspace({
         setSelectedDetail("Earn");
         if (pendingEarnWithdrawDraft.mode !== "partial") {
           void refreshActiveEarnPosition().catch((error) => {
-            console.warn(
-              "[earn-position] post-withdraw refresh failed",
-              error
-            );
+            console.warn("[earn-position] post-withdraw refresh failed", error);
           });
         }
         break;
@@ -5373,14 +5412,24 @@ export function AppWalletWorkspace({
     }
 
     if (detailSelection === "wallet") {
+      const isMainAccountDetail = Boolean(
+        selectedAgent?.address &&
+          walletDesktopData.walletAddress &&
+          selectedAgent.address === walletDesktopData.walletAddress
+      );
       const walletDetailAddress =
         selectedMockRootSigner?.address ?? walletDesktopData.walletAddress;
       const walletDetailIcon = selectedMockRootSigner?.icon ?? getWalletIcon();
       const walletDetailBalanceWhole =
-        selectedMockRootSigner?.balanceWhole ?? walletDesktopData.balanceWhole;
+        selectedMockRootSigner?.balanceWhole ??
+        (isMainAccountDetail
+          ? mainAccountDisplayBalance.balanceWhole
+          : walletDesktopData.balanceWhole);
       const walletDetailBalanceFraction =
         selectedMockRootSigner?.balanceFraction ??
-        walletDesktopData.balanceFraction;
+        (isMainAccountDetail
+          ? mainAccountDisplayBalance.balanceFraction
+          : walletDesktopData.balanceFraction);
       const walletDetailTokenRows = selectedMockRootSigner
         ? []
         : walletDesktopData.allTokenRows;
@@ -5972,6 +6021,9 @@ export function AppWalletWorkspace({
 
     if (type === "swapPanel") {
       const isVaultSwap = actionReturnSelection === "vault";
+      const refreshAfterWalletAction = isVaultSwap
+        ? undefined
+        : refreshMainAccountBalances;
       const showTabs =
         !isVaultSwap &&
         (swapMode === "swap" ? swapFormActive : shieldFormActive);
@@ -6024,6 +6076,7 @@ export function AppWalletWorkspace({
                 onFormButtonChange={setSwapButtonProps}
                 onFromTokenChange={setSwapFromToken}
                 onNavigate={pushView}
+                onSuccess={refreshAfterWalletAction}
                 onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
                 swapMode={swapMode}
@@ -6050,6 +6103,7 @@ export function AppWalletWorkspace({
                 onFormButtonChange={setShieldButtonProps}
                 initialDirection={shieldDirection}
                 onNavigate={pushView}
+                onSuccess={refreshAfterWalletAction}
                 onSwapModeChange={handleSwapModeChange}
                 onTokenChange={setShieldToken}
                 securedBalance={shieldSecuredBalance}
