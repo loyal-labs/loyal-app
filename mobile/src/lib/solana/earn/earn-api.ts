@@ -424,6 +424,51 @@ export async function fetchEarnState(
   return (await res.json()) as EarnStateResponse;
 }
 
+// Per-user Earn earnings for the Earnings chart (read-only, keyed by wallet
+// address — no signature, like `state`). Mirrors the web's single-range
+// `/yield-optimization/earnings` response; the mobile route always returns the
+// 30-day daily range. `bars` are per-day earned amounts; the chart plots them
+// cumulatively. The single-range response has no `generatedAt`, so the live
+// odometer anchors to the client fetch time.
+export type EarnEarningsBar = {
+  apyBps: number | null;
+  avgPrincipalUsd: number;
+  earnedUsd: number;
+  endAt: string;
+  isCurrent: boolean;
+  label: string;
+  principalAmountRaw: string;
+  principalUsd: number;
+  startAt: string;
+};
+
+export type EarnEarningsResponse = {
+  bars: EarnEarningsBar[];
+  currentApyBps: number | null;
+  lastDepositAt: string | null;
+  lifetimeEarnedUsd: number;
+  principalAmountRaw: string;
+  principalUsd: number;
+  rangeEarnedUsd: number;
+  sinceLastDepositEarnedUsd: number;
+  todayEarnedUsd: number;
+};
+
+export async function fetchEarnEarnings(
+  walletAddress: string,
+): Promise<EarnEarningsResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/earnings?walletAddress=${encodeURIComponent(
+      walletAddress,
+    )}`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to load Earn earnings.");
+  }
+  return (await res.json()) as EarnEarningsResponse;
+}
+
 // Global (per-cluster, not per-user) Earn APY forecast + history — unauthenticated.
 // Mirrors the web `/earn-forecast/summary` response consumed by the APY/Forecast
 // charts. APYs are in basis points.

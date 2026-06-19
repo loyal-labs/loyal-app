@@ -1,10 +1,8 @@
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, ArrowRight } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type GestureResponderEvent,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -24,205 +22,62 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { useEarnEarnings } from "@/hooks/wallet/useEarnEarnings";
+import type { EarnEarningsBar } from "@/lib/solana/earn/earn-api";
 import { getShowTips } from "@/lib/settings";
 
-type Period = "1W" | "1M" | "6M" | "1Y";
-
-const PERIODS: Period[] = ["1W", "1M", "6M", "1Y"];
-
-const COLOR_GREEN = "#32B67C";
-const COLOR_GREEN_TRANSPARENT = "rgba(50, 182, 124, 0)";
 const COLOR_WHITE = "#FFFFFF";
-const COLOR_WHITE_TRANSPARENT = "rgba(255, 255, 255, 0)";
-// Forecast bars fade out with a vertical gradient (opaque at the top → fully
-// transparent at the baseline) rendered at low opacity. Its colour depends on
-// which side of the selected bar the forecast bar sits on (Figma 3869:15514):
-// green leads up to the selection, white lies beyond it. In the default state
-// (Now selected) every forecast bar is to the right, so they're all white/gray.
-const GRADIENT_GREEN: [string, string] = [COLOR_GREEN, COLOR_GREEN_TRANSPARENT];
-const GRADIENT_WHITE: [string, string] = [COLOR_WHITE, COLOR_WHITE_TRANSPARENT];
+const COLOR_RED = "#F9363C"; // Figma "Brand Red" — the scrub highlight
+const COLOR_GREEN = "#32B67C"; // the "+$X past month" gain subtitle
 const COLOR_DIM_WHITE_40 = "rgba(255, 255, 255, 0.4)";
 const COLOR_DIM_WHITE_60 = "rgba(255, 255, 255, 0.6)";
 
-// Per-bar opacity by position relative to the selected bar (from Figma). The
-// selected bar is always solid green at full opacity; everything to its left is
-// brighter than everything to its right, and forecast bars are dimmer still.
-const OPACITY_LEFT = 0.4; // any bar before the selected one
-const OPACITY_RIGHT_HISTORICAL = 0.2; // historical bars after the selected one
-const OPACITY_RIGHT_FORECAST = 0.14; // forecast bars after the selected one
+// Bar opacities, relative to the scrub cursor (Figma 74-20800). Default (not
+// scrubbing) every bar is a calm dim white; while scrubbing, bars up to the
+// cursor read as the earned-so-far (brighter), bars beyond it stay dim.
+const OPACITY_DEFAULT = 0.32;
+const OPACITY_EARNED = 0.85; // bars at/left of the cursor while scrubbing (red)
+const OPACITY_BEYOND = 0.2; // bars right of the cursor while scrubbing (white)
 
 const BAR_RADIUS = 6;
-// Bar heights as a fraction of the bars area, taken from Figma 3907:13485 (a
-// 336px-tall chart) for the just-deposited state: the past sits on a flat zero
-// baseline (thin dashes), the Now marker is a short pill, and the forecast
-// ramps linearly up to the tallest bar — which stops short of the top, leaving
-// headroom under the axis-max label.
-const PAST_BASELINE_RATIO = 2 / 336;
-const NOW_PILL_RATIO = 16 / 336;
-const FORECAST_TOP_RATIO = 322 / 336;
+const BAR_GAP = 3; // ~30 daily bars pack tightly
+// Flat zero baseline for ~zero bars so a just-funded position still reads as a
+// dashed baseline (Figma 74-19824 "new") rather than nothing.
+const MIN_BAR_RATIO = 4 / 336;
+// The tallest cumulative bar stops short of the top, leaving headroom under the
+// axis-max label.
+const AXIS_HEADROOM = 1.12;
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
-// Reveal motion for the deposited-state chart.
-const ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
-// Bars grow up from the baseline with a left-to-right stagger. A single 0→1
-// `progress` drives every bar; each bar maps a slice of it via its index, so
-// the last bar starts at STAGGER_SPREAD and finishes as progress reaches 1.
-const BARS_GROW_DURATION = 720;
-const STAGGER_SPREAD = 0.55;
-const GROW_WINDOW = 0.45;
-// The whole chart fades + rises in on first appearance (not on period switch).
-const APPEAR_DURATION = 360;
-const APPEAR_RISE = 8;
-
-// Live earnings ticker: the headline value accrues in real time off the mock
-// Earn balance + APY shown on the tab, so the user sees progression from $0.
-const PRINCIPAL_USD = 6165.662512;
-const APY = 0.0846;
-const EARNINGS_PER_SECOND = (PRINCIPAL_USD * APY) / (365 * 24 * 60 * 60);
-
-// Rolling odometer for the live value: each digit is a clipped 0–9 strip that
-// ticks up one cell at a time as earnings accrue. A digit holds still until its
-// place increments, then rolls quickly to the next — like the cards on a flip
-// clock. When the fastest digit wraps 9→0, the place to its left ticks.
-const DIGIT_HEIGHT = 48; // matches the value line's lineHeight
-// Two full 0–9 cycles so a 9→0 roll continues upward onto a duplicate digit,
-// then resets invisibly (a tick never has to scroll backward to wrap).
-const DIGIT_STRIP = [
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+const SHORT_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
-// Every wheel derives its digit from one shared count of the smallest place, so
-// they carry in lockstep (no per-wheel float drift at 9→0 boundaries). A
-// wheel's `factor` is how many smallest-units make up one of its own units.
-const SMALLEST_PLACE = 0.00001; // the 5th decimal
-const WHOLE_FACTOR = 100_000; // whole dollars
-const DECIMAL_FACTORS = [10_000, 1000, 100, 10, 1]; // .1 → .00001
-const TICK_MS = 240; // quick discrete roll per increment
-const TICK_EASING = Easing.out(Easing.cubic);
 
 // Swipe hint over the chart, shown on every open while "Show tips" is enabled.
 const HINT_FADE_MS = 300;
-const HINT_VISIBLE_MS = 2000; // auto-dismiss 2s after it appears
-const HINT_NUDGE = 12; // px the hint slides left/right once
+const HINT_VISIBLE_MS = 2000;
+const HINT_NUDGE = 12;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+// Reveal motion.
+const ENTER_EASING = Easing.bezier(0.22, 1, 0.36, 1);
+const BARS_GROW_DURATION = 720;
+const STAGGER_SPREAD = 0.55;
+const GROW_WINDOW = 0.45;
+const APPEAR_DURATION = 360;
+const APPEAR_RISE = 8;
+
+// Rolling odometer for the live value: each digit is a clipped 0–9 strip that
+// ticks up one cell as earnings accrue (see RollingDigit).
+const DIGIT_HEIGHT = 48; // matches the value line's lineHeight
+const DIGIT_STRIP = [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
 ];
-
-type PeriodConfig = {
-  // `barCount` and the `nowIndex` boundary come from the Figma reference. Now
-  // sits mid-chart: bars before it are the (zero) past, bars after it are the
-  // forecast.
-  barCount: number;
-  nowIndex: number;
-  now: number; // earnings at the Now bar (0 — just deposited)
-  estimate: number; // projected earnings at the final (tallest) forecast bar
-  axisMax: number; // top axis label
-  gain: number; // earned over the period ("+$X")
-  pastLabel: string; // e.g. "past week"
-  stepDays: number; // spacing between bars, for the date labels
-  longDates: boolean; // format axis/tooltip dates as "Month YYYY" vs "Month D"
-  // Gap between bars (px). 1M packs ~60 bars, so it needs a tighter gap than the
-  // others, or the gaps would consume the whole width and collapse the bars.
-  barGap: number;
-};
-
-// Mocked "just deposited the max amount" state (Figma 3907:13476): the position
-// was funded today, so nothing has accrued through Now (`now`/`gain` are 0).
-// The past is a flat zero baseline and the forecast grows from Now up to each
-// period's projected `estimate`. The estimate/axisMax scale is kept from the
-// Figma reference so the chart reads at the same size as the designed mock.
-const PERIOD_CONFIG: Record<Period, PeriodConfig> = {
-  "1W": {
-    barCount: 13,
-    nowIndex: 6,
-    now: 0,
-    estimate: 140.24,
-    axisMax: 140,
-    gain: 0,
-    pastLabel: "so far",
-    stepDays: 1,
-    longDates: false,
-    barGap: 6,
-  },
-  "1M": {
-    barCount: 61,
-    nowIndex: 30,
-    now: 0,
-    estimate: 612.4,
-    axisMax: 620,
-    gain: 0,
-    pastLabel: "so far",
-    stepDays: 1,
-    longDates: false,
-    barGap: 3,
-  },
-  "6M": {
-    barCount: 12,
-    nowIndex: 5,
-    now: 0,
-    estimate: 2840.0,
-    axisMax: 2900,
-    gain: 0,
-    pastLabel: "so far",
-    stepDays: 30,
-    longDates: true,
-    barGap: 6,
-  },
-  "1Y": {
-    barCount: 23,
-    nowIndex: 11,
-    now: 0,
-    estimate: 6240.0,
-    axisMax: 6400,
-    gain: 0,
-    pastLabel: "so far",
-    stepDays: 30,
-    longDates: true,
-    barGap: 6,
-  },
-};
-
-// Just-deposited series (Figma 3907:13476): everything up to and including the
-// Now bar is zero — the past renders as flat baseline dashes and Now as a short
-// pill — and only the forecast grows, ramping linearly from Now up to the
-// period `estimate` at the final bar. `values` are the dollar amounts shown in
-// the header/tooltip; `heights` are the visual bar ratios.
-function buildChartSeries(cfg: PeriodConfig): {
-  values: number[];
-  heights: number[];
-} {
-  const values: number[] = [];
-  const heights: number[] = [];
-  const futureSpan = cfg.barCount - 1 - cfg.nowIndex;
-  for (let i = 0; i < cfg.barCount; i += 1) {
-    if (i < cfg.nowIndex) {
-      // Past: before the deposit existed, so nothing earned — a flat dash.
-      values.push(0);
-      heights.push(PAST_BASELINE_RATIO);
-    } else if (i === cfg.nowIndex) {
-      // Now: the moment of deposit; a short pill marking the present.
-      values.push(cfg.now);
-      heights.push(NOW_PILL_RATIO);
-    } else {
-      // Forecast: linear growth from Now up to the period estimate.
-      const t = futureSpan > 0 ? (i - cfg.nowIndex) / futureSpan : 1;
-      values.push(cfg.now + (cfg.estimate - cfg.now) * t);
-      heights.push(NOW_PILL_RATIO + (FORECAST_TOP_RATIO - NOW_PILL_RATIO) * t);
-    }
-  }
-  return { values, heights };
-}
+const SMALLEST_PLACE = 0.00001; // the 5th decimal
+const WHOLE_FACTOR = 100_000; // whole dollars
+const DECIMAL_FACTORS = [10_000, 1000, 100, 10, 1]; // .1 → .00001
+const TICK_MS = 240;
+const TICK_EASING = Easing.out(Easing.cubic);
 
 function formatMoney(value: number): string {
   return `$${value.toLocaleString("en-US", {
@@ -239,30 +94,59 @@ function splitDollars(value: number, decimals = 2) {
   };
 }
 
-function formatDate(date: Date, longDates: boolean): string {
-  return longDates
-    ? `${MONTHS[date.getMonth()]} ${date.getFullYear()}`
-    : `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+function formatShortDate(iso: string): string {
+  const date = new Date(iso);
+  return `${SHORT_MONTHS[date.getMonth()]} ${date.getDate()}`;
 }
 
-// A single bar. Renders its fill — solid green, or a vertical gradient whose
-// colours the caller picks (green or white) for forecast bars — and grows up
-// from the baseline on reveal: it reads the shared `progress` and maps an
-// index-based slice of it to its scaleY, producing the left-to-right sweep
-// without per-frame layout.
+// Axis ceiling: a round amount just above the tallest cumulative bar so it stops
+// short of the top (Figma: ~$120 cumulative → "$140" label). Scales to the data
+// at any magnitude — no fixed floor — so sub-cent earnings (e.g. $0.0002) aren't
+// crushed against a $0.01 axis.
+function niceAxisMax(maxValue: number): number {
+  if (!Number.isFinite(maxValue) || maxValue <= 0) {
+    return 0;
+  }
+  const padded = maxValue * AXIS_HEADROOM;
+  const magnitude = 10 ** Math.floor(Math.log10(padded));
+  const quantum = magnitude / 10;
+  return Math.ceil(padded / quantum) * quantum;
+}
+
+// Axis-ceiling label. Whole amounts drop decimals ("$140"); regular amounts show
+// cents ("$0.14"); sub-cent ceilings show just enough precision (matching the
+// headline odometer) so a tiny ceiling isn't flattened to a misleading "$0.00".
+function formatAxisLabel(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "$0.00";
+  }
+  if (value >= 0.01) {
+    const decimals = Number.isInteger(value) ? 0 : 2;
+    return `$${value.toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })}`;
+  }
+  return `$${value.toFixed(5).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
+// One bar. Reads the shared `progress` and maps an index-based slice of it to its
+// scaleY, producing the staggered left-to-right grow without per-frame layout.
 function ChartBar({
   index,
   barCount,
   height,
-  gradientColors,
+  color,
   opacity,
+  dashed,
   progress,
 }: {
   index: number;
   barCount: number;
   height: number;
-  gradientColors: [string, string] | null;
+  color: string;
   opacity: number;
+  dashed: boolean;
   progress: SharedValue<number>;
 }) {
   const animatedStyle = useAnimatedStyle(() => {
@@ -276,38 +160,31 @@ function ChartBar({
     return { transform: [{ scaleY: grow }] };
   });
 
-  if (gradientColors) {
-    return (
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.bar, { height, opacity }, animatedStyle]}
-      >
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.barFill}
-        />
-      </Animated.View>
-    );
-  }
   return (
     <Animated.View
       pointerEvents="none"
       style={[
         styles.bar,
-        { height, backgroundColor: COLOR_GREEN, opacity },
+        {
+          height,
+          opacity,
+          ...(dashed
+            ? {
+                borderWidth: 1,
+                borderStyle: "dashed",
+                borderColor: color,
+                backgroundColor: "transparent",
+              }
+            : { backgroundColor: color }),
+        },
         animatedStyle,
       ]}
     />
   );
 }
 
-// One odometer wheel for the digit at `place` (e.g. 0.001 → the third decimal).
-// It watches that place's integer digit and, whenever it increments, rolls up
-// one cell with a quick tick — holding still in between, entirely on the UI
-// thread. On a 9→0 wrap it rolls onto the strip's duplicate digit, then resets
-// position invisibly so the next tick is still an upward roll.
+// One odometer wheel for the digit at `place`. It watches that place's integer
+// digit and, whenever it increments, rolls up one cell with a quick tick.
 function RollingDigit({
   value,
   factor,
@@ -368,8 +245,8 @@ function RollingDigit({
 }
 
 // The live headline value as a rolling odometer: "$", a whole-dollar wheel
-// (white), then the decimal point and five decimal wheels (dimmed) that scroll
-// as earnings accrue.
+// (white), the decimal point, and five decimal wheels (dimmed) that scroll as
+// earnings accrue.
 function RollingOdometer({ value }: { value: SharedValue<number> }) {
   return (
     <View style={styles.odometer}>
@@ -388,21 +265,24 @@ function RollingOdometer({ value }: { value: SharedValue<number> }) {
   );
 }
 
-// The headline earnings value. While `live` (the Now bar is selected) it rolls
-// up in real time from $0 at the mock accrual rate, with extra decimals so the
-// growth is visible; otherwise it shows the selected bar's static value. A
-// single shared value, advanced each frame on the UI thread, drives the
-// odometer — so the per-frame scroll never re-renders the bars.
+// The headline earnings value. While `live` (the current/today bar is selected)
+// it rolls up in real time from `baseValue` at `ratePerSecond` (seeded with the
+// time elapsed since the data was fetched); otherwise it shows the scrubbed
+// bar's static cumulative value. A single shared value, advanced each frame on
+// the UI thread, drives the odometer — so the per-frame scroll never re-renders
+// the bars.
 function EarningsValue({
   live,
+  baseValue,
   ratePerSecond,
+  anchorMs,
   staticValue,
-  forecast,
 }: {
   live: boolean;
+  baseValue: number;
   ratePerSecond: number;
+  anchorMs: number | null;
   staticValue: number;
-  forecast: boolean;
 }) {
   const value = useSharedValue(0);
   const lastTs = useSharedValue(0);
@@ -416,15 +296,18 @@ function EarningsValue({
 
   useEffect(() => {
     if (live) {
+      const elapsedSec = anchorMs
+        ? Math.max(0, (Date.now() - anchorMs) / 1000)
+        : 0;
+      value.value = baseValue + ratePerSecond * elapsedSec;
+      lastTs.value = 0;
       frame.setActive(true);
     } else {
-      // Pause accrual while scrubbing; reset the delta clock so resuming
-      // continues smoothly from the held value rather than jumping ahead.
       frame.setActive(false);
       lastTs.value = 0;
     }
     return () => frame.setActive(false);
-  }, [live, frame, lastTs]);
+  }, [live, baseValue, ratePerSecond, anchorMs, frame, value, lastTs]);
 
   if (live) {
     return <RollingOdometer value={value} />;
@@ -433,43 +316,69 @@ function EarningsValue({
   const { whole, cents } = splitDollars(staticValue, 2);
   return (
     <Text style={styles.valueLine} numberOfLines={1}>
-      <Text style={styles.valueWhole}>
-        {forecast ? "≈" : ""}
-        {whole}
-      </Text>
+      <Text style={styles.valueWhole}>{whole}</Text>
       <Text style={styles.valueCents}>{cents}</Text>
     </Text>
   );
 }
 
-export function EarnChart() {
-  const [period, setPeriod] = useState<Period>("6M");
-  const cfg = PERIOD_CONFIG[period];
-  // Default selection is the Now bar (the historical/forecast boundary).
-  const [activeIdx, setActiveIdx] = useState(cfg.nowIndex);
-  // Last index we fired feedback for, so a scrub only buzzes once per bar.
-  const lastIdxRef = useRef(cfg.nowIndex);
+// Cumulative earned per bar, walked backward from the live total so the last
+// (today) bar equals the headline — mirrors the web Earnings chart.
+function buildCumulative(bars: EarnEarningsBar[], total: number): number[] {
+  const out = new Array<number>(bars.length).fill(0);
+  let earnedAfter = 0;
+  for (let i = bars.length - 1; i >= 0; i -= 1) {
+    out[i] = Math.max(0, total - earnedAfter);
+    earnedAfter += Math.max(0, bars[i].earnedUsd);
+  }
+  return out;
+}
+
+export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
+  const { earnings, fetchedAtMs } = useEarnEarnings(walletAddress);
+  const bars = useMemo(() => earnings?.bars ?? [], [earnings]);
+  const barCount = bars.length;
+  const lastIndex = Math.max(0, barCount - 1);
+  const hasData = barCount > 0;
+
+  // Live odometer inputs.
+  const principalUsd = earnings?.principalUsd ?? 0;
+  const apyBps = earnings?.currentApyBps ?? 0;
+  const ratePerSecond = (apyBps / 10_000) * (principalUsd / SECONDS_PER_YEAR);
+  const baseEarned = earnings?.sinceLastDepositEarnedUsd ?? 0;
+  const rangeEarned = earnings?.rangeEarnedUsd ?? 0;
+
+  // Bars anchor to the fetch-time total (static per load); the headline odometer
+  // ticks live above it. Cumulative + axis are recomputed only when data lands.
+  const { cumulative, axisMax } = useMemo(() => {
+    const cum = buildCumulative(bars, baseEarned);
+    const max = cum.length > 0 ? Math.max(...cum) : 0;
+    return { cumulative: cum, axisMax: niceAxisMax(max) };
+  }, [bars, baseEarned]);
+
+  // Default selection is the current (today) bar; scrubbing moves it. `scrubbing`
+  // drives the red highlight; `live` (today selected) drives the odometer.
+  const [activeIdx, setActiveIdx] = useState(lastIndex);
+  const [scrubbing, setScrubbing] = useState(false);
+  const lastIdxRef = useRef(lastIndex);
   const [chartWidth, setChartWidth] = useState(0);
-  // Bars scale to whatever vertical room flex hands us, so heights are stored
-  // as ratios and multiplied by the measured area height at render time.
   const [barsAreaHeight, setBarsAreaHeight] = useState(0);
 
-  // Reveal animations: `progress` drives the staggered bar grow (on first
-  // appearance and on every period switch); `appear` fades + rises the whole
-  // chart once, on first appearance only.
+  // Keep the selection pinned to the latest bar as data loads/changes.
+  useEffect(() => {
+    if (!scrubbing) {
+      setActiveIdx(lastIndex);
+      lastIdxRef.current = lastIndex;
+    }
+  }, [lastIndex, scrubbing]);
+
   const progress = useSharedValue(0);
   const appear = useSharedValue(0);
 
-  // Swipe hint over the chart — shown on every open while "Show tips" is on.
   const [hintActive] = useState(getShowTips);
   const hintOpacity = useSharedValue(0);
   const hintNudge = useSharedValue(0);
   const hintDismissedRef = useRef(false);
-
-  const { values, heights } = useMemo(() => buildChartSeries(cfg), [cfg]);
-  // "Now" timestamp, stable for the life of the screen, so the date labels
-  // place the Now bar on today and fan out into past / future.
-  const nowMs = useMemo(() => Date.now(), []);
 
   useEffect(() => {
     appear.value = withTiming(1, {
@@ -479,10 +388,7 @@ export function EarnChart() {
     return () => cancelAnimation(appear);
   }, [appear]);
 
-  // Grow the bars once they've been measured, and re-grow whenever the period
-  // changes (handleSelectPeriod resets `progress` to 0 first, so the new bars
-  // start collapsed and sweep back in).
-  const barsReady = barsAreaHeight > 0;
+  const barsReady = barsAreaHeight > 0 && hasData;
   useEffect(() => {
     if (!barsReady) {
       return;
@@ -492,7 +398,7 @@ export function EarnChart() {
       easing: ENTER_EASING,
     });
     return () => cancelAnimation(progress);
-  }, [period, barsReady, progress]);
+  }, [barsReady, progress]);
 
   const dismissHint = useCallback(() => {
     if (hintDismissedRef.current) {
@@ -503,8 +409,6 @@ export function EarnChart() {
     hintOpacity.value = withTiming(0, { duration: HINT_FADE_MS });
   }, [hintOpacity, hintNudge]);
 
-  // Reveal the hint once the bars are measured: fade it in, nudge it left↔right
-  // once, then auto-dismiss after a beat (or as soon as the user swipes).
   useEffect(() => {
     if (!hintActive || !barsReady) {
       return;
@@ -541,30 +445,18 @@ export function EarnChart() {
     ],
   }));
 
-  const dateForIndex = useCallback(
-    (index: number) =>
-      new Date(nowMs + (index - cfg.nowIndex) * cfg.stepDays * DAY_MS),
-    [nowMs, cfg.nowIndex, cfg.stepDays],
-  );
-
-  const isForecast = activeIdx > cfg.nowIndex;
-  const isNow = activeIdx === cfg.nowIndex;
-  const displayValue = values[activeIdx];
-
   const handleSetActiveBar = useCallback(
     (event: GestureResponderEvent) => {
       dismissHint();
-      if (chartWidth <= 0) {
+      if (chartWidth <= 0 || !hasData) {
         return;
       }
+      setScrubbing(true);
       const ratio = Math.max(
         0,
         Math.min(1, event.nativeEvent.locationX / chartWidth),
       );
-      const nextIdx = Math.min(
-        cfg.barCount - 1,
-        Math.floor(ratio * cfg.barCount),
-      );
+      const nextIdx = Math.min(lastIndex, Math.floor(ratio * barCount));
       if (lastIdxRef.current === nextIdx) {
         return;
       }
@@ -572,60 +464,49 @@ export function EarnChart() {
       void Haptics.selectionAsync();
       setActiveIdx(nextIdx);
     },
-    [chartWidth, cfg.barCount, dismissHint],
+    [chartWidth, hasData, lastIndex, barCount, dismissHint],
   );
 
   const handleReleaseBar = useCallback(() => {
-    lastIdxRef.current = cfg.nowIndex;
-    setActiveIdx(cfg.nowIndex);
-  }, [cfg.nowIndex]);
+    setScrubbing(false);
+    lastIdxRef.current = lastIndex;
+    setActiveIdx(lastIndex);
+  }, [lastIndex]);
 
-  const handleSelectPeriod = useCallback(
-    (p: Period) => {
-      if (p === period) {
-        return;
-      }
-      void Haptics.selectionAsync();
-      // Collapse synchronously so the incoming bars mount at scaleY 0 and sweep
-      // back in (the [period] effect animates progress back to 1).
-      progress.value = 0;
-      lastIdxRef.current = PERIOD_CONFIG[p].nowIndex;
-      setActiveIdx(PERIOD_CONFIG[p].nowIndex);
-      setPeriod(p);
-    },
-    [period, progress],
-  );
+  const live = hasData && activeIdx === lastIndex;
+  const selectedBar = bars[activeIdx];
+  const cursorCenterX =
+    barCount > 0 ? ((activeIdx + 0.5) / barCount) * chartWidth : 0;
 
-  const nowCenterX = ((cfg.nowIndex + 0.5) / cfg.barCount) * chartWidth;
+  const showTinyGain = rangeEarned > 0 && rangeEarned < 0.01;
 
   return (
     <Animated.View style={[styles.root, rootAnimatedStyle]}>
-      <Text style={styles.label}>
-        {isForecast ? "Estimated earnings" : "Earnings"}
-      </Text>
-
       <EarningsValue
-        live={isNow}
-        forecast={isForecast}
-        ratePerSecond={EARNINGS_PER_SECOND}
-        staticValue={displayValue}
+        live={live}
+        baseValue={baseEarned}
+        ratePerSecond={ratePerSecond}
+        anchorMs={fetchedAtMs}
+        staticValue={cumulative[activeIdx] ?? 0}
       />
 
       <View style={styles.subtitleRow}>
-        {isNow ? (
-          <Text style={styles.subtitleGain}>
-            +{formatMoney(cfg.gain)} {cfg.pastLabel}
+        {scrubbing && selectedBar ? (
+          <Text style={styles.subtitleDate}>
+            {formatShortDate(selectedBar.endAt)}
           </Text>
         ) : (
-          <Text style={styles.subtitleDate}>
-            {formatDate(dateForIndex(activeIdx), cfg.longDates)}
+          <Text style={styles.subtitleGain}>
+            {showTinyGain
+              ? "<$0.01 past month"
+              : `+${formatMoney(rangeEarned)} past month`}
           </Text>
         )}
-        <Text style={styles.axisMax}>${cfg.axisMax.toLocaleString("en-US")}</Text>
+        <Text style={styles.axisMax}>{formatAxisLabel(axisMax)}</Text>
       </View>
 
       <View
-        style={[styles.barsRow, { gap: cfg.barGap }]}
+        style={[styles.barsRow, { gap: BAR_GAP }]}
         onLayout={(e) => {
           setChartWidth(e.nativeEvent.layout.width);
           setBarsAreaHeight(e.nativeEvent.layout.height);
@@ -640,39 +521,40 @@ export function EarnChart() {
         onResponderRelease={handleReleaseBar}
         onResponderTerminate={handleReleaseBar}
       >
-        {heights.map((ratio, i) => {
-          // The selected bar is always solid green at full opacity; the rest
-          // dim by their position relative to it (see the opacity constants).
-          const forecast = i > cfg.nowIndex;
-          const selected = i === activeIdx;
-          const opacity = selected
-            ? 1
-            : i < activeIdx
-              ? OPACITY_LEFT
-              : forecast
-                ? OPACITY_RIGHT_FORECAST
-                : OPACITY_RIGHT_HISTORICAL;
-          // Forecast bars are a gradient (the rest are solid green). Those
-          // leading up to the selection (to its left) are green; those beyond
-          // it (to its right) are white.
-          const gradientColors =
-            forecast && !selected
-              ? i < activeIdx
-                ? GRADIENT_GREEN
-                : GRADIENT_WHITE
-              : null;
+        {cumulative.map((value, i) => {
+          const ratio =
+            axisMax > 0
+              ? Math.max(MIN_BAR_RATIO, value / axisMax)
+              : MIN_BAR_RATIO;
+          // While scrubbing, bars up to the cursor read as earned (red); beyond
+          // it, dim white. At rest the whole series is a calm dim white.
+          const earned = scrubbing && i <= activeIdx;
+          const color = earned ? COLOR_RED : COLOR_WHITE;
+          const opacity = scrubbing
+            ? earned
+              ? OPACITY_EARNED
+              : OPACITY_BEYOND
+            : OPACITY_DEFAULT;
           return (
             <ChartBar
-              key={`${period}-${i}`}
+              key={i}
               index={i}
-              barCount={cfg.barCount}
+              barCount={barCount}
               height={ratio * barsAreaHeight}
-              gradientColors={gradientColors}
+              color={color}
               opacity={opacity}
+              dashed={bars[i]?.isCurrent ?? false}
               progress={progress}
             />
           );
         })}
+
+        {scrubbing && hasData ? (
+          <View
+            pointerEvents="none"
+            style={[styles.cursor, { left: cursorCenterX }]}
+          />
+        ) : null}
 
         {hintActive ? (
           <Animated.View
@@ -690,43 +572,11 @@ export function EarnChart() {
 
       <View style={styles.dateAxis}>
         <Text style={[styles.dateLabel, styles.dateStart]}>
-          {formatDate(dateForIndex(0), cfg.longDates)}
-        </Text>
-        <Text
-          style={[styles.dateLabel, styles.dateNow, { left: nowCenterX }]}
-          pointerEvents="none"
-        >
-          Now
+          {hasData ? formatShortDate(bars[0].startAt) : ""}
         </Text>
         <Text style={[styles.dateLabel, styles.dateEnd]}>
-          {formatDate(dateForIndex(cfg.barCount - 1), cfg.longDates)}
+          {hasData ? formatShortDate(bars[lastIndex].endAt) : ""}
         </Text>
-      </View>
-
-      <View style={styles.periodPills}>
-        {PERIODS.map((p) => (
-          <Pressable
-            key={p}
-            onPress={() => handleSelectPeriod(p)}
-            accessibilityRole="button"
-            accessibilityLabel={`Select ${p} period`}
-            style={({ pressed }) => [
-              styles.periodPill,
-              period === p && styles.periodPillActive,
-              pressed && { opacity: 0.8 },
-            ]}
-            hitSlop={6}
-          >
-            <Text
-              style={[
-                styles.periodText,
-                period === p && styles.periodTextActive,
-              ]}
-            >
-              {p}
-            </Text>
-          </Pressable>
-        ))}
       </View>
     </Animated.View>
   );
@@ -736,15 +586,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 8,
-    // Breathing room between the period pills and the white balance card below.
     paddingBottom: 16,
-  },
-  label: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 15,
-    lineHeight: 20,
-    color: COLOR_DIM_WHITE_60,
   },
   valueLine: {
     fontFamily: "Geist_600SemiBold",
@@ -764,8 +606,6 @@ const styles = StyleSheet.create({
     lineHeight: 48,
     color: COLOR_DIM_WHITE_40,
   },
-  // Rolling odometer: a row of single-digit windows + static "$"/"." glyphs,
-  // all sharing the value line's metrics so they baseline-align.
   odometer: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -827,14 +667,17 @@ const styles = StyleSheet.create({
     minWidth: 1,
     borderRadius: BAR_RADIUS,
     overflow: "hidden",
-    // Grow up from the baseline rather than from the bar's center.
     transformOrigin: "50% 100%",
   },
-  barFill: {
-    flex: 1,
+  cursor: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 2,
+    marginLeft: -1,
+    borderRadius: 1,
+    backgroundColor: COLOR_RED,
   },
-  // Centered overlay above the bars; pointerEvents="none" keeps swipes flowing
-  // through to the bars row underneath.
   swipeHint: {
     position: "absolute",
     top: 0,
@@ -880,34 +723,5 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
-  },
-  dateNow: {
-    position: "absolute",
-    top: 0,
-    transform: [{ translateX: -16 }],
-  },
-  periodPills: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingTop: 8,
-  },
-  periodPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 9999,
-  },
-  periodPillActive: {
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
-  },
-  periodText: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 14,
-    lineHeight: 20,
-    color: COLOR_DIM_WHITE_40,
-    textAlign: "center",
-  },
-  periodTextActive: {
-    color: "#FFF",
   },
 });

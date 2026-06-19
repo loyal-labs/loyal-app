@@ -21,8 +21,10 @@ const TABS: { key: ChartTab; label: string; enabled: boolean }[] = [
 
 export function EarnChartTabs({
   principalUsd,
+  walletAddress,
 }: {
   principalUsd: number | null;
+  walletAddress: string | null;
 }) {
   const [tab, setTab] = useState<ChartTab>("earnings");
   // Global APY forecast + history feeds the APY and Forecast charts.
@@ -72,7 +74,7 @@ export function EarnChartTabs({
         ) : tab === "forecast" ? (
           <ForecastChart summary={summary} principalUsd={principalUsd} />
         ) : (
-          <EarnChart />
+          <EarnChart walletAddress={walletAddress} />
         )}
       </View>
     </View>
@@ -85,6 +87,7 @@ const styles = StyleSheet.create({
   },
   controlWrap: {
     paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 16,
   },
   track: {

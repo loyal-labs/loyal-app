@@ -476,7 +476,10 @@ export default function EarnScreen() {
                 <Text style={styles.badgeText}>{apyLabel}</Text>
               </View>
             </View>
-            <EarnChartTabs principalUsd={depositedUsd} />
+            <EarnChartTabs
+              principalUsd={depositedUsd}
+              walletAddress={walletAddress}
+            />
             <View style={styles.autodepositSection}>
               <View style={styles.autodepositCell}>
                 <View style={styles.autodepositIcon}>
