@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import Svg, { Circle, Line, Path, Rect } from "react-native-svg";
 
 import type { EarnForecastSummary } from "@/lib/solana/earn/earn-api";
@@ -26,6 +27,9 @@ import {
   getMainApyBps,
   TBILL_APY_BPS,
 } from "./earnForecastModel";
+import { useChartEntrance } from "./useChartEntrance";
+
+const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
 // Forecast tab of the Earn chart (Figma 74-19520 resting / 74-19672 scrub).
 // Real data: projects the current Earn balance forward 12 months at each
@@ -87,10 +91,19 @@ export function ForecastChart({
       buildProjection(principal, apyBps, FORECAST_POINTS);
     const loyalValues = build(loyalApyBps);
     const loyalTarget = loyalValues[loyalValues.length - 1];
-    // Axis ceiling just above the top projection (nearest $10), like the design.
+    // Axis ceiling = the Loyal endpoint rounded up to a fine quantum so the red
+    // line nearly touches the top, scaling tightly to the data (matches the web
+    // forecast chart). The old `principal + 10` / nearest-$10 logic crushed
+    // small positions (e.g. a $5 deposit projected to ~$5.50) into the bottom
+    // of a $0–15 axis.
+    const scaleRange = Math.max(loyalTarget - principal, 0.01);
+    const scaleQuantum = Math.max(
+      10 ** (Math.floor(Math.log10(scaleRange)) - 1),
+      0.01,
+    );
     const ceil = Math.max(
-      principal + 10,
-      Math.ceil(loyalTarget / 10) * 10,
+      Math.ceil(loyalTarget / scaleQuantum) * scaleQuantum,
+      principal + scaleRange,
     );
     const toNorm = (values: number[]) =>
       values.map((v) =>
@@ -168,8 +181,13 @@ export function ForecastChart({
     setActiveIndex(null);
   }, []);
 
-  const activeX = chartWidth > 0 ? (idx / lastIndex) * chartWidth : 0;
-  const dotX = scrubbing ? activeX : Math.max(0, chartWidth - DOT_RADIUS - 2);
+  // Inset the plot's right edge so endpoint dots sit fully on-screen AND on the
+  // line end. Lines, dots, and the scrubber all map into [0, plotWidth]; without
+  // this the resting dot was drawn at the endpoint's height but pushed left of
+  // the line, so it floated off the line at the right edge.
+  const plotWidth = Math.max(0, chartWidth - DOT_RADIUS - 1);
+  const activeX = chartWidth > 0 ? (idx / lastIndex) * plotWidth : 0;
+  const dotX = activeX;
 
   const renderValue = (value: number, textStyle: object, dimStyle: object) => {
     const { whole, cents } = splitDollars(value);
@@ -181,8 +199,12 @@ export function ForecastChart({
     );
   };
 
+  const { rootStyle, chartStyle } = useChartEntrance(
+    chartWidth > 0 && chartHeight > 0 && hasData,
+  );
+
   return (
-    <View style={styles.root}>
+    <Animated.View style={[styles.root, rootStyle]}>
       <View style={styles.stats}>
         <View style={styles.valueBlock}>
           {renderValue(loyal.values[idx], styles.bigValue, styles.bigCents)}
@@ -243,11 +265,11 @@ export function ForecastChart({
         onResponderTerminate={handleRelease}
       >
         {chartWidth > 0 && chartHeight > 0 && hasData ? (
-          <Svg width={chartWidth} height={chartHeight}>
+          <AnimatedSvg style={[styles.chartGrow, chartStyle]} width={chartWidth} height={chartHeight}>
             {series.map((s) => (
               <Path
                 key={s.label}
-                d={buildLinePath(s.norm, chartWidth, chartHeight)}
+                d={buildLinePath(s.norm, plotWidth, chartHeight)}
                 fill="none"
                 stroke={s.color}
                 strokeWidth={2}
@@ -287,7 +309,7 @@ export function ForecastChart({
                 fill={s.color}
               />
             ))}
-          </Svg>
+          </AnimatedSvg>
         ) : null}
       </View>
 
@@ -297,7 +319,7 @@ export function ForecastChart({
           {formatMonthYear(dateForIndex(lastIndex))}
         </Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -349,8 +371,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    height: 16,
-    paddingVertical: 2,
+    marginTop: 2,
   },
   dot: {
     width: 12,
@@ -361,7 +382,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: "Geist_400Regular",
     fontSize: 13,
-    lineHeight: 16,
+    lineHeight: 18,
     color: COLOR_DIM_WHITE_60,
   },
   axisRow: {
@@ -380,6 +401,9 @@ const styles = StyleSheet.create({
   chart: {
     flex: 1,
     width: "100%",
+  },
+  chartGrow: {
+    transformOrigin: "50% 100%",
   },
   dateAxis: {
     flexDirection: "row",

@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import Svg, { Circle, Line, Path, Rect } from "react-native-svg";
 
 import type { EarnForecastSummary } from "@/lib/solana/earn/earn-api";
@@ -29,6 +30,9 @@ import {
   resampleSamples,
   TBILL_APY_BPS,
 } from "./earnForecastModel";
+import { useChartEntrance } from "./useChartEntrance";
+
+const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
 // APY tab of the Earn chart (Figma 74-19216 resting / 74-19367 scrub). Real
 // data: Loyal Earn + Main Market APY histories come from the global forecast
@@ -120,12 +124,19 @@ export function ApyChart({ summary }: { summary: EarnForecastSummary | null }) {
     setActiveIndex(null);
   }, []);
 
+  // Inset the plot's right edge so endpoint dots sit fully on-screen AND on the
+  // line end — lines, dots, and the scrubber all map into [0, plotWidth].
+  // Matches ForecastChart; without it the resting dot floats off the line edge.
+  const plotWidth = Math.max(0, chartWidth - DOT_RADIUS - 1);
   const activeX =
-    chartWidth > 0 && lastIndex > 0 ? (idx / lastIndex) * chartWidth : 0;
-  const dotX = scrubbing ? activeX : Math.max(0, chartWidth - DOT_RADIUS - 2);
+    chartWidth > 0 && lastIndex > 0 ? (idx / lastIndex) * plotWidth : 0;
+  const dotX = activeX;
+  const { rootStyle, chartStyle } = useChartEntrance(
+    chartWidth > 0 && chartHeight > 0 && hasData,
+  );
 
   return (
-    <View style={styles.root}>
+    <Animated.View style={[styles.root, rootStyle]}>
       <View style={styles.stats}>
         <View style={styles.valueBlock}>
           <Text style={styles.bigValue}>{formatPct(loyalValue)}</Text>
@@ -176,11 +187,11 @@ export function ApyChart({ summary }: { summary: EarnForecastSummary | null }) {
         onResponderTerminate={handleRelease}
       >
         {chartWidth > 0 && chartHeight > 0 && hasData ? (
-          <Svg width={chartWidth} height={chartHeight}>
+          <AnimatedSvg style={[styles.chartGrow, chartStyle]} width={chartWidth} height={chartHeight}>
             {series.map((s) => (
               <Path
                 key={s.label}
-                d={buildLinePath(s.norm, chartWidth, chartHeight)}
+                d={buildLinePath(s.norm, plotWidth, chartHeight)}
                 fill="none"
                 stroke={s.color}
                 strokeWidth={2}
@@ -219,7 +230,7 @@ export function ApyChart({ summary }: { summary: EarnForecastSummary | null }) {
                 fill={s.color}
               />
             ))}
-          </Svg>
+          </AnimatedSvg>
         ) : null}
       </View>
 
@@ -231,7 +242,7 @@ export function ApyChart({ summary }: { summary: EarnForecastSummary | null }) {
           {dates[lastIndex] ? formatChartDate(dates[lastIndex], false) : ""}
         </Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -271,8 +282,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    height: 16,
-    paddingVertical: 2,
+    marginTop: 2,
   },
   dot: {
     width: 12,
@@ -283,7 +293,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: "Geist_400Regular",
     fontSize: 13,
-    lineHeight: 16,
+    lineHeight: 18,
     color: COLOR_DIM_WHITE_60,
   },
   axisRow: {
@@ -302,6 +312,9 @@ const styles = StyleSheet.create({
   chart: {
     flex: 1,
     width: "100%",
+  },
+  chartGrow: {
+    transformOrigin: "50% 100%",
   },
   dateAxis: {
     flexDirection: "row",
