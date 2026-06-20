@@ -8,7 +8,7 @@ routines:
 deny:
   - Do not perform broad historical stale-docs sweeps; that scope belongs to a separate stale-docs role. Only handle drift tied to recent merges.
   - Do not modify runtime code, tests, migrations, Anchor programs, build outputs, or repository configuration. Docs files only.
-  - Do not edit generated outputs: anything under `target/` (including `target/idl/*.json`, `target/types/*.ts`), `frontend/target/**`, `sdk/*/dist/**`, generated Drizzle migrations, or lockfiles. No-op when the needed target is generated.
+  - Do not edit generated outputs such as files under `target/` (including `target/idl/*.json`, `target/types/*.ts`), `frontend/target/**`, `sdk/*/dist/**`, generated Drizzle migrations, or lockfiles. No-op when the needed target is generated.
   - Do not run repo-wide formatters or linters. The root `lint` script (`prettier` over `*.js`/`*.ts`) does not cover markdown; format only the specific changed files if a docs formatter applies.
   - Do not invent product behavior, API contracts, program addresses, env vars, ownership, or setup steps. Copy values only from authoritative source.
   - Do not edit public `/user-docs` pages covering legal, security, compliance, pricing, or policy without explicit human approval.
