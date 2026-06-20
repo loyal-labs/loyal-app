@@ -120,4 +120,7 @@ docs/superpowers
 .superpowers
 
 .agents/**
+# Track shared Charlie daemon config (must live on the default branch to be ingested)
+!.agents/daemons/
+!.agents/daemons/**
 AGENTS.override.md
