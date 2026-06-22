@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { LoyalCluster } from "@loyal-labs/actions";
 
+import {
+  collapseDuplicateEarnRebalanceTransactions,
+  serializeEarnTransactionEvent,
+  type SerializedEarnTransaction,
+} from "@/app/api/smart-accounts/earn-transactions/formatter";
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
@@ -8,11 +13,6 @@ import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/serv
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { findYieldPositionHistoryEventsForVault } from "@/lib/yield-optimization/yield-deposit-repository.server";
-import {
-  collapseDuplicateEarnRebalanceTransactions,
-  serializeEarnTransactionEvent,
-  type SerializedEarnTransaction,
-} from "@/app/api/smart-accounts/earn-transactions/formatter";
 
 // Read-only mobile twin of the session `earn-transactions` route. The native
 // Activity > Earn tab lists Earn vault history passively, with no signer held (a
@@ -25,7 +25,11 @@ import {
 // of creating anything.
 const EARN_VAULT_INDEX = 1;
 
-function jsonError(status: number, code: string, message: string): NextResponse {
+function jsonError(
+  status: number,
+  code: string,
+  message: string
+): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
