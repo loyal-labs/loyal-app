@@ -3,6 +3,7 @@ import { useFocusEffect } from "expo-router";
 import { ArrowUp, Plus, SlidersHorizontal } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -18,6 +19,7 @@ import { AutodepositSetupSheet } from "@/components/earn/AutodepositSetupSheet";
 import { DepositSheet } from "@/components/earn/DepositSheet";
 import { EarnChartTabs } from "@/components/earn/EarnChartTabs";
 import { EarnDog } from "@/components/earn/EarnDog";
+import { PositionsSheet } from "@/components/earn/PositionsSheet";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -113,6 +115,7 @@ export default function EarnScreen() {
     useEarnWithdrawSources(walletAddress);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [positionsOpen, setPositionsOpen] = useState(false);
   const [hasDeposit, setHasDeposit] = useState(false);
   // Real on-chain Autodeposit state (read-only, wallet-keyed). The threshold +
   // on/off are derived from it; the create/edit/delete/toggle handlers below
@@ -300,6 +303,42 @@ export default function EarnScreen() {
   const handleCloseWithdraw = useCallback(() => {
     setWithdrawOpen(false);
   }, []);
+
+  // The footer drag handle opens the positions sheet (same mechanics as
+  // Deposit/Withdraw). Pull the per-source breakdown so the list is fresh.
+  const handleOpenPositions = useCallback(() => {
+    void Haptics.selectionAsync();
+    refreshWithdrawSources();
+    setPositionsOpen(true);
+  }, [refreshWithdrawSources]);
+
+  // Deposit/Withdraw inside the positions sheet hand off to the existing flows:
+  // close this sheet, then open the target (mirrors AutodepositHelpSheet → setup).
+  const handlePositionsDeposit = useCallback(() => {
+    setPositionsOpen(false);
+    setDepositOpen(true);
+  }, []);
+
+  const handlePositionsWithdraw = useCallback(() => {
+    setPositionsOpen(false);
+    refreshWithdrawSources();
+    setWithdrawOpen(true);
+  }, [refreshWithdrawSources]);
+
+  // Swipe up anywhere on the funded footer to open the positions sheet. A Pan
+  // (with an upward activation offset) is used rather than a Fling because it
+  // tracks reliably and only engages on a deliberate upward drag — taps on the
+  // Deposit/Withdraw buttons (no vertical travel) still register as taps. The
+  // handle also opens it on tap (below).
+  const footerSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(hasDeposit)
+        .activeOffsetY(-12)
+        .runOnJS(true)
+        .onStart(() => handleOpenPositions()),
+    [hasDeposit, handleOpenPositions],
+  );
 
   const handleWithdrawConfirmed = useCallback(
     async (amountUsd: number, source: EarnWithdrawSourceInfo | null) => {
@@ -615,49 +654,72 @@ export default function EarnScreen() {
           { paddingBottom: TAB_BAR_RESERVED_HEIGHT + insets.bottom },
         ]}
       >
-        <View style={styles.balanceRow}>
-          <Text style={styles.balanceLabel}>Earn Balance</Text>
-          <Text style={styles.balanceValue}>
-            <Text style={styles.balanceValueStrong}>{balanceParts.whole}</Text>
-            <Text style={styles.balanceValueDim}>{balanceParts.cents}</Text>
-          </Text>
-        </View>
+        <GestureDetector gesture={footerSwipeGesture}>
+          <Animated.View style={styles.footerInner}>
+            {hasDeposit ? (
+              <Pressable
+                onPress={handleOpenPositions}
+                accessibilityRole="button"
+                accessibilityLabel="View current positions"
+                hitSlop={8}
+                style={styles.handleHit}
+              >
+                <View style={styles.dragHandle} />
+              </Pressable>
+            ) : null}
 
-        <View style={styles.actionRow}>
-          <Pressable
-            onPress={handleOpenDeposit}
-            accessibilityRole="button"
-            accessibilityLabel="Deposit"
-            style={({ pressed }) => [
-              styles.depositButton,
-              // Full-width on the empty hero; stays content-width beside
-              // Withdraw once a deposit exists (per Figma 3883:18293).
-              hasDeposit ? null : styles.depositButtonFull,
-              { opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <View style={styles.iconWrap}>
-              <Plus size={20} color="#FFF" strokeWidth={2.2} />
+            <View style={styles.balanceRow}>
+              <Text style={styles.balanceLabel}>Earn Balance</Text>
+              <Text style={styles.balanceValue}>
+                <Text style={styles.balanceValueStrong}>
+                  {balanceParts.whole}
+                </Text>
+                <Text style={styles.balanceValueDim}>{balanceParts.cents}</Text>
+              </Text>
             </View>
-            <Text style={styles.depositLabel}>Deposit</Text>
-          </Pressable>
-          {hasDeposit ? (
-            <Pressable
-              onPress={handleOpenWithdraw}
-              accessibilityRole="button"
-              accessibilityLabel="Withdraw"
-              style={({ pressed }) => [
-                styles.withdrawButton,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <View style={styles.iconWrap}>
-                <ArrowUp size={20} color="#000" strokeWidth={2.2} />
-              </View>
-              <Text style={styles.withdrawLabel}>Withdraw</Text>
-            </Pressable>
-          ) : null}
-        </View>
+
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={handleOpenDeposit}
+                accessibilityRole="button"
+                accessibilityLabel="Deposit"
+                style={({ pressed }) => [
+                  styles.depositButton,
+                  // Full-width on the empty hero; stays content-width beside
+                  // Withdraw once a deposit exists (per Figma 3883:18293).
+                  hasDeposit ? null : styles.depositButtonFull,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <View style={styles.iconWrap}>
+                  <Plus size={20} color="#FFF" strokeWidth={2.2} />
+                </View>
+                <Text style={styles.depositLabel}>Deposit</Text>
+              </Pressable>
+              {hasDeposit ? (
+                <Pressable
+                  onPress={handleOpenWithdraw}
+                  accessibilityRole="button"
+                  accessibilityLabel="Withdraw"
+                  style={({ pressed }) => [
+                    styles.withdrawButton,
+                    { opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <View style={styles.iconWrap}>
+                    <ArrowUp
+                      size={20}
+                      color="#000"
+                      strokeWidth={2.2}
+                      opacity={0.6}
+                    />
+                  </View>
+                  <Text style={styles.withdrawLabel}>Withdraw</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </Animated.View>
+        </GestureDetector>
       </View>
 
       <DepositSheet
@@ -673,6 +735,16 @@ export default function EarnScreen() {
         onWithdraw={handleWithdrawConfirmed}
         availableUsdc={depositedUsd}
         sources={withdrawSources}
+      />
+
+      <PositionsSheet
+        open={positionsOpen}
+        onClose={() => setPositionsOpen(false)}
+        balanceWhole={balanceParts.whole}
+        balanceCents={balanceParts.cents}
+        sources={withdrawSources}
+        onDeposit={handlePositionsDeposit}
+        onWithdraw={handlePositionsWithdraw}
       />
 
       <AutodepositHelpSheet
@@ -874,6 +946,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  // Footer content wrapped by the swipe-to-open gesture; keeps the original
+  // 8px rhythm between handle, balance, and action buttons.
+  footerInner: {
     gap: 8,
   },
   // Rounded top only in the deposited state; the empty hero meets the dog with
@@ -881,6 +957,22 @@ const styles = StyleSheet.create({
   bottomCardRounded: {
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
+  },
+  // Top drag handle on the funded footer — taps open the positions sheet
+  // (Figma 74:20241 / 75:33852).
+  handleHit: {
+    alignItems: "center",
+    justifyContent: "center",
+    // Generous strip so the handle is easy to tap or swipe up, even though the
+    // visible pill stays small.
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  dragHandle: {
+    width: 32,
+    height: 4,
+    borderRadius: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.24)",
   },
   balanceRow: {
     flexDirection: "column",
