@@ -379,8 +379,10 @@ export default function WalletScreen() {
               }
               onPressEarn={() => router.navigate(buildEarnHref())}
               onPressDeposit={() => setIsDepositOpen(true)}
-              onPressStablecoins={() => router.push(buildStablecoinsHref())}
-              onPressCrypto={() => router.push(buildCryptoHref())}
+              onPressStablecoins={(rect) =>
+                router.push(buildStablecoinsHref(rect))
+              }
+              onPressCrypto={(rect) => router.push(buildCryptoHref(rect))}
             />
           </View>
 

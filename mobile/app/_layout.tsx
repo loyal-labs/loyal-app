@@ -101,13 +101,30 @@ export default function RootLayout() {
                   name="token/[mint]"
                   options={{ headerShown: false }}
                 />
+                {/* Category pages morph out of the tapped wallet card. Use
+                    `containedTransparentModal` (NOT `transparentModal`): it stays
+                    transparent so the wallet shows behind, but is contained in the
+                    navigator rather than presented as a native modal — so there's
+                    no native present/dismiss slide that `animation: "none"` can't
+                    suppress (that slide was the jump at the end of close).
+                    CardExpandTransition drives the entire motion. */}
                 <Stack.Screen
                   name="wallet/stablecoins"
-                  options={{ headerShown: false }}
+                  options={{
+                    headerShown: false,
+                    presentation: "containedTransparentModal",
+                    animation: "none",
+                    gestureEnabled: false,
+                  }}
                 />
                 <Stack.Screen
                   name="wallet/crypto"
-                  options={{ headerShown: false }}
+                  options={{
+                    headerShown: false,
+                    presentation: "containedTransparentModal",
+                    animation: "none",
+                    gestureEnabled: false,
+                  }}
                 />
                 <Stack.Screen
                   name="browser/site"

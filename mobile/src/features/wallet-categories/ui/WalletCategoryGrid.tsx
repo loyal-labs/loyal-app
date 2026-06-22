@@ -1,11 +1,16 @@
 import { Zap } from "lucide-react-native";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
+import {
+  StyleSheet,
+  useWindowDimensions,
+  type View as RNView,
+} from "react-native";
 
 import { Pressable, Text, View } from "@/tw";
 
 import { formatApyBps, splitUsd } from "../model/format";
+import type { CardRect, CardSourceRect } from "../routes";
 import { CryptoGlyph, EarnGlyph, StablecoinsGlyph } from "./CategoryGlyphs";
 
 const CENTS_DIM = "rgba(60, 60, 67, 0.4)";
@@ -77,14 +82,31 @@ function Cell({
   bg?: string;
   width: number;
   bordered?: boolean;
-  onPress?: () => void;
+  // Receives the card's on-screen rect (window coords) so the destination can
+  // expand out of it. `undefined` when the rect couldn't be measured.
+  onPress?: (rect?: CardRect) => void;
   footer?: ReactNode;
   children: ReactNode;
 }) {
   const [pressed, setPressed] = useState(false);
+  const cardRef = useRef<RNView>(null);
+
+  const handlePress = useCallback(() => {
+    if (!onPress) return;
+    const node = cardRef.current;
+    if (node?.measureInWindow) {
+      node.measureInWindow((x, y, w, h) =>
+        onPress({ x, y, width: w, height: h }),
+      );
+    } else {
+      onPress(undefined);
+    }
+  }, [onPress]);
+
   return (
     <Pressable
-      onPress={onPress}
+      ref={cardRef}
+      onPress={handlePress}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       disabled={!onPress}
@@ -127,8 +149,8 @@ export function WalletCategoryGrid({
   banner: ReactNode;
   onPressEarn: () => void;
   onPressDeposit: () => void;
-  onPressStablecoins: () => void;
-  onPressCrypto: () => void;
+  onPressStablecoins: (rect?: CardSourceRect) => void;
+  onPressCrypto: (rect?: CardSourceRect) => void;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const cellWidth = (windowWidth - GRID_PADDING * 2 - GRID_GAP) / 2;
@@ -163,7 +185,9 @@ export function WalletCategoryGrid({
           icon={<StablecoinsGlyph size={40} />}
           bg={CELL_BG_SOFT}
           width={cellWidth}
-          onPress={onPressStablecoins}
+          onPress={(rect) =>
+            onPressStablecoins(rect ? { ...rect, usd: stablecoinsUsd } : undefined)
+          }
         >
           <Text
             className="text-[15px]"
@@ -179,7 +203,9 @@ export function WalletCategoryGrid({
           icon={<CryptoGlyph size={40} />}
           bg={CELL_BG_SOFT}
           width={cellWidth}
-          onPress={onPressCrypto}
+          onPress={(rect) =>
+            onPressCrypto(rect ? { ...rect, usd: cryptoUsd } : undefined)
+          }
         >
           <Text
             className="text-[15px]"
