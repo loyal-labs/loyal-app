@@ -116,6 +116,8 @@ type AccountRole =
       pubkey: PublicKey;
     };
 
+type ReserveAccountRole = Extract<AccountRole, { kind: "reserve" }>;
+
 type DiscoveredReserveDeposit = {
   collateralAmountRaw: bigint;
   market: PublicKey;
@@ -181,16 +183,15 @@ function assertPolicyUniverse(args: {
 } {
   const policy = args.policy;
   if (!policy) {
-    throw new Error("Active Earn policy metadata is required for RPC holdings.");
+    throw new Error(
+      "Active Earn policy metadata is required for RPC holdings."
+    );
   }
   if (policy.vaultIndex !== EARN_VAULT_INDEX) {
     throw new Error("Active Earn policy is not for the Earn vault.");
   }
 
-  const usdcMint = getStablecoinMintForCluster(
-    args.cluster,
-    Stablecoin.USDC
-  );
+  const usdcMint = getStablecoinMintForCluster(args.cluster, Stablecoin.USDC);
   const usdcMintText = usdcMint.toBase58();
   const policyStableMints = new Set(policy.stableMints ?? []);
   const policyKaminoLiquidityMints = new Set(policy.kaminoLiquidityMints ?? []);
@@ -229,7 +230,10 @@ async function readAccountsInChunks(args: {
     index < args.pubkeys.length;
     index += GET_MULTIPLE_ACCOUNTS_LIMIT
   ) {
-    const chunk = args.pubkeys.slice(index, index + GET_MULTIPLE_ACCOUNTS_LIMIT);
+    const chunk = args.pubkeys.slice(
+      index,
+      index + GET_MULTIPLE_ACCOUNTS_LIMIT
+    );
     const result = await args.connection.getMultipleAccountsInfoAndContext(
       chunk,
       {
@@ -421,7 +425,9 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     true,
     TOKEN_PROGRAM_ID
   );
-  const safeMarkets = [...allowedMarkets].map((market) => new PublicKey(market));
+  const safeMarkets = [...allowedMarkets].map(
+    (market) => new PublicKey(market)
+  );
   const firstStageRoles: AccountRole[] = [
     { kind: "idle", pubkey: vaultUsdcAta },
     ...safeMarkets.map((market) => {
@@ -476,7 +482,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     }
   }
 
-  const reserveRoles: AccountRole[] = discoveredDeposits.map(
+  const reserveRoles: ReserveAccountRole[] = discoveredDeposits.map(
     (deposit, sourceIndex) => ({
       kind: "reserve" as const,
       pubkey: deposit.reserve,
@@ -495,15 +501,10 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
           maxObservedSlot: firstStage.maxObservedSlot,
           values: [],
         };
-  const reserveAccountForRole = (role: AccountRole) =>
-    role.kind === "reserve"
-      ? reserveStage.values[reserveRoles.indexOf(role)] ?? null
-      : null;
+  const reserveAccountForRole = (role: ReserveAccountRole) =>
+    reserveStage.values[reserveRoles.indexOf(role)] ?? null;
   const reconciledCandidates: ReconciledReserveCandidate[] = [];
   for (const reserveRole of reserveRoles) {
-    if (reserveRole.kind !== "reserve") {
-      continue;
-    }
     const discovered = discoveredDeposits[reserveRole.sourceIndex];
     if (!discovered) {
       continue;
