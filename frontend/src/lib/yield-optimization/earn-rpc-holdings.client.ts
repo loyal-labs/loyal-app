@@ -13,7 +13,7 @@ import {
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import {
   calculateKaminoRedeemableLiquidityAmountRaw,
-  parseKaminoObligationDepositedCollateralAmountRaw,
+  parseKaminoObligationAccount,
   parseKaminoReserveSnapshot,
   parseKaminoReserveTokenAccounts,
 } from "@loyal-labs/smart-account-vaults";
@@ -56,14 +56,6 @@ export type EarnRpcPolicyMetadata = {
   universePreset?: string | null;
   vaultIndex: number;
   vaultPubkey: string;
-};
-
-export type EarnRpcReserveCandidate = {
-  amountRaw?: string | null;
-  liquidityMint: string | null;
-  market: string | null;
-  reserve: string | null;
-  supplyApyBps?: string | null;
 };
 
 export type EarnRpcHolding = {
@@ -110,13 +102,13 @@ type BatchedAccountRead = {
 
 type AccountRole =
   | {
-      candidateIndex: number;
       kind: "reserve";
       pubkey: PublicKey;
+      sourceIndex: number;
     }
   | {
-      candidateIndex: number;
       kind: "obligation";
+      market: PublicKey;
       pubkey: PublicKey;
     }
   | {
@@ -124,18 +116,19 @@ type AccountRole =
       pubkey: PublicKey;
     };
 
-type NormalizedReserveCandidate = {
-  liquidityMint: PublicKey;
+type DiscoveredReserveDeposit = {
+  collateralAmountRaw: bigint;
   market: PublicKey;
+  obligation: PublicKey;
   reserve: PublicKey;
-  supplyApyBps: string | null;
+  slotIndex: number;
 };
 
-type ReconciledReserveCandidate = NormalizedReserveCandidate & {
-  obligation: PublicKey;
-  obligationAccount: AccountInfo<Buffer>;
+type ReconciledReserveCandidate = DiscoveredReserveDeposit & {
+  liquidityMint: PublicKey;
   reserveAccount: AccountInfo<Buffer>;
   reserveCollateralMint: PublicKey;
+  supplyApyBps: string | null;
 };
 
 export function deriveEarnVaultPda(args: {
@@ -177,18 +170,6 @@ export function sumEarnRpcHoldingsAmountRaw(
       return sum;
     }
   }, BigInt(0));
-}
-
-function publicKeyOrNull(value: string | null | undefined): PublicKey | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return new PublicKey(value);
-  } catch {
-    return null;
-  }
 }
 
 function assertPolicyUniverse(args: {
@@ -233,51 +214,6 @@ function assertPolicyUniverse(args: {
   }
 
   return { allowedMarkets, usdcMint };
-}
-
-function normalizeReserveCandidates(args: {
-  allowedMarkets: Set<string>;
-  candidates: EarnRpcReserveCandidate[];
-  cluster: LoyalCluster;
-  usdcMint: PublicKey;
-}): NormalizedReserveCandidate[] {
-  const canonical = getKaminoUsdcEarnTargetForCluster(args.cluster);
-  const byReserve = new Map<string, NormalizedReserveCandidate>();
-  const addCandidate = (candidate: EarnRpcReserveCandidate) => {
-    if (!candidate.reserve || !candidate.market || !candidate.liquidityMint) {
-      return;
-    }
-    if (candidate.liquidityMint !== args.usdcMint.toBase58()) {
-      return;
-    }
-    if (!args.allowedMarkets.has(candidate.market)) {
-      return;
-    }
-
-    const reserve = publicKeyOrNull(candidate.reserve);
-    const market = publicKeyOrNull(candidate.market);
-    const liquidityMint = publicKeyOrNull(candidate.liquidityMint);
-    if (!reserve || !market || !liquidityMint) {
-      return;
-    }
-
-    byReserve.set(reserve.toBase58(), {
-      liquidityMint,
-      market,
-      reserve,
-      supplyApyBps: candidate.supplyApyBps ?? null,
-    });
-  };
-
-  addCandidate({
-    liquidityMint: canonical.liquidityMint.toBase58(),
-    market: canonical.market.toBase58(),
-    reserve: canonical.reserve.toBase58(),
-    supplyApyBps: null,
-  });
-  args.candidates.forEach(addCandidate);
-
-  return [...byReserve.values()];
 }
 
 async function readAccountsInChunks(args: {
@@ -388,7 +324,6 @@ function toWatchedAccounts(roles: AccountRole[]): EarnRpcWatchedAccount[] {
 function toKaminoHolding(args: {
   amountRaw: bigint;
   candidate: ReconciledReserveCandidate;
-  obligationCollateralAmountRaw: bigint;
   sourceSlot: number;
   observedAt: string;
   observedSlot: string;
@@ -415,8 +350,9 @@ function toKaminoHolding(args: {
       amountSemantics: "kamino_redeemable_liquidity",
       obligation: args.candidate.obligation.toBase58(),
       obligationCollateralAmountRaw:
-        args.obligationCollateralAmountRaw.toString(),
+        args.candidate.collateralAmountRaw.toString(),
       reserveCollateralMint: args.candidate.reserveCollateralMint.toBase58(),
+      slotIndex: String(args.candidate.slotIndex),
       source: "rpc_getMultipleAccounts",
       sourceCommitment: SOURCE_COMMITMENT,
       sourceSlot: String(args.sourceSlot),
@@ -461,7 +397,6 @@ function toIdleHolding(args: {
 }
 
 export async function fetchEarnRpcHoldingsSnapshot(args: {
-  candidates?: EarnRpcReserveCandidate[];
   cluster: LoyalCluster;
   connection: AccountReader;
   policy: EarnRpcPolicyMetadata | null | undefined;
@@ -486,24 +421,16 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     true,
     TOKEN_PROGRAM_ID
   );
-  const reserveCandidates = normalizeReserveCandidates({
-    allowedMarkets,
-    candidates: args.candidates ?? [],
-    cluster: args.cluster,
-    usdcMint,
-  });
+  const safeMarkets = [...allowedMarkets].map((market) => new PublicKey(market));
   const firstStageRoles: AccountRole[] = [
     { kind: "idle", pubkey: vaultUsdcAta },
-    ...reserveCandidates.flatMap((candidate, candidateIndex) => {
+    ...safeMarkets.map((market) => {
       const obligation = deriveKaminoVanillaObligation({
         lendProgramId,
-        market: candidate.market,
+        market,
         vaultPda,
       });
-      return [
-        { candidateIndex, kind: "reserve" as const, pubkey: candidate.reserve },
-        { candidateIndex, kind: "obligation" as const, pubkey: obligation },
-      ];
+      return { kind: "obligation" as const, market, pubkey: obligation };
     }),
   ];
   const firstStage = await readAccountsInChunks({
@@ -514,52 +441,109 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     firstStage.values[firstStageRoles.indexOf(role)] ?? null;
   const idleRole = firstStageRoles[0]!;
   const idleAccount = accountForRole(idleRole);
-  const reconciledCandidates: ReconciledReserveCandidate[] = [];
+  const discoveredDeposits: DiscoveredReserveDeposit[] = [];
 
-  for (let index = 0; index < reserveCandidates.length; index += 1) {
-    const candidate = reserveCandidates[index]!;
-    const reserveRole = firstStageRoles.find(
-      (role) => role.kind === "reserve" && role.candidateIndex === index
-    );
-    const obligationRole = firstStageRoles.find(
-      (role) => role.kind === "obligation" && role.candidateIndex === index
-    );
-    if (!reserveRole || !obligationRole) {
+  for (const obligationRole of firstStageRoles) {
+    if (obligationRole.kind !== "obligation") {
       continue;
     }
-
-    const reserveAccount = validateReserveAccount({
-      account: accountForRole(reserveRole),
-      lendProgramId,
-    });
     const obligationAccount = validateObligationAccount({
       account: accountForRole(obligationRole),
       lendProgramId,
     });
-    if (!reserveAccount || !obligationAccount) {
+    if (!obligationAccount) {
+      continue;
+    }
+
+    const parsedObligation = parseKaminoObligationAccount(
+      obligationAccount.data
+    );
+    if (!parsedObligation.owner.equals(vaultPda)) {
+      throw new Error("Kamino obligation owner is not the Earn vault.");
+    }
+    if (!parsedObligation.lendingMarket.equals(obligationRole.market)) {
+      throw new Error("Kamino obligation lending market mismatch.");
+    }
+
+    for (const deposit of parsedObligation.deposits) {
+      discoveredDeposits.push({
+        collateralAmountRaw: deposit.depositedAmountRaw,
+        market: parsedObligation.lendingMarket,
+        obligation: obligationRole.pubkey,
+        reserve: deposit.reserve,
+        slotIndex: deposit.slotIndex,
+      });
+    }
+  }
+
+  const reserveRoles: AccountRole[] = discoveredDeposits.map(
+    (deposit, sourceIndex) => ({
+      kind: "reserve" as const,
+      pubkey: deposit.reserve,
+      sourceIndex,
+    })
+  );
+  const reserveStage =
+    reserveRoles.length > 0
+      ? await readAccountsInChunks({
+          connection: args.connection,
+          pubkeys: reserveRoles.map((role) => role.pubkey),
+        })
+      : {
+          accountCount: 0,
+          chunkCount: 0,
+          maxObservedSlot: firstStage.maxObservedSlot,
+          values: [],
+        };
+  const reserveAccountForRole = (role: AccountRole) =>
+    role.kind === "reserve"
+      ? reserveStage.values[reserveRoles.indexOf(role)] ?? null
+      : null;
+  const reconciledCandidates: ReconciledReserveCandidate[] = [];
+  for (const reserveRole of reserveRoles) {
+    if (reserveRole.kind !== "reserve") {
+      continue;
+    }
+    const discovered = discoveredDeposits[reserveRole.sourceIndex];
+    if (!discovered) {
+      continue;
+    }
+
+    if (!allowedMarkets.has(discovered.market.toBase58())) {
+      throw new Error("Kamino obligation deposit is outside the Safe policy.");
+    }
+
+    const reserveAccount = validateReserveAccount({
+      account: reserveAccountForRole(reserveRole),
+      lendProgramId,
+    });
+    if (!reserveAccount) {
       continue;
     }
 
     const reserveAccounts = parseKaminoReserveTokenAccounts(
       reserveAccount.data
     );
+    if (!reserveAccounts.lendingMarket.equals(discovered.market)) {
+      throw new Error("Kamino reserve lending market mismatch.");
+    }
     if (!reserveAccounts.reserveLiquidityMint.equals(usdcMint)) {
       throw new Error("Kamino reserve liquidity mint is not cluster USDC.");
     }
+
     reconciledCandidates.push({
-      ...candidate,
-      obligation: deriveKaminoVanillaObligation({
-        lendProgramId,
-        market: candidate.market,
-        vaultPda,
-      }),
-      obligationAccount,
+      ...discovered,
+      liquidityMint: reserveAccounts.reserveLiquidityMint,
       reserveAccount,
       reserveCollateralMint: reserveAccounts.reserveCollateralMint,
+      supplyApyBps: null,
     });
   }
 
-  const observedSlotNumber = firstStage.maxObservedSlot;
+  const observedSlotNumber = Math.max(
+    firstStage.maxObservedSlot,
+    reserveStage.maxObservedSlot
+  );
   const observedSlot = String(observedSlotNumber);
   const observedAt = (args.now ?? (() => new Date()))().toISOString();
   const idleAmountRaw = validateTokenAccountAmount({
@@ -570,20 +554,14 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
   });
   const holdings = [
     ...reconciledCandidates.flatMap((candidate) => {
-      const obligationCollateralAmountRaw =
-        parseKaminoObligationDepositedCollateralAmountRaw({
-          data: candidate.obligationAccount.data,
-          reserve: candidate.reserve,
-        });
       const amountRaw = calculateKaminoRedeemableLiquidityAmountRaw({
-        collateralAmountRaw: obligationCollateralAmountRaw,
+        collateralAmountRaw: candidate.collateralAmountRaw,
         snapshot: parseKaminoReserveSnapshot(candidate.reserveAccount.data),
       });
       const holding = toKaminoHolding({
         amountRaw,
         candidate,
-        obligationCollateralAmountRaw,
-        sourceSlot: firstStage.maxObservedSlot,
+        sourceSlot: observedSlotNumber,
         observedAt,
         observedSlot,
       });
@@ -610,11 +588,11 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     observedAt,
     observedSlot,
     provenance: {
-      accountCount: firstStage.accountCount,
-      chunkCount: firstStage.chunkCount,
+      accountCount: firstStage.accountCount + reserveStage.accountCount,
+      chunkCount: firstStage.chunkCount + reserveStage.chunkCount,
       commitment: SOURCE_COMMITMENT,
       source: "rpc_getMultipleAccounts",
-      watchedAccounts: toWatchedAccounts(firstStageRoles),
+      watchedAccounts: toWatchedAccounts([...firstStageRoles, ...reserveRoles]),
     },
   };
 }

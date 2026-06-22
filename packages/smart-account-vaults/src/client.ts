@@ -231,6 +231,7 @@ const KAMINO_FRACTION_BITS = BigInt(60);
 const KAMINO_FRACTION_SCALE = BigInt(1) << KAMINO_FRACTION_BITS;
 const KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET = 8;
 const KAMINO_RESERVE_LAYOUT_OFFSETS = {
+  lendingMarket: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 24,
   farmCollateral: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 56,
   farmDebt: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 88,
   liquidityMintPubkey: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 120,
@@ -247,8 +248,14 @@ const KAMINO_RESERVE_LAYOUT_OFFSETS = {
   collateralMintTotalSupply: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 2584,
   collateralSupplyVault: KAMINO_RESERVE_ACCOUNT_DISCRIMINATOR_OFFSET + 2592,
 } as const;
+const KAMINO_OBLIGATION_LAYOUT_OFFSETS = {
+  lendingMarket: KAMINO_OBLIGATION_DISCRIMINATOR.length + 24,
+  owner: KAMINO_OBLIGATION_DISCRIMINATOR.length + 56,
+  deposits: KAMINO_OBLIGATION_DISCRIMINATOR.length + 88,
+} as const;
+const KAMINO_OBLIGATION_DEPOSIT_SLOT_COUNT = 8;
 const KAMINO_OBLIGATION_DEPOSIT_OFFSET = 96;
-const KAMINO_OBLIGATION_DEPOSIT_SIZE = 160;
+const KAMINO_OBLIGATION_DEPOSIT_SIZE = 136;
 const KAMINO_OBLIGATION_DEPOSIT_DEPOSITED_AMOUNT_OFFSET = 32;
 const KAMINO_SETUP_INSTRUCTION_DISCRIMINATORS = [
   [117, 169, 176, 69, 197, 23, 15, 162],
@@ -301,9 +308,22 @@ export type KaminoReserveSnapshot = {
   totalLiquiditySupplyScaled: bigint;
 };
 
+export type KaminoObligationDeposit = {
+  depositedAmountRaw: bigint;
+  reserve: PublicKey;
+  slotIndex: number;
+};
+
+export type KaminoObligationAccount = {
+  deposits: KaminoObligationDeposit[];
+  lendingMarket: PublicKey;
+  owner: PublicKey;
+};
+
 export type KaminoReserveTokenAccounts = {
   farmCollateral: PublicKey;
   farmDebt: PublicKey;
+  lendingMarket: PublicKey;
   reserveCollateralMint: PublicKey;
   reserveCollateralSupply: PublicKey;
   reserveLiquidityMint: PublicKey;
@@ -495,6 +515,10 @@ export function parseKaminoReserveTokenAccounts(
       normalizedData,
       KAMINO_RESERVE_LAYOUT_OFFSETS.farmDebt
     ),
+    lendingMarket: readPublicKey(
+      normalizedData,
+      KAMINO_RESERVE_LAYOUT_OFFSETS.lendingMarket
+    ),
     reserveCollateralMint: readPublicKey(
       normalizedData,
       KAMINO_RESERVE_LAYOUT_OFFSETS.collateralMintPubkey
@@ -512,6 +536,58 @@ export function parseKaminoReserveTokenAccounts(
       KAMINO_RESERVE_LAYOUT_OFFSETS.liquiditySupplyVault
     ),
   };
+}
+
+export function parseKaminoObligationAccount(
+  data: Buffer | Uint8Array
+): KaminoObligationAccount {
+  const normalizedData = assertKaminoObligationAccountData(data);
+  const requiredLength =
+    KAMINO_OBLIGATION_DEPOSIT_OFFSET +
+    KAMINO_OBLIGATION_DEPOSIT_SLOT_COUNT * KAMINO_OBLIGATION_DEPOSIT_SIZE;
+  if (normalizedData.length < requiredLength) {
+    throw new Error("Kamino obligation account is smaller than expected.");
+  }
+
+  const deposits: KaminoObligationDeposit[] = [];
+  for (
+    let slotIndex = 0;
+    slotIndex < KAMINO_OBLIGATION_DEPOSIT_SLOT_COUNT;
+    slotIndex += 1
+  ) {
+    const offset =
+      KAMINO_OBLIGATION_LAYOUT_OFFSETS.deposits +
+      slotIndex * KAMINO_OBLIGATION_DEPOSIT_SIZE;
+    const reserve = readPublicKey(normalizedData, offset);
+    const depositedAmountRaw = readUint64LE(
+      normalizedData,
+      offset + KAMINO_OBLIGATION_DEPOSIT_DEPOSITED_AMOUNT_OFFSET
+    );
+    if (reserve.equals(DEFAULT_PUBKEY) || depositedAmountRaw <= BigInt(0)) {
+      continue;
+    }
+
+    deposits.push({
+      depositedAmountRaw,
+      reserve,
+      slotIndex,
+    });
+  }
+
+  return {
+    deposits,
+    lendingMarket: readPublicKey(
+      normalizedData,
+      KAMINO_OBLIGATION_LAYOUT_OFFSETS.lendingMarket
+    ),
+    owner: readPublicKey(normalizedData, KAMINO_OBLIGATION_LAYOUT_OFFSETS.owner),
+  };
+}
+
+export function parseKaminoObligationDeposits(
+  data: Buffer | Uint8Array
+): KaminoObligationDeposit[] {
+  return parseKaminoObligationAccount(data).deposits;
 }
 
 function deriveKaminoFarmUserStatePda(args: {
@@ -580,25 +656,11 @@ export function parseKaminoObligationDepositedCollateralAmountRaw(args: {
   data: Buffer | Uint8Array;
   reserve: PublicKey;
 }): bigint {
-  const normalizedData = assertKaminoObligationAccountData(args.data);
-
-  for (
-    let offset = KAMINO_OBLIGATION_DEPOSIT_OFFSET;
-    offset + KAMINO_OBLIGATION_DEPOSIT_SIZE <= normalizedData.length;
-    offset += KAMINO_OBLIGATION_DEPOSIT_SIZE
-  ) {
-    const reserve = readPublicKey(normalizedData, offset);
-    if (!reserve.equals(args.reserve)) {
-      continue;
-    }
-
-    return readUint64LE(
-      normalizedData,
-      offset + KAMINO_OBLIGATION_DEPOSIT_DEPOSITED_AMOUNT_OFFSET
-    );
-  }
-
-  return BigInt(0);
+  return (
+    parseKaminoObligationDeposits(args.data).find((deposit) =>
+      deposit.reserve.equals(args.reserve)
+    )?.depositedAmountRaw ?? BigInt(0)
+  );
 }
 
 export function calculateKaminoRedeemableLiquidityAmountRaw(args: {

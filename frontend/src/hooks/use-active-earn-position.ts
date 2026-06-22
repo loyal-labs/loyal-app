@@ -17,11 +17,10 @@ import {
   type EarnRpcHolding,
   type EarnRpcHoldingsSnapshot,
   type EarnRpcPolicyMetadata,
-  type EarnRpcReserveCandidate,
   type EarnRpcWatchedAccount,
 } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 
-const EARN_POSITION_CACHE_VERSION = 4;
+const EARN_POSITION_CACHE_VERSION = 5;
 const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
 
 export type ActiveEarnPositionHolding = {
@@ -90,24 +89,6 @@ type RpcPositionRead = {
   position: ActiveEarnPosition | null;
   watchedAccounts: EarnRpcWatchedAccount[];
 };
-
-function getEarnRpcPolicyKey(
-  policy: EarnRpcPolicyMetadata | null | undefined
-): string {
-  if (!policy) {
-    return "none";
-  }
-
-  return [
-    policy.account,
-    policy.seed,
-    String(policy.vaultIndex),
-    policy.vaultPubkey,
-    ...(policy.stableMints ?? []),
-    ...(policy.kaminoLiquidityMints ?? []),
-    ...(policy.kaminoMarkets ?? []),
-  ].join("|");
-}
 
 export function isActiveEarnPosition(
   position: ActiveEarnPosition | null | undefined
@@ -263,7 +244,6 @@ export function useActiveEarnPosition({
   const suppressSubscriptionRefreshThroughSlotRef = useRef<bigint | null>(null);
 
   const canUseCache = Boolean(enabled && walletAddress && settingsPda);
-  const earnPolicyKey = getEarnRpcPolicyKey(earnPolicy);
 
   const setPosition = useCallback(
     (
@@ -298,7 +278,6 @@ export function useActiveEarnPosition({
       }
 
       const snapshot = await fetchEarnRpcHoldingsSnapshot({
-        candidates: createEarnRpcReserveCandidates(basePosition),
         cluster: resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(solanaEnv)),
         connection,
         policy: earnPolicy,
@@ -311,7 +290,7 @@ export function useActiveEarnPosition({
         watchedAccounts: snapshot.provenance.watchedAccounts,
       };
     },
-    [connection, earnPolicyKey, programId, settingsPda, solanaEnv]
+    [connection, earnPolicy, programId, settingsPda, solanaEnv]
   );
 
   const commitRpcPosition = useCallback(
@@ -532,44 +511,6 @@ export function useActiveEarnPosition({
     setPosition,
     suppressSubscriptionRefreshThroughSlot,
   };
-}
-
-export function createEarnRpcReserveCandidates(
-  position: ActiveEarnPosition | null | undefined
-): EarnRpcReserveCandidate[] {
-  const candidates: Array<EarnRpcReserveCandidate | null> = [
-    ...(position?.holdings ?? [])
-      .filter((holding) => holding.kind === "kamino")
-      .map((holding) => ({
-        amountRaw: holding.amountRaw,
-        liquidityMint: holding.liquidityMint,
-        market: holding.market,
-        reserve: holding.reserve,
-        supplyApyBps: holding.supplyApyBps,
-      })),
-    position?.currentHolding
-      ? {
-          amountRaw: position.currentHolding.amountRaw,
-          liquidityMint: position.currentHolding.liquidityMint,
-          market: position.currentHolding.market,
-          reserve: position.currentHolding.reserve,
-          supplyApyBps: position.currentSupplyApyBps,
-        }
-      : null,
-    position?.initialHolding
-      ? {
-          amountRaw: null,
-          liquidityMint: position.initialHolding.liquidityMint,
-          market: position.initialHolding.market,
-          reserve: position.initialHolding.reserve,
-          supplyApyBps: position.initialHolding.supplyApyBps,
-        }
-      : null,
-  ];
-
-  return candidates.filter(
-    (candidate): candidate is EarnRpcReserveCandidate => candidate !== null
-  );
 }
 
 export function applyEarnRpcSnapshotToPosition(

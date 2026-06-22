@@ -34,7 +34,12 @@ import {
 } from "@solana/web3.js";
 import BN from "bn.js";
 
-import { createSmartAccountVaultsClient } from "./client";
+import {
+  createSmartAccountVaultsClient,
+  parseKaminoObligationAccount,
+  parseKaminoObligationDepositedCollateralAmountRaw,
+  parseKaminoObligationDeposits,
+} from "./client";
 
 const programId = new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 const settingsPda = new PublicKey("11111111111111111111111111111112");
@@ -73,10 +78,20 @@ const originalFetch = globalThis.fetch;
 const kaminoReserveDiscriminator = Buffer.from([
   43, 242, 204, 202, 26, 247, 59, 127,
 ]);
+const kaminoObligationDiscriminator = Buffer.from([
+  168, 206, 141, 106, 88, 76, 172, 167,
+]);
 const kaminoReserveOffsetBase = 8;
 const kaminoReserveOffsets = {
   liquidityAvailableAmount: kaminoReserveOffsetBase + 216,
   collateralMintTotalSupply: kaminoReserveOffsetBase + 2584,
+} as const;
+const kaminoObligationOffsets = {
+  depositedAmount: 32,
+  deposits: 96,
+  lendingMarket: 32,
+  owner: 64,
+  slotSize: 136,
 } as const;
 const PACKET_DATA_SIZE = 1232;
 
@@ -400,6 +415,41 @@ function createSerializedKaminoReserveAccount(args: {
   };
 }
 
+function createSerializedKaminoObligationData(args: {
+  deposits: Array<{
+    amountRaw: bigint;
+    reserve: PublicKey;
+    slotIndex: number;
+  }>;
+  lendingMarket?: PublicKey;
+  owner?: PublicKey;
+}): Buffer {
+  const data = Buffer.alloc(
+    kaminoObligationOffsets.deposits +
+      kaminoObligationOffsets.slotSize * 8
+  );
+  kaminoObligationDiscriminator.copy(data, 0);
+  (args.lendingMarket ?? kaminoMarket)
+    .toBuffer()
+    .copy(data, kaminoObligationOffsets.lendingMarket);
+  (args.owner ?? deriveVault())
+    .toBuffer()
+    .copy(data, kaminoObligationOffsets.owner);
+
+  for (const deposit of args.deposits) {
+    const offset =
+      kaminoObligationOffsets.deposits +
+      deposit.slotIndex * kaminoObligationOffsets.slotSize;
+    deposit.reserve.toBuffer().copy(data, offset);
+    data.writeBigUInt64LE(
+      deposit.amountRaw,
+      offset + kaminoObligationOffsets.depositedAmount
+    );
+  }
+
+  return data;
+}
+
 function createTokenAccountData(args: {
   amountRaw: bigint;
   mint?: PublicKey;
@@ -670,6 +720,57 @@ function expectEarnPolicyInitializationUsesSafeUniverse(args: {
     );
   }
 }
+
+describe("Kamino account parsers", () => {
+  test("enumerates positive obligation deposits with the current Klend slot stride", () => {
+    const secondReserve = new PublicKey(
+      "1111111111111111111111111111111C"
+    );
+    const data = createSerializedKaminoObligationData({
+      deposits: [
+        {
+          amountRaw: BigInt(22_512_000),
+          reserve: kaminoReserve,
+          slotIndex: 0,
+        },
+        {
+          amountRaw: BigInt(3_002_000),
+          reserve: secondReserve,
+          slotIndex: 1,
+        },
+      ],
+    });
+
+    const account = parseKaminoObligationAccount(data);
+    expect(account.lendingMarket.toBase58()).toBe(kaminoMarket.toBase58());
+    expect(account.owner.toBase58()).toBe(deriveVault().toBase58());
+    expect(parseKaminoObligationDeposits(data)).toEqual(account.deposits);
+    expect(
+      account.deposits.map((deposit) => ({
+        amountRaw: deposit.depositedAmountRaw.toString(),
+        reserve: deposit.reserve.toBase58(),
+        slotIndex: deposit.slotIndex,
+      }))
+    ).toEqual([
+      {
+        amountRaw: "22512000",
+        reserve: kaminoReserve.toBase58(),
+        slotIndex: 0,
+      },
+      {
+        amountRaw: "3002000",
+        reserve: secondReserve.toBase58(),
+        slotIndex: 1,
+      },
+    ]);
+    expect(
+      parseKaminoObligationDepositedCollateralAmountRaw({
+        data,
+        reserve: secondReserve,
+      })
+    ).toBe(BigInt(3_002_000));
+  });
+});
 
 describe("root Settings signer changes", () => {
   test("builds a root AddSigner settings action", async () => {
