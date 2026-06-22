@@ -212,6 +212,35 @@ active Earn view, display the current principal, and set the withdrawal maximum.
 | Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
+#### Mobile Earn API
+
+The native mobile flow calls parallel routes under
+`frontend/src/app/api/smart-accounts/mobile/earn/**`. Mutating requests do not
+reuse the browser session + Turnstile path; instead
+`frontend/src/features/identity/server/mobile-wallet-auth.ts` authenticates each
+request with a short, purpose-scoped wallet signature (for example
+`earn-deposit-prepare` vs `earn-withdraw-confirm`) and the route resolves the
+caller's smart account server-side.
+
+Read-only mobile routes stay keyed by `walletAddress` with no signature when
+there is no provisioning or mutation and the route is only serving passive state
+for a wallet the caller already knows. That includes the passive Earn position
+read, withdrawal source listing, autodeposit state, and the fixed `30D`
+earnings series used by the native chart.
+
+| Mobile area              | Routes                                                                                                                                                                                                                                    | Notes                                                                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deposit flow             | `POST /api/smart-accounts/mobile/earn/deposit/prepare`, `POST /api/smart-accounts/mobile/earn/deposit/confirm`                                                                                                                           | Mobile twin of the session deposit flow. Prepare can provision the caller's smart account; confirm records the canonical Earn deposit on vault `1`. |
+| Withdraw flow            | `GET /api/smart-accounts/mobile/earn/withdraw/sources`, `POST /api/smart-accounts/mobile/earn/withdraw/prepare`, `POST /api/smart-accounts/mobile/earn/withdraw/confirm`                                                              | Read-only source discovery plus wallet-signed prepare/confirm for reserve or idle-vault withdrawals.                                               |
+| Autodeposit flow         | `GET /api/smart-accounts/mobile/earn/autodeposit/state`, `POST /api/smart-accounts/mobile/earn/autodeposit/setup/prepare`, `POST /api/smart-accounts/mobile/earn/autodeposit/setup/confirm`, `POST /api/smart-accounts/mobile/earn/autodeposit/floor/confirm`, `POST /api/smart-accounts/mobile/earn/autodeposit/toggle/confirm`, `POST /api/smart-accounts/mobile/earn/autodeposit/close/prepare`, `POST /api/smart-accounts/mobile/earn/autodeposit/close/confirm` | State is read-only; `floor` and `toggle` confirms are DB-only updates, while setup/close prepare+confirm manage the delegated on-chain policy flow. |
+| Passive reads            | `GET /api/smart-accounts/mobile/earn/state`, `GET /api/smart-accounts/mobile/earn/earnings`                                                                                                                                              | `state` mirrors the session Earn position/state reads, and `earnings` always returns the native chart's `30D` range.                              |
+
+Key server files are `frontend/src/features/identity/server/mobile-wallet-auth.ts`,
+`frontend/src/app/api/smart-accounts/mobile/earn/state/route.ts`,
+`frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare/route.ts`,
+`frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/setup/prepare/route.ts`,
+and `frontend/src/app/api/smart-accounts/mobile/earn/earnings/route.ts`.
+
 ### CLI Agent Connect Flow
 
 `cli/loyal-cli` opens the frontend with `?connect=<CLI_PUBLIC_KEY>` during
