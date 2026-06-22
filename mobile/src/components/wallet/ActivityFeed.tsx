@@ -25,6 +25,8 @@ type ActivityFeedProps = {
   onTransactionPress: (transaction: Transaction) => void;
   onShowAll: () => void;
   maxItems?: number;
+  /** Hide the internal "Activity" heading (e.g. when the screen supplies its own). */
+  hideHeading?: boolean;
 };
 
 function TokenAvatar({ uri }: { uri: string }) {
@@ -337,18 +339,21 @@ export function ActivityFeed({
   onTransactionPress,
   onShowAll,
   maxItems = 6,
+  hideHeading = false,
 }: ActivityFeedProps) {
   const displayTransactions = transactions.slice(0, maxItems);
 
   if (isLoading && transactions.length === 0) {
     return (
       <View className="px-4">
-        <Text
-          className="pb-2 pt-3 text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.176 }}
-        >
-          Activity
-        </Text>
+        {!hideHeading && (
+          <Text
+            className="pb-2 pt-3 text-[17px] font-medium text-black"
+            style={{ letterSpacing: -0.176 }}
+          >
+            Activity
+          </Text>
+        )}
         {[1, 2, 3].map((i) => (
           <View key={i} className="flex-row items-center px-4 py-2.5">
             <View className="h-12 w-12 rounded-full" style={{ backgroundColor: "#f2f2f7" }} />
@@ -369,12 +374,14 @@ export function ActivityFeed({
   if (transactions.length === 0) {
     return (
       <View className="px-4">
-        <Text
-          className="pb-2 pt-3 text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.176 }}
-        >
-          Activity
-        </Text>
+        {!hideHeading && (
+          <Text
+            className="pb-2 pt-3 text-[17px] font-medium text-black"
+            style={{ letterSpacing: -0.176 }}
+          >
+            Activity
+          </Text>
+        )}
         <View className="items-center px-4 py-8">
           <Text
             className="text-[15px]"
@@ -391,36 +398,38 @@ export function ActivityFeed({
 
   return (
     <View className="px-4">
-      <View style={{ position: "relative" }}>
-        <Text
-          className="pb-2 pt-3 text-[17px] font-medium text-black"
-          style={{ letterSpacing: -0.176 }}
-        >
-          Activity
-        </Text>
-        {showSeeAll ? (
-          <Pressable
-            onPress={onShowAll}
-            hitSlop={8}
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              justifyContent: "center",
-            }}
+      {!hideHeading && (
+        <View style={{ position: "relative" }}>
+          <Text
+            className="pb-2 pt-3 text-[17px] font-medium text-black"
+            style={{ letterSpacing: -0.176 }}
           >
-            {({ pressed }) => (
-              <Text
-                className="text-[17px]"
-                style={{ color: "#F9363C", opacity: pressed ? 0.7 : 1 }}
-              >
-                See All
-              </Text>
-            )}
-          </Pressable>
-        ) : null}
-      </View>
+            Activity
+          </Text>
+          {showSeeAll ? (
+            <Pressable
+              onPress={onShowAll}
+              hitSlop={8}
+              style={{
+                position: "absolute",
+                right: 0,
+                top: 0,
+                bottom: 0,
+                justifyContent: "center",
+              }}
+            >
+              {({ pressed }) => (
+                <Text
+                  className="text-[17px]"
+                  style={{ color: "#F9363C", opacity: pressed ? 0.7 : 1 }}
+                >
+                  See All
+                </Text>
+              )}
+            </Pressable>
+          ) : null}
+        </View>
+      )}
       {displayTransactions.map((tx) => (
         <TransactionRow
           key={tx.id}

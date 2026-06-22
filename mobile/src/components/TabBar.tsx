@@ -2,7 +2,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import { Globe, GraduationCap, Settings, Wallet } from "lucide-react-native";
+import { Clock, Compass, GraduationCap, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type LayoutChangeEvent, StyleSheet } from "react-native";
 import Animated, {
@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useActivity } from "@/features/activity/model/ActivityProvider";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
@@ -24,19 +25,19 @@ const EARN_ROUTE_NAME = "index";
 
 const TAB_ORDER = [
   "wallet",
-  "browser",
+  "activity",
   EARN_ROUTE_NAME,
   "library",
-  "profile",
+  "browser",
 ] as const;
 
 type TabName = (typeof TAB_ORDER)[number];
 
 const LUCIDE_ICONS = {
   wallet: Wallet,
-  browser: Globe,
+  activity: Clock,
   library: GraduationCap,
-  profile: Settings,
+  browser: Compass,
 } as const;
 
 const TAB_CELL_HEIGHT = 54;
@@ -49,6 +50,7 @@ const SPRING_CONFIG = { damping: 20, stiffness: 240, mass: 0.7 };
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const wallet = useWallet();
+  const { anyUnread } = useActivity();
   const insets = useSafeAreaInsets();
 
   const visibleRoutes = useMemo(
@@ -187,13 +189,17 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
                 (() => {
                   const Icon =
                     LUCIDE_ICONS[name as keyof typeof LUCIDE_ICONS];
+                  const showDot = name === "activity" && anyUnread;
                   return (
-                    <Icon
-                      size={28}
-                      color="#000"
-                      strokeWidth={1.6}
-                      opacity={isFocused ? 1 : 0.4}
-                    />
+                    <View style={styles.iconWrap}>
+                      <Icon
+                        size={28}
+                        color="#000"
+                        strokeWidth={1.6}
+                        opacity={isFocused ? 1 : 0.4}
+                      />
+                      {showDot ? <View style={styles.unreadDot} /> : null}
+                    </View>
                   );
                 })()
               )}
@@ -228,6 +234,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 9999,
+  },
+  iconWrap: {
+    width: 28,
+    height: 28,
+  },
+  unreadDot: {
+    position: "absolute",
+    top: -1,
+    right: -2,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#F9363C",
   },
   indicator: {
     position: "absolute",

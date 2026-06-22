@@ -1,4 +1,5 @@
 import { TabBar } from "@/components/TabBar";
+import { ActivityProvider } from "@/features/activity/model/ActivityProvider";
 import { router, Tabs } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
@@ -36,22 +37,27 @@ export default function TabsLayout() {
   }, []);
 
   return (
-    <Tabs
-      tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        animation: "shift",
-      }}
-    >
-      {/* index.tsx renders the Earn screen — it's the route group's default so
-          cold start (URL "/") lands here without any extra config. */}
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="wallet" />
-      <Tabs.Screen name="browser" />
-      <Tabs.Screen name="library" />
-      <Tabs.Screen name="profile" />
-      {/* Summaries tab hidden — keep code for potential reinstatement */}
-      <Tabs.Screen name="summaries" options={{ href: null }} />
-    </Tabs>
+    <ActivityProvider>
+      <Tabs
+        tabBar={(props) => <TabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+          animation: "shift",
+        }}
+      >
+        {/* index.tsx renders the Earn screen — it's the route group's default so
+            cold start (URL "/") lands here without any extra config. */}
+        <Tabs.Screen name="index" />
+        <Tabs.Screen name="wallet" />
+        <Tabs.Screen name="activity" />
+        <Tabs.Screen name="browser" />
+        <Tabs.Screen name="library" />
+        {/* Profile/Settings dropped from the bottom nav (reachable from the
+            header gear), but kept registered so direct navigation still works. */}
+        <Tabs.Screen name="profile" />
+        {/* Summaries tab hidden — keep code for potential reinstatement */}
+        <Tabs.Screen name="summaries" options={{ href: null }} />
+      </Tabs>
+    </ActivityProvider>
   );
 }

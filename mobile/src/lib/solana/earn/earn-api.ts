@@ -469,6 +469,70 @@ export async function fetchEarnEarnings(
   return (await res.json()) as EarnEarningsResponse;
 }
 
+// --- Earn transactions (activity) ----------------------------------------
+
+export type EarnTransactionKind =
+  | "autodeposit_action"
+  | "balance_sweep"
+  | "deposit"
+  | "withdraw"
+  | "rebalance"
+  | "reconciliation";
+
+export type EarnTransactionEventType =
+  | "autodeposit_closed"
+  | "autodeposit_created"
+  | "balance_sweep"
+  | "deposit_initialized"
+  | "deposit_top_up"
+  | "withdrawal_partial"
+  | "withdrawal_full"
+  | "rebalance_confirmed"
+  | "snapshot_reconciled";
+
+export type EarnTransactionAccount = { label: string; icon: string | null };
+
+// One Earn vault transaction (deposit/withdraw/rebalance/autodeposit). Mirrors
+// the web `earn-transactions` response: `amount` is pre-formatted with its sign,
+// `dateGroup`/`timestamp` are display strings, raw values echoed for detail.
+export type EarnTransactionItem = {
+  id: string;
+  kind: EarnTransactionKind;
+  eventType: EarnTransactionEventType;
+  confirmedAt?: string;
+  dateGroup: string;
+  timestamp: string;
+  amount: string;
+  rawAmount: string;
+  signature: string;
+  sortTimestamp?: string;
+  confirmedSlot: string;
+  source: EarnTransactionAccount;
+  destination: EarnTransactionAccount;
+};
+
+export type EarnTransactionsResponse = {
+  transactions: EarnTransactionItem[];
+};
+
+// Read-only Earn transaction history, keyed by wallet address (no signature,
+// like `state`/`earnings`). Wallet-keyed twin of the web session
+// `earn-transactions` route.
+export async function fetchEarnTransactions(
+  walletAddress: string,
+): Promise<EarnTransactionsResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/transactions?walletAddress=${encodeURIComponent(
+      walletAddress,
+    )}`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to load Earn transactions.");
+  }
+  return (await res.json()) as EarnTransactionsResponse;
+}
+
 // Global (per-cluster, not per-user) Earn APY forecast + history — unauthenticated.
 // Mirrors the web `/earn-forecast/summary` response consumed by the APY/Forecast
 // charts. APYs are in basis points.
