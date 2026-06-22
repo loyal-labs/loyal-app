@@ -1,9 +1,8 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { Brush, Copy, RefreshCcw } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 
 import {
   type BalanceBackgroundOption,
@@ -18,10 +17,7 @@ import { Image } from "@/tw/image";
 type BalanceCardProps = {
   walletAddress: string | null;
   solBalanceLamports: number | null;
-  solPriceUsd: number | null;
   totalPortfolioUsd?: number | null;
-  displayCurrency: "USD" | "SOL";
-  onToggleCurrency: () => void;
   isLoading: boolean;
   walletError?: string | null;
   onRetry?: () => void;
@@ -50,10 +46,7 @@ function formatEarnedUsd(usd: number): string {
 export function BalanceCard({
   walletAddress,
   solBalanceLamports,
-  solPriceUsd,
   totalPortfolioUsd,
-  displayCurrency,
-  onToggleCurrency,
   isLoading,
   walletError,
   onRetry,
@@ -87,15 +80,10 @@ export function BalanceCard({
   const [addressCopied, setAddressCopied] = useState(false);
   const solanaEnv = getSolanaEnv();
 
-  const solBalance =
-    solBalanceLamports !== null ? solBalanceLamports / LAMPORTS_PER_SOL : 0;
-  const solOnlyUsdBalance = solPriceUsd !== null ? solBalance * solPriceUsd : 0;
   const usdBalance =
     typeof totalPortfolioUsd === "number" && Number.isFinite(totalPortfolioUsd)
       ? totalPortfolioUsd
-      : solOnlyUsdBalance;
-  const solEquivalentBalance =
-    solPriceUsd !== null && solPriceUsd > 0 ? usdBalance / solPriceUsd : solBalance;
+      : 0;
 
   const handleCopyAddress = async () => {
     if (!walletAddress) return;
@@ -110,13 +98,6 @@ export function BalanceCard({
     setTimeout(() => setAddressCopied(false), 2000);
   };
 
-  const handleToggle = () => {
-    if (process.env.EXPO_OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    onToggleCurrency();
-  };
-
   const handleTopUp = () => {
     if (!onTopUpPress) return;
     if (process.env.EXPO_OS !== "web") {
@@ -127,21 +108,20 @@ export function BalanceCard({
 
   const showSkeleton = isLoading || solBalanceLamports === null;
 
-  // Format the primary balance display
-  const formatPrimary = () => {
-    if (displayCurrency === "USD") {
-      return `$${usdBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
-    return `${solEquivalentBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL`;
-  };
-
-  // Format the secondary balance display
-  const formatSecondary = () => {
-    if (displayCurrency === "USD") {
-      return `${solEquivalentBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL`;
-    }
-    return `$${usdBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+  // Headline balance — the full portfolio in USD (Figma 141:5879 shows no SOL,
+  // and renders the cents smaller than the dollars on the same baseline).
+  const formattedBalance = usdBalance.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const balanceDotIndex = formattedBalance.lastIndexOf(".");
+  const balanceWhole = `$${
+    balanceDotIndex >= 0
+      ? formattedBalance.slice(0, balanceDotIndex)
+      : formattedBalance
+  }`;
+  const balanceCents =
+    balanceDotIndex >= 0 ? formattedBalance.slice(balanceDotIndex) : "";
 
   return (
     <View className="mt-5 px-4">
@@ -228,14 +208,13 @@ export function BalanceCard({
               ) : (
                 <View className="self-start">
                   <View className="flex-row items-center gap-3">
-                    <Pressable onPress={handleToggle}>
-                      <Text
-                        className="text-[40px] font-semibold leading-[48px]"
-                        style={{ color: primaryTextColor }}
-                      >
-                        {formatPrimary()}
-                      </Text>
-                    </Pressable>
+                    <Text
+                      style={[styles.balance, { color: primaryTextColor }]}
+                      numberOfLines={1}
+                    >
+                      <Text style={styles.balanceWhole}>{balanceWhole}</Text>
+                      <Text style={styles.balanceCents}>{balanceCents}</Text>
+                    </Text>
                     {showTopUpAction && onTopUpPress ? (
                       <Pressable
                         onPress={handleTopUp}
@@ -275,17 +254,6 @@ export function BalanceCard({
                       </Text>
                     </View>
                   )}
-                  <Text
-                    className="mt-1 text-[17px]"
-                    style={{ lineHeight: 22, color: mutedTextColor }}
-                  >
-                    {solPriceUsd !== null ? formatSecondary() : (
-                      <ActivityIndicator
-                        size="small"
-                        color={hasBg ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"}
-                      />
-                    )}
-                  </Text>
                 </View>
               )}
             </View>
@@ -324,6 +292,17 @@ export function BalanceCard({
 }
 
 const styles = StyleSheet.create({
+  balance: {
+    lineHeight: 48,
+  },
+  balanceWhole: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 40,
+  },
+  balanceCents: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 28,
+  },
   bgImage: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 26,

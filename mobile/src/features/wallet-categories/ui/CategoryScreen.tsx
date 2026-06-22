@@ -1,8 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { ArrowDown, ArrowLeft, ArrowUp, MoreHorizontal } from "lucide-react-native";
+import { ArrowDown, ArrowLeft, ArrowUp, ScanLine } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
@@ -35,54 +34,15 @@ import {
   type WalletCategory,
 } from "../model/categorize";
 import { splitUsd } from "../model/format";
+import { ActionBarButton } from "./ActionBarButton";
 import { CategoryAssetRow } from "./CategoryAssetRow";
 import { CryptoGlyph, StablecoinsGlyph } from "./CategoryGlyphs";
 import { MoreActionsSheet } from "./MoreActionsSheet";
 
+import EllipsisIcon from "../../../../assets/images/icons/ellipsis.svg";
+
 const MUTED = "rgba(60, 60, 67, 0.6)";
 const CENTS_DIM = "rgba(60, 60, 67, 0.4)";
-
-function BottomButton({
-  icon,
-  label,
-  onPress,
-  variant,
-}: {
-  icon: ReactNode;
-  label?: string;
-  onPress: () => void;
-  variant: "primary" | "secondary";
-}) {
-  const [pressed, setPressed] = useState(false);
-  const isPrimary = variant === "primary";
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      className="h-[50px] flex-row items-center justify-center gap-1"
-      style={{
-        flex: label ? 1 : undefined,
-        width: label ? undefined : 50,
-        borderRadius: 78,
-        backgroundColor: isPrimary ? "#000000" : "#f5f5f5",
-        opacity: pressed ? 0.85 : 1,
-      }}
-    >
-      {icon}
-      {label ? (
-        <Text
-          className="text-[17px] font-medium"
-          style={{ color: isPrimary ? "#FFFFFF" : "#000000", lineHeight: 22 }}
-        >
-          {label}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
 
 export function CategoryScreen({ category }: { category: WalletCategory }) {
   const insets = useSafeAreaInsets();
@@ -123,6 +83,7 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const balance = splitUsd(totalUsd);
 
   const [isSendOpen, setIsSendOpen] = useState(false);
+  const [scanOnOpen, setScanOnOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
@@ -182,6 +143,19 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         >
           {title}
         </Text>
+        <Pressable
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setScanOnOpen(true);
+            setIsSendOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Scan QR code"
+          className="h-11 w-11 items-center justify-center rounded-full"
+          hitSlop={8}
+        >
+          <ScanLine size={28} color="#3C3C43" strokeWidth={1.8} opacity={0.6} />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -240,27 +214,35 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         className="flex-row items-center gap-2 px-4 pt-2"
         style={{ paddingBottom: insets.bottom + 8 }}
       >
-        <BottomButton
+        <ActionBarButton
           variant="primary"
           label="Send"
           icon={<ArrowUp size={24} color="#FFFFFF" strokeWidth={2} />}
           onPress={() => {
             void Haptics.selectionAsync();
+            setScanOnOpen(false);
             setIsSendOpen(true);
           }}
         />
-        <BottomButton
+        <ActionBarButton
           variant="secondary"
           label="Receive"
-          icon={<ArrowDown size={24} color="#000000" strokeWidth={2} />}
+          icon={
+            <ArrowDown
+              size={24}
+              color="#3C3C43"
+              strokeWidth={2}
+              opacity={0.6}
+            />
+          }
           onPress={() => {
             void Haptics.selectionAsync();
             setIsReceiveOpen(true);
           }}
         />
-        <BottomButton
+        <ActionBarButton
           variant="secondary"
-          icon={<MoreHorizontal size={24} color="#000000" strokeWidth={2} />}
+          icon={<EllipsisIcon width={24} height={24} />}
           onPress={() => {
             void Haptics.selectionAsync();
             setIsMoreOpen(true);
@@ -277,6 +259,7 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         tokenDetailsByMint={tokenDetailsByMint}
         onSendComplete={refresh}
         initialMint={initialMint}
+        initialShowScanner={scanOnOpen}
       />
 
       <ReceiveSheet

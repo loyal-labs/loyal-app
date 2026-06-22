@@ -1,123 +1,116 @@
+import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
+import { ScanLine, Settings } from "lucide-react-native";
+import type { ReactNode } from "react";
 import { StyleSheet } from "react-native";
-import Animated, {
-  Extrapolation,
-  interpolate,
-  interpolateColor,
-  type SharedValue,
-  useAnimatedStyle,
-  useSharedValue,
-} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Text, View } from "@/tw";
+import { Pressable, View } from "@/tw";
 
-import Logo from "../../assets/images/logo.svg";
+import Wordmark from "../../assets/images/loyal-wordmark.svg";
+
+const ICON_COLOR = "#3C3C43";
+
+function triggerHaptic() {
+  if (process.env.EXPO_OS !== "web") {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+}
+
+function IconButton({
+  onPress,
+  label,
+  children,
+}: {
+  onPress: () => void;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      style={styles.iconButton}
+    >
+      {children}
+    </Pressable>
+  );
+}
 
 type LogoHeaderProps = {
-  scrollY?: SharedValue<number>;
-  morphText?: string | null;
-  morphColor?: string;
-  morphTextColor?: string;
-  morphStart?: number;
-  morphEnd?: number;
+  /**
+   * Override the scan button. When omitted, the button routes to the Wallet tab
+   * and asks it to open the Send flow's QR scanner — so "scan an address" works
+   * from any screen the header appears on (wallet, library, settings).
+   */
+  onScanPress?: () => void;
+  /** Override the settings button. Defaults to the Settings (profile) tab. */
+  onSettingsPress?: () => void;
 };
 
-export function LogoHeader({
-  scrollY,
-  morphText,
-  morphColor = "#1c1c1e",
-  morphTextColor = "#ffffff",
-  morphStart = 80,
-  morphEnd = 180,
-}: LogoHeaderProps) {
+// Shared top toolbar: the `loyal` wordmark on the left, scan + settings on the
+// right (Figma 141:5844). Present on Wallet, Library, and Settings.
+export function LogoHeader({ onScanPress, onSettingsPress }: LogoHeaderProps) {
   const { top } = useSafeAreaInsets();
-  const fallbackScrollY = useSharedValue(0);
-  const effectiveScrollY = scrollY ?? fallbackScrollY;
-  const morphEnabled = !!scrollY && !!morphText;
+  const router = useRouter();
 
-  const containerStyle = useAnimatedStyle(() => {
-    if (!morphEnabled) return { backgroundColor: "#ffffff" };
-    const t = interpolate(
-      effectiveScrollY.value,
-      [morphStart, morphEnd],
-      [0, 1],
-      Extrapolation.CLAMP,
-    );
-    return {
-      backgroundColor: interpolateColor(t, [0, 1], ["#ffffff", morphColor]),
-    };
-  });
+  const handleScan = () => {
+    triggerHaptic();
+    if (onScanPress) {
+      onScanPress();
+      return;
+    }
+    router.navigate({
+      pathname: "/(tabs)/wallet",
+      params: { scan: String(Date.now()) },
+    });
+  };
 
-  const logoStyle = useAnimatedStyle(() => {
-    if (!morphEnabled) return { opacity: 1 };
-    const t = interpolate(
-      effectiveScrollY.value,
-      [morphStart, morphEnd],
-      [0, 1],
-      Extrapolation.CLAMP,
-    );
-    return {
-      opacity: 1 - t,
-      transform: [{ translateY: -t * 10 }],
-    };
-  });
-
-  const balanceStyle = useAnimatedStyle(() => {
-    if (!morphEnabled) return { opacity: 0 };
-    const t = interpolate(
-      effectiveScrollY.value,
-      [morphStart, morphEnd],
-      [0, 1],
-      Extrapolation.CLAMP,
-    );
-    return {
-      opacity: t,
-      transform: [{ translateY: (1 - t) * 10 }],
-    };
-  });
+  const handleSettings = () => {
+    triggerHaptic();
+    if (onSettingsPress) {
+      onSettingsPress();
+      return;
+    }
+    router.navigate("/(tabs)/profile");
+  };
 
   return (
-    <Animated.View
-      style={[styles.container, { paddingTop: top + 12 }, containerStyle]}
-    >
-      <View style={styles.content}>
-        <Animated.View style={[styles.layer, logoStyle]}>
-          <Logo width={98} height={29} />
-        </Animated.View>
-        {morphEnabled ? (
-          <Animated.View style={[styles.layer, balanceStyle]}>
-            <Text
-              style={[styles.balanceText, { color: morphTextColor }]}
-              numberOfLines={1}
-            >
-              {morphText}
-            </Text>
-          </Animated.View>
-        ) : null}
+    <View style={[styles.container, { paddingTop: top + 12 }]}>
+      <Wordmark width={66} height={28} />
+      <View style={styles.actions}>
+        <IconButton onPress={handleScan} label="Scan QR code">
+          <ScanLine size={28} color={ICON_COLOR} strokeWidth={1.8} opacity={0.6} />
+        </IconButton>
+        <IconButton onPress={handleSettings} label="Settings">
+          <Settings size={28} color={ICON_COLOR} strokeWidth={1.8} opacity={0.6} />
+        </IconButton>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#ffffff",
+    paddingLeft: 16,
+    paddingRight: 8,
     paddingBottom: 8,
   },
-  content: {
-    height: 29,
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
-  },
-  layer: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  balanceText: {
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "600",
-    lineHeight: 22,
+    borderRadius: 22,
   },
 });

@@ -100,6 +100,8 @@ type SendSheetProps = {
   tokenDetailsByMint?: TokenDetailsByMint;
   onSendComplete?: () => void;
   initialMint?: string;
+  /** Open straight into the QR scanner (used by the header scan button). */
+  initialShowScanner?: boolean;
 };
 
 type SendAsset = {
@@ -265,6 +267,7 @@ export function SendSheet({
   tokenDetailsByMint,
   onSendComplete,
   initialMint,
+  initialShowScanner,
 }: SendSheetProps) {
   const { signer } = useWallet();
   const signApproval = useSignApproval();
@@ -397,6 +400,9 @@ export function SendSheet({
       if (scanUnlockTimerRef.current) {
         clearTimeout(scanUnlockTimerRef.current);
         scanUnlockTimerRef.current = null;
+      }
+      if (initialShowScanner) {
+        void handleOpenQrScanner();
       }
     } else {
       bottomSheetRef.current?.dismiss();

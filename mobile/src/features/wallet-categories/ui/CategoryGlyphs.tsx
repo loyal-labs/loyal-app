@@ -1,10 +1,16 @@
 import { View } from "@/tw";
 
+import EarnCoinsSvg from "../../../../assets/images/wallet/earn-coins.svg";
 import StablecoinsGlyphSvg from "../../../../assets/images/wallet/stablecoins-glyph.svg";
 
 // Green rounded square with a white "$", straight from the design asset.
 export function StablecoinsGlyph({ size = 48 }: { size?: number }) {
   return <StablecoinsGlyphSvg width={size} height={size} />;
+}
+
+// Brand-red rounded square with stacked gold coins (Figma 141:5892).
+export function EarnGlyph({ size = 40 }: { size?: number }) {
+  return <EarnCoinsSvg width={size} height={size} />;
 }
 
 // Purple rounded square with three white bars (Figma 74:18073). Recreated with

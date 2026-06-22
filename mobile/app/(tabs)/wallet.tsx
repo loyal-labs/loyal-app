@@ -1,25 +1,14 @@
-import {
-  ArrowDown,
-  ArrowLeftRight,
-  ArrowUp,
-  Shield,
-  ShieldOff,
-} from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { ArrowDown, ArrowUp } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl } from "react-native";
-import {
-  useAnimatedScrollHandler,
-  useSharedValue,
-} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { DepositSheet } from "@/components/earn/DepositSheet";
-import { ActionButton } from "@/components/wallet/ActionButton";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
-import { BannerCarousel } from "@/components/wallet/BannerCarousel";
+import { BannerCard } from "@/components/wallet/BannerCard";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { ShieldSheet } from "@/components/wallet/ShieldSheet";
@@ -34,8 +23,9 @@ import {
   buildEarnHref,
   buildStablecoinsHref,
 } from "@/features/wallet-categories/routes";
-import { WalletCategorySummary } from "@/features/wallet-categories/ui/WalletCategorySummary";
-import { useDisplayPreferences } from "@/hooks/wallet/useDisplayPreferences";
+import { ActionBarButton } from "@/features/wallet-categories/ui/ActionBarButton";
+import { MoreActionsSheet } from "@/features/wallet-categories/ui/MoreActionsSheet";
+import { WalletCategoryGrid } from "@/features/wallet-categories/ui/WalletCategoryGrid";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -58,27 +48,26 @@ import {
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { getSolanaEnv, onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
+import type { ShieldDirection } from "@/lib/solana/shielding";
 import {
   getCachedBalanceBg,
   setCachedBalanceBg,
 } from "@/lib/solana/wallet-cache";
-import type { ShieldDirection } from "@/lib/solana/shielding";
-import {
-  DEFAULT_BALANCE_BACKGROUND_ID,
-  findBalanceBackground,
-} from "@/lib/wallet/balance-backgrounds";
+import { DEFAULT_BALANCE_BACKGROUND_ID } from "@/lib/wallet/balance-backgrounds";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
-import { AnimatedScrollView, ScrollView, Text, View } from "@/tw";
+import { ScrollView, Text, View } from "@/tw";
+
+import EllipsisIcon from "../../assets/images/icons/ellipsis.svg";
 
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ scan?: string }>();
   const { walletAddress, isLoading, walletError, retryWalletInit } =
     useWalletInit();
   const { solBalanceLamports, refreshBalance } =
     useWalletBalance(walletAddress);
   const { solPriceUsd } = useSolPrice();
-  const { displayCurrency, setDisplayCurrency } = useDisplayPreferences();
 
   const { tokenHoldings, refreshTokenHoldings } =
     useTokenHoldings(walletAddress);
@@ -179,7 +168,7 @@ export default function WalletScreen() {
     // Earn lives in the vault, not in tokenHoldings — add it explicitly so the
     // headline balance equals the sum of the three overview buckets shown below
     // (Earn + Stablecoins + Crypto). Without this the headline silently omits
-    // the Earn deposit and no longer reconciles with the category rows.
+    // the Earn deposit and no longer reconciles with the category cards.
     const earnRaw = Number(earnPosition?.currentAmountRaw);
     if (Number.isFinite(earnRaw) && earnRaw > 0) {
       total += earnRaw / 1e6;
@@ -189,7 +178,7 @@ export default function WalletScreen() {
     return hasValuation ? total : null;
   }, [tokenHoldings, earnPosition]);
 
-  // Portfolio split into the three overview buckets (Figma 74:18033).
+  // Portfolio split into the three overview buckets (Figma 141:5888).
   const stablecoinsUsd = useMemo(
     () => sumHoldingsUsd(filterHoldingsByCategory(tokenHoldings, "stablecoins")),
     [tokenHoldings],
@@ -218,9 +207,11 @@ export default function WalletScreen() {
   }, [tokenHoldings]);
 
   const [isSendOpen, setIsSendOpen] = useState(false);
+  const [sendWithScanner, setSendWithScanner] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [shieldDirection, setShieldDirection] =
     useState<ShieldDirection>("shield");
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
@@ -230,9 +221,22 @@ export default function WalletScreen() {
     return cached !== undefined ? cached : DEFAULT_BALANCE_BACKGROUND_ID;
   });
 
-  const handleToggleCurrency = useCallback(() => {
-    setDisplayCurrency((prev) => (prev === "USD" ? "SOL" : "USD"));
-  }, [setDisplayCurrency]);
+  const openSend = useCallback((withScanner: boolean) => {
+    setSendWithScanner(withScanner);
+    setIsSendOpen(true);
+  }, []);
+
+  // The header scan button on Library/Settings routes here with a fresh `scan`
+  // token; open the Send flow straight into the QR scanner, then clear the
+  // param so returning to the tab later doesn't reopen it.
+  const handledScanRef = useRef<string | null>(null);
+  useEffect(() => {
+    const token = params.scan;
+    if (!token || token === handledScanRef.current) return;
+    handledScanRef.current = token;
+    openSend(true);
+    router.setParams({ scan: "" });
+  }, [params.scan, openSend, router]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -281,8 +285,13 @@ export default function WalletScreen() {
     setIsShieldOpen(true);
   }, []);
 
-  // Deposit straight into Earn from the overview's Earn row — runs inline while
-  // the sheet's button shows its loading state, so there's no jerky tab-hop.
+  const handleBgSelect = useCallback((bg: string | null) => {
+    setBalanceBg(bg);
+    setCachedBalanceBg(bg);
+  }, []);
+
+  // Deposit straight into Earn from the card's "+" — runs inline while the
+  // sheet's button shows its loading state, so there's no jerky tab-hop.
   const handleDepositConfirmed = useCallback(
     async (amountUsd: number) => {
       if (!signer || !isWalletUnlocked(state)) {
@@ -293,32 +302,6 @@ export default function WalletScreen() {
     },
     [signer, state, refreshEarnPosition],
   );
-
-  const handleBgSelect = useCallback((bg: string | null) => {
-    setBalanceBg(bg);
-    setCachedBalanceBg(bg);
-  }, []);
-
-  const scrollY = useSharedValue(0);
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-  });
-
-  const morphColors = useMemo(() => {
-    const opt = findBalanceBackground(balanceBg ?? null);
-    return {
-      bg: opt?.dominantColor ?? "#1c1c1e",
-      text: opt?.dominantTextColor ?? "#ffffff",
-    };
-  }, [balanceBg]);
-
-  const morphText = useMemo(() => {
-    if (typeof totalPortfolioUsd !== "number") return null;
-    return `$${totalPortfolioUsd.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  }, [totalPortfolioUsd]);
 
   const showTopUpAction = useMemo(
     () =>
@@ -334,10 +317,7 @@ export default function WalletScreen() {
 
   if (isLoading && !walletAddress) {
     return (
-      <ScrollView
-        className="flex-1 bg-white"
-        contentInsetAdjustmentBehavior="automatic"
-      >
+      <View className="flex-1 bg-white">
         <LogoHeader />
         <View className="flex-1 items-center justify-center py-20">
           <ActivityIndicator size="large" color="#000" />
@@ -348,113 +328,100 @@ export default function WalletScreen() {
             Loading wallet...
           </Text>
         </View>
-      </ScrollView>
+      </View>
     );
   }
 
   return (
     <View className="flex-1 bg-white">
-      <LogoHeader
-        scrollY={scrollY}
-        morphText={morphText}
-        morphColor={morphColors.bg}
-        morphTextColor={morphColors.text}
-      />
-      <AnimatedScrollView
+      <LogoHeader onScanPress={() => openSend(true)} />
+      <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 132) }}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: insets.bottom + 78,
+        }}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
         }
       >
-        <BalanceCard
-          key={networkKey}
-          walletAddress={walletAddress}
-          solBalanceLamports={totalSolLamports}
-          solPriceUsd={solPriceUsd}
-          totalPortfolioUsd={totalPortfolioUsd}
-          displayCurrency={displayCurrency}
-          onToggleCurrency={handleToggleCurrency}
-          isLoading={isLoading || networkLoading}
-          walletError={walletError}
-          onRetry={retryWalletInit}
-          earnings={kaminoEarnings}
-          showTopUpAction={showTopUpAction}
-          onTopUpPress={() => setIsReceiveOpen(true)}
-          balanceBg={balanceBg}
-          onOpenBgPicker={() => setIsBgPickerOpen(true)}
-        />
+        <View className="flex-1">
+          <BalanceCard
+            key={networkKey}
+            walletAddress={walletAddress}
+            solBalanceLamports={totalSolLamports}
+            totalPortfolioUsd={totalPortfolioUsd}
+            isLoading={isLoading || networkLoading}
+            walletError={walletError}
+            onRetry={retryWalletInit}
+            earnings={kaminoEarnings}
+            showTopUpAction={showTopUpAction}
+            onTopUpPress={() => setIsReceiveOpen(true)}
+            balanceBg={balanceBg}
+            onOpenBgPicker={() => setIsBgPickerOpen(true)}
+          />
 
-        {/* Action buttons */}
-        <View className="mt-6 flex-row px-4">
-          <ActionButton
-            icon={<ArrowUp size={28} color="#000" strokeWidth={1.5} />}
-            label="Send"
-            onPress={() => {
-              track(PORTFOLIO_EVENTS.openSend);
-              setIsSendOpen(true);
-            }}
-          />
-          <ActionButton
-            icon={<ArrowDown size={28} color="#000" strokeWidth={1.5} />}
-            label="Receive"
-            onPress={() => {
-              track(PORTFOLIO_EVENTS.openReceive);
-              setIsReceiveOpen(true);
-            }}
-          />
-          <ActionButton
-            icon={<ArrowLeftRight size={28} color="#000" strokeWidth={1.5} />}
-            label="Swap"
-            onPress={() => {
-              track(PORTFOLIO_EVENTS.openSwap);
-              setIsSwapOpen(true);
-            }}
-          />
-          <ActionButton
-            icon={<Shield size={28} color="#000" strokeWidth={1.5} />}
-            label="Shield"
-            onPress={() => {
-              track(PORTFOLIO_EVENTS.openShield);
-              handleOpenShield("shield");
-            }}
-          />
-          <ActionButton
-            icon={<ShieldOff size={28} color="#000" strokeWidth={1.5} />}
-            label="Unshield"
-            onPress={() => {
-              track(PORTFOLIO_EVENTS.openUnshield);
-              handleOpenShield("unshield");
-            }}
-          />
-        </View>
+          {/* Portfolio overview — Earn / Stablecoins / Crypto + promo banner.
+              Cells flex to fill the screen height between balance and actions. */}
+          <View style={{ flex: 1, marginTop: 16 }}>
+            <WalletCategoryGrid
+              earnUsd={earnUsd}
+              earnApyBps={earnApyBps}
+              stablecoinsUsd={stablecoinsUsd}
+              cryptoUsd={cryptoUsd}
+              banner={
+                <BannerCard
+                  onShield={() => {
+                    track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
+                    handleOpenShield("shield");
+                  }}
+                />
+              }
+              onPressEarn={() => router.navigate(buildEarnHref())}
+              onPressDeposit={() => setIsDepositOpen(true)}
+              onPressStablecoins={() => router.push(buildStablecoinsHref())}
+              onPressCrypto={() => router.push(buildCryptoHref())}
+            />
+          </View>
 
-        {/* Banner carousel */}
-        <View style={{ marginTop: 24 }}>
-          <BannerCarousel
-            onShield={() => {
-              track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
-              handleOpenShield("shield");
-            }}
-          />
+          {/* Action bar — operates across the whole portfolio (Figma 141:5940) */}
+          <View
+            className="flex-row items-center gap-2 px-4"
+            style={{ paddingTop: 16 }}
+          >
+            <ActionBarButton
+              variant="primary"
+              label="Send"
+              icon={<ArrowUp size={28} color="#FFFFFF" strokeWidth={2} />}
+              onPress={() => {
+                track(PORTFOLIO_EVENTS.openSend);
+                openSend(false);
+              }}
+            />
+            <ActionBarButton
+              variant="secondary"
+              label="Receive"
+              icon={
+                <ArrowDown
+                  size={28}
+                  color="#3C3C43"
+                  strokeWidth={2}
+                  opacity={0.6}
+                />
+              }
+              onPress={() => {
+                track(PORTFOLIO_EVENTS.openReceive);
+                setIsReceiveOpen(true);
+              }}
+            />
+            <ActionBarButton
+              variant="secondary"
+              icon={<EllipsisIcon width={28} height={28} />}
+              onPress={() => setIsMoreOpen(true)}
+            />
+          </View>
         </View>
-
-        {/* Portfolio overview — Earn / Stablecoins / Crypto */}
-        <View style={{ marginTop: 16 }}>
-          <WalletCategorySummary
-            earnUsd={earnUsd}
-            earnApyBps={earnApyBps}
-            stablecoinsUsd={stablecoinsUsd}
-            cryptoUsd={cryptoUsd}
-            onPressEarn={() => router.navigate(buildEarnHref())}
-            onPressDeposit={() => setIsDepositOpen(true)}
-            onPressStablecoins={() => router.push(buildStablecoinsHref())}
-            onPressCrypto={() => router.push(buildCryptoHref())}
-          />
-        </View>
-      </AnimatedScrollView>
+      </ScrollView>
 
       <SendSheet
         open={isSendOpen}
@@ -464,6 +431,7 @@ export default function WalletScreen() {
         tokenHoldings={tokenHoldings}
         tokenDetailsByMint={tokenDetailsByMint}
         onSendComplete={handleSendComplete}
+        initialShowScanner={sendWithScanner}
       />
 
       <ReceiveSheet
@@ -489,6 +457,23 @@ export default function WalletScreen() {
         tokenDetailsByMint={tokenDetailsByMint}
         onShieldComplete={handleShieldComplete}
         initialDirection={shieldDirection}
+      />
+
+      <MoreActionsSheet
+        open={isMoreOpen}
+        onClose={() => setIsMoreOpen(false)}
+        onSwap={() => {
+          track(PORTFOLIO_EVENTS.openSwap);
+          setIsSwapOpen(true);
+        }}
+        onShield={() => {
+          track(PORTFOLIO_EVENTS.openShield);
+          handleOpenShield("shield");
+        }}
+        onUnshield={() => {
+          track(PORTFOLIO_EVENTS.openUnshield);
+          handleOpenShield("unshield");
+        }}
       />
 
       <BalanceBackgroundPicker
